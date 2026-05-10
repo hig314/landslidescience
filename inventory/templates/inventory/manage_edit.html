@@ -1,0 +1,80 @@
+{% extends "inventory/base.html" %}
+{% block title %}Edit · {{ unique_name }}{% endblock %}
+{% block page_title %}Manage · edit record{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 720px; margin: 24px auto; padding: 0 24px;">
+  <p style="font-size:13px; margin-bottom: 6px;">
+    <a href="{% url 'inventory:manage_list' %}">← Back to records</a>
+    &nbsp;·&nbsp;
+    <a href="{% url 'inventory:home' %}#id={{ landslide_id }}" target="_blank">View on map</a>
+  </p>
+  <h2 style="font-size:19px; margin: 0 0 4px;">{{ unique_name }}</h2>
+  <p style="font-size:12px; color:#888; margin-top:0;">id={{ landslide_id }}</p>
+
+  {% if error_msg %}
+    <div style="margin: 14px 0; padding: 10px 14px; background:#fef0f0; border:1px solid #f5c2c2; border-radius:4px; color:#902;">
+      {{ error_msg }}
+    </div>
+  {% endif %}
+
+  <form method="post" style="margin-top: 18px;">
+    {% csrf_token %}
+
+    {# Datalist for class autocomplete #}
+    <datalist id="class-options">
+      {% for c in common_classes %}<option value="{{ c }}">{% endfor %}
+    </datalist>
+
+    {% for field in form %}
+      <div style="margin-bottom: 14px;">
+        <label for="{{ field.id_for_label }}" style="display:block; font-size:13px; color:#555; margin-bottom:3px;">
+          {{ field.label }}
+          {% if field.field.required %}<span style="color:#b00020;">*</span>{% endif %}
+        </label>
+        {% if field.name == 'landslide_class' %}
+          <input type="text" name="{{ field.name }}" id="{{ field.id_for_label }}"
+                 value="{{ field.value|default_if_none:'' }}" list="class-options" maxlength="200"
+                 style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box;">
+        {% else %}
+          {{ field }}
+        {% endif %}
+        {% if field.help_text %}
+          <p style="font-size:11px; color:#888; margin: 3px 0 0;">{{ field.help_text }}</p>
+        {% endif %}
+        {% if field.errors %}
+          <p style="font-size:12px; color:#b00020; margin: 3px 0 0;">{{ field.errors|join:", " }}</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    <div style="margin-top: 22px; display:flex; gap:10px; align-items:center;">
+      <button type="submit"
+              style="padding: 9px 22px; background: #5D4037; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer;">
+        Save changes
+      </button>
+      <a href="{% url 'inventory:manage_list' %}" style="font-size:13px; color:#666;">Cancel</a>
+    </div>
+  </form>
+
+  <hr style="margin: 36px 0 18px; border: none; border-top: 1px solid #e0e0e0;">
+
+  <p style="font-size:12px; color:#888; line-height:1.5;">
+    Polygon-related fields (geometry, area, thickness) are not editable here —
+    those flow through QGIS/PostGIS. Click <em>View on map</em> above to see
+    this landslide on the public inventory.
+  </p>
+</div>
+
+<style>
+  /* Make all form text/number/date inputs and textareas full-width within the form */
+  form input[type="text"], form input[type="number"], form input[type="date"],
+  form input[type="datetime-local"], form select, form textarea {
+    width: 100%; padding: 6px 9px; font-size: 13px; border: 1px solid #ccc;
+    border-radius: 3px; box-sizing: border-box; font-family: inherit;
+  }
+  form input[type="checkbox"] { transform: scale(1.1); margin-right: 4px; }
+  form .helptext { font-size: 11px; color: #888; }
+</style>
+{% endblock %}

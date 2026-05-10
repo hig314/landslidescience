@@ -1,0 +1,101 @@
+{% extends "inventory/base.html" %}
+{% block title %}Manage landslide records{% endblock %}
+{% block page_title %}Manage · records{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 1100px; margin: 24px auto; padding: 0 24px;">
+  <div style="display:flex; align-items:baseline; gap:16px; margin-bottom: 14px;">
+    <h2 style="font-size:18px; margin: 0;">Landslide records</h2>
+    <span style="font-size:13px; color:#666;">{{ total }} total</span>
+    <span style="margin-left:auto; font-size:13px;">
+      <a href="{% url 'inventory:manage_settings' %}">⚙ Map display settings</a>
+    </span>
+  </div>
+
+  <form method="get" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 14px; padding:10px 14px; background:#f7f7f7; border-radius:5px; border:1px solid #e0e0e0;">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search name…"
+           style="flex:1; min-width: 180px; padding: 6px 9px; font-size: 13px; border:1px solid #ccc; border-radius: 3px;">
+    <select name="type" style="padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px;">
+      <option value="">All types</option>
+      <option value="slow" {% if type_f == 'slow' %}selected{% endif %}>Slow</option>
+      <option value="catastrophic" {% if type_f == 'catastrophic' %}selected{% endif %}>Catastrophic</option>
+    </select>
+    <select name="class" style="padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px;">
+      <option value="">All classes</option>
+      {% for c in all_classes %}
+        <option value="{{ c }}" {% if class_f == c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <select name="subset" style="padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px;">
+      <option value="">All subsets</option>
+      {% for s in all_subsets %}
+        <option value="{{ s }}" {% if subset_f == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" style="padding:6px 18px; font-size:13px; background:#5D4037; color:#fff; border:none; border-radius:3px; cursor:pointer;">Filter</button>
+    {% if q or type_f or class_f or subset_f %}
+      <a href="{% url 'inventory:manage_list' %}"
+         style="padding:6px 12px; font-size:13px; color:#666; text-decoration:none; align-self:center;">Clear</a>
+    {% endif %}
+  </form>
+
+  <table class="methods-table" style="font-size:13px;">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Class</th>
+        <th>Subset</th>
+        <th>In scope</th>
+        <th>Polys</th>
+        <th>Last edited</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td><a href="{% url 'inventory:manage_edit' landslide_id=r.id %}">{{ r.unique_name }}</a></td>
+        <td>{{ r.landslide_type }}</td>
+        <td>{{ r.landslide_class|default:"—" }}</td>
+        <td>{{ r.inventory_subset|default:"—" }}</td>
+        <td>{% if r.size_inclusion %}yes{% else %}no{% endif %}</td>
+        <td>{{ r.polygon_count }}</td>
+        <td style="color:#888; font-size:12px;">
+          {% if r.last_edited_at %}
+            {{ r.last_edited_at|date:"Y-m-d H:i" }}{% if r.last_edited_by %} · {{ r.last_edited_by }}{% endif %}
+          {% else %}
+            <span style="color:#bbb;">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8" style="text-align:center; padding:30px; color:#888;">No records match.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if total_pages > 1 %}
+  <div style="display:flex; gap:8px; justify-content:center; margin-top:14px; font-size:13px;">
+    {% if page > 1 %}
+      <a href="?{% if q %}q={{ q }}&{% endif %}{% if type_f %}type={{ type_f }}&{% endif %}{% if class_f %}class={{ class_f }}&{% endif %}{% if subset_f %}subset={{ subset_f }}&{% endif %}page={{ page|add:'-1' }}">← prev</a>
+    {% else %}
+      <span style="color:#bbb;">← prev</span>
+    {% endif %}
+    <span style="color:#666;">page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+      <a href="?{% if q %}q={{ q }}&{% endif %}{% if type_f %}type={{ type_f }}&{% endif %}{% if class_f %}class={{ class_f }}&{% endif %}{% if subset_f %}subset={{ subset_f }}&{% endif %}page={{ page|add:'1' }}">next →</a>
+    {% else %}
+      <span style="color:#bbb;">next →</span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <p style="margin-top:24px; font-size:12px; color:#999;">
+    Polygon editing (geometry, area, thickness) and creating new landslides
+    are not yet supported in this UI — those flow through QGIS/PostGIS for now.
+  </p>
+</div>
+{% endblock %}

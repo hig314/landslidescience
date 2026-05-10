@@ -1,13 +1,13 @@
 {% extends "inventory/base.html" %}
 {% block title %}Map display settings{% endblock %}
-{% block page_title %}Admin · map settings{% endblock %}
+{% block page_title %}Manage · map settings{% endblock %}
 {% block body_class %}inv-article-body{% endblock %}
 
 {% block body %}
 <div style="max-width:520px; margin:30px auto; padding:0 20px;">
   <h2 style="font-size:18px; margin-bottom:4px;">Map Display Settings</h2>
   <p style="font-size:13px; color:#666; margin-bottom:20px;">
-    Changes take effect on next page load. <a href="{% url 'inventory:admin_list' %}">← Back to admin list</a>
+    Changes take effect on next page load. <a href="{% url 'inventory:manage_list' %}">← Back to records</a>
   </p>
 
   <form method="POST">

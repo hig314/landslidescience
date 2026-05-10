@@ -718,11 +718,183 @@ def api_settings(request):
 
 
 # ---------------------------------------------------------------------------
-# Admin views (staff only)
+# Editor UI — /inventory/manage/* (inventory_editors group)
 # ---------------------------------------------------------------------------
 
+# Editable columns on the landslides table. Order here drives the edit form layout.
+_EDITABLE_FIELDS = [
+    'unique_name', 'landslide_type', 'landslide_class', 'inventory_subset',
+    'description',
+    'volume_preferred', 'volume_method',
+    'year_text', 'date_min', 'date_max', 'seismic_datetime',
+    'molards', 'stream_damming',
+    'exclusively_supraglacial', 'creeping_permafrost_mass',
+    'post_2012_activity_increase', 'size_inclusion',
+]
+
+_LIST_PAGE_SIZE = 50
+
+
 @inventory_editor_required
-def admin_settings(request):
+def manage_list(request):
+    """List view of all landslide records, with search + filter + pagination."""
+    q          = request.GET.get('q', '').strip()
+    type_f     = request.GET.get('type', '')
+    class_f    = request.GET.get('class', '')
+    subset_f   = request.GET.get('subset', '')
+    try:
+        page = max(1, int(request.GET.get('page', 1)))
+    except (TypeError, ValueError):
+        page = 1
+    offset = (page - 1) * _LIST_PAGE_SIZE
+
+    where, params = ['1=1'], []
+    if q:
+        where.append("l.unique_name ILIKE %s")
+        params.append(f'%{q}%')
+    if type_f in ('slow', 'catastrophic'):
+        where.append("l.landslide_type = %s")
+        params.append(type_f)
+    if class_f:
+        where.append("l.landslide_class = %s")
+        params.append(class_f)
+    if subset_f:
+        where.append("l.inventory_subset = %s")
+        params.append(subset_f)
+    where_clause = ' AND '.join(where)
+
+    list_sql = f"""
+        SELECT l.id, l.unique_name, l.landslide_type, l.landslide_class,
+               l.inventory_subset, l.size_inclusion,
+               COUNT(p.id) AS polygon_count
+        FROM landslides l
+        LEFT JOIN landslide_polygons p ON p.landslide_id = l.id
+        WHERE {where_clause}
+        GROUP BY l.id
+        ORDER BY l.landslide_type, l.unique_name
+        LIMIT %s OFFSET %s
+    """
+    count_sql = f"SELECT COUNT(*) FROM landslides l WHERE {where_clause}"
+
+    # Distinct values for filter dropdowns
+    facet_sql = """
+        SELECT
+            ARRAY(SELECT DISTINCT landslide_class FROM landslides WHERE landslide_class IS NOT NULL AND landslide_class != '' ORDER BY landslide_class),
+            ARRAY(SELECT DISTINCT inventory_subset FROM landslides WHERE inventory_subset IS NOT NULL AND inventory_subset != '' ORDER BY inventory_subset)
+    """
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(list_sql, params + [_LIST_PAGE_SIZE, offset])
+        rows = cur.fetchall()
+        cols = [d[0] for d in cur.description]
+        records = [dict(zip(cols, r)) for r in rows]
+
+        cur.execute(count_sql, params)
+        total = cur.fetchone()[0]
+
+        cur.execute(facet_sql)
+        all_classes, all_subsets = cur.fetchone()
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+
+    # Attach last-edited info from SQLite (one query for the visible page)
+    from .models import LandslideEditMeta
+    ids = [r['id'] for r in records]
+    meta = {m.landslide_id: m for m in LandslideEditMeta.objects.filter(landslide_id__in=ids).select_related('last_edited_by')}
+    for r in records:
+        m = meta.get(r['id'])
+        r['last_edited_by'] = m.last_edited_by.username if m and m.last_edited_by else None
+        r['last_edited_at'] = m.last_edited_at if m else None
+
+    total_pages = (total + _LIST_PAGE_SIZE - 1) // _LIST_PAGE_SIZE
+    return render(request, "inventory/manage_list.html", {
+        'records':     records,
+        'total':       total,
+        'page':        page,
+        'total_pages': total_pages,
+        'q':           q,
+        'type_f':      type_f,
+        'class_f':     class_f,
+        'subset_f':    subset_f,
+        'all_classes': all_classes or [],
+        'all_subsets': all_subsets or [],
+    })
+
+
+@inventory_editor_required
+def manage_edit(request, landslide_id):
+    """Edit a single landslide record. GET = form; POST = validate + UPDATE."""
+    from .forms import LandslideEditForm, COMMON_CLASS_VALUES
+    from .models import LandslideEditMeta
+
+    cols_csv = ', '.join(_EDITABLE_FIELDS)
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(f"SELECT id, {cols_csv} FROM landslides WHERE id = %s", (landslide_id,))
+        row = cur.fetchone()
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    if not row:
+        return JsonResponse({'error': 'not found'}, status=404)
+
+    # row[0] = id, row[1:] = _EDITABLE_FIELDS values in declared order
+    initial = {f: row[i + 1] for i, f in enumerate(_EDITABLE_FIELDS)}
+    unique_name = initial.get('unique_name', '')
+
+    error_msg = None
+    if request.method == 'POST':
+        form = LandslideEditForm(request.POST)
+        if form.is_valid():
+            data = form.cleaned_data
+            # Build UPDATE — use named-parameter style for safety
+            set_clause = ', '.join(f"{f} = %s" for f in _EDITABLE_FIELDS)
+            values = [data.get(f) for f in _EDITABLE_FIELDS]
+            values.append(landslide_id)
+            update_sql = f"UPDATE landslides SET {set_clause} WHERE id = %s"
+
+            conn = _get_conn()
+            try:
+                cur = conn.cursor()
+                cur.execute(update_sql, values)
+                conn.commit()
+            except Exception as exc:
+                conn.rollback()
+                error_msg = f'Update failed: {exc}'
+            finally:
+                _put_conn(conn)
+
+            if not error_msg:
+                # Audit trail
+                LandslideEditMeta.objects.update_or_create(
+                    landslide_id=landslide_id,
+                    defaults={'last_edited_by': request.user},
+                )
+                # Invalidate caches that depend on landslide data
+                _invalidate('features', 'home_counts', 'timed_events',
+                            'timeline_events', 'slug_map', 'slug_for_id')
+                return redirect('inventory:manage_edit', landslide_id=landslide_id)
+    else:
+        form = LandslideEditForm(initial=initial)
+
+    return render(request, 'inventory/manage_edit.html', {
+        'form':           form,
+        'landslide_id':   landslide_id,
+        'unique_name':    unique_name,
+        'editable_fields': _EDITABLE_FIELDS,
+        'common_classes': COMMON_CLASS_VALUES,
+        'error_msg':      error_msg,
+    })
+
+
+@inventory_editor_required
+def manage_settings(request):
+    """Map display settings (colors, point sizes). Renamed from admin_settings."""
     conn = _get_conn()
     if request.method == 'POST':
         try:
@@ -741,43 +913,17 @@ def admin_settings(request):
         finally:
             _put_conn(conn)
         _invalidate('settings')
-        return redirect('inventory:admin_settings')
+        return redirect('inventory:manage_settings')
 
     try:
         cur = conn.cursor()
         cur.execute("SELECT key, value FROM map_settings ORDER BY key")
         rows = cur.fetchall()
-        settings = {r[0]: r[1] for r in rows}
+        settings_map = {r[0]: r[1] for r in rows}
         conn.rollback()
     finally:
         _put_conn(conn)
-    return render(request, 'inventory/admin_settings.html', {'settings': settings})
-
-
-@inventory_editor_required
-def admin_list(request):
-    conn = _get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT l.id, l.unique_name, l.landslide_type, l.landslide_class,
-                   l.inventory_subset, l.size_inclusion,
-                   COUNT(p.id) AS polygon_count
-            FROM landslides l
-            LEFT JOIN landslide_polygons p ON p.landslide_id = l.id
-            GROUP BY l.id
-            ORDER BY l.landslide_type, l.unique_name
-            """
-        )
-        rows = cur.fetchall()
-        cols = [d[0] for d in cur.description]
-        records = [dict(zip(cols, r)) for r in rows]
-        conn.rollback()
-    finally:
-        _put_conn(conn)
-
-    return render(request, "inventory/admin_list.html", {"records": records})
+    return render(request, 'inventory/manage_settings.html', {'settings': settings_map})
 
 
 # ---------------------------------------------------------------------------

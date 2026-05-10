@@ -14,8 +14,9 @@ urlpatterns = [
     path('api/settings/', views.api_settings, name='api_settings'),
     path('api/timed_events/', views.api_timed_events, name='api_timed_events'),
     path('api/timeline_events/', views.api_timeline_events, name='api_timeline_events'),
-    path('admin/', views.admin_list, name='admin_list'),
-    path('admin/settings/', views.admin_settings, name='admin_settings'),
+    path('manage/', views.manage_list, name='manage_list'),
+    path('manage/settings/', views.manage_settings, name='manage_settings'),
+    path('manage/<int:landslide_id>/', views.manage_edit, name='manage_edit'),
     # Catchall slug deep-link — must be LAST so named routes resolve first.
     # Trailing slash optional. The regex matches only slug-shaped tokens.
     re_path(r'^(?P<slug>[a-z0-9][a-z0-9-]*)/?$', views.slug_redirect, name='slug_redirect'),
