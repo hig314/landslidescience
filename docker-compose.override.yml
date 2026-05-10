@@ -4,6 +4,19 @@ services:
       - "127.0.0.1:8001:8000"
     volumes:
       - ./pages:/app/pages
+      - ./inventory:/app/inventory
       - ./landslidescience:/app/landslidescience
       - ./manage.py:/app/manage.py
+    networks:
+      - default
+      - tethys_internal
     command: python manage.py runserver 0.0.0.0:8000
+
+networks:
+  # Joins the local Tethys stack's internal network so the inventory app can
+  # reach tethys_db via Docker DNS (host=tethys_db). Requires the local Tethys
+  # stack to be running. If it's not, /inventory/* will 502 but the rest of
+  # the site (homepage, /tracyarm2025/, /admin/) still works.
+  tethys_internal:
+    name: tethys-timescale-grafana_internal
+    external: true

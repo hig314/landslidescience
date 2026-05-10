@@ -47,6 +47,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'inventory.middleware.InventoryPreviewMiddleware',
 ]
 
 ROOT_URLCONF = 'landslidescience.urls'
@@ -94,3 +95,6 @@ TRACYARM_EMBARGO_LIFT = datetime.datetime.fromisoformat(
     os.environ.get('TRACYARM_EMBARGO_LIFT', '2026-05-06T08:00:00-04:00')
 )
 TRACYARM_YOUTUBE_URL = os.environ.get('TRACYARM_YOUTUBE_URL', '').strip()
+
+# Pre-launch preview password for /inventory/*. Empty = no barrier (post-launch).
+INVENTORY_PREVIEW_PASSWORD = os.environ.get('INVENTORY_PREVIEW_PASSWORD', '').strip()

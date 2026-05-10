@@ -16,9 +16,12 @@ import time
 
 import psycopg2
 import psycopg2.pool
+from django.conf import settings
 from django.contrib.auth.decorators import user_passes_test
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
+
+from .middleware import SESSION_KEY as _PREVIEW_SESSION_KEY
 
 _staff_required = user_passes_test(lambda u: u.is_staff, login_url='/admin/login/')
 
@@ -777,3 +780,31 @@ def admin_list(request):
         _put_conn(conn)
 
     return render(request, "inventory/admin_list.html", {"records": records})
+
+
+# ---------------------------------------------------------------------------
+# Pre-launch preview password (paired with InventoryPreviewMiddleware).
+# Unset INVENTORY_PREVIEW_PASSWORD to disable the barrier entirely.
+# ---------------------------------------------------------------------------
+
+def preview_login(request):
+    expected = settings.INVENTORY_PREVIEW_PASSWORD
+    next_url = request.GET.get('next') or request.POST.get('next') or '/inventory/'
+    # Only allow same-site redirects to /inventory/* to avoid open-redirect.
+    if not next_url.startswith('/inventory/'):
+        next_url = '/inventory/'
+
+    error = None
+    if request.method == 'POST':
+        if not expected:
+            # Barrier is disabled; let them through.
+            return redirect(next_url)
+        if request.POST.get('password') == expected:
+            request.session[_PREVIEW_SESSION_KEY] = True
+            return redirect(next_url)
+        error = 'Incorrect password.'
+
+    return render(request, 'inventory/preview.html', {
+        'next': next_url,
+        'error': error,
+    })

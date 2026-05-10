@@ -6,6 +6,7 @@ app_name = 'inventory'
 
 urlpatterns = [
     path('', views.home, name='home'),
+    path('preview/', views.preview_login, name='preview_login'),
     path('methods/', views.methods, name='methods'),
     path('api/features/', views.api_features, name='api_features'),
     path('api/polygons/', views.api_polygons, name='api_polygons'),
