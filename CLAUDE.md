@@ -24,6 +24,8 @@ private Tethys stack at `github.com/hig314/tethys-timescale-grafana`.
 | `/inventory/manage/` | inventory_editors + Hig | Searchable list of all records |
 | `/inventory/manage/<id>/` | inventory_editors + Hig | Edit form for non-geometry fields |
 | `/inventory/manage/settings/` | inventory_editors + Hig | Map display settings (colors, point sizes) |
+| `/inventory/manage/export/` | inventory_editors + Hig | Download zip of GeoJSON snapshot |
+| `/inventory/manage/import/` | inventory_editors + Hig | Upload zip/.geojson; preview diff; confirm to apply |
 | `/admin/` | site_admins (Page perms) + Hig | Django admin — Page model + User/Group management |
 
 ## Auth & permissions
@@ -103,6 +105,29 @@ Local dev `.env` has `INVENTORY_PREVIEW_PASSWORD=devpreview2026` for testing the
 5. The audit log records who and when. The list view shows it.
 
 **Not yet supported via UI**: polygon editing, creating new landslide records. Those flow through QGIS/PostGIS for now. Future phase will add click-on-map polygon creation and external polygon imports.
+
+## GeoJSON round-trip
+
+The export/import flow lets you snapshot the current inventory, edit in QGIS or by hand, then re-apply. Format:
+
+```
+landslidescience_inventory_YYMMDD.zip
+├── manifest.json                 # export format version, timestamp, column lists
+├── landslides.geojson            # 1 feature per row (geometry: null), all columns in properties
+└── landslide_polygons.geojson    # 1 feature per row, MultiPolygon geometry, properties carry landslide_id/role/area/thickness
+```
+
+Column names match PostGIS exactly (snake_case). Geometries use `ST_AsGeoJSON(geom, 15)` — full IEEE 754 precision so round-trip is byte-stable.
+
+**First-shot scope**: import only UPDATEs existing records (matched by id). Records or polygons with new ids are previewed but not inserted; records present in DB but missing from upload are kept silently. INSERT support and upload-driven deletion are deferred.
+
+Schema fingerprint: `python manage.py roundtrip_test` verifies that download → upload-without-changes is a byte-identical no-op against the live DB.
+
+Workflow:
+1. Click "⬇ Export" on `/inventory/manage/`. Save the zip.
+2. Unzip in QGIS — drag both `.geojson` files in, edit attributes/geometries.
+3. Re-zip (must contain both files at the top level).
+4. Click "⬆ Import" → upload → preview → confirm.
 
 ## Forward-looking integration
 
