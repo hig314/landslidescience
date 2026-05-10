@@ -17,13 +17,11 @@ import time
 import psycopg2
 import psycopg2.pool
 from django.conf import settings
-from django.contrib.auth.decorators import user_passes_test
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 
+from .auth import inventory_editor_required
 from .middleware import SESSION_KEY as _PREVIEW_SESSION_KEY
-
-_staff_required = user_passes_test(lambda u: u.is_staff, login_url='/admin/login/')
 
 # ---------------------------------------------------------------------------
 # Module-level response cache
@@ -723,7 +721,7 @@ def api_settings(request):
 # Admin views (staff only)
 # ---------------------------------------------------------------------------
 
-@_staff_required
+@inventory_editor_required
 def admin_settings(request):
     conn = _get_conn()
     if request.method == 'POST':
@@ -756,7 +754,7 @@ def admin_settings(request):
     return render(request, 'inventory/admin_settings.html', {'settings': settings})
 
 
-@_staff_required
+@inventory_editor_required
 def admin_list(request):
     conn = _get_conn()
     try:

@@ -60,3 +60,20 @@ app once we've soaked on the new one for a couple of weeks.
   `docker exec -it landslidescience-web python manage.py changepassword Hig`
 - WhiteNoise serves static files in production; runserver serves them in dev.
 - Caddy auto-issues Let's Encrypt certs; non-canonical domains 301 to canonical.
+
+## Auth & permissions
+
+Two non-superuser groups (created by `python manage.py init_groups`):
+
+| Group | What they can do | Where they work |
+|---|---|---|
+| `inventory_editors` | Edit landslide records via custom UI | `/inventory/manage/` |
+| `site_admins` | Edit Page content (homepage, /tracyarm2025/) | `/admin/` (Django admin) |
+
+All non-superuser users currently need `is_staff=True` to log in at `/admin/login/` (this is the only login page). Editors who only need `/inventory/manage/` will see an empty Django admin landing page — they navigate to `/inventory/manage/` for their actual work. If this friction becomes annoying, wire up `django.contrib.auth.urls` at `/accounts/login/` and update the decorator to redirect there.
+
+Hig (superuser) bypasses all role checks.
+
+## Pre-launch preview password
+
+While `INVENTORY_PREVIEW_PASSWORD` is set, all `/inventory/*` paths require either authentication OR a session flag set by entering the password at `/inventory/preview/`. Unset the env var to make `/inventory/*` fully public (post-launch).
