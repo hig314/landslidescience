@@ -1,0 +1,9 @@
+services:
+  web:
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - ./pages:/app/pages
+      - ./landslidescience:/app/landslidescience
+      - ./manage.py:/app/manage.py
+    command: python manage.py runserver 0.0.0.0:8000

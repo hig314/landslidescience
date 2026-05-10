@@ -1,0 +1,545 @@
+{% extends "inventory/base.html" %}
+{% block title %}Methods — Alaska Landslide Inventory{% endblock %}
+{% block page_title %}Methods{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div class="methods-page">
+
+<h2>Methods</h2>
+
+<p class="methods-intro">
+  This page documents how data is structured, displayed, and analyzed in the
+  Alaska Landslide Inventory viewer. It covers the classification system,
+  how map features are positioned, how areas and volumes are measured, and
+  how the two timeline charts work.
+</p>
+
+<nav class="methods-toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#data-sources">Data sources and structure</a></li>
+    <li><a href="#classification">Classification system</a></li>
+    <li><a href="#polygons">Polygons and map placement</a></li>
+    <li><a href="#areas-volumes">Areas and volumes</a></li>
+    <li><a href="#temporal">Temporal data and year encoding</a></li>
+    <li><a href="#seasonal">Seasonal timing chart</a></li>
+    <li><a href="#timeline">Timeline chart</a></li>
+    <li><a href="#filters">Filter mechanics</a></li>
+    <li><a href="#limitations">Known limitations</a></li>
+  </ol>
+</nav>
+
+
+<!-- ================================================================== -->
+<h3 id="data-sources">1. Data sources and structure</h3>
+
+<p>
+  The inventory contains two populations of landslides, stored in separate
+  GeoPackage files and merged into a single PostGIS database on load:
+</p>
+<ul>
+  <li>
+    <strong>Slow landslides</strong> (~1,110 records) &mdash; attributes and
+    geometry co-located in a single GeoPackage layer. Each record has one
+    polygon representing the landslide body.
+  </li>
+  <li>
+    <strong>Catastrophic landslides</strong> (~314 records, ~621 polygons)
+    &mdash; attributes in one GeoPackage, polygons in a separate GeoPackage,
+    linked by the <code>Unique name</code> field. Polygons are tagged as
+    either <em>source</em> (headscarp/failure area) or <em>deposit</em>
+    (runout/debris field).
+  </li>
+</ul>
+<p>
+  All source geometry is in Alaska Albers Equal Area (EPSG:6393). During
+  loading, geometry is reprojected to WGS&nbsp;84 (EPSG:4326) for web
+  display. Area measurements are preserved from the original equal-area
+  projection and are <em>not</em> recomputed in WGS&nbsp;84.
+</p>
+
+
+<!-- ================================================================== -->
+<h3 id="classification">2. Classification system</h3>
+
+<p>
+  Every landslide has a <strong>type</strong> (slow or catastrophic) and a
+  <strong>class</strong> that encodes both the type and the strength of
+  evidence for ongoing creep. Classes are organized in the sidebar from most
+  to least active:
+</p>
+
+<h4>Slow landslides</h4>
+<table class="methods-table">
+  <tr><th>Class</th><th>Color</th><th>Meaning</th></tr>
+  <tr>
+    <td>Slow Obvious creep</td>
+    <td><span class="m-dot" style="background:#f69fa1"></span> Red</td>
+    <td>Clear, ongoing surface deformation visible in satellite imagery</td>
+  </tr>
+  <tr>
+    <td>Slow Patchy obvious creep</td>
+    <td><span class="m-dot" style="background:#f69fa1"></span> Red</td>
+    <td>Obvious creep in parts of the landslide, not uniformly</td>
+  </tr>
+  <tr>
+    <td>Slow Subtle creep</td>
+    <td><span class="m-dot" style="background:#faf075"></span> Yellow</td>
+    <td>Creep detectable by InSAR or careful image comparison, not visually obvious</td>
+  </tr>
+  <tr>
+    <td>Slow Geomorph creep</td>
+    <td><span class="m-dot" style="background:#d3e9cf"></span> Green</td>
+    <td>Geomorphic indicators of past or very slow creep (e.g., lobate morphology)</td>
+  </tr>
+  <tr>
+    <td>Small slow landslide</td>
+    <td><span class="m-dot" style="background:#d3e9cf"></span> Green</td>
+    <td>Below the main size threshold but included for completeness</td>
+  </tr>
+</table>
+
+<h4>Catastrophic landslides</h4>
+<table class="methods-table">
+  <tr><th>Class</th><th>Color</th><th>Meaning</th></tr>
+  <tr>
+    <td>Catastrophic Obvious creep</td>
+    <td><span class="m-dot" style="background:#3f67b1;box-shadow:0 0 0 2px #f69fa1"></span> Blue + red halo</td>
+    <td>Catastrophic failure from a source area showing obvious ongoing creep</td>
+  </tr>
+  <tr>
+    <td>Catastrophic Patchy obvious creep</td>
+    <td><span class="m-dot" style="background:#3f67b1;box-shadow:0 0 0 2px #f69fa1"></span> Blue + red halo</td>
+    <td>Catastrophic failure with patchy ongoing creep at the source</td>
+  </tr>
+  <tr>
+    <td>Catastrophic Subtle creep</td>
+    <td><span class="m-dot" style="background:#3f67b1;box-shadow:0 0 0 2px #faf075"></span> Blue + yellow halo</td>
+    <td>Catastrophic failure with subtle creep at the source</td>
+  </tr>
+  <tr>
+    <td>Catastrophic Geomorph creep</td>
+    <td><span class="m-dot" style="background:#3f67b1;box-shadow:0 0 0 2px #d3e9cf"></span> Blue + green halo</td>
+    <td>Catastrophic failure with geomorphic creep indicators at the source</td>
+  </tr>
+  <tr>
+    <td>Catastrophic</td>
+    <td><span class="m-dot" style="background:#3f67b1"></span> Blue</td>
+    <td>Post-2012 catastrophic events without identified precursory creep</td>
+  </tr>
+  <tr>
+    <td>Catastrophic Modern</td>
+    <td><span class="m-dot" style="background:#96b8df"></span> Pale blue</td>
+    <td>Pre-2012 &ldquo;modern&rdquo; events (roughly post-1850)</td>
+  </tr>
+  <tr>
+    <td>Small catastrophic landslide</td>
+    <td><span class="m-dot" style="background:#96b8df"></span> Pale blue</td>
+    <td>Below the main size threshold</td>
+  </tr>
+  <tr>
+    <td>Catastrophic Holocene</td>
+    <td><span class="m-dot" style="background:#96b8df"></span> Pale blue</td>
+    <td>Prehistoric catastrophic events identified from geomorphology</td>
+  </tr>
+</table>
+
+<p>
+  On the map, catastrophic landslides with precursory creep are drawn with a
+  colored halo (stroke) matching their creep evidence level, making them
+  visually distinct from catastrophic events without known precursory
+  deformation.
+</p>
+
+
+<!-- ================================================================== -->
+<h3 id="polygons">3. Polygons and map placement</h3>
+
+<h4>Polygon roles</h4>
+<p>Each polygon in the database has a <strong>role</strong>:</p>
+<ul>
+  <li>
+    <strong>body</strong> &mdash; the single polygon for a slow landslide,
+    representing its full mapped extent.
+  </li>
+  <li>
+    <strong>source</strong> &mdash; the headscarp or failure initiation zone
+    of a catastrophic event.
+  </li>
+  <li>
+    <strong>deposit</strong> &mdash; the runout or debris deposit of a
+    catastrophic event.
+  </li>
+</ul>
+<p>
+  A typical catastrophic landslide has one source polygon and one deposit
+  polygon. Some have only a deposit (the source may be obscured or
+  uncertain). The <code>is_primary</code> flag disambiguates in rare cases
+  where multiple polygons share a role.
+</p>
+
+<h4>Centroid placement</h4>
+<p>
+  The map dot for each landslide is placed at the centroid of a single
+  representative polygon, chosen by priority:
+</p>
+<ol>
+  <li>For <strong>slow</strong> landslides: centroid of the body polygon.</li>
+  <li>
+    For <strong>catastrophic</strong> landslides: centroid of the primary
+    source polygon. If no source polygon exists, the primary deposit polygon
+    is used as a fallback.
+  </li>
+</ol>
+<p>
+  This means the dot marks where the failure initiated, not where debris
+  came to rest. Polygons themselves appear when zoomed in past zoom
+  level&nbsp;7.
+</p>
+
+
+<!-- ================================================================== -->
+<h3 id="areas-volumes">4. Areas and volumes</h3>
+
+<h4>Areas</h4>
+<p>
+  Polygon areas are stored from the original GeoPackage data, which was
+  digitized and measured in Alaska Albers Equal Area (EPSG:6393). This is
+  an equal-area projection, so area measurements are geometrically correct.
+  Areas are <em>not</em> recomputed from the WGS&nbsp;84 coordinates stored
+  in the database (which would introduce substantial error at Alaska
+  latitudes).
+</p>
+<p>
+  The <strong>&ldquo;source area&rdquo;</strong> filter uses:
+</p>
+<ul>
+  <li>For slow landslides: the body polygon area (the entire landslide).</li>
+  <li>For catastrophic landslides: the source polygon area.</li>
+</ul>
+<p>
+  The <strong>&ldquo;deposit area&rdquo;</strong> filter applies only to
+  catastrophic landslides. Slow landslides pass through this filter
+  unconditionally (they have no deposit).
+</p>
+
+<h4>Volumes</h4>
+<p>
+  Preferred volume estimates (<code>volume_preferred</code>) are taken
+  directly from the source data. The estimation method varies by landslide
+  and is recorded in the <code>volume_method</code> field, visible in the
+  detail panel.
+</p>
+<p>
+  Area and volume sliders use a <strong>logarithmic scale</strong>:
+</p>
+<ul>
+  <li>
+    Area: slider range 0&ndash;6 maps to 10<sup>3</sup>&ndash;10<sup>9</sup>&nbsp;m&sup2;
+    (1,000&nbsp;m&sup2; to 1,000&nbsp;km&sup2;).
+  </li>
+  <li>
+    Volume: slider range 0&ndash;8 maps to 10<sup>4</sup>&ndash;10<sup>12</sup>&nbsp;m&sup3;
+    (10,000&nbsp;m&sup3; to 1&nbsp;km&sup3;).
+  </li>
+</ul>
+<p>
+  Landslides with <strong>no area or volume data</strong> always pass these
+  filters (they are not excluded by a minimum threshold for a measurement
+  that was never made).
+</p>
+
+
+<!-- ================================================================== -->
+<h3 id="temporal">5. Temporal data and year encoding</h3>
+
+<p>
+  Temporal precision varies enormously across the inventory. The system
+  encodes each landslide&rsquo;s age as a <strong>year number</strong>
+  using this priority:
+</p>
+<ol>
+  <li>
+    Class contains &ldquo;Holocene&rdquo; &rarr; year&nbsp;=&nbsp;&minus;1
+    (prehistoric, roughly 10,000+ years ago)
+  </li>
+  <li>
+    Class contains &ldquo;Modern&rdquo; &rarr; year&nbsp;=&nbsp;0
+    (post-settlement but pre-2000, roughly 150 years)
+  </li>
+  <li>
+    <code>year_text</code> is a four-digit year &rarr; that year (e.g., 2013)
+  </li>
+  <li>
+    <code>date_min</code> exists &rarr; year extracted from it
+  </li>
+</ol>
+<p>
+  The <strong>Min age</strong> slider maps positions to this encoding:
+  position&nbsp;0 = all, 1 = Holocene+, 2 = Modern+, 3&ndash;16 =
+  2012&ndash;2025. This provides a coarse temporal filter that works despite
+  the mix of precise dates and order-of-magnitude age estimates.
+</p>
+
+<h4>Precise dates</h4>
+<p>
+  Catastrophic landslides may have:
+</p>
+<ul>
+  <li>
+    <strong>Seismic datetime</strong> &mdash; precise to the second, from
+    seismic detection (stored as UTC).
+  </li>
+  <li>
+    <strong>Date range</strong> (<code>date_min</code> /
+    <code>date_max</code>) &mdash; a bracket: the event occurred sometime
+    between these dates. The span can be hours (for well-observed events) to
+    months or years.
+  </li>
+</ul>
+<p>
+  The <strong>&ldquo;Time bracketed&rdquo;</strong> include-only checkbox
+  restricts to landslides that have both <code>date_min</code> and
+  <code>date_max</code>. The <strong>&ldquo;Seismic detection&rdquo;</strong>
+  checkbox restricts to landslides with a seismic datetime.
+</p>
+
+
+<!-- ================================================================== -->
+<h3 id="seasonal">6. Seasonal timing chart</h3>
+
+<p>
+  The seasonal histogram shows <strong>when in the year</strong> catastrophic
+  events occur. Only landslides with seismic datetimes or valid date brackets
+  are included.
+</p>
+
+<h4>Binning</h4>
+<p>
+  The year is divided into <strong>37 bins</strong>: 36 bins of 10 days each
+  (days 1&ndash;10, 11&ndash;20, &hellip;, 351&ndash;360) plus one shorter
+  bin for the remaining 5&ndash;6 days. The final bin&rsquo;s bar height is
+  normalized to a 10-day equivalent so it is visually comparable.
+</p>
+
+<h4>Weight distribution</h4>
+<ul>
+  <li>
+    <strong>Point events</strong> (seismic datetime): full weight of 1.0
+    assigned to the bin containing that day of year.
+  </li>
+  <li>
+    <strong>Range events</strong> (date bracket): weight is spread
+    proportionally across all bins the range overlaps. Each bin receives
+    weight = (days of overlap with bin) / (total span in days). This means
+    a 30-day bracket contributes 1.0 total, distributed across the
+    ~3 bins it touches, rather than counting once in each bin.
+  </li>
+</ul>
+<p>
+  Events spanning the year boundary (December into January) are handled
+  correctly by splitting the range into two sub-ranges.
+</p>
+
+<h4>Max uncertainty slider</h4>
+<p>
+  The &ldquo;Max uncertainty&rdquo; slider (default: 30 days) excludes range
+  events with spans longer than the slider value. This filters out events
+  whose timing is too uncertain to contribute meaningful seasonal
+  information. Setting it to 0 shows only seismically detected events.
+</p>
+
+<h4>Y-axis units</h4>
+<p>
+  The y-axis shows <strong>events per 10-day bin</strong>, not raw counts.
+  Because range events distribute fractional weight, non-integer values
+  are expected.
+</p>
+
+
+<!-- ================================================================== -->
+<h3 id="timeline">7. Timeline chart</h3>
+
+<p>
+  The timeline histogram shows <strong>when in history</strong> landslides
+  occurred. All landslides with resolvable temporal data are included (not
+  just time-bracketed events).
+</p>
+
+<h4>Bin structure</h4>
+<p>
+  The chart uses <strong>variable-width bins</strong> that reflect
+  increasing data completeness in recent periods:
+</p>
+<table class="methods-table">
+  <tr><th>Period</th><th>Bin width</th><th>Visual width</th></tr>
+  <tr>
+    <td>Holocene (year = &minus;1)</td>
+    <td>~10,000 years</td>
+    <td>27 units</td>
+  </tr>
+  <tr>
+    <td>Modern pre-2000 (year = 0)</td>
+    <td>~150 years</td>
+    <td>45 units</td>
+  </tr>
+  <tr>
+    <td>Annual 2000&ndash;2011</td>
+    <td>1 year each</td>
+    <td>9 units each</td>
+  </tr>
+  <tr>
+    <td>Monthly 2012&ndash;present</td>
+    <td>1 month each</td>
+    <td>1 unit each</td>
+  </tr>
+</table>
+<p>
+  The 2012+ zone is highlighted with a blue background, indicating the
+  period of most complete satellite coverage and systematic inventory.
+</p>
+
+<h4>Rate normalization</h4>
+<p>
+  Raw counts are converted to a common unit of
+  <strong>events per year</strong> to allow comparison across vastly
+  different bin widths:
+</p>
+<ul>
+  <li>Holocene count &divide; 10,000</li>
+  <li>Modern count &divide; 150</li>
+  <li>Annual bins (2000&ndash;2011) are already per-year</li>
+  <li>Monthly bins &times; 12 to annualize</li>
+</ul>
+<p>
+  The divisors for Holocene and Modern are approximate. The true Holocene
+  spans ~11,700 years; the &ldquo;Modern&rdquo; category encompasses events
+  of varying age. These are order-of-magnitude normalizations for visual
+  comparison, not precise rate estimates. The annualization of monthly bins
+  treats all months as 1/12 of a year regardless of actual length.
+</p>
+
+<h4>Monthly spreading (2012+)</h4>
+<p>
+  For the monthly-resolution portion of the timeline, events are placed as
+  follows:
+</p>
+<ul>
+  <li>
+    <strong>Seismic point</strong>: assigned entirely to the month of the
+    seismic detection.
+  </li>
+  <li>
+    <strong>Date range</strong>: weight is spread proportionally across
+    months based on the fraction of the range falling in each month.
+  </li>
+  <li>
+    <strong>Year only</strong> (no date range): spread equally across all
+    12 months of that year (1/12 each).
+  </li>
+</ul>
+<p>
+  Dashed horizontal lines show the annual average for each post-2012 year.
+</p>
+
+<h4>Log scale</h4>
+<p>
+  A &ldquo;log&rdquo; checkbox switches the y-axis to a logarithmic scale
+  (base-10). This is useful because Holocene and Modern rates are typically
+  orders of magnitude lower than modern detection rates, and the linear
+  scale compresses them to near-zero.
+</p>
+
+
+<!-- ================================================================== -->
+<h3 id="filters">8. Filter mechanics</h3>
+
+<p>
+  All filtering is performed client-side on the full dataset. The map and
+  both charts respond to the same set of filters:
+</p>
+
+<h4>Type and class checkboxes</h4>
+<p>
+  Type (Slow / Catastrophic) and class checkboxes are combined with AND
+  logic: a landslide must match at least one checked type AND at least one
+  checked class.
+</p>
+
+<h4>Include-only checkboxes</h4>
+<p>
+  When checked, these restrict the display to landslides having a specific
+  attribute (e.g., molards, dammed streams, seismic detection). Multiple
+  checked boxes are AND&rsquo;d: the landslide must satisfy all of them.
+</p>
+
+<h4>Area, volume, and age sliders</h4>
+<p>
+  These apply a minimum threshold. All use &ge; (greater-than-or-equal)
+  comparison. Landslides with missing data for the filtered attribute
+  pass through unconditionally &mdash; the filter only excludes records
+  where the value is known and below the threshold.
+</p>
+
+<h4>Viewport limiting</h4>
+<p>
+  Both charts always restrict to the current map viewport. The sidebar
+  counts can optionally be restricted to the viewport via the &ldquo;Limit
+  counts to map view&rdquo; checkbox.
+</p>
+
+<h4>URL state</h4>
+<p>
+  All filter settings, slider positions, and panel visibility are encoded
+  in the URL query string. This means filtered views can be shared as links
+  that reproduce the exact same view.
+</p>
+
+
+<!-- ================================================================== -->
+<h3 id="limitations">9. Known limitations</h3>
+
+<ul>
+  <li>
+    <strong>Completeness varies by era.</strong> The inventory is most
+    complete for the post-2012 satellite era. Holocene and Modern event
+    counts are severe underestimates of actual occurrence rates. The
+    timeline normalization makes this visually apparent but the magnitudes
+    should not be taken as true rates.
+  </li>
+  <li>
+    <strong>Temporal precision varies widely.</strong> Some events are
+    timed to the second (seismic); others have year or century-scale
+    uncertainty. The seasonal histogram&rsquo;s &ldquo;max uncertainty&rdquo;
+    slider helps manage this, but users should be aware that the seasonal
+    distribution is dominated by well-timed events.
+  </li>
+  <li>
+    <strong>Volume estimates use varied methods.</strong> The
+    <code>volume_method</code> field in the detail panel describes how each
+    estimate was derived. Comparisons across landslides with different
+    methods should be made cautiously.
+  </li>
+  <li>
+    <strong>&ldquo;Source area&rdquo; label for slow landslides.</strong>
+    The &ldquo;Min source area&rdquo; slider filters on the body polygon
+    area for slow landslides (since they have no separate source/deposit
+    distinction). This is the total mapped extent of the slow landslide.
+  </li>
+  <li>
+    <strong>Monthly rate annualization.</strong> Monthly event counts are
+    multiplied by 12 to produce an annualized rate. This treats all months
+    as equal length, which introduces a small systematic bias (up to ~10%
+    for February vs. months with 31 days).
+  </li>
+  <li>
+    <strong>Holocene and Modern rate divisors.</strong>
+    The Holocene rate uses a 10,000-year divisor and the Modern rate uses
+    150 years. These are reasonable approximations but are not tied to
+    precise epoch boundaries.
+  </li>
+</ul>
+
+</div>
+{% endblock %}

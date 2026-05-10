@@ -1,0 +1,617 @@
+/* ============================================================================
+ * Inventory app chrome — header, layouts.
+ * Independent of pages/base.html (homepage is narrow text; this is full-width).
+ * ============================================================================
+ */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.45;
+    color: #1a1a1a;
+}
+
+/* ---- Top header (shared across all inventory pages) ---- */
+.inv-header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+    z-index: 20;
+}
+.inv-brand {
+    color: #5D4037;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: -0.01em;
+}
+.inv-page-title {
+    margin-left: 14px;
+    color: #888;
+    font-size: 13px;
+    font-weight: 500;
+}
+.inv-header-nav {
+    margin-left: auto;
+    display: flex;
+    gap: 14px;
+}
+.inv-header-nav a {
+    color: #555;
+    text-decoration: none;
+    font-size: 13px;
+}
+.inv-header-nav a:hover { color: #1a1a1a; }
+
+/* ---- Map page layout: sidebar + main ---- */
+body.inv-map-body {
+    overflow: hidden;
+}
+.inv-sidebar {
+    position: absolute;
+    top: 44px;
+    left: 0;
+    width: 240px;
+    bottom: 0;
+    overflow-y: auto;
+    background: #f5f5f5;
+    border-right: 1px solid #e0e0e0;
+}
+.inv-nav {
+    list-style: none;
+    margin: 0;
+    padding: 8px 0;
+}
+.inv-nav .nav-item.title {
+    padding: 8px 15px 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #555;
+    font-weight: 600;
+}
+.inv-nav .nav-item.separator {
+    height: 1px;
+    background: #e0e0e0;
+    margin: 6px 12px;
+}
+
+/* ---- Map content area ---- */
+#inventory-content {
+    position: absolute;
+    top: 44px;
+    left: 240px;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+}
+
+/* ---- Article page layout: centered content below header ---- */
+body.inv-article-body {
+    padding-top: 44px;  /* clear absolute-positioned header */
+    background: #fafafa;
+}
+
+/* ---- Map fills the content area (positioned by chrome rules above) ---- */
+#map {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+}
+
+/* ---- Detail panel — absolute within #inventory-content (the map container (.inv-main)) ---- */
+.detail-panel {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 300px;
+    max-width: calc(100% - 20px);    /* never wider than the map area */
+    max-height: calc(100% - 60px);   /* never taller than the map area */
+    overflow-y: auto;
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 2px 14px rgba(0,0,0,0.28);
+    z-index: 10;                     /* above map tiles */
+}
+
+.detail-panel.hidden {
+    display: none;
+}
+
+#close-panel {
+    position: sticky;
+    top: 0;
+    float: right;
+    background: none;
+    border: none;
+    font-size: 20px;
+    line-height: 1;
+    padding: 8px 10px 4px;
+    cursor: pointer;
+    color: #666;
+    z-index: 1;
+}
+
+#detail-content {
+    padding: 10px 14px 14px;
+    clear: both;
+}
+
+#detail-content h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    word-break: break-word;
+    line-height: 1.3;
+}
+#detail-content h3 .landslide-permalink {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px dashed #bbb;
+}
+#detail-content h3 .landslide-permalink:hover {
+    color: #1a4f8b;
+    border-bottom-color: #1a4f8b;
+}
+
+.type-badge {
+    display: inline-block;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 10px;
+    color: #fff;
+    margin-bottom: 8px;
+}
+.type-badge.slow         { background: #1E88E5; }
+.type-badge.catastrophic { background: #E53935; }
+
+.class-badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: #eee;
+    color: #555;
+    margin-bottom: 8px;
+    vertical-align: middle;
+}
+
+/* Planet Stories — prominent call-to-action for actively observable events */
+.planet-prominent {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+    padding: 8px 12px;
+    background: #e8f0fe;
+    border: 1px solid #b3c8f5;
+    border-radius: 5px;
+    text-decoration: none;
+    color: #1a56b0;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background 0.1s;
+}
+.planet-prominent:hover { background: #d2e3fc; color: #0d3e8a; }
+.planet-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px; height: 24px;
+    border-radius: 4px;
+    background: #1a73e8;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+/* "More" disclosure at bottom of detail panel */
+.more-details {
+    margin-top: 10px;
+    border-top: 1px solid #eee;
+    padding-top: 6px;
+}
+.more-details summary {
+    font-size: 11px;
+    color: #888;
+    cursor: pointer;
+    padding: 2px 0;
+    user-select: none;
+}
+.more-details summary:hover { color: #444; }
+
+/* Imagery links block — shown immediately after the header */
+.imagery-links {
+    margin: 8px 0;
+    padding: 8px 10px;
+    background: #f8f8f8;
+    border-radius: 4px;
+    border: 1px solid #e8e8e8;
+}
+
+.imagery-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 6px;
+    margin-bottom: 3px;
+    border-radius: 3px;
+    text-decoration: none;
+    color: #333;
+    font-size: 12px;
+    transition: background 0.1s;
+}
+.imagery-btn:last-child { margin-bottom: 0; }
+.imagery-btn:hover { background: #e8e8e8; color: #111; }
+
+.imagery-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 3px;
+    background: #555;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    flex-shrink: 0;
+    letter-spacing: -0.02em;
+}
+/* nth-child indices include the leading "Imagery" section title at child(1) */
+.imagery-btn:nth-child(2) .imagery-icon { background: #e8511a; }  /* ESRI - orange */
+.imagery-btn:nth-child(3) .imagery-icon { background: #34a853; }  /* Google - green */
+.imagery-btn:nth-child(4) .imagery-icon { background: #6c3483; }  /* S2 - purple */
+.imagery-btn:nth-child(5) .imagery-icon { background: #444; }     /* S1 - dark */
+.imagery-btn:nth-child(6) .imagery-icon { background: #0e7490; font-size: 13px; }  /* OPERA Asc - teal */
+.imagery-btn:nth-child(7) .imagery-icon { background: #155e75; font-size: 13px; }  /* OPERA Desc - dark teal */
+
+.detail-desc {
+    font-size: 12px;
+    color: #555;
+    margin: 6px 0;
+    line-height: 1.4;
+}
+
+.detail-section {
+    margin-top: 10px;
+    border-top: 1px solid #eee;
+    padding-top: 8px;
+}
+
+.detail-section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #999;
+    margin-bottom: 4px;
+}
+
+.attr-table {
+    width: 100%;
+    font-size: 12px;
+    border-collapse: collapse;
+}
+.attr-table td {
+    padding: 3px 2px;
+    vertical-align: top;
+}
+.attr-table td:first-child {
+    color: #888;
+    width: 42%;
+    padding-right: 6px;
+    white-space: nowrap;
+}
+
+.evidence-list {
+    font-size: 11px;
+    color: #444;
+    line-height: 1.8;
+}
+.ev-sep {
+    margin: 0 4px;
+    color: #ccc;
+}
+
+.ext-links {
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 2;
+}
+.ext-links a {
+    display: inline-block;
+    margin: 0 4px 2px 0;
+    padding: 2px 7px;
+    background: #f5f5f5;
+    border-radius: 3px;
+    text-decoration: none;
+    color: #333;
+    border: 1px solid #ddd;
+}
+.ext-links a:hover { background: #e8e8e8; }
+
+/* ---- Charts container — holds both temporal histogram panels side-by-side ---- */
+.charts-container {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 200px;
+    display: flex;
+    flex-direction: row;
+    z-index: 11;
+    border-top: 1px solid #ccc;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
+    background: rgba(255,255,255,0.96);
+}
+.charts-container.hidden { display: none; }
+
+/* ---- Seasonal timing histogram panel ---- */
+.hist-panel {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #e8e8e8;
+}
+.hist-panel.hidden { display: none; }
+
+.hist-header {
+    display: flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-bottom: 1px solid #eee;
+    font-size: 11px;
+    color: #666;
+    flex-shrink: 0;
+    gap: 8px;
+}
+#hist-close {
+    margin-left: auto;
+    background: none; border: none;
+    font-size: 18px; line-height: 1;
+    cursor: pointer; color: #999; padding: 0 2px;
+}
+#hist-close:hover { color: #333; }
+#hist-canvas { display: block; width: 100%; flex: 1; }
+
+/* ---- Timeline histogram panel ---- */
+.timing-panel {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+.timing-panel.hidden { display: none; }
+
+.timing-header {
+    display: flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-bottom: 1px solid #eee;
+    font-size: 11px;
+    color: #666;
+    flex-shrink: 0;
+    gap: 8px;
+}
+#timing-close {
+    background: none; border: none;
+    font-size: 18px; line-height: 1;
+    cursor: pointer; color: #999; padding: 0 2px;
+}
+#timing-close:hover { color: #333; }
+#timing-canvas { display: block; width: 100%; flex: 1; }
+
+/* ---- Basemap picker ---- */
+#basemap-picker {
+    position: absolute;
+    bottom: 32px;
+    left: 10px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.bm-btn {
+    display: block;
+    padding: 3px 9px;
+    font-size: 11px;
+    background: rgba(255,255,255,0.88);
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    cursor: pointer;
+    text-align: left;
+    color: #333;
+    white-space: nowrap;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+.bm-btn:hover  { background: rgba(255,255,255,1); }
+.bm-btn.active { background: #5D4037; color: #fff; border-color: #5D4037; }
+
+/* ---- Legend — absolute within #inventory-content ---- */
+#map-legend {
+    position: absolute;
+    bottom: 32px;
+    left: 120px;
+    background: rgba(255,255,255,0.9);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 10;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+
+.legend-dot {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    vertical-align: middle;
+}
+
+.legend-row {
+    line-height: 1.8;
+}
+
+#zoom-hint {
+    color: #aaa;
+    font-size: 11px;
+    margin-top: 2px;
+}
+
+/* ---- Nav filter styles ---- */
+.nav-filter-label {
+    display: flex;
+    align-items: baseline;
+    padding: 2px 15px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #111;
+    gap: 6px;
+}
+.nav-filter-label input { flex-shrink: 0; cursor: pointer; }
+.nav-filter-label.small { font-size: 11px; padding: 1px 15px; }
+
+/* Sliders and "include only" controls */
+.filter-control {
+    padding: 2px 15px 6px;
+}
+.nav-slider {
+    width: 100%;
+    margin: 4px 0 2px;
+    cursor: pointer;
+    accent-color: #5D4037;
+}
+.slider-label {
+    font-size: 10px;
+    color: #555;
+    text-align: right;
+    min-height: 14px;
+}
+.cls-dot {
+    display: inline-block;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+/* Slow (green/yellow/red) dots get a thin black outline for definition */
+.cls-dot-slow {
+    border: 1px solid rgba(0,0,0,0.35);
+}
+/* Blue catastrophic dots are darker so render slightly smaller for equal visual weight */
+.cls-dot-cat {
+    width: 7px; height: 7px;
+}
+.cls-name { flex: 1; line-height: 1.3; }
+.cls-count {
+    font-size: 10px;
+    color: #666;
+    flex-shrink: 0;
+}
+
+.nav-class-header {
+    padding: 4px 15px 1px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #555;
+}
+
+.nav-subgroup-header {
+    padding: 4px 15px 1px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #666;
+    margin-top: 2px;
+}
+
+.subgroup-toggle {
+    float: right;
+    font-size: 10px;
+    font-weight: normal;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.subgroup-toggle a { color: #777; }
+.subgroup-toggle a:hover { color: #111; }
+
+.class-toggle-all {
+    float: right;
+    font-size: 10px;
+    font-weight: normal;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.class-toggle-all a { color: #777; }
+.class-toggle-all a:hover { color: #111; }
+
+/* ---- Methods page ---- */
+.methods-page {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 24px 32px 60px;
+    font-size: 14px;
+    line-height: 1.65;
+    color: #222;
+}
+.methods-page h2 { margin: 0 0 8px; font-size: 22px; }
+.methods-page h3 {
+    margin: 32px 0 10px;
+    padding-top: 14px;
+    border-top: 1px solid #ddd;
+    font-size: 16px;
+}
+.methods-page h4 { margin: 18px 0 6px; font-size: 14px; }
+.methods-intro { color: #444; margin-bottom: 18px; }
+.methods-toc {
+    background: #f7f7f7;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 12px 20px 12px 24px;
+    display: inline-block;
+    font-size: 13px;
+    line-height: 1.8;
+}
+.methods-toc ol { margin: 6px 0 0; padding-left: 18px; }
+.methods-toc a { color: #3f67b1; text-decoration: none; }
+.methods-toc a:hover { text-decoration: underline; }
+.methods-page ul, .methods-page ol { margin: 6px 0 12px; padding-left: 22px; }
+.methods-page li { margin-bottom: 4px; }
+.methods-page code {
+    background: #f0f0f0;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+.methods-page p { margin: 6px 0 10px; }
+.methods-table {
+    border-collapse: collapse;
+    margin: 8px 0 14px;
+    font-size: 13px;
+    width: 100%;
+}
+.methods-table th, .methods-table td {
+    border: 1px solid #ddd;
+    padding: 5px 10px;
+    text-align: left;
+}
+.methods-table th {
+    background: #f5f5f5;
+    font-weight: 600;
+    font-size: 12px;
+}
+.m-dot {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    vertical-align: middle;
+    margin-right: 4px;
+}

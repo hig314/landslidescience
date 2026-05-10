@@ -1,0 +1,237 @@
+{% extends "inventory/base.html" %}
+{% load static %}
+
+{% block title %}Alaska Landslide Inventory{% endblock %}
+{% block page_title %}Inventory{% endblock %}
+{% block body_class %}inv-map-body{% endblock %}
+
+{% block extra_styles %}
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+{% endblock %}
+
+{% block body %}
+<aside class="inv-sidebar">
+  <ul class="inv-nav">
+    <li class="nav-item title">
+      Class
+      <span class="class-toggle-all">
+        <a href="#" id="class-all">all</a> /
+        <a href="#" id="class-none">none</a>
+      </span>
+    </li>
+    <li class="nav-item filter-control" style="padding-top:0; padding-bottom:4px;">
+      <label class="nav-filter-label small" style="display:inline-flex; margin-right:10px;">
+        <input type="checkbox" class="filter-type" value="slow" checked> Slow
+      </label>
+      <label class="nav-filter-label small" style="display:inline-flex;">
+        <input type="checkbox" class="filter-type" value="catastrophic" checked> Catastrophic
+      </label>
+    </li>
+    <li class="nav-item filter-control" style="padding-top:0; padding-bottom:4px;">
+      <label class="nav-filter-label small" style="display:inline-flex; color:#888;">
+        <input type="checkbox" id="cb-limit-view"> Limit counts to map view
+      </label>
+    </li>
+
+    {# ---- Slow: active (obvious/patchy) ---- #}
+    <li class="nav-item nav-class-header">Slow &mdash; active</li>
+    {% for cls, cnt, color, halo in slow_active %}
+    <li class="nav-item">
+      <label class="nav-filter-label">
+        <input type="checkbox" class="filter-class" value="{{ cls }}" checked>
+        <span class="cls-dot cls-dot-slow" style="background:{{ color }};"></span>
+        <span class="cls-name">{{ cls }}</span>
+        <span class="cls-count">{{ cnt }}</span>
+      </label>
+    </li>
+    {% endfor %}
+
+    {# ---- Slow: less active (subtle/geomorphic/small) ---- #}
+    <li class="nav-item nav-subgroup-header">
+      Less active
+      <span class="subgroup-toggle">
+        <a href="#" class="sg-all" data-sg="slow-other">all</a> /
+        <a href="#" class="sg-none" data-sg="slow-other">none</a>
+      </span>
+    </li>
+    {% for cls, cnt, color, halo in slow_other %}
+    <li class="nav-item sg-item" data-sg="slow-other">
+      <label class="nav-filter-label">
+        <input type="checkbox" class="filter-class" value="{{ cls }}" checked>
+        <span class="cls-dot cls-dot-slow" style="background:{{ color }};"></span>
+        <span class="cls-name">{{ cls }}</span>
+        <span class="cls-count">{{ cnt }}</span>
+      </label>
+    </li>
+    {% endfor %}
+
+    {# ---- Catastrophic: with precursory creep ---- #}
+    <li class="nav-item nav-class-header">Catastrophic &mdash; with precursory creep</li>
+    {% for cls, cnt, color, halo in cat_precursory %}
+    <li class="nav-item">
+      <label class="nav-filter-label">
+        <input type="checkbox" class="filter-class" value="{{ cls }}" checked>
+        <span class="cls-dot cls-dot-cat" style="background:{{ color }};{% if halo %} box-shadow: 0 0 0 2px {{ halo }};{% endif %}"></span>
+        <span class="cls-name">{{ cls }}</span>
+        <span class="cls-count">{{ cnt }}</span>
+      </label>
+    </li>
+    {% endfor %}
+
+    {# ---- Catastrophic: historical / size ---- #}
+    <li class="nav-item nav-subgroup-header">
+      Historical / size classes
+      <span class="subgroup-toggle">
+        <a href="#" class="sg-all" data-sg="cat-hist">all</a> /
+        <a href="#" class="sg-none" data-sg="cat-hist">none</a>
+      </span>
+    </li>
+    {% for cls, cnt, color, halo in cat_historical %}
+    <li class="nav-item sg-item" data-sg="cat-hist">
+      <label class="nav-filter-label">
+        <input type="checkbox" class="filter-class" value="{{ cls }}" checked>
+        <span class="cls-dot cls-dot-cat" style="background:{{ color }};"></span>
+        <span class="cls-name">{{ cls }}</span>
+        <span class="cls-count">{{ cnt }}</span>
+      </label>
+    </li>
+    {% endfor %}
+
+    <li class="nav-item separator"></li>
+
+    {# ---- Include-only checkboxes ---- #}
+    <li class="nav-item nav-class-header">Include only</li>
+    <li class="nav-item filter-control">
+      <label class="nav-filter-label small"><input type="checkbox" id="cb-molards"> Molards</label>
+      <label class="nav-filter-label small"><input type="checkbox" id="cb-stream"> Dammed streams</label>
+      <label class="nav-filter-label small"><input type="checkbox" id="cb-supraglacial"> Exclusively supraglacial</label>
+      <label class="nav-filter-label small"><input type="checkbox" id="cb-permafrost"> Creeping permafrost mass</label>
+      <label class="nav-filter-label small"><input type="checkbox" id="cb-timed"> Time bracketed</label>
+      <label class="nav-filter-label small"><input type="checkbox" id="cb-seismic"> Seismic detection</label>
+      <label class="nav-filter-label small"><input type="checkbox" id="cb-post2012"> Post-2012 activity increase</label>
+    </li>
+
+    <li class="nav-item separator"></li>
+
+    {# ---- Source area slider ---- #}
+    <li class="nav-item nav-class-header">Min source area</li>
+    <li class="nav-item filter-control">
+      <input type="range" id="src-area-slider" class="nav-slider" min="0" max="6" step="0.1" value="0" list="src-area-ticks">
+      <datalist id="src-area-ticks">
+        <option value="0"><option value="2"><option value="4"><option value="6">
+      </datalist>
+      <div class="slider-label"><span id="src-area-label">All</span></div>
+    </li>
+
+    {# ---- Deposit area slider ---- #}
+    <li class="nav-item nav-class-header">Min deposit area <span style="font-size:9px;font-weight:normal;color:#999;">(catastrophic only)</span></li>
+    <li class="nav-item filter-control">
+      <input type="range" id="dep-area-slider" class="nav-slider" min="0" max="6" step="0.1" value="0" list="dep-area-ticks">
+      <datalist id="dep-area-ticks">
+        <option value="0"><option value="2"><option value="4"><option value="6">
+      </datalist>
+      <div class="slider-label"><span id="dep-area-label">All</span></div>
+    </li>
+
+    {# ---- Estimated volume slider ---- #}
+    <li class="nav-item nav-class-header">Min estimated volume</li>
+    <li class="nav-item filter-control">
+      <input type="range" id="vol-slider" class="nav-slider" min="0" max="8" step="0.1" value="0" list="vol-ticks">
+      <datalist id="vol-ticks">
+        <option value="0"><option value="2"><option value="4"><option value="6"><option value="8">
+      </datalist>
+      <div class="slider-label"><span id="vol-label">All</span></div>
+    </li>
+
+    {# ---- Year slider ---- #}
+    <li class="nav-item nav-class-header">Min age (most recent)</li>
+    <li class="nav-item filter-control">
+      <input type="range" id="year-slider" class="nav-slider" min="0" max="16" step="1" value="0" list="year-ticks">
+      <datalist id="year-ticks">
+        <option value="0"><option value="1"><option value="2"><option value="3">
+        <option value="7"><option value="11"><option value="16">
+      </datalist>
+      <div class="slider-label"><span id="year-label">All</span></div>
+    </li>
+  </ul>
+</aside>
+
+<main id="inventory-content">
+  <div id="map" data-version="{{ data_version }}"></div>
+
+  <div id="detail-panel" class="detail-panel hidden">
+    <button id="close-panel" title="Close">&times;</button>
+    <div id="detail-content"></div>
+  </div>
+
+  <div id="charts-container" class="charts-container hidden">
+    <div id="hist-panel" class="hist-panel hidden">
+      <div class="hist-header">
+        <span id="hist-subtitle">Computing…</span>
+        <label style="margin-left:auto; font-size:11px; color:#555; white-space:nowrap; display:flex; align-items:center; gap:5px;">
+          Max uncertainty
+          <input type="range" id="hist-days-slider" min="0" max="365" step="1" value="30"
+                 style="width:130px; accent-color:#5D4037; cursor:pointer;">
+          <span id="hist-days-label">30</span>d
+        </label>
+        <label style="font-size:11px; color:#555; white-space:nowrap; display:flex; align-items:center; gap:4px;">
+          <input type="checkbox" id="hist-volume"> volume
+        </label>
+        <label style="font-size:11px; color:#555; white-space:nowrap; display:flex; align-items:center; gap:4px;">
+          <input type="checkbox" id="hist-log"> log
+        </label>
+        <button id="hist-close" title="Close" style="margin-left:8px;">&times;</button>
+      </div>
+      <canvas id="hist-canvas"></canvas>
+    </div>
+
+    <div id="timing-panel" class="timing-panel hidden">
+      <div class="timing-header">
+        <span id="timing-subtitle">Loading…</span>
+        <label style="margin-left:auto; font-size:11px; color:#555; white-space:nowrap; display:flex; align-items:center; gap:4px;">
+          <input type="checkbox" id="timing-volume"> volume
+        </label>
+        <label style="font-size:11px; color:#555; white-space:nowrap; display:flex; align-items:center; gap:4px;">
+          <input type="checkbox" id="timing-log"> log
+        </label>
+        <button id="timing-close" title="Close" style="margin-left:8px;">&times;</button>
+      </div>
+      <canvas id="timing-canvas"></canvas>
+    </div>
+  </div>
+
+  <div id="basemap-picker"></div>
+
+  <div id="map-legend">
+    <div class="legend-row">
+      <span class="legend-dot" style="background:#d3e9cf"></span>
+      <span class="legend-dot" style="background:#faf075; margin-left:3px"></span>
+      <span class="legend-dot" style="background:#f69fa1; margin-left:3px"></span>
+      Slow (geomorphic &rarr; obvious)
+    </div>
+    <div class="legend-row">
+      <span class="legend-dot" style="background:#3f67b1"></span>
+      Catastrophic &nbsp;
+      <span class="legend-dot" style="background:#3f67b1; box-shadow:0 0 0 2.5px #f69fa1"></span>
+      + precursory creep &nbsp;
+      <span class="legend-dot" style="background:#96b8df"></span>
+      Hol/Mod/Sm
+    </div>
+    <div id="zoom-hint">Zoom in for polygons</div>
+    <div class="legend-row" style="margin-top:5px; border-top:1px solid rgba(0,0,0,0.12); padding-top:4px;">
+      <a href="#" id="hist-toggle" style="font-size:11px; color:#444; text-decoration:none;">&#9656; Seasonal timing</a>
+    </div>
+    <div class="legend-row">
+      <a href="#" id="timing-toggle" style="font-size:11px; color:#444; text-decoration:none;">&#9656; Timing</a>
+    </div>
+    <div class="legend-row" style="margin-top:3px; border-top:1px solid rgba(0,0,0,0.08); padding-top:3px;">
+      <a href="{% url 'inventory:methods' %}" target="_blank" style="font-size:11px; color:#888; text-decoration:none;">Methods</a>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="{% static 'inventory/js/map.js' %}"></script>
+{% endblock %}

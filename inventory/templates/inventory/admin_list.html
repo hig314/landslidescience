@@ -1,0 +1,39 @@
+{% extends "inventory/base.html" %}
+{% block title %}Inventory admin — landslide records{% endblock %}
+{% block page_title %}Admin · landslides{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div class="methods-page">
+  <h2>Landslide records</h2>
+  <p>{{ records|length }} total records.
+     <a href="{% url 'inventory:admin_settings' %}" style="font-size:13px;">⚙ Map display settings</a>
+  </p>
+  <table class="methods-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Class</th>
+        <th>Subset</th>
+        <th>In scope</th>
+        <th>Polygons</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td>{{ r.unique_name }}</td>
+        <td>{{ r.landslide_type }}</td>
+        <td>{{ r.landslide_class }}</td>
+        <td>{{ r.inventory_subset }}</td>
+        <td>{% if r.size_inclusion %}yes{% else %}no{% endif %}</td>
+        <td>{{ r.polygon_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

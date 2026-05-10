@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}Landslide Science{% endblock %}</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; }
+    body { max-width: 36rem; margin: 4rem auto; padding: 0 1.25rem; color: #1a1a1a; background: #fafafa; }
+    h1 { font-weight: 600; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+    p { color: #444; }
+    footer { margin-top: 4rem; font-size: 0.85rem; color: #888; }
+  </style>
+</head>
+<body>
+  {% block content %}{% endblock %}
+  <footer>landslidescience.org</footer>
+</body>
+</html>

@@ -1,0 +1,16 @@
+services:
+  web:
+    container_name: landslidescience-web
+    restart: unless-stopped
+    ports: []
+    networks:
+      - external
+      - internal
+
+networks:
+  external:
+    name: monitoring_external
+    external: true
+  internal:
+    name: monitoring_internal
+    external: true

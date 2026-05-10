@@ -1,0 +1,93 @@
+{% extends "inventory/base.html" %}
+{% block title %}Map display settings{% endblock %}
+{% block page_title %}Admin · map settings{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width:520px; margin:30px auto; padding:0 20px;">
+  <h2 style="font-size:18px; margin-bottom:4px;">Map Display Settings</h2>
+  <p style="font-size:13px; color:#666; margin-bottom:20px;">
+    Changes take effect on next page load. <a href="{% url 'inventory:admin_list' %}">← Back to admin list</a>
+  </p>
+
+  <form method="POST">
+    {% csrf_token %}
+
+    <fieldset style="border:1px solid #ddd; border-radius:6px; padding:14px 18px; margin-bottom:20px;">
+      <legend style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:#888; padding:0 6px;">Activity colours</legend>
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <tr>
+          <td style="padding:6px 8px 6px 0; color:#555;">Geomorphic creep</td>
+          <td><input type="color" name="color_geomorph" value="{{ settings.color_geomorph }}"></td>
+          <td style="padding-left:8px; font-family:monospace; font-size:12px; color:#888;">{{ settings.color_geomorph }}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px 6px 0; color:#555;">Subtle creep</td>
+          <td><input type="color" name="color_subtle" value="{{ settings.color_subtle }}"></td>
+          <td style="padding-left:8px; font-family:monospace; font-size:12px; color:#888;">{{ settings.color_subtle }}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px 6px 0; color:#555;">Obvious creep</td>
+          <td><input type="color" name="color_obvious" value="{{ settings.color_obvious }}"></td>
+          <td style="padding-left:8px; font-family:monospace; font-size:12px; color:#888;">{{ settings.color_obvious }}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px 6px 0; color:#555;">Catastrophic</td>
+          <td><input type="color" name="color_cat" value="{{ settings.color_cat }}"></td>
+          <td style="padding-left:8px; font-family:monospace; font-size:12px; color:#888;">{{ settings.color_cat }}</td>
+        </tr>
+        <tr style="border-top:1px solid #f0f0f0;">
+          <td style="padding:10px 8px 6px 0; color:#555;">Stroke / outline color<br><span style="font-size:11px; color:#999;">Point outlines &amp; slow polygon borders</span></td>
+          <td style="padding-top:4px;"><input type="color" name="stroke_color" value="{{ settings.stroke_color }}"></td>
+          <td style="padding-left:8px; font-family:monospace; font-size:12px; color:#888; padding-top:4px;">{{ settings.stroke_color }}</td>
+        </tr>
+      </table>
+    </fieldset>
+
+    <fieldset style="border:1px solid #ddd; border-radius:6px; padding:14px 18px; margin-bottom:20px;">
+      <legend style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:#888; padding:0 6px;">Point size (circle radius px)</legend>
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <tr>
+          <td style="padding:6px 8px 6px 0; color:#555; width:55%;">At zoom 4 (Alaska overview)</td>
+          <td><input type="number" name="circle_sm" value="{{ settings.circle_sm }}" min="1" max="20" step="0.5" style="width:70px;"></td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px 6px 0; color:#555;">At zoom 8 (regional)</td>
+          <td><input type="number" name="circle_md" value="{{ settings.circle_md }}" min="1" max="20" step="0.5" style="width:70px;"></td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px 6px 0; color:#555;">At zoom 12 (local)</td>
+          <td><input type="number" name="circle_lg" value="{{ settings.circle_lg }}" min="1" max="20" step="0.5" style="width:70px;"></td>
+        </tr>
+      </table>
+    </fieldset>
+
+    <fieldset style="border:1px solid #ddd; border-radius:6px; padding:14px 18px; margin-bottom:20px;">
+      <legend style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:#888; padding:0 6px;">Polygon display</legend>
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <tr>
+          <td style="padding:6px 8px 6px 0; color:#555; width:55%;">Zoom threshold to show polygons</td>
+          <td><input type="number" name="polygon_zoom" value="{{ settings.polygon_zoom }}" min="4" max="14" step="1" style="width:70px;"></td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px 6px 0; color:#555;">Fill opacity (0–1)</td>
+          <td><input type="number" name="fill_opacity" value="{{ settings.fill_opacity }}" min="0" max="1" step="0.05" style="width:70px;"></td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px 6px 0; color:#555;">Outline width (px)</td>
+          <td><input type="number" name="line_width" value="{{ settings.line_width }}" min="0.5" max="5" step="0.5" style="width:70px;"></td>
+        </tr>
+      </table>
+    </fieldset>
+
+    <button type="submit" style="
+        background:#5D4037; color:#fff; border:none; border-radius:4px;
+        padding:9px 22px; font-size:14px; cursor:pointer;">
+      Save settings
+    </button>
+    <span style="font-size:12px; color:#888; margin-left:12px;">
+      Reload the map page after saving.
+    </span>
+  </form>
+</div>
+{% endblock %}
