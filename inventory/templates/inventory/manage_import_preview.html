@@ -1,0 +1,74 @@
+{% extends "inventory/base.html" %}
+{% block title %}Import preview — {{ filename }}{% endblock %}
+{% block page_title %}Manage · import preview{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 860px; margin: 24px auto; padding: 0 24px;">
+  <p style="font-size:13px;"><a href="{% url 'inventory:manage_import' %}">← Upload a different file</a></p>
+  <h2 style="font-size:19px;">Import preview</h2>
+  <p style="color:#666; font-size:13px;">
+    From <code>{{ filename }}</code>.
+    {% if manifest %}Exported {{ manifest.exported_at }} (format v{{ manifest.export_format_version }}).{% endif %}
+  </p>
+
+  {% for table_name, t in diff.items %}
+    <h3 style="margin-top: 24px; font-size:15px;">{{ table_name }}</h3>
+    <table class="methods-table" style="font-size:13px; margin-top: 6px;">
+      <tr><th style="width:30%">Updates</th><td><strong>{{ t.updates|length }}</strong> row(s) will be modified</td></tr>
+      <tr><th>Would add (deferred)</th><td>{{ t.would_add|length }} row(s) have IDs not in DB — <em>not inserted</em> in this version</td></tr>
+      <tr><th>Unchanged</th><td>{{ t.unchanged }} row(s)</td></tr>
+      <tr><th>In DB but missing from upload</th><td>{{ t.db_only_count }} row(s) (kept silently)</td></tr>
+    </table>
+
+    {% if t.warnings %}
+      <details style="margin-top: 8px;">
+        <summary style="font-size:12px; color:#902; cursor:pointer;">{{ t.warnings|length }} warning(s)</summary>
+        <ul style="font-size:12px; color:#555;">
+          {% for w in t.warnings %}<li>{{ w }}</li>{% endfor %}
+        </ul>
+      </details>
+    {% endif %}
+
+    {% if t.updates %}
+      <details style="margin-top: 8px;">
+        <summary style="font-size:13px; cursor:pointer; color:#1a4f8b;">
+          Show first 25 of {{ t.updates|length }} updates
+        </summary>
+        <table class="methods-table" style="font-size:12px; margin-top:6px;">
+          <thead><tr><th>id</th><th>changed columns</th></tr></thead>
+          <tbody>
+            {% for u in t.updates|slice:":25" %}
+              <tr>
+                <td>{{ u.id }}</td>
+                <td style="font-family: monospace;">
+                  {% for col, ch in u.changes.items %}
+                    <div style="margin-bottom:2px;">
+                      <strong>{{ col }}</strong>:
+                      <span style="color:#902;">{{ ch.old|stringformat:"r"|truncatechars:60 }}</span>
+                      →
+                      <span style="color:#070;">{{ ch.new|stringformat:"r"|truncatechars:60 }}</span>
+                    </div>
+                  {% endfor %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+    {% endif %}
+  {% endfor %}
+
+  <hr style="margin: 28px 0 18px; border:none; border-top:1px solid #e0e0e0;">
+
+  <form method="post" action="{% url 'inventory:manage_import_apply' %}" style="display:flex; gap:12px; align-items:center;">
+    {% csrf_token %}
+    <input type="hidden" name="token" value="{{ token }}">
+    <button type="submit"
+            style="padding: 9px 22px; background: #5D4037; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer;">
+      Apply changes
+    </button>
+    <a href="{% url 'inventory:manage_list' %}" style="font-size:13px; color:#666;">Cancel</a>
+  </form>
+</div>
+{% endblock %}

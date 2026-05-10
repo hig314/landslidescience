@@ -1,0 +1,42 @@
+{% extends "inventory/base.html" %}
+{% block title %}Import inventory data{% endblock %}
+{% block page_title %}Manage · import{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 720px; margin: 24px auto; padding: 0 24px;">
+  <p style="font-size:13px;"><a href="{% url 'inventory:manage_list' %}">← Back to records</a></p>
+  <h2 style="font-size:19px;">Import inventory data</h2>
+  <p style="color:#555; line-height:1.55;">
+    Upload a zip exported from this site (or a single <code>landslides.geojson</code>).
+    The next page shows a diff preview — nothing is changed in the database
+    until you confirm.
+  </p>
+  <p style="color:#888; font-size:13px;">
+    First-shot scope: only existing records (matched by <code>id</code>) are
+    UPDATEd. Records or polygons with new IDs are reported but not inserted.
+    Records present in the database but missing from the upload are kept silently.
+  </p>
+
+  {% if error %}
+    <div style="margin: 14px 0; padding: 10px 14px; background:#fef0f0; border:1px solid #f5c2c2; border-radius:4px; color:#902;">
+      {{ error }}
+    </div>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data" style="margin-top: 18px;">
+    {% csrf_token %}
+    <input type="file" name="upload" accept=".zip,.geojson,.json" required
+           style="font-size:13px;">
+    <button type="submit"
+            style="margin-left: 10px; padding: 8px 18px; background: #5D4037; color: #fff; border: none; border-radius: 4px; font-size: 13px; cursor: pointer;">
+      Upload and preview
+    </button>
+  </form>
+
+  <p style="margin-top: 30px; font-size:13px;">
+    Or <a href="{% url 'inventory:manage_export' %}">download the current inventory</a>
+    to take a snapshot first.
+  </p>
+</div>
+{% endblock %}

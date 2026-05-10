@@ -893,6 +893,88 @@ def manage_edit(request, landslide_id):
 
 
 @inventory_editor_required
+def manage_export(request):
+    """Download a zip of two GeoJSON files representing current inventory state."""
+    from .io_geojson import build_export_bundle
+    body, fname = build_export_bundle()
+    resp = HttpResponse(body, content_type='application/zip')
+    resp['Content-Disposition'] = f'attachment; filename="{fname}"'
+    return resp
+
+
+_IMPORT_STAGE_DIR = '/tmp/landslidescience_imports'
+
+
+@inventory_editor_required
+def manage_import(request):
+    """GET = upload form; POST = parse, stage, render diff preview."""
+    from .io_geojson import parse_upload, compute_diff, ImportError_
+    import os as _os
+    import uuid as _uuid
+
+    if request.method == 'POST' and 'upload' in request.FILES:
+        try:
+            ls_fc, po_fc, manifest = parse_upload(request.FILES['upload'].read())
+        except ImportError_ as e:
+            return render(request, 'inventory/manage_import.html', {'error': str(e)})
+
+        diff = compute_diff(ls_fc, po_fc)
+
+        # Stash for the apply step. /tmp is acceptable; large enough for ~10MB JSON.
+        _os.makedirs(_IMPORT_STAGE_DIR, exist_ok=True)
+        token = _uuid.uuid4().hex
+        path = _os.path.join(_IMPORT_STAGE_DIR, f'{token}.json')
+        with open(path, 'w') as f:
+            json.dump({'landslides': ls_fc, 'landslide_polygons': po_fc}, f)
+
+        return render(request, 'inventory/manage_import_preview.html', {
+            'diff':     diff,
+            'manifest': manifest,
+            'token':    token,
+            'filename': request.FILES['upload'].name,
+        })
+
+    return render(request, 'inventory/manage_import.html', {})
+
+
+@inventory_editor_required
+def manage_import_apply(request):
+    """POST: apply a previously-staged import by token."""
+    from .io_geojson import apply_import
+    import os as _os
+
+    if request.method != 'POST' or not request.POST.get('token'):
+        return redirect('inventory:manage_import')
+    token = request.POST['token']
+    if not token.replace('-', '').isalnum():
+        return redirect('inventory:manage_import')
+    path = _os.path.join(_IMPORT_STAGE_DIR, f'{token}.json')
+    if not _os.path.exists(path):
+        return render(request, 'inventory/manage_import.html', {
+            'error': 'Staged import expired or not found. Please re-upload.',
+        })
+
+    with open(path) as f:
+        staged = json.load(f)
+    ls_fc = staged['landslides']
+    po_fc = staged['landslide_polygons']
+
+    summary = apply_import(ls_fc, po_fc, request.user)
+
+    # Cache invalidation — landslide data changed.
+    _invalidate('features', 'home_counts', 'timed_events',
+                'timeline_events', 'slug_map', 'slug_for_id')
+
+    # Cleanup the stage file
+    try:
+        _os.remove(path)
+    except OSError:
+        pass
+
+    return render(request, 'inventory/manage_import_done.html', {'summary': summary})
+
+
+@inventory_editor_required
 def manage_settings(request):
     """Map display settings (colors, point sizes). Renamed from admin_settings."""
     conn = _get_conn()

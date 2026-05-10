@@ -9,7 +9,11 @@
     <h2 style="font-size:18px; margin: 0;">Landslide records</h2>
     <span style="font-size:13px; color:#666;">{{ total }} total</span>
     <span style="margin-left:auto; font-size:13px;">
-      <a href="{% url 'inventory:manage_settings' %}">⚙ Map display settings</a>
+      <a href="{% url 'inventory:manage_export' %}">⬇ Export</a>
+      &nbsp;·&nbsp;
+      <a href="{% url 'inventory:manage_import' %}">⬆ Import</a>
+      &nbsp;·&nbsp;
+      <a href="{% url 'inventory:manage_settings' %}">⚙ Map settings</a>
     </span>
   </div>
 

@@ -16,6 +16,9 @@ urlpatterns = [
     path('api/timeline_events/', views.api_timeline_events, name='api_timeline_events'),
     path('manage/', views.manage_list, name='manage_list'),
     path('manage/settings/', views.manage_settings, name='manage_settings'),
+    path('manage/export/', views.manage_export, name='manage_export'),
+    path('manage/import/', views.manage_import, name='manage_import'),
+    path('manage/import/apply/', views.manage_import_apply, name='manage_import_apply'),
     path('manage/<int:landslide_id>/', views.manage_edit, name='manage_edit'),
     # Catchall slug deep-link — must be LAST so named routes resolve first.
     # Trailing slash optional. The regex matches only slug-shaped tokens.
