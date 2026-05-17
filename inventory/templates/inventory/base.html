@@ -16,6 +16,10 @@
       {% block header_nav %}
         <a href="{% url 'inventory:home' %}">Map</a>
         <a href="{% url 'inventory:methods' %}">Methods</a>
+        <a href="{% url 'inventory:export' %}" title="Download inventory as GeoJSON + QGIS styles">⬇ Download</a>
+        {% if is_inventory_editor %}
+          <a href="{% url 'inventory:manage_list' %}" style="color:#5D4037; font-weight:600;">⚙ Manage</a>
+        {% endif %}
       {% endblock %}
     </nav>
   </header>

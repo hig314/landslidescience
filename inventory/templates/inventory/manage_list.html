@@ -5,17 +5,34 @@
 
 {% block body %}
 <div style="max-width: 1100px; margin: 24px auto; padding: 0 24px;">
-  <div style="display:flex; align-items:baseline; gap:16px; margin-bottom: 14px;">
+  <div style="display:flex; align-items:center; gap:16px; margin-bottom: 14px; flex-wrap: wrap;">
     <h2 style="font-size:18px; margin: 0;">Landslide records</h2>
     <span style="font-size:13px; color:#666;">{{ total }} total</span>
-    <span style="margin-left:auto; font-size:13px;">
-      <a href="{% url 'inventory:manage_export' %}">⬇ Export</a>
-      &nbsp;·&nbsp;
-      <a href="{% url 'inventory:manage_import' %}">⬆ Import</a>
-      &nbsp;·&nbsp;
-      <a href="{% url 'inventory:manage_settings' %}">⚙ Map settings</a>
-    </span>
+    <div style="margin-left:auto; display:flex; gap:8px;">
+      <a href="{% url 'inventory:export' %}" class="inv-action-btn">⬇ Export GeoJSON</a>
+      <a href="{% url 'inventory:manage_import' %}" class="inv-action-btn">⬆ Import GeoJSON</a>
+      <a href="{% url 'inventory:manage_settings' %}" class="inv-action-btn inv-action-btn-light">⚙ Map settings</a>
+    </div>
   </div>
+  <style>
+    .inv-action-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      background: #5D4037;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    .inv-action-btn:hover { background: #432d27; }
+    .inv-action-btn.inv-action-btn-light {
+      background: #f0ebe9;
+      color: #5D4037;
+      border: 1px solid #d6c8c2;
+    }
+    .inv-action-btn.inv-action-btn-light:hover { background: #e6dfdc; }
+  </style>
 
   <form method="get" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 14px; padding:10px 14px; background:#f7f7f7; border-radius:5px; border:1px solid #e0e0e0;">
     <input type="search" name="q" value="{{ q }}" placeholder="Search name…"

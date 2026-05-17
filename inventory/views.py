@@ -892,9 +892,14 @@ def manage_edit(request, landslide_id):
     })
 
 
-@inventory_editor_required
-def manage_export(request):
-    """Download a zip of two GeoJSON files representing current inventory state."""
+def export_download(request):
+    """Download a zip of the inventory as GeoJSON + QGIS .qml styles.
+
+    Public — same data the map already serves via /api/features and /api/polygons,
+    bundled into a single QGIS-ready archive. While the pre-launch preview
+    password is set, this is still gated by InventoryPreviewMiddleware along
+    with the rest of /inventory/*.
+    """
     from .io_geojson import build_export_bundle
     body, fname = build_export_bundle()
     resp = HttpResponse(body, content_type='application/zip')
