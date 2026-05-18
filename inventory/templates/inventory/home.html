@@ -6,7 +6,7 @@
 {% block body_class %}inv-map-body{% endblock %}
 
 {% block extra_styles %}
-  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+  <link href="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.css" rel="stylesheet">
 {% endblock %}
 
 {% block body %}
@@ -65,9 +65,9 @@
     </li>
     {% endfor %}
 
-    {# ---- Catastrophic: with precursory creep ---- #}
-    <li class="nav-item nav-class-header">Catastrophic &mdash; with precursory creep</li>
-    {% for cls, cnt, color, halo in cat_precursory %}
+    {# ---- Large catastrophic landslides since 2012 (precursory + plain) ---- #}
+    <li class="nav-item nav-class-header">Large catastrophic landslides since 2012</li>
+    {% for cls, cnt, color, halo in cat_recent %}
     <li class="nav-item">
       <label class="nav-filter-label">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked>
@@ -78,16 +78,16 @@
     </li>
     {% endfor %}
 
-    {# ---- Catastrophic: historical / size ---- #}
+    {# ---- Other catastrophic landslides (modern / Holocene / small) ---- #}
     <li class="nav-item nav-subgroup-header">
-      Historical / size classes
+      Other catastrophic landslides
       <span class="subgroup-toggle">
-        <a href="#" class="sg-all" data-sg="cat-hist">all</a> /
-        <a href="#" class="sg-none" data-sg="cat-hist">none</a>
+        <a href="#" class="sg-all" data-sg="cat-other">all</a> /
+        <a href="#" class="sg-none" data-sg="cat-other">none</a>
       </span>
     </li>
-    {% for cls, cnt, color, halo in cat_historical %}
-    <li class="nav-item sg-item" data-sg="cat-hist">
+    {% for cls, cnt, color, halo in cat_other %}
+    <li class="nav-item sg-item" data-sg="cat-other">
       <label class="nav-filter-label">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked>
         <span class="cls-dot cls-dot-cat" style="background:{{ color }};"></span>
@@ -232,6 +232,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
 <script src="{% static 'inventory/js/map.js' %}"></script>
 {% endblock %}

@@ -103,6 +103,7 @@
             layers.push({ id: 'labels', type: 'raster', source: 'labels' });
         }
         return { version: 8, sources: sources, layers: layers,
+                 projection: { type: 'globe' },
                  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf' };
     }
 
@@ -125,6 +126,15 @@
                 ? [_initialHash.lon, _initialHash.lat] : [-153, 62],
         zoom: (_initialHash.zoom != null) ? _initialHash.zoom : 4
     });
+    // Globe projection — MapLibre 4.x. Re-assert on every style.load so
+    // external-URL basemaps (whose JSON we don't control) also get it.
+    function applyGlobe() {
+        if (typeof map.setProjection === 'function') {
+            try { map.setProjection({ type: 'globe' }); } catch (e) {}
+        }
+    }
+    map.on('style.load', applyGlobe);
+    applyGlobe();
     map.addControl(new maplibregl.NavigationControl(), 'top-left');
     map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
 
@@ -307,6 +317,7 @@
             if (!map.getSource('landslides')) initDataLayers();
         });
         map.setStyle(bm.style ? bm.style : buildRasterStyle(bm));
+        // Globe is re-asserted by the persistent 'style.load' handler above.
         if (_mapReady) writeHashState();
     }
 

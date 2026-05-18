@@ -54,17 +54,17 @@ _SLOW_OTHER_ORDER = [
     'Slow Geomorph creep',
     'Small slow landslide',
 ]
-_CAT_PRECURSORY_ORDER = [
+_CAT_RECENT_ORDER = [
     'Catastrophic Obvious creep',
     'Catastrophic Patchy obvious creep',
     'Catastrophic Subtle creep',
     'Catastrophic Geomorph creep',
-]
-_CAT_HISTORICAL_ORDER = [
     'Catastrophic',
+]
+_CAT_OTHER_ORDER = [
     'Catastrophic Modern',
-    'Small catastrophic landslide',
     'Catastrophic Holocene',
+    'Small catastrophic landslide',
 ]
 _CLASS_COLOR = {
     'Slow Obvious creep':                '#f69fa1',
@@ -248,8 +248,8 @@ def home(request):
     return render(request, "inventory/home.html", {
         "slow_active":     make_class_list('slow', _SLOW_ACTIVE_ORDER),
         "slow_other":      make_class_list('slow', _SLOW_OTHER_ORDER),
-        "cat_precursory":  make_class_list('catastrophic', _CAT_PRECURSORY_ORDER),
-        "cat_historical":  make_class_list('catastrophic', _CAT_HISTORICAL_ORDER),
+        "cat_recent":      make_class_list('catastrophic', _CAT_RECENT_ORDER),
+        "cat_other":       make_class_list('catastrophic', _CAT_OTHER_ORDER),
         "data_version":    _data_version,
     })
 

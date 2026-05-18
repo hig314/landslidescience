@@ -9,12 +9,12 @@ export time so admin customizations propagate to the styles. Two layers:
       precursor color. Slow classes get a thin gray outline; others none.
 
   build_qml_polygons(settings)
-      Rule-based renderer. Rule 1: role IN ('source','deposit') → solid
-      catastrophic blue with dark-blue outline. Subsequent rules: per
-      landslide_class color matching the points symbology. (Requires the
-      `landslide_class` column to be present — true for the flat polygon
-      export, and true for the normalized export once joined to landslides
-      in QGIS with no prefix.)
+      Rule-based renderer. One rule per landslide_class with the matching
+      fill color (and a gray outline), plus an ELSE catch-all. No role-
+      based override, so source/deposit polygons get the same per-class
+      color as their parent. (Requires the `landslide_class` column to be
+      present — true for the flat polygon export, and true for the
+      normalized export once joined to landslides in QGIS with no prefix.)
 
 The output is QGIS 3.x QML using the modern Option-based property style.
 """
@@ -26,23 +26,28 @@ The output is QGIS 3.x QML using the modern Option-based property style.
 # Values: ('fill_setting_key', 'halo_setting_key' | None) — looked up from
 # map_settings to allow admin overrides.
 # ---------------------------------------------------------------------------
+# Order matches the inventory legend nav (home.html / views.py group orders):
+#   Slow active → Slow other → Catastrophic recent (since 2012) → Catastrophic other
 _CLASS_FILL_KEYS = {
+    # Slow — active
     'Slow Obvious creep':                ('color_obvious',  None),
     'Slow Patchy obvious creep':         ('color_obvious',  None),
+    # Slow — other
     'Slow Subtle creep':                 ('color_subtle',   None),
     'Slow Geomorph creep':               ('color_geomorph', None),
     'Small slow landslide':              ('color_geomorph', None),
-    'Catastrophic':                      ('color_cat',      None),
-    'Small catastrophic landslide':      (None,             None),  # pale-blue, see below
-    'Catastrophic Holocene':             (None,             None),
-    'Catastrophic Modern':               (None,             None),
+    # Large catastrophic since 2012 (precursory creep variants, then plain)
     'Catastrophic Obvious creep':        ('color_cat',      'color_obvious'),
     'Catastrophic Patchy obvious creep': ('color_cat',      'color_obvious'),
     'Catastrophic Subtle creep':         ('color_cat',      'color_subtle'),
     'Catastrophic Geomorph creep':       ('color_cat',      'color_geomorph'),
+    'Catastrophic':                      ('color_cat',      None),
+    # Other catastrophic landslides (pale-blue dot — see _PALE_BLUE)
+    'Catastrophic Modern':               (None,             None),
+    'Catastrophic Holocene':             (None,             None),
+    'Small catastrophic landslide':      (None,             None),
 }
 _PALE_BLUE = '#96b8df'
-_DEPOSIT_SOURCE_OUTLINE = '#1a3f80'
 
 _DEFAULTS = {
     'color_geomorph': '#d3e9cf',
@@ -176,10 +181,11 @@ def build_qml_points(settings):
 def build_qml_polygons(settings):
     """Generate a QML for the landslide_polygons layer.
 
-    Rule 1: role IN ('source','deposit') → solid catastrophic-blue fill with
-    dark-blue outline. (Matches map.js polygon-fill / polygon-outline 'case'
-    expressions for those roles.)
-    Subsequent rules: one per landslide_class with the matching fill color.
+    Rule-based renderer with one rule per landslide_class (color matching the
+    points symbology), plus an ELSE catch-all. No role-based override — every
+    polygon is colored solely by its landslide_class so source/deposit
+    polygons of catastrophic landslides get the same per-class color as their
+    parent (matches the inventory map).
 
     Requires the `landslide_class` column to be present. True for the flat
     polygon export. For the normalized polygon export, the user must first
@@ -187,23 +193,14 @@ def build_qml_polygons(settings):
     column appears as `landslide_class` (not `landslides_landslide_class`).
     """
     stroke   = _setting(settings, 'stroke_color')
-    cat_blue = _setting(settings, 'color_cat')
     opacity  = float(_setting(settings, 'fill_opacity'))
     line_w   = float(_setting(settings, 'line_width')) * 0.3  # px → mm-ish
 
     rules = []
     symbols = []
 
-    # Rule 0: source/deposit polygons (catastrophic representative geometry)
-    rules.append(
-        '<rule symbol="0" key="r_srcdep" '
-        f'filter="&quot;role&quot; IN (&apos;source&apos;,&apos;deposit&apos;)" '
-        'label="Catastrophic source/deposit"/>'
-    )
-    symbols.append(_fill_symbol('0', cat_blue, _DEPOSIT_SOURCE_OUTLINE, alpha=opacity, outline_width_mm=line_w))
-
-    # Subsequent rules: by landslide_class
-    sym_idx = 1
+    # One rule per landslide_class
+    sym_idx = 0
     for cls, (fill_key, _halo_key) in _CLASS_FILL_KEYS.items():
         if fill_key is None:
             fill_hex = _PALE_BLUE
