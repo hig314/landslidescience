@@ -106,7 +106,7 @@
                                function () { self._setMode(self._mode === 'line' ? 'idle' : 'line'); });
         this._btnPoly  = mkBtn('▱', 'Measure area (Esc to cancel)',
                                function () { self._setMode(self._mode === 'polygon' ? 'idle' : 'polygon'); });
-        this._btnClear = mkBtn('✕', 'Clear all measurements',
+        this._btnClear = mkBtn('✕', 'Clear measurements and exit tool',
                                function () { self._clearAll(); });
         el.appendChild(this._btnLine);
         el.appendChild(this._btnPoly);
@@ -302,10 +302,20 @@
     };
 
     MeasureControl.prototype._clearAll = function () {
+        // Drop active + finalized features, then exit the tool entirely so
+        // the user is back in normal click-to-select mode.
         this._features = [];
         this._active   = [];
         this._setPreview([]);
         this._tooltip.style.display = 'none';
+        if (this._mode !== 'idle') {
+            this._mode = 'idle';
+            this._map.__measureActive = false;
+            this._btnLine.classList.remove('active');
+            this._btnPoly.classList.remove('active');
+            this._map.getCanvas().style.cursor = '';
+            this._map.doubleClickZoom.enable();
+        }
         this._render();
     };
 
