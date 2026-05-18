@@ -202,6 +202,8 @@
 
   <div id="basemap-picker"></div>
 
+  <div id="measure-readout" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); background:rgba(255,255,255,0.92); border:1px solid rgba(0,0,0,0.12); border-radius:4px; padding:5px 12px; font-size:13px; font-family:system-ui,sans-serif; color:#222; box-shadow:0 1px 3px rgba(0,0,0,0.15); z-index:5; display:none;"></div>
+
   <div id="map-legend">
     <div class="legend-row">
       <span class="legend-dot" style="background:#d3e9cf"></span>
@@ -233,5 +235,6 @@
 
 {% block scripts %}
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
 <script src="{% static 'inventory/js/map.js' %}"></script>
 {% endblock %}

@@ -615,3 +615,29 @@ body.inv-article-body {
     vertical-align: middle;
     margin-right: 4px;
 }
+
+/* --- Measure tool --- */
+.inv-measure-ctrl button {
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+    color: #333;
+}
+.inv-measure-ctrl button.active {
+    background: #ffaa00;
+    color: #fff;
+}
+.inv-measure-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(0,0,0,0.78);
+    color: #fff;
+    padding: 3px 7px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-family: system-ui, sans-serif;
+    white-space: nowrap;
+    z-index: 100;
+    display: none;
+    transform: translate(10px, -50%);
+}
