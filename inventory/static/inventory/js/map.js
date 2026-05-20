@@ -766,13 +766,14 @@
 
     var cbMolards      = document.getElementById('cb-molards');
     var cbStream       = document.getElementById('cb-stream');
+    var cbHeadscarp    = document.getElementById('cb-headscarp');
     var cbSupraglacial = document.getElementById('cb-supraglacial');
     var cbPermafrost   = document.getElementById('cb-permafrost');
     var cbTimed        = document.getElementById('cb-timed');
     var cbSeismic      = document.getElementById('cb-seismic');
     var cbPost2012     = document.getElementById('cb-post2012');
     var cbLimitView    = document.getElementById('cb-limit-view');
-    [cbMolards, cbStream, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012].forEach(function (cb) {
+    [cbMolards, cbStream, cbHeadscarp, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012].forEach(function (cb) {
         if (cb) cb.addEventListener('change', buildFilter);
     });
 
@@ -817,7 +818,7 @@
         });
         if (anyClassOff) params.set('c', c); else params.delete('c');
 
-        // Flags bitmask: molards=1 stream=2 supraglacial=4 permafrost=8 timed=16 seismic=32 post2012=64
+        // Flags bitmask: molards=1 stream=2 supraglacial=4 permafrost=8 timed=16 seismic=32 post2012=64 headscarp=128
         var f = 0;
         if (cbMolards      && cbMolards.checked)      f |= 1;
         if (cbStream       && cbStream.checked)        f |= 2;
@@ -826,6 +827,7 @@
         if (cbTimed        && cbTimed.checked)         f |= 16;
         if (cbSeismic      && cbSeismic.checked)       f |= 32;
         if (cbPost2012     && cbPost2012.checked)      f |= 64;
+        if (cbHeadscarp    && cbHeadscarp.checked)     f |= 128;
         if (f !== 0) params.set('f', f); else params.delete('f');
 
         // Sliders
@@ -885,6 +887,7 @@
         if (cbTimed)        cbTimed.checked         = !!(f & 16);
         if (cbSeismic)      cbSeismic.checked       = !!(f & 32);
         if (cbPost2012)     cbPost2012.checked      = !!(f & 64);
+        if (cbHeadscarp)    cbHeadscarp.checked     = !!(f & 128);
 
         // Sliders
         if (srcAreaSlider && params.has('sa')) {
@@ -972,6 +975,7 @@
         }
         if (cbMolards      && cbMolards.checked)      f.push(['==', ['get', 'molards'], true]);
         if (cbStream       && cbStream.checked)        f.push(['!=', ['coalesce', ['get', 'stream_damming'], ''], '']);
+        if (cbHeadscarp    && cbHeadscarp.checked)     f.push(['==', ['get', 'precursory_headscarp'], true]);
         if (cbSupraglacial && cbSupraglacial.checked)  f.push(['==', ['get', 'exclusively_supraglacial'], true]);
         if (cbPermafrost   && cbPermafrost.checked)    f.push(['==', ['get', 'creeping_permafrost_mass'], true]);
         if (cbTimed        && cbTimed.checked)         f.push(['==', ['get', 'has_time_bracket'], true]);
@@ -1343,6 +1347,7 @@
             minYear:  yearSlider && parseInt(yearSlider.value) > 0  ? yearPosToMinNum(parseInt(yearSlider.value)) : null,
             molards:      cbMolards      && cbMolards.checked,
             stream:       cbStream       && cbStream.checked,
+            headscarp:    cbHeadscarp    && cbHeadscarp.checked,
             supraglacial: cbSupraglacial && cbSupraglacial.checked,
             permafrost:   cbPermafrost   && cbPermafrost.checked,
             timed:        cbTimed        && cbTimed.checked,
@@ -1376,6 +1381,7 @@
             }
             if (fs.molards      && !ev.molards)      return;
             if (fs.stream       && !ev.stream_dam)   return;
+            if (fs.headscarp    && !ev.headscarp)    return;
             if (fs.supraglacial && !ev.supraglacial) return;
             if (fs.permafrost   && !ev.permafrost)   return;
             if (fs.seismic && ev.timing !== 'point')  return;
@@ -1754,6 +1760,7 @@
             }
             if (fs.molards      && !ev.molards)      return;
             if (fs.stream       && !ev.stream_dam)   return;
+            if (fs.headscarp    && !ev.headscarp)    return;
             if (fs.supraglacial && !ev.supraglacial) return;
             if (fs.permafrost   && !ev.permafrost)   return;
             if (fs.seismic      && !ev.has_seismic)  return;
