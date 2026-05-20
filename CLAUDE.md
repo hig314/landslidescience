@@ -164,7 +164,7 @@ Workflow:
 
 The Tethys monitoring stack (sensor dashboards, access-controlled admin) stays in its own repo. Public-facing components migrate to this repo as needed; they read from `tethys_db` directly via psycopg2 (no Django models for landslide data — keeps PostGIS as the single source of truth, owned by the Tethys repo).
 
-Phase 3 of the inventory port is decommissioning the Tethys-side `landslides` app once we've soaked on the new one for a couple of weeks.
+The Tethys-side `landslides` app was decommissioned 2026-05-20. Source code was moved to `archived_apps/tethysapp-landslides/` in the Tethys repo and removed from `Dockerfile.tethys`, so `/apps/landslides/` 404s. The `landslides` table in `tethys_db` is unchanged — still owned by the Tethys repo, read directly by this app over the shared Docker network.
 
 ## Known future work: derived-value layer
 
