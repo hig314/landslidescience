@@ -1048,7 +1048,9 @@ def manage_rules(request):
             d = derived.diff_against_db(cur, name)
             rules.append({
                 'name':          name,
+                'target_table':  getattr(fn, 'target_table', 'landslides'),
                 'target_column': fn.target_column,
+                'is_sql':        getattr(fn, 'is_sql', False),
                 'inputs':        fn.inputs,
                 'summary':       getattr(fn, 'summary', ''),
                 'agreements':    d['agreements'],
@@ -1089,24 +1091,42 @@ def manage_rule_detail(request, name):
 
 @inventory_editor_required
 def manage_rule_apply(request, name):
-    """POST-only: UPDATE the target column on every row where computed != stored."""
+    """POST-only: UPDATE the target column on every row where computed != stored.
+
+    Handles both `landslides` and `landslide_polygons` as target tables.
+    Audit entries always point to the parent landslide id.
+    """
     from . import derived
     if request.method != 'POST' or name not in derived.RULES:
         return redirect('inventory:manage_rules')
     fn = derived.RULES[name]
-    target = fn.target_column
+    target_table  = getattr(fn, 'target_table', 'landslides')
+    target_column = fn.target_column
 
     conn = _get_conn()
     try:
         cur = conn.cursor()
         d = derived.diff_against_db(cur, name)
-        applied_ids = []
+        touched_row_ids = []
         for ch in d['changes']:
             cur.execute(
-                f"UPDATE landslides SET {target} = %s WHERE id = %s",
+                f"UPDATE {target_table} SET {target_column} = %s WHERE id = %s",
                 (ch['new'], ch['id']),
             )
-            applied_ids.append(ch['id'])
+            touched_row_ids.append(ch['id'])
+
+        # Resolve to parent landslide ids for the audit log.
+        if target_table == 'landslides':
+            affected_landslide_ids = list(touched_row_ids)
+        elif touched_row_ids:
+            cur.execute(
+                "SELECT DISTINCT landslide_id FROM landslide_polygons WHERE id = ANY(%s)",
+                (touched_row_ids,),
+            )
+            affected_landslide_ids = [r[0] for r in cur.fetchall()]
+        else:
+            affected_landslide_ids = []
+
         conn.commit()
     except Exception:
         conn.rollback()
@@ -1114,15 +1134,13 @@ def manage_rule_apply(request, name):
     finally:
         _put_conn(conn)
 
-    # Audit log entries — one per affected landslide.
     from .models import LandslideEditMeta
-    for ls_id in applied_ids:
+    for ls_id in affected_landslide_ids:
         LandslideEditMeta.objects.update_or_create(
             landslide_id=ls_id,
             defaults={'last_edited_by': request.user},
         )
 
-    # Caches that depend on landslide columns must be cleared.
     _invalidate('features', 'home_counts', 'timed_events',
                 'timeline_events', 'slug_map', 'slug_for_id')
 
