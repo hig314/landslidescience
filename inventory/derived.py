@@ -616,6 +616,34 @@ compute_volume_preferred.summary       = ('Site-specific volume if available, '
                                           'else the estimate.')
 
 
+# Canonical label written by the volume_method rule when the row is using
+# the automated estimate (i.e. has no manual volume_site_specific value).
+AUTOMATED_VOLUME_METHOD_LABEL = 'Automated estimate'
+
+
+def compute_volume_method(row):
+    """Standardize volume_method for rows using the automated estimate.
+
+    - If `volume_site_specific` is set, this row was sized by a manual /
+      site-specific approach. Keep whatever volume_method text is there
+      (typically a one-off description: a paper citation, a DEM-differencing
+      note, an exposure measurement, etc.). The rule returns the stored
+      value unchanged, so those rows never disagree.
+    - Otherwise the row is using the rule-driven estimate. Force a single
+      canonical label `AUTOMATED_VOLUME_METHOD_LABEL` so the auto-estimated
+      cohort is easy to count and filter.
+    """
+    if row.get('volume_site_specific') is not None:
+        return row.get('volume_method')
+    return AUTOMATED_VOLUME_METHOD_LABEL
+
+compute_volume_method.target_table  = 'landslides'
+compute_volume_method.target_column = 'volume_method'
+compute_volume_method.inputs        = ('volume_site_specific', 'volume_method')
+compute_volume_method.summary       = ('Canonical label for auto-estimated '
+                                       'rows; pass-through for site-specific.')
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -649,6 +677,8 @@ RULES = {
     'volume_estimated':   compute_volume_estimated,
     # Site-specific override → final preferred volume
     'volume_preferred':   compute_volume_preferred,
+    # Standardize the volume_method label for auto-estimated rows
+    'volume_method':      compute_volume_method,
     # Creep evidence chain: roll up specific InSAR flags, then pick the
     # creep_behavior label, then derive the categorical landslide_class.
     'insar_creep':        compute_insar_creep,
