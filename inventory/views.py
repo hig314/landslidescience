@@ -358,6 +358,7 @@ def api_features(request):
                         'molards',                   l.molards,
                         'stream_damming',            l.stream_damming,
                         'precursory_headscarp',      l.precursory_headscarp,
+                        'has_site_specific_volume', (l.volume_site_specific IS NOT NULL),
                         'exclusively_supraglacial',  l.exclusively_supraglacial,
                         'creeping_permafrost_mass',  l.creeping_permafrost_mass,
                         'has_seismic',              (l.seismic_datetime IS NOT NULL),
@@ -559,7 +560,8 @@ def api_timed_events(request):
             END AS event_year,
             CASE WHEN l.landslide_type = 'slow' THEN pa.area_body ELSE pa.area_source END AS area_src,
             CASE WHEN l.landslide_type = 'catastrophic' THEN pa.area_deposit ELSE NULL END AS area_dep,
-            l.precursory_headscarp
+            l.precursory_headscarp,
+            (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume
         FROM landslides l
         JOIN (
             SELECT landslide_id, ST_Centroid(ST_Union(geom)) AS centroid
@@ -604,7 +606,8 @@ def api_timed_events(request):
             'year':    int(r[15]) if r[15] is not None else 2000,
             'area_src': float(r[16]) if r[16] is not None else None,
             'area_dep': float(r[17]) if r[17] is not None else None,
-            'headscarp': bool(r[18]) if r[18] is not None else False,
+            'headscarp':       bool(r[18]) if r[18] is not None else False,
+            'has_site_volume': bool(r[19]) if r[19] is not None else False,
         })
     _cache['timed_events'] = events
     resp = JsonResponse({'events': events})
@@ -650,7 +653,8 @@ def api_timeline_events(request):
             to_char(l.date_max, 'YYYY-MM-DD') AS tl_d1,
             CASE WHEN l.landslide_type = 'slow' THEN pa.area_body ELSE pa.area_source END AS area_src,
             CASE WHEN l.landslide_type = 'catastrophic' THEN pa.area_deposit ELSE NULL END AS area_dep,
-            l.precursory_headscarp
+            l.precursory_headscarp,
+            (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume
         FROM landslides l
         JOIN (
             SELECT landslide_id, ST_Centroid(ST_Union(geom)) AS centroid
@@ -698,7 +702,8 @@ def api_timeline_events(request):
             'tl_d1':    r[15],
             'area_src': float(r[16]) if r[16] is not None else None,
             'area_dep': float(r[17]) if r[17] is not None else None,
-            'headscarp': bool(r[18]) if r[18] is not None else False,
+            'headscarp':       bool(r[18]) if r[18] is not None else False,
+            'has_site_volume': bool(r[19]) if r[19] is not None else False,
         })
     _cache['timeline_events'] = events
     resp = JsonResponse({'events': events})

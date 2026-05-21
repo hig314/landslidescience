@@ -767,13 +767,14 @@
     var cbMolards      = document.getElementById('cb-molards');
     var cbStream       = document.getElementById('cb-stream');
     var cbHeadscarp    = document.getElementById('cb-headscarp');
+    var cbSiteVolume   = document.getElementById('cb-site-volume');
     var cbSupraglacial = document.getElementById('cb-supraglacial');
     var cbPermafrost   = document.getElementById('cb-permafrost');
     var cbTimed        = document.getElementById('cb-timed');
     var cbSeismic      = document.getElementById('cb-seismic');
     var cbPost2012     = document.getElementById('cb-post2012');
     var cbLimitView    = document.getElementById('cb-limit-view');
-    [cbMolards, cbStream, cbHeadscarp, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012].forEach(function (cb) {
+    [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012].forEach(function (cb) {
         if (cb) cb.addEventListener('change', buildFilter);
     });
 
@@ -818,7 +819,7 @@
         });
         if (anyClassOff) params.set('c', c); else params.delete('c');
 
-        // Flags bitmask: molards=1 stream=2 supraglacial=4 permafrost=8 timed=16 seismic=32 post2012=64 headscarp=128
+        // Flags bitmask: molards=1 stream=2 supraglacial=4 permafrost=8 timed=16 seismic=32 post2012=64 headscarp=128 site_volume=256
         var f = 0;
         if (cbMolards      && cbMolards.checked)      f |= 1;
         if (cbStream       && cbStream.checked)        f |= 2;
@@ -828,6 +829,7 @@
         if (cbSeismic      && cbSeismic.checked)       f |= 32;
         if (cbPost2012     && cbPost2012.checked)      f |= 64;
         if (cbHeadscarp    && cbHeadscarp.checked)     f |= 128;
+        if (cbSiteVolume   && cbSiteVolume.checked)    f |= 256;
         if (f !== 0) params.set('f', f); else params.delete('f');
 
         // Sliders
@@ -888,6 +890,7 @@
         if (cbSeismic)      cbSeismic.checked       = !!(f & 32);
         if (cbPost2012)     cbPost2012.checked      = !!(f & 64);
         if (cbHeadscarp)    cbHeadscarp.checked     = !!(f & 128);
+        if (cbSiteVolume)   cbSiteVolume.checked    = !!(f & 256);
 
         // Sliders
         if (srcAreaSlider && params.has('sa')) {
@@ -976,6 +979,7 @@
         if (cbMolards      && cbMolards.checked)      f.push(['==', ['get', 'molards'], true]);
         if (cbStream       && cbStream.checked)        f.push(['!=', ['coalesce', ['get', 'stream_damming'], ''], '']);
         if (cbHeadscarp    && cbHeadscarp.checked)     f.push(['==', ['get', 'precursory_headscarp'], true]);
+        if (cbSiteVolume   && cbSiteVolume.checked)    f.push(['==', ['get', 'has_site_specific_volume'], true]);
         if (cbSupraglacial && cbSupraglacial.checked)  f.push(['==', ['get', 'exclusively_supraglacial'], true]);
         if (cbPermafrost   && cbPermafrost.checked)    f.push(['==', ['get', 'creeping_permafrost_mass'], true]);
         if (cbTimed        && cbTimed.checked)         f.push(['==', ['get', 'has_time_bracket'], true]);
@@ -1348,6 +1352,7 @@
             molards:      cbMolards      && cbMolards.checked,
             stream:       cbStream       && cbStream.checked,
             headscarp:    cbHeadscarp    && cbHeadscarp.checked,
+            siteVolume:   cbSiteVolume   && cbSiteVolume.checked,
             supraglacial: cbSupraglacial && cbSupraglacial.checked,
             permafrost:   cbPermafrost   && cbPermafrost.checked,
             timed:        cbTimed        && cbTimed.checked,
@@ -1379,10 +1384,11 @@
                 var yn = ev.year_num !== null ? ev.year_num : 9999;
                 if (yn < fs.minYear) return;
             }
-            if (fs.molards      && !ev.molards)      return;
-            if (fs.stream       && !ev.stream_dam)   return;
-            if (fs.headscarp    && !ev.headscarp)    return;
-            if (fs.supraglacial && !ev.supraglacial) return;
+            if (fs.molards      && !ev.molards)         return;
+            if (fs.stream       && !ev.stream_dam)      return;
+            if (fs.headscarp    && !ev.headscarp)       return;
+            if (fs.siteVolume   && !ev.has_site_volume) return;
+            if (fs.supraglacial && !ev.supraglacial)    return;
             if (fs.permafrost   && !ev.permafrost)   return;
             if (fs.seismic && ev.timing !== 'point')  return;
             if (fs.timed   && ev.timing === 'point')  return;
@@ -1758,10 +1764,11 @@
                 var yn = ev.year_num !== null ? ev.year_num : 9999;
                 if (yn < fs.minYear) return;
             }
-            if (fs.molards      && !ev.molards)      return;
-            if (fs.stream       && !ev.stream_dam)   return;
-            if (fs.headscarp    && !ev.headscarp)    return;
-            if (fs.supraglacial && !ev.supraglacial) return;
+            if (fs.molards      && !ev.molards)         return;
+            if (fs.stream       && !ev.stream_dam)      return;
+            if (fs.headscarp    && !ev.headscarp)       return;
+            if (fs.siteVolume   && !ev.has_site_volume) return;
+            if (fs.supraglacial && !ev.supraglacial)    return;
             if (fs.permafrost   && !ev.permafrost)   return;
             if (fs.seismic      && !ev.has_seismic)  return;
             if (fs.post2012     && !ev.post_2012)    return;
