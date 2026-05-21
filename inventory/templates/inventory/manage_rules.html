@@ -1,0 +1,52 @@
+{% extends "inventory/base.html" %}
+{% block title %}Auto-classification rules{% endblock %}
+{% block page_title %}Manage · rules{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 1000px; margin: 24px auto; padding: 0 24px;">
+  <div style="display:flex; align-items:center; gap:16px; margin-bottom: 14px;">
+    <a href="{% url 'inventory:manage_list' %}" style="font-size:13px;">&larr; Back to records</a>
+    <h2 style="font-size:18px; margin: 0;">Auto-classification rules</h2>
+  </div>
+
+  <p style="font-size:13px; color:#555; max-width:700px;">
+    Each rule is a Python function that computes a single column from other columns
+    on the landslide record. The function source itself is shown on the rule detail
+    page — it's the canonical definition (no separate prose can drift). Click a rule
+    to see proposed changes and apply them across the whole inventory.
+  </p>
+
+  <table style="border-collapse:collapse; width:100%; font-size:13px; margin-top:14px;">
+    <thead>
+      <tr style="background:#f5f5f5; text-align:left;">
+        <th style="padding:6px 10px; border-bottom:1px solid #ccc;">Rule</th>
+        <th style="padding:6px 10px; border-bottom:1px solid #ccc;">Target column</th>
+        <th style="padding:6px 10px; border-bottom:1px solid #ccc;">Inputs</th>
+        <th style="padding:6px 10px; border-bottom:1px solid #ccc; text-align:right;">Agree</th>
+        <th style="padding:6px 10px; border-bottom:1px solid #ccc; text-align:right;">Disagree</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rules %}
+      <tr>
+        <td style="padding:6px 10px; border-bottom:1px solid #eee;">
+          <a href="{% url 'inventory:manage_rule_detail' name=r.name %}"
+             style="font-weight:600; color:#5D4037;">{{ r.name }}</a>
+          {% if r.summary %}<div style="color:#666; font-size:12px;">{{ r.summary }}</div>{% endif %}
+        </td>
+        <td style="padding:6px 10px; border-bottom:1px solid #eee; font-family:monospace;">{{ r.target_column }}</td>
+        <td style="padding:6px 10px; border-bottom:1px solid #eee; font-family:monospace; font-size:11px; color:#666;">
+          {% for c in r.inputs %}{{ c }}{% if not forloop.last %}, {% endif %}{% endfor %}
+        </td>
+        <td style="padding:6px 10px; border-bottom:1px solid #eee; text-align:right; color:#080;">{{ r.agreements }}</td>
+        <td style="padding:6px 10px; border-bottom:1px solid #eee; text-align:right;
+                   {% if r.disagreements %}color:#c0392b; font-weight:600;{% else %}color:#080;{% endif %}">
+          {{ r.disagreements }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

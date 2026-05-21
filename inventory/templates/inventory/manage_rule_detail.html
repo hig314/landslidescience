@@ -1,0 +1,98 @@
+{% extends "inventory/base.html" %}
+{% block title %}Rule · {{ name }}{% endblock %}
+{% block page_title %}Rule · {{ name }}{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 1100px; margin: 24px auto; padding: 0 24px;">
+  <div style="display:flex; align-items:center; gap:16px; margin-bottom: 14px;">
+    <a href="{% url 'inventory:manage_rules' %}" style="font-size:13px;">&larr; All rules</a>
+    <h2 style="font-size:18px; margin: 0;">
+      <code style="background:#f0ebe9; padding:2px 6px; border-radius:3px;">{{ name }}</code>
+      <span style="font-weight:400; color:#666; font-size:14px;">→ writes <code>{{ target_column }}</code></span>
+    </h2>
+  </div>
+
+  <div style="display:flex; gap:12px; font-size:13px; margin-bottom:18px;">
+    <span style="background:#e8f5e9; color:#080; padding:4px 10px; border-radius:3px;">
+      <strong>{{ agreements }}</strong> already match
+    </span>
+    <span style="background:{% if changes %}#fdecea{% else %}#e8f5e9{% endif %};
+                 color:{% if changes %}#c0392b{% else %}#080{% endif %};
+                 padding:4px 10px; border-radius:3px;">
+      <strong>{{ changes|length }}</strong> would change
+    </span>
+  </div>
+
+  {# ------------------------------------------------------------------ #}
+  {# Function source — the authoritative definition.                    #}
+  {# ------------------------------------------------------------------ #}
+  <h3 style="font-size:14px; margin: 18px 0 6px;">Function source</h3>
+  <p style="font-size:12px; color:#666; margin: 0 0 8px;">
+    This is read live from <code>inventory/derived.py</code> via
+    <code>inspect.getsource()</code>; what you see is exactly what runs.
+  </p>
+  <pre style="background:#f7f7f5; border:1px solid #ddd; border-radius:4px;
+              padding:14px 18px; font-size:12px; line-height:1.45;
+              overflow:auto; max-height:520px;
+              font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;"
+  >{{ source }}</pre>
+
+  {# ------------------------------------------------------------------ #}
+  {# Preview + apply.                                                   #}
+  {# ------------------------------------------------------------------ #}
+  <h3 style="font-size:14px; margin: 22px 0 6px;">Proposed changes</h3>
+  {% if changes %}
+    <p style="font-size:13px; color:#555; margin: 0 0 8px;">
+      The following rows would be updated. Review carefully, then click Apply at
+      the bottom to UPDATE every row in one transaction.
+    </p>
+    <div style="max-height: 520px; overflow:auto; border:1px solid #ddd; border-radius:4px;">
+      <table style="border-collapse:collapse; width:100%; font-size:12px;">
+        <thead style="background:#f5f5f5; position:sticky; top:0;">
+          <tr style="text-align:left;">
+            <th style="padding:5px 9px; border-bottom:1px solid #ccc;">id</th>
+            <th style="padding:5px 9px; border-bottom:1px solid #ccc;">unique_name</th>
+            <th style="padding:5px 9px; border-bottom:1px solid #ccc;">stored value</th>
+            <th style="padding:5px 9px; border-bottom:1px solid #ccc;">computed value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ch in changes %}
+          <tr>
+            <td style="padding:4px 9px; border-bottom:1px solid #eee; font-family:monospace;">
+              <a href="{% url 'inventory:manage_edit' landslide_id=ch.id %}">{{ ch.id }}</a>
+            </td>
+            <td style="padding:4px 9px; border-bottom:1px solid #eee;">{{ ch.unique_name }}</td>
+            <td style="padding:4px 9px; border-bottom:1px solid #eee; color:#a55; font-family:monospace;">
+              {{ ch.old|default_if_none:"(NULL)" }}
+            </td>
+            <td style="padding:4px 9px; border-bottom:1px solid #eee; color:#080; font-family:monospace;">
+              {{ ch.new|default_if_none:"(NULL)" }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <form method="post" action="{% url 'inventory:manage_rule_apply' name=name %}"
+          style="margin-top:18px;"
+          onsubmit="return confirm('Apply this rule to {{ changes|length }} row(s)? This will UPDATE landslides.{{ target_column }} for each.');">
+      {% csrf_token %}
+      <button type="submit" class="inv-action-btn"
+              style="background:#5D4037; color:#fff; border:none; padding:8px 18px;
+                     font-size:13px; border-radius:4px; cursor:pointer;">
+        Apply to all {{ changes|length }} row(s)
+      </button>
+      <a href="{% url 'inventory:manage_rules' %}"
+         style="margin-left:10px; font-size:13px; color:#666;">Cancel</a>
+    </form>
+  {% else %}
+    <p style="font-size:13px; color:#080; background:#e8f5e9; padding:10px 14px;
+              border-radius:4px; display:inline-block;">
+      All rows already match this rule — nothing to apply.
+    </p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,7 +1,8 @@
 """Forms for the inventory editor UI.
 
-Hand-built (not ModelForm) because we don't have Django models for the
-landslide tables — they live in PostGIS, accessed via raw psycopg2.
+The landslide edit form is built dynamically from information_schema so adding
+or renaming a Postgres column doesn't require code changes. See
+`build_landslide_form_class(cols_meta)` for the factory.
 """
 from django import forms
 
@@ -28,37 +29,67 @@ COMMON_CLASS_VALUES = [
     'Small catastrophic landslide',
 ]
 
+# Columns rendered as multi-line textareas instead of one-line inputs.
+_TEXTAREA_COLS = {'description', 'notes', 'seismic_note', 'seismic_credit',
+                  'other_subtle_creep', 'ongoing_work'}
 
-class LandslideEditForm(forms.Form):
-    unique_name      = forms.CharField(max_length=200)
-    landslide_type   = forms.ChoiceField(choices=LANDSLIDE_TYPE_CHOICES)
-    landslide_class  = forms.CharField(max_length=200, required=False)
-    inventory_subset = forms.CharField(max_length=100, required=False)
-    description      = forms.CharField(widget=forms.Textarea(attrs={'rows': 4}), required=False)
 
-    volume_preferred = forms.FloatField(required=False, min_value=0)
-    volume_method    = forms.CharField(max_length=200, required=False)
-
-    year_text        = forms.CharField(max_length=100, required=False,
-                                       help_text="Free text. For 4-digit year, the histogram parses automatically.")
-    date_min         = forms.DateField(required=False,
-                                       widget=forms.DateInput(attrs={'type': 'date'}))
-    date_max         = forms.DateField(required=False,
-                                       widget=forms.DateInput(attrs={'type': 'date'}))
-    seismic_datetime = forms.DateTimeField(required=False,
-                                           widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}),
-                                           input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S'])
-
-    molards                     = forms.BooleanField(required=False)
-    stream_damming              = forms.CharField(max_length=200, required=False)
-    exclusively_supraglacial    = forms.BooleanField(required=False)
-    creeping_permafrost_mass    = forms.BooleanField(required=False)
-    post_2012_activity_increase = forms.BooleanField(required=False)
-    size_inclusion              = forms.BooleanField(required=False)
-
+class _LandslideEditFormBase(forms.Form):
+    """Base form: shared validation (date ordering) for the dynamically-built subclass."""
     def clean(self):
         cleaned = super().clean()
         d_min, d_max = cleaned.get('date_min'), cleaned.get('date_max')
         if d_min and d_max and d_max < d_min:
             self.add_error('date_max', 'date_max must be on or after date_min')
         return cleaned
+
+
+def build_landslide_form_class(cols_meta):
+    """Build a Form class with one field per landslide column.
+
+    `cols_meta` is a list of dicts produced by views._discover_editable_columns:
+        [{'name': 'unique_name', 'udt': 'text', 'nullable': False, 'max_length': None}, ...]
+
+    Maps Postgres udt_name → Django form field. Unknown types fall back to
+    CharField. Boolean fields are always optional. NOT NULL columns get
+    required=True.
+    """
+    fields = {}
+    for c in cols_meta:
+        name, udt, nullable, max_len = c['name'], c['udt'], c['nullable'], c.get('max_length')
+        if name == 'landslide_type':
+            fields[name] = forms.ChoiceField(choices=LANDSLIDE_TYPE_CHOICES,
+                                             required=not nullable)
+            continue
+        if udt == 'text':
+            kwargs = {'required': not nullable}
+            if max_len:
+                kwargs['max_length'] = max_len
+            if name in _TEXTAREA_COLS:
+                kwargs['widget'] = forms.Textarea(attrs={'rows': 4})
+            fields[name] = forms.CharField(**kwargs)
+        elif udt == 'bool':
+            fields[name] = forms.BooleanField(required=False)
+        elif udt in ('int4', 'int8'):
+            kwargs = {'required': not nullable}
+            if 'volume' in name:
+                kwargs['min_value'] = 0
+            fields[name] = forms.IntegerField(**kwargs)
+        elif udt == 'float8':
+            fields[name] = forms.FloatField(required=not nullable)
+        elif udt == 'date':
+            fields[name] = forms.DateField(
+                required=not nullable,
+                widget=forms.DateInput(attrs={'type': 'date'}),
+            )
+        elif udt == 'timestamptz':
+            fields[name] = forms.DateTimeField(
+                required=not nullable,
+                widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}),
+                input_formats=['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S',
+                               '%Y-%m-%dT%H:%M:%S'],
+            )
+        else:
+            # Unknown type — fall back to text so the editor isn't blocked.
+            fields[name] = forms.CharField(required=not nullable)
+    return type('LandslideEditForm', (_LandslideEditFormBase,), fields)

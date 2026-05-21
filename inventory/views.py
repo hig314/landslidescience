@@ -726,16 +726,27 @@ def api_settings(request):
 # Editor UI — /inventory/manage/* (inventory_editors group)
 # ---------------------------------------------------------------------------
 
-# Editable columns on the landslides table. Order here drives the edit form layout.
-_EDITABLE_FIELDS = [
-    'unique_name', 'landslide_type', 'landslide_class', 'inventory_subset',
-    'description',
-    'volume_preferred', 'volume_method',
-    'year_text', 'date_min', 'date_max', 'seismic_datetime',
-    'molards', 'stream_damming', 'precursory_headscarp',
-    'exclusively_supraglacial', 'creeping_permafrost_mass',
-    'post_2012_activity_increase', 'size_inclusion',
-]
+# Columns that are auto-managed by Postgres / not user-editable.
+_FORM_EXCLUDED_COLS = ('id', 'created_at', 'updated_at')
+
+
+def _discover_editable_columns(cur):
+    """Return ordered metadata for every editable column on the landslides table.
+
+    Reads information_schema so adding a column to Postgres makes it appear in
+    the editor automatically. Excludes `id` and the auto-managed timestamps.
+    """
+    cur.execute("""
+        SELECT column_name, udt_name, is_nullable, character_maximum_length
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'landslides'
+        ORDER BY ordinal_position
+    """)
+    return [
+        {'name': r[0], 'udt': r[1], 'nullable': r[2] == 'YES', 'max_length': r[3]}
+        for r in cur.fetchall()
+        if r[0] not in _FORM_EXCLUDED_COLS
+    ]
 
 _LIST_PAGE_SIZE = 50
 
@@ -831,16 +842,22 @@ def manage_list(request):
 
 @inventory_editor_required
 def manage_edit(request, landslide_id):
-    """Edit a single landslide record. GET = form; POST = validate + UPDATE."""
-    from .forms import LandslideEditForm, COMMON_CLASS_VALUES
-    from .models import LandslideEditMeta
+    """Edit a single landslide record. GET = form; POST = validate + UPDATE.
 
-    cols_csv = ', '.join(_EDITABLE_FIELDS)
+    Form fields and the UPDATE column list are both derived from
+    `_discover_editable_columns()` so this view auto-tracks schema changes.
+    """
+    from .forms import build_landslide_form_class, COMMON_CLASS_VALUES
+    from .models import LandslideEditMeta
 
     conn = _get_conn()
     try:
         cur = conn.cursor()
-        cur.execute(f"SELECT id, {cols_csv} FROM landslides WHERE id = %s", (landslide_id,))
+        cols_meta = _discover_editable_columns(cur)
+        col_names = [c['name'] for c in cols_meta]
+        cols_csv = ', '.join(col_names)
+        cur.execute(f"SELECT id, {cols_csv} FROM landslides WHERE id = %s",
+                    (landslide_id,))
         row = cur.fetchone()
         conn.rollback()
     finally:
@@ -848,8 +865,8 @@ def manage_edit(request, landslide_id):
     if not row:
         return JsonResponse({'error': 'not found'}, status=404)
 
-    # row[0] = id, row[1:] = _EDITABLE_FIELDS values in declared order
-    initial = {f: row[i + 1] for i, f in enumerate(_EDITABLE_FIELDS)}
+    LandslideEditForm = build_landslide_form_class(cols_meta)
+    initial = {f: row[i + 1] for i, f in enumerate(col_names)}
     unique_name = initial.get('unique_name', '')
 
     error_msg = None
@@ -857,9 +874,8 @@ def manage_edit(request, landslide_id):
         form = LandslideEditForm(request.POST)
         if form.is_valid():
             data = form.cleaned_data
-            # Build UPDATE — use named-parameter style for safety
-            set_clause = ', '.join(f"{f} = %s" for f in _EDITABLE_FIELDS)
-            values = [data.get(f) for f in _EDITABLE_FIELDS]
+            set_clause = ', '.join(f"{f} = %s" for f in col_names)
+            values = [data.get(f) for f in col_names]
             values.append(landslide_id)
             update_sql = f"UPDATE landslides SET {set_clause} WHERE id = %s"
 
@@ -875,12 +891,10 @@ def manage_edit(request, landslide_id):
                 _put_conn(conn)
 
             if not error_msg:
-                # Audit trail
                 LandslideEditMeta.objects.update_or_create(
                     landslide_id=landslide_id,
                     defaults={'last_edited_by': request.user},
                 )
-                # Invalidate caches that depend on landslide data
                 _invalidate('features', 'home_counts', 'timed_events',
                             'timeline_events', 'slug_map', 'slug_for_id')
                 return redirect('inventory:manage_edit', landslide_id=landslide_id)
@@ -888,12 +902,12 @@ def manage_edit(request, landslide_id):
         form = LandslideEditForm(initial=initial)
 
     return render(request, 'inventory/manage_edit.html', {
-        'form':           form,
-        'landslide_id':   landslide_id,
-        'unique_name':    unique_name,
-        'editable_fields': _EDITABLE_FIELDS,
-        'common_classes': COMMON_CLASS_VALUES,
-        'error_msg':      error_msg,
+        'form':            form,
+        'landslide_id':    landslide_id,
+        'unique_name':     unique_name,
+        'editable_fields': col_names,
+        'common_classes':  COMMON_CLASS_VALUES,
+        'error_msg':       error_msg,
     })
 
 
@@ -1016,6 +1030,103 @@ def manage_settings(request):
     finally:
         _put_conn(conn)
     return render(request, 'inventory/manage_settings.html', {'settings': settings_map})
+
+
+# ---------------------------------------------------------------------------
+# Rules — auto-classification logic exposed for review + bulk apply.
+# ---------------------------------------------------------------------------
+
+@inventory_editor_required
+def manage_rules(request):
+    """Index page: list each registered rule with a disagreement count."""
+    from . import derived
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        rules = []
+        for name, fn in derived.RULES.items():
+            d = derived.diff_against_db(cur, name)
+            rules.append({
+                'name':          name,
+                'target_column': fn.target_column,
+                'inputs':        fn.inputs,
+                'summary':       getattr(fn, 'summary', ''),
+                'agreements':    d['agreements'],
+                'disagreements': len(d['changes']),
+            })
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    return render(request, 'inventory/manage_rules.html', {'rules': rules})
+
+
+@inventory_editor_required
+def manage_rule_detail(request, name):
+    """Detail view: function source, agree/disagree counts, full change preview."""
+    from . import derived
+    import inspect
+    if name not in derived.RULES:
+        return redirect('inventory:manage_rules')
+    fn = derived.RULES[name]
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        d = derived.diff_against_db(cur, name)
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    return render(request, 'inventory/manage_rule_detail.html', {
+        'name':          name,
+        'target_column': fn.target_column,
+        'inputs':        fn.inputs,
+        'summary':       getattr(fn, 'summary', ''),
+        'docstring':     (fn.__doc__ or '').strip(),
+        'source':        inspect.getsource(fn),
+        'agreements':    d['agreements'],
+        'changes':       d['changes'],
+    })
+
+
+@inventory_editor_required
+def manage_rule_apply(request, name):
+    """POST-only: UPDATE the target column on every row where computed != stored."""
+    from . import derived
+    if request.method != 'POST' or name not in derived.RULES:
+        return redirect('inventory:manage_rules')
+    fn = derived.RULES[name]
+    target = fn.target_column
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        d = derived.diff_against_db(cur, name)
+        applied_ids = []
+        for ch in d['changes']:
+            cur.execute(
+                f"UPDATE landslides SET {target} = %s WHERE id = %s",
+                (ch['new'], ch['id']),
+            )
+            applied_ids.append(ch['id'])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _put_conn(conn)
+
+    # Audit log entries — one per affected landslide.
+    from .models import LandslideEditMeta
+    for ls_id in applied_ids:
+        LandslideEditMeta.objects.update_or_create(
+            landslide_id=ls_id,
+            defaults={'last_edited_by': request.user},
+        )
+
+    # Caches that depend on landslide columns must be cleared.
+    _invalidate('features', 'home_counts', 'timed_events',
+                'timeline_events', 'slug_map', 'slug_for_id')
+
+    return redirect('inventory:manage_rule_detail', name=name)
 
 
 # ---------------------------------------------------------------------------
