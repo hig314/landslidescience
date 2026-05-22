@@ -12,9 +12,10 @@
         'Catastrophic Obvious creep', 'Catastrophic Patchy obvious creep',
         'Catastrophic Subtle creep', 'Catastrophic Geomorph creep',
         'Catastrophic Modern', 'Catastrophic', 'Small catastrophic landslide',
-        'Catastrophic Holocene'
+        'Catastrophic Holocene',
+        '__unclassified__'   // synthetic: matches NULL/empty landslide_class
     ];
-    var ALL_CLASSES_MASK = (1 << CLASS_ORDER.length) - 1;   // 8191
+    var ALL_CLASSES_MASK = (1 << CLASS_ORDER.length) - 1;
 
     // ---------------------------------------------------------------------------
     // Size the map to fill the content area below the header
@@ -952,9 +953,18 @@
             return;
         }
 
+        // Resolve NULL/empty landslide_class to the synthetic value
+        // '__unclassified__' so records with no class can be filtered via the
+        // "Incomplete classification" checkbox. coalesce handles null;
+        // the outer case also converts empty string to the same sentinel.
+        var classExpr = ['case',
+            ['==', ['coalesce', ['get', 'landslide_class'], ''], ''],
+            '__unclassified__',
+            ['get', 'landslide_class']
+        ];
         var f = ['all',
             ['in', ['get', 'landslide_type'],  ['literal', activeTypes]],
-            ['in', ['get', 'landslide_class'],  ['literal', activeClasses]]
+            ['in', classExpr, ['literal', activeClasses]]
         ];
 
         if (srcAreaSlider) {
@@ -1062,7 +1072,7 @@
             var id = f.properties.id;
             if (seen[id]) return;
             seen[id] = true;
-            var cls = f.properties.landslide_class;
+            var cls = f.properties.landslide_class || '__unclassified__';
             counts[cls] = (counts[cls] || 0) + 1;
         });
 
@@ -1147,11 +1157,16 @@
         var planetUrl = normUrl(d.planet_story_link);
         var prominent = planetUrl && planetIsProminent(d);
 
+        var manageLink = window._isInventoryEditor
+            ? ' <a class="manage-gear" href="/inventory/manage/' + d.id + '/" target="_blank" ' +
+              'rel="noopener" title="Edit this record in Manage">⚙</a>'
+            : '';
         if (d.slug) {
             html += '<h3><a class="landslide-permalink" href="/inventory/' + esc(d.slug) +
-                    '/" title="Permalink — right-click to copy">' + esc(d.unique_name) + '</a></h3>';
+                    '/" title="Permalink — right-click to copy">' + esc(d.unique_name) + '</a>' +
+                    manageLink + '</h3>';
         } else {
-            html += '<h3>' + esc(d.unique_name) + '</h3>';
+            html += '<h3>' + esc(d.unique_name) + manageLink + '</h3>';
         }
         html += '<span class="type-badge ' + d.landslide_type + '">' +
                 (d.landslide_type === 'slow' ? 'Slow' : 'Catastrophic') + '</span>';
@@ -1376,7 +1391,7 @@
         _timedEvents.forEach(function (ev) {
             if (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e) return;
             if (fs.types.indexOf(ev.ls_type) < 0) return;
-            if (fs.classes.length && fs.classes.indexOf(ev.cls) < 0) return;
+            if (fs.classes.length && fs.classes.indexOf(ev.cls || '__unclassified__') < 0) return;
             if (fs.minVol     !== null && ev.vol      !== null && ev.vol      < fs.minVol)     return;
             if (fs.minSrcArea !== null && ev.area_src !== null && ev.area_src < fs.minSrcArea) return;
             if (fs.minDepArea !== null && ev.ls_type === 'catastrophic' && ev.area_dep !== null && ev.area_dep < fs.minDepArea) return;
@@ -1756,7 +1771,7 @@
         _timelineEvents.forEach(function (ev) {
             if (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e) return;
             if (fs.types.indexOf(ev.ls_type) < 0) return;
-            if (fs.classes.length && fs.classes.indexOf(ev.cls) < 0) return;
+            if (fs.classes.length && fs.classes.indexOf(ev.cls || '__unclassified__') < 0) return;
             if (fs.minVol     !== null && ev.vol      !== null && ev.vol      < fs.minVol)     return;
             if (fs.minSrcArea !== null && ev.area_src !== null && ev.area_src < fs.minSrcArea) return;
             if (fs.minDepArea !== null && ev.ls_type === 'catastrophic' && ev.area_dep !== null && ev.area_dep < fs.minDepArea) return;

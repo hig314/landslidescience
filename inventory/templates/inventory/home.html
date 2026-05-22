@@ -37,8 +37,9 @@
     <li class="nav-item nav-class-header">Slow &mdash; active</li>
     {% for cls, cnt, color, halo in slow_active %}
     <li class="nav-item">
-      <label class="nav-filter-label">
-        <input type="checkbox" class="filter-class" value="{{ cls }}" checked>
+      <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
+        <input type="checkbox" class="filter-class" value="{{ cls }}" checked
+               {% if cnt == 0 %}disabled{% endif %}>
         <span class="cls-dot cls-dot-slow" style="background:{{ color }};"></span>
         <span class="cls-name">{{ cls }}</span>
         <span class="cls-count">{{ cnt }}</span>
@@ -56,8 +57,9 @@
     </li>
     {% for cls, cnt, color, halo in slow_other %}
     <li class="nav-item sg-item" data-sg="slow-other">
-      <label class="nav-filter-label">
-        <input type="checkbox" class="filter-class" value="{{ cls }}" checked>
+      <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
+        <input type="checkbox" class="filter-class" value="{{ cls }}" checked
+               {% if cnt == 0 %}disabled{% endif %}>
         <span class="cls-dot cls-dot-slow" style="background:{{ color }};"></span>
         <span class="cls-name">{{ cls }}</span>
         <span class="cls-count">{{ cnt }}</span>
@@ -69,8 +71,9 @@
     <li class="nav-item nav-class-header">Large catastrophic landslides since 2012</li>
     {% for cls, cnt, color, halo in cat_recent %}
     <li class="nav-item">
-      <label class="nav-filter-label">
-        <input type="checkbox" class="filter-class" value="{{ cls }}" checked>
+      <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
+        <input type="checkbox" class="filter-class" value="{{ cls }}" checked
+               {% if cnt == 0 %}disabled{% endif %}>
         <span class="cls-dot cls-dot-cat" style="background:{{ color }};{% if halo %} box-shadow: 0 0 0 2px {{ halo }};{% endif %}"></span>
         <span class="cls-name">{{ cls }}</span>
         <span class="cls-count">{{ cnt }}</span>
@@ -88,14 +91,27 @@
     </li>
     {% for cls, cnt, color, halo in cat_other %}
     <li class="nav-item sg-item" data-sg="cat-other">
-      <label class="nav-filter-label">
-        <input type="checkbox" class="filter-class" value="{{ cls }}" checked>
+      <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
+        <input type="checkbox" class="filter-class" value="{{ cls }}" checked
+               {% if cnt == 0 %}disabled{% endif %}>
         <span class="cls-dot cls-dot-cat" style="background:{{ color }};"></span>
         <span class="cls-name">{{ cls }}</span>
         <span class="cls-count">{{ cnt }}</span>
       </label>
     </li>
     {% endfor %}
+
+    {# ---- Records with no landslide_class (catch-all so they don't go dark) ---- #}
+    <li class="nav-item nav-class-header" style="margin-top:6px;">Other</li>
+    <li class="nav-item">
+      <label class="nav-filter-label {% if unclassified_count == 0 %}nav-filter-disabled{% endif %}">
+        <input type="checkbox" class="filter-class" value="__unclassified__" checked
+               {% if unclassified_count == 0 %}disabled{% endif %}>
+        <span class="cls-dot" style="background:#999; border:1px dashed #555;"></span>
+        <span class="cls-name">Incomplete classification</span>
+        <span class="cls-count">{{ unclassified_count }}</span>
+      </label>
+    </li>
 
     <li class="nav-item separator"></li>
 
@@ -236,6 +252,10 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+  // Inject role flag for the map detail panel — editors get a "⚙ Manage" link.
+  window._isInventoryEditor = {% if is_inventory_editor %}true{% else %}false{% endif %};
+</script>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
 <script src="{% static 'inventory/js/map.js' %}"></script>

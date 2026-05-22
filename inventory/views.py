@@ -236,21 +236,38 @@ def home(request):
 
     counts = _cache['home_counts']
 
+    # Count records with NULL/empty landslide_class — these can never match a
+    # specific-class filter, so they need their own "Incomplete classification"
+    # checkbox to remain visible.
+    if 'unclassified_count' not in _cache:
+        conn = _get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT COUNT(*) FROM landslides
+                WHERE landslide_class IS NULL OR landslide_class = ''
+            """)
+            _cache['unclassified_count'] = cur.fetchone()[0]
+            conn.rollback()
+        finally:
+            _put_conn(conn)
+
     def make_class_list(type_key, order):
-        result = []
-        for cls in order:
-            if (type_key, cls) in counts:
-                result.append((cls, counts[(type_key, cls)],
-                               _CLASS_COLOR.get(cls, '#888'),
-                               _HALO_COLOR.get(cls)))
-        return result
+        # Always include every known class — count=0 entries render as a
+        # disabled checkbox so future data gaps are visible rather than hidden.
+        return [(cls,
+                 counts.get((type_key, cls), 0),
+                 _CLASS_COLOR.get(cls, '#888'),
+                 _HALO_COLOR.get(cls))
+                for cls in order]
 
     return render(request, "inventory/home.html", {
-        "slow_active":     make_class_list('slow', _SLOW_ACTIVE_ORDER),
-        "slow_other":      make_class_list('slow', _SLOW_OTHER_ORDER),
-        "cat_recent":      make_class_list('catastrophic', _CAT_RECENT_ORDER),
-        "cat_other":       make_class_list('catastrophic', _CAT_OTHER_ORDER),
-        "data_version":    _data_version,
+        "slow_active":        make_class_list('slow', _SLOW_ACTIVE_ORDER),
+        "slow_other":         make_class_list('slow', _SLOW_OTHER_ORDER),
+        "cat_recent":         make_class_list('catastrophic', _CAT_RECENT_ORDER),
+        "cat_other":          make_class_list('catastrophic', _CAT_OTHER_ORDER),
+        "unclassified_count": _cache['unclassified_count'],
+        "data_version":       _data_version,
     })
 
 
@@ -900,8 +917,8 @@ def manage_edit(request, landslide_id):
                     landslide_id=landslide_id,
                     defaults={'last_edited_by': request.user},
                 )
-                _invalidate('features', 'home_counts', 'timed_events',
-                            'timeline_events', 'slug_map', 'slug_for_id')
+                _invalidate('features', 'home_counts', 'unclassified_count',
+                            'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
                 return redirect('inventory:manage_edit', landslide_id=landslide_id)
     else:
         form = LandslideEditForm(initial=initial)
@@ -991,8 +1008,8 @@ def manage_import_apply(request):
     summary = apply_import(ls_fc, po_fc, request.user)
 
     # Cache invalidation — landslide data changed.
-    _invalidate('features', 'home_counts', 'timed_events',
-                'timeline_events', 'slug_map', 'slug_for_id')
+    _invalidate('features', 'home_counts', 'unclassified_count',
+                'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
 
     # Cleanup the stage file
     try:
@@ -1146,8 +1163,8 @@ def manage_rule_apply(request, name):
             defaults={'last_edited_by': request.user},
         )
 
-    _invalidate('features', 'home_counts', 'timed_events',
-                'timeline_events', 'slug_map', 'slug_for_id')
+    _invalidate('features', 'home_counts', 'unclassified_count',
+                'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
 
     return redirect('inventory:manage_rule_detail', name=name)
 

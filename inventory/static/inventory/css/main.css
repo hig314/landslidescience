@@ -641,3 +641,20 @@ body.inv-article-body {
     display: none;
     transform: translate(10px, -50%);
 }
+
+/* Class checkbox with zero matching records — visible but inert */
+.nav-filter-label.nav-filter-disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.nav-filter-label.nav-filter-disabled input { cursor: not-allowed; }
+
+/* Editor-only "Manage" gear in the map detail panel popup */
+.manage-gear {
+    margin-left: 8px;
+    font-size: 14px;
+    color: #5D4037;
+    text-decoration: none;
+    opacity: 0.65;
+}
+.manage-gear:hover { opacity: 1; }
