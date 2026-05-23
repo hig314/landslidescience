@@ -15,11 +15,13 @@ urlpatterns = [
     path('api/timed_events/', views.api_timed_events, name='api_timed_events'),
     path('api/timeline_events/', views.api_timeline_events, name='api_timeline_events'),
     path('export/', views.export_download, name='export'),
+    # Rules pages — list and detail are public (view-only); only the apply
+    # endpoint requires editor permissions.
+    path('rules/',               views.manage_rules,        name='rules'),
+    path('rules/<str:name>/',    views.manage_rule_detail,  name='rule_detail'),
     path('manage/', views.manage_list, name='manage_list'),
     path('manage/settings/', views.manage_settings, name='manage_settings'),
-    path('manage/rules/', views.manage_rules, name='manage_rules'),
-    path('manage/rules/<str:name>/', views.manage_rule_detail, name='manage_rule_detail'),
-    path('manage/rules/<str:name>/apply/', views.manage_rule_apply, name='manage_rule_apply'),
+    path('manage/rules/<str:name>/apply/', views.manage_rule_apply, name='rule_apply'),
     path('manage/import/', views.manage_import, name='manage_import'),
     path('manage/import/apply/', views.manage_import_apply, name='manage_import_apply'),
     path('manage/<int:landslide_id>/', views.manage_edit, name='manage_edit'),

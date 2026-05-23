@@ -999,9 +999,9 @@ def manage_settings(request):
 # Rules — auto-classification logic exposed for review + bulk apply.
 # ---------------------------------------------------------------------------
 
-@inventory_editor_required
 def manage_rules(request):
-    """Index page: list each registered rule with a disagreement count."""
+    """Index page: list each registered rule with a disagreement count.
+    Public — view-only. Apply requires editor permissions (separate view)."""
     from . import derived
     conn = _get_conn()
     try:
@@ -1025,13 +1025,13 @@ def manage_rules(request):
     return render(request, 'inventory/manage_rules.html', {'rules': rules})
 
 
-@inventory_editor_required
 def manage_rule_detail(request, name):
-    """Detail view: function source, agree/disagree counts, full change preview."""
+    """Detail view: function source, agree/disagree counts, full change preview.
+    Public — view-only. The Apply button is hidden for non-editors via the template."""
     from . import derived
     import inspect
     if name not in derived.RULES:
-        return redirect('inventory:manage_rules')
+        return redirect('inventory:rules')
     fn = derived.RULES[name]
     conn = _get_conn()
     try:
@@ -1061,7 +1061,7 @@ def manage_rule_apply(request, name):
     """
     from . import derived
     if request.method != 'POST' or name not in derived.RULES:
-        return redirect('inventory:manage_rules')
+        return redirect('inventory:rules')
     fn = derived.RULES[name]
     target_table  = getattr(fn, 'target_table', 'landslides')
     target_column = fn.target_column
@@ -1107,7 +1107,7 @@ def manage_rule_apply(request, name):
     _invalidate('features', 'home_counts', 'unclassified_count',
                 'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
 
-    return redirect('inventory:manage_rule_detail', name=name)
+    return redirect('inventory:rule_detail', name=name)
 
 
 # ---------------------------------------------------------------------------

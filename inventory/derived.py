@@ -66,27 +66,34 @@ compute_insar_creep.summary       = ('Tri-state OR-merge of the per-study '
 # ---------------------------------------------------------------------------
 
 def compute_creep_behavior(row):
-    """The strongest creep-evidence label observed for this landslide.
+    """The creep-evidence label observed for this landslide.
 
-    Priority (highest evidence first):
+    The two Planet flags work as a pair, not a simple severity ranking:
+      - `planet_labs_creep` says "creep is apparent in Planet imagery"
+      - `planet_labs_patchy_creep` is a refinement: "the creep is patchy,
+        not uniform across the landslide"
+
+    Conceptually, "obvious creep" is the broader / stronger assertion
+    (the whole feature is moving). The patchy flag, when set, *overrides*
+    that interpretation to say "actually it's only patchy" — so in the
+    compositional rule the patchy flag wins. The order below reflects
+    that override semantics:
+
       1. planet_labs_patchy_creep   → 'Patchy obvious creep'
+         (more specific call; supersedes plain obvious when both are set)
       2. planet_labs_creep          → 'Obvious creep'
       3. insar_creep                → 'Subtle creep'
       4. other_subtle_creep is set  → 'Subtle creep'
       5. geomorph_creep             → 'Geomorph creep'
-      6. otherwise:
-         - For large post-2012 catastrophic landslides (where pre-event
-           data was reviewable): 'Cryptic' — i.e. we explicitly looked
-           and found no precursory deformation. landslide_class becomes
-           "Catastrophic Cryptic", which is distinct from older events
-           (Modern / Holocene) where the absence of evidence simply
-           means there was no pre-event data to review.
-         - For everything else: None (no creep evidence on record).
+      6. creep_evaluated is TRUE    → 'Cryptic'
+         (record was reviewed for precursors and none were found — a
+         deliberate null finding, distinct from records where
+         creep_evaluated is FALSE which simply means no review yet)
+      7. otherwise                  → None
 
-    Note: patchy-obvious outranks plain-obvious here per the convention
-    that "patchy" is the more specific call when both are flagged.
-    Feeds into `landslide_class` which prefixes the label with 'Slow '
-    or 'Catastrophic '.
+    Feeds into `landslide_class`, which prefixes the label with 'Slow '
+    or 'Catastrophic '. The `creep_evaluated` boolean is human-set in
+    the data-entry UI and is not itself a rule output.
     """
     if row.get('planet_labs_patchy_creep'):
         return 'Patchy obvious creep'
@@ -98,13 +105,8 @@ def compute_creep_behavior(row):
         return 'Subtle creep'
     if row.get('geomorph_creep'):
         return 'Geomorph creep'
-    # No positive creep evidence on any source. For large post-2012
-    # catastrophic events we still want to mark this as a deliberate finding.
-    if ((row.get('landslide_type') or '').strip().lower() == 'catastrophic'
-            and row.get('size_inclusion')):
-        era = _resolve_event_era(row)
-        if isinstance(era, int) and era >= POST_2012_THRESHOLD_YEAR:
-            return 'Cryptic'
+    if row.get('creep_evaluated'):
+        return 'Cryptic'
     return None
 
 compute_creep_behavior.target_table  = 'landslides'
@@ -114,15 +116,12 @@ compute_creep_behavior.inputs        = ('planet_labs_patchy_creep',
                                         'insar_creep',
                                         'other_subtle_creep',
                                         'geomorph_creep',
-                                        'landslide_type',
-                                        'size_inclusion',
-                                        'seismic_datetime',
-                                        'year_text',
-                                        'date_min')
-compute_creep_behavior.summary       = ('Pick the strongest creep-evidence '
-                                        'label from the per-source flags; '
-                                        '"Cryptic" for post-2012 large '
-                                        'catastrophic events with none.')
+                                        'creep_evaluated')
+compute_creep_behavior.summary       = ('Creep-evidence label. Patchy '
+                                        'overrides plain obvious when '
+                                        'both Planet flags are set; '
+                                        '"Cryptic" when creep_evaluated=TRUE '
+                                        'with no positive evidence.')
 
 
 # ---------------------------------------------------------------------------

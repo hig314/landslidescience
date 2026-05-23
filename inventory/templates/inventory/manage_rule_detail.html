@@ -6,7 +6,7 @@
 {% block body %}
 <div style="max-width: 1100px; margin: 24px auto; padding: 0 24px;">
   <div style="display:flex; align-items:center; gap:16px; margin-bottom: 14px;">
-    <a href="{% url 'inventory:manage_rules' %}" style="font-size:13px;">&larr; All rules</a>
+    <a href="{% url 'inventory:rules' %}" style="font-size:13px;">&larr; All rules</a>
     <h2 style="font-size:18px; margin: 0;">
       <code style="background:#f0ebe9; padding:2px 6px; border-radius:3px;">{{ name }}</code>
       <span style="font-weight:400; color:#666; font-size:14px;">→ writes <code>{{ target_column }}</code></span>
@@ -81,7 +81,8 @@
       </table>
     </div>
 
-    <form method="post" action="{% url 'inventory:manage_rule_apply' name=name %}"
+    {% if is_inventory_editor %}
+    <form method="post" action="{% url 'inventory:rule_apply' name=name %}"
           style="margin-top:18px;"
           onsubmit="return confirm('Apply this rule to {{ changes|length }} row(s)? This will UPDATE landslides.{{ target_column }} for each.');">
       {% csrf_token %}
@@ -90,9 +91,14 @@
                      font-size:13px; border-radius:4px; cursor:pointer;">
         Apply to all {{ changes|length }} row(s)
       </button>
-      <a href="{% url 'inventory:manage_rules' %}"
+      <a href="{% url 'inventory:rules' %}"
          style="margin-left:10px; font-size:13px; color:#666;">Cancel</a>
     </form>
+    {% else %}
+    <p style="margin-top:18px; font-size:12px; color:#888;">
+      Sign in as an editor to apply this rule.
+    </p>
+    {% endif %}
   {% else %}
     <p style="font-size:13px; color:#080; background:#e8f5e9; padding:10px 14px;
               border-radius:4px; display:inline-block;">

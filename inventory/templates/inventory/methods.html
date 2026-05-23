@@ -36,13 +36,12 @@
   timeline charts work.
 </p>
 
-{% if is_inventory_editor %}
-<p class="methods-intro" style="background:#fff8e1; padding:10px 14px; border-left:3px solid #d2a64c; border-radius:3px;">
-  <strong>Editor note:</strong> rule names below link to the rule detail page
-  where you can review the function source, preview proposed changes against
-  the current database, and apply across the inventory.
+<p class="methods-intro" style="background:#f7f4f1; padding:10px 14px; border-left:3px solid #b8a78f; border-radius:3px;">
+  Rule names throughout this page link to a detail page showing the actual
+  function source (Python or SQL) and a live diff between the rule's output
+  and the current database. Editors can additionally apply rule changes from
+  there; the page is otherwise read-only.
 </p>
-{% endif %}
 
 <nav class="methods-toc">
   <strong>Contents</strong>
@@ -236,25 +235,27 @@
 
 <h4>The <code>is_primary</code> flag</h4>
 <p>
-  Catastrophic landslides typically have exactly <strong>one source polygon
-  flagged <code>is_primary=true</code></strong>; this is the polygon used for
-  dot placement on the map. The convention:
+  Every landslide that has been digitized to completion carries exactly one
+  primary polygon, used for dot placement on the map:
 </p>
 <ul>
   <li>
-    When a source polygon exists, it carries <code>is_primary=true</code>.
-    Deposit polygons are <em>never</em> flagged primary, even when a
-    catastrophic landslide has only a single deposit.
+    <strong>Slow</strong>: the body polygon is flagged
+    <code>is_primary=true</code>. All slow landslides in the inventory have
+    a primary body polygon.
   </li>
   <li>
-    A small number of catastrophic landslides have no source polygon (the
-    source may be obscured or hasn't been digitized). These records have
-    <strong>no primary polygon at all</strong>; the centroid rule falls back
-    to the deposit polygon for dot placement.
+    <strong>Catastrophic with a source</strong>: the source polygon carries
+    <code>is_primary=true</code>. Multi-source events have one source
+    flagged primary, the others unflagged. Deposit polygons are
+    <em>never</em> flagged primary.
   </li>
   <li>
-    Slow landslides have a single body polygon and don't use the
-    <code>is_primary</code> flag.
+    <strong>Catastrophic without a source</strong>: a small number of
+    catastrophic records have no source polygon (the source may be obscured
+    or hasn't been digitized). These records have <strong>no primary
+    polygon at all</strong>; the centroid rule falls back to the deposit
+    polygon for dot placement.
   </li>
 </ul>
 
@@ -277,10 +278,10 @@
   <code>centroid_albers_y</code> (meters in EPSG:3338) and
   <code>centroid_lat</code> / <code>centroid_lon</code> (decimal degrees in
   WGS&nbsp;84). They are populated by automated rules
-  {% if is_inventory_editor %}(<a href="{% url 'inventory:manage_rule_detail' name='centroid_albers_x' %}" class="rule-link">centroid_albers_x</a>
-  <a href="{% url 'inventory:manage_rule_detail' name='centroid_albers_y' %}" class="rule-link">centroid_albers_y</a>
-  <a href="{% url 'inventory:manage_rule_detail' name='centroid_lat' %}" class="rule-link">centroid_lat</a>
-  <a href="{% url 'inventory:manage_rule_detail' name='centroid_lon' %}" class="rule-link">centroid_lon</a>){% endif %}
+  (<a href="{% url 'inventory:rule_detail' name='centroid_albers_x' %}" class="rule-link">centroid_albers_x</a>
+  <a href="{% url 'inventory:rule_detail' name='centroid_albers_y' %}" class="rule-link">centroid_albers_y</a>
+  <a href="{% url 'inventory:rule_detail' name='centroid_lat' %}" class="rule-link">centroid_lat</a>
+  <a href="{% url 'inventory:rule_detail' name='centroid_lon' %}" class="rule-link">centroid_lon</a>)
   and re-applied whenever polygon geometries change.
 </p>
 
@@ -298,7 +299,7 @@
   computed by PostGIS as <code>ST_Area(ST_Transform(geom, 3338))</code> and
   rounded to whole square meters. The Alaska Albers projection guarantees
   equal-area accuracy across the inventory's spatial extent.
-  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='polygon_area' %}" class="rule-link">polygon_area rule</a>{% endif %}
+  <a href="{% url 'inventory:rule_detail' name='polygon_area' %}" class="rule-link">polygon_area rule</a>
 </p>
 
 <h4>Landslide-level role aggregates</h4>
@@ -310,17 +311,17 @@
   <li>
     <code>area_body</code> &mdash; sum of body-polygon areas. NULL for
     catastrophic landslides.
-    {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_body' %}" class="rule-link">area_body rule</a>{% endif %}
+    <a href="{% url 'inventory:rule_detail' name='area_body' %}" class="rule-link">area_body rule</a>
   </li>
   <li>
     <code>area_source</code> &mdash; sum of source-polygon areas. NULL for
     slow landslides. Handles multi-source catastrophic landslides naturally.
-    {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_source' %}" class="rule-link">area_source rule</a>{% endif %}
+    <a href="{% url 'inventory:rule_detail' name='area_source' %}" class="rule-link">area_source rule</a>
   </li>
   <li>
     <code>area_deposit</code> &mdash; sum of deposit-polygon areas. NULL for
     slow landslides.
-    {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_deposit' %}" class="rule-link">area_deposit rule</a>{% endif %}
+    <a href="{% url 'inventory:rule_detail' name='area_deposit' %}" class="rule-link">area_deposit rule</a>
   </li>
 </ul>
 
@@ -337,9 +338,9 @@
 <p>
   Landslides below the threshold are tagged "Small slow landslide" or
   "Small catastrophic landslide" by the
-  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='landslide_class' %}" class="rule-link">landslide_class rule</a>{% else %}class rule{% endif %},
+  <a href="{% url 'inventory:rule_detail' name='landslide_class' %}" class="rule-link">landslide_class rule</a>,
   and the <code>size_inclusion</code> flag is itself populated by the
-  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='size_inclusion' %}" class="rule-link">size_inclusion rule</a>{% else %}size_inclusion rule{% endif %}.
+  <a href="{% url 'inventory:rule_detail' name='size_inclusion' %}" class="rule-link">size_inclusion rule</a>.
 </p>
 
 <h4>Volume estimation</h4>
@@ -370,15 +371,15 @@
     <td>Minimum 2 m deposit thickness assumed</td>
   </tr>
 </table>
-<p>{% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='polygon_volume' %}" class="rule-link">polygon_volume rule</a>{% endif %}</p>
+<p><a href="{% url 'inventory:rule_detail' name='polygon_volume' %}" class="rule-link">polygon_volume rule</a></p>
 
 <p>
   Per-polygon volumes are summed by role into <code>volume_body</code>
-  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_body' %}" class="rule-link">volume_body</a>{% endif %},
+  <a href="{% url 'inventory:rule_detail' name='volume_body' %}" class="rule-link">volume_body</a>,
   <code>volume_source</code>
-  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_source' %}" class="rule-link">volume_source</a>{% endif %},
+  <a href="{% url 'inventory:rule_detail' name='volume_source' %}" class="rule-link">volume_source</a>,
   and <code>volume_deposit</code>
-  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_deposit' %}" class="rule-link">volume_deposit</a>{% endif %}
+  <a href="{% url 'inventory:rule_detail' name='volume_deposit' %}" class="rule-link">volume_deposit</a>
   on the landslides table.
 </p>
 
@@ -393,7 +394,7 @@
       entrainment, or removed material; the larger is the more defensible
       estimate of failure size.</li>
 </ul>
-<p>{% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_estimated' %}" class="rule-link">volume_estimated rule</a>{% endif %}</p>
+<p><a href="{% url 'inventory:rule_detail' name='volume_estimated' %}" class="rule-link">volume_estimated rule</a></p>
 
 <p>
   Some landslides have a manually-determined <code>volume_site_specific</code>
@@ -406,14 +407,14 @@
   <li>If <code>volume_site_specific</code> is set: use it directly</li>
   <li>Otherwise: use <code>volume_estimated</code></li>
 </ul>
-<p>{% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_preferred' %}" class="rule-link">volume_preferred rule</a>{% endif %}</p>
+<p><a href="{% url 'inventory:rule_detail' name='volume_preferred' %}" class="rule-link">volume_preferred rule</a></p>
 
 <p>
   The <code>volume_method</code> column carries either a one-off description
   of a site-specific approach (paper citation, DEM-differencing note, etc.)
   or the canonical string &ldquo;Automated estimate&rdquo; for rows using the
   rule-driven value.
-  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_method' %}" class="rule-link">volume_method rule</a>{% endif %}
+  <a href="{% url 'inventory:rule_detail' name='volume_method' %}" class="rule-link">volume_method rule</a>
   The &ldquo;Site-specific volume&rdquo; filter checkbox restricts the map to
   landslides with a manually-entered <code>volume_site_specific</code>.
 </p>
@@ -473,19 +474,19 @@
     <td>Areas</td>
     <td>
       <code>polygon_area</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='polygon_area' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='polygon_area' %}" class="rule-link">rule</a>
       &rarr;
       <code>area_body</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_body' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='area_body' %}" class="rule-link">rule</a>
       /
       <code>area_source</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_source' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='area_source' %}" class="rule-link">rule</a>
       /
       <code>area_deposit</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_deposit' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='area_deposit' %}" class="rule-link">rule</a>
       &rarr;
       <code>size_inclusion</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='size_inclusion' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='size_inclusion' %}" class="rule-link">rule</a>
     </td>
   </tr>
   <tr>
@@ -496,12 +497,10 @@
       <code>centroid_albers_y</code>,
       <code>centroid_lat</code>,
       <code>centroid_lon</code>
-      {% if is_inventory_editor %}
-        (<a href="{% url 'inventory:manage_rule_detail' name='centroid_albers_x' %}" class="rule-link">x</a>
-         <a href="{% url 'inventory:manage_rule_detail' name='centroid_albers_y' %}" class="rule-link">y</a>
-         <a href="{% url 'inventory:manage_rule_detail' name='centroid_lat' %}" class="rule-link">lat</a>
-         <a href="{% url 'inventory:manage_rule_detail' name='centroid_lon' %}" class="rule-link">lon</a>)
-      {% endif %}
+      (<a href="{% url 'inventory:rule_detail' name='centroid_albers_x' %}" class="rule-link">x</a>
+       <a href="{% url 'inventory:rule_detail' name='centroid_albers_y' %}" class="rule-link">y</a>
+       <a href="{% url 'inventory:rule_detail' name='centroid_lat' %}" class="rule-link">lat</a>
+       <a href="{% url 'inventory:rule_detail' name='centroid_lon' %}" class="rule-link">lon</a>)
       (all read polygon geometry directly)
     </td>
   </tr>
@@ -509,38 +508,38 @@
     <td>Volumes</td>
     <td>
       <code>polygon_volume</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='polygon_volume' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='polygon_volume' %}" class="rule-link">rule</a>
       &rarr;
       <code>volume_body</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_body' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='volume_body' %}" class="rule-link">rule</a>
       /
       <code>volume_source</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_source' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='volume_source' %}" class="rule-link">rule</a>
       /
       <code>volume_deposit</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_deposit' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='volume_deposit' %}" class="rule-link">rule</a>
       &rarr;
       <code>volume_estimated</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_estimated' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='volume_estimated' %}" class="rule-link">rule</a>
       &rarr;
       <code>volume_preferred</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_preferred' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='volume_preferred' %}" class="rule-link">rule</a>
       &rarr;
       <code>volume_method</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_method' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='volume_method' %}" class="rule-link">rule</a>
     </td>
   </tr>
   <tr>
     <td>Creep evidence &rarr; class</td>
     <td>
       <code>insar_creep</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='insar_creep' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='insar_creep' %}" class="rule-link">rule</a>
       &rarr;
       <code>creep_behavior</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='creep_behavior' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='creep_behavior' %}" class="rule-link">rule</a>
       &rarr;
       <code>landslide_class</code>
-      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='landslide_class' %}" class="rule-link">rule</a>{% endif %}
+      <a href="{% url 'inventory:rule_detail' name='landslide_class' %}" class="rule-link">rule</a>
     </td>
   </tr>
 </table>
@@ -549,7 +548,7 @@
 
 <p>
   <strong><code>insar_creep</code></strong>
-  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='insar_creep' %}" class="rule-link">rule</a>{% endif %}
+  <a href="{% url 'inventory:rule_detail' name='insar_creep' %}" class="rule-link">rule</a>
   is a <em>tri-state</em> OR-merge of the per-study booleans
   (<code>insar_schaefer</code>, <code>insar_kim</code>,
   <code>insar_opera</code>, <code>insar_other</code>): True if any positive
@@ -560,20 +559,40 @@
 
 <p>
   <strong><code>creep_behavior</code></strong>
-  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='creep_behavior' %}" class="rule-link">rule</a>{% endif %}
-  picks the strongest creep evidence label observed: Patchy obvious &rarr;
-  Obvious &rarr; (InSAR or other) Subtle &rarr; Geomorph. For
-  large post-2012 catastrophic landslides where pre-event data has been
-  reviewed and shows no precursor, the rule returns
-  <strong>"Cryptic"</strong> &mdash; a deliberate null finding,
-  distinct from older events where the absence of evidence simply
-  means there was no pre-event data to review. All other cases without
-  positive creep evidence return None (no label).
+  <a href="{% url 'inventory:rule_detail' name='creep_behavior' %}" class="rule-link">rule</a>
+  picks the label observed for this landslide from the per-source
+  flags. The two Planet flags work as a pair, not a simple severity
+  ladder: <code>planet_labs_creep</code> says
+  &ldquo;creep is apparent in Planet imagery,&rdquo; and
+  <code>planet_labs_patchy_creep</code> is a refinement saying
+  &ldquo;the creep is patchy, not uniform across the feature.&rdquo;
+  Conceptually obvious creep is the broader assertion (the whole
+  feature is moving), but the patchy flag, when set, <em>overrides</em>
+  that to mean &ldquo;actually it&rsquo;s only patchy&rdquo; &mdash; so in
+  the compositional rule the patchy flag wins:
+</p>
+<ol style="font-size:13px; margin-left:1em;">
+  <li><code>planet_labs_patchy_creep</code> &rarr; <strong>Patchy obvious creep</strong></li>
+  <li><code>planet_labs_creep</code> &rarr; <strong>Obvious creep</strong></li>
+  <li><code>insar_creep</code> &rarr; <strong>Subtle creep</strong></li>
+  <li><code>other_subtle_creep</code> (any non-empty value) &rarr; <strong>Subtle creep</strong></li>
+  <li><code>geomorph_creep</code> &rarr; <strong>Geomorph creep</strong></li>
+  <li>none of the above, but <code>creep_evaluated</code> is TRUE &rarr;
+      <strong>Cryptic</strong> &mdash; a deliberate null finding (the
+      record was reviewed and no precursor was identified)</li>
+  <li>otherwise &rarr; None (no review yet)</li>
+</ol>
+<p style="font-size:13px;">
+  The <code>creep_evaluated</code> boolean is human-set in the data-entry
+  UI and is not itself a rule output. It distinguishes &ldquo;reviewed
+  and nothing found&rdquo; (TRUE) from &ldquo;not reviewed yet&rdquo;
+  (FALSE), which matters in particular for older catastrophic events
+  where there generally was no pre-event data to review at all.
 </p>
 
 <p>
   <strong><code>landslide_class</code></strong>
-  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='landslide_class' %}" class="rule-link">rule</a>{% endif %}
+  <a href="{% url 'inventory:rule_detail' name='landslide_class' %}" class="rule-link">rule</a>
   composes the class from <code>landslide_type</code>,
   <code>size_inclusion</code>, <code>creep_behavior</code>, and event year:
 </p>

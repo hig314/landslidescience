@@ -216,6 +216,26 @@ _DEFAULT_URLS = {
 }
 
 
+def _rules_summary():
+    """Build a manifest block summarizing each derived rule.
+
+    Each entry shows the target table + column, the rule's `summary`
+    attribute, and a `kind` of 'sql' (the body is a SQL statement
+    executed in Postgres) or 'python' (the body is a Python function
+    over a row dict). Order follows the registry's dependency order,
+    so reading top-to-bottom corresponds to apply-from-scratch order.
+    """
+    from .derived import RULES
+    out = {}
+    for name, fn in RULES.items():
+        out[name] = {
+            'target':  f"{getattr(fn, 'target_table', 'landslides')}.{fn.target_column}",
+            'kind':    'sql' if getattr(fn, 'is_sql', False) else 'python',
+            'summary': getattr(fn, 'summary', ''),
+        }
+    return out
+
+
 def build_export_bundle(urls=None):
     """Return (zip_bytes, filename) for the current inventory state.
 
@@ -264,12 +284,14 @@ def build_export_bundle(urls=None):
                      'Slow landslides have a single body polygon. Catastrophic '
                      'landslides have one or more source polygons and/or one or '
                      'more deposit polygons.',
-            'is_primary': 'Catastrophic landslides typically have exactly one '
-                          'source polygon flagged is_primary=true. Deposit '
-                          'polygons are never flagged primary. A small number '
-                          'of catastrophic landslides have no source polygon at '
-                          'all; these records have no primary polygon, and the '
-                          'centroid falls back to the deposit polygon.',
+            'is_primary': 'Slow landslides flag their body polygon '
+                          'is_primary=true. Catastrophic landslides flag '
+                          'their source polygon (or one source, when there '
+                          'are multiple) is_primary=true; deposit polygons '
+                          'are never flagged primary. A small number of '
+                          'catastrophic records have no source polygon at '
+                          'all — these have no primary polygon, and the '
+                          'centroid falls back to the deposit.',
         },
         'coordinate_reference_systems': {
             'feature_geometries': {
@@ -294,6 +316,7 @@ def build_export_bundle(urls=None):
                 'centroid_lon':      'WGS84 longitude in decimal degrees.',
             },
         },
+        'rules':            _rules_summary(),
         'files': {
             'landslides.geojson': '1 feature per landslide. Geometry: Point at primary-polygon '
                                   'centroid (slow → body, catastrophic → source then deposit). '

@@ -31,7 +31,7 @@
       {% for r in rules %}
       <tr>
         <td style="padding:6px 10px; border-bottom:1px solid #eee;">
-          <a href="{% url 'inventory:manage_rule_detail' name=r.name %}"
+          <a href="{% url 'inventory:rule_detail' name=r.name %}"
              style="font-weight:600; color:#5D4037;">{{ r.name }}</a>
           {% if r.summary %}<div style="color:#666; font-size:12px;">{{ r.summary }}</div>{% endif %}
         </td>
