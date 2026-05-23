@@ -48,6 +48,31 @@ body {
 }
 .inv-header-nav a:hover { color: #1a1a1a; }
 
+/* Login / logout / signed-in name in the inventory header */
+.inv-header-nav .inv-user-name {
+    color: #888;
+    font-size: 12px;
+    align-self: center;
+    margin-left: 4px;
+}
+.inv-header-nav .inv-logout-form {
+    display: inline-flex;
+    align-items: center;
+    margin: 0;
+}
+.inv-header-nav .inv-logout-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: #555;
+    font-size: 13px;
+    text-decoration: none;
+    cursor: pointer;
+    font-family: inherit;
+}
+.inv-header-nav .inv-logout-btn:hover { color: #1a1a1a; }
+.inv-header-nav .inv-login-link { color: #5D4037; font-weight: 600; }
+
 /* ---- Map page layout: sidebar + main ---- */
 body.inv-map-body {
     overflow: hidden;

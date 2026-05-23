@@ -20,6 +20,15 @@
         {% if is_inventory_editor %}
           <a href="{% url 'inventory:manage_list' %}" style="color:#5D4037; font-weight:600;">⚙ Manage</a>
         {% endif %}
+        {% if user.is_authenticated %}
+          <span class="inv-user-name" title="Signed in">{{ user.username }}</span>
+          <form action="{% url 'admin:logout' %}" method="post" class="inv-logout-form">
+            {% csrf_token %}
+            <button type="submit" class="inv-logout-btn">Log out</button>
+          </form>
+        {% else %}
+          <a href="{% url 'admin:login' %}?next={{ request.path }}" class="inv-login-link">Log in</a>
+        {% endif %}
       {% endblock %}
     </nav>
   </header>
