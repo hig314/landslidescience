@@ -33,18 +33,6 @@ EXPORT_FORMAT_VERSION = 1
 # Columns we don't round-trip — Postgres auto-manages these.
 LANDSLIDES_AUTO_COLS = ('created_at', 'updated_at')
 
-# Computed-at-export-time fields added to landslides.geojson features so QGIS
-# can treat the landslides layer as points without joining the polygons file.
-# These are NOT columns in the DB — ignored on import.
-# Centroids use the same primary-polygon selection logic the map uses for
-# dot placement: slow → body; catastrophic → source (fallback deposit).
-DERIVED_LANDSLIDE_PROPS = frozenset({
-    'centroid_albers_x',   # EPSG:3338 (NAD83 / Alaska Albers), meters
-    'centroid_albers_y',
-    'centroid_lat',        # WGS84, decimal degrees
-    'centroid_lon',
-})
-
 
 class _GeoJSONEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -73,68 +61,40 @@ def export_landslides_fc():
 
     Each Feature gets:
     - geometry: Point (WGS84) at the landslide's representative centroid,
-      OR null if no primary polygon exists. The centroid is computed in
-      EPSG:3338 (NAD83 / Alaska Albers — equal-area) so it's a true
-      center-of-mass, then reprojected to WGS84 for the Point.
-    - properties: every column from the `landslides` table PLUS the four
-      derived centroid_* fields (Albers x/y in meters, WGS84 lat/lon).
-      The derived fields are computed at export and ignored on import.
+      built from the stored `centroid_lat` / `centroid_lon` columns. NULL
+      geometry if those columns are unset.
+    - properties: every column from the `landslides` table (including the
+      four stored centroid_* columns, populated by the centroid rules at
+      /inventory/manage/rules/).
     """
     conn = _get_conn()
     try:
         cur = conn.cursor()
         cols = _table_columns(cur, 'landslides', exclude=LANDSLIDES_AUTO_COLS)
-        cols_csv = ', '.join(f'l.{c}' for c in cols)
         cur.execute(
-            f"""
-            SELECT {cols_csv},
-                   ROUND(ST_X(c.albers)::numeric)::bigint AS centroid_albers_x,
-                   ROUND(ST_Y(c.albers)::numeric)::bigint AS centroid_albers_y,
-                   ROUND(ST_X(ST_Transform(c.albers, 4326))::numeric, 6)::float8 AS centroid_lon,
-                   ROUND(ST_Y(ST_Transform(c.albers, 4326))::numeric, 6)::float8 AS centroid_lat,
-                   CASE WHEN c.albers IS NULL THEN NULL
-                        ELSE ST_AsGeoJSON(ST_Transform(c.albers, 4326), 9)::json
-                   END AS centroid_geojson
-            FROM landslides l
-            LEFT JOIN LATERAL (
-                SELECT ST_Centroid(ST_Transform(lp.geom, 3338)) AS albers
-                FROM landslide_polygons lp
-                WHERE lp.landslide_id = l.id
-                  AND ((l.landslide_type = 'catastrophic' AND lp.role IN ('source', 'deposit'))
-                       OR (l.landslide_type = 'slow' AND lp.role = 'body'))
-                ORDER BY
-                    CASE lp.role WHEN 'source' THEN 0 WHEN 'body' THEN 0 ELSE 1 END,
-                    lp.is_primary DESC NULLS LAST,
-                    lp.id
-                LIMIT 1
-            ) c ON true
-            ORDER BY l.id
-            """
+            f"SELECT {', '.join(cols)} FROM landslides ORDER BY id"
         )
         rows = cur.fetchall()
         conn.rollback()
     finally:
         _put_conn(conn)
 
-    derived_cols = ['centroid_albers_x', 'centroid_albers_y', 'centroid_lon', 'centroid_lat']
-    n_db_cols = len(cols)
     features = []
     for row in rows:
-        db_values = row[:n_db_cols]
-        cax, cay, lon, lat, geom = row[n_db_cols:]
-        props = dict(zip(cols, db_values))
-        # Insert derived props in a stable order so JSON output is deterministic.
-        props['centroid_albers_x'] = cax
-        props['centroid_albers_y'] = cay
-        props['centroid_lat']      = lat
-        props['centroid_lon']      = lon
+        props = dict(zip(cols, row))
+        lat, lon = props.get('centroid_lat'), props.get('centroid_lon')
+        geom = (
+            {'type': 'Point', 'coordinates': [lon, lat]}
+            if lat is not None and lon is not None
+            else None
+        )
         features.append({
             'type': 'Feature',
             'id': props['id'],
             'geometry': geom,
             'properties': props,
         })
-    return {'type': 'FeatureCollection', 'features': features}, cols + derived_cols
+    return {'type': 'FeatureCollection', 'features': features}, cols
 
 
 def export_polygons_fc():
@@ -179,13 +139,14 @@ def export_polygons_flat_fc():
     normalized pair, and not editable without conflict risk).
 
     Column conventions:
-    - `id`            = polygon's id (FK target for nothing; just the Feature ID)
+    - `id`            = polygon's id (also the Feature ID)
     - `polygon_id`    = same as `id`, repeated as a property for clarity
     - `landslide_id`  = parent landslide's id (the link key)
     - polygon-side:   role, is_primary, thickness, area, polygon_volume
     - landslide-side: every column from `landslides` EXCEPT `id` (since
-                      landslide_id is the link) and `created_at`/`updated_at`.
-                      Plus the four derived centroid_* fields.
+                      landslide_id is the link) and the auto-managed
+                      timestamps. The four centroid_* columns come along
+                      for the ride from the landslides table.
     """
     conn = _get_conn()
     try:
@@ -202,25 +163,9 @@ def export_polygons_flat_fc():
             f"""
             SELECT {po_select},
                    {ls_select},
-                   ROUND(ST_X(c.albers)::numeric)::bigint              AS centroid_albers_x,
-                   ROUND(ST_Y(c.albers)::numeric)::bigint              AS centroid_albers_y,
-                   ROUND(ST_X(ST_Transform(c.albers, 4326))::numeric, 6)::float8 AS centroid_lon,
-                   ROUND(ST_Y(ST_Transform(c.albers, 4326))::numeric, 6)::float8 AS centroid_lat,
-                   ST_AsGeoJSON(p.geom, 15)::json                      AS geom_json
+                   ST_AsGeoJSON(p.geom, 15)::json AS geom_json
             FROM landslide_polygons p
             JOIN landslides l ON l.id = p.landslide_id
-            LEFT JOIN LATERAL (
-                SELECT ST_Centroid(ST_Transform(lp.geom, 3338)) AS albers
-                FROM landslide_polygons lp
-                WHERE lp.landslide_id = l.id
-                  AND ((l.landslide_type = 'catastrophic' AND lp.role IN ('source', 'deposit'))
-                       OR (l.landslide_type = 'slow' AND lp.role = 'body'))
-                ORDER BY
-                    CASE lp.role WHEN 'source' THEN 0 WHEN 'body' THEN 0 ELSE 1 END,
-                    lp.is_primary DESC NULLS LAST,
-                    lp.id
-                LIMIT 1
-            ) c ON true
             ORDER BY p.id
             """
         )
@@ -229,7 +174,6 @@ def export_polygons_flat_fc():
     finally:
         _put_conn(conn)
 
-    derived_cols = ['centroid_albers_x', 'centroid_albers_y', 'centroid_lon', 'centroid_lat']
     n_po = len(po_cols)
     n_ls = len(ls_cols)
 
@@ -237,24 +181,18 @@ def export_polygons_flat_fc():
     for row in rows:
         po_vals = row[:n_po]
         ls_vals = row[n_po : n_po + n_ls]
-        cax, cay, lon, lat, geom = row[n_po + n_ls :]
+        geom    = row[-1]
         props = dict(zip(po_cols, po_vals))
-        # Add polygon_id alias so users joining elsewhere have a stable handle
         props['polygon_id'] = props['id']
-        # Merge landslide attrs
         for k, v in zip(ls_cols, ls_vals):
             props[k] = v
-        props['centroid_albers_x'] = cax
-        props['centroid_albers_y'] = cay
-        props['centroid_lat']      = lat
-        props['centroid_lon']      = lon
         features.append({
             'type': 'Feature',
             'id': props['id'],
             'geometry': geom,
             'properties': props,
         })
-    flat_cols = po_cols + ['polygon_id'] + ls_cols + derived_cols
+    flat_cols = po_cols + ['polygon_id'] + ls_cols
     return {'type': 'FeatureCollection', 'features': features}, flat_cols
 
 
@@ -388,7 +326,6 @@ def build_export_bundle(urls=None):
             'landslide_polygons_flat': {
                 'count':   len(polygons_flat_fc['features']),
                 'columns': polygons_flat_cols,
-                'note':    'Export-only denormalized join; ignored on import.',
             },
         },
     }
@@ -542,7 +479,7 @@ def _diff_landslides(cur, features, types):
             continue
         seen_ids.add(feat_id)
         props = feat.get('properties', {})
-        unknown = set(props) - set(types) - DERIVED_LANDSLIDE_PROPS
+        unknown = set(props) - set(types)
         if unknown:
             warnings.append(f'id={feat_id}: unknown columns ignored: {sorted(unknown)}')
 

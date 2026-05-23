@@ -181,23 +181,7 @@ def slug_redirect(request, slug):
     try:
         cur = conn.cursor()
         cur.execute(
-            """
-            SELECT ST_X(ctr.pt), ST_Y(ctr.pt)
-            FROM landslides ls
-            LEFT JOIN LATERAL (
-                SELECT ST_Centroid(lp.geom) AS pt
-                FROM landslide_polygons lp
-                WHERE lp.landslide_id = ls.id
-                  AND ((ls.landslide_type = 'catastrophic' AND lp.role IN ('source', 'deposit'))
-                       OR (ls.landslide_type = 'slow' AND lp.role = 'body'))
-                ORDER BY
-                    CASE lp.role WHEN 'source' THEN 0 WHEN 'body' THEN 0 ELSE 1 END,
-                    lp.is_primary DESC NULLS LAST,
-                    lp.id
-                LIMIT 1
-            ) ctr ON true
-            WHERE ls.id = %s
-            """,
+            "SELECT centroid_lon, centroid_lat FROM landslides WHERE id = %s",
             (landslide_id,),
         )
         row = cur.fetchone()
@@ -313,45 +297,17 @@ def api_features(request):
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
     sql = f"""
-        WITH point_geoms AS (
-            -- Slow: centroid of body polygon.
-            -- Catastrophic: centroid of primary source polygon;
-            --   falls back to deposit if no source exists.
-            SELECT DISTINCT ON (lp.landslide_id)
-                lp.landslide_id,
-                ST_Centroid(lp.geom) AS centroid
-            FROM landslide_polygons lp
-            JOIN landslides l ON l.id = lp.landslide_id
-            WHERE (l.landslide_type = 'catastrophic' AND lp.role IN ('source', 'deposit'))
-               OR (l.landslide_type = 'slow'         AND lp.role = 'body')
-            ORDER BY
-                lp.landslide_id,
-                CASE lp.role WHEN 'source' THEN 0 WHEN 'body' THEN 0 ELSE 1 END,
-                lp.is_primary DESC NULLS LAST,
-                lp.id
-        ),
-        display_areas AS (
-            SELECT landslide_id,
-                   MAX(CASE WHEN role IN ('deposit', 'body') THEN area END) AS display_area,
-                   MAX(CASE WHEN role = 'body'    THEN area END) AS area_body,
-                   MAX(CASE WHEN role = 'source'  THEN area END) AS area_source,
-                   MAX(CASE WHEN role = 'deposit' THEN area END) AS area_deposit
-            FROM landslide_polygons
-            GROUP BY landslide_id
-        ),
-        centroids AS (
-            SELECT pg.landslide_id, pg.centroid, da.display_area,
-                   da.area_body, da.area_source, da.area_deposit
-            FROM point_geoms pg
-            JOIN display_areas da ON da.landslide_id = pg.landslide_id
-        )
         SELECT json_build_object(
             'type', 'FeatureCollection',
             'features', COALESCE(json_agg(
                 json_build_object(
                     'type', 'Feature',
                     'id', l.id,
-                    'geometry', ST_AsGeoJSON(c.centroid)::json,
+                    'geometry', CASE WHEN l.centroid_lat IS NOT NULL AND l.centroid_lon IS NOT NULL
+                                     THEN json_build_object(
+                                            'type', 'Point',
+                                            'coordinates', json_build_array(l.centroid_lon, l.centroid_lat))
+                                     ELSE NULL END,
                     'properties', json_build_object(
                         'id', l.id,
                         'unique_name', l.unique_name,
@@ -361,11 +317,11 @@ def api_features(request):
                         'description', l.description,
                         'volume_preferred', l.volume_preferred,
                         'volume_method', l.volume_method,
-                        'display_area', c.display_area,
+                        'display_area', COALESCE(l.area_body, l.area_deposit),
                         'area_src', CASE WHEN l.landslide_type = 'slow'
-                                         THEN c.area_body ELSE c.area_source END,
+                                         THEN l.area_body ELSE l.area_source END,
                         'area_dep', CASE WHEN l.landslide_type = 'catastrophic'
-                                         THEN c.area_deposit ELSE NULL END,
+                                         THEN l.area_deposit ELSE NULL END,
                         'year_num', CASE
                             WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
                             WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
@@ -387,7 +343,6 @@ def api_features(request):
             ), '[]'::json)
         )
         FROM landslides l
-        JOIN centroids c ON c.landslide_id = l.id
         {where}
     """
 
@@ -552,8 +507,8 @@ def api_timed_events(request):
             l.stream_damming,
             l.exclusively_supraglacial,
             l.creeping_permafrost_mass,
-            ST_Y(ctr.centroid) AS lat,
-            ST_X(ctr.centroid) AS lon,
+            l.centroid_lat AS lat,
+            l.centroid_lon AS lon,
             CASE
                 WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
                 WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
@@ -576,25 +531,15 @@ def api_timed_events(request):
                  THEN EXTRACT(YEAR FROM l.seismic_datetime)::int
                  ELSE EXTRACT(YEAR FROM l.date_min)::int
             END AS event_year,
-            CASE WHEN l.landslide_type = 'slow' THEN pa.area_body ELSE pa.area_source END AS area_src,
-            CASE WHEN l.landslide_type = 'catastrophic' THEN pa.area_deposit ELSE NULL END AS area_dep,
+            CASE WHEN l.landslide_type = 'slow' THEN l.area_body ELSE l.area_source END AS area_src,
+            CASE WHEN l.landslide_type = 'catastrophic' THEN l.area_deposit ELSE NULL END AS area_dep,
             l.precursory_headscarp,
             (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume
         FROM landslides l
-        JOIN (
-            SELECT landslide_id, ST_Centroid(ST_Union(geom)) AS centroid
-            FROM landslide_polygons GROUP BY landslide_id
-        ) ctr ON ctr.landslide_id = l.id
-        JOIN (
-            SELECT landslide_id,
-                   MAX(CASE WHEN role = 'body'    THEN area END) AS area_body,
-                   MAX(CASE WHEN role = 'source'  THEN area END) AS area_source,
-                   MAX(CASE WHEN role = 'deposit' THEN area END) AS area_deposit
-            FROM landslide_polygons GROUP BY landslide_id
-        ) pa ON pa.landslide_id = l.id
-        WHERE l.seismic_datetime IS NOT NULL
-           OR (l.date_min IS NOT NULL AND l.date_max IS NOT NULL
-               AND l.date_max >= l.date_min)
+        WHERE (l.seismic_datetime IS NOT NULL
+               OR (l.date_min IS NOT NULL AND l.date_max IS NOT NULL
+                   AND l.date_max >= l.date_min))
+          AND l.centroid_lat IS NOT NULL
         ORDER BY l.id
     """
     conn = _get_conn()
@@ -655,8 +600,8 @@ def api_timeline_events(request):
             l.creeping_permafrost_mass,
             l.post_2012_activity_increase,
             (l.seismic_datetime IS NOT NULL) AS has_seismic,
-            ST_Y(ctr.centroid) AS lat,
-            ST_X(ctr.centroid) AS lon,
+            l.centroid_lat AS lat,
+            l.centroid_lon AS lon,
             CASE
                 WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
                 WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
@@ -669,22 +614,12 @@ def api_timeline_events(request):
                  THEN to_char(l.seismic_datetime, 'YYYY-MM-DD') ELSE NULL END AS tl_pt,
             to_char(l.date_min, 'YYYY-MM-DD') AS tl_d0,
             to_char(l.date_max, 'YYYY-MM-DD') AS tl_d1,
-            CASE WHEN l.landslide_type = 'slow' THEN pa.area_body ELSE pa.area_source END AS area_src,
-            CASE WHEN l.landslide_type = 'catastrophic' THEN pa.area_deposit ELSE NULL END AS area_dep,
+            CASE WHEN l.landslide_type = 'slow' THEN l.area_body ELSE l.area_source END AS area_src,
+            CASE WHEN l.landslide_type = 'catastrophic' THEN l.area_deposit ELSE NULL END AS area_dep,
             l.precursory_headscarp,
             (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume
         FROM landslides l
-        JOIN (
-            SELECT landslide_id, ST_Centroid(ST_Union(geom)) AS centroid
-            FROM landslide_polygons GROUP BY landslide_id
-        ) ctr ON ctr.landslide_id = l.id
-        JOIN (
-            SELECT landslide_id,
-                   MAX(CASE WHEN role = 'body'    THEN area END) AS area_body,
-                   MAX(CASE WHEN role = 'source'  THEN area END) AS area_source,
-                   MAX(CASE WHEN role = 'deposit' THEN area END) AS area_deposit
-            FROM landslide_polygons GROUP BY landslide_id
-        ) pa ON pa.landslide_id = l.id
+        WHERE l.centroid_lat IS NOT NULL
         ORDER BY l.id
     """
     conn = _get_conn()
