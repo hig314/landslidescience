@@ -41,7 +41,7 @@ _CLASS_FILL_KEYS = {
     'Catastrophic Patchy obvious creep': ('color_cat',      'color_obvious'),
     'Catastrophic Subtle creep':         ('color_cat',      'color_subtle'),
     'Catastrophic Geomorph creep':       ('color_cat',      'color_geomorph'),
-    'Catastrophic':                      ('color_cat',      None),
+    'Catastrophic Cryptic':              ('color_cat',      None),
     # Other catastrophic landslides (pale-blue dot — see _PALE_BLUE)
     'Catastrophic Modern':               (None,             None),
     'Catastrophic Holocene':             (None,             None),

@@ -60,7 +60,7 @@ _CAT_RECENT_ORDER = [
     'Catastrophic Patchy obvious creep',
     'Catastrophic Subtle creep',
     'Catastrophic Geomorph creep',
-    'Catastrophic',
+    'Catastrophic Cryptic',
 ]
 _CAT_OTHER_ORDER = [
     'Catastrophic Modern',
@@ -73,7 +73,7 @@ _CLASS_COLOR = {
     'Slow Subtle creep':                 '#faf075',
     'Slow Geomorph creep':               '#d3e9cf',
     'Small slow landslide':              '#d3e9cf',
-    'Catastrophic':                      '#3f67b1',
+    'Catastrophic Cryptic':              '#3f67b1',
     'Small catastrophic landslide':      '#96b8df',
     'Catastrophic Holocene':             '#96b8df',
     'Catastrophic Modern':               '#96b8df',

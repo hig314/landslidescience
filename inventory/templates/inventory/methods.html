@@ -171,9 +171,12 @@
     <td>Catastrophic failure with geomorphic creep indicators at the source</td>
   </tr>
   <tr>
-    <td>Catastrophic</td>
+    <td>Catastrophic Cryptic</td>
     <td><span class="m-dot" style="background:#3f67b1"></span> Blue</td>
-    <td>Post-2012 catastrophic event without identified precursory creep</td>
+    <td>Post-2012 catastrophic event where pre-event imagery and InSAR were
+        reviewed but <em>no</em> precursory creep was found &mdash; a deliberate
+        null result, distinct from the older Modern / Holocene classes (which
+        typically had no pre-event data to review at all).</td>
   </tr>
 </table>
 
@@ -199,9 +202,9 @@
 
 <p>
   Catastrophic landslides with precursory creep are drawn with a colored
-  halo (stroke) matching their creep evidence level. The plain
-  &ldquo;Catastrophic&rdquo; class (no halo) marks post-2012 events where no
-  precursory creep was identified.
+  halo (stroke) matching their creep evidence level. The
+  &ldquo;Catastrophic Cryptic&rdquo; class (no halo) marks post-2012 events
+  whose pre-event data were reviewed and no precursory creep was found.
 </p>
 
 <p>
@@ -559,7 +562,13 @@
   <strong><code>creep_behavior</code></strong>
   {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='creep_behavior' %}" class="rule-link">rule</a>{% endif %}
   picks the strongest creep evidence label observed: Patchy obvious &rarr;
-  Obvious &rarr; (InSAR or other) Subtle &rarr; Geomorph &rarr; none.
+  Obvious &rarr; (InSAR or other) Subtle &rarr; Geomorph. For
+  large post-2012 catastrophic landslides where pre-event data has been
+  reviewed and shows no precursor, the rule returns
+  <strong>"Cryptic"</strong> &mdash; a deliberate null finding,
+  distinct from older events where the absence of evidence simply
+  means there was no pre-event data to review. All other cases without
+  positive creep evidence return None (no label).
 </p>
 
 <p>
@@ -577,8 +586,10 @@
     Catastrophic + not in size scope &rarr; "Small catastrophic landslide".
     Catastrophic + in size scope branches on event year:
     <ul>
-      <li>2012 or later: "Catastrophic {creep_behavior}", or just
-          "Catastrophic" if no precursor creep is recorded.</li>
+      <li>2012 or later: "Catastrophic {creep_behavior}" — including the
+          "Catastrophic Cryptic" case when the creep_behavior rule has
+          marked the record as cryptic (pre-event data reviewed, no
+          precursor found).</li>
       <li>1850 to 2011: "Catastrophic Modern".</li>
       <li>Before 1850, or year_text contains "Holocene": "Catastrophic Holocene".</li>
     </ul>

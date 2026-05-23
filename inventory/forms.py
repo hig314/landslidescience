@@ -19,7 +19,7 @@ COMMON_CLASS_VALUES = [
     'Slow Subtle creep',
     'Slow Geomorph creep',
     'Small slow landslide',
-    'Catastrophic',
+    'Catastrophic Cryptic',
     'Catastrophic Modern',
     'Catastrophic Holocene',
     'Catastrophic Obvious creep',

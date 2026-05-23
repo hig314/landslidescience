@@ -74,12 +74,19 @@ def compute_creep_behavior(row):
       3. insar_creep                → 'Subtle creep'
       4. other_subtle_creep is set  → 'Subtle creep'
       5. geomorph_creep             → 'Geomorph creep'
-      6. none of the above          → None
+      6. otherwise:
+         - For large post-2012 catastrophic landslides (where pre-event
+           data was reviewable): 'Cryptic' — i.e. we explicitly looked
+           and found no precursory deformation. landslide_class becomes
+           "Catastrophic Cryptic", which is distinct from older events
+           (Modern / Holocene) where the absence of evidence simply
+           means there was no pre-event data to review.
+         - For everything else: None (no creep evidence on record).
 
     Note: patchy-obvious outranks plain-obvious here per the convention
     that "patchy" is the more specific call when both are flagged.
-    Feeds into `landslide_class` which prefixes this with 'Slow ' or
-    'Catastrophic '.
+    Feeds into `landslide_class` which prefixes the label with 'Slow '
+    or 'Catastrophic '.
     """
     if row.get('planet_labs_patchy_creep'):
         return 'Patchy obvious creep'
@@ -91,6 +98,13 @@ def compute_creep_behavior(row):
         return 'Subtle creep'
     if row.get('geomorph_creep'):
         return 'Geomorph creep'
+    # No positive creep evidence on any source. For large post-2012
+    # catastrophic events we still want to mark this as a deliberate finding.
+    if ((row.get('landslide_type') or '').strip().lower() == 'catastrophic'
+            and row.get('size_inclusion')):
+        era = _resolve_event_era(row)
+        if isinstance(era, int) and era >= POST_2012_THRESHOLD_YEAR:
+            return 'Cryptic'
     return None
 
 compute_creep_behavior.target_table  = 'landslides'
@@ -99,9 +113,16 @@ compute_creep_behavior.inputs        = ('planet_labs_patchy_creep',
                                         'planet_labs_creep',
                                         'insar_creep',
                                         'other_subtle_creep',
-                                        'geomorph_creep')
+                                        'geomorph_creep',
+                                        'landslide_type',
+                                        'size_inclusion',
+                                        'seismic_datetime',
+                                        'year_text',
+                                        'date_min')
 compute_creep_behavior.summary       = ('Pick the strongest creep-evidence '
-                                        'label from the per-source flags.')
+                                        'label from the per-source flags; '
+                                        '"Cryptic" for post-2012 large '
+                                        'catastrophic events with none.')
 
 
 # ---------------------------------------------------------------------------

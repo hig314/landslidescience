@@ -11,7 +11,7 @@
         'Slow Subtle creep', 'Slow Geomorph creep', 'Small slow landslide',
         'Catastrophic Obvious creep', 'Catastrophic Patchy obvious creep',
         'Catastrophic Subtle creep', 'Catastrophic Geomorph creep',
-        'Catastrophic Modern', 'Catastrophic', 'Small catastrophic landslide',
+        'Catastrophic Modern', 'Catastrophic Cryptic', 'Small catastrophic landslide',
         'Catastrophic Holocene',
         '__unclassified__'   // synthetic: matches NULL/empty landslide_class
     ];
@@ -513,7 +513,7 @@
             'Slow Obvious creep', _cO, 'Slow Patchy obvious creep', _cO,
             'Slow Subtle creep', _cS,
             'Slow Geomorph creep', _cG, 'Small slow landslide', _cG,
-            'Catastrophic', _cC,
+            'Catastrophic Cryptic', _cC,
             'Catastrophic Obvious creep', _cC, 'Catastrophic Patchy obvious creep', _cC,
             'Catastrophic Subtle creep', _cC, 'Catastrophic Geomorph creep', _cC,
             'Catastrophic Modern', _cCPale, 'Catastrophic Holocene', _cCPale,
@@ -555,8 +555,8 @@
             id: 'points', type: 'circle', source: 'landslides',
             layout: {
                 'circle-sort-key': ['match', ['get', 'landslide_class'],
-                    // Top: post-2012 catastrophic (dark blue, no qualifier)
-                    'Catastrophic', 50,
+                    // Top: post-2012 catastrophic (dark blue, no precursor)
+                    'Catastrophic Cryptic', 50,
                     // Obviously creeping (red halo or red dot)
                     'Slow Obvious creep', 40, 'Slow Patchy obvious creep', 40,
                     'Catastrophic Obvious creep', 40, 'Catastrophic Patchy obvious creep', 40,
