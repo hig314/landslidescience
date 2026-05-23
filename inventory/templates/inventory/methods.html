@@ -230,10 +230,30 @@
     catastrophic event.
   </li>
 </ul>
+
+<h4>The <code>is_primary</code> flag</h4>
 <p>
-  The <code>is_primary</code> flag disambiguates in rare cases where multiple
-  polygons share a role on a single landslide.
+  Catastrophic landslides typically have exactly <strong>one source polygon
+  flagged <code>is_primary=true</code></strong>; this is the polygon used for
+  dot placement on the map. The convention:
 </p>
+<ul>
+  <li>
+    When a source polygon exists, it carries <code>is_primary=true</code>.
+    Deposit polygons are <em>never</em> flagged primary, even when a
+    catastrophic landslide has only a single deposit.
+  </li>
+  <li>
+    A small number of catastrophic landslides have no source polygon (the
+    source may be obscured or hasn't been digitized). These records have
+    <strong>no primary polygon at all</strong>; the centroid rule falls back
+    to the deposit polygon for dot placement.
+  </li>
+  <li>
+    Slow landslides have a single body polygon and don't use the
+    <code>is_primary</code> flag.
+  </li>
+</ul>
 
 <h4>Centroid placement</h4>
 <p>
@@ -243,9 +263,9 @@
 <ol>
   <li>For <strong>slow</strong> landslides: centroid of the body polygon.</li>
   <li>
-    For <strong>catastrophic</strong> landslides: centroid of the primary
-    source polygon. If no source polygon exists, the primary deposit polygon
-    is used as a fallback.
+    For <strong>catastrophic</strong> landslides: centroid of the source
+    polygon (which carries <code>is_primary=true</code>). If no source polygon
+    exists, the centroid is computed from the deposit polygon as a fallback.
   </li>
 </ol>
 <p>

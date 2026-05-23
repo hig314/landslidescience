@@ -19,6 +19,7 @@ import psycopg2.pool
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 
 from .auth import inventory_editor_required
 from .middleware import SESSION_KEY as _PREVIEW_SESSION_KEY
@@ -927,6 +928,7 @@ def manage_edit(request, landslide_id):
         'form':            form,
         'landslide_id':    landslide_id,
         'unique_name':     unique_name,
+        'slug':            _slug_for_id(landslide_id),
         'editable_fields': col_names,
         'common_classes':  COMMON_CLASS_VALUES,
         'error_msg':       error_msg,
@@ -942,7 +944,11 @@ def export_download(request):
     with the rest of /inventory/*.
     """
     from .io_geojson import build_export_bundle
-    body, fname = build_export_bundle()
+    urls = {
+        'map':     request.build_absolute_uri(reverse('inventory:home')),
+        'methods': request.build_absolute_uri(reverse('inventory:methods')),
+    }
+    body, fname = build_export_bundle(urls=urls)
     resp = HttpResponse(body, content_type='application/zip')
     resp['Content-Disposition'] = f'attachment; filename="{fname}"'
     return resp

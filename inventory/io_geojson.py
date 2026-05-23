@@ -271,7 +271,14 @@ def _map_settings_dict():
     return out
 
 
-def build_export_bundle():
+_DEFAULT_URLS = {
+    'map':     'https://landslidescience.org/inventory/',
+    'methods': 'https://landslidescience.org/inventory/methods/',
+    'repo':    'https://github.com/hig314/landslidescience',
+}
+
+
+def build_export_bundle(urls=None):
     """Return (zip_bytes, filename) for the current inventory state.
 
     Contents:
@@ -282,7 +289,10 @@ def build_export_bundle():
       landslides.qml                     — QGIS style for the points layer
       landslide_polygons.qml             — QGIS style for the polygons layer (assumes landslide_class is present)
       landslide_polygons_flat.qml        — byte-identical copy so QGIS auto-loads the same style on the flat file
-                                            (QGIS auto-loads <name>.qml only when basename matches <name>.geojson exactly)
+
+    `urls` is an optional dict with keys `map` / `methods` / `repo` overriding
+    the defaults (production landslidescience.org / GitHub). The view passes
+    request-derived absolute URLs so dev exports get dev URLs.
 
     The flat file is export-only — re-uploading it via /inventory/manage/import/
     silently ignores it (the normalized pair is authoritative).
@@ -290,6 +300,10 @@ def build_export_bundle():
     import io
     import zipfile
     from .qml import build_qml_points, build_qml_polygons
+
+    u = dict(_DEFAULT_URLS)
+    if urls:
+        u.update({k: v for k, v in urls.items() if v})
 
     landslides_fc,        landslides_cols   = export_landslides_fc()
     polygons_fc,          polygons_cols     = export_polygons_fc()
@@ -301,6 +315,67 @@ def build_export_bundle():
     manifest = {
         'export_format_version': EXPORT_FORMAT_VERSION,
         'exported_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'source': {
+            'project':     'Alaska Landslide Inventory',
+            'map_url':     u['map'],
+            'methods_url': u['methods'],
+            'repo_url':    u['repo'],
+        },
+        'polygon_conventions': {
+            'roles': 'Each polygon carries a `role` of body, source, or deposit. '
+                     'Slow landslides have a single body polygon. Catastrophic '
+                     'landslides have one or more source polygons and/or one or '
+                     'more deposit polygons.',
+            'is_primary': 'Catastrophic landslides typically have exactly one '
+                          'source polygon flagged is_primary=true. Deposit '
+                          'polygons are never flagged primary. A small number '
+                          'of catastrophic landslides have no source polygon at '
+                          'all; these records have no primary polygon, and the '
+                          'centroid falls back to the deposit polygon.',
+        },
+        'coordinate_reference_systems': {
+            'feature_geometries': {
+                'epsg': 4326,
+                'name': 'WGS 84',
+                'note': 'Per GeoJSON RFC 7946, all Feature geometries are in WGS84 (EPSG:4326). '
+                        'No `crs` field is set — it is deprecated in the current spec and '
+                        'consumers should assume EPSG:4326.',
+            },
+            'computations': {
+                'areas':     'PostGIS ST_Area on geometry transformed to EPSG:3338 (NAD83 / Alaska '
+                             'Albers, equal-area). The polygon `area` property is in m².',
+                'centroids': 'ST_Centroid computed on EPSG:3338 geometry; the resulting point is '
+                             'used directly for centroid_albers_x/y (meters) and re-projected to '
+                             'WGS84 for centroid_lat/lon and for the Point geometry on '
+                             'landslides.geojson features.',
+            },
+            'projected_properties': {
+                'centroid_albers_x': 'EPSG:3338 easting in meters.',
+                'centroid_albers_y': 'EPSG:3338 northing in meters.',
+                'centroid_lat':      'WGS84 latitude in decimal degrees.',
+                'centroid_lon':      'WGS84 longitude in decimal degrees.',
+            },
+        },
+        'files': {
+            'landslides.geojson': '1 feature per landslide. Geometry: Point at primary-polygon '
+                                  'centroid (slow → body, catastrophic → source then deposit). '
+                                  'All columns plus four centroid_* fields in properties.',
+            'landslide_polygons.geojson': '1 feature per polygon. Geometry: MultiPolygon (WGS84). '
+                                          'Properties carry landslide_id, role, area, polygon_volume, '
+                                          'thickness, is_primary.',
+            'landslide_polygons_flat.geojson': 'Denormalized: each polygon feature carries the '
+                                               'parent landslide attributes merged in. Export-only — '
+                                               'silently ignored on import; the normalized pair is '
+                                               'authoritative.',
+            'landslides.qml': 'QGIS style for landslides.geojson — categorized by landslide_class. '
+                              'Auto-loads when the .qml and .geojson share a basename in the same '
+                              'directory.',
+            'landslide_polygons.qml': 'QGIS style for landslide_polygons.geojson — rule-based by '
+                                      'landslide_class. Requires the class column to be present '
+                                      '(via a QGIS table-join to landslides on the normalized file).',
+            'landslide_polygons_flat.qml': 'Byte-identical copy of landslide_polygons.qml so QGIS '
+                                           'auto-loads the same style on the flat file.',
+        },
         'tables': {
             'landslides': {
                 'count':   len(landslides_fc['features']),
