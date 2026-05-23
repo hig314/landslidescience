@@ -3,6 +3,26 @@
 {% block page_title %}Methods{% endblock %}
 {% block body_class %}inv-article-body{% endblock %}
 
+{% block extra_styles %}
+<style>
+  /* Inline rule-link chips — only render for editors */
+  .rule-link {
+      display: inline-block;
+      font-size: 11px;
+      background: #f0ebe9;
+      color: #5D4037;
+      padding: 1px 7px;
+      border-radius: 3px;
+      text-decoration: none;
+      margin-left: 4px;
+      vertical-align: 1px;
+      white-space: nowrap;
+      border: 1px solid #d6c8c2;
+  }
+  .rule-link:hover { background: #e6dfdc; text-decoration: none; }
+</style>
+{% endblock %}
+
 {% block body %}
 <div class="methods-page">
 
@@ -11,9 +31,18 @@
 <p class="methods-intro">
   This page documents how data is structured, displayed, and analyzed in the
   Alaska Landslide Inventory viewer. It covers the classification system,
-  how map features are positioned, how areas and volumes are measured, and
-  how the two timeline charts work.
+  how map features are positioned, how areas and volumes are derived, the
+  automated rules that maintain consistency across columns, and how the two
+  timeline charts work.
 </p>
+
+{% if is_inventory_editor %}
+<p class="methods-intro" style="background:#fff8e1; padding:10px 14px; border-left:3px solid #d2a64c; border-radius:3px;">
+  <strong>Editor note:</strong> rule names below link to the rule detail page
+  where you can review the function source, preview proposed changes against
+  the current database, and apply across the inventory.
+</p>
+{% endif %}
 
 <nav class="methods-toc">
   <strong>Contents</strong>
@@ -22,6 +51,7 @@
     <li><a href="#classification">Classification system</a></li>
     <li><a href="#polygons">Polygons and map placement</a></li>
     <li><a href="#areas-volumes">Areas and volumes</a></li>
+    <li><a href="#rules">Automated rules and audit</a></li>
     <li><a href="#temporal">Temporal data and year encoding</a></li>
     <li><a href="#seasonal">Seasonal timing chart</a></li>
     <li><a href="#timeline">Timeline chart</a></li>
@@ -35,28 +65,44 @@
 <h3 id="data-sources">1. Data sources and structure</h3>
 
 <p>
-  The inventory contains two populations of landslides, stored in separate
-  GeoPackage files and merged into a single PostGIS database on load:
+  The inventory lives in a PostGIS database (<code>tethys_db</code>) with two
+  primary tables: <code>landslides</code> (one row per landslide, all
+  attributes) and <code>landslide_polygons</code> (one row per polygon, with
+  a <code>landslide_id</code> foreign key). Every landslide has at least one
+  polygon; catastrophic landslides typically have two or more (separate
+  source and deposit geometries).
 </p>
+
 <ul>
   <li>
-    <strong>Slow landslides</strong> (~1,110 records) &mdash; attributes and
-    geometry co-located in a single GeoPackage layer. Each record has one
-    polygon representing the landslide body.
+    <strong>Slow landslides</strong> (~1,110 records) &mdash; one body
+    polygon each, representing the full mapped extent of the moving mass.
   </li>
   <li>
-    <strong>Catastrophic landslides</strong> (~314 records, ~621 polygons)
-    &mdash; attributes in one GeoPackage, polygons in a separate GeoPackage,
-    linked by the <code>Unique name</code> field. Polygons are tagged as
-    either <em>source</em> (headscarp/failure area) or <em>deposit</em>
-    (runout/debris field).
+    <strong>Catastrophic landslides</strong> (~314 records, ~620 polygons)
+    &mdash; polygons tagged as <em>source</em> (headscarp / failure
+    initiation zone) or <em>deposit</em> (runout / debris field). A typical
+    catastrophic landslide has one source and one deposit; some have only a
+    deposit (the source may be obscured or uncertain), and a few large
+    events have multiple polygons of the same role.
   </li>
 </ul>
+
 <p>
-  All source geometry is in Alaska Albers Equal Area (EPSG:6393). During
-  loading, geometry is reprojected to WGS&nbsp;84 (EPSG:4326) for web
-  display. Area measurements are preserved from the original equal-area
-  projection and are <em>not</em> recomputed in WGS&nbsp;84.
+  Source geometry is stored in WGS&nbsp;84 (EPSG:4326) for compatibility with
+  web standards. Area, volume, and centroid computations are performed in
+  <strong>Alaska Albers Equal Area (EPSG:3338)</strong> via PostGIS
+  <code>ST_Transform</code> &mdash; an equal-area projection avoids the
+  4&ndash;6&times; area distortion that Web Mercator introduces at Alaskan
+  latitudes.
+</p>
+
+<p>
+  The complete inventory can be downloaded as GeoJSON + QGIS .qml style files
+  from the <a href="{% url 'inventory:export' %}">⬇ Download</a> link in the
+  header. The download includes a manifest, the normalized landslides and
+  polygons GeoJSONs, a denormalized flat polygons file with parent landslide
+  attributes merged in, and style files matching this site's map symbology.
 </p>
 
 
@@ -66,8 +112,9 @@
 <p>
   Every landslide has a <strong>type</strong> (slow or catastrophic) and a
   <strong>class</strong> that encodes both the type and the strength of
-  evidence for ongoing creep. Classes are organized in the sidebar from most
-  to least active:
+  evidence for ongoing creep (for active landslides) or its age (for
+  prehistoric events). Classes are organized in the sidebar by activity and
+  recency.
 </p>
 
 <h4>Slow landslides</h4>
@@ -100,13 +147,13 @@
   </tr>
 </table>
 
-<h4>Catastrophic landslides</h4>
+<h4>Large catastrophic landslides since 2012</h4>
 <table class="methods-table">
   <tr><th>Class</th><th>Color</th><th>Meaning</th></tr>
   <tr>
     <td>Catastrophic Obvious creep</td>
     <td><span class="m-dot" style="background:#3f67b1;box-shadow:0 0 0 2px #f69fa1"></span> Blue + red halo</td>
-    <td>Catastrophic failure from a source area showing obvious ongoing creep</td>
+    <td>Catastrophic failure from a source area showing obvious precursory creep</td>
   </tr>
   <tr>
     <td>Catastrophic Patchy obvious creep</td>
@@ -116,7 +163,7 @@
   <tr>
     <td>Catastrophic Subtle creep</td>
     <td><span class="m-dot" style="background:#3f67b1;box-shadow:0 0 0 2px #faf075"></span> Blue + yellow halo</td>
-    <td>Catastrophic failure with subtle creep at the source</td>
+    <td>Catastrophic failure with subtle creep at the source (InSAR-detectable)</td>
   </tr>
   <tr>
     <td>Catastrophic Geomorph creep</td>
@@ -126,30 +173,41 @@
   <tr>
     <td>Catastrophic</td>
     <td><span class="m-dot" style="background:#3f67b1"></span> Blue</td>
-    <td>Post-2012 catastrophic events without identified precursory creep</td>
+    <td>Post-2012 catastrophic event without identified precursory creep</td>
   </tr>
+</table>
+
+<h4>Other catastrophic landslides</h4>
+<table class="methods-table">
+  <tr><th>Class</th><th>Color</th><th>Meaning</th></tr>
   <tr>
     <td>Catastrophic Modern</td>
     <td><span class="m-dot" style="background:#96b8df"></span> Pale blue</td>
-    <td>Pre-2012 &ldquo;modern&rdquo; events (roughly post-1850)</td>
-  </tr>
-  <tr>
-    <td>Small catastrophic landslide</td>
-    <td><span class="m-dot" style="background:#96b8df"></span> Pale blue</td>
-    <td>Below the main size threshold</td>
+    <td>Pre-2012 "modern" events (roughly post-1850)</td>
   </tr>
   <tr>
     <td>Catastrophic Holocene</td>
     <td><span class="m-dot" style="background:#96b8df"></span> Pale blue</td>
     <td>Prehistoric catastrophic events identified from geomorphology</td>
   </tr>
+  <tr>
+    <td>Small catastrophic landslide</td>
+    <td><span class="m-dot" style="background:#96b8df"></span> Pale blue</td>
+    <td>Below the main size threshold</td>
+  </tr>
 </table>
 
 <p>
-  On the map, catastrophic landslides with precursory creep are drawn with a
-  colored halo (stroke) matching their creep evidence level, making them
-  visually distinct from catastrophic events without known precursory
-  deformation.
+  Catastrophic landslides with precursory creep are drawn with a colored
+  halo (stroke) matching their creep evidence level. The plain
+  &ldquo;Catastrophic&rdquo; class (no halo) marks post-2012 events where no
+  precursory creep was identified.
+</p>
+
+<p>
+  The classification of any individual landslide is itself derived by an
+  automated rule from a few input columns &mdash; see
+  <a href="#rules">Automated rules</a> below.
 </p>
 
 
@@ -173,16 +231,14 @@
   </li>
 </ul>
 <p>
-  A typical catastrophic landslide has one source polygon and one deposit
-  polygon. Some have only a deposit (the source may be obscured or
-  uncertain). The <code>is_primary</code> flag disambiguates in rare cases
-  where multiple polygons share a role.
+  The <code>is_primary</code> flag disambiguates in rare cases where multiple
+  polygons share a role on a single landslide.
 </p>
 
 <h4>Centroid placement</h4>
 <p>
-  The map dot for each landslide is placed at the centroid of a single
-  representative polygon, chosen by priority:
+  Each landslide's dot is drawn at the centroid of a single representative
+  polygon, computed in EPSG:3338 then reprojected to WGS&nbsp;84:
 </p>
 <ol>
   <li>For <strong>slow</strong> landslides: centroid of the body polygon.</li>
@@ -193,44 +249,153 @@
   </li>
 </ol>
 <p>
-  This means the dot marks where the failure initiated, not where debris
-  came to rest. Polygons themselves appear when zoomed in past zoom
-  level&nbsp;7.
+  The centroid coordinates are stored as four derived columns on the
+  <code>landslides</code> table: <code>centroid_albers_x</code> /
+  <code>centroid_albers_y</code> (meters in EPSG:3338) and
+  <code>centroid_lat</code> / <code>centroid_lon</code> (decimal degrees in
+  WGS&nbsp;84). They are populated by automated rules
+  {% if is_inventory_editor %}(<a href="{% url 'inventory:manage_rule_detail' name='centroid_albers_x' %}" class="rule-link">centroid_albers_x</a>
+  <a href="{% url 'inventory:manage_rule_detail' name='centroid_albers_y' %}" class="rule-link">centroid_albers_y</a>
+  <a href="{% url 'inventory:manage_rule_detail' name='centroid_lat' %}" class="rule-link">centroid_lat</a>
+  <a href="{% url 'inventory:manage_rule_detail' name='centroid_lon' %}" class="rule-link">centroid_lon</a>){% endif %}
+  and re-applied whenever polygon geometries change.
+</p>
+
+<p>
+  Polygons themselves are drawn when zoomed in past zoom level&nbsp;7.
 </p>
 
 
 <!-- ================================================================== -->
 <h3 id="areas-volumes">4. Areas and volumes</h3>
 
-<h4>Areas</h4>
+<h4>Polygon areas</h4>
 <p>
-  Polygon areas are stored from the original GeoPackage data, which was
-  digitized and measured in Alaska Albers Equal Area (EPSG:6393). This is
-  an equal-area projection, so area measurements are geometrically correct.
-  Areas are <em>not</em> recomputed from the WGS&nbsp;84 coordinates stored
-  in the database (which would introduce substantial error at Alaska
-  latitudes).
-</p>
-<p>
-  The <strong>&ldquo;source area&rdquo;</strong> filter uses:
-</p>
-<ul>
-  <li>For slow landslides: the body polygon area (the entire landslide).</li>
-  <li>For catastrophic landslides: the source polygon area.</li>
-</ul>
-<p>
-  The <strong>&ldquo;deposit area&rdquo;</strong> filter applies only to
-  catastrophic landslides. Slow landslides pass through this filter
-  unconditionally (they have no deposit).
+  Per-polygon areas (stored in <code>landslide_polygons.area</code>) are
+  computed by PostGIS as <code>ST_Area(ST_Transform(geom, 3338))</code> and
+  rounded to whole square meters. The Alaska Albers projection guarantees
+  equal-area accuracy across the inventory's spatial extent.
+  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='polygon_area' %}" class="rule-link">polygon_area rule</a>{% endif %}
 </p>
 
-<h4>Volumes</h4>
+<h4>Landslide-level role aggregates</h4>
 <p>
-  Preferred volume estimates (<code>volume_preferred</code>) are taken
-  directly from the source data. The estimation method varies by landslide
-  and is recorded in the <code>volume_method</code> field, visible in the
-  detail panel.
+  Polygon areas are summed by role into three columns on the
+  <code>landslides</code> table:
 </p>
+<ul>
+  <li>
+    <code>area_body</code> &mdash; sum of body-polygon areas. NULL for
+    catastrophic landslides.
+    {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_body' %}" class="rule-link">area_body rule</a>{% endif %}
+  </li>
+  <li>
+    <code>area_source</code> &mdash; sum of source-polygon areas. NULL for
+    slow landslides. Handles multi-source catastrophic landslides naturally.
+    {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_source' %}" class="rule-link">area_source rule</a>{% endif %}
+  </li>
+  <li>
+    <code>area_deposit</code> &mdash; sum of deposit-polygon areas. NULL for
+    slow landslides.
+    {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_deposit' %}" class="rule-link">area_deposit rule</a>{% endif %}
+  </li>
+</ul>
+
+<h4>Size threshold for inclusion</h4>
+<p>
+  The boolean <code>size_inclusion</code> column marks whether a landslide
+  meets the inventory's size criterion:
+</p>
+<ul>
+  <li><strong>Slow</strong>: <code>area_body &ge; 50,000</code>&nbsp;m&sup2;</li>
+  <li><strong>Catastrophic</strong>: <code>area_source &ge; 50,000</code>&nbsp;m&sup2;
+      OR <code>area_deposit &ge; 500,000</code>&nbsp;m&sup2;</li>
+</ul>
+<p>
+  Landslides below the threshold are tagged "Small slow landslide" or
+  "Small catastrophic landslide" by the
+  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='landslide_class' %}" class="rule-link">landslide_class rule</a>{% else %}class rule{% endif %},
+  and the <code>size_inclusion</code> flag is itself populated by the
+  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='size_inclusion' %}" class="rule-link">size_inclusion rule</a>{% else %}size_inclusion rule{% endif %}.
+</p>
+
+<h4>Volume estimation</h4>
+<p>
+  Per-polygon volume estimates (<code>landslide_polygons.polygon_volume</code>)
+  branch on the parent landslide's type and the polygon's role:
+</p>
+<table class="methods-table">
+  <tr><th>Condition</th><th>Formula</th><th>Rationale</th></tr>
+  <tr>
+    <td><code>creeping_permafrost_mass = TRUE</code></td>
+    <td><code>20 &times; area</code></td>
+    <td>Uniform 20 m thickness assumed for permafrost masses, regardless of role</td>
+  </tr>
+  <tr>
+    <td>Slow, role = body</td>
+    <td><code>0.1 &times; area<sup>1.5</sup></code></td>
+    <td>Empirical scaling of landslide volume with planform area</td>
+  </tr>
+  <tr>
+    <td>Catastrophic, role = source</td>
+    <td><code>0.1 &times; area<sup>1.5</sup></code></td>
+    <td>Same scaling applied to the source area</td>
+  </tr>
+  <tr>
+    <td>Catastrophic, role = deposit</td>
+    <td><code>2 &times; area</code></td>
+    <td>Minimum 2 m deposit thickness assumed</td>
+  </tr>
+</table>
+<p>{% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='polygon_volume' %}" class="rule-link">polygon_volume rule</a>{% endif %}</p>
+
+<p>
+  Per-polygon volumes are summed by role into <code>volume_body</code>
+  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_body' %}" class="rule-link">volume_body</a>{% endif %},
+  <code>volume_source</code>
+  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_source' %}" class="rule-link">volume_source</a>{% endif %},
+  and <code>volume_deposit</code>
+  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_deposit' %}" class="rule-link">volume_deposit</a>{% endif %}
+  on the landslides table.
+</p>
+
+<h4>Estimated vs preferred volume</h4>
+<p>
+  <code>volume_estimated</code> is the landslide-level rule output:
+</p>
+<ul>
+  <li><strong>Slow</strong>: <code>volume_body</code></li>
+  <li><strong>Catastrophic</strong>: <code>max(volume_source, volume_deposit)</code>
+      &mdash; the two role estimates can disagree because of deposit run-out,
+      entrainment, or removed material; the larger is the more defensible
+      estimate of failure size.</li>
+</ul>
+<p>{% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_estimated' %}" class="rule-link">volume_estimated rule</a>{% endif %}</p>
+
+<p>
+  Some landslides have a manually-determined <code>volume_site_specific</code>
+  (from a field study, DEM differencing, or published paper). When present,
+  it supersedes the formula-based estimate.
+  <code>volume_preferred</code> is the resulting canonical value used on the
+  map and in downstream displays:
+</p>
+<ul>
+  <li>If <code>volume_site_specific</code> is set: use it directly</li>
+  <li>Otherwise: use <code>volume_estimated</code></li>
+</ul>
+<p>{% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_preferred' %}" class="rule-link">volume_preferred rule</a>{% endif %}</p>
+
+<p>
+  The <code>volume_method</code> column carries either a one-off description
+  of a site-specific approach (paper citation, DEM-differencing note, etc.)
+  or the canonical string &ldquo;Automated estimate&rdquo; for rows using the
+  rule-driven value.
+  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_method' %}" class="rule-link">volume_method rule</a>{% endif %}
+  The &ldquo;Site-specific volume&rdquo; filter checkbox restricts the map to
+  landslides with a manually-entered <code>volume_site_specific</code>.
+</p>
+
+<h4>Slider scales</h4>
 <p>
   Area and volume sliders use a <strong>logarithmic scale</strong>:
 </p>
@@ -246,27 +411,185 @@
 </ul>
 <p>
   Landslides with <strong>no area or volume data</strong> always pass these
-  filters (they are not excluded by a minimum threshold for a measurement
-  that was never made).
+  filters &mdash; the filter only excludes records where the value is known
+  and below the threshold.
 </p>
 
 
 <!-- ================================================================== -->
-<h3 id="temporal">5. Temporal data and year encoding</h3>
+<h3 id="rules">5. Automated rules and audit</h3>
+
+<p>
+  Many columns are derived from other columns by deterministic rules. Each
+  rule is a pure function (Python or SQL) implemented in
+  <code>inventory/derived.py</code> and exposed at
+  <code>/inventory/manage/rules/</code> for editors.
+  The displayed rule source is read at request time via
+  <code>inspect.getsource()</code> &mdash; the displayed version and the
+  executed version cannot drift apart.
+</p>
+
+<p>
+  For each rule, the audit page shows the current count of agreements and
+  disagreements between stored values and computed values, with a row-by-row
+  diff including a &Delta;&nbsp;% column for numeric rules. Editors can
+  apply rule output to the whole inventory in one transaction; the bulk
+  apply writes an audit log entry per affected landslide and invalidates
+  the appropriate caches.
+</p>
+
+<h4>Rule dependency chains</h4>
+<p>
+  Rules are organized into dependency chains. Within a chain, earlier rules
+  must be applied before later rules read meaningful values.
+</p>
+
+<table class="methods-table">
+  <tr><th>Chain</th><th>Steps</th></tr>
+  <tr>
+    <td>Areas</td>
+    <td>
+      <code>polygon_area</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='polygon_area' %}" class="rule-link">rule</a>{% endif %}
+      &rarr;
+      <code>area_body</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_body' %}" class="rule-link">rule</a>{% endif %}
+      /
+      <code>area_source</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_source' %}" class="rule-link">rule</a>{% endif %}
+      /
+      <code>area_deposit</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='area_deposit' %}" class="rule-link">rule</a>{% endif %}
+      &rarr;
+      <code>size_inclusion</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='size_inclusion' %}" class="rule-link">rule</a>{% endif %}
+    </td>
+  </tr>
+  <tr>
+    <td>Centroids</td>
+    <td>
+      Independent &mdash;
+      <code>centroid_albers_x</code>,
+      <code>centroid_albers_y</code>,
+      <code>centroid_lat</code>,
+      <code>centroid_lon</code>
+      {% if is_inventory_editor %}
+        (<a href="{% url 'inventory:manage_rule_detail' name='centroid_albers_x' %}" class="rule-link">x</a>
+         <a href="{% url 'inventory:manage_rule_detail' name='centroid_albers_y' %}" class="rule-link">y</a>
+         <a href="{% url 'inventory:manage_rule_detail' name='centroid_lat' %}" class="rule-link">lat</a>
+         <a href="{% url 'inventory:manage_rule_detail' name='centroid_lon' %}" class="rule-link">lon</a>)
+      {% endif %}
+      (all read polygon geometry directly)
+    </td>
+  </tr>
+  <tr>
+    <td>Volumes</td>
+    <td>
+      <code>polygon_volume</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='polygon_volume' %}" class="rule-link">rule</a>{% endif %}
+      &rarr;
+      <code>volume_body</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_body' %}" class="rule-link">rule</a>{% endif %}
+      /
+      <code>volume_source</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_source' %}" class="rule-link">rule</a>{% endif %}
+      /
+      <code>volume_deposit</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_deposit' %}" class="rule-link">rule</a>{% endif %}
+      &rarr;
+      <code>volume_estimated</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_estimated' %}" class="rule-link">rule</a>{% endif %}
+      &rarr;
+      <code>volume_preferred</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_preferred' %}" class="rule-link">rule</a>{% endif %}
+      &rarr;
+      <code>volume_method</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='volume_method' %}" class="rule-link">rule</a>{% endif %}
+    </td>
+  </tr>
+  <tr>
+    <td>Creep evidence &rarr; class</td>
+    <td>
+      <code>insar_creep</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='insar_creep' %}" class="rule-link">rule</a>{% endif %}
+      &rarr;
+      <code>creep_behavior</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='creep_behavior' %}" class="rule-link">rule</a>{% endif %}
+      &rarr;
+      <code>landslide_class</code>
+      {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='landslide_class' %}" class="rule-link">rule</a>{% endif %}
+    </td>
+  </tr>
+</table>
+
+<h4>Notable rule logic</h4>
+
+<p>
+  <strong><code>insar_creep</code></strong>
+  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='insar_creep' %}" class="rule-link">rule</a>{% endif %}
+  is a <em>tri-state</em> OR-merge of the per-study booleans
+  (<code>insar_schaefer</code>, <code>insar_kim</code>,
+  <code>insar_opera</code>, <code>insar_other</code>): True if any positive
+  reading; False if at least one study returned negative and none positive;
+  NULL if no study has assessed the site. This preserves the distinction
+  between "we checked, no creep" and "we haven't checked yet".
+</p>
+
+<p>
+  <strong><code>creep_behavior</code></strong>
+  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='creep_behavior' %}" class="rule-link">rule</a>{% endif %}
+  picks the strongest creep evidence label observed: Patchy obvious &rarr;
+  Obvious &rarr; (InSAR or other) Subtle &rarr; Geomorph &rarr; none.
+</p>
+
+<p>
+  <strong><code>landslide_class</code></strong>
+  {% if is_inventory_editor %}<a href="{% url 'inventory:manage_rule_detail' name='landslide_class' %}" class="rule-link">rule</a>{% endif %}
+  composes the class from <code>landslide_type</code>,
+  <code>size_inclusion</code>, <code>creep_behavior</code>, and event year:
+</p>
+<ul>
+  <li>
+    Slow + not in size scope &rarr; "Small slow landslide".
+    Slow + in size scope &rarr; "Slow {creep_behavior}".
+  </li>
+  <li>
+    Catastrophic + not in size scope &rarr; "Small catastrophic landslide".
+    Catastrophic + in size scope branches on event year:
+    <ul>
+      <li>2012 or later: "Catastrophic {creep_behavior}", or just
+          "Catastrophic" if no precursor creep is recorded.</li>
+      <li>1850 to 2011: "Catastrophic Modern".</li>
+      <li>Before 1850, or year_text contains "Holocene": "Catastrophic Holocene".</li>
+    </ul>
+  </li>
+</ul>
+
+<p>
+  Records that the rule can't classify (e.g., a slow landslide with no
+  positive creep evidence in any source) are flagged in the legend under
+  <strong>Other &rarr; Incomplete classification</strong>. Logged-in editors
+  can click the &#9881; gear in the map detail popup to open the record for
+  editing.
+</p>
+
+
+<!-- ================================================================== -->
+<h3 id="temporal">6. Temporal data and year encoding</h3>
 
 <p>
   Temporal precision varies enormously across the inventory. The system
-  encodes each landslide&rsquo;s age as a <strong>year number</strong>
-  using this priority:
+  encodes each landslide's age as a <strong>year number</strong> using this
+  priority:
 </p>
 <ol>
   <li>
-    Class contains &ldquo;Holocene&rdquo; &rarr; year&nbsp;=&nbsp;&minus;1
-    (prehistoric, roughly 10,000+ years ago)
+    <code>landslide_class</code> contains "Holocene" &rarr;
+    year&nbsp;=&nbsp;&minus;1 (prehistoric)
   </li>
   <li>
-    Class contains &ldquo;Modern&rdquo; &rarr; year&nbsp;=&nbsp;0
-    (post-settlement but pre-2000, roughly 150 years)
+    <code>landslide_class</code> contains "Modern" &rarr; year&nbsp;=&nbsp;0
+    (post-settlement but pre-2000)
   </li>
   <li>
     <code>year_text</code> is a four-digit year &rarr; that year (e.g., 2013)
@@ -283,9 +606,7 @@
 </p>
 
 <h4>Precise dates</h4>
-<p>
-  Catastrophic landslides may have:
-</p>
+<p>Catastrophic landslides may have:</p>
 <ul>
   <li>
     <strong>Seismic datetime</strong> &mdash; precise to the second, from
@@ -298,16 +619,10 @@
     months or years.
   </li>
 </ul>
-<p>
-  The <strong>&ldquo;Time bracketed&rdquo;</strong> include-only checkbox
-  restricts to landslides that have both <code>date_min</code> and
-  <code>date_max</code>. The <strong>&ldquo;Seismic detection&rdquo;</strong>
-  checkbox restricts to landslides with a seismic datetime.
-</p>
 
 
 <!-- ================================================================== -->
-<h3 id="seasonal">6. Seasonal timing chart</h3>
+<h3 id="seasonal">7. Seasonal timing chart</h3>
 
 <p>
   The seasonal histogram shows <strong>when in the year</strong> catastrophic
@@ -319,7 +634,7 @@
 <p>
   The year is divided into <strong>37 bins</strong>: 36 bins of 10 days each
   (days 1&ndash;10, 11&ndash;20, &hellip;, 351&ndash;360) plus one shorter
-  bin for the remaining 5&ndash;6 days. The final bin&rsquo;s bar height is
+  bin for the remaining 5&ndash;6 days. The final bin's bar height is
   normalized to a 10-day equivalent so it is visually comparable.
 </p>
 
@@ -332,68 +647,57 @@
   <li>
     <strong>Range events</strong> (date bracket): weight is spread
     proportionally across all bins the range overlaps. Each bin receives
-    weight = (days of overlap with bin) / (total span in days). This means
-    a 30-day bracket contributes 1.0 total, distributed across the
-    ~3 bins it touches, rather than counting once in each bin.
+    weight = (days of overlap with bin) / (total span in days). A 30-day
+    bracket contributes 1.0 total, distributed across the ~3 bins it
+    touches, rather than counting once in each bin.
   </li>
 </ul>
-<p>
-  Events spanning the year boundary (December into January) are handled
-  correctly by splitting the range into two sub-ranges.
-</p>
 
 <h4>Max uncertainty slider</h4>
 <p>
-  The &ldquo;Max uncertainty&rdquo; slider (default: 30 days) excludes range
-  events with spans longer than the slider value. This filters out events
-  whose timing is too uncertain to contribute meaningful seasonal
-  information. Setting it to 0 shows only seismically detected events.
+  The "Max uncertainty" slider (default: 30 days) excludes range events with
+  spans longer than the slider value. Setting it to 0 shows only seismically
+  detected events.
 </p>
 
-<h4>Y-axis units</h4>
+<h4>Volume weighting and log scale</h4>
 <p>
-  The y-axis shows <strong>events per 10-day bin</strong>, not raw counts.
-  Because range events distribute fractional weight, non-integer values
-  are expected.
+  Two checkboxes change the y-axis:
 </p>
+<ul>
+  <li>
+    <strong>volume weighted</strong>: each event contributes its
+    <code>volume_preferred</code> rather than a count of 1. The largest
+    single event in each bin is highlighted as a darker stripe at the top of
+    that bar.
+  </li>
+  <li>
+    <strong>log</strong>: switches the y-axis to base-10 log, useful when
+    one or two large events dominate.
+  </li>
+</ul>
 
 
 <!-- ================================================================== -->
-<h3 id="timeline">7. Timeline chart</h3>
+<h3 id="timeline">8. Timeline chart</h3>
 
 <p>
   The timeline histogram shows <strong>when in history</strong> landslides
-  occurred. All landslides with resolvable temporal data are included (not
-  just time-bracketed events).
+  occurred. All landslides with resolvable temporal data are included
+  (not just time-bracketed events).
 </p>
 
 <h4>Bin structure</h4>
 <p>
-  The chart uses <strong>variable-width bins</strong> that reflect
-  increasing data completeness in recent periods:
+  The chart uses <strong>variable-width bins</strong> reflecting increasing
+  data completeness in recent periods:
 </p>
 <table class="methods-table">
   <tr><th>Period</th><th>Bin width</th><th>Visual width</th></tr>
-  <tr>
-    <td>Holocene (year = &minus;1)</td>
-    <td>~10,000 years</td>
-    <td>27 units</td>
-  </tr>
-  <tr>
-    <td>Modern pre-2000 (year = 0)</td>
-    <td>~150 years</td>
-    <td>45 units</td>
-  </tr>
-  <tr>
-    <td>Annual 2000&ndash;2011</td>
-    <td>1 year each</td>
-    <td>9 units each</td>
-  </tr>
-  <tr>
-    <td>Monthly 2012&ndash;present</td>
-    <td>1 month each</td>
-    <td>1 unit each</td>
-  </tr>
+  <tr><td>Holocene (year = &minus;1)</td><td>~10,000 years</td><td>27 units</td></tr>
+  <tr><td>Modern pre-2000 (year = 0)</td><td>~150 years</td><td>45 units</td></tr>
+  <tr><td>Annual 2000&ndash;2011</td><td>1 year each</td><td>9 units each</td></tr>
+  <tr><td>Monthly 2012&ndash;present</td><td>1 month each</td><td>1 unit each</td></tr>
 </table>
 <p>
   The 2012+ zone is highlighted with a blue background, indicating the
@@ -402,29 +706,20 @@
 
 <h4>Rate normalization</h4>
 <p>
-  Raw counts are converted to a common unit of
-  <strong>events per year</strong> to allow comparison across vastly
-  different bin widths:
+  Raw counts are converted to events per year:
 </p>
 <ul>
   <li>Holocene count &divide; 10,000</li>
   <li>Modern count &divide; 150</li>
-  <li>Annual bins (2000&ndash;2011) are already per-year</li>
+  <li>Annual bins (2000&ndash;2011): already per-year</li>
   <li>Monthly bins &times; 12 to annualize</li>
 </ul>
 <p>
-  The divisors for Holocene and Modern are approximate. The true Holocene
-  spans ~11,700 years; the &ldquo;Modern&rdquo; category encompasses events
-  of varying age. These are order-of-magnitude normalizations for visual
-  comparison, not precise rate estimates. The annualization of monthly bins
-  treats all months as 1/12 of a year regardless of actual length.
+  The Holocene and Modern divisors are approximate &mdash; order-of-magnitude
+  normalizations for visual comparison, not precise rate estimates.
 </p>
 
 <h4>Monthly spreading (2012+)</h4>
-<p>
-  For the monthly-resolution portion of the timeline, events are placed as
-  follows:
-</p>
 <ul>
   <li>
     <strong>Seismic point</strong>: assigned entirely to the month of the
@@ -435,70 +730,71 @@
     months based on the fraction of the range falling in each month.
   </li>
   <li>
-    <strong>Year only</strong> (no date range): spread equally across all
-    12 months of that year (1/12 each).
+    <strong>Year only</strong>: spread equally across all 12 months of that
+    year (1/12 each).
   </li>
 </ul>
-<p>
-  Dashed horizontal lines show the annual average for each post-2012 year.
-</p>
-
-<h4>Log scale</h4>
-<p>
-  A &ldquo;log&rdquo; checkbox switches the y-axis to a logarithmic scale
-  (base-10). This is useful because Holocene and Modern rates are typically
-  orders of magnitude lower than modern detection rates, and the linear
-  scale compresses them to near-zero.
-</p>
 
 
 <!-- ================================================================== -->
-<h3 id="filters">8. Filter mechanics</h3>
+<h3 id="filters">9. Filter mechanics</h3>
 
 <p>
   All filtering is performed client-side on the full dataset. The map and
-  both charts respond to the same set of filters:
+  both charts respond to the same set of filters.
 </p>
 
 <h4>Type and class checkboxes</h4>
 <p>
   Type (Slow / Catastrophic) and class checkboxes are combined with AND
-  logic: a landslide must match at least one checked type AND at least one
-  checked class.
+  logic. The class checkbox list always renders every known class; classes
+  with zero matching records appear dimmed and disabled so future data
+  gaps are visible rather than silently hidden. Records with NULL or empty
+  <code>landslide_class</code> are caught by the <strong>Other &rarr;
+  Incomplete classification</strong> checkbox, which would otherwise filter
+  them out entirely.
 </p>
 
 <h4>Include-only checkboxes</h4>
 <p>
   When checked, these restrict the display to landslides having a specific
-  attribute (e.g., molards, dammed streams, seismic detection). Multiple
-  checked boxes are AND&rsquo;d: the landslide must satisfy all of them.
+  attribute. Multiple checked boxes are AND'd. Current options:
 </p>
+<ul>
+  <li><strong>Molards</strong> &mdash; <code>molards = TRUE</code></li>
+  <li><strong>Dammed streams</strong> &mdash; <code>stream_damming</code> is a non-empty string</li>
+  <li><strong>Precursory headscarp</strong> &mdash; <code>precursory_headscarp = TRUE</code></li>
+  <li><strong>Site-specific volume</strong> &mdash; <code>volume_site_specific</code> is set</li>
+  <li><strong>Exclusively supraglacial</strong> &mdash; <code>exclusively_supraglacial = TRUE</code></li>
+  <li><strong>Creeping permafrost mass</strong> &mdash; <code>creeping_permafrost_mass = TRUE</code></li>
+  <li><strong>Time bracketed</strong> &mdash; both <code>date_min</code> and <code>date_max</code> are set</li>
+  <li><strong>Seismic detection</strong> &mdash; <code>seismic_datetime</code> is set</li>
+  <li><strong>Post-2012 activity increase</strong> &mdash; <code>post_2012_activity_increase = TRUE</code></li>
+</ul>
 
 <h4>Area, volume, and age sliders</h4>
 <p>
-  These apply a minimum threshold. All use &ge; (greater-than-or-equal)
-  comparison. Landslides with missing data for the filtered attribute
-  pass through unconditionally &mdash; the filter only excludes records
-  where the value is known and below the threshold.
+  These apply a minimum threshold using &ge; comparison. Landslides with
+  missing data for the filtered attribute pass through unconditionally.
 </p>
 
 <h4>Viewport limiting</h4>
 <p>
   Both charts always restrict to the current map viewport. The sidebar
-  counts can optionally be restricted to the viewport via the &ldquo;Limit
-  counts to map view&rdquo; checkbox.
+  counts can optionally be restricted to the viewport via the "Limit counts
+  to map view" checkbox.
 </p>
 
 <h4>URL state</h4>
 <p>
-  All filter settings, slider positions, and panel visibility are encoded
-  in the URL query string. This means filtered views can be shared as links
-  that reproduce the exact same view.
+  All filter settings, slider positions, and panel visibility are encoded in
+  the URL query string &mdash; filtered views can be shared as links that
+  reproduce the exact same view.
 </p>
 
 
 <!-- ================================================================== -->
-<h3 id="limitations">9. Known limitations</h3>
+<h3 id="limitations">10. Known limitations</h3>
 
 <ul>
   <li>
@@ -509,35 +805,35 @@
     should not be taken as true rates.
   </li>
   <li>
-    <strong>Temporal precision varies widely.</strong> Some events are
-    timed to the second (seismic); others have year or century-scale
-    uncertainty. The seasonal histogram&rsquo;s &ldquo;max uncertainty&rdquo;
-    slider helps manage this, but users should be aware that the seasonal
-    distribution is dominated by well-timed events.
+    <strong>Volume estimates use a simple empirical formula.</strong> The
+    rule-driven <code>volume_estimated</code> uses
+    <code>0.1&nbsp;&times;&nbsp;area<sup>1.5</sup></code> for slow body and
+    catastrophic source polygons. This is an order-of-magnitude
+    approximation; real volumes can deviate substantially. When a site has
+    been independently studied,
+    <code>volume_site_specific</code> supersedes the formula, and those
+    records are filterable via the "Site-specific volume" checkbox.
   </li>
   <li>
-    <strong>Volume estimates use varied methods.</strong> The
-    <code>volume_method</code> field in the detail panel describes how each
-    estimate was derived. Comparisons across landslides with different
-    methods should be made cautiously.
+    <strong>Permafrost thickness is assumed.</strong> Landslides flagged
+    <code>creeping_permafrost_mass</code> get a uniform 20 m thickness in
+    the volume formula. Real permafrost mass thicknesses are not measured
+    here.
   </li>
   <li>
-    <strong>&ldquo;Source area&rdquo; label for slow landslides.</strong>
-    The &ldquo;Min source area&rdquo; slider filters on the body polygon
-    area for slow landslides (since they have no separate source/deposit
-    distinction). This is the total mapped extent of the slow landslide.
+    <strong>Catastrophic deposit thickness is a floor.</strong> The 2 m
+    deposit-thickness assumption under-estimates volume for thick deposits.
+    For events of interest, prefer the site-specific value when present.
   </li>
   <li>
-    <strong>Monthly rate annualization.</strong> Monthly event counts are
-    multiplied by 12 to produce an annualized rate. This treats all months
-    as equal length, which introduces a small systematic bias (up to ~10%
-    for February vs. months with 31 days).
+    <strong>Temporal precision varies widely.</strong> Some events are timed
+    to the second (seismic); others have year or century-scale uncertainty.
+    The seasonal histogram's "max uncertainty" slider helps manage this.
   </li>
   <li>
-    <strong>Holocene and Modern rate divisors.</strong>
-    The Holocene rate uses a 10,000-year divisor and the Modern rate uses
-    150 years. These are reasonable approximations but are not tied to
-    precise epoch boundaries.
+    <strong>Holocene and Modern rate divisors.</strong> 10,000 years for
+    Holocene and 150 years for Modern are reasonable approximations but not
+    tied to precise epoch boundaries.
   </li>
 </ul>
 
