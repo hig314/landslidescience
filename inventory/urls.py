@@ -14,6 +14,7 @@ urlpatterns = [
     path('api/settings/', views.api_settings, name='api_settings'),
     path('api/timed_events/', views.api_timed_events, name='api_timed_events'),
     path('api/timeline_events/', views.api_timeline_events, name='api_timeline_events'),
+    path('api/survey_circles/',  views.api_survey_circles,  name='api_survey_circles'),
     path('export/', views.export_download, name='export'),
     # Rules pages — list and detail are public (view-only); only the apply
     # endpoint requires editor permissions.

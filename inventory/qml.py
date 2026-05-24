@@ -230,6 +230,115 @@ def build_qml_polygons(settings):
     )
 
 
+# ---------------------------------------------------------------------------
+# Survey-circles QML — outlined only (no fill), thin/bold by update_total,
+# numerical label on circles with > 0 landslides identified.
+# ---------------------------------------------------------------------------
+
+def build_qml_survey_circles():
+    """Generate a QML for the survey_circles layer.
+
+    - Rule 1: update_total > 0 → bold black outline + label of update_total
+    - Rule 2: ELSE             → thin black outline
+    Fill is disabled (style="no") so the basemap shows through.
+    """
+    def outline_symbol(name, width_mm):
+        return (
+            f'<symbol type="fill" name="{name}" alpha="1" force_rhr="0" clip_to_extent="1">'
+            f'<layer class="SimpleFill" enabled="1" pass="0" locked="0">'
+            f'<Option type="Map">'
+            f'<Option name="color" type="QString" value="0,0,0,0"/>'
+            f'<Option name="style" type="QString" value="no"/>'
+            f'<Option name="outline_color" type="QString" value="0,0,0,255"/>'
+            f'<Option name="outline_style" type="QString" value="solid"/>'
+            f'<Option name="outline_width" type="QString" value="{width_mm}"/>'
+            f'<Option name="outline_width_unit" type="QString" value="MM"/>'
+            f'<Option name="joinstyle" type="QString" value="bevel"/>'
+            f'</Option></layer></symbol>'
+        )
+
+    rules = (
+        '<rules key="r_root">'
+        '<rule symbol="0" key="r_with" filter="&quot;update_total&quot; &gt; 0" label="With landslides"/>'
+        '<rule symbol="1" key="r_no"   filter="ELSE" label="No landslides"/>'
+        '</rules>'
+    )
+    symbols = (
+        '<symbols>'
+        + outline_symbol('0', 0.8)   # bold for circles with hits
+        + outline_symbol('1', 0.2)   # thin for empty circles
+        + '</symbols>'
+    )
+    renderer = (
+        '<renderer-v2 type="RuleRenderer" forceraster="0" enableorderby="0" symbollevels="0">'
+        + rules + symbols +
+        '</renderer-v2>'
+    )
+
+    # Labeling: show update_total only where > 0; the CASE evaluates to NULL
+    # for zero counts, which QGIS draws as no label.
+    # Modern QGIS QML format puts the expression on text-style/@fieldName with
+    # isExpression="1", and requires drawLabels="1" on <rendering> as the
+    # master enable switch.
+    label_expr = ('CASE WHEN &quot;update_total&quot; &gt; 0 '
+                  'THEN &quot;update_total&quot; ELSE NULL END')
+    labeling = (
+        '<labeling type="simple">'
+        '<settings calloutType="simple">'
+        f'<text-style fontFamily="Sans Serif" namedStyle="Bold" fontSize="9" '
+        f'fontSizeUnit="Point" fontWeight="75" fontItalic="0" '
+        f'textOpacity="1" textColor="0,0,0,255" '
+        f'isExpression="1" fieldName="{label_expr}">'
+        '<text-buffer bufferDraw="1" bufferSize="1.2" bufferSizeUnits="MM" '
+        'bufferColor="255,255,255,255" bufferOpacity="1" bufferJoinStyle="64"/>'
+        '<text-mask maskEnabled="0"/>'
+        '<background shapeDraw="0"/>'
+        '<shadow shadowDraw="0"/>'
+        '<dd_properties><Option type="Map">'
+        '<Option name="name" value=""/>'
+        '<Option name="properties"/>'
+        '<Option name="type" value="collection"/>'
+        '</Option></dd_properties>'
+        '<substitutions/>'
+        '</text-style>'
+        '<text-format formatNumbers="0" plussign="0" decimals="0" '
+        'multilineAlign="3" useMaxLineLengthForAutoWrap="1" wrapChar="" '
+        'autoWrapLength="0" addDirectionSymbol="0" reverseDirectionSymbol="0"/>'
+        '<placement placement="1" centroidWhole="1" centroidInside="1" '
+        'polygonPlacementFlags="2" placementFlags="10" overrunDistance="0" '
+        'overrunDistanceUnit="MM" maxCurvedCharAngleIn="25" maxCurvedCharAngleOut="-25" '
+        'offsetType="0" priority="5" yOffset="0" xOffset="0" offsetUnits="MM" '
+        'rotationUnit="AngleDegrees" rotationAngle="0" '
+        'quadOffset="4" preserveRotation="1" geometryGeneratorEnabled="0" '
+        'predefinedPositionOrder="TR,TL,BR,BL,R,L,TSR,BSR" repeatDistance="0" '
+        'repeatDistanceUnit="MM" dist="0" distUnits="MM" layerType="PolygonGeometry"/>'
+        '<rendering drawLabels="1" scaleVisibility="0" scaleMin="1" scaleMax="10000000" '
+        'obstacle="0" obstacleType="1" obstacleFactor="1" labelPerPart="0" '
+        'mergeLines="0" upsidedownLabels="0" displayAll="0" minFeatureSize="0" '
+        'limitNumLabels="0" maxNumLabels="2000" fontMinPixelSize="3" '
+        'fontMaxPixelSize="10000" fontLimitPixelSize="0" zIndex="0"/>'
+        '<dd_properties><Option type="Map">'
+        '<Option name="name" value=""/>'
+        '<Option name="properties"/>'
+        '<Option name="type" value="collection"/>'
+        '</Option></dd_properties>'
+        '<callout type="simple"><Option type="Map">'
+        '<Option name="anchorPoint" value="pole_of_inaccessibility"/>'
+        '</Option></callout>'
+        '</settings>'
+        '</labeling>'
+    )
+
+    return (
+        "<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>\n"
+        '<qgis version="3.34.0" styleCategories="Symbology|Labeling">\n'
+        + renderer + '\n'
+        + labeling + '\n'
+        '<layerOpacity>1</layerOpacity>\n'
+        '</qgis>\n'
+    )
+
+
 def _wrap_qml(renderer_type, renderer_body, renderer_attrs):
     return f'''<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
 <qgis version="3.34.0" styleCategories="Symbology">

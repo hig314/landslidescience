@@ -363,6 +363,50 @@ def api_features(request):
     return resp
 
 
+def api_survey_circles(request):
+    """Full FeatureCollection of survey circles (525 multipolygons).
+
+    Independent of landslide tables. Cached in memory; cache invalidates
+    only on rebuild.
+    """
+    if 'survey_circles' in _cache:
+        resp = HttpResponse(_cache['survey_circles'], content_type='application/json')
+        resp['Cache-Control'] = 'no-cache'
+        return resp
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT json_build_object(
+                'type', 'FeatureCollection',
+                'features', COALESCE(json_agg(
+                    json_build_object(
+                        'type', 'Feature',
+                        'id',   sc.id,
+                        'geometry', ST_AsGeoJSON(sc.geom)::json,
+                        'properties', json_build_object(
+                            'id',                  sc.id,
+                            'reviewed',            sc.reviewed,
+                            'notes',               sc.notes,
+                            'recent_catastrophic', sc.recent_catastrophic,
+                            'obvious_creep',       sc.obvious_creep,
+                            'update_total',        sc.update_total
+                        )
+                    )
+                ), '[]'::json)
+            )
+            FROM survey_circles sc
+        """)
+        body = json.dumps(cur.fetchone()[0])
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    _cache['survey_circles'] = body
+    resp = HttpResponse(body, content_type='application/json')
+    resp['Cache-Control'] = 'no-cache'
+    return resp
+
+
 def api_polygons(request):
     """
     Return landslide polygons intersecting a bounding box.

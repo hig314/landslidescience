@@ -196,6 +196,38 @@ def export_polygons_flat_fc():
     return {'type': 'FeatureCollection', 'features': features}, flat_cols
 
 
+def export_survey_circles_fc():
+    """Build the FeatureCollection for `survey_circles`.
+
+    A set of ~525 random circles used for evaluating inventory completeness
+    (each circle is a sample area that was systematically reviewed for
+    landslides). Hidden by default on the map; always included in downloads.
+    """
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cols = _table_columns(cur, 'survey_circles', exclude=('geom',))
+        cur.execute(
+            f"SELECT {', '.join(cols)}, ST_AsGeoJSON(geom, 15)::json AS g "
+            f"FROM survey_circles ORDER BY id"
+        )
+        rows = cur.fetchall()
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+
+    features = []
+    for row in rows:
+        props = dict(zip(cols, row[:-1]))
+        features.append({
+            'type': 'Feature',
+            'id': props['id'],
+            'geometry': row[-1],
+            'properties': props,
+        })
+    return {'type': 'FeatureCollection', 'features': features}, cols
+
+
 def _map_settings_dict():
     """Read all map_settings rows as a flat dict."""
     conn = _get_conn()
@@ -257,18 +289,20 @@ def build_export_bundle(urls=None):
     """
     import io
     import zipfile
-    from .qml import build_qml_points, build_qml_polygons
+    from .qml import build_qml_points, build_qml_polygons, build_qml_survey_circles
 
     u = dict(_DEFAULT_URLS)
     if urls:
         u.update({k: v for k, v in urls.items() if v})
 
-    landslides_fc,        landslides_cols   = export_landslides_fc()
-    polygons_fc,          polygons_cols     = export_polygons_fc()
+    landslides_fc,        landslides_cols    = export_landslides_fc()
+    polygons_fc,          polygons_cols      = export_polygons_fc()
     polygons_flat_fc,     polygons_flat_cols = export_polygons_flat_fc()
+    circles_fc,           circles_cols       = export_survey_circles_fc()
     settings = _map_settings_dict()
     qml_points   = build_qml_points(settings)
     qml_polygons = build_qml_polygons(settings)
+    qml_circles  = build_qml_survey_circles()
 
     manifest = {
         'export_format_version': EXPORT_FORMAT_VERSION,
@@ -336,6 +370,12 @@ def build_export_bundle(urls=None):
                                       '(via a QGIS table-join to landslides on the normalized file).',
             'landslide_polygons_flat.qml': 'Byte-identical copy of landslide_polygons.qml so QGIS '
                                            'auto-loads the same style on the flat file.',
+            'survey_circles.geojson': 'Sample circles used for inventory-completeness evaluation '
+                                      '(525 multipolygons). Independent of the landslide tables; '
+                                      'hidden by default on the map (togglable in the legend).',
+            'survey_circles.qml': 'QGIS style for survey_circles.geojson — black outline only '
+                                  '(no fill), thin for update_total=0, bold for >0, plus a '
+                                  'numerical label of update_total on circles with hits.',
         },
         'tables': {
             'landslides': {
@@ -349,6 +389,10 @@ def build_export_bundle(urls=None):
             'landslide_polygons_flat': {
                 'count':   len(polygons_flat_fc['features']),
                 'columns': polygons_flat_cols,
+            },
+            'survey_circles': {
+                'count':   len(circles_fc['features']),
+                'columns': circles_cols,
             },
         },
     }
@@ -365,6 +409,8 @@ def build_export_bundle(urls=None):
         z.writestr('landslides.qml',                    qml_points)
         z.writestr('landslide_polygons.qml',            qml_polygons)
         z.writestr('landslide_polygons_flat.qml',       qml_polygons)
+        z.writestr('survey_circles.geojson',            json.dumps(circles_fc,       cls=_GeoJSONEncoder, indent=2))
+        z.writestr('survey_circles.qml',                qml_circles)
     buf.seek(0)
     return buf.read(), fname
 

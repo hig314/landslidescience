@@ -457,6 +457,7 @@
     var polygonLoadPending = false;
     var _settings = null, _mapReady = false, _settingsReady = false, _layersInitialized = false;
     var _featuresData = null;      // cached GeoJSON so re-init after basemap switch is instant
+    var _surveyCirclesData = null; // cached survey-circles GeoJSON (fetched on first toggle)
     var _currentBasemap = _initialBasemapId;
 
     // Layer style variables set by initLayers, reused by initDataLayers on basemap switch
@@ -618,6 +619,44 @@
             filter: ['==', 'landslide_id', -1],
             paint: { 'line-color': '#fff', 'line-width': 2.5, 'line-opacity': 0.8 }
         }, bId);
+
+        // Survey-circles layer — black outline only (no fill); thin for
+        // circles with no landslides identified (update_total=0), bold for
+        // those with hits, plus a numerical label of update_total on the
+        // hit circles. Togglable in the legend; visibility on layer creation
+        // reflects the current checkbox state (the JS source of truth) so a
+        // basemap switch doesn't clobber the user's choice.
+        var circlesVis = (cbSurveyCircles && cbSurveyCircles.checked) ? 'visible' : 'none';
+        map.addSource('survey-circles',
+            { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+            id: 'survey-circles-outline', type: 'line', source: 'survey-circles',
+            layout: { 'visibility': circlesVis },
+            paint: {
+                'line-color': '#000',
+                'line-opacity': 0.85,
+                'line-width': ['case',
+                    ['>', ['coalesce', ['get', 'update_total'], 0], 0], 2.2,
+                    0.6
+                ]
+            }
+        }, bId);
+        map.addLayer({
+            id: 'survey-circles-label', type: 'symbol', source: 'survey-circles',
+            filter: ['>', ['coalesce', ['get', 'update_total'], 0], 0],
+            layout: {
+                'visibility': circlesVis,
+                'text-field': ['to-string', ['get', 'update_total']],
+                'text-size': 12,
+                'text-allow-overlap': true
+            },
+            paint: {
+                'text-color': '#000',
+                'text-halo-color': '#fff',
+                'text-halo-width': 1.5
+            }
+        }, bId);
+        if (_surveyCirclesData) map.getSource('survey-circles').setData(_surveyCirclesData);
 
         if (_featuresData) map.getSource('landslides').setData(_featuresData);
         buildFilter();
@@ -797,6 +836,32 @@
     [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012].forEach(function (cb) {
         if (cb) cb.addEventListener('change', buildFilter);
     });
+
+    // Survey-circles toggle — lazy-fetches on first activation, then just
+    // flips visibility on subsequent toggles.
+    var cbSurveyCircles = document.getElementById('cb-survey-circles');
+    if (cbSurveyCircles) {
+        cbSurveyCircles.addEventListener('change', function () {
+            var vis = cbSurveyCircles.checked ? 'visible' : 'none';
+            var apply = function () {
+                ['survey-circles-outline', 'survey-circles-label'].forEach(function (id) {
+                    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+                });
+            };
+            if (cbSurveyCircles.checked && !_surveyCirclesData) {
+                fetch('/inventory/api/survey_circles/?v=' + DATA_V)
+                    .then(function (r) { return r.json(); })
+                    .then(function (fc) {
+                        _surveyCirclesData = fc;
+                        if (map.getSource('survey-circles')) map.getSource('survey-circles').setData(fc);
+                        apply();
+                    })
+                    .catch(function (e) { console.error('survey_circles fetch failed:', e); });
+            } else {
+                apply();
+            }
+        });
+    }
 
     var histDaysSlider = document.getElementById('hist-days-slider');
     var histDaysLabel  = document.getElementById('hist-days-label');
