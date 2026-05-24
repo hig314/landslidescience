@@ -197,6 +197,10 @@
             });
         }
         this._render();
+        // Layer order is structural — see the comment on initDataLayers().
+        // The measure layers added above are at the top of the stack on every
+        // style.load. initDataLayers re-inserts landslide layers below them
+        // via beforeId='measure-fill', so no moveLayer chasing is needed here.
     };
 
     MeasureControl.prototype._onClick = function (e) {
@@ -546,8 +550,17 @@
         map.on('moveend', onMoveEnd);
     }
 
-    // Add/re-add data sources and layers (called on initial load and after every basemap switch)
+    // Add/re-add data sources and layers (called on initial load and after every basemap switch).
+    //
+    // Layer-order invariant: the measure-tool layers are kept at the top of the
+    // stack. MeasureControl.onAdd hooks `style.load` so its layers are always
+    // added before this function runs (`style.load` fires before `load`/`idle`).
+    // Every addLayer call below passes beforeId=measure-fill so the new layer
+    // is inserted *under* the measure stack. This makes the ordering structural
+    // — no moveLayer chasing needed.
     function initDataLayers() {
+        var bId = map.getLayer('measure-fill') ? 'measure-fill' : undefined;
+
         map.addSource('landslides', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addSource('polygons',   { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
@@ -579,7 +592,7 @@
                 'circle-stroke-color': _classStroke,
                 'circle-opacity': 0.9
             }
-        });
+        }, bId);
         map.addLayer({
             id: 'polygon-fill', type: 'fill', source: 'polygons',
             paint: {
@@ -589,7 +602,7 @@
                     _classFill],
                 'fill-opacity': _fOp
             }
-        });
+        }, bId);
         map.addLayer({
             id: 'polygon-outline', type: 'line', source: 'polygons',
             paint: {
@@ -599,12 +612,12 @@
                     _sk],
                 'line-width': _lW
             }
-        });
+        }, bId);
         map.addLayer({
             id: 'polygon-hover', type: 'line', source: 'polygons',
             filter: ['==', 'landslide_id', -1],
             paint: { 'line-color': '#fff', 'line-width': 2.5, 'line-opacity': 0.8 }
-        });
+        }, bId);
 
         if (_featuresData) map.getSource('landslides').setData(_featuresData);
         buildFilter();
@@ -624,7 +637,13 @@
         map.once('idle', function () {
             if (!map.getSource('landslides')) initDataLayers();
         });
-        map.setStyle(bm.style ? bm.style : buildRasterStyle(bm));
+        // Force a full reload (diff:false). Without this, MapLibre's default
+        // diff between two raster styles (or two vector styles) preserves the
+        // user-added landslide layers IN PLACE while inserting the new
+        // basemap layers on top of them — clobbering our beforeId='measure-fill'
+        // invariant. Full reload wipes sources+layers, then style.load fires
+        // _ensureLayers, then idle fires initDataLayers with beforeId — clean.
+        map.setStyle(bm.style ? bm.style : buildRasterStyle(bm), { diff: false });
         // Globe is re-asserted by the persistent 'style.load' handler above.
         if (_mapReady) writeHashState();
     }
@@ -861,7 +880,13 @@
         if (pm) params.set('pm', pm); else params.delete('pm');
 
         var qs = params.toString();
-        history.replaceState(null, '', qs ? '?' + qs : window.location.pathname);
+        // Build the new URL keeping the hash intact — `pathname` alone would
+        // strip `#map=z/lat/lng&...` that writeHashState owns.
+        var newUrl = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
+        if (window.location.search + window.location.hash !==
+            (qs ? '?' + qs : '') + window.location.hash) {
+            history.replaceState(null, '', newUrl);
+        }
     }
 
     function applyUrlState() {
