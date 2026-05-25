@@ -903,6 +903,13 @@ def manage_edit(request, landslide_id):
     else:
         form = LandslideEditForm(initial=initial)
 
+    # Planet Story archive status — pass to template so the editor can see
+    # whether the linked MP4 is already cached locally and trigger a fetch
+    # for new/changed links without leaving the page.
+    planet_url    = initial.get('planet_story_link') or ''
+    planet_slug   = _planet_slug_from_url(planet_url)
+    planet_cached = _planet_mp4_path(planet_slug).exists() if planet_slug else False
+
     return render(request, 'inventory/manage_edit.html', {
         'form':            form,
         'landslide_id':    landslide_id,
@@ -911,7 +918,88 @@ def manage_edit(request, landslide_id):
         'editable_fields': col_names,
         'common_classes':  COMMON_CLASS_VALUES,
         'error_msg':       error_msg,
+        'planet_url':      planet_url,
+        'planet_slug':     planet_slug,
+        'planet_cached':   planet_cached,
+        'planet_msg':      request.GET.get('planet_msg', ''),
     })
+
+
+# Planet Stories archive helpers — mirror the management command's logic.
+_PLANET_STORY_PREFIX = 'https://www.planet.com/stories/'
+_GCS_MP4_URL_TEMPLATE = 'https://storage.googleapis.com/planet-t2/{slug}/movie.mp4'
+
+
+def _planet_slug_from_url(url):
+    from pathlib import Path
+    u = (url or '').strip()
+    if not u.startswith(_PLANET_STORY_PREFIX):
+        return None
+    rest = u[len(_PLANET_STORY_PREFIX):].split('?', 1)[0].split('#', 1)[0]
+    return rest.rstrip('/') or None
+
+
+def _planet_mp4_path(slug):
+    from pathlib import Path
+    from django.conf import settings
+    return Path(settings.BASE_DIR) / 'data' / 'planet_stories' / f'{slug}.mp4'
+
+
+@inventory_editor_required
+def manage_edit_fetch_planet(request, landslide_id):
+    """Download the Planet Story MP4 referenced by this landslide.
+
+    POST-only. Reads `planet_story_link` from the DB, derives the GCS asset
+    URL, streams it to `data/planet_stories/<slug>.mp4`, and redirects back
+    to the edit page with a `planet_msg=` flag for a flash-style banner.
+    Skips silently (no-op) if the slug is already cached.
+    """
+    import urllib.request
+    if request.method != 'POST':
+        return redirect('inventory:manage_edit', landslide_id=landslide_id)
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT planet_story_link FROM landslides WHERE id = %s",
+                    (landslide_id,))
+        row = cur.fetchone()
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    if not row:
+        return redirect('inventory:manage_edit', landslide_id=landslide_id)
+
+    slug = _planet_slug_from_url(row[0])
+    if not slug:
+        return redirect(f"{reverse('inventory:manage_edit', kwargs={'landslide_id': landslide_id})}"
+                        f"?planet_msg=no_slug")
+    dest = _planet_mp4_path(slug)
+    if dest.exists():
+        return redirect(f"{reverse('inventory:manage_edit', kwargs={'landslide_id': landslide_id})}"
+                        f"?planet_msg=already_cached")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix('.mp4.part')
+    msg = 'ok'
+    try:
+        req = urllib.request.Request(
+            _GCS_MP4_URL_TEMPLATE.format(slug=slug),
+            headers={'User-Agent': 'landslidescience-archive/1'},
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            with open(tmp, 'wb') as f:
+                while True:
+                    chunk = resp.read(64 * 1024)
+                    if not chunk: break
+                    f.write(chunk)
+        tmp.rename(dest)
+    except Exception as exc:
+        if tmp.exists(): tmp.unlink()
+        msg = f'error:{exc.__class__.__name__}'
+
+    return redirect(f"{reverse('inventory:manage_edit', kwargs={'landslide_id': landslide_id})}"
+                    f"?planet_msg={msg}")
 
 
 def export_download(request):

@@ -23,6 +23,44 @@
     </div>
   {% endif %}
 
+  {# Planet Story archive status — visible whenever a planet_story_link is set,
+     gives editors a one-click way to fetch the MP4 for new/changed links. #}
+  {% if planet_slug %}
+    <div style="margin: 14px 0; padding: 8px 12px; font-size: 12px;
+                background:#f7f5f1; border:1px solid #e3ddd4; border-radius:4px;
+                display:flex; align-items:center; gap:10px;">
+      <span style="color:#555;">
+        Planet animation archive:
+        {% if planet_cached %}
+          <strong style="color:#080;">✓ archived</strong>
+          <span style="color:#888;"> ({{ planet_slug }}.mp4)</span>
+        {% else %}
+          <strong style="color:#a55;">not yet archived</strong>
+        {% endif %}
+      </span>
+      {% if not planet_cached %}
+        <form method="post" action="{% url 'inventory:manage_edit_fetch_planet' landslide_id=landslide_id %}"
+              style="margin: 0;">
+          {% csrf_token %}
+          <button type="submit"
+                  style="font-size: 11px; padding: 3px 9px; cursor: pointer;
+                         background:#5D4037; color:#fff; border:none; border-radius:3px;">
+            Fetch MP4
+          </button>
+        </form>
+      {% endif %}
+      {% if planet_msg == 'ok' %}
+        <span style="color:#080;">Just downloaded.</span>
+      {% elif planet_msg == 'already_cached' %}
+        <span style="color:#555;">Already cached.</span>
+      {% elif planet_msg == 'no_slug' %}
+        <span style="color:#a55;">No valid Planet Stories URL.</span>
+      {% elif planet_msg|slice:":6" == 'error:' %}
+        <span style="color:#a55;">Fetch failed ({{ planet_msg|slice:"6:" }}).</span>
+      {% endif %}
+    </div>
+  {% endif %}
+
   <form method="post" style="margin-top: 18px;">
     {% csrf_token %}
 
