@@ -7,12 +7,16 @@
   {# Pre-release: discourage search-engine indexing while the inventory is in review. #}
   <meta name="robots" content="noindex, nofollow, noarchive">
   <title>{% block title %}Landslide Inventory{% endblock %}</title>
+  <link rel="icon" type="image/x-icon" href="{% static 'inventory/img/favicon.ico' %}">
   <link rel="stylesheet" href="{% static 'inventory/css/main.css' %}">
   {% block extra_styles %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
   <header class="inv-header">
-    <a class="inv-brand" href="/">Landslide Science</a>
+    <a class="inv-brand" href="/">
+      <img src="{% static 'inventory/img/logo.png' %}" alt="" class="inv-brand-logo">
+      <span>Landslide Science</span>
+    </a>
     <span class="inv-page-title">{% block page_title %}Inventory{% endblock %}</span>
     <nav class="inv-header-nav">
       {% block header_nav %}
