@@ -127,8 +127,13 @@ class Command(BaseCommand):
         s[PREVIEW_KEY] = True
         s.save()
 
+        # Use the first ALLOWED_HOSTS entry so the request passes Django's
+        # host header check. 'testserver' (the test client default) isn't in
+        # production ALLOWED_HOSTS; '127.0.0.1' isn't either.
+        http_host = settings.ALLOWED_HOSTS[0] if settings.ALLOWED_HOSTS else '127.0.0.1'
+
         def fetch(path):
-            r = client.get(path, HTTP_HOST='127.0.0.1')
+            r = client.get(path, HTTP_HOST=http_host)
             if r.status_code != 200:
                 raise CommandError(f"{path} → HTTP {r.status_code}: {r.content[:200]!r}")
             return r
