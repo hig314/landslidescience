@@ -1,6 +1,15 @@
 (function () {
     'use strict';
 
+    // Configuration seam. The live site leaves window.LS_CONFIG undefined, so
+    // everything falls back to the live defaults. Snapshot bundles set this
+    // object in their frozen index.html before this script runs, allowing
+    // them to point the JS at their own pre-rendered API files (apiBase) and
+    // pin basemap tile URLs at snapshot-time values that can be surgically
+    // edited later if a provider changes its URL.
+    var CFG = window.LS_CONFIG || {};
+    var API_BASE = CFG.apiBase || '/inventory/';
+
     // Version token embedded by Django — changes on each worker start / data reload.
     // Appended to API URLs so browsers never serve stale cached responses.
     var DATA_V = document.getElementById('map').dataset.version || '';
@@ -372,9 +381,13 @@
     // Basemap catalog and style builder — defined before map construction so the
     // initial style reflects the chosen basemap (no flash from streets to topo).
     // ---------------------------------------------------------------------------
-    var DEFAULT_BASEMAP_ID = 'esri-topo';
+    var DEFAULT_BASEMAP_ID = CFG.defaultBasemapId || 'esri-topo';
 
-    var BASEMAPS = [
+    // Snapshot bundles freeze BASEMAPS at snapshot time by setting
+    // window.LS_CONFIG.basemaps. If a provider URL ever changes (EOX, USGS,
+    // ESRI), the snapshot's tile config can be patched in place without
+    // touching the live app or rebuilding the snapshot.
+    var BASEMAPS = CFG.basemaps || [
         { id: 'streets',   label: 'Streets',
           style: 'https://tiles.openfreemap.org/styles/liberty' },
         { id: 'esri-img',  label: 'ESRI Imagery',
@@ -493,7 +506,7 @@
         color_obvious: '#f69fa1', color_cat: '#3f67b1'
     };
 
-    fetch('/inventory/api/settings/?v=' + DATA_V)
+    fetch(API_BASE + 'api/settings/?v=' + DATA_V)
         .then(function (r) { return r.json(); })
         .then(function (s) { _settings = s; })
         .catch(function () { _settings = DEFAULTS; })
@@ -543,7 +556,7 @@
 
         initDataLayers();
 
-        fetch('/inventory/api/features/?v=' + DATA_V)
+        fetch(API_BASE + 'api/features/?v=' + DATA_V)
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 _featuresData = data;
@@ -718,7 +731,7 @@
                 polygonLoadPending = true;
                 var b = map.getBounds();
                 var bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',');
-                fetch('/inventory/api/polygons/?bbox=' + bbox)
+                fetch(API_BASE + 'api/polygons/?bbox=' + bbox)
                     .then(function (r) { return r.json(); })
                     .then(function (data) { map.getSource('polygons').setData(data); })
                     .catch(function (e) { console.error('Polygon load failed:', e); })
@@ -734,7 +747,7 @@
     // Timed events (for seasonal histogram)
     // ---------------------------------------------------------------------------
     var _timedEvents = null;
-    fetch('/inventory/api/timed_events/?v=' + DATA_V)
+    fetch(API_BASE + 'api/timed_events/?v=' + DATA_V)
         .then(function (r) { return r.json(); })
         .then(function (d) {
             _timedEvents = d.events;
@@ -755,7 +768,7 @@
     var TL_MOD_UNITS = 45;  // Modern pre-2000 bin width in "unit" columns
     var TL_ANN_UNITS = 9;   // Annual bin width (2000-2011) in "unit" columns
 
-    fetch('/inventory/api/timeline_events/?v=' + DATA_V)
+    fetch(API_BASE + 'api/timeline_events/?v=' + DATA_V)
         .then(function (r) { return r.json(); })
         .then(function (d) {
             _timelineEvents = d.events;
@@ -852,7 +865,7 @@
                 });
             };
             if (cbSurveyCircles.checked && !_surveyCirclesData) {
-                fetch('/inventory/api/survey_circles/?v=' + DATA_V)
+                fetch(API_BASE + 'api/survey_circles/?v=' + DATA_V)
                     .then(function (r) { return r.json(); })
                     .then(function (fc) {
                         _surveyCirclesData = fc;
@@ -1207,7 +1220,7 @@
     // Detail panel
     // ---------------------------------------------------------------------------
     function showDetail(id) {
-        fetch('/inventory/api/landslide/' + id + '/')
+        fetch(API_BASE + 'api/landslide/' + id + '/')
             .then(function (r) { return r.json(); })
             .then(renderDetail)
             .catch(function (e) { console.error('Detail failed:', e); });

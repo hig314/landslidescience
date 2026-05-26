@@ -13,6 +13,7 @@ import json
 import os
 import re
 import time
+from pathlib import Path
 
 import psycopg2
 import psycopg2.pool
@@ -1008,6 +1009,65 @@ def _planet_mp4_path(slug):
 # Slug shape allowed by the serving URL — must match the regex in urls.py.
 # Planet's slugs are [A-Za-z0-9_-]+ in practice.
 _PLANET_SLUG_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+
+# Snapshot slug shape — lower-only by convention (we control these); the regex
+# in urls.py is stricter than this. Used to validate the slug at the view
+# layer as a defense-in-depth check before filesystem access.
+_SNAPSHOT_SLUG_RE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
+
+
+@require_safe
+def snapshot_serve(request, slug, rest=''):
+    """Serve a file inside a published snapshot bundle.
+
+    Maps /inventory/archive/<slug>/<rest> to data/snapshots/<slug>/<rest>,
+    with two conveniences:
+      * empty <rest> (i.e. /archive/<slug>/) → index.html
+      * <rest> ending with `/` → look for index.json or index.html inside
+
+    Static (immutable-ish) content with a 1-day cache lifetime — long enough
+    to be cheap, short enough that future surgical fixes (e.g. patching an
+    EOX basemap URL in an old snapshot) propagate to readers within 24 hours.
+    """
+    import mimetypes
+    if not _SNAPSHOT_SLUG_RE.match(slug or ''):
+        return HttpResponseNotFound()
+    base = (Path(settings.BASE_DIR) / 'data' / 'snapshots' / slug).resolve()
+    if not base.is_dir():
+        return HttpResponseNotFound()
+
+    rest = rest or ''
+    if rest in ('', '/'):
+        candidate = base / 'index.html'
+    elif rest.endswith('/'):
+        # Try JSON first (API path), then HTML.
+        json_path = base / rest / 'index.json'
+        html_path = base / rest / 'index.html'
+        candidate = json_path if json_path.is_file() else html_path
+    else:
+        candidate = base / rest
+
+    try:
+        candidate = candidate.resolve()
+    except (OSError, ValueError):
+        return HttpResponseNotFound()
+
+    # Stay inside the snapshot dir — no traversal.
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        return HttpResponseNotFound()
+
+    if not candidate.is_file():
+        return HttpResponseNotFound()
+
+    ctype, _enc = mimetypes.guess_type(str(candidate))
+    if ctype is None:
+        ctype = 'application/octet-stream'
+    resp = FileResponse(candidate.open('rb'), content_type=ctype)
+    resp['Content-Length'] = str(candidate.stat().st_size)
+    resp['Cache-Control'] = 'public, max-age=86400'
+    return resp
 
 
 @require_safe
