@@ -1016,6 +1016,43 @@ _PLANET_SLUG_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 _SNAPSHOT_SLUG_RE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
 
 
+def snapshot_index(request):
+    """Public listing of all published snapshots.
+
+    Pulled from the snapshots table. Order is most-recent first so the
+    list reflects current publication state.
+    """
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT s.slug, s.name, s.description, s.created_at, s.created_by,
+                   s.n_landslides, s.n_polygons, s.citation_info,
+                   sub.slug, sub.name
+            FROM snapshots s
+            LEFT JOIN subsets sub ON sub.id = s.subset_id
+            ORDER BY s.created_at DESC
+        """)
+        rows = cur.fetchall()
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    snapshots = [{
+        'slug':          r[0],
+        'name':          r[1],
+        'description':   r[2],
+        'created_at':    r[3],
+        'created_by':    r[4],
+        'n_landslides':  r[5],
+        'n_polygons':    r[6],
+        'citation_info': r[7],
+        'subset_slug':   r[8],
+        'subset_name':   r[9],
+    } for r in rows]
+    return render(request, 'inventory/snapshots_index.html',
+                  {'snapshots': snapshots})
+
+
 @require_safe
 def snapshot_serve(request, slug, rest=''):
     """Serve a file inside a published snapshot bundle.

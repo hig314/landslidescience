@@ -19,8 +19,11 @@ urlpatterns = [
     # reference this URL — its shape must not change without redirects.
     re_path(r'^planet/(?P<slug>[A-Za-z0-9_-]+)\.mp4$',
             views.serve_planet_mp4, name='planet_mp4'),
-    # Snapshot bundles: /inventory/archive/<slug>/ + everything beneath.
-    # Two patterns so trailing-slash deep URLs and bare archive root both work.
+    # Snapshot listings + bundles.
+    #   /inventory/archive/                  → snapshots index (public list)
+    #   /inventory/archive/<slug>/           → snapshot bundle root
+    #   /inventory/archive/<slug>/<rest>     → file inside the bundle
+    path('archive/', views.snapshot_index, name='snapshot_index'),
     re_path(r'^archive/(?P<slug>[a-z0-9][a-z0-9-]*)/?$',
             views.snapshot_serve, name='snapshot_root'),
     re_path(r'^archive/(?P<slug>[a-z0-9][a-z0-9-]*)/(?P<rest>.*)$',

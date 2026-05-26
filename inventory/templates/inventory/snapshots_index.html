@@ -1,0 +1,51 @@
+{% extends "inventory/base.html" %}
+{% block title %}Archived snapshots{% endblock %}
+{% block page_title %}Archived snapshots{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 880px; margin: 24px auto; padding: 0 24px;">
+  <p style="font-size: 13px; color:#555; margin: 0 0 22px;">
+    Each snapshot below is a frozen, citable copy of the inventory at the moment it was built.
+    All field values and polygon geometries are pinned, and the underlying static bundle is
+    served from a stable URL. Click a name to open the archived view.
+  </p>
+
+  {% if snapshots %}
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      {% for s in snapshots %}
+        <div style="border: 1px solid #d9d3c5; border-radius: 5px; padding: 14px 18px; background: #fcfaf6;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px;">
+            <h2 style="margin: 0; font-size: 18px;">
+              <a href="{{ s.slug }}/" style="color: #2d4d8a; text-decoration: none;">{{ s.name }}</a>
+            </h2>
+            <span style="font-size: 11px; color: #888; white-space: nowrap;">
+              {{ s.created_at|date:"Y-m-d" }}{% if s.created_by %} · {{ s.created_by }}{% endif %}
+            </span>
+          </div>
+          {% if s.description %}
+            <p style="margin: 6px 0 8px; font-size: 13px; color: #444;">{{ s.description }}</p>
+          {% endif %}
+          <div style="font-size: 12px; color: #666; display: flex; gap: 14px; flex-wrap: wrap;">
+            <span><strong>{{ s.n_landslides }}</strong> landslides</span>
+            <span><strong>{{ s.n_polygons }}</strong> polygons</span>
+            {% if s.subset_slug %}
+              <span>subset: <code style="font-size: 11px;">{{ s.subset_slug }}</code></span>
+            {% endif %}
+            <span>
+              <a href="{{ s.slug }}/manifest.json" style="color: #666;">manifest.json</a>
+            </span>
+          </div>
+          {% if s.citation_info %}
+            <p style="margin: 8px 0 0; font-size: 11px; color: #888; border-top: 1px dashed #e3ddd4; padding-top: 6px;">
+              Citation: {{ s.citation_info }}
+            </p>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p style="font-size: 13px; color: #888;">No snapshots have been published yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

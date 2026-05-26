@@ -182,20 +182,58 @@ class Command(BaseCommand):
                 self.stdout.write(f"  [{i}/{len(member_ids)}] landslide details written")
 
         # ---- 4. HTML pages (rewrite static paths + inject LS_CONFIG) ----
+        # base is the relative path from the page back to the snapshot root.
+        # Used to rewrite absolute /inventory/... and /static/... references
+        # into snapshot-local paths from each page's location.
         ls_config = {'apiBase': './'}
         config_script = ('<script>window.LS_CONFIG = '
                          + json.dumps(ls_config, separators=(',', ':'))
                          + ';</script>\n')
 
+        build_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        # Snapshot banner — inline-styled so it doesn't depend on the
+        # frozen main.css picking up snapshot-specific selectors. The
+        # "Live site" link is intentionally absolute so it works even if
+        # this bundle is mirrored to a different domain.
+        banner = (
+            '<div style="background:#fff3cd; border-bottom:1px solid #ffeeba; '
+            'padding:5px 14px; font-size:12px; color:#664d03; '
+            'font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;">'
+            '<strong>Archived view</strong> &middot; ' + snap_name +
+            ' &middot; built ' + build_date +
+            ' &middot; <a href="https://landslidescience.org/inventory/" '
+            'style="color:#664d03; text-decoration:underline; font-weight:600;">'
+            'Live site &rarr;</a></div>'
+        )
+
         self.stdout.write("rendering index.html ...")
         home_html = fetch('/inventory/').content.decode('utf-8')
-        home_html = self._rewrite_html(home_html, config_script)
+        home_html = self._rewrite_html(home_html, base='./',
+                                       config_script=config_script,
+                                       banner=banner)
         (archive_dir / 'index.html').write_text(home_html, encoding='utf-8')
 
         self.stdout.write("rendering methods.html ...")
         methods_html = fetch('/inventory/methods/').content.decode('utf-8')
-        methods_html = self._rewrite_html(methods_html, config_script)
+        methods_html = self._rewrite_html(methods_html, base='./', banner=banner)
         (archive_dir / 'methods.html').write_text(methods_html, encoding='utf-8')
+
+        # Rule pages — list + per-rule detail. Public view-only; the apply
+        # button is editor-gated so it doesn't appear in the snapshot build.
+        self.stdout.write("rendering rules/index.html + per-rule detail ...")
+        rules_html = fetch('/inventory/rules/').content.decode('utf-8')
+        rules_html = self._rewrite_html(rules_html, base='../', banner=banner)
+        rules_dir = archive_dir / 'rules'
+        rules_dir.mkdir()
+        (rules_dir / 'index.html').write_text(rules_html, encoding='utf-8')
+
+        from inventory import derived
+        for rule_name in derived.RULES.keys():
+            detail_html = fetch(f'/inventory/rules/{rule_name}/').content.decode('utf-8')
+            detail_html = self._rewrite_html(detail_html, base='../../', banner=banner)
+            d = rules_dir / rule_name
+            d.mkdir()
+            (d / 'index.html').write_text(detail_html, encoding='utf-8')
 
         # ---- 5. copy static assets ----
         self.stdout.write("copying static assets ...")
@@ -286,41 +324,72 @@ class Command(BaseCommand):
                         encoding='utf-8')
 
     @staticmethod
-    def _rewrite_html(html, config_script):
-        # 1. Static asset references → relative to snapshot dir.
-        html = re.sub(r'(src|href)="/static/', r'\1="./static/', html)
+    def _rewrite_html(html, base='./', config_script=None, banner=None):
+        """Rewrite live-app URLs to snapshot-local ones.
+
+        `base` is the relative path from the current page back to the
+        snapshot's root directory. e.g. './' for top-level pages,
+        '../' for files at depth 1, '../../' for depth 2.
+
+        config_script, if provided, is inserted immediately before the
+        map.js <script> tag. Only the map-bearing index.html needs it.
+
+        banner, if provided, is HTML inserted immediately after the
+        opening <body> tag. Used to flag the page as an archived snapshot.
+        """
+        # 1. Static asset references → snapshot-local from the page's depth.
+        html = re.sub(r'(src|href)="/static/', r'\1="' + base + 'static/', html)
 
         # 2. Internal navigation links → snapshot-local equivalents.
         #    The snapshot is meant to be self-contained: a reader who clicks
-        #    "Methods" should stay in the snapshot, not bounce out to the
-        #    live site. Anchor href patterns rewritten in declaration order.
+        #    "Methods" should stay in the snapshot, not bounce out to live.
+        #    Order: more-specific patterns before less-specific.
+        html = re.sub(
+            r'href="/inventory/rules/([a-zA-Z0-9_]+)/"',
+            lambda m: f'href="{base}rules/{m.group(1)}/"',
+            html,
+        )
         nav_rewrites = [
-            ('href="/inventory/methods/"', 'href="./methods.html"'),
-            ('href="/inventory/"',         'href="./"'),
+            ('href="/inventory/methods/"', f'href="{base}methods.html"'),
+            ('href="/inventory/rules/"',   f'href="{base}rules/"'),
+            ('href="/inventory/"',         f'href="{base}"'),
         ]
         for old, new in nav_rewrites:
             html = html.replace(old, new)
 
         # 3. Features that don't exist inside a snapshot → strip the anchor,
-        #    keep the link text. Rule detail pages, the export endpoint, and
-        #    login routes all fall here. The match is href-tolerant of query
-        #    strings (e.g. login's ?next=...).
+        #    keep the link text. Manage/admin/export are all editor-only or
+        #    live-only. Login routes too.
         feature_unavailable_patterns = [
-            r'href="/inventory/rules/[^"]*"',   # individual rule detail pages
-            r'href="/inventory/export/"',      # zip export
-            r'href="/admin/[^"]*"',            # /admin/login/, /admin/, etc.
+            r'href="/inventory/manage/[^"]*"',  # manage list, edit, etc.
+            r'href="/inventory/export/"',       # zip export
+            r'href="/admin/[^"]*"',             # /admin/login/, /admin/, etc.
         ]
         for pat in feature_unavailable_patterns:
             html = re.sub(pat, 'href="#"', html)
 
         # 4. Inject LS_CONFIG immediately before the map.js <script> tag —
-        #    the seam map.js reads at IIFE entry.
-        html = re.sub(
-            r'(<script[^>]*src="[^"]*map\.js[^"]*"[^>]*>\s*</script>)',
-            config_script + r'\1',
-            html,
-            count=1,
-        )
+        #    the seam map.js reads at IIFE entry. Only the page that loads
+        #    map.js needs this (the snapshot's index.html).
+        if config_script:
+            html = re.sub(
+                r'(<script[^>]*src="[^"]*map\.js[^"]*"[^>]*>\s*</script>)',
+                config_script + r'\1',
+                html,
+                count=1,
+            )
+
+        # 5. Snapshot banner — visual marker that this is an archived view.
+        #    Inserted immediately after <body class="…">. The map sizing
+        #    code reads getBoundingClientRect().top, so the banner just
+        #    shifts the map down by its own height without further code.
+        if banner:
+            html = re.sub(
+                r'(<body[^>]*>)',
+                r'\1\n' + banner,
+                html,
+                count=1,
+            )
         return html
 
     @staticmethod
