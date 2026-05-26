@@ -52,7 +52,7 @@
     <select name="subset" style="padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px;">
       <option value="">All subsets</option>
       {% for s in all_subsets %}
-        <option value="{{ s }}" {% if subset_f == s %}selected{% endif %}>{{ s }}</option>
+        <option value="{{ s.slug }}" {% if subset_f == s.slug %}selected{% endif %}>{{ s.name }}</option>
       {% endfor %}
     </select>
     <button type="submit" style="padding:6px 18px; font-size:13px; background:#5D4037; color:#fff; border:none; border-radius:3px; cursor:pointer;">Filter</button>
@@ -82,7 +82,7 @@
         <td><a href="{% url 'inventory:manage_edit' landslide_id=r.id %}">{{ r.unique_name }}</a></td>
         <td>{{ r.landslide_type }}</td>
         <td>{{ r.landslide_class|default:"—" }}</td>
-        <td>{{ r.inventory_subset|default:"—" }}</td>
+        <td>{% if r.subset_slugs %}{{ r.subset_slugs|join:", " }}{% else %}—{% endif %}</td>
         <td>{% if r.size_inclusion %}yes{% else %}no{% endif %}</td>
         <td>{{ r.polygon_count }}</td>
         <td style="color:#888; font-size:12px;">

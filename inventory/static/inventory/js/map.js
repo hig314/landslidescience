@@ -1320,7 +1320,9 @@
         if (d.description) html += '<p class="detail-desc">' + esc(d.description) + '</p>';
 
         var attrs = [];
-        if (d.inventory_subset)  attrs.push(['Subset',     esc(d.inventory_subset)]);
+        if (d.subsets && d.subsets.length) {
+            attrs.push(['Subsets', d.subsets.map(esc).join(', ')]);
+        }
         if (d.noted_by)          attrs.push(['Noted by',   esc(d.noted_by)]);
         if (d.creep_behavior)    attrs.push(['Creep',      esc(d.creep_behavior)]);
         if (d.stream_damming)    attrs.push(['Stream dam', esc(d.stream_damming)]);

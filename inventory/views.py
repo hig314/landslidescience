@@ -204,40 +204,61 @@ def slug_redirect(request, slug):
 # Public views
 # ---------------------------------------------------------------------------
 
+def _home_counts(subset):
+    """Compute (class_counts, unclassified_count) for the sidebar.
+
+    subset: slug of a subset to filter by, or None for the full inventory.
+    The unfiltered case is cached for the worker lifetime (hot path);
+    filtered cases hit the DB each time (rare).
+    """
+    if subset is None and 'home_counts' in _cache and 'unclassified_count' in _cache:
+        return _cache['home_counts'], _cache['unclassified_count']
+
+    join = ""
+    where_class = ["l.landslide_class IS NOT NULL", "l.landslide_class != ''"]
+    where_null  = ["(l.landslide_class IS NULL OR l.landslide_class = '')"]
+    params      = []
+    if subset:
+        join = ("JOIN landslide_subsets lps ON lps.landslide_id = l.id "
+                "JOIN subsets s ON s.id = lps.subset_id")
+        where_class.append("s.slug = %s")
+        where_null.append("s.slug = %s")
+        params.append(subset)
+
+    counts_sql = f"""
+        SELECT l.landslide_type, l.landslide_class, COUNT(*) AS cnt
+        FROM landslides l {join}
+        WHERE {' AND '.join(where_class)}
+        GROUP BY l.landslide_type, l.landslide_class
+        ORDER BY l.landslide_type, cnt DESC
+    """
+    null_sql = f"SELECT COUNT(*) FROM landslides l {join} WHERE {' AND '.join(where_null)}"
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(counts_sql, params)
+        counts = {(r[0], r[1]): r[2] for r in cur.fetchall()}
+        cur.execute(null_sql, params)
+        unclassified = cur.fetchone()[0]
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+
+    if subset is None:
+        _cache['home_counts']        = counts
+        _cache['unclassified_count'] = unclassified
+    return counts, unclassified
+
+
 def home(request):
-    if 'home_counts' not in _cache:
-        conn = _get_conn()
-        try:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT landslide_type, landslide_class, COUNT(*) AS cnt
-                FROM landslides
-                WHERE landslide_class IS NOT NULL AND landslide_class != ''
-                GROUP BY landslide_type, landslide_class
-                ORDER BY landslide_type, cnt DESC
-            """)
-            _cache['home_counts'] = {(r[0], r[1]): r[2] for r in cur.fetchall()}
-            conn.rollback()
-        finally:
-            _put_conn(conn)
-
-    counts = _cache['home_counts']
-
-    # Count records with NULL/empty landslide_class — these can never match a
-    # specific-class filter, so they need their own "Incomplete classification"
-    # checkbox to remain visible.
-    if 'unclassified_count' not in _cache:
-        conn = _get_conn()
-        try:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT COUNT(*) FROM landslides
-                WHERE landslide_class IS NULL OR landslide_class = ''
-            """)
-            _cache['unclassified_count'] = cur.fetchone()[0]
-            conn.rollback()
-        finally:
-            _put_conn(conn)
+    # The sidebar's class checkboxes show member counts. When the page is
+    # accessed with ?subset=<slug>, the counts reflect just that subset's
+    # members so users see what's actually visible after filtering. The
+    # unfiltered case is hot and cached; the filtered case is rare (mostly
+    # exercised by snapshot builds) so we don't cache it.
+    subset = (request.GET.get('subset') or '').strip() or None
+    counts, unclassified = _home_counts(subset)
 
     def make_class_list(type_key, order):
         # Always include every known class — count=0 entries render as a
@@ -286,9 +307,15 @@ def api_features(request):
         conditions.append("l.landslide_type = %s")
         params.append(ls_type)
 
+    # ?subset=<slug> filters via the N:M join table. The legacy
+    # inventory_subset text column is no longer the source of truth.
     subset = request.GET.get("subset")
     if subset:
-        conditions.append("l.inventory_subset = %s")
+        conditions.append("""EXISTS (
+            SELECT 1 FROM landslide_subsets lps
+            JOIN subsets s ON s.id = lps.subset_id
+            WHERE lps.landslide_id = l.id AND s.slug = %s
+        )""")
         params.append(subset)
 
     ls_class = request.GET.get("class")
@@ -316,6 +343,12 @@ def api_features(request):
                         'landslide_type', l.landslide_type,
                         'landslide_class', l.landslide_class,
                         'inventory_subset', l.inventory_subset,
+                        'subsets', COALESCE(
+                            (SELECT json_agg(s.slug ORDER BY s.slug)
+                             FROM landslide_subsets lps
+                             JOIN subsets s ON s.id = lps.subset_id
+                             WHERE lps.landslide_id = l.id),
+                            '[]'::json),
                         'description', l.description,
                         'volume_preferred', l.volume_preferred,
                         'volume_method', l.volume_method,
@@ -483,6 +516,11 @@ def api_detail(request, landslide_id):
             SELECT row_to_json(l)
             FROM (
                 SELECT ls.*,
+                    (SELECT COALESCE(json_agg(s.slug ORDER BY s.slug), '[]'::json)
+                     FROM landslide_subsets lps
+                     JOIN subsets s ON s.id = lps.subset_id
+                     WHERE lps.landslide_id = ls.id
+                    ) AS subsets,
                     (SELECT json_agg(json_build_object(
                         'id', p.id,
                         'role', p.role,
@@ -793,13 +831,26 @@ def manage_list(request):
         where.append("l.landslide_class = %s")
         params.append(class_f)
     if subset_f:
-        where.append("l.inventory_subset = %s")
+        # subset_f is a subsets.slug (selected from the facet dropdown,
+        # which lists slug→name pairs).
+        where.append("""EXISTS (
+            SELECT 1 FROM landslide_subsets lps
+            JOIN subsets s ON s.id = lps.subset_id
+            WHERE lps.landslide_id = l.id AND s.slug = %s
+        )""")
         params.append(subset_f)
     where_clause = ' AND '.join(where)
 
     list_sql = f"""
         SELECT l.id, l.unique_name, l.landslide_type, l.landslide_class,
-               l.inventory_subset, l.size_inclusion,
+               COALESCE(
+                   (SELECT array_agg(s.slug ORDER BY s.slug)
+                    FROM landslide_subsets lps
+                    JOIN subsets s ON s.id = lps.subset_id
+                    WHERE lps.landslide_id = l.id),
+                   ARRAY[]::text[]
+               ) AS subset_slugs,
+               l.size_inclusion,
                COUNT(p.id) AS polygon_count
         FROM landslides l
         LEFT JOIN landslide_polygons p ON p.landslide_id = l.id
@@ -810,12 +861,15 @@ def manage_list(request):
     """
     count_sql = f"SELECT COUNT(*) FROM landslides l WHERE {where_clause}"
 
-    # Distinct values for filter dropdowns
+    # Filter-dropdown facets. Subsets come from the subsets table directly
+    # (slug + name pairs); classes still come from distinct landslides values.
     facet_sql = """
         SELECT
-            ARRAY(SELECT DISTINCT landslide_class FROM landslides WHERE landslide_class IS NOT NULL AND landslide_class != '' ORDER BY landslide_class),
-            ARRAY(SELECT DISTINCT inventory_subset FROM landslides WHERE inventory_subset IS NOT NULL AND inventory_subset != '' ORDER BY inventory_subset)
+            ARRAY(SELECT DISTINCT landslide_class FROM landslides
+                  WHERE landslide_class IS NOT NULL AND landslide_class != ''
+                  ORDER BY landslide_class)
     """
+    subsets_sql = "SELECT slug, name FROM subsets ORDER BY name"
 
     conn = _get_conn()
     try:
@@ -829,7 +883,9 @@ def manage_list(request):
         total = cur.fetchone()[0]
 
         cur.execute(facet_sql)
-        all_classes, all_subsets = cur.fetchone()
+        all_classes = cur.fetchone()[0]
+        cur.execute(subsets_sql)
+        all_subsets = [{'slug': r[0], 'name': r[1]} for r in cur.fetchall()]
         conn.rollback()
     finally:
         _put_conn(conn)

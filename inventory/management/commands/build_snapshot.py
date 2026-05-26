@@ -206,8 +206,12 @@ class Command(BaseCommand):
             'Live site &rarr;</a></div>'
         )
 
+        # Pass the subset slug to home() so sidebar counts reflect what the
+        # snapshot actually contains. For a full-inventory subset (e.g. the
+        # initial alaska-2025) the counts are identical to the unfiltered
+        # case, but this future-proofs sub-subset snapshots.
         self.stdout.write("rendering index.html ...")
-        home_html = fetch('/inventory/').content.decode('utf-8')
+        home_html = fetch(f"/inventory/?subset={subset['slug']}").content.decode('utf-8')
         home_html = self._rewrite_html(home_html, base='./',
                                        config_script=config_script,
                                        banner=banner)
