@@ -160,6 +160,55 @@ Workflow:
 3. Re-zip (must contain `landslides.geojson` + `landslide_polygons.geojson` at the top level; other files are ignored).
 4. Click "⬆ Import" → upload → preview → confirm.
 
+## Planet Stories integration
+
+Two Planet Stories formats are referenced from landslide records:
+
+- **timelapse** — multi-frame animation with a backing MP4 at
+  `https://storage.googleapis.com/planet-t2/<slug>/movie.mp4` (anonymous,
+  public). These get archived locally to `data/planet_stories/<slug>.mp4` by
+  the `archive_planet_stories` management command and served through this
+  app via a stable URL (see below). The in-app player renders these without
+  leaving the site.
+- **comparison** — before/after wiper widget rendered by Planet's SPA; no
+  MP4 to archive. Records pointing at these keep an external link to
+  planet.com; the link survives only as long as Planet does.
+
+Schema:
+
+| Table | Role |
+|---|---|
+| `planet_stories` | One row per distinct slug — `story_type`, `mp4_archived_at`, `mp4_size_bytes`, `last_probed_at`, `manually_set`. |
+| `landslide_planet_stories` | M:N membership — a landslide can reference multiple stories; a story can be referenced by multiple landslides. `sort_order` controls per-landslide display order. |
+
+The legacy `landslides.planet_story_link` text column is still written by
+the edit form and kept in sync with the join tables on save. It will be
+dropped after the edit form gains a proper multi-story management UI.
+
+### Stable serving URL — load-bearing for snapshots
+
+Archived MP4s are served at `/inventory/planet/<slug>.mp4` (no trailing
+slash; `.mp4` suffix in the URL). **This URL is load-bearing**: published
+snapshots embed it and reference it from their static HTML. The backing
+storage may change (S3, CDN, etc.) but the URL pattern must remain stable.
+If it ever has to change, add a redirect — do not just rename it.
+
+The slug shape is regex-constrained at the URL layer (`[A-Za-z0-9_-]+`) so
+the view can safely treat it as a filename without traversal risk.
+
+### Operational commands
+
+```bash
+# Probe + classify all slugs, then download any timelapse MP4s not yet archived.
+docker compose exec web python manage.py migrate_planet_stories
+docker compose exec web python manage.py archive_planet_stories
+```
+
+`migrate_planet_stories` is idempotent — re-running it picks up any new
+slugs added through the edit form, classifies them by HEAD-probing GCS, and
+stamps disk-archive metadata. `--no-probe` skips the GCS check (useful when
+offline). `--dry-run` rolls back at the end.
+
 ## Forward-looking integration
 
 The Tethys monitoring stack (sensor dashboards, access-controlled admin) stays in its own repo. Public-facing components migrate to this repo as needed; they read from `tethys_db` directly via psycopg2 (no Django models for landslide data — keeps PostGIS as the single source of truth, owned by the Tethys repo).

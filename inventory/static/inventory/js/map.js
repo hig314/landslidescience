@@ -1245,10 +1245,27 @@
         return false;
     }
 
+    function renderPlanetStory(s) {
+        // Archived timelapse → embedded video player with attribution.
+        // Anything else (comparison-type, or timelapse whose MP4 hasn't been
+        // archived yet) → external link, same style as before.
+        if (s.mp4_url) {
+            return '<div class="planet-player">' +
+                   '<video class="planet-video" src="' + esc(s.mp4_url) + '" ' +
+                   'autoplay muted loop playsinline controls preload="metadata"></video>' +
+                   '<div class="planet-caption">Time-lapse imagery © Planet Labs PBC · ' +
+                   '<a href="' + esc(s.planet_url) + '" target="_blank" rel="noopener">' +
+                   'View on Planet Stories ↗</a></div></div>';
+        }
+        return '<a class="planet-prominent" href="' + esc(s.planet_url) +
+               '" target="_blank" rel="noopener">' +
+               '<span class="planet-icon">P</span> View Planet Story</a>';
+    }
+
     function renderDetail(d) {
         var html = '';
-        var planetUrl = normUrl(d.planet_story_link);
-        var prominent = planetUrl && planetIsProminent(d);
+        var stories = d.planet_stories || [];
+        var prominent = stories.length > 0 && planetIsProminent(d);
 
         var manageLink = window._isInventoryEditor
             ? ' <a class="manage-gear" href="/inventory/manage/' + d.id + '/" target="_blank" ' +
@@ -1266,9 +1283,7 @@
         if (d.landslide_class) html += ' <span class="class-badge">' + esc(d.landslide_class) + '</span>';
 
         if (prominent) {
-            html += '<a class="planet-prominent" href="' + esc(planetUrl) +
-                    '" target="_blank" rel="noopener">' +
-                    '<span class="planet-icon">P</span> View Planet Story</a>';
+            stories.forEach(function (s) { html += renderPlanetStory(s); });
         }
 
         var imgLinks = [
@@ -1351,11 +1366,17 @@
                     '<p class="detail-desc" style="margin:0">' + esc(d.notes) + '</p></div>';
         }
 
-        if (!prominent && planetUrl) {
-            html += '<details class="more-details"><summary>More</summary>' +
-                    '<a class="imagery-btn" href="' + esc(planetUrl) +
-                    '" target="_blank" rel="noopener" style="margin-top:6px;">' +
-                    '<span class="imagery-icon" style="background:#1a73e8">P</span>Planet story</a></details>';
+        if (!prominent && stories.length) {
+            // Non-prominent records: stash stories inside a collapsed "More"
+            // panel so they don't take real estate by default. Players still
+            // render in-app when the user expands.
+            var inner = stories.map(function (s) {
+                if (s.mp4_url) return renderPlanetStory(s);
+                return '<a class="imagery-btn" href="' + esc(s.planet_url) +
+                       '" target="_blank" rel="noopener" style="margin-top:6px;">' +
+                       '<span class="imagery-icon" style="background:#1a73e8">P</span>Planet story</a>';
+            }).join('');
+            html += '<details class="more-details"><summary>More</summary>' + inner + '</details>';
         }
 
         document.getElementById('detail-content').innerHTML = html;

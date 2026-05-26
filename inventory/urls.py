@@ -15,6 +15,10 @@ urlpatterns = [
     path('api/timed_events/', views.api_timed_events, name='api_timed_events'),
     path('api/timeline_events/', views.api_timeline_events, name='api_timeline_events'),
     path('api/survey_circles/',  views.api_survey_circles,  name='api_survey_circles'),
+    # Stable serving URL for archived Planet Story MP4s. Snapshot bundles
+    # reference this URL — its shape must not change without redirects.
+    re_path(r'^planet/(?P<slug>[A-Za-z0-9_-]+)\.mp4$',
+            views.serve_planet_mp4, name='planet_mp4'),
     path('export/', views.export_download, name='export'),
     # Rules pages — list and detail are public (view-only); only the apply
     # endpoint requires editor permissions.

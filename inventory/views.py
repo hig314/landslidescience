@@ -17,9 +17,10 @@ import time
 import psycopg2
 import psycopg2.pool
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse
+from django.http import FileResponse, HttpResponse, HttpResponseNotFound, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.views.decorators.http import require_safe
 
 from .auth import inventory_editor_required
 from .middleware import SESSION_KEY as _PREVIEW_SESSION_KEY
@@ -491,6 +492,20 @@ def api_detail(request, landslide_id):
                     ))
                     FROM landslide_polygons p WHERE p.landslide_id = ls.id
                     ) AS polygons,
+                    (SELECT json_agg(json_build_object(
+                        'slug',       ps.slug,
+                        'story_type', ps.story_type,
+                        'planet_url', 'https://www.planet.com/stories/' || ps.slug,
+                        'mp4_url',    CASE WHEN ps.story_type = 'timelapse'
+                                            AND ps.mp4_archived_at IS NOT NULL
+                                       THEN '/inventory/planet/' || ps.slug || '.mp4'
+                                       ELSE NULL END,
+                        'sort_order', lps.sort_order
+                    ) ORDER BY lps.sort_order, ps.slug)
+                    FROM landslide_planet_stories lps
+                    JOIN planet_stories ps ON ps.slug = lps.slug
+                    WHERE lps.landslide_id = ls.id
+                    ) AS planet_stories,
                     CASE WHEN ctr.pt IS NULL THEN NULL ELSE
                         'https://displacement.asf.alaska.edu/#/?dispOverview=VEL&zoom=14.5&center='
                         || ROUND(ST_X(ctr.pt)::numeric, 4) || ',' || ROUND(ST_Y(ctr.pt)::numeric, 4)
@@ -876,6 +891,14 @@ def manage_edit(request, landslide_id):
         form = LandslideEditForm(request.POST)
         if form.is_valid():
             data = form.cleaned_data
+            # If the editor changed planet_story_link, mirror the change into
+            # the planet_stories N:M tables so api_detail (which now reads
+            # from the join) reflects it immediately. When this view grows
+            # multi-story management UI, this block becomes the source of
+            # truth and the column write goes away.
+            old_slug = _planet_slug_from_url(initial.get('planet_story_link'))
+            new_slug = _planet_slug_from_url(data.get('planet_story_link'))
+
             set_clause = ', '.join(f"{f} = %s" for f in col_names)
             values = [data.get(f) for f in col_names]
             values.append(landslide_id)
@@ -885,6 +908,24 @@ def manage_edit(request, landslide_id):
             try:
                 cur = conn.cursor()
                 cur.execute(update_sql, values)
+                if old_slug != new_slug:
+                    if old_slug:
+                        cur.execute(
+                            "DELETE FROM landslide_planet_stories "
+                            "WHERE landslide_id = %s AND slug = %s",
+                            (landslide_id, old_slug),
+                        )
+                    if new_slug:
+                        cur.execute(
+                            "INSERT INTO planet_stories (slug) VALUES (%s) "
+                            "ON CONFLICT (slug) DO NOTHING",
+                            (new_slug,),
+                        )
+                        cur.execute(
+                            "INSERT INTO landslide_planet_stories (landslide_id, slug) "
+                            "VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                            (landslide_id, new_slug),
+                        )
                 conn.commit()
             except Exception as exc:
                 conn.rollback()
@@ -903,12 +944,33 @@ def manage_edit(request, landslide_id):
     else:
         form = LandslideEditForm(initial=initial)
 
-    # Planet Story archive status — pass to template so the editor can see
-    # whether the linked MP4 is already cached locally and trigger a fetch
-    # for new/changed links without leaving the page.
-    planet_url    = initial.get('planet_story_link') or ''
-    planet_slug   = _planet_slug_from_url(planet_url)
-    planet_cached = _planet_mp4_path(planet_slug).exists() if planet_slug else False
+    # Planet Stories — list of stories associated with this landslide for
+    # the template's status/player block. Each item carries enough metadata
+    # to render the right UI: archived timelapse → embedded video; otherwise
+    # link out + (for timelapse) a Fetch MP4 button.
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ps.slug, ps.story_type, ps.mp4_archived_at, ps.mp4_size_bytes
+            FROM landslide_planet_stories lps
+            JOIN planet_stories ps ON ps.slug = lps.slug
+            WHERE lps.landslide_id = %s
+            ORDER BY lps.sort_order, ps.slug
+        """, (landslide_id,))
+        story_rows = cur.fetchall()
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    planet_stories = [{
+        'slug':        r[0],
+        'story_type':  r[1],
+        'is_archived': r[1] == 'timelapse' and r[2] is not None,
+        'planet_url':  f'https://www.planet.com/stories/{r[0]}',
+        'mp4_url':     f'/inventory/planet/{r[0]}.mp4'
+                       if r[1] == 'timelapse' and r[2] is not None else None,
+        'mp4_size_kb': (r[3] // 1024) if r[3] else None,
+    } for r in story_rows]
 
     return render(request, 'inventory/manage_edit.html', {
         'form':            form,
@@ -918,9 +980,7 @@ def manage_edit(request, landslide_id):
         'editable_fields': col_names,
         'common_classes':  COMMON_CLASS_VALUES,
         'error_msg':       error_msg,
-        'planet_url':      planet_url,
-        'planet_slug':     planet_slug,
-        'planet_cached':   planet_cached,
+        'planet_stories':  planet_stories,
         'planet_msg':      request.GET.get('planet_msg', ''),
     })
 
@@ -943,6 +1003,34 @@ def _planet_mp4_path(slug):
     from pathlib import Path
     from django.conf import settings
     return Path(settings.BASE_DIR) / 'data' / 'planet_stories' / f'{slug}.mp4'
+
+
+# Slug shape allowed by the serving URL — must match the regex in urls.py.
+# Planet's slugs are [A-Za-z0-9_-]+ in practice.
+_PLANET_SLUG_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+
+
+@require_safe
+def serve_planet_mp4(request, slug):
+    """Stable serving URL for archived Planet Story MP4s.
+
+    Load-bearing: snapshot bundles embed this URL. The storage backend can
+    change over time, but the URL pattern must not. The slug regex prevents
+    path traversal; the file existence check provides the 404.
+    """
+    if not _PLANET_SLUG_RE.match(slug or ''):
+        return HttpResponseNotFound()
+    path = _planet_mp4_path(slug)
+    if not path.is_file():
+        return HttpResponseNotFound()
+    resp = FileResponse(path.open('rb'), content_type='video/mp4')
+    resp['Content-Length'] = str(path.stat().st_size)
+    # Slugs are immutable identifiers, so we can cache aggressively. If we
+    # ever re-encode an MP4 under the same slug, bump the slug or invalidate
+    # via a query string from the page that embeds it.
+    resp['Cache-Control'] = 'public, max-age=31536000, immutable'
+    resp['Accept-Ranges'] = 'bytes'
+    return resp
 
 
 @inventory_editor_required

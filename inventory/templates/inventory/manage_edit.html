@@ -23,41 +23,72 @@
     </div>
   {% endif %}
 
-  {# Planet Story archive status — visible whenever a planet_story_link is set,
-     gives editors a one-click way to fetch the MP4 for new/changed links. #}
-  {% if planet_slug %}
-    <div style="margin: 14px 0; padding: 8px 12px; font-size: 12px;
-                background:#f7f5f1; border:1px solid #e3ddd4; border-radius:4px;
-                display:flex; align-items:center; gap:10px;">
-      <span style="color:#555;">
-        Planet animation archive:
-        {% if planet_cached %}
-          <strong style="color:#080;">✓ archived</strong>
-          <span style="color:#888;"> ({{ planet_slug }}.mp4)</span>
-        {% else %}
-          <strong style="color:#a55;">not yet archived</strong>
+  {% comment %}Per-story status block(s): inline player for archived timelapses;
+     link-out for comparison-type or un-archived timelapses (with a Fetch MP4
+     button for the latter so editors can archive without leaving the page).
+  {% endcomment %}
+  {% for s in planet_stories %}
+    <div style="margin: 14px 0; padding: 10px 12px; font-size: 12px;
+                background:#f7f5f1; border:1px solid #e3ddd4; border-radius:4px;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span style="color:#555;">
+          Planet Stories:
+          {% if s.story_type == 'timelapse' %}
+            {% if s.is_archived %}
+              <strong style="color:#080;">✓ archived</strong>
+              <span style="color:#888;"> (timelapse, {{ s.mp4_size_kb }} KB)</span>
+            {% else %}
+              <strong style="color:#a55;">timelapse, not yet archived</strong>
+            {% endif %}
+          {% elif s.story_type == 'comparison' %}
+            <strong style="color:#85633a;">comparison (no MP4)</strong>
+          {% else %}
+            <strong style="color:#a55;">unclassified</strong>
+          {% endif %}
+          <span style="color:#888;"> · </span>
+          <a href="{{ s.planet_url }}" target="_blank" rel="noopener" style="color:#1a56b0;">
+            {{ s.slug }} ↗</a>
+        </span>
+        {% if s.story_type != 'comparison' and not s.is_archived %}
+          <form method="post" action="{% url 'inventory:manage_edit_fetch_planet' landslide_id=landslide_id %}"
+                style="margin: 0;">
+            {% csrf_token %}
+            <button type="submit"
+                    style="font-size: 11px; padding: 3px 9px; cursor: pointer;
+                           background:#5D4037; color:#fff; border:none; border-radius:3px;">
+              Fetch MP4
+            </button>
+          </form>
         {% endif %}
-      </span>
-      {% if not planet_cached %}
-        <form method="post" action="{% url 'inventory:manage_edit_fetch_planet' landslide_id=landslide_id %}"
-              style="margin: 0;">
-          {% csrf_token %}
-          <button type="submit"
-                  style="font-size: 11px; padding: 3px 9px; cursor: pointer;
-                         background:#5D4037; color:#fff; border:none; border-radius:3px;">
-            Fetch MP4
-          </button>
-        </form>
+      </div>
+      {% if s.mp4_url %}
+        <div style="margin-top: 10px;">
+          <video src="{{ s.mp4_url }}" controls autoplay muted loop playsinline preload="metadata"
+                 style="display:block; width:100%; max-height:280px; background:#000;
+                        border:1px solid #d4cdc0; border-radius:3px;"></video>
+        </div>
       {% endif %}
-      {% if planet_msg == 'ok' %}
-        <span style="color:#080;">Just downloaded.</span>
-      {% elif planet_msg == 'already_cached' %}
-        <span style="color:#555;">Already cached.</span>
-      {% elif planet_msg == 'no_slug' %}
-        <span style="color:#a55;">No valid Planet Stories URL.</span>
-      {% elif planet_msg|slice:":6" == 'error:' %}
-        <span style="color:#a55;">Fetch failed ({{ planet_msg|slice:"6:" }}).</span>
-      {% endif %}
+    </div>
+  {% endfor %}
+  {% if planet_msg == 'ok' %}
+    <div style="margin: 8px 0; padding: 6px 10px; font-size: 12px;
+                background:#e8f5e9; color:#080; border:1px solid #b8d8b4; border-radius:3px;">
+      Just downloaded.
+    </div>
+  {% elif planet_msg == 'already_cached' %}
+    <div style="margin: 8px 0; padding: 6px 10px; font-size: 12px;
+                background:#f5f5f5; color:#555; border:1px solid #d8d8d8; border-radius:3px;">
+      Already cached.
+    </div>
+  {% elif planet_msg == 'no_slug' %}
+    <div style="margin: 8px 0; padding: 6px 10px; font-size: 12px;
+                background:#fef0f0; color:#a55; border:1px solid #f5c2c2; border-radius:3px;">
+      No valid Planet Stories URL.
+    </div>
+  {% elif planet_msg|slice:":6" == 'error:' %}
+    <div style="margin: 8px 0; padding: 6px 10px; font-size: 12px;
+                background:#fef0f0; color:#a55; border:1px solid #f5c2c2; border-radius:3px;">
+      Fetch failed ({{ planet_msg|slice:"6:" }}).
     </div>
   {% endif %}
 
