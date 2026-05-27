@@ -274,7 +274,7 @@ def home(request):
         "slow_other":         make_class_list('slow', _SLOW_OTHER_ORDER),
         "cat_recent":         make_class_list('catastrophic', _CAT_RECENT_ORDER),
         "cat_other":          make_class_list('catastrophic', _CAT_OTHER_ORDER),
-        "unclassified_count": _cache['unclassified_count'],
+        "unclassified_count": unclassified,
         "data_version":       _data_version,
     })
 
