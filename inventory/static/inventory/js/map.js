@@ -1285,8 +1285,15 @@
               'rel="noopener" title="Edit this record in Manage">⚙</a>'
             : '';
         if (d.slug) {
-            html += '<h3><a class="landslide-permalink" href="/inventory/' + esc(d.slug) +
-                    '/" title="Permalink — right-click to copy">' + esc(d.unique_name) + '</a>' +
+            // Live: permalink is the slug deep-link (server redirects to
+            // map+id hash). Snapshot: that slug deep-link doesn't exist in
+            // the bundle, so use a same-page hash that keeps the user
+            // inside the archived view.
+            var permalink = CFG.snapshotMode
+                ? '#id=' + d.id
+                : '/inventory/' + esc(d.slug) + '/';
+            html += '<h3><a class="landslide-permalink" href="' + permalink +
+                    '" title="Permalink — right-click to copy">' + esc(d.unique_name) + '</a>' +
                     manageLink + '</h3>';
         } else {
             html += '<h3>' + esc(d.unique_name) + manageLink + '</h3>';
