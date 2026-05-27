@@ -1,0 +1,89 @@
+{% extends "inventory/base.html" %}
+{% block title %}Edit subset · {{ subset.name }}{% endblock %}
+{% block page_title %}Edit subset{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 720px; margin: 24px auto; padding: 0 24px;">
+  <p style="font-size:13px; margin-bottom: 6px;">
+    <a href="{% url 'inventory:manage_subsets' %}">&larr; All subsets</a>
+  </p>
+  <h2 style="font-size:19px; margin: 0 0 4px;">{{ subset.name }}</h2>
+  <p style="font-size:12px; color:#888; margin-top:0;">
+    {{ subset.member_count }} members ·
+    <a href="{% url 'inventory:manage_list' %}?subset={{ subset.slug }}">view members &rarr;</a>
+  </p>
+
+  {% if error_msg %}
+    <div style="margin: 14px 0; padding: 10px 14px; background:#fef0f0; border:1px solid #f5c2c2; border-radius:4px; color:#902;">
+      {{ error_msg }}
+    </div>
+  {% endif %}
+
+  <form method="post" style="margin-top: 18px;">
+    {% csrf_token %}
+    <div style="margin-bottom: 12px;">
+      <label style="display:block; font-size:13px; color:#555; margin-bottom:3px;">Slug <span style="color:#b00020;">*</span></label>
+      <input type="text" name="slug" required maxlength="120"
+             value="{{ subset.slug }}"
+             pattern="[a-z0-9][a-z0-9-]*"
+             style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box;">
+      <p style="font-size:11px; color:#888; margin:3px 0 0;">Changing the slug will change all <code>?subset=</code> URLs that point at this subset.</p>
+    </div>
+    <div style="margin-bottom: 12px;">
+      <label style="display:block; font-size:13px; color:#555; margin-bottom:3px;">Name <span style="color:#b00020;">*</span></label>
+      <input type="text" name="name" required maxlength="200" value="{{ subset.name }}"
+             style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box;">
+    </div>
+    <div style="margin-bottom: 12px;">
+      <label style="display:block; font-size:13px; color:#555; margin-bottom:3px;">Description</label>
+      <textarea name="description" rows="3"
+                style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box; font-family:inherit;">{{ subset.description|default:'' }}</textarea>
+    </div>
+    <div style="margin-bottom: 12px;">
+      <label style="display:block; font-size:13px; color:#555; margin-bottom:3px;">Default owner</label>
+      <input type="text" name="default_owner" maxlength="200" value="{{ subset.default_owner|default:'' }}"
+             style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box;">
+    </div>
+    <div style="margin-bottom: 12px;">
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#555;">
+        <input type="checkbox" name="is_publication" {% if subset.is_publication %}checked{% endif %}>
+        Publication subset (intended for citation / snapshotting)
+      </label>
+    </div>
+    <div style="margin-bottom: 14px;">
+      <label style="display:block; font-size:13px; color:#555; margin-bottom:3px;">Citation info</label>
+      <input type="text" name="citation_info" maxlength="500" value="{{ subset.citation_info|default:'' }}"
+             style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box;">
+    </div>
+
+    <div style="margin-top: 22px; display:flex; gap:10px; align-items:center;">
+      <button type="submit"
+              style="padding: 9px 22px; background: #5D4037; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer;">
+        Save changes
+      </button>
+      <a href="{% url 'inventory:manage_subsets' %}" style="font-size:13px; color:#666;">Cancel</a>
+    </div>
+  </form>
+
+  <hr style="margin: 36px 0 18px; border: none; border-top: 1px solid #e0e0e0;">
+
+  <details style="margin-top: 14px;">
+    <summary style="font-size:13px; color:#a00; cursor:pointer;">Delete this subset</summary>
+    <div style="margin-top: 10px; padding: 12px 14px; background:#fef0f0; border:1px solid #f5c2c2; border-radius:4px;">
+      <p style="font-size: 12px; color: #902; margin: 0 0 8px;">
+        Deletes the subset and removes all <strong>{{ subset.member_count }}</strong> membership rows.
+        Landslide records themselves are unaffected. This cannot be undone.
+      </p>
+      <form method="post" action="{% url 'inventory:manage_subset_delete' slug=subset.slug %}"
+            onsubmit="return confirm('Really delete subset &quot;{{ subset.name }}&quot;? Memberships will be removed for {{ subset.member_count }} landslide(s). Landslide records themselves are unaffected.');">
+        {% csrf_token %}
+        <button type="submit"
+                style="padding: 6px 16px; background: #b00020; color: #fff; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;">
+          Delete subset
+        </button>
+      </form>
+    </div>
+  </details>
+</div>
+{% endblock %}

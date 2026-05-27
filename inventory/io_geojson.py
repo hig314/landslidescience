@@ -673,6 +673,11 @@ def apply_import(landslides_fc, polygons_fc, user):
             for col in u['changes']:
                 if col == 'id' or col in LANDSLIDES_AUTO_COLS:
                     continue
+                # Skip columns that don't exist in the current schema
+                # (e.g. a re-imported old zip referencing a since-dropped
+                # column). Older exports stay forward-compatible.
+                if col not in ls_types:
+                    continue
                 sets.append(f'{col} = %s')
                 vals.append(_coerce(ls_types[col], props[col]))
             if sets:

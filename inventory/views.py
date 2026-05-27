@@ -342,7 +342,6 @@ def api_features(request):
                         'unique_name', l.unique_name,
                         'landslide_type', l.landslide_type,
                         'landslide_class', l.landslide_class,
-                        'inventory_subset', l.inventory_subset,
                         'subsets', COALESCE(
                             (SELECT json_agg(s.slug ORDER BY s.slug)
                              FROM landslide_subsets lps
@@ -783,7 +782,13 @@ def api_settings(request):
 # ---------------------------------------------------------------------------
 
 # Columns that are auto-managed by Postgres / not user-editable.
-_FORM_EXCLUDED_COLS = ('id', 'created_at', 'updated_at')
+_FORM_EXCLUDED_COLS = (
+    'id', 'created_at', 'updated_at',
+    # Legacy column — superseded by the landslide_subsets M:N join. The
+    # subset-membership UI on the edit form writes the new table; the
+    # legacy column will be dropped after the rest of the transition lands.
+    'inventory_subset',
+)
 
 
 def _discover_editable_columns(cur):
@@ -956,6 +961,15 @@ def manage_edit(request, landslide_id):
             old_slug = _planet_slug_from_url(initial.get('planet_story_link'))
             new_slug = _planet_slug_from_url(data.get('planet_story_link'))
 
+            # Subset memberships submitted as checkboxes named "subset_<id>".
+            posted_subset_ids = set()
+            for key in request.POST.keys():
+                if key.startswith('subset_'):
+                    try:
+                        posted_subset_ids.add(int(key[len('subset_'):]))
+                    except ValueError:
+                        pass
+
             set_clause = ', '.join(f"{f} = %s" for f in col_names)
             values = [data.get(f) for f in col_names]
             values.append(landslide_id)
@@ -983,6 +997,28 @@ def manage_edit(request, landslide_id):
                             "VALUES (%s, %s) ON CONFLICT DO NOTHING",
                             (landslide_id, new_slug),
                         )
+
+                # Sync subset memberships to the checkbox state.
+                cur.execute(
+                    "SELECT subset_id FROM landslide_subsets WHERE landslide_id = %s",
+                    (landslide_id,),
+                )
+                current_subset_ids = {r[0] for r in cur.fetchall()}
+                to_add    = posted_subset_ids - current_subset_ids
+                to_remove = current_subset_ids - posted_subset_ids
+                if to_remove:
+                    cur.execute(
+                        "DELETE FROM landslide_subsets "
+                        "WHERE landslide_id = %s AND subset_id = ANY(%s::int[])",
+                        (landslide_id, list(to_remove)),
+                    )
+                if to_add:
+                    cur.executemany(
+                        "INSERT INTO landslide_subsets (landslide_id, subset_id) "
+                        "VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                        [(landslide_id, sid) for sid in to_add],
+                    )
+
                 conn.commit()
             except Exception as exc:
                 conn.rollback()
@@ -1001,10 +1037,8 @@ def manage_edit(request, landslide_id):
     else:
         form = LandslideEditForm(initial=initial)
 
-    # Planet Stories — list of stories associated with this landslide for
-    # the template's status/player block. Each item carries enough metadata
-    # to render the right UI: archived timelapse → embedded video; otherwise
-    # link out + (for timelapse) a Fetch MP4 button.
+    # Planet Stories + subset memberships for the template. Single conn,
+    # two queries.
     conn = _get_conn()
     try:
         cur = conn.cursor()
@@ -1016,9 +1050,25 @@ def manage_edit(request, landslide_id):
             ORDER BY lps.sort_order, ps.slug
         """, (landslide_id,))
         story_rows = cur.fetchall()
+
+        cur.execute("""
+            SELECT s.id, s.slug, s.name, s.is_publication,
+                   EXISTS (
+                       SELECT 1 FROM landslide_subsets lps
+                       WHERE lps.subset_id = s.id AND lps.landslide_id = %s
+                   ) AS is_member
+            FROM subsets s
+            ORDER BY s.is_publication DESC, s.name
+        """, (landslide_id,))
+        subset_rows = cur.fetchall()
         conn.rollback()
     finally:
         _put_conn(conn)
+    all_subsets_for_form = [
+        {'id': r[0], 'slug': r[1], 'name': r[2],
+         'is_publication': r[3], 'is_member': r[4]}
+        for r in subset_rows
+    ]
     planet_stories = [{
         'slug':        r[0],
         'story_type':  r[1],
@@ -1038,6 +1088,7 @@ def manage_edit(request, landslide_id):
         'common_classes':  COMMON_CLASS_VALUES,
         'error_msg':       error_msg,
         'planet_stories':  planet_stories,
+        'all_subsets':     all_subsets_for_form,
         'planet_msg':      request.GET.get('planet_msg', ''),
     })
 
@@ -1332,6 +1383,155 @@ def manage_import_apply(request):
         pass
 
     return render(request, 'inventory/manage_import_done.html', {'summary': summary})
+
+
+_SUBSET_SLUG_RE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
+
+
+def _read_subset_form(request):
+    """Pull subset fields from a POST request. Returns (data, error)."""
+    slug = (request.POST.get('slug') or '').strip().lower()
+    name = (request.POST.get('name') or '').strip()
+    description   = (request.POST.get('description')   or '').strip() or None
+    default_owner = (request.POST.get('default_owner') or '').strip() or None
+    citation_info = (request.POST.get('citation_info') or '').strip() or None
+    is_publication = bool(request.POST.get('is_publication'))
+    if not slug:
+        return None, "Slug is required."
+    if not _SUBSET_SLUG_RE.match(slug):
+        return None, "Slug must be lowercase alphanumeric + hyphens, starting with alphanumeric."
+    if not name:
+        return None, "Name is required."
+    return {
+        'slug': slug, 'name': name,
+        'description': description, 'default_owner': default_owner,
+        'is_publication': is_publication, 'citation_info': citation_info,
+    }, None
+
+
+@inventory_editor_required
+def manage_subsets(request):
+    """List + create. POST creates a new subset; GET shows the list + new-form."""
+    error_msg = None
+    if request.method == 'POST':
+        data, error_msg = _read_subset_form(request)
+        if data:
+            conn = _get_conn()
+            try:
+                cur = conn.cursor()
+                try:
+                    cur.execute("""
+                        INSERT INTO subsets (slug, name, description, default_owner,
+                                              is_publication, citation_info)
+                        VALUES (%(slug)s, %(name)s, %(description)s, %(default_owner)s,
+                                %(is_publication)s, %(citation_info)s)
+                    """, data)
+                    conn.commit()
+                    return redirect('inventory:manage_subsets')
+                except psycopg2.IntegrityError as exc:
+                    conn.rollback()
+                    error_msg = f"Could not create subset: {exc}"
+            finally:
+                _put_conn(conn)
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT s.id, s.slug, s.name, s.description, s.default_owner,
+                   s.is_publication, s.citation_info, s.created_at,
+                   COUNT(lps.landslide_id) AS member_count
+            FROM subsets s
+            LEFT JOIN landslide_subsets lps ON lps.subset_id = s.id
+            GROUP BY s.id
+            ORDER BY s.is_publication DESC, s.name
+        """)
+        rows = cur.fetchall()
+        cols = [d[0] for d in cur.description]
+        subsets = [dict(zip(cols, r)) for r in rows]
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    return render(request, 'inventory/manage_subsets.html', {
+        'subsets':   subsets,
+        'error_msg': error_msg,
+        'form':      request.POST if request.method == 'POST' else {},
+    })
+
+
+@inventory_editor_required
+def manage_subset_edit(request, slug):
+    """Edit one subset's metadata (not memberships — those happen via the
+    per-landslide edit form)."""
+    error_msg = None
+    subset   = None
+    new_slug = None
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM subsets WHERE slug = %s", (slug,))
+        row = cur.fetchone()
+        if not row:
+            return redirect('inventory:manage_subsets')
+        subset_id = row[0]
+
+        if request.method == 'POST':
+            data, error_msg = _read_subset_form(request)
+            if data:
+                try:
+                    cur.execute("""
+                        UPDATE subsets SET
+                            slug=%(slug)s, name=%(name)s, description=%(description)s,
+                            default_owner=%(default_owner)s,
+                            is_publication=%(is_publication)s,
+                            citation_info=%(citation_info)s
+                        WHERE id=%(id)s
+                    """, {**data, 'id': subset_id})
+                    conn.commit()
+                    new_slug = data['slug']
+                except psycopg2.IntegrityError as exc:
+                    conn.rollback()
+                    error_msg = f"Could not update: {exc}"
+
+        if new_slug is None:
+            cur.execute("""
+                SELECT s.id, s.slug, s.name, s.description, s.default_owner,
+                       s.is_publication, s.citation_info,
+                       COUNT(lps.landslide_id) AS member_count
+                FROM subsets s
+                LEFT JOIN landslide_subsets lps ON lps.subset_id = s.id
+                WHERE s.id = %s GROUP BY s.id
+            """, (subset_id,))
+            row = cur.fetchone()
+            cols = [d[0] for d in cur.description]
+            subset = dict(zip(cols, row))
+            conn.rollback()
+    finally:
+        _put_conn(conn)
+
+    if new_slug is not None:
+        _invalidate('features')
+        return redirect('inventory:manage_subset_edit', slug=new_slug)
+    return render(request, 'inventory/manage_subset_edit.html', {
+        'subset':    subset,
+        'error_msg': error_msg,
+    })
+
+
+@inventory_editor_required
+def manage_subset_delete(request, slug):
+    """POST-only: drop a subset. Membership rows cascade. Records survive."""
+    if request.method != 'POST':
+        return redirect('inventory:manage_subsets')
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM subsets WHERE slug = %s", (slug,))
+        conn.commit()
+    finally:
+        _put_conn(conn)
+    _invalidate('features')
+    return redirect('inventory:manage_subsets')
 
 
 @inventory_editor_required

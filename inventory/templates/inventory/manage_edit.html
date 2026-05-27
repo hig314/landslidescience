@@ -122,6 +122,29 @@
       </div>
     {% endfor %}
 
+    {# Subset memberships — checkbox group. Lives inside the same <form>
+       so submitting saves both the column fields and the memberships in
+       one transaction. #}
+    {% if all_subsets %}
+      <div style="margin: 22px 0 4px;">
+        <label style="display:block; font-size:13px; color:#555; margin-bottom:6px;">
+          Subset memberships
+          <a href="{% url 'inventory:manage_subsets' %}"
+             style="font-size:11px; color:#888; font-weight:normal; margin-left:6px;">manage subsets &rarr;</a>
+        </label>
+        <div style="border:1px solid #e0e0e0; border-radius:4px; padding:8px 12px; background:#fafafa;">
+          {% for s in all_subsets %}
+            <label style="display:inline-flex; align-items:center; gap:5px; font-size:13px; color:#444; margin:3px 14px 3px 0;">
+              <input type="checkbox" name="subset_{{ s.id }}" value="1" {% if s.is_member %}checked{% endif %}>
+              {{ s.name }}
+              {% if s.is_publication %}<span style="font-size:10px; color:#080;">★</span>{% endif %}
+              <span style="font-size:11px; color:#888;">({{ s.slug }})</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
     <div style="margin-top: 22px; display:flex; gap:10px; align-items:center;">
       <button type="submit"
               style="padding: 9px 22px; background: #5D4037; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer;">

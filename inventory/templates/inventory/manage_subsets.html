@@ -1,0 +1,102 @@
+{% extends "inventory/base.html" %}
+{% block title %}Subsets · Manage{% endblock %}
+{% block page_title %}Manage · subsets{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 960px; margin: 24px auto; padding: 0 24px;">
+  <p style="font-size: 13px; margin-bottom: 12px;">
+    <a href="{% url 'inventory:manage_list' %}">&larr; Back to records</a>
+  </p>
+
+  {% if error_msg %}
+    <div style="margin: 14px 0; padding: 10px 14px; background:#fef0f0; border:1px solid #f5c2c2; border-radius:4px; color:#902;">
+      {{ error_msg }}
+    </div>
+  {% endif %}
+
+  <h2 style="font-size:18px; margin-bottom: 10px;">Existing subsets</h2>
+  <table class="methods-table" style="font-size:13px;">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Slug</th>
+        <th>Members</th>
+        <th>Publication?</th>
+        <th>Default owner</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in subsets %}
+        <tr>
+          <td><a href="{% url 'inventory:manage_subset_edit' slug=s.slug %}">{{ s.name }}</a>
+              {% if s.description %}
+                <div style="font-size:11px; color:#888; margin-top:2px;">{{ s.description|truncatechars:120 }}</div>
+              {% endif %}
+          </td>
+          <td><code style="font-size:12px;">{{ s.slug }}</code></td>
+          <td>
+            {{ s.member_count }}
+            <a href="{% url 'inventory:manage_list' %}?subset={{ s.slug }}"
+               style="font-size:11px; color:#888; margin-left:6px;">view&nbsp;&rarr;</a>
+          </td>
+          <td>{% if s.is_publication %}<strong style="color:#080;">yes</strong>{% else %}no{% endif %}</td>
+          <td>{{ s.default_owner|default:"&mdash;" }}</td>
+          <td style="color:#888; font-size:12px;">{{ s.created_at|date:"Y-m-d" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <hr style="margin: 32px 0 22px; border:none; border-top:1px solid #e0e0e0;">
+
+  <h2 style="font-size:18px; margin-bottom: 12px;">Create a new subset</h2>
+  <form method="post" style="max-width: 560px;">
+    {% csrf_token %}
+    <div style="margin-bottom: 12px;">
+      <label style="display:block; font-size:13px; color:#555; margin-bottom:3px;">Slug <span style="color:#b00020;">*</span></label>
+      <input type="text" name="slug" required maxlength="120"
+             value="{{ form.slug|default:'' }}"
+             pattern="[a-z0-9][a-z0-9-]*"
+             style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box;">
+      <p style="font-size:11px; color:#888; margin:3px 0 0;">Lowercase, alphanumeric + hyphens. Used in URLs (e.g. <code>alaska-2026</code>).</p>
+    </div>
+    <div style="margin-bottom: 12px;">
+      <label style="display:block; font-size:13px; color:#555; margin-bottom:3px;">Name <span style="color:#b00020;">*</span></label>
+      <input type="text" name="name" required maxlength="200"
+             value="{{ form.name|default:'' }}"
+             style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box;">
+    </div>
+    <div style="margin-bottom: 12px;">
+      <label style="display:block; font-size:13px; color:#555; margin-bottom:3px;">Description</label>
+      <textarea name="description" rows="3"
+                style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box; font-family:inherit;">{{ form.description|default:'' }}</textarea>
+    </div>
+    <div style="margin-bottom: 12px;">
+      <label style="display:block; font-size:13px; color:#555; margin-bottom:3px;">Default owner</label>
+      <input type="text" name="default_owner" maxlength="200"
+             value="{{ form.default_owner|default:'' }}"
+             style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box;">
+      <p style="font-size:11px; color:#888; margin:3px 0 0;">Seeded as the <code>owner</code> when records get assigned to this subset.</p>
+    </div>
+    <div style="margin-bottom: 12px;">
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#555;">
+        <input type="checkbox" name="is_publication" {% if form.is_publication %}checked{% endif %}>
+        Publication subset (intended for citation / snapshotting)
+      </label>
+    </div>
+    <div style="margin-bottom: 14px;">
+      <label style="display:block; font-size:13px; color:#555; margin-bottom:3px;">Citation info</label>
+      <input type="text" name="citation_info" maxlength="500"
+             value="{{ form.citation_info|default:'' }}"
+             style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box;">
+      <p style="font-size:11px; color:#888; margin:3px 0 0;">DOI, paper title, or other citation reference.</p>
+    </div>
+    <button type="submit"
+            style="padding: 8px 22px; background: #5D4037; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer;">
+      Create subset
+    </button>
+  </form>
+</div>
+{% endblock %}
