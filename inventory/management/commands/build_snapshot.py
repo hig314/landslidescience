@@ -180,8 +180,13 @@ class Command(BaseCommand):
         # them clear of `api`, `static`, `rules`, `methods.html`, `index.html`,
         # `manifest.json` — but guard against the (extremely unlikely) case
         # of a landslide whose slugified name equals one of those.
+        # The downloadable GeoJSON+QML bundle is named to mirror the live
+        # site's convention (landslidescience_inventory_<date>.zip), with
+        # the snapshot's own slug in place of the date so different
+        # publications don't collide if they're saved side by side.
+        archive_zip_name = f'landslidescience_archive_{snap_slug}.zip'
         reserved = {'api', 'static', 'rules', 'methods.html',
-                    'index.html', 'manifest.json', 'inventory.zip'}
+                    'index.html', 'manifest.json', archive_zip_name}
         id_to_slug = {}  # populated as we walk member landslides, used by HTML rewrites
         n_stubs = 0
         for i, lid in enumerate(member_ids, 1):
@@ -214,15 +219,15 @@ class Command(BaseCommand):
             if i % 200 == 0 or i == len(member_ids):
                 self.stdout.write(f"  [{i}/{len(member_ids)}] details + {n_stubs} slug stubs")
 
-        # ---- 3b. inventory.zip — the downloadable GeoJSON+QML bundle. ----
+        # ---- 3b. <slug>.zip — the downloadable GeoJSON+QML bundle. ----
         # For now this is the full live inventory at build time; for sub-subset
         # snapshots later, this should be filtered to subset members (TODO
         # when we create the first such subset).
-        self.stdout.write("rendering inventory.zip (full export bundle) ...")
+        self.stdout.write(f"rendering {archive_zip_name} (full export bundle) ...")
         from inventory.io_geojson import build_export_bundle
         zip_bytes, _zname = build_export_bundle()
-        (archive_dir / 'inventory.zip').write_bytes(zip_bytes)
-        self.stdout.write(f"  inventory.zip: {len(zip_bytes)/1024:.0f} KB")
+        (archive_dir / archive_zip_name).write_bytes(zip_bytes)
+        self.stdout.write(f"  {archive_zip_name}: {len(zip_bytes)/1024:.0f} KB")
 
         # ---- 4. HTML pages (rewrite static paths + inject LS_CONFIG) ----
         # base is the relative path from the page back to the snapshot root.
@@ -253,25 +258,29 @@ class Command(BaseCommand):
         # snapshot actually contains. For a full-inventory subset (e.g. the
         # initial alaska-2025) the counts are identical to the unfiltered
         # case, but this future-proofs sub-subset snapshots.
+        rewrite_kwargs = {
+            'banner': banner,
+            'id_to_slug': id_to_slug,
+            'archive_zip_name': archive_zip_name,
+        }
+
         self.stdout.write("rendering index.html ...")
         home_html = fetch(f"/inventory/?subset={subset['slug']}").content.decode('utf-8')
         home_html = self._rewrite_html(home_html, base='./',
                                        config_script=config_script,
-                                       banner=banner, id_to_slug=id_to_slug)
+                                       **rewrite_kwargs)
         (archive_dir / 'index.html').write_text(home_html, encoding='utf-8')
 
         self.stdout.write("rendering methods.html ...")
         methods_html = fetch('/inventory/methods/').content.decode('utf-8')
-        methods_html = self._rewrite_html(methods_html, base='./',
-                                           banner=banner, id_to_slug=id_to_slug)
+        methods_html = self._rewrite_html(methods_html, base='./', **rewrite_kwargs)
         (archive_dir / 'methods.html').write_text(methods_html, encoding='utf-8')
 
         # Rule pages — list + per-rule detail. Public view-only; the apply
         # button is editor-gated so it doesn't appear in the snapshot build.
         self.stdout.write("rendering rules/index.html + per-rule detail ...")
         rules_html = fetch('/inventory/rules/').content.decode('utf-8')
-        rules_html = self._rewrite_html(rules_html, base='../',
-                                         banner=banner, id_to_slug=id_to_slug)
+        rules_html = self._rewrite_html(rules_html, base='../', **rewrite_kwargs)
         rules_dir = archive_dir / 'rules'
         rules_dir.mkdir()
         (rules_dir / 'index.html').write_text(rules_html, encoding='utf-8')
@@ -279,8 +288,7 @@ class Command(BaseCommand):
         from inventory import derived
         for rule_name in derived.RULES.keys():
             detail_html = fetch(f'/inventory/rules/{rule_name}/').content.decode('utf-8')
-            detail_html = self._rewrite_html(detail_html, base='../../',
-                                              banner=banner, id_to_slug=id_to_slug)
+            detail_html = self._rewrite_html(detail_html, base='../../', **rewrite_kwargs)
             d = rules_dir / rule_name
             d.mkdir()
             (d / 'index.html').write_text(detail_html, encoding='utf-8')
@@ -374,7 +382,8 @@ class Command(BaseCommand):
                         encoding='utf-8')
 
     @staticmethod
-    def _rewrite_html(html, base='./', config_script=None, banner=None, id_to_slug=None):
+    def _rewrite_html(html, base='./', config_script=None, banner=None,
+                      id_to_slug=None, archive_zip_name='inventory.zip'):
         """Rewrite live-app URLs to snapshot-local ones.
 
         `base` is the relative path from the current page back to the
@@ -391,6 +400,10 @@ class Command(BaseCommand):
         Used to rewrite editor-only /inventory/manage/<id>/ links into the
         snapshot's per-landslide slug deep-link (the same form used by the
         in-page permalink).
+
+        archive_zip_name is the filename (relative to base) of the bundled
+        downloadable GeoJSON+QML zip. The header "⬇ Download" link gets
+        rewritten to point at it.
         """
         id_to_slug = id_to_slug or {}
         # 1. Static asset references → snapshot-local from the page's depth.
@@ -446,7 +459,7 @@ class Command(BaseCommand):
         html = html.replace('href="/inventory/manage/"', f'href="{base}"')
 
         # /inventory/export/  →  the snapshot's own GeoJSON+QML bundle.
-        html = html.replace('href="/inventory/export/"', f'href="{base}inventory.zip"')
+        html = html.replace('href="/inventory/export/"', f'href="{base}{archive_zip_name}"')
 
         # Anything else under /inventory/manage/ (settings, subsets, etc.),
         # admin routes, and login URLs have no snapshot equivalent.

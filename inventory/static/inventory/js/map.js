@@ -1073,20 +1073,24 @@
             ['in', classExpr, ['literal', activeClasses]]
         ];
 
+        // Non-default minimum filters exclude records with NULL on the
+        // filtered field. Coalescing NULL → -1 makes the >= comparison
+        // fail for any positive threshold, so unmeasured records drop
+        // out as soon as the user moves the slider away from "All".
         if (srcAreaSlider) {
             var la = parseFloat(srcAreaSlider.value);
-            if (la > 0) f.push(['>=', ['coalesce', ['get', 'area_src'], 1e15], Math.pow(10, la + 3)]);
+            if (la > 0) f.push(['>=', ['coalesce', ['get', 'area_src'], -1], Math.pow(10, la + 3)]);
         }
         if (depAreaSlider) {
             var ld = parseFloat(depAreaSlider.value);
             if (ld > 0) f.push(['any',
                 ['==', ['get', 'landslide_type'], 'slow'],
-                ['>=', ['coalesce', ['get', 'area_dep'], 1e15], Math.pow(10, ld + 3)]
+                ['>=', ['coalesce', ['get', 'area_dep'], -1], Math.pow(10, ld + 3)]
             ]);
         }
         if (volSlider) {
             var lv = parseFloat(volSlider.value);
-            if (lv > 0) f.push(['>=', ['coalesce', ['get', 'volume_preferred'], 1e15], Math.pow(10, lv + 4)]);
+            if (lv > 0) f.push(['>=', ['coalesce', ['get', 'volume_preferred'], -1], Math.pow(10, lv + 4)]);
         }
         if (yearSlider) {
             var yp = parseInt(yearSlider.value);
@@ -1533,9 +1537,14 @@
             if (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e) return;
             if (fs.types.indexOf(ev.ls_type) < 0) return;
             if (fs.classes.length && fs.classes.indexOf(ev.cls || '__unclassified__') < 0) return;
-            if (fs.minVol     !== null && ev.vol      !== null && ev.vol      < fs.minVol)     return;
-            if (fs.minSrcArea !== null && ev.area_src !== null && ev.area_src < fs.minSrcArea) return;
-            if (fs.minDepArea !== null && ev.ls_type === 'catastrophic' && ev.area_dep !== null && ev.area_dep < fs.minDepArea) return;
+            // Non-default minimum filters exclude NULL values. (ev.vol < N
+            // is true when vol is null because null coerces to 0 in the
+            // comparison; the explicit `vol == null` check that used to
+            // short-circuit here was the bug — null was treated as
+            // infinite, so unmeasured records passed every filter.)
+            if (fs.minVol     !== null && !(ev.vol      >= fs.minVol))     return;
+            if (fs.minSrcArea !== null && !(ev.area_src >= fs.minSrcArea)) return;
+            if (fs.minDepArea !== null && ev.ls_type === 'catastrophic' && !(ev.area_dep >= fs.minDepArea)) return;
             if (fs.minYear !== null) {
                 var yn = ev.year_num !== null ? ev.year_num : 9999;
                 if (yn < fs.minYear) return;
@@ -1913,9 +1922,10 @@
             if (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e) return;
             if (fs.types.indexOf(ev.ls_type) < 0) return;
             if (fs.classes.length && fs.classes.indexOf(ev.cls || '__unclassified__') < 0) return;
-            if (fs.minVol     !== null && ev.vol      !== null && ev.vol      < fs.minVol)     return;
-            if (fs.minSrcArea !== null && ev.area_src !== null && ev.area_src < fs.minSrcArea) return;
-            if (fs.minDepArea !== null && ev.ls_type === 'catastrophic' && ev.area_dep !== null && ev.area_dep < fs.minDepArea) return;
+            // See histogram filter above — non-default minimums exclude NULL.
+            if (fs.minVol     !== null && !(ev.vol      >= fs.minVol))     return;
+            if (fs.minSrcArea !== null && !(ev.area_src >= fs.minSrcArea)) return;
+            if (fs.minDepArea !== null && ev.ls_type === 'catastrophic' && !(ev.area_dep >= fs.minDepArea)) return;
             if (fs.minYear !== null) {
                 var yn = ev.year_num !== null ? ev.year_num : 9999;
                 if (yn < fs.minYear) return;
