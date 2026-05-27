@@ -1285,23 +1285,21 @@
               'rel="noopener" title="Edit this record in Manage">⚙</a>'
             : '';
         if (d.slug) {
-            // Live: permalink is the slug deep-link (server redirects to a
-            // map+id hash with zoom=13 at the landslide centroid). Snapshot:
-            // that slug deep-link doesn't exist in the bundle, so we build
-            // the equivalent hash directly — same zoom + format as the live
-            // server-side redirect, so the user gets the same focus
-            // behavior without leaving the archived view.
+            // Same-page hash that both the live home and a snapshot bundle
+            // understand: map=zoom/lat/lon&id=<n>, identical format to what
+            // the live slug_redirect view emits server-side. The hashchange
+            // listener (below) flies to that location and opens the detail
+            // panel — smooth zoom, no full reload. The slug deep-link
+            // /inventory/<slug>/ remains available server-side for external
+            // sharing (e.g. typed/pasted into a browser); it 302s to this
+            // same hash form.
             var permalink;
-            if (CFG.snapshotMode) {
-                if (d.centroid_lat != null && d.centroid_lon != null) {
-                    permalink = '#map=13/' + (+d.centroid_lat).toFixed(4)
-                              + '/' + (+d.centroid_lon).toFixed(4)
-                              + '&id=' + d.id;
-                } else {
-                    permalink = '#id=' + d.id;
-                }
+            if (d.centroid_lat != null && d.centroid_lon != null) {
+                permalink = '#map=13/' + (+d.centroid_lat).toFixed(4)
+                          + '/' + (+d.centroid_lon).toFixed(4)
+                          + '&id=' + d.id;
             } else {
-                permalink = '/inventory/' + esc(d.slug) + '/';
+                permalink = '#id=' + d.id;
             }
             html += '<h3><a class="landslide-permalink" href="' + permalink +
                     '" title="Permalink — right-click to copy">' + esc(d.unique_name) + '</a>' +
@@ -2361,11 +2359,10 @@
         histCanvasEl.addEventListener('mouseleave', hideChartTip);
     }
 
-    // Hash-only navigation. The live `/inventory/<slug>/` route reloads the
-    // page (server 302 to a map+id hash), so the initial-hash parser at
-    // boot handles it. Inside a snapshot — where no slug route exists —
-    // the in-bundle permalink writes the hash directly without reloading,
-    // so we need to fly to the new map state and re-open the detail panel.
+    // Hash-only navigation. Clicking the in-page permalink mutates the
+    // URL hash without a page reload (it's a same-page anchor), so we
+    // fly to the new center/zoom and re-open the detail panel. Browser
+    // back/forward through map states also benefits as a side effect.
     var _lastHash = location.hash;
     window.addEventListener('hashchange', function () {
         if (location.hash === _lastHash) return;
