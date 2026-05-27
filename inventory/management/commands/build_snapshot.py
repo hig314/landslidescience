@@ -344,6 +344,21 @@ class Command(BaseCommand):
         # 1. Static asset references → snapshot-local from the page's depth.
         html = re.sub(r'(src|href)="/static/', r'\1="' + base + 'static/', html)
 
+        # 1b. Strip WhiteNoise's ManifestStaticFilesStorage cache-busting
+        # hashes (e.g. main.44ff589da14e.css → main.css). On prod, Django's
+        # {% static %} template tag rewrites filenames to include a content
+        # hash, but the snapshot bundle ships the source files (unhashed).
+        # Snapshots are immutable, so the hash adds no value and breaks
+        # asset URLs. Strip only inside static/ URLs to avoid touching
+        # unrelated patterns elsewhere on the page.
+        html = re.sub(
+            r'(static/[^"\']+?)\.[0-9a-f]{12,32}'
+            r'(\.(?:css|js|ico|png|jpg|jpeg|gif|svg|webp|woff2?|ttf|eot|otf|map|mp4))'
+            r'(?=["\'])',
+            r'\1\2',
+            html,
+        )
+
         # 2. Internal navigation links → snapshot-local equivalents.
         #    The snapshot is meant to be self-contained: a reader who clicks
         #    "Methods" should stay in the snapshot, not bounce out to live.
