@@ -1285,25 +1285,21 @@
               'rel="noopener" title="Edit this record in Manage">⚙</a>'
             : '';
         if (d.slug) {
-            // Same-page hash that both the live home and a snapshot bundle
-            // understand: map=zoom/lat/lon&id=<n>, identical format to what
-            // the live slug_redirect view emits server-side. The hashchange
-            // listener (below) flies to that location and opens the detail
-            // panel — smooth zoom, no full reload. The slug deep-link
-            // /inventory/<slug>/ remains available server-side for external
-            // sharing (e.g. typed/pasted into a browser); it 302s to this
-            // same hash form.
-            var permalink;
+            // Slug-based permalink, identical shape on live and snapshot —
+            // `API_BASE` resolves to `/inventory/` on the live site and `./`
+            // inside a snapshot bundle. Both forms 302/meta-refresh to a
+            // same-page map+id hash, so the URL is shareable while the
+            // click handler below intercepts plain left-clicks to do
+            // smooth zoom via the hashchange listener (no page reload).
+            var permalink = API_BASE + esc(d.slug) + '/';
+            var permaData = ' data-id="' + d.id + '"';
             if (d.centroid_lat != null && d.centroid_lon != null) {
-                permalink = '#map=13/' + (+d.centroid_lat).toFixed(4)
-                          + '/' + (+d.centroid_lon).toFixed(4)
-                          + '&id=' + d.id;
-            } else {
-                permalink = '#id=' + d.id;
+                permaData += ' data-lat="' + (+d.centroid_lat).toFixed(4) + '"'
+                          +  ' data-lon="' + (+d.centroid_lon).toFixed(4) + '"';
             }
-            html += '<h3><a class="landslide-permalink" href="' + permalink +
-                    '" title="Permalink — right-click to copy">' + esc(d.unique_name) + '</a>' +
-                    manageLink + '</h3>';
+            html += '<h3><a class="landslide-permalink" href="' + permalink + '"' +
+                    permaData + ' title="Permalink — right-click to copy">' +
+                    esc(d.unique_name) + '</a>' + manageLink + '</h3>';
         } else {
             html += '<h3>' + esc(d.unique_name) + manageLink + '</h3>';
         }
@@ -2359,10 +2355,35 @@
         histCanvasEl.addEventListener('mouseleave', hideChartTip);
     }
 
+    // Plain left-click on a slug permalink: intercept the navigation and
+    // smooth-zoom via hashchange instead. The href is still the canonical
+    // shareable slug URL — right-click "Copy link" gives that form, and
+    // modifier-clicks (cmd/ctrl/shift/middle button) honor it normally so
+    // "open in new tab" still works.
+    document.addEventListener('click', function (e) {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        var a = e.target.closest && e.target.closest('a.landslide-permalink');
+        if (!a) return;
+        e.preventDefault();
+        var lat = a.getAttribute('data-lat');
+        var lon = a.getAttribute('data-lon');
+        var id  = a.getAttribute('data-id');
+        var newHash = (lat && lon)
+            ? '#map=13/' + lat + '/' + lon + '&id=' + id
+            : '#id=' + id;
+        if (location.hash !== newHash) {
+            location.hash = newHash;
+        } else {
+            // Same hash — listener won't fire. Re-trigger smooth-zoom/detail.
+            if (lat && lon) map.flyTo({ center: [+lon, +lat], zoom: 13 });
+            if (id) showDetail(+id);
+        }
+    });
+
     // Hash-only navigation. Clicking the in-page permalink mutates the
-    // URL hash without a page reload (it's a same-page anchor), so we
-    // fly to the new center/zoom and re-open the detail panel. Browser
-    // back/forward through map states also benefits as a side effect.
+    // URL hash without a page reload, so we fly to the new center/zoom
+    // and re-open the detail panel. Browser back/forward through map
+    // states also benefits as a side effect.
     var _lastHash = location.hash;
     window.addEventListener('hashchange', function () {
         if (location.hash === _lastHash) return;

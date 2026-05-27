@@ -174,12 +174,43 @@ class Command(BaseCommand):
         tl['events'] = [e for e in tl.get('events') or [] if e.get('id') in member_id_set]
         self._write_json(archive_dir / 'api' / 'timeline_events' / 'index.json', tl)
 
-        self.stdout.write(f"rendering api/landslide/<id> for {len(member_ids)} members ...")
+        self.stdout.write(f"rendering api/landslide/<id> + slug stubs for {len(member_ids)} members ...")
+        # Slugs are only safe at the snapshot root if they don't collide
+        # with the existing top-level names. The shape `[a-z0-9-]+` keeps
+        # them clear of `api`, `static`, `rules`, `methods.html`, `index.html`,
+        # `manifest.json` — but guard against the (extremely unlikely) case
+        # of a landslide whose slugified name equals one of those.
+        reserved = {'api', 'static', 'rules', 'methods.html',
+                    'index.html', 'manifest.json'}
+        n_stubs = 0
         for i, lid in enumerate(member_ids, 1):
             d = json.loads(fetch(f'/inventory/api/landslide/{lid}/').content)
             self._write_json(archive_dir / 'api' / 'landslide' / str(lid) / 'index.json', d)
+
+            slug = d.get('slug')
+            if slug and slug not in reserved:
+                lat = d.get('centroid_lat')
+                lon = d.get('centroid_lon')
+                if lat is not None and lon is not None:
+                    target = f'../#map=13/{float(lat):.4f}/{float(lon):.4f}&id={lid}'
+                else:
+                    target = f'../#id={lid}'
+                # Tiny stub: meta-refresh redirects to the snapshot root
+                # with the map+id hash. Parallels the live slug_redirect
+                # view, but statically (no DB query at serve time).
+                stub_dir = archive_dir / slug
+                stub_dir.mkdir(exist_ok=True)
+                title = d.get('unique_name', slug)
+                (stub_dir / 'index.html').write_text(
+                    '<!doctype html><meta charset="utf-8">'
+                    f'<meta http-equiv="refresh" content="0;url={target}">'
+                    f'<title>{title}</title>',
+                    encoding='utf-8',
+                )
+                n_stubs += 1
+
             if i % 200 == 0 or i == len(member_ids):
-                self.stdout.write(f"  [{i}/{len(member_ids)}] landslide details written")
+                self.stdout.write(f"  [{i}/{len(member_ids)}] details + {n_stubs} slug stubs")
 
         # ---- 4. HTML pages (rewrite static paths + inject LS_CONFIG) ----
         # base is the relative path from the page back to the snapshot root.
