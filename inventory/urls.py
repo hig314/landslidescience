@@ -23,10 +23,15 @@ urlpatterns = [
     #   /inventory/archive/                  → snapshots index (public list)
     #   /inventory/archive/<slug>/           → snapshot bundle root
     #   /inventory/archive/<slug>/<rest>     → file inside the bundle
+    # The trailing slash on <slug>/ is REQUIRED so that the HTML's
+    # `./static/...` relative paths resolve correctly. Without it, the
+    # browser treats the slug as a filename and the relative paths
+    # resolve one level too shallow. Django's APPEND_SLASH middleware
+    # 301-redirects the no-slash form to the slashed form.
     path('archive/', views.snapshot_index, name='snapshot_index'),
-    re_path(r'^archive/(?P<slug>[a-z0-9][a-z0-9-]*)/?$',
+    re_path(r'^archive/(?P<slug>[a-z0-9][a-z0-9-]*)/$',
             views.snapshot_serve, name='snapshot_root'),
-    re_path(r'^archive/(?P<slug>[a-z0-9][a-z0-9-]*)/(?P<rest>.*)$',
+    re_path(r'^archive/(?P<slug>[a-z0-9][a-z0-9-]*)/(?P<rest>.+)$',
             views.snapshot_serve, name='snapshot_path'),
     path('export/', views.export_download, name='export'),
     # Rules pages — list and detail are public (view-only); only the apply

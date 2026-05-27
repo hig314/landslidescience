@@ -1189,6 +1189,13 @@ def snapshot_serve(request, slug, rest=''):
         html_path = base / rest / 'index.html'
         candidate = json_path if json_path.is_file() else html_path
     else:
+        # Directory-style URL without a trailing slash (e.g. `rules` or
+        # `rules/area_body`) — redirect to the slashed form so the HTML's
+        # relative paths resolve from the correct base. Django's
+        # APPEND_SLASH middleware doesn't fire here because the URL
+        # pattern itself matched; the view has to do the redirect.
+        if (base / rest).is_dir() and not (base / rest).is_file():
+            return redirect(request.path + '/', permanent=True)
         candidate = base / rest
 
     try:
