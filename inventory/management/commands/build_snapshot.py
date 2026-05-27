@@ -181,7 +181,8 @@ class Command(BaseCommand):
         # `manifest.json` — but guard against the (extremely unlikely) case
         # of a landslide whose slugified name equals one of those.
         reserved = {'api', 'static', 'rules', 'methods.html',
-                    'index.html', 'manifest.json'}
+                    'index.html', 'manifest.json', 'inventory.zip'}
+        id_to_slug = {}  # populated as we walk member landslides, used by HTML rewrites
         n_stubs = 0
         for i, lid in enumerate(member_ids, 1):
             d = json.loads(fetch(f'/inventory/api/landslide/{lid}/').content)
@@ -189,6 +190,7 @@ class Command(BaseCommand):
 
             slug = d.get('slug')
             if slug and slug not in reserved:
+                id_to_slug[lid] = slug
                 lat = d.get('centroid_lat')
                 lon = d.get('centroid_lon')
                 if lat is not None and lon is not None:
@@ -211,6 +213,16 @@ class Command(BaseCommand):
 
             if i % 200 == 0 or i == len(member_ids):
                 self.stdout.write(f"  [{i}/{len(member_ids)}] details + {n_stubs} slug stubs")
+
+        # ---- 3b. inventory.zip — the downloadable GeoJSON+QML bundle. ----
+        # For now this is the full live inventory at build time; for sub-subset
+        # snapshots later, this should be filtered to subset members (TODO
+        # when we create the first such subset).
+        self.stdout.write("rendering inventory.zip (full export bundle) ...")
+        from inventory.io_geojson import build_export_bundle
+        zip_bytes, _zname = build_export_bundle()
+        (archive_dir / 'inventory.zip').write_bytes(zip_bytes)
+        self.stdout.write(f"  inventory.zip: {len(zip_bytes)/1024:.0f} KB")
 
         # ---- 4. HTML pages (rewrite static paths + inject LS_CONFIG) ----
         # base is the relative path from the page back to the snapshot root.
@@ -245,19 +257,21 @@ class Command(BaseCommand):
         home_html = fetch(f"/inventory/?subset={subset['slug']}").content.decode('utf-8')
         home_html = self._rewrite_html(home_html, base='./',
                                        config_script=config_script,
-                                       banner=banner)
+                                       banner=banner, id_to_slug=id_to_slug)
         (archive_dir / 'index.html').write_text(home_html, encoding='utf-8')
 
         self.stdout.write("rendering methods.html ...")
         methods_html = fetch('/inventory/methods/').content.decode('utf-8')
-        methods_html = self._rewrite_html(methods_html, base='./', banner=banner)
+        methods_html = self._rewrite_html(methods_html, base='./',
+                                           banner=banner, id_to_slug=id_to_slug)
         (archive_dir / 'methods.html').write_text(methods_html, encoding='utf-8')
 
         # Rule pages — list + per-rule detail. Public view-only; the apply
         # button is editor-gated so it doesn't appear in the snapshot build.
         self.stdout.write("rendering rules/index.html + per-rule detail ...")
         rules_html = fetch('/inventory/rules/').content.decode('utf-8')
-        rules_html = self._rewrite_html(rules_html, base='../', banner=banner)
+        rules_html = self._rewrite_html(rules_html, base='../',
+                                         banner=banner, id_to_slug=id_to_slug)
         rules_dir = archive_dir / 'rules'
         rules_dir.mkdir()
         (rules_dir / 'index.html').write_text(rules_html, encoding='utf-8')
@@ -265,7 +279,8 @@ class Command(BaseCommand):
         from inventory import derived
         for rule_name in derived.RULES.keys():
             detail_html = fetch(f'/inventory/rules/{rule_name}/').content.decode('utf-8')
-            detail_html = self._rewrite_html(detail_html, base='../../', banner=banner)
+            detail_html = self._rewrite_html(detail_html, base='../../',
+                                              banner=banner, id_to_slug=id_to_slug)
             d = rules_dir / rule_name
             d.mkdir()
             (d / 'index.html').write_text(detail_html, encoding='utf-8')
@@ -359,7 +374,7 @@ class Command(BaseCommand):
                         encoding='utf-8')
 
     @staticmethod
-    def _rewrite_html(html, base='./', config_script=None, banner=None):
+    def _rewrite_html(html, base='./', config_script=None, banner=None, id_to_slug=None):
         """Rewrite live-app URLs to snapshot-local ones.
 
         `base` is the relative path from the current page back to the
@@ -371,7 +386,13 @@ class Command(BaseCommand):
 
         banner, if provided, is HTML inserted immediately after the
         opening <body> tag. Used to flag the page as an archived snapshot.
+
+        id_to_slug, if provided, maps integer landslide IDs to their slugs.
+        Used to rewrite editor-only /inventory/manage/<id>/ links into the
+        snapshot's per-landslide slug deep-link (the same form used by the
+        in-page permalink).
         """
+        id_to_slug = id_to_slug or {}
         # 1. Static asset references → snapshot-local from the page's depth.
         html = re.sub(r'(src|href)="/static/', r'\1="' + base + 'static/', html)
 
@@ -407,16 +428,47 @@ class Command(BaseCommand):
         for old, new in nav_rewrites:
             html = html.replace(old, new)
 
-        # 3. Features that don't exist inside a snapshot → strip the anchor,
-        #    keep the link text. Manage/admin/export are all editor-only or
-        #    live-only. Login routes too.
-        feature_unavailable_patterns = [
-            r'href="/inventory/manage/[^"]*"',  # manage list, edit, etc.
-            r'href="/inventory/export/"',       # zip export
-            r'href="/admin/[^"]*"',             # /admin/login/, /admin/, etc.
-        ]
-        for pat in feature_unavailable_patterns:
+        # 3. Editor-only links that have a sensible snapshot analog get a
+        #    targeted rewrite. The bare manage list becomes the map root;
+        #    a per-landslide manage_edit becomes that landslide's snapshot
+        #    slug page (or root if the slug isn't known). Anything else in
+        #    /manage/ (settings, subsets management) has no snapshot
+        #    equivalent and gets stubbed to "#" alongside admin/export.
+
+        # /inventory/manage/<id>/  →  <base><slug>/  (or <base> if unknown)
+        def _manage_edit_sub(m):
+            lid = int(m.group(1))
+            slug = id_to_slug.get(lid)
+            return f'href="{base}{slug}/"' if slug else f'href="{base}"'
+        html = re.sub(r'href="/inventory/manage/(\d+)/"', _manage_edit_sub, html)
+
+        # /inventory/manage/  (bare) → snapshot root.
+        html = html.replace('href="/inventory/manage/"', f'href="{base}"')
+
+        # /inventory/export/  →  the snapshot's own GeoJSON+QML bundle.
+        html = html.replace('href="/inventory/export/"', f'href="{base}inventory.zip"')
+
+        # Anything else under /inventory/manage/ (settings, subsets, etc.),
+        # admin routes, and login URLs have no snapshot equivalent.
+        for pat in (
+            r'href="/inventory/manage/[^"]*"',
+            r'href="/admin/[^"]*"',
+        ):
             html = re.sub(pat, 'href="#"', html)
+
+        # 4. Strip editor-only header widgets that don't represent a snapshot
+        #    affordance. The "Log in" link can't authenticate against the
+        #    snapshot bundle; the "Sign in as an editor to apply" footer on
+        #    rule pages is meaningless when there's no editor concept.
+        html = re.sub(r'<a [^>]*class="inv-login-link"[^>]*>.*?</a>', '', html)
+        html = re.sub(
+            r'<p[^>]*>\s*Sign in as an editor to apply this rule\.?\s*</p>',
+            '', html,
+        )
+
+        # 5. "Back to records" on the rules index now points at the
+        #    snapshot map root, so relabel for accuracy.
+        html = html.replace('&larr; Back to records', '&larr; Map')
 
         # 4. Inject LS_CONFIG immediately before the map.js <script> tag —
         #    the seam map.js reads at IIFE entry. Only the page that loads
