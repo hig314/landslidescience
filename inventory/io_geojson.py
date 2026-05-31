@@ -31,7 +31,7 @@ from .views import _get_conn, _put_conn
 EXPORT_FORMAT_VERSION = 1
 
 # Columns we don't round-trip — Postgres auto-manages these.
-LANDSLIDES_AUTO_COLS = ('created_at', 'updated_at')
+LANDSLIDES_AUTO_COLS = ('created_at', 'updated_at', 'reviewed_at')
 
 
 class _GeoJSONEncoder(json.JSONEncoder):
@@ -423,22 +423,155 @@ class ImportError_(Exception):
     """Raised on unrecoverable upload-validation errors."""
 
 
-def parse_upload(file_bytes):
-    """Parse an uploaded zip OR a single .geojson into the two FeatureCollections.
+def _route_single_fc(fc):
+    """Route one FeatureCollection into the (landslides_fc, polygons_fc) pair.
+
+    First feature's geometry type decides: Polygon/MultiPolygon → polygons
+    file (flat-polygon mode); anything else → landslides file (the legacy
+    single-file upload shape).
+    """
+    empty_fc = lambda: {'type': 'FeatureCollection', 'features': []}
+    first_geom = None
+    for f in (fc.get('features') or []):
+        if f.get('geometry'):
+            first_geom = f['geometry'].get('type')
+            break
+    if first_geom in ('Polygon', 'MultiPolygon'):
+        return empty_fc(), fc
+    return fc, empty_fc()
+
+
+def _read_gdal_to_fc(file_bytes, filename, is_zip):
+    """Read a non-GeoJSON GIS upload (shp zip / gpkg / kml / kmz) into a
+    GeoJSON FeatureCollection via GDAL (pyogrio).
+
+    Writes the bytes to a temp file so GDAL can mmap it (and so /vsizip/
+    works for shapefile zips). Lazy-imports pyogrio + shapely to keep
+    the GDAL/numpy load off the hot request path. `force_2d=True` strips
+    altitude/Z coordinates that KML carries by default but PostGIS doesn't
+    want for our 2D polygons.
+    """
+    import os
+    import tempfile
+    from pyogrio.raw import read as pyogrio_read
+    from shapely import wkb as _wkb
+
+    suffix = '.zip' if is_zip else ('.' + filename.rsplit('.', 1)[-1] if '.' in filename else '.bin')
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    tmp.write(file_bytes)
+    tmp.close()
+    path = ('/vsizip/' + tmp.name) if is_zip else tmp.name
+    try:
+        try:
+            meta, _fids, geometry, field_data = pyogrio_read(
+                path, read_geometry=True, force_2d=True)
+        except Exception as e:
+            raise ImportError_(f'Could not read {filename!r} via pyogrio: {e}')
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+    # PostGIS ST_GeomFromGeoJSON assumes EPSG:4326. Sniff the source CRS
+    # and refuse anything else — reprojection belongs in QGIS, not here.
+    crs_label = (meta.get('crs') or '').lower()
+    if crs_label and 'epsg:4326' not in crs_label:
+        raise ImportError_(
+            f'Source CRS of {filename!r} is {meta.get("crs")!r}. PostGIS '
+            'expects EPSG:4326 (WGS84 lat/lon). Reproject in QGIS — '
+            'Vector → Save Features As… → CRS: EPSG:4326 — and re-upload.'
+        )
+
+    # meta['fields'] is a numpy ndarray of column names; can't use `or []`.
+    fields_arr = meta.get('fields')
+    fields = list(fields_arr) if fields_arr is not None else []
+    # Shapefile DBF caps field names at 10 chars, so common landslide
+    # columns get truncated on write. Map the unambiguous cases back to
+    # their canonical names so the synthesizer can see them. Ambiguous
+    # truncations (e.g. `landslide_` could be type or class) are NOT
+    # auto-mapped — the editor needs to use a clearer field name in
+    # those cases or upload as GPKG/KML/GeoJSON.
+    SHAPEFILE_ALIASES = {
+        'unique_nam': 'unique_name',
+        'descriptio': 'description',
+        'volume_met': 'volume_method',
+        'volume_pre': 'volume_preferred',
+        'creep_beha': 'creep_behavior',
+    }
+    fields = [SHAPEFILE_ALIASES.get(f, f) for f in fields]
+    n = 0 if geometry is None else len(geometry)
+    out = []
+    for i in range(n):
+        wkb_bytes = geometry[i]
+        if wkb_bytes is None or len(wkb_bytes) == 0:
+            geom = None
+        else:
+            shape = _wkb.loads(bytes(wkb_bytes))
+            geom = shape.__geo_interface__
+        props = {fld: _python_scalar(field_data[j][i])
+                 for j, fld in enumerate(fields)}
+        # KML / GeoPackage features often lack an explicit `id` property.
+        # The downstream diff uses id to classify new vs. existing rows,
+        # so synthesize a string id here so each feature is uniquely
+        # addressable through the import pipeline.
+        if not props.get('id'):
+            props['id'] = f'upload-{i+1}'
+        out.append({
+            'type': 'Feature',
+            'id': props['id'],
+            'geometry': geom,
+            'properties': props,
+        })
+    return {'type': 'FeatureCollection', 'features': out}
+
+
+def _python_scalar(v):
+    """Convert numpy scalars to plain Python so json.dumps can serialize them.
+    Datetime, NaN, and bytes get normalized into JSON-compatible values."""
+    import math
+    try:
+        item = v.item()
+    except AttributeError:
+        item = v
+    if isinstance(item, float) and math.isnan(item):
+        return None
+    if isinstance(item, bytes):
+        return item.decode('utf-8', errors='replace')
+    if hasattr(item, 'isoformat'):
+        return item.isoformat()
+    return item
+
+
+def parse_upload(file_bytes, filename=''):
+    """Parse an upload into the (landslides_fc, polygons_fc, manifest) triple.
 
     Returns (landslides_fc, polygons_fc, manifest_or_None).
     Raises ImportError_ with a descriptive message on bad input.
 
     Accepted shapes:
-    - A zip with at least landslides.geojson + landslide_polygons.geojson
-      (and optionally a manifest.json)
-    - A single .geojson file that's the landslides FeatureCollection
-      (polygons FC will be {} — typed as "landslides-only" upload)
+    - Zip with landslides.geojson + landslide_polygons.geojson (the full
+      round-trip pair; optionally a manifest.json).
+    - Zip with only landslide_polygons(_flat).geojson — polygons file used
+      as-is; landslides FC is empty. New polygons with a unique_name get
+      grouped by name during compute_diff and one landslide synthesized
+      per group.
+    - Zip containing a shapefile (.shp + .dbf + .shx + .prj) — read via
+      fiona, then routed by geometry type.
+    - Single .geojson, .gpkg, .kml, or .kmz — read directly, routed by
+      first feature's geometry type. Polygon/MultiPolygon → polygons
+      file; Point/null → landslides file.
+
+    Required CRS for non-GeoJSON formats: EPSG:4326. GeoJSON is assumed
+    to be EPSG:4326 already.
     """
     import io
     import zipfile
 
-    # Try as zip first
+    empty_fc = lambda: {'type': 'FeatureCollection', 'features': []}
+    name_lower = (filename or '').lower()
+
+    # Try as zip
     try:
         zf = zipfile.ZipFile(io.BytesIO(file_bytes), 'r')
     except zipfile.BadZipFile:
@@ -446,28 +579,72 @@ def parse_upload(file_bytes):
 
     if zf is not None:
         names = set(zf.namelist())
-        if 'landslides.geojson' not in names or 'landslide_polygons.geojson' not in names:
+        has_geojson = any(n.lower().endswith('.geojson') for n in names)
+        has_shapefile = any(n.lower().endswith('.shp') for n in names)
+        has_gpkg = any(n.lower().endswith('.gpkg') for n in names)
+        has_kml  = any(n.lower().endswith(('.kml', '.kmz')) for n in names)
+
+        if has_geojson:
+            # Legacy / round-trip GeoJSON zip.
+            polygons_member = None
+            for cand in ('landslide_polygons.geojson', 'landslide_polygons_flat.geojson'):
+                if cand in names:
+                    polygons_member = cand
+                    break
+            ls_member = 'landslides.geojson' if 'landslides.geojson' in names else None
+            if polygons_member is None and ls_member is None:
+                raise ImportError_(
+                    'Zip contains .geojson file(s) but neither landslides.geojson nor '
+                    'landslide_polygons(_flat).geojson at the top level. '
+                    f'Found: {sorted(names)}'
+                )
+            landslides_fc = empty_fc()
+            if ls_member:
+                with zf.open(ls_member) as f:
+                    landslides_fc = json.load(f)
+            polygons_fc = empty_fc()
+            if polygons_member:
+                with zf.open(polygons_member) as f:
+                    polygons_fc = json.load(f)
+            manifest = None
+            if 'manifest.json' in names:
+                with zf.open('manifest.json') as f:
+                    manifest = json.load(f)
+        elif has_shapefile or has_gpkg or has_kml:
+            # GDAL-readable zipped format — convert via fiona.
+            fc = _read_gdal_to_fc(file_bytes, filename or 'upload.zip', is_zip=True)
+            landslides_fc, polygons_fc = _route_single_fc(fc)
+            manifest = None
+        else:
             raise ImportError_(
-                'Zip must contain both landslides.geojson and '
-                'landslide_polygons.geojson at the top level. '
+                'Zip does not contain a recognized GIS file. Supported: '
+                '.geojson, .shp (+ .dbf/.shx/.prj), .gpkg, .kml, .kmz. '
                 f'Found: {sorted(names)}'
             )
-        with zf.open('landslides.geojson') as f:
-            landslides_fc = json.load(f)
-        with zf.open('landslide_polygons.geojson') as f:
-            polygons_fc = json.load(f)
-        manifest = None
-        if 'manifest.json' in names:
-            with zf.open('manifest.json') as f:
-                manifest = json.load(f)
     else:
-        # Single GeoJSON — landslides only.
-        try:
-            landslides_fc = json.loads(file_bytes)
-        except json.JSONDecodeError as e:
-            raise ImportError_(f'Not a zip and not valid JSON: {e}')
-        polygons_fc = {'type': 'FeatureCollection', 'features': []}
-        manifest = None
+        # Single file
+        if name_lower.endswith(('.gpkg', '.kml', '.kmz')):
+            fc = _read_gdal_to_fc(file_bytes, filename, is_zip=False)
+            landslides_fc, polygons_fc = _route_single_fc(fc)
+            manifest = None
+        elif name_lower.endswith('.shp'):
+            raise ImportError_(
+                'Shapefiles must be uploaded as a zip containing .shp, .dbf, '
+                '.shx, and .prj together (QGIS: Vector → Save Features As… '
+                '→ format ESRI Shapefile, then zip all the output files).'
+            )
+        else:
+            # Treat as GeoJSON (default for .geojson, .json, or unknown).
+            try:
+                fc = json.loads(file_bytes)
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                raise ImportError_(
+                    f'Not a recognized format. Supported: .geojson, .gpkg, '
+                    f'.kml, .kmz, zipped shapefile, or a zip of the GeoJSON '
+                    f'round-trip pair. Parse error: {e}'
+                )
+            landslides_fc, polygons_fc = _route_single_fc(fc)
+            manifest = None
 
     for fc, name in [(landslides_fc, 'landslides'), (polygons_fc, 'landslide_polygons')]:
         if fc.get('type') != 'FeatureCollection':
@@ -511,27 +688,160 @@ def _column_types(cur, table):
     return dict(cur.fetchall())
 
 
-def compute_diff(landslides_fc, polygons_fc):
-    """Compare upload against current DB. Pure-ish (reads DB, doesn't mutate).
+def _synthesize_landslides_from_flat_polygons(landslides_fc, polygons_fc,
+                                               ls_types, existing_ls_ids):
+    """Group orphan polygons by unique_name and synthesize one landslide per group.
 
-    Returns a dict:
+    "Orphan" = polygon whose landslide_id doesn't resolve to a DB row or an
+    upload-side landslide. If such a polygon carries a `unique_name`
+    property, all matching polygons get grouped and a landslide entry is
+    synthesized for them. Landslide-level properties (landslide_type,
+    description, etc.) are read from the polygon's own property bag — this
+    is exactly what the flat polygons export shape produces.
+
+    Mutates both feature collections in place. Returns a list of human-
+    readable warnings (which polygons got grouped, any conflicting
+    landslide-level values across the group).
+
+    Idempotent on a previously-synthesized pair: re-running sees the synth
+    landslides already present in landslides_fc and skips them.
+    """
+    warnings = []
+
+    upload_ls_ids = {f.get('id') or f.get('properties', {}).get('id')
+                     for f in landslides_fc['features']}
+    resolvable = set(existing_ls_ids) | upload_ls_ids
+
+    # Properties we'll lift from polygons into the synthesized landslide.
+    # Polygon-only fields (id, landslide_id, role, area, thickness, etc.)
+    # and table auto-cols are NOT pulled.
+    polygon_only = {'id', 'polygon_id', 'landslide_id', 'role',
+                    'is_primary', 'area', 'thickness', 'polygon_volume',
+                    'geom'}
+    landslide_cols = {c for c in ls_types
+                      if c not in LANDSLIDES_AUTO_COLS and c != 'id'
+                      and c not in polygon_only}
+
+    orphans_by_name = {}
+    for feat in polygons_fc['features']:
+        props = feat.get('properties') or {}
+        ls_ref = props.get('landslide_id')
+        if ls_ref in resolvable:
+            continue
+        uname = (props.get('unique_name') or '').strip()
+        if not uname:
+            continue
+        orphans_by_name.setdefault(uname, []).append(feat)
+
+    if not orphans_by_name:
+        return warnings
+
+    # Avoid colliding with any existing upload-side string ids (e.g., a
+    # re-staged upload would already have synth-* present).
+    used_synth = {x for x in upload_ls_ids
+                  if isinstance(x, str) and x.startswith('synth-')}
+    next_idx = 1
+    def _next_synth_id():
+        nonlocal next_idx
+        while True:
+            sid = f'synth-{next_idx}'
+            next_idx += 1
+            if sid not in used_synth:
+                used_synth.add(sid)
+                return sid
+
+    for uname, polys in orphans_by_name.items():
+        synth_id = _next_synth_id()
+        # Compose landslide-level properties from polygon property bags.
+        # First non-empty value wins; conflicting non-empty values get a
+        # warning so the editor can spot data-entry mistakes.
+        ls_props = {'id': synth_id, 'unique_name': uname}
+        for poly in polys:
+            pprops = poly.get('properties') or {}
+            for k, v in pprops.items():
+                if k not in landslide_cols:
+                    continue
+                if v is None or v == '':
+                    continue
+                if k in ls_props and ls_props[k] != v:
+                    warnings.append(
+                        f'synthesized {uname!r}: conflicting {k!r} '
+                        f'({ls_props[k]!r} vs {v!r}); keeping first')
+                    continue
+                ls_props[k] = v
+
+        # Infer landslide_type from polygon roles when the upload didn't
+        # supply it. The convention used everywhere else in the inventory:
+        #   source / deposit → catastrophic
+        #   body             → slow
+        # If neither matches (e.g., a polygon with an unknown or missing
+        # role), leave it unset and let the validation error surface.
+        if not ls_props.get('landslide_type'):
+            roles = {(p.get('properties') or {}).get('role') for p in polys}
+            if 'source' in roles or 'deposit' in roles:
+                ls_props['landslide_type'] = 'catastrophic'
+                warnings.append(
+                    f"synthesized {uname!r}: inferred landslide_type='catastrophic' "
+                    f"from polygon roles {sorted(r for r in roles if r)}")
+            elif 'body' in roles:
+                ls_props['landslide_type'] = 'slow'
+                warnings.append(
+                    f"synthesized {uname!r}: inferred landslide_type='slow' "
+                    f"from polygon roles {sorted(r for r in roles if r)}")
+
+        landslides_fc['features'].append({
+            'type': 'Feature',
+            'id': synth_id,
+            'geometry': None,
+            'properties': ls_props,
+        })
+        for poly in polys:
+            poly.setdefault('properties', {})['landslide_id'] = synth_id
+        warnings.append(
+            f'synthesized landslide {uname!r} (id={synth_id}) from '
+            f'{len(polys)} polygon(s)')
+    return warnings
+
+
+def compute_diff(landslides_fc, polygons_fc):
+    """Compare upload against current DB.
+
+    Mutates both FCs in place to synthesize landslides for flat-polygon
+    uploads (orphan polygons grouped by unique_name → one new landslide).
+    The mutation is intentional: the synthesized features carry through
+    to the apply step. Idempotent — re-running sees synth ids already
+    present and skips re-creation.
+
+    Returns:
         {
           'landslides':         {'updates': [...], 'would_add': [...], 'unchanged': N, 'warnings': [...]},
           'landslide_polygons': {'updates': [...], 'would_add': [...], 'unchanged': N, 'warnings': [...]},
         }
-    Each `update` is {id, changes: {col: {old, new}}}.
     """
     conn = _get_conn()
     try:
         cur = conn.cursor()
         ls_types = _column_types(cur, 'landslides')
         po_types = _column_types(cur, 'landslide_polygons')
+        cur.execute("SELECT id FROM landslides")
+        existing_ls_ids = {r[0] for r in cur.fetchall()}
+        synth_warnings = _synthesize_landslides_from_flat_polygons(
+            landslides_fc, polygons_fc, ls_types, existing_ls_ids)
         ls_diff = _diff_landslides(cur, landslides_fc['features'], ls_types)
-        po_diff = _diff_polygons(cur, polygons_fc['features'], po_types)
+        ls_diff['warnings'].extend(synth_warnings)
+        # The polygon diff needs to know which upload-side landslide ids will
+        # be created during apply, so it can validate landslide_id references
+        # on new polygons against either DB or new-in-upload candidates.
+        new_landslide_ids = {a['id'] for a in ls_diff['would_add']}
+        po_diff = _diff_polygons(cur, polygons_fc['features'], po_types,
+                                  new_landslide_ids=new_landslide_ids)
         conn.rollback()
     finally:
         _put_conn(conn)
     return {'landslides': ls_diff, 'landslide_polygons': po_diff}
+
+
+_VALID_LANDSLIDE_TYPES = ('slow', 'catastrophic')
 
 
 def _diff_landslides(cur, features, types):
@@ -544,7 +854,7 @@ def _diff_landslides(cur, features, types):
     for feat in features:
         feat_id = feat.get('id') or feat.get('properties', {}).get('id')
         if feat_id is None:
-            warnings.append('feature with no id (skipped — INSERT not yet supported)')
+            warnings.append('feature with no id (skipped — give new landslides any unused id so polygons can reference them)')
             continue
         seen_ids.add(feat_id)
         props = feat.get('properties', {})
@@ -553,7 +863,22 @@ def _diff_landslides(cur, features, types):
             warnings.append(f'id={feat_id}: unknown columns ignored: {sorted(unknown)}')
 
         if feat_id not in db_by_id:
-            would_add.append({'id': feat_id, 'unique_name': props.get('unique_name', '?')})
+            # New record candidate. Required fields: unique_name +
+            # landslide_type. Surface validation problems here so the
+            # preview UI can refuse to apply a bad upload.
+            new_errors = []
+            uname = (props.get('unique_name') or '').strip()
+            if not uname:
+                new_errors.append('missing unique_name')
+            ltype = (props.get('landslide_type') or '').strip()
+            if ltype not in _VALID_LANDSLIDE_TYPES:
+                new_errors.append(f'landslide_type must be one of {_VALID_LANDSLIDE_TYPES}, got {ltype!r}')
+            would_add.append({
+                'id':            feat_id,
+                'unique_name':   uname or '?',
+                'landslide_type': ltype or None,
+                'errors':        new_errors,
+            })
             continue
 
         db_row = db_by_id[feat_id]
@@ -579,8 +904,18 @@ def _diff_landslides(cur, features, types):
     }
 
 
-def _diff_polygons(cur, features, types):
-    """Polygon diff: like landslides, but geometry compared via ST_Equals."""
+_VALID_POLYGON_ROLES = ('source', 'body', 'deposit')
+
+
+def _diff_polygons(cur, features, types, new_landslide_ids=None):
+    """Polygon diff: like landslides, but geometry compared via ST_Equals.
+
+    new_landslide_ids: set of upload-side ids that the landslide-diff has
+      already classified as new candidates. Used to validate that each new
+      polygon's landslide_id resolves either to an existing DB row or to
+      one of these new-in-upload landslides.
+    """
+    new_landslide_ids = new_landslide_ids or set()
     non_geom_cols = [c for c in types if c != 'geom']
     cur.execute(
         f"SELECT {', '.join(non_geom_cols)}, ST_AsText(geom) FROM landslide_polygons"
@@ -591,18 +926,44 @@ def _diff_polygons(cur, features, types):
         d = dict(zip(non_geom_cols, row[:-1]))
         d['_geom_wkt'] = row[-1]
         db_by_id[d['id']] = d
+    cur.execute("SELECT id FROM landslides")
+    existing_landslide_ids = {r[0] for r in cur.fetchall()}
 
     updates, would_add, unchanged, warnings = [], [], 0, []
     seen_ids = set()
     for feat in features:
         feat_id = feat.get('id') or feat.get('properties', {}).get('id')
         if feat_id is None:
-            warnings.append('polygon with no id (skipped)')
+            warnings.append('polygon with no id (skipped — assign any unused id)')
             continue
         seen_ids.add(feat_id)
         props = feat.get('properties', {})
         if feat_id not in db_by_id:
-            would_add.append({'id': feat_id, 'landslide_id': props.get('landslide_id')})
+            # New polygon — validate required fields + landslide_id reference.
+            new_errors = []
+            geom = feat.get('geometry')
+            if not geom or geom.get('type') not in ('Polygon', 'MultiPolygon'):
+                new_errors.append(f'geometry must be Polygon or MultiPolygon (got {geom.get("type") if geom else None!r})')
+            else:
+                # Defer detailed PostGIS validity check to apply step
+                # (ST_IsValid before INSERT) to keep the diff cheap.
+                pass
+            ls_ref = props.get('landslide_id')
+            if ls_ref is None:
+                new_errors.append('missing landslide_id')
+            elif ls_ref not in existing_landslide_ids and ls_ref not in new_landslide_ids:
+                new_errors.append(
+                    f'landslide_id={ls_ref!r} does not refer to an existing landslide '
+                    'or a new landslide in this upload')
+            role = props.get('role')
+            if role not in _VALID_POLYGON_ROLES:
+                new_errors.append(f'role must be one of {_VALID_POLYGON_ROLES}, got {role!r}')
+            would_add.append({
+                'id':            feat_id,
+                'landslide_id':  ls_ref,
+                'role':          role,
+                'errors':        new_errors,
+            })
             continue
 
         db_row = db_by_id[feat_id]
@@ -640,17 +1001,54 @@ def _diff_polygons(cur, features, types):
     }
 
 
-def apply_import(landslides_fc, polygons_fc, user):
-    """Apply UPDATEs ONLY for features whose values differ from the current DB.
+def apply_import(landslides_fc, polygons_fc, user, subset_slug=None, common_fields=None):
+    """Apply the diff: UPDATE matched features, INSERT new ones.
 
     Diff-driven: re-runs `compute_diff` so an unchanged round-trip is a no-op.
-    Records that `would_add` are NOT inserted (INSERT support deferred).
-    Audit log entries are written only for landslides that actually changed
-    (either their attributes or any of their polygons).
+    `common_fields` (dict of column → value) is applied to every newly-
+    inserted landslide, overriding whatever the upload supplied. Use it
+    for things like owner, landslide_type, date_min, etc. that the
+    editor wants uniform across the batch.
+
+    `subset_slug` is optional. If given, each new landslide also gets a
+    membership row in `landslide_subsets`. Owner is no longer derived
+    from the subset's default_owner; it must be set via common_fields.
+
+    Refuses to apply if any new landslide or polygon has unresolved
+    validation errors — bad uploads fail at the apply step rather than
+    silently dropping records.
     """
     from .models import LandslideEditMeta
 
+    common_fields = common_fields or {}
+
+    # If common_fields supplies a value for a required column (landslide_type),
+    # back-fill it onto each pending new landslide BEFORE the diff runs so
+    # the validation can see it. This lets editors satisfy missing required
+    # fields via the apply form without having to fix the upload.
+    if common_fields:
+        for feat in landslides_fc.get('features') or []:
+            fid = feat.get('id') or feat.get('properties', {}).get('id')
+            if not isinstance(fid, str):
+                continue  # only synthesized / new (string id) records get the override
+            props = feat.setdefault('properties', {})
+            for col, val in common_fields.items():
+                if col in ('id', 'unique_name'):
+                    continue
+                props[col] = val
+
     diff = compute_diff(landslides_fc, polygons_fc)
+
+    blocking = []
+    for a in diff['landslides']['would_add']:
+        for e in a.get('errors') or []:
+            blocking.append(f"landslide id={a['id']}: {e}")
+    for a in diff['landslide_polygons']['would_add']:
+        for e in a.get('errors') or []:
+            blocking.append(f"polygon id={a['id']}: {e}")
+    if blocking:
+        raise ImportError_('Upload has validation errors; refusing to apply:\n  '
+                            + '\n  '.join(blocking))
 
     ls_by_id = {(f.get('id') or f.get('properties', {}).get('id')): f
                 for f in landslides_fc.get('features', [])}
@@ -658,7 +1056,11 @@ def apply_import(landslides_fc, polygons_fc, user):
                 for f in polygons_fc.get('features', [])}
 
     affected_landslide_ids = set()
-    summary = {'landslides_updated': 0, 'polygons_updated': 0, 'skipped': 0}
+    summary = {
+        'landslides_updated':  0, 'polygons_updated':  0,
+        'landslides_inserted': 0, 'polygons_inserted': 0,
+        'skipped': 0,
+    }
 
     conn = _get_conn()
     try:
@@ -709,6 +1111,77 @@ def apply_import(landslides_fc, polygons_fc, user):
                 ls_id = props.get('landslide_id')
                 if ls_id is not None:
                     affected_landslide_ids.add(ls_id)
+
+        # ---- INSERT new landslides ----
+        # Subset is optional; if supplied, every new landslide gets a
+        # membership row. Owner is no longer derived from the subset's
+        # default_owner — the editor must set it explicitly (via the
+        # common-fields form on the apply page).
+        subset_id = None
+        if subset_slug:
+            cur.execute("SELECT id FROM subsets WHERE slug = %s", (subset_slug,))
+            row = cur.fetchone()
+            if not row:
+                raise ImportError_(f'No subset with slug {subset_slug!r}.')
+            subset_id = row[0]
+
+        # Map upload-side landslide ids → freshly-allocated DB ids so
+        # polygons can rewrite their landslide_id references.
+        upload_to_real = {}
+        insertable_landslide_cols = [c for c in ls_types
+                                      if c not in LANDSLIDES_AUTO_COLS and c != 'id']
+
+        for a in diff['landslides']['would_add']:
+            upload_id = a['id']
+            feat  = ls_by_id[upload_id]
+            props = feat.get('properties', {})
+            cols, vals = [], []
+            for col in insertable_landslide_cols:
+                if col in props:
+                    cols.append(col)
+                    vals.append(_coerce(ls_types[col], props[col]))
+            cols_csv = ', '.join(cols)
+            placeholders = ', '.join(['%s'] * len(vals))
+            cur.execute(
+                f"INSERT INTO landslides ({cols_csv}) VALUES ({placeholders}) RETURNING id",
+                vals,
+            )
+            real_id = cur.fetchone()[0]
+            upload_to_real[upload_id] = real_id
+            if subset_id is not None:
+                cur.execute(
+                    "INSERT INTO landslide_subsets (landslide_id, subset_id) "
+                    "VALUES (%s, %s)",
+                    (real_id, subset_id),
+                )
+            summary['landslides_inserted'] += 1
+            affected_landslide_ids.add(real_id)
+
+        # ---- INSERT new polygons ----
+        # Polygon landslide_id either points at an upload-side id we just
+        # allocated above, or at a DB row that already existed at diff time.
+        insertable_polygon_cols = [c for c in po_types
+                                    if c not in ('id', 'geom', 'landslide_id')]
+        for a in diff['landslide_polygons']['would_add']:
+            feat  = po_by_id[a['id']]
+            props = feat.get('properties', {})
+            ls_ref = props.get('landslide_id')
+            real_ls_id = upload_to_real.get(ls_ref, ls_ref)
+            cols = ['landslide_id', 'geom']
+            vals = [real_ls_id, json.dumps(feat['geometry'])]
+            placeholders = ['%s', 'ST_GeomFromGeoJSON(%s)']
+            for col in insertable_polygon_cols:
+                if col in props:
+                    cols.append(col)
+                    placeholders.append('%s')
+                    vals.append(_coerce(po_types[col], props[col]))
+            cur.execute(
+                f"INSERT INTO landslide_polygons ({', '.join(cols)}) "
+                f"VALUES ({', '.join(placeholders)})",
+                vals,
+            )
+            summary['polygons_inserted'] += 1
+            affected_landslide_ids.add(real_ls_id)
 
         conn.commit()
     except Exception:

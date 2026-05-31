@@ -467,6 +467,34 @@
     }
 
     // ---------------------------------------------------------------------------
+    // Editor-only: "New" button → /inventory/manage/import/.
+    // Single-button IControl; uses the same maplibregl-ctrl-group styling as
+    // the measure control so they stack visually in the top-left.
+    // ---------------------------------------------------------------------------
+    function NewRecordControl() {}
+    NewRecordControl.prototype.onAdd = function () {
+        var el = document.createElement('div');
+        el.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-newrec-ctrl';
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.title = 'Add new landslide(s) — opens upload form';
+        b.setAttribute('aria-label', 'Add new landslide');
+        // "+" was ambiguous with the zoom-in control and rendered as a
+        // white glyph that disappeared against light basemaps. "NEW"
+        // text is unambiguous and reads cleanly against any background.
+        b.textContent = 'NEW';
+        b.addEventListener('click', function () {
+            window.location.href = '/inventory/manage/import/';
+        });
+        el.appendChild(b);
+        return el;
+    };
+    NewRecordControl.prototype.onRemove = function () {};
+    if (window._isInventoryEditor) {
+        map.addControl(new NewRecordControl(), 'top-left');
+    }
+
+    // ---------------------------------------------------------------------------
     // Load settings + map ready — both must complete before adding layers
     // ---------------------------------------------------------------------------
     var POLYGON_ZOOM       = 7;
@@ -813,31 +841,91 @@
         return '\u2265\u202f' + Math.round(v) + '\u00a0m\u00b3';
     }
 
-    var srcAreaSlider = document.getElementById('src-area-slider');
-    var srcAreaLabel  = document.getElementById('src-area-label');
-    var depAreaSlider = document.getElementById('dep-area-slider');
-    var depAreaLabel  = document.getElementById('dep-area-label');
-    var volSlider     = document.getElementById('vol-slider');
-    var volLabel      = document.getElementById('vol-label');
-    var yearSlider    = document.getElementById('year-slider');
-    var yearLabel     = document.getElementById('year-label');
+    // Dual-handle range bindings. Each filter has a { minEl, maxEl, labelEl,
+    // fmtOne, fmtRange } binding object. Position 0 on the min handle and
+    // the max-end position on the max handle both mean "no constraint" — the
+    // active band visually narrows when handles move inward.
+    function fmtAreaRange(loV, hiV, sliderMax) {
+        var minActive = loV > 0, maxActive = hiV < sliderMax;
+        if (!minActive && !maxActive) return 'All';
+        if (minActive && !maxActive) return fmtAreaLabel(loV);
+        if (!minActive && maxActive) {
+            var v = Math.pow(10, hiV + 3);
+            function s2(n) { return n >= 100 ? String(Math.round(n)) : String(parseFloat(n.toPrecision(2))); }
+            if (v >= 1e6) return '≤ ' + s2(v/1e6) + ' km²';
+            if (v >= 1e4) return '≤ ' + s2(v/1e4) + ' ha';
+            return '≤ ' + Math.round(v) + ' m²';
+        }
+        // both active — show both bounds without the ≥ / ≤ glyphs to save space
+        return fmtAreaLabel(loV).replace(/^≥\s?/, '') + ' – '
+             + fmtAreaLabel(hiV).replace(/^≥\s?/, '');
+    }
+    function fmtVolRange(loV, hiV, sliderMax) {
+        var minActive = loV > 0, maxActive = hiV < sliderMax;
+        if (!minActive && !maxActive) return 'All';
+        if (minActive && !maxActive) return fmtVolLabel(loV);
+        if (!minActive && maxActive) {
+            var v = Math.pow(10, hiV + 4);
+            function s2(n) { return n >= 100 ? String(Math.round(n)) : String(parseFloat(n.toPrecision(2))); }
+            if (v >= 1e9) return '≤ ' + s2(v/1e9) + ' km³';
+            if (v >= 1e6) return '≤ ' + s2(v/1e6) + ' M m³';
+            if (v >= 1e3) return '≤ ' + s2(v/1e3) + ' k m³';
+            return '≤ ' + Math.round(v) + ' m³';
+        }
+        return fmtVolLabel(loV).replace(/^≥\s?/, '') + ' – '
+             + fmtVolLabel(hiV).replace(/^≥\s?/, '');
+    }
+    function fmtYearRange(loV, hiV, sliderMax) {
+        var minActive = loV > 0, maxActive = hiV < sliderMax;
+        if (!minActive && !maxActive) return 'All';
+        if (minActive && !maxActive) return YEAR_LABELS[loV];
+        if (!minActive && maxActive) {
+            // "≤ <year>" — strip the "≥" glyph from the label, prepend ≤.
+            return '≤ ' + YEAR_LABELS[hiV].replace(/^≥\s?/, '');
+        }
+        return YEAR_LABELS[loV].replace(/^≥\s?/, '') + ' – '
+             + YEAR_LABELS[hiV].replace(/^≥\s?/, '');
+    }
 
-    if (srcAreaSlider) srcAreaSlider.addEventListener('input', function () {
-        srcAreaLabel.textContent = fmtAreaLabel(parseFloat(this.value));
-        buildFilter();
-    });
-    if (depAreaSlider) depAreaSlider.addEventListener('input', function () {
-        depAreaLabel.textContent = fmtAreaLabel(parseFloat(this.value));
-        buildFilter();
-    });
-    if (volSlider) volSlider.addEventListener('input', function () {
-        volLabel.textContent = fmtVolLabel(parseFloat(this.value));
-        buildFilter();
-    });
-    if (yearSlider) yearSlider.addEventListener('input', function () {
-        yearLabel.textContent = YEAR_LABELS[parseInt(this.value)];
-        buildFilter();
-    });
+    function _setupDual(slug, fmtRange) {
+        var minEl = document.getElementById(slug + '-min');
+        var maxEl = document.getElementById(slug + '-max');
+        var labelEl = document.getElementById(slug + '-label');
+        var container = minEl ? minEl.closest('.dual-range') : null;
+        var prog = container ? container.querySelector('.dual-progress') : null;
+        if (!minEl || !maxEl) return null;
+        var sliderMin = parseFloat(minEl.min);
+        var sliderMax = parseFloat(minEl.max);
+
+        function refresh() {
+            var lo = parseFloat(minEl.value);
+            var hi = parseFloat(maxEl.value);
+            // Enforce min ≤ max — push the other handle if crossed.
+            if (lo > hi) {
+                if (document.activeElement === minEl) maxEl.value = lo;
+                else minEl.value = hi;
+                lo = parseFloat(minEl.value);
+                hi = parseFloat(maxEl.value);
+            }
+            if (prog) {
+                var leftPct  = ((lo - sliderMin) / (sliderMax - sliderMin)) * 100;
+                var rightPct = 100 - ((hi - sliderMin) / (sliderMax - sliderMin)) * 100;
+                prog.style.left  = leftPct + '%';
+                prog.style.right = rightPct + '%';
+            }
+            if (labelEl) labelEl.textContent = fmtRange(lo, hi, sliderMax);
+        }
+
+        minEl.addEventListener('input', function () { refresh(); buildFilter(); });
+        maxEl.addEventListener('input', function () { refresh(); buildFilter(); });
+        refresh();
+        return { minEl: minEl, maxEl: maxEl, sliderMin: sliderMin, sliderMax: sliderMax, refresh: refresh };
+    }
+
+    var srcAreaDual = _setupDual('src-area', fmtAreaRange);
+    var depAreaDual = _setupDual('dep-area', fmtAreaRange);
+    var volDual     = _setupDual('vol',      fmtVolRange);
+    var yearDual    = _setupDual('year',     fmtYearRange);
 
     var cbMolards      = document.getElementById('cb-molards');
     var cbStream       = document.getElementById('cb-stream');
@@ -933,15 +1021,24 @@
         if (cbSiteVolume   && cbSiteVolume.checked)    f |= 256;
         if (f !== 0) params.set('f', f); else params.delete('f');
 
-        // Sliders
-        var sa  = srcAreaSlider ? parseFloat(srcAreaSlider.value) : 0;
-        var da  = depAreaSlider ? parseFloat(depAreaSlider.value) : 0;
-        var vol = volSlider ? parseFloat(volSlider.value) : 0;
-        var yr  = yearSlider ? parseInt(yearSlider.value) : 0;
-        if (sa  !== 0) params.set('sa',  sa);  else params.delete('sa');
-        if (da  !== 0) params.set('da',  da);  else params.delete('da');
-        if (vol !== 0) params.set('vol', vol); else params.delete('vol');
-        if (yr  !== 0) params.set('yr',  yr);  else params.delete('yr');
+        // Dual-handle sliders: encode "lo,hi" only when off-default.
+        // Defaults are min=sliderMin (0), max=sliderMax. Either side
+        // moved off its default → both ends written so the URL captures
+        // the exact range.
+        function encodeDual(dual, paramName) {
+            if (!dual) { params.delete(paramName); return; }
+            var lo = parseFloat(dual.minEl.value);
+            var hi = parseFloat(dual.maxEl.value);
+            if (lo === dual.sliderMin && hi === dual.sliderMax) {
+                params.delete(paramName);
+            } else {
+                params.set(paramName, lo + ',' + hi);
+            }
+        }
+        encodeDual(srcAreaDual, 'sa');
+        encodeDual(depAreaDual, 'da');
+        encodeDual(volDual,     'vol');
+        encodeDual(yearDual,    'yr');
 
         // Limit counts to view
         if (cbLimitView && cbLimitView.checked) params.set('lv', '1'); else params.delete('lv');
@@ -1000,22 +1097,24 @@
         if (cbSiteVolume)   cbSiteVolume.checked    = !!(f & 256);
 
         // Sliders
-        if (srcAreaSlider && params.has('sa')) {
-            srcAreaSlider.value = params.get('sa');
-            if (srcAreaLabel) srcAreaLabel.textContent = fmtAreaLabel(parseFloat(srcAreaSlider.value));
+        // Hydrate dual sliders from "lo,hi" param. Backwards compat with the
+        // pre-dual form (single value) — interpreted as a min-only restriction.
+        function hydrateDual(dual, paramName) {
+            if (!dual || !params.has(paramName)) return;
+            var raw = params.get(paramName);
+            var parts = raw.split(',');
+            if (parts.length === 2) {
+                dual.minEl.value = parts[0];
+                dual.maxEl.value = parts[1];
+            } else {
+                dual.minEl.value = raw;
+            }
+            dual.refresh();
         }
-        if (depAreaSlider && params.has('da')) {
-            depAreaSlider.value = params.get('da');
-            if (depAreaLabel) depAreaLabel.textContent = fmtAreaLabel(parseFloat(depAreaSlider.value));
-        }
-        if (volSlider && params.has('vol')) {
-            volSlider.value = params.get('vol');
-            if (volLabel) volLabel.textContent = fmtVolLabel(parseFloat(volSlider.value));
-        }
-        if (yearSlider && params.has('yr')) {
-            yearSlider.value = params.get('yr');
-            if (yearLabel) yearLabel.textContent = YEAR_LABELS[parseInt(yearSlider.value)];
-        }
+        hydrateDual(srcAreaDual, 'sa');
+        hydrateDual(depAreaDual, 'da');
+        hydrateDual(volDual,     'vol');
+        hydrateDual(yearDual,    'yr');
 
         // Limit counts to view
         if (cbLimitView && params.get('lv') === '1') cbLimitView.checked = true;
@@ -1073,28 +1172,53 @@
             ['in', classExpr, ['literal', activeClasses]]
         ];
 
-        // Non-default minimum filters exclude records with NULL on the
-        // filtered field. Coalescing NULL → -1 makes the >= comparison
-        // fail for any positive threshold, so unmeasured records drop
-        // out as soon as the user moves the slider away from "All".
-        if (srcAreaSlider) {
-            var la = parseFloat(srcAreaSlider.value);
-            if (la > 0) f.push(['>=', ['coalesce', ['get', 'area_src'], -1], Math.pow(10, la + 3)]);
+        // Dual-handle filters: each side adds an expression only when its
+        // handle has moved off the "no filter" position. Records with NULL
+        // on the filtered field drop out as soon as either side activates
+        // (coalesce sentinels chosen so the comparison fails for NULLs).
+        function addRangeFilter(dual, propName, posToValue, extraAny) {
+            if (!dual) return;
+            var lo = parseFloat(dual.minEl.value);
+            var hi = parseFloat(dual.maxEl.value);
+            var minActive = lo > dual.sliderMin;
+            var maxActive = hi < dual.sliderMax;
+            if (!minActive && !maxActive) return;
+            var parts = [];
+            if (minActive) {
+                parts.push(['>=', ['coalesce', ['get', propName], -1], posToValue(lo)]);
+            }
+            if (maxActive) {
+                parts.push(['<=', ['coalesce', ['get', propName], 1e18], posToValue(hi)]);
+            }
+            var expr = parts.length === 1 ? parts[0] : ['all'].concat(parts);
+            if (extraAny) {
+                // Wraps the constraint in 'any' so the bypass case passes
+                // through (used by deposit-area to skip slow landslides).
+                f.push(['any', extraAny, expr]);
+            } else {
+                f.push(expr);
+            }
         }
-        if (depAreaSlider) {
-            var ld = parseFloat(depAreaSlider.value);
-            if (ld > 0) f.push(['any',
-                ['==', ['get', 'landslide_type'], 'slow'],
-                ['>=', ['coalesce', ['get', 'area_dep'], -1], Math.pow(10, ld + 3)]
-            ]);
-        }
-        if (volSlider) {
-            var lv = parseFloat(volSlider.value);
-            if (lv > 0) f.push(['>=', ['coalesce', ['get', 'volume_preferred'], -1], Math.pow(10, lv + 4)]);
-        }
-        if (yearSlider) {
-            var yp = parseInt(yearSlider.value);
-            if (yp > 0) f.push(['>=', ['coalesce', ['get', 'year_num'], 9999], yearPosToMinNum(yp)]);
+        var areaPosToValue = function (p) { return Math.pow(10, p + 3); };
+        var volPosToValue  = function (p) { return Math.pow(10, p + 4); };
+
+        addRangeFilter(srcAreaDual, 'area_src',          areaPosToValue);
+        addRangeFilter(depAreaDual, 'area_dep',          areaPosToValue,
+                        ['==', ['get', 'landslide_type'], 'slow']);
+        addRangeFilter(volDual,     'volume_preferred',  volPosToValue);
+        // Year is a step-1 integer slider mapped through yearPosToMinNum
+        // (Holocene = -1, Modern = 0, 2012-2025 = 2012..2025).
+        if (yearDual) {
+            var yLo = parseInt(yearDual.minEl.value);
+            var yHi = parseInt(yearDual.maxEl.value);
+            var yMinActive = yLo > yearDual.sliderMin;
+            var yMaxActive = yHi < yearDual.sliderMax;
+            if (yMinActive || yMaxActive) {
+                var yParts = [];
+                if (yMinActive) yParts.push(['>=', ['coalesce', ['get', 'year_num'], -1e9], yearPosToMinNum(yLo)]);
+                if (yMaxActive) yParts.push(['<=', ['coalesce', ['get', 'year_num'],  1e9], yearPosToMinNum(yHi)]);
+                f.push(yParts.length === 1 ? yParts[0] : ['all'].concat(yParts));
+            }
         }
         if (cbMolards      && cbMolards.checked)      f.push(['==', ['get', 'molards'], true]);
         if (cbStream       && cbStream.checked)        f.push(['!=', ['coalesce', ['get', 'stream_damming'], ''], '']);
@@ -1502,13 +1626,39 @@
         var types = [], classes = [];
         document.querySelectorAll('.filter-type').forEach(function (c) { if (c.checked) types.push(c.value); });
         document.querySelectorAll('.filter-class').forEach(function (c) { if (c.checked) classes.push(c.value); });
+        function dualLo(dual, toValue) {
+            if (!dual) return null;
+            var v = parseFloat(dual.minEl.value);
+            return v > dual.sliderMin ? toValue(v) : null;
+        }
+        function dualHi(dual, toValue) {
+            if (!dual) return null;
+            var v = parseFloat(dual.maxEl.value);
+            return v < dual.sliderMax ? toValue(v) : null;
+        }
+        var areaToValue = function (p) { return Math.pow(10, p + 3); };
+        var volToValue  = function (p) { return Math.pow(10, p + 4); };
+        function dualYearLo() {
+            if (!yearDual) return null;
+            var v = parseInt(yearDual.minEl.value);
+            return v > yearDual.sliderMin ? yearPosToMinNum(v) : null;
+        }
+        function dualYearHi() {
+            if (!yearDual) return null;
+            var v = parseInt(yearDual.maxEl.value);
+            return v < yearDual.sliderMax ? yearPosToMinNum(v) : null;
+        }
         return {
             types:    types,
             classes:  classes,
-            minSrcArea: srcAreaSlider && parseFloat(srcAreaSlider.value) > 0 ? Math.pow(10, parseFloat(srcAreaSlider.value) + 3) : null,
-            minDepArea: depAreaSlider && parseFloat(depAreaSlider.value) > 0 ? Math.pow(10, parseFloat(depAreaSlider.value) + 3) : null,
-            minVol:     volSlider     && parseFloat(volSlider.value)     > 0 ? Math.pow(10, parseFloat(volSlider.value)     + 4) : null,
-            minYear:  yearSlider && parseInt(yearSlider.value) > 0  ? yearPosToMinNum(parseInt(yearSlider.value)) : null,
+            minSrcArea: dualLo(srcAreaDual, areaToValue),
+            maxSrcArea: dualHi(srcAreaDual, areaToValue),
+            minDepArea: dualLo(depAreaDual, areaToValue),
+            maxDepArea: dualHi(depAreaDual, areaToValue),
+            minVol:     dualLo(volDual,     volToValue),
+            maxVol:     dualHi(volDual,     volToValue),
+            minYear:    dualYearLo(),
+            maxYear:    dualYearHi(),
             molards:      cbMolards      && cbMolards.checked,
             stream:       cbStream       && cbStream.checked,
             headscarp:    cbHeadscarp    && cbHeadscarp.checked,
@@ -1537,17 +1687,21 @@
             if (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e) return;
             if (fs.types.indexOf(ev.ls_type) < 0) return;
             if (fs.classes.length && fs.classes.indexOf(ev.cls || '__unclassified__') < 0) return;
-            // Non-default minimum filters exclude NULL values. (ev.vol < N
-            // is true when vol is null because null coerces to 0 in the
-            // comparison; the explicit `vol == null` check that used to
-            // short-circuit here was the bug — null was treated as
-            // infinite, so unmeasured records passed every filter.)
+            // Dual-handle range filters. Each side only applies when the
+            // handle has moved off the no-filter position. NULL field
+            // values fail the comparison and drop out the moment any
+            // side activates.
             if (fs.minVol     !== null && !(ev.vol      >= fs.minVol))     return;
+            if (fs.maxVol     !== null && !(ev.vol      <= fs.maxVol))     return;
             if (fs.minSrcArea !== null && !(ev.area_src >= fs.minSrcArea)) return;
+            if (fs.maxSrcArea !== null && !(ev.area_src <= fs.maxSrcArea)) return;
             if (fs.minDepArea !== null && ev.ls_type === 'catastrophic' && !(ev.area_dep >= fs.minDepArea)) return;
-            if (fs.minYear !== null) {
-                var yn = ev.year_num !== null ? ev.year_num : 9999;
-                if (yn < fs.minYear) return;
+            if (fs.maxDepArea !== null && ev.ls_type === 'catastrophic' && !(ev.area_dep <= fs.maxDepArea)) return;
+            if (fs.minYear !== null || fs.maxYear !== null) {
+                var yn = ev.year_num;
+                if (yn === null) return;
+                if (fs.minYear !== null && yn < fs.minYear) return;
+                if (fs.maxYear !== null && yn > fs.maxYear) return;
             }
             if (fs.molards      && !ev.molards)         return;
             if (fs.stream       && !ev.stream_dam)      return;
@@ -1922,13 +2076,18 @@
             if (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e) return;
             if (fs.types.indexOf(ev.ls_type) < 0) return;
             if (fs.classes.length && fs.classes.indexOf(ev.cls || '__unclassified__') < 0) return;
-            // See histogram filter above — non-default minimums exclude NULL.
+            // See histogram filter above — dual-handle ranges with NULL exclusion.
             if (fs.minVol     !== null && !(ev.vol      >= fs.minVol))     return;
+            if (fs.maxVol     !== null && !(ev.vol      <= fs.maxVol))     return;
             if (fs.minSrcArea !== null && !(ev.area_src >= fs.minSrcArea)) return;
+            if (fs.maxSrcArea !== null && !(ev.area_src <= fs.maxSrcArea)) return;
             if (fs.minDepArea !== null && ev.ls_type === 'catastrophic' && !(ev.area_dep >= fs.minDepArea)) return;
-            if (fs.minYear !== null) {
-                var yn = ev.year_num !== null ? ev.year_num : 9999;
-                if (yn < fs.minYear) return;
+            if (fs.maxDepArea !== null && ev.ls_type === 'catastrophic' && !(ev.area_dep <= fs.maxDepArea)) return;
+            if (fs.minYear !== null || fs.maxYear !== null) {
+                var yn = ev.year_num;
+                if (yn === null) return;
+                if (fs.minYear !== null && yn < fs.minYear) return;
+                if (fs.maxYear !== null && yn > fs.maxYear) return;
             }
             if (fs.molards      && !ev.molards)         return;
             if (fs.stream       && !ev.stream_dam)      return;

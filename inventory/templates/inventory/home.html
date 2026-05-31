@@ -143,44 +143,51 @@
 
     <li class="nav-item separator"></li>
 
-    {# ---- Source area slider ---- #}
-    <li class="nav-item nav-class-header">Min source area</li>
+    {# ---- Source area slider (dual: min + max bounds) ---- #}
+    <li class="nav-item nav-class-header">Source area</li>
     <li class="nav-item filter-control">
-      <input type="range" id="src-area-slider" class="nav-slider" min="0" max="6" step="0.1" value="0" list="src-area-ticks">
-      <datalist id="src-area-ticks">
-        <option value="0"><option value="2"><option value="4"><option value="6">
-      </datalist>
+      <div class="dual-range" data-slider="src-area">
+        <div class="dual-track"></div>
+        <div class="dual-progress"></div>
+        <input type="range" class="dual-min" id="src-area-min" min="0" max="6" step="0.1" value="0">
+        <input type="range" class="dual-max" id="src-area-max" min="0" max="6" step="0.1" value="6">
+      </div>
       <div class="slider-label"><span id="src-area-label">All</span></div>
     </li>
 
-    {# ---- Deposit area slider ---- #}
-    <li class="nav-item nav-class-header">Min deposit area <span style="font-size:9px;font-weight:normal;color:#999;">(catastrophic only)</span></li>
+    {# ---- Deposit area slider (dual) ---- #}
+    <li class="nav-item nav-class-header">Deposit area <span style="font-size:9px;font-weight:normal;color:#999;">(catastrophic only)</span></li>
     <li class="nav-item filter-control">
-      <input type="range" id="dep-area-slider" class="nav-slider" min="0" max="6" step="0.1" value="0" list="dep-area-ticks">
-      <datalist id="dep-area-ticks">
-        <option value="0"><option value="2"><option value="4"><option value="6">
-      </datalist>
+      <div class="dual-range" data-slider="dep-area">
+        <div class="dual-track"></div>
+        <div class="dual-progress"></div>
+        <input type="range" class="dual-min" id="dep-area-min" min="0" max="6" step="0.1" value="0">
+        <input type="range" class="dual-max" id="dep-area-max" min="0" max="6" step="0.1" value="6">
+      </div>
       <div class="slider-label"><span id="dep-area-label">All</span></div>
     </li>
 
-    {# ---- Estimated volume slider ---- #}
-    <li class="nav-item nav-class-header">Min estimated volume</li>
+    {# ---- Estimated volume slider (dual) ---- #}
+    <li class="nav-item nav-class-header">Estimated volume</li>
     <li class="nav-item filter-control">
-      <input type="range" id="vol-slider" class="nav-slider" min="0" max="8" step="0.1" value="0" list="vol-ticks">
-      <datalist id="vol-ticks">
-        <option value="0"><option value="2"><option value="4"><option value="6"><option value="8">
-      </datalist>
+      <div class="dual-range" data-slider="vol">
+        <div class="dual-track"></div>
+        <div class="dual-progress"></div>
+        <input type="range" class="dual-min" id="vol-min" min="0" max="8" step="0.1" value="0">
+        <input type="range" class="dual-max" id="vol-max" min="0" max="8" step="0.1" value="8">
+      </div>
       <div class="slider-label"><span id="vol-label">All</span></div>
     </li>
 
-    {# ---- Year slider ---- #}
-    <li class="nav-item nav-class-header">Min age (most recent)</li>
+    {# ---- Year slider (dual; max-end limits to most-recent, min-end to oldest) ---- #}
+    <li class="nav-item nav-class-header">Age</li>
     <li class="nav-item filter-control">
-      <input type="range" id="year-slider" class="nav-slider" min="0" max="16" step="1" value="0" list="year-ticks">
-      <datalist id="year-ticks">
-        <option value="0"><option value="1"><option value="2"><option value="3">
-        <option value="7"><option value="11"><option value="16">
-      </datalist>
+      <div class="dual-range" data-slider="year">
+        <div class="dual-track"></div>
+        <div class="dual-progress"></div>
+        <input type="range" class="dual-min" id="year-min" min="0" max="16" step="1" value="0">
+        <input type="range" class="dual-max" id="year-max" min="0" max="16" step="1" value="16">
+      </div>
       <div class="slider-label"><span id="year-label">All</span></div>
     </li>
   </ul>

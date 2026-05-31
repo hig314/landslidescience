@@ -2,3 +2,8 @@ Django>=5.2,<5.3
 gunicorn>=23,<24
 whitenoise>=6.8,<7
 psycopg2-binary>=2.9,<3
+# Reads shapefile / geopackage / kml uploads in the manage_import flow.
+# pyogrio ships GDAL in its wheel; shapely converts the WKB it returns
+# into GeoJSON dicts for downstream code that already speaks GeoJSON.
+pyogrio>=0.10,<1
+shapely>=2.0,<3

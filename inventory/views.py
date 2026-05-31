@@ -784,6 +784,9 @@ def api_settings(request):
 # Columns that are auto-managed by Postgres / not user-editable.
 _FORM_EXCLUDED_COLS = (
     'id', 'created_at', 'updated_at',
+    # State column managed by the review workflow — never set by the form
+    # directly; it gets set to NOW() when a pending record completes review.
+    'reviewed_at',
     # Legacy column — superseded by the landslide_subsets M:N join. The
     # subset-membership UI on the edit form writes the new table; the
     # legacy column will be dropped after the rest of the transition lands.
@@ -920,22 +923,45 @@ def manage_list(request):
 
 
 @inventory_editor_required
-def manage_edit(request, landslide_id):
+def manage_review(request, landslide_id):
+    """Two-stage induction: edit pending-review records before they
+    join gen pop. Delegates to manage_edit with review_mode=True so the
+    save handler can also set reviewed_at, apply the rule cascade, and
+    advance to the next pending record."""
+    return manage_edit(request, landslide_id, review_mode=True)
+
+
+@inventory_editor_required
+def manage_edit(request, landslide_id, review_mode=False):
     """Edit a single landslide record. GET = form; POST = validate + UPDATE.
 
     Form fields and the UPDATE column list are both derived from
     `_discover_editable_columns()` so this view auto-tracks schema changes.
+
+    review_mode=True: the form excludes rule-populated columns (those get
+    computed at the end of the review), shows a mini-map of the polygon,
+    and on save sets reviewed_at + redirects to the next pending record.
+    Records that have already been reviewed bounce back to the regular
+    edit form.
     """
+    from . import derived
     from .forms import build_landslide_form_class, COMMON_CLASS_VALUES
     from .models import LandslideEditMeta
+
+    rule_targets = {fn.target_column for fn in derived.RULES.values()}
 
     conn = _get_conn()
     try:
         cur = conn.cursor()
         cols_meta = _discover_editable_columns(cur)
+        # In review mode, drop rule-populated columns from the editable
+        # form — they get computed at the end of the review, not set by
+        # the editor.
+        if review_mode:
+            cols_meta = [c for c in cols_meta if c['name'] not in rule_targets]
         col_names = [c['name'] for c in cols_meta]
         cols_csv = ', '.join(col_names)
-        cur.execute(f"SELECT id, {cols_csv} FROM landslides WHERE id = %s",
+        cur.execute(f"SELECT id, reviewed_at, {cols_csv} FROM landslides WHERE id = %s",
                     (landslide_id,))
         row = cur.fetchone()
         conn.rollback()
@@ -944,8 +970,13 @@ def manage_edit(request, landslide_id):
     if not row:
         return JsonResponse({'error': 'not found'}, status=404)
 
+    already_reviewed = row[1] is not None
+    if review_mode and already_reviewed:
+        # Nothing to do — kick to the regular edit form.
+        return redirect('inventory:manage_edit', landslide_id=landslide_id)
+
     LandslideEditForm = build_landslide_form_class(cols_meta)
-    initial = {f: row[i + 1] for i, f in enumerate(col_names)}
+    initial = {f: row[i + 2] for i, f in enumerate(col_names)}
     unique_name = initial.get('unique_name', '')
 
     error_msg = None
@@ -998,14 +1029,22 @@ def manage_edit(request, landslide_id):
                             (landslide_id, new_slug),
                         )
 
-                # Sync subset memberships to the checkbox state.
+                # Sync subset memberships to the checkbox state. Frozen
+                # (snapshotted) subsets are excluded from both directions
+                # of the diff — their membership can't be changed once a
+                # snapshot has captured them, so any attempt to add/remove
+                # via a crafted POST is silently dropped.
+                cur.execute(
+                    "SELECT DISTINCT subset_id FROM snapshots WHERE subset_id IS NOT NULL"
+                )
+                frozen_ids = {r[0] for r in cur.fetchall()}
                 cur.execute(
                     "SELECT subset_id FROM landslide_subsets WHERE landslide_id = %s",
                     (landslide_id,),
                 )
                 current_subset_ids = {r[0] for r in cur.fetchall()}
-                to_add    = posted_subset_ids - current_subset_ids
-                to_remove = current_subset_ids - posted_subset_ids
+                to_add    = (posted_subset_ids - current_subset_ids) - frozen_ids
+                to_remove = (current_subset_ids - posted_subset_ids) - frozen_ids
                 if to_remove:
                     cur.execute(
                         "DELETE FROM landslide_subsets "
@@ -1026,6 +1065,20 @@ def manage_edit(request, landslide_id):
             finally:
                 _put_conn(conn)
 
+            if not error_msg and review_mode:
+                # Mark this record as inducted. Rule cascade (chunk 3)
+                # runs here; for now just stamp reviewed_at.
+                conn = _get_conn()
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "UPDATE landslides SET reviewed_at = NOW() WHERE id = %s",
+                        (landslide_id,),
+                    )
+                    conn.commit()
+                finally:
+                    _put_conn(conn)
+
             if not error_msg:
                 LandslideEditMeta.objects.update_or_create(
                     landslide_id=landslide_id,
@@ -1033,6 +1086,13 @@ def manage_edit(request, landslide_id):
                 )
                 _invalidate('features', 'home_counts', 'unclassified_count',
                             'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
+
+                if review_mode:
+                    # Find the next pending record (recent-upload first).
+                    next_id = _first_pending_landslide()
+                    if next_id is not None:
+                        return redirect('inventory:manage_review', landslide_id=next_id)
+                    return redirect('inventory:manage_list')
                 return redirect('inventory:manage_edit', landslide_id=landslide_id)
     else:
         form = LandslideEditForm(initial=initial)
@@ -1056,7 +1116,10 @@ def manage_edit(request, landslide_id):
                    EXISTS (
                        SELECT 1 FROM landslide_subsets lps
                        WHERE lps.subset_id = s.id AND lps.landslide_id = %s
-                   ) AS is_member
+                   ) AS is_member,
+                   EXISTS (
+                       SELECT 1 FROM snapshots sn WHERE sn.subset_id = s.id
+                   ) AS is_frozen
             FROM subsets s
             ORDER BY s.is_publication DESC, s.name
         """, (landslide_id,))
@@ -1066,7 +1129,7 @@ def manage_edit(request, landslide_id):
         _put_conn(conn)
     all_subsets_for_form = [
         {'id': r[0], 'slug': r[1], 'name': r[2],
-         'is_publication': r[3], 'is_member': r[4]}
+         'is_publication': r[3], 'is_member': r[4], 'is_frozen': r[5]}
         for r in subset_rows
     ]
     planet_stories = [{
@@ -1079,18 +1142,75 @@ def manage_edit(request, landslide_id):
         'mp4_size_kb': (r[3] // 1024) if r[3] else None,
     } for r in story_rows]
 
-    return render(request, 'inventory/manage_edit.html', {
-        'form':            form,
-        'landslide_id':    landslide_id,
-        'unique_name':     unique_name,
-        'slug':            _slug_for_id(landslide_id),
-        'editable_fields': col_names,
-        'common_classes':  COMMON_CLASS_VALUES,
-        'error_msg':       error_msg,
-        'planet_stories':  planet_stories,
-        'all_subsets':     all_subsets_for_form,
-        'planet_msg':      request.GET.get('planet_msg', ''),
+    # Review-mode extras: polygon GeoJSON for the mini-map, plus the
+    # remaining-pending count so the editor knows how far along they are.
+    polygons_geojson = None
+    pending_remaining = None
+    if review_mode:
+        conn = _get_conn()
+        try:
+            cur = conn.cursor()
+            # ::text yields a JSON-encoded string we can embed straight into
+            # JS via `|safe` — Postgres' json_build_object → ::text path
+            # gives valid JSON, vs psycopg2's auto-decode which produces a
+            # Python dict that Django renders as repr (not parseable JS).
+            cur.execute("""
+                SELECT json_build_object(
+                    'type', 'FeatureCollection',
+                    'features', COALESCE(json_agg(
+                        json_build_object(
+                            'type', 'Feature',
+                            'geometry', ST_AsGeoJSON(geom)::json,
+                            'properties', json_build_object('role', role,
+                                                             'is_primary', is_primary)
+                        )
+                    ), '[]'::json)
+                )::text
+                FROM landslide_polygons WHERE landslide_id = %s
+            """, (landslide_id,))
+            polygons_geojson = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM landslides WHERE reviewed_at IS NULL")
+            pending_remaining = cur.fetchone()[0]
+            conn.rollback()
+        finally:
+            _put_conn(conn)
+
+    template = 'inventory/manage_review.html' if review_mode else 'inventory/manage_edit.html'
+    return render(request, template, {
+        'form':              form,
+        'landslide_id':      landslide_id,
+        'unique_name':       unique_name,
+        'slug':              _slug_for_id(landslide_id),
+        'editable_fields':   col_names,
+        'common_classes':    COMMON_CLASS_VALUES,
+        'error_msg':         error_msg,
+        'planet_stories':    planet_stories,
+        'all_subsets':       all_subsets_for_form,
+        'planet_msg':        request.GET.get('planet_msg', ''),
+        'review_mode':       review_mode,
+        'polygons_geojson':  polygons_geojson,
+        'pending_remaining': pending_remaining,
     })
+
+
+def _first_pending_landslide():
+    """Return the id of the most-recently-created pending-review record,
+    or None if everything's been inducted. Recent-upload-first ordering
+    means freshly uploaded batches get reviewed before any older
+    pending records that may have accumulated."""
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id FROM landslides
+            WHERE reviewed_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+        """)
+        row = cur.fetchone()
+        return row[0] if row else None
+    finally:
+        _put_conn(conn)
 
 
 # Planet Stories archive helpers — mirror the management command's logic.
@@ -1331,8 +1451,9 @@ def manage_import(request):
     import uuid as _uuid
 
     if request.method == 'POST' and 'upload' in request.FILES:
+        f = request.FILES['upload']
         try:
-            ls_fc, po_fc, manifest = parse_upload(request.FILES['upload'].read())
+            ls_fc, po_fc, manifest = parse_upload(f.read(), filename=f.name)
         except ImportError_ as e:
             return render(request, 'inventory/manage_import.html', {'error': str(e)})
 
@@ -1345,11 +1466,58 @@ def manage_import(request):
         with open(path, 'w') as f:
             json.dump({'landslides': ls_fc, 'landslide_polygons': po_fc}, f)
 
+        # Subsets dropdown: exclude any subset that's already been
+        # snapshotted — those are frozen artifacts and shouldn't grow
+        # silently after a publication. (The check is by FK from
+        # snapshots.subset_id; a snapshot for the full inventory has
+        # NULL subset_id so it doesn't freeze any specific subset.)
+        from .forms import build_landslide_form_class
+        conn = _get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT s.slug, s.name
+                FROM subsets s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM snapshots sn WHERE sn.subset_id = s.id
+                )
+                ORDER BY s.is_publication DESC, s.name
+            """)
+            subsets = [{'slug': r[0], 'name': r[1]} for r in cur.fetchall()]
+            cols_meta = _discover_editable_columns(cur)
+            conn.rollback()
+        finally:
+            _put_conn(conn)
+
+        # Common-fields form: editor fills whatever should apply uniformly
+        # to every new record in this upload; blanks pass through. Exclude
+        # rule-populated columns (centroid_lat, area_*, volume_*, etc. —
+        # these get re-derived from polygons after import) and unique_name
+        # (must be unique per record, so it makes no sense as a batch value).
+        from . import derived
+        rule_targets = {fn.target_column for fn in derived.RULES.values()}
+        common_exclude = rule_targets | {'unique_name'}
+        CommonForm = build_landslide_form_class(cols_meta, all_optional=True,
+                                                 exclude=common_exclude)
+        # Defaults from the editor's user record. `owner` uses the short
+        # username (canonical identifier across the system); `noted_by`
+        # uses the editor's full name (the display credit on map detail
+        # popups). Editor can override either before applying.
+        initial = {}
+        if request.user.username:
+            initial['owner'] = request.user.username
+        full_name = (request.user.get_full_name() or '').strip()
+        if full_name:
+            initial['noted_by'] = full_name
+        common_form = CommonForm(initial=initial or None)
+
         return render(request, 'inventory/manage_import_preview.html', {
-            'diff':     diff,
-            'manifest': manifest,
-            'token':    token,
-            'filename': request.FILES['upload'].name,
+            'diff':        diff,
+            'manifest':    manifest,
+            'token':       token,
+            'filename':    request.FILES['upload'].name,
+            'subsets':     subsets,
+            'common_form': common_form,
         })
 
     return render(request, 'inventory/manage_import.html', {})
@@ -1358,7 +1526,8 @@ def manage_import(request):
 @inventory_editor_required
 def manage_import_apply(request):
     """POST: apply a previously-staged import by token."""
-    from .io_geojson import apply_import
+    from .io_geojson import apply_import, ImportError_
+
     import os as _os
 
     if request.method != 'POST' or not request.POST.get('token'):
@@ -1376,8 +1545,42 @@ def manage_import_apply(request):
         staged = json.load(f)
     ls_fc = staged['landslides']
     po_fc = staged['landslide_polygons']
+    subset_slug = (request.POST.get('subset_slug') or '').strip() or None
 
-    summary = apply_import(ls_fc, po_fc, request.user)
+    # Common fields the editor wants applied to all new landslides in this
+    # upload. The form factory parses + coerces them by column type; we
+    # only keep the entries the editor actually filled in (non-blank).
+    from .forms import build_landslide_form_class
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cols_meta = _discover_editable_columns(cur)
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    from . import derived
+    rule_targets = {fn.target_column for fn in derived.RULES.values()}
+    common_exclude = rule_targets | {'unique_name'}
+    CommonForm = build_landslide_form_class(cols_meta, all_optional=True,
+                                             exclude=common_exclude)
+    common_form = CommonForm(request.POST)
+    common_fields = {}
+    if common_form.is_valid():
+        for k, v in common_form.cleaned_data.items():
+            # Blank string / unticked checkbox / unset field → don't impose
+            # on the import. Anything else overrides per-record values.
+            if v in (None, '', False):
+                continue
+            common_fields[k] = v
+
+    try:
+        summary = apply_import(
+            ls_fc, po_fc, request.user,
+            subset_slug=subset_slug,
+            common_fields=common_fields,
+        )
+    except ImportError_ as e:
+        return render(request, 'inventory/manage_import.html', {'error': str(e)})
 
     # Cache invalidation — landslide data changed.
     _invalidate('features', 'home_counts', 'unclassified_count',
@@ -1388,6 +1591,14 @@ def manage_import_apply(request):
         _os.remove(path)
     except OSError:
         pass
+
+    # If new landslides were inserted, send the editor straight into the
+    # review queue (most-recent-upload first). Pure UPDATE flows fall back
+    # to the done page since no records need induction.
+    if summary.get('landslides_inserted'):
+        next_id = _first_pending_landslide()
+        if next_id is not None:
+            return redirect('inventory:manage_review', landslide_id=next_id)
 
     return render(request, 'inventory/manage_import_done.html', {'summary': summary})
 

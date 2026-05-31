@@ -8,14 +8,39 @@
   <p style="font-size:13px;"><a href="{% url 'inventory:manage_list' %}">← Back to records</a></p>
   <h2 style="font-size:19px;">Import inventory data</h2>
   <p style="color:#555; line-height:1.55;">
-    Upload a zip exported from this site (or a single <code>landslides.geojson</code>).
+    Upload existing records to UPDATE or new features to INSERT.
     The next page shows a diff preview — nothing is changed in the database
     until you confirm.
   </p>
-  <p style="color:#888; font-size:13px;">
-    First-shot scope: only existing records (matched by <code>id</code>) are
-    UPDATEd. Records or polygons with new IDs are reported but not inserted.
-    Records present in the database but missing from the upload are kept silently.
+  <p style="color:#555; font-size:13px; line-height:1.55;">
+    Supported formats:
+  </p>
+  <ul style="color:#555; font-size:13px; line-height:1.55; margin-top:0;">
+    <li><strong>Zip of the GeoJSON round-trip pair</strong> — <code>landslides.geojson</code> +
+      <code>landslide_polygons.geojson</code>, the same shape this site exports.</li>
+    <li><strong>Zip with just <code>landslide_polygons(_flat).geojson</code></strong> —
+      polygons carrying landslide-level properties. Polygons sharing a
+      <code>unique_name</code> get grouped; one landslide is synthesized per group.</li>
+    <li><strong>Single GeoJSON</strong> (.geojson) — Polygon/MultiPolygon features → flat-polygon
+      mode; Point/null features → landslides-only.</li>
+    <li><strong>GeoPackage</strong> (.gpkg) — first layer read.</li>
+    <li><strong>KML / KMZ</strong> (.kml, .kmz).</li>
+    <li><strong>Shapefile</strong> — zip .shp + .dbf + .shx + .prj together.
+      Shapefile DBF truncates field names to 10 chars, so prefer
+      <code>.gpkg</code> or <code>.geojson</code> when authoring data with
+      attributes like <code>landslide_type</code> / <code>landslide_class</code>
+      that share a 10-char prefix.</li>
+  </ul>
+  <p style="color:#888; font-size:12px;">
+    Non-GeoJSON formats must be in <strong>EPSG:4326</strong> (WGS84 lat/lon).
+    Reproject in QGIS first if needed.
+  </p>
+  <p style="color:#888; font-size:12px;">
+    <strong>If editing in QGIS:</strong> toggle editing OFF on the layer
+    (Layer menu → Toggle Editing, or click the pencil icon) <em>before</em>
+    uploading. Otherwise recent edits live in a <code>.gpkg-wal</code>
+    sidecar that doesn't ride along with the upload — only changes already
+    committed to the main file are sent.
   </p>
 
   {% if error %}
@@ -26,7 +51,8 @@
 
   <form method="post" enctype="multipart/form-data" style="margin-top: 18px;">
     {% csrf_token %}
-    <input type="file" name="upload" accept=".zip,.geojson,.json" required
+    <input type="file" name="upload" required
+           accept=".zip,.geojson,.json,.gpkg,.kml,.kmz"
            style="font-size:13px;">
     <button type="submit"
             style="margin-left: 10px; padding: 8px 18px; background: #5D4037; color: #fff; border: none; border-radius: 4px; font-size: 13px; cursor: pointer;">

@@ -1,0 +1,240 @@
+{% extends "inventory/base.html" %}
+{% block title %}Review · {{ unique_name }}{% endblock %}
+{% block page_title %}Review · induct pending record{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.css">
+<style>
+  .review-map { width: 100%; height: 360px; border: 1px solid #d4cdc0;
+                 border-radius: 4px; background: #f0ece4; }
+  .review-pending-banner {
+    background: #fff3cd; border: 1px solid #ffeeba; color: #664d03;
+    padding: 8px 14px; border-radius: 4px; font-size: 13px;
+    margin-bottom: 14px;
+  }
+</style>
+{% endblock %}
+
+{% block body %}
+<div style="max-width: 820px; margin: 24px auto; padding: 0 24px;">
+  <p style="font-size:13px; margin-bottom: 6px;">
+    <a href="{% url 'inventory:manage_list' %}">← Back to records</a>
+  </p>
+
+  {% if pending_remaining > 1 %}
+    <div class="review-pending-banner">
+      <strong>{{ pending_remaining }}</strong> records are pending review.
+      Save &amp; next steps through them; you can resume any time — pending
+      records stay flagged until inducted.
+    </div>
+  {% endif %}
+
+  <h2 style="font-size:19px; margin: 0 0 4px;">{{ unique_name }}</h2>
+  <p style="font-size:12px; color:#888; margin-top:0;">
+    id={{ landslide_id }} &middot; pending induction
+  </p>
+
+  {% if error_msg %}
+    <div style="margin: 14px 0; padding: 10px 14px; background:#fef0f0; border:1px solid #f5c2c2; border-radius:4px; color:#902;">
+      {{ error_msg }}
+    </div>
+  {% endif %}
+
+  <div id="review-map" class="review-map"></div>
+
+  <form method="post" style="margin-top: 18px;">
+    {% csrf_token %}
+    <datalist id="class-options">
+      {% for c in common_classes %}<option value="{{ c }}">{% endfor %}
+    </datalist>
+
+    {% for field in form %}
+      <div style="margin-bottom: 14px;">
+        <label for="{{ field.id_for_label }}" style="display:block; font-size:13px; color:#555; margin-bottom:3px;">
+          {{ field.label }}
+          {% if field.field.required %}<span style="color:#b00020;">*</span>{% endif %}
+        </label>
+        {{ field }}
+        {% if field.help_text %}
+          <p style="font-size:11px; color:#888; margin: 3px 0 0;">{{ field.help_text }}</p>
+        {% endif %}
+        {% if field.errors %}
+          <p style="font-size:12px; color:#b00020; margin: 3px 0 0;">{{ field.errors|join:", " }}</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    {% if all_subsets %}
+      <div style="margin: 22px 0 4px;">
+        <label style="display:block; font-size:13px; color:#555; margin-bottom:6px;">
+          Subset memberships
+        </label>
+        <div style="border:1px solid #e0e0e0; border-radius:4px; padding:8px 12px; background:#fafafa;">
+          {% for s in all_subsets %}
+            <label style="display:inline-flex; align-items:center; gap:5px; font-size:13px; margin:3px 14px 3px 0;
+                          {% if s.is_frozen %}color:#999;{% else %}color:#444;{% endif %}">
+              <input type="checkbox" name="subset_{{ s.id }}" value="1"
+                     {% if s.is_member %}checked{% endif %}
+                     {% if s.is_frozen %}disabled{% endif %}>
+              {{ s.name }}
+              {% if s.is_publication %}<span style="font-size:10px; color:#080;">★</span>{% endif %}
+              {% if s.is_frozen %}<span style="font-size:11px;">🔒</span>{% endif %}
+              <span style="font-size:11px; color:#888;">({{ s.slug }})</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    <div style="margin-top: 22px; display:flex; gap:10px; align-items:center;">
+      <button type="submit"
+              style="padding: 9px 22px; background: #5D4037; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer;">
+        Save &amp; next &rarr;
+      </button>
+      <a href="{% url 'inventory:manage_list' %}" style="font-size:13px; color:#666;">Pause (record stays pending)</a>
+    </div>
+  </form>
+</div>
+
+<style>
+  form input[type="text"], form input[type="number"], form input[type="date"],
+  form input[type="datetime-local"], form select, form textarea {
+    width: 100%; padding: 6px 9px; font-size: 13px; border: 1px solid #ccc;
+    border-radius: 3px; box-sizing: border-box; font-family: inherit;
+  }
+  form input[type="checkbox"] { transform: scale(1.1); margin-right: 4px; }
+  form .helptext { font-size: 11px; color: #888; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
+<script>
+(function () {
+  // Polygons for this landslide, embedded server-side. Inline rather than
+  // fetched so the mini-map renders without an extra round trip.
+  var POLYGONS = {{ polygons_geojson|safe }};
+
+  // Same basemap list as the main inventory map. Duplicated here because
+  // the review page is intentionally minimal and doesn't load map.js.
+  var BASEMAPS = [
+    { id: 'streets',     label: 'Streets',
+      style: 'https://tiles.openfreemap.org/styles/liberty' },
+    { id: 'esri-img',    label: 'ESRI Imagery',
+      tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      labelTiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+      attr: '© Esri, Maxar, Earthstar Geographics' },
+    { id: 's2-cloudless', label: 'Sentinel-2 cloudless',
+      tiles: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg',
+      attr: 'Sentinel-2 cloudless 2024 by <a href="https://s2maps.eu/">EOX</a>' },
+    { id: 'esri-topo',   label: 'ESRI Topo',
+      tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+      attr: '© Esri, USGS, NOAA' },
+    { id: 'usgs-topo',   label: 'USGS Topo',
+      tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
+      attr: 'USGS National Map' },
+    { id: 'usgs-img',    label: 'USGS Imagery',
+      tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
+      attr: 'USGS National Map' },
+    { id: 'usgs-hist',   label: 'USGS Hist. Topo',
+      tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}',
+      attr: '© Esri, USGS' },
+  ];
+  var DEFAULT_BASEMAP_ID = 'esri-img';
+
+  function buildRasterStyle(bm) {
+    if (bm.style) return bm.style;
+    var sources = { basemap: { type: 'raster', tiles: [bm.tiles], tileSize: 256, attribution: bm.attr || '' } };
+    var layers  = [{ id: 'basemap', type: 'raster', source: 'basemap' }];
+    if (bm.labelTiles) {
+      sources.basemap_labels = { type: 'raster', tiles: [bm.labelTiles], tileSize: 256 };
+      layers.push({ id: 'basemap-labels', type: 'raster', source: 'basemap_labels' });
+    }
+    return { version: 8, sources: sources, layers: layers };
+  }
+
+  function findBasemap(id) {
+    for (var i = 0; i < BASEMAPS.length; i++) if (BASEMAPS[i].id === id) return BASEMAPS[i];
+    return null;
+  }
+
+  // Bounds from polygon geometry (lon/lat).
+  function fcBounds(fc) {
+    var minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+    function walk(coords) {
+      if (typeof coords[0] === 'number') {
+        if (coords[0] < minx) minx = coords[0];
+        if (coords[0] > maxx) maxx = coords[0];
+        if (coords[1] < miny) miny = coords[1];
+        if (coords[1] > maxy) maxy = coords[1];
+      } else for (var i = 0; i < coords.length; i++) walk(coords[i]);
+    }
+    (fc.features || []).forEach(function (f) {
+      if (f.geometry && f.geometry.coordinates) walk(f.geometry.coordinates);
+    });
+    return isFinite(minx) ? [[minx, miny], [maxx, maxy]] : null;
+  }
+
+  var initialBM = findBasemap(DEFAULT_BASEMAP_ID) || BASEMAPS[0];
+  var map = new maplibregl.Map({
+    container: 'review-map',
+    style: buildRasterStyle(initialBM),
+    center: [-153, 62],
+    zoom: 4,
+  });
+
+  // Basemap switcher control — same shape as the main map's, single-button form.
+  function BasemapSwitcher() {}
+  BasemapSwitcher.prototype.onAdd = function () {
+    var el = document.createElement('div');
+    el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    var sel = document.createElement('select');
+    sel.style.cssText = 'border:none; background:#fff; padding:4px 6px; font-size:12px;';
+    BASEMAPS.forEach(function (bm) {
+      var opt = document.createElement('option');
+      opt.value = bm.id; opt.textContent = bm.label;
+      if (bm.id === initialBM.id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', function () {
+      var bm = findBasemap(sel.value);
+      if (!bm) return;
+      map.setStyle(buildRasterStyle(bm), { diff: false });
+      map.once('idle', function () { addPolygonLayer(); fitToPolygons(); });
+    });
+    el.appendChild(sel);
+    return el;
+  };
+  BasemapSwitcher.prototype.onRemove = function () {};
+
+  function addPolygonLayer() {
+    if (map.getSource('lspoly')) return;
+    map.addSource('lspoly', { type: 'geojson', data: POLYGONS });
+    map.addLayer({
+      id: 'lspoly-fill', type: 'fill', source: 'lspoly',
+      paint: {
+        'fill-color': '#3f67b1',
+        'fill-opacity': 0.30,
+      },
+    });
+    map.addLayer({
+      id: 'lspoly-line', type: 'line', source: 'lspoly',
+      paint: { 'line-color': '#3f67b1', 'line-width': 2 },
+    });
+  }
+
+  function fitToPolygons() {
+    var b = fcBounds(POLYGONS);
+    if (b) map.fitBounds(b, { padding: 32, animate: false, maxZoom: 14 });
+  }
+
+  map.addControl(new BasemapSwitcher(), 'top-right');
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+  map.on('load', function () {
+    addPolygonLayer();
+    fitToPolygons();
+  });
+})();
+</script>
+{% endblock %}

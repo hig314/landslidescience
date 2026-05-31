@@ -134,14 +134,24 @@
         </label>
         <div style="border:1px solid #e0e0e0; border-radius:4px; padding:8px 12px; background:#fafafa;">
           {% for s in all_subsets %}
-            <label style="display:inline-flex; align-items:center; gap:5px; font-size:13px; color:#444; margin:3px 14px 3px 0;">
-              <input type="checkbox" name="subset_{{ s.id }}" value="1" {% if s.is_member %}checked{% endif %}>
+            <label style="display:inline-flex; align-items:center; gap:5px; font-size:13px; margin:3px 14px 3px 0;
+                          {% if s.is_frozen %}color:#999;{% else %}color:#444;{% endif %}"
+                   title="{% if s.is_frozen %}This subset is locked because it has been snapshotted. Membership can no longer be changed.{% endif %}">
+              <input type="checkbox" name="subset_{{ s.id }}" value="1"
+                     {% if s.is_member %}checked{% endif %}
+                     {% if s.is_frozen %}disabled{% endif %}>
               {{ s.name }}
               {% if s.is_publication %}<span style="font-size:10px; color:#080;">★</span>{% endif %}
+              {% if s.is_frozen %}<span style="font-size:11px;" title="Snapshotted — locked">🔒</span>{% endif %}
               <span style="font-size:11px; color:#888;">({{ s.slug }})</span>
             </label>
           {% endfor %}
         </div>
+        {% with frozen=all_subsets|dictsort:"is_frozen" %}
+          <p style="font-size:11px; color:#888; margin:6px 0 0;">
+            🔒 = snapshotted (frozen). ★ = publication subset.
+          </p>
+        {% endwith %}
       </div>
     {% endif %}
 

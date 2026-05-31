@@ -16,7 +16,7 @@
     <h3 style="margin-top: 24px; font-size:15px;">{{ table_name }}</h3>
     <table class="methods-table" style="font-size:13px; margin-top: 6px;">
       <tr><th style="width:30%">Updates</th><td><strong>{{ t.updates|length }}</strong> row(s) will be modified</td></tr>
-      <tr><th>Would add (deferred)</th><td>{{ t.would_add|length }} row(s) have IDs not in DB — <em>not inserted</em> in this version</td></tr>
+      <tr><th>New</th><td><strong>{{ t.would_add|length }}</strong> row(s) will be inserted</td></tr>
       <tr><th>Unchanged</th><td>{{ t.unchanged }} row(s)</td></tr>
       <tr><th>In DB but missing from upload</th><td>{{ t.db_only_count }} row(s) (kept silently)</td></tr>
     </table>
@@ -27,6 +27,42 @@
         <ul style="font-size:12px; color:#555;">
           {% for w in t.warnings %}<li>{{ w }}</li>{% endfor %}
         </ul>
+      </details>
+    {% endif %}
+
+    {% if t.would_add %}
+      <details style="margin-top: 8px;" open>
+        <summary style="font-size:13px; cursor:pointer; color:#1a4f8b;">
+          {{ t.would_add|length }} new row(s) — preview
+        </summary>
+        <table class="methods-table" style="font-size:12px; margin-top:6px;">
+          <thead><tr>
+            <th>upload id</th>
+            {% if table_name == 'landslides' %}<th>unique_name</th><th>type</th>{% else %}<th>landslide_id</th><th>role</th>{% endif %}
+            <th>validation</th>
+          </tr></thead>
+          <tbody>
+            {% for a in t.would_add %}
+              <tr>
+                <td style="font-family: monospace;">{{ a.id }}</td>
+                {% if table_name == 'landslides' %}
+                  <td>{{ a.unique_name }}</td>
+                  <td>{{ a.landslide_type|default:"—" }}</td>
+                {% else %}
+                  <td style="font-family: monospace;">{{ a.landslide_id }}</td>
+                  <td>{{ a.role|default:"—" }}</td>
+                {% endif %}
+                <td>
+                  {% if a.errors %}
+                    <span style="color:#b00020;">{{ a.errors|join:"; " }}</span>
+                  {% else %}
+                    <span style="color:#070;">ok</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </details>
     {% endif %}
 
@@ -61,14 +97,67 @@
 
   <hr style="margin: 28px 0 18px; border:none; border-top:1px solid #e0e0e0;">
 
-  <form method="post" action="{% url 'inventory:manage_import_apply' %}" style="display:flex; gap:12px; align-items:center;">
+  <form method="post" action="{% url 'inventory:manage_import_apply' %}">
     {% csrf_token %}
     <input type="hidden" name="token" value="{{ token }}">
-    <button type="submit"
-            style="padding: 9px 22px; background: #5D4037; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer;">
-      Apply changes
-    </button>
-    <a href="{% url 'inventory:manage_list' %}" style="font-size:13px; color:#666;">Cancel</a>
+
+    {% if diff.landslides.would_add %}
+      <div style="margin: 18px 0 14px; padding: 14px 16px; background:#f7f5f1; border:1px solid #e3ddd4; border-radius:4px;">
+        <h3 style="margin: 0 0 4px; font-size:15px;">Common values for new records (optional)</h3>
+        <p style="font-size:12px; color:#666; margin: 0 0 12px;">
+          Anything you fill in here is applied to <em>every</em> new landslide
+          in this upload, overriding values from the file. Leave blank to use
+          the upload's values (or NULL).
+        </p>
+
+        <div style="margin-bottom: 12px;">
+          <label for="subset_slug" style="display:block; font-size:13px; color:#555; margin-bottom:3px;">Subset</label>
+          <select name="subset_slug" id="subset_slug"
+                  style="padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; min-width: 260px;">
+            <option value="">— none —</option>
+            {% for s in subsets %}
+              <option value="{{ s.slug }}">{{ s.name }}</option>
+            {% endfor %}
+          </select>
+          <p style="font-size:11px; color:#888; margin: 3px 0 0;">
+            Optional. Snapshotted subsets are hidden so a published archive can't grow.
+          </p>
+        </div>
+
+        <details style="margin-top: 10px;">
+          <summary style="cursor:pointer; font-size:13px; color:#1a4f8b; margin-bottom: 10px;">
+            All landslide fields ({{ common_form.fields|length }})
+          </summary>
+          <div style="margin-top: 10px;">
+            {% for field in common_form %}
+              <div style="margin-bottom: 10px;">
+                <label for="{{ field.id_for_label }}" style="display:block; font-size:12px; color:#555; margin-bottom:2px;">
+                  {{ field.label }}
+                </label>
+                {{ field }}
+              </div>
+            {% endfor %}
+          </div>
+        </details>
+      </div>
+    {% endif %}
+
+    <div style="display:flex; gap:12px; align-items:center;">
+      <button type="submit"
+              style="padding: 9px 22px; background: #5D4037; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer;">
+        Apply changes
+      </button>
+      <a href="{% url 'inventory:manage_list' %}" style="font-size:13px; color:#666;">Cancel</a>
+    </div>
   </form>
+
+  <style>
+    form input[type="text"], form input[type="number"], form input[type="date"],
+    form input[type="datetime-local"], form select, form textarea {
+      width: 100%; padding: 5px 8px; font-size: 12px; border: 1px solid #ccc;
+      border-radius: 3px; box-sizing: border-box; font-family: inherit;
+    }
+    form input[type="checkbox"] { transform: scale(1.05); margin-right: 4px; }
+  </style>
 </div>
 {% endblock %}

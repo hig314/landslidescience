@@ -47,6 +47,7 @@ urlpatterns = [
     path('manage/import/', views.manage_import, name='manage_import'),
     path('manage/import/apply/', views.manage_import_apply, name='manage_import_apply'),
     path('manage/<int:landslide_id>/', views.manage_edit, name='manage_edit'),
+    path('manage/<int:landslide_id>/review/', views.manage_review, name='manage_review'),
     path('manage/<int:landslide_id>/fetch_planet/', views.manage_edit_fetch_planet,
          name='manage_edit_fetch_planet'),
     # Catchall slug deep-link — must be LAST so named routes resolve first.
