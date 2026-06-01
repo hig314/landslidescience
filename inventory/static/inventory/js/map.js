@@ -406,6 +406,14 @@
         { id: 'usgs-img',  label: 'USGS Imagery',
           tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
           attr: 'USGS National Map' },
+        // USDA NRCS Alaska High-Altitude Photography (1978-1986, 1.5 m,
+        // color-balanced). The ImageServer doesn't expose XYZ tiles, but
+        // MapLibre's {bbox-epsg-3857} placeholder lets us drive its
+        // exportImage endpoint per tile. Coverage is Alaska only —
+        // outside the AHAP extent the server returns transparent tiles.
+        { id: 'nrcs-ahap', label: 'AHAP 1978-1986',
+          tiles: 'https://apps.geo.fpac.usda.gov/nrcs-imagery/rest/services/ortho_imagery/ahap_1978_to_1986_150cm_colorbalance/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=jpgpng&f=image',
+          attr: 'Alaska High-Altitude Photography (USDA NRCS, 1978-1986)' },
         { id: 'usgs-hist', label: 'USGS Hist. Topo',
           tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}',
           attr: '© Esri, USGS' },
