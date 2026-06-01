@@ -803,14 +803,62 @@ def _synthesize_landslides_from_flat_polygons(landslides_fc, polygons_fc,
     return warnings
 
 
+def _normalize_controlled_vocab(landslides_fc, polygons_fc):
+    """Case-fold and strip whitespace on controlled-vocabulary fields so the
+    importer accepts "Deposit", "DEPOSIT ", "Slow ", etc. without forcing
+    the editor to match exact casing. Mutates both FCs in place. Returns
+    a list of human-readable warnings about normalizations performed."""
+    warnings = []
+
+    def _norm_against(value, canonical_set):
+        if value is None:
+            return None, False
+        s = str(value).strip().lower()
+        if s == '':
+            return None, False
+        if s in canonical_set:
+            return s, (s != value)
+        return value, False  # unknown — leave alone so validation can flag it
+
+    polygon_roles = {'source', 'body', 'deposit'}
+    landslide_types = {'slow', 'catastrophic'}
+
+    for feat in polygons_fc.get('features') or []:
+        props = feat.get('properties') or {}
+        if 'role' in props:
+            normed, changed = _norm_against(props['role'], polygon_roles)
+            if changed:
+                warnings.append(f'polygon role: {props["role"]!r} → {normed!r}')
+                props['role'] = normed
+        # landslide_type may live on polygons in the flat-upload shape.
+        if 'landslide_type' in props:
+            normed, changed = _norm_against(props['landslide_type'], landslide_types)
+            if changed:
+                warnings.append(f'polygon landslide_type: {props["landslide_type"]!r} → {normed!r}')
+                props['landslide_type'] = normed
+
+    for feat in landslides_fc.get('features') or []:
+        props = feat.get('properties') or {}
+        if 'landslide_type' in props:
+            normed, changed = _norm_against(props['landslide_type'], landslide_types)
+            if changed:
+                warnings.append(f'landslide_type: {props["landslide_type"]!r} → {normed!r}')
+                props['landslide_type'] = normed
+
+    return warnings
+
+
 def compute_diff(landslides_fc, polygons_fc):
     """Compare upload against current DB.
 
-    Mutates both FCs in place to synthesize landslides for flat-polygon
-    uploads (orphan polygons grouped by unique_name → one new landslide).
-    The mutation is intentional: the synthesized features carry through
-    to the apply step. Idempotent — re-running sees synth ids already
-    present and skips re-creation.
+    Mutates both FCs in place to (1) normalize controlled-vocab fields
+    (role, landslide_type — case-folded against the canonical set so the
+    importer is tolerant of "Deposit"/"deposit "/etc.) and (2) synthesize
+    landslides for flat-polygon uploads (orphan polygons grouped by
+    unique_name → one new landslide). The mutation is intentional: the
+    normalized + synthesized features carry through to the apply step.
+    Idempotent — re-running sees synth ids already present and skips
+    re-creation.
 
     Returns:
         {
@@ -818,6 +866,8 @@ def compute_diff(landslides_fc, polygons_fc):
           'landslide_polygons': {'updates': [...], 'would_add': [...], 'unchanged': N, 'warnings': [...]},
         }
     """
+    norm_warnings = _normalize_controlled_vocab(landslides_fc, polygons_fc)
+
     conn = _get_conn()
     try:
         cur = conn.cursor()
@@ -835,6 +885,11 @@ def compute_diff(landslides_fc, polygons_fc):
         new_landslide_ids = {a['id'] for a in ls_diff['would_add']}
         po_diff = _diff_polygons(cur, polygons_fc['features'], po_types,
                                   new_landslide_ids=new_landslide_ids)
+        # Split normalization warnings to where they apply.
+        ls_diff['warnings'].extend(w for w in norm_warnings if 'landslide_type' in w
+                                                                and 'polygon' not in w)
+        po_diff['warnings'].extend(w for w in norm_warnings if 'polygon' in w
+                                                                or 'role' in w)
         conn.rollback()
     finally:
         _put_conn(conn)
