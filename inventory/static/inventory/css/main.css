@@ -601,30 +601,23 @@ body.inv-article-body {
 #timing-close:hover { color: #333; }
 #timing-canvas { display: block; width: 100%; flex: 1; }
 
-/* ---- Legend — absolute within #inventory-content ---- */
-#map-legend {
+/* ---- Bottom-right overlay (zoom hint + Methods link) ---- */
+#map-overlay-info {
     position: absolute;
     bottom: 32px;
-    left: 120px;
+    left: 12px;
     background: rgba(255,255,255,0.9);
     padding: 4px 10px;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 11px;
     z-index: 10;
     box-shadow: 0 1px 4px rgba(0,0,0,0.15);
 }
-
-.legend-dot {
-    display: inline-block;
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    vertical-align: middle;
+#map-overlay-info .overlay-row a {
+    color: #555;
+    text-decoration: none;
 }
-
-.legend-row {
-    line-height: 1.8;
-}
-
+#map-overlay-info .overlay-row a:hover { color: #5D4037; }
 #zoom-hint {
     color: #aaa;
     font-size: 11px;

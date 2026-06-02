@@ -233,7 +233,7 @@ class Command(BaseCommand):
         # base is the relative path from the page back to the snapshot root.
         # Used to rewrite absolute /inventory/... and /static/... references
         # into snapshot-local paths from each page's location.
-        ls_config = {'apiBase': './'}
+        ls_config = {'apiBase': './', 'staticBase': './static/'}
         config_script = ('<script>window.LS_CONFIG = '
                          + json.dumps(ls_config, separators=(',', ':'))
                          + ';</script>\n')

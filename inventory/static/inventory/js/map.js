@@ -9,6 +9,10 @@
     // edited later if a provider changes its URL.
     var CFG = window.LS_CONFIG || {};
     var API_BASE = CFG.apiBase || '/inventory/';
+    // Where the static assets live. Live site: /static/ (WhiteNoise +
+    // Caddy serve with long cache headers). Snapshot bundles: './static/'
+    // so they're self-contained.
+    var STATIC_BASE = CFG.staticBase || '/static/';
 
     // Version token embedded by Django — changes on each worker start / data reload.
     // Appended to API URLs so browsers never serve stale cached responses.
@@ -399,28 +403,33 @@
         { id: 'streets',   label: 'Streets', category: 'Other',
           coverage: 'Global',
           style: 'https://tiles.openfreemap.org/styles/liberty',
-          thumb: 'https://tile.openstreetmap.org/10/85/290.png',
+          thumb: 'inventory/img/basemap-thumbs/streets.png',
           attr: '© OpenFreeMap & OpenStreetMap contributors' },
         { id: 'esri-img',  label: 'ESRI Imagery', category: 'Imagery',
           coverage: 'Global',
           tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
           labelTiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+          thumb: 'inventory/img/basemap-thumbs/esri-img.png',
           attr: '© Esri, Maxar, Earthstar Geographics' },
         { id: 's2-cloudless', label: 'Sentinel-2 cloudless', category: 'Imagery',
           coverage: 'Global, 10 m',
           tiles: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg',
+          thumb: 'inventory/img/basemap-thumbs/s2-cloudless.jpg',
           attr: 'Sentinel-2 cloudless 2024 by EOX (modified Copernicus Sentinel data 2024)' },
         { id: 'esri-topo', label: 'ESRI Topo', category: 'Topo',
           coverage: 'Global',
           tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+          thumb: 'inventory/img/basemap-thumbs/esri-topo.png',
           attr: '© Esri, USGS, NOAA' },
         { id: 'usgs-topo', label: 'USGS Topo', category: 'Topo',
           coverage: 'Global (detailed in US only)',
           tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
+          thumb: 'inventory/img/basemap-thumbs/usgs-topo.png',
           attr: 'USGS National Map' },
         { id: 'usgs-img',  label: 'USGS Imagery', category: 'Imagery',
           coverage: 'Global (high-res in US only)',
           tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
+          thumb: 'inventory/img/basemap-thumbs/usgs-img.png',
           attr: 'USGS National Map' },
         // USDA NRCS Alaska High-Altitude Photography (1978-1986, 1.5 m,
         // color-balanced). The ImageServer doesn't expose XYZ tiles, but
@@ -434,22 +443,25 @@
         { id: 'nrcs-ahap', label: 'AHAP 1978-1986', category: 'Historical',
           coverage: 'Alaska (partial)',
           tiles: 'https://apps.geo.fpac.usda.gov/nrcs-imagery/rest/services/ortho_imagery/ahap_1978_to_1986_150cm_colorbalance/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=jpgpng&f=image',
-          thumb: 'https://apps.geo.fpac.usda.gov/nrcs-imagery/rest/services/ortho_imagery/ahap_1978_to_1986_150cm_colorbalance/ImageServer/exportImage?bbox=-15871027,8663891,-15855027,8679891&bboxSR=3857&imageSR=3857&size=256,256&format=jpgpng&f=image',
+          thumb: 'inventory/img/basemap-thumbs/nrcs-ahap.png',
           attr: 'Alaska High-Altitude Photography (1978-1986), USDA NRCS / FPAC Geospatial Business Branch' },
         { id: 'usgs-hist', label: 'USGS Hist. Topo', category: 'Historical',
           coverage: 'United States',
           tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}',
+          thumb: 'inventory/img/basemap-thumbs/usgs-hist.png',
           attr: '© Esri, USGS — USA historical topographic maps' },
     ];
     var REFMAPS_CATEGORY_ORDER = ['Imagery', 'Topo', 'Historical', 'Other'];
 
-    // Per-basemap thumbnail URL. If the entry has an explicit `thumb`,
-    // use it (lets us point e.g. AHAP / Streets at locations where
-    // there's something to look at). Otherwise substitute a z=4
-    // Alaska-overview tile into the live tile template.
+    // Per-basemap thumbnail URL. The `thumb` field is either an absolute
+    // URL (legacy) or a static-relative path that we resolve through
+    // STATIC_BASE — keeps the thumbnails as locally-served, cacheable
+    // assets that don't depend on external services per page-load.
     function basemapThumbnailUrl(bm) {
-        if (bm.thumb) return bm.thumb;
-        if (bm.style) return null;  // vector style with no thumb → placeholder
+        if (bm.thumb) {
+            return /^https?:/.test(bm.thumb) ? bm.thumb : (STATIC_BASE + bm.thumb);
+        }
+        if (bm.style) return null;
         var bbox = '-15028131,7514064,-12523443,10018752';
         return bm.tiles
             .replace('{z}', '4').replace('{y}', '4').replace('{x}', '2')
@@ -1679,7 +1691,7 @@
     var timingPanel    = document.getElementById('timing-panel');
     var chartsContainer = document.getElementById('charts-container');
 
-    var mapLegend     = document.getElementById('map-legend');
+    var mapOverlayInfo = document.getElementById('map-overlay-info');
 
     function updateChartsContainer() {
         if (!chartsContainer) return;
@@ -1688,9 +1700,10 @@
         var chartsOpen = histOpen || timingOpen;
         if (chartsOpen) chartsContainer.classList.remove('hidden');
         else            chartsContainer.classList.add('hidden');
-        // Lift legend above the chart panel so it stays readable.
+        // Lift the bottom-right overlay above the chart panel so the
+        // Methods link + zoom hint stay readable.
         var liftPx = chartsOpen ? 208 : 32;
-        if (mapLegend) mapLegend.style.bottom = liftPx + 'px';
+        if (mapOverlayInfo) mapOverlayInfo.style.bottom = liftPx + 'px';
         // Reflect chart-open state on the Analysis-tab toggle buttons.
         var ht = document.getElementById('hist-toggle');
         var tt = document.getElementById('timing-toggle');
