@@ -388,36 +388,64 @@
     // ESRI), the snapshot's tile config can be patched in place without
     // touching the live app or rebuilding the snapshot.
     var BASEMAPS = CFG.basemaps || [
-        { id: 'streets',   label: 'Streets',
-          style: 'https://tiles.openfreemap.org/styles/liberty' },
-        { id: 'esri-img',  label: 'ESRI Imagery',
+        // For vector-style basemaps there's no raster tile we can pull as
+        // a thumbnail, so we point at a representative OSM tile (Anchorage)
+        // since OSM is the data behind the Liberty style — gives the
+        // thumbnail a "street-grid" look rather than a generic placeholder.
+        // Vector-style basemap: no raster to extract a thumbnail from, so
+        // point at a representative OSM tile centered on Anchorage's street
+        // grid. OSM is the data behind the Liberty style so the look is
+        // analogous to what the live basemap shows.
+        { id: 'streets',   label: 'Streets', category: 'Other',
+          style: 'https://tiles.openfreemap.org/styles/liberty',
+          thumb: 'https://tile.openstreetmap.org/10/85/290.png' },
+        { id: 'esri-img',  label: 'ESRI Imagery', category: 'Imagery',
           tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
           labelTiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
           attr: '© Esri, Maxar, Earthstar Geographics' },
-        { id: 's2-cloudless', label: 'Sentinel-2 cloudless',
+        { id: 's2-cloudless', label: 'Sentinel-2 cloudless', category: 'Imagery',
           tiles: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg',
           attr: 'Sentinel-2 cloudless 2024 by <a href="https://s2maps.eu/">EOX</a> (Contains modified Copernicus Sentinel data 2024)' },
-        { id: 'esri-topo', label: 'ESRI Topo',
+        { id: 'esri-topo', label: 'ESRI Topo', category: 'Topo',
           tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
           attr: '© Esri, USGS, NOAA' },
-        { id: 'usgs-topo', label: 'USGS Topo',
+        { id: 'usgs-topo', label: 'USGS Topo', category: 'Topo',
           tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
           attr: 'USGS National Map' },
-        { id: 'usgs-img',  label: 'USGS Imagery',
+        { id: 'usgs-img',  label: 'USGS Imagery', category: 'Imagery',
           tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
           attr: 'USGS National Map' },
         // USDA NRCS Alaska High-Altitude Photography (1978-1986, 1.5 m,
         // color-balanced). The ImageServer doesn't expose XYZ tiles, but
         // MapLibre's {bbox-epsg-3857} placeholder lets us drive its
-        // exportImage endpoint per tile. Coverage is Alaska only —
+        // exportImage endpoint per tile. Coverage is ~90% of Alaska —
         // outside the AHAP extent the server returns transparent tiles.
-        { id: 'nrcs-ahap', label: 'AHAP 1978-1986',
+        // The south coast (Seldovia/Homer/Kachemak) is a notable gap;
+        // the Wrangell-St. Elias region (Calamity Gulch area, around the
+        // Bagley Icefield) is well-covered with dramatic mountain + glacier
+        // terrain, so it's the thumbnail location.
+        { id: 'nrcs-ahap', label: 'AHAP 1978-1986', category: 'Historical',
           tiles: 'https://apps.geo.fpac.usda.gov/nrcs-imagery/rest/services/ortho_imagery/ahap_1978_to_1986_150cm_colorbalance/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=jpgpng&f=image',
+          thumb: 'https://apps.geo.fpac.usda.gov/nrcs-imagery/rest/services/ortho_imagery/ahap_1978_to_1986_150cm_colorbalance/ImageServer/exportImage?bbox=-15871027,8663891,-15855027,8679891&bboxSR=3857&imageSR=3857&size=256,256&format=jpgpng&f=image',
           attr: 'Alaska High-Altitude Photography (USDA NRCS, 1978-1986)' },
-        { id: 'usgs-hist', label: 'USGS Hist. Topo',
+        { id: 'usgs-hist', label: 'USGS Hist. Topo', category: 'Historical',
           tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}',
           attr: '© Esri, USGS' },
     ];
+    var REFMAPS_CATEGORY_ORDER = ['Imagery', 'Topo', 'Historical', 'Other'];
+
+    // Per-basemap thumbnail URL. If the entry has an explicit `thumb`,
+    // use it (lets us point e.g. AHAP / Streets at locations where
+    // there's something to look at). Otherwise substitute a z=4
+    // Alaska-overview tile into the live tile template.
+    function basemapThumbnailUrl(bm) {
+        if (bm.thumb) return bm.thumb;
+        if (bm.style) return null;  // vector style with no thumb → placeholder
+        var bbox = '-15028131,7514064,-12523443,10018752';
+        return bm.tiles
+            .replace('{z}', '4').replace('{y}', '4').replace('{x}', '2')
+            .replace('{bbox-epsg-3857}', bbox);
+    }
 
     function buildRasterStyle(bm) {
         var sources = { basemap: { type: 'raster', tiles: [bm.tiles], tileSize: 256, attribution: bm.attr || '' } };
@@ -722,9 +750,12 @@
         var bm = findBasemap(id);
         if (!bm || id === _currentBasemap) return;
         _currentBasemap = id;
-        document.querySelectorAll('.bm-btn').forEach(function (b) {
+        // Visual selection across the three places it appears.
+        document.querySelectorAll('.refmap-option').forEach(function (b) {
             b.classList.toggle('active', b.dataset.id === id);
         });
+        var pinned = document.getElementById('pinned-basemap');
+        if (pinned && pinned.value !== id) pinned.value = id;
         map.once('idle', function () {
             if (!map.getSource('landslides')) initDataLayers();
         });
@@ -739,18 +770,87 @@
         if (_mapReady) writeHashState();
     }
 
-    // Build basemap picker buttons
+    // ---------------------------------------------------------------------------
+    // Sidebar shell: tabs + Reference-maps panel build-out + pinned basemap
+    // ---------------------------------------------------------------------------
     (function () {
-        var picker = document.getElementById('basemap-picker');
-        if (!picker) return;
-        BASEMAPS.forEach(function (bm) {
-            var btn = document.createElement('button');
-            btn.className = 'bm-btn' + (bm.id === _currentBasemap ? ' active' : '');
-            btn.dataset.id = bm.id;
-            btn.textContent = bm.label;
-            btn.addEventListener('click', function () { setBasemap(bm.id); });
-            picker.appendChild(btn);
+        // Tab switching: one panel visible at a time.
+        document.querySelectorAll('.inv-tab').forEach(function (tab) {
+            tab.addEventListener('click', function () {
+                var key = tab.dataset.tab;
+                document.querySelectorAll('.inv-tab').forEach(function (t) {
+                    var match = t.dataset.tab === key;
+                    t.classList.toggle('active', match);
+                    t.setAttribute('aria-selected', match ? 'true' : 'false');
+                });
+                document.querySelectorAll('.inv-panel').forEach(function (p) {
+                    p.classList.toggle('hidden', p.dataset.panel !== key);
+                });
+            });
         });
+
+        // Reference-maps panel: categorized cards with thumbnail + label.
+        var rm = document.getElementById('refmaps-content');
+        if (rm) {
+            rm.innerHTML = '';
+            REFMAPS_CATEGORY_ORDER.forEach(function (cat) {
+                var inCat = BASEMAPS.filter(function (bm) { return bm.category === cat; });
+                if (!inCat.length) return;
+                var hdr = document.createElement('div');
+                hdr.className = 'refmaps-category';
+                hdr.textContent = cat;
+                rm.appendChild(hdr);
+                var grid = document.createElement('div');
+                grid.className = 'refmaps-grid';
+                inCat.forEach(function (bm) {
+                    var card = document.createElement('div');
+                    card.className = 'refmap-option' + (bm.id === _currentBasemap ? ' active' : '');
+                    card.dataset.id = bm.id;
+                    card.title = bm.attr || bm.label;
+                    var thumbUrl = basemapThumbnailUrl(bm);
+                    if (thumbUrl) {
+                        var img = document.createElement('img');
+                        img.className = 'refmap-thumb';
+                        img.alt = '';
+                        img.loading = 'lazy';
+                        img.src = thumbUrl;
+                        // Fall back to a colored placeholder if the request fails.
+                        img.onerror = function () {
+                            var ph = document.createElement('div');
+                            ph.className = 'refmap-thumb-placeholder';
+                            ph.textContent = bm.label;
+                            img.replaceWith(ph);
+                        };
+                        card.appendChild(img);
+                    } else {
+                        var ph = document.createElement('div');
+                        ph.className = 'refmap-thumb-placeholder';
+                        ph.textContent = bm.label;
+                        card.appendChild(ph);
+                    }
+                    var lbl = document.createElement('div');
+                    lbl.className = 'refmap-label';
+                    lbl.textContent = bm.label;
+                    card.appendChild(lbl);
+                    card.addEventListener('click', function () { setBasemap(bm.id); });
+                    grid.appendChild(card);
+                });
+                rm.appendChild(grid);
+            });
+        }
+
+        // Pinned basemap quick-select: a flat dropdown showing every option.
+        var pinned = document.getElementById('pinned-basemap');
+        if (pinned) {
+            BASEMAPS.forEach(function (bm) {
+                var opt = document.createElement('option');
+                opt.value = bm.id;
+                opt.textContent = bm.label;
+                if (bm.id === _currentBasemap) opt.selected = true;
+                pinned.appendChild(opt);
+            });
+            pinned.addEventListener('change', function () { setBasemap(pinned.value); });
+        }
     }());
 
     // ---------------------------------------------------------------------------
@@ -1332,7 +1432,12 @@
     }
 
     if (cbLimitView) cbLimitView.addEventListener('change', function () {
+        // Both the sidebar class counts AND the chart panels respect this
+        // toggle. When off, histograms summarize the whole inventory;
+        // when on, they're clipped to the current map viewport.
         updateSidebarCounts();
+        updateHistogram();
+        updateTimeline();
         writeUrlState();
     });
 
@@ -1562,7 +1667,6 @@
     var chartsContainer = document.getElementById('charts-container');
 
     var mapLegend     = document.getElementById('map-legend');
-    var basemapPicker = document.getElementById('basemap-picker');
 
     function updateChartsContainer() {
         if (!chartsContainer) return;
@@ -1571,10 +1675,14 @@
         var chartsOpen = histOpen || timingOpen;
         if (chartsOpen) chartsContainer.classList.remove('hidden');
         else            chartsContainer.classList.add('hidden');
-        // Lift legend and basemap picker above chart panel so toggles stay clickable
+        // Lift legend above the chart panel so it stays readable.
         var liftPx = chartsOpen ? 208 : 32;
-        if (mapLegend)     mapLegend.style.bottom     = liftPx + 'px';
-        if (basemapPicker) basemapPicker.style.bottom = liftPx + 'px';
+        if (mapLegend) mapLegend.style.bottom = liftPx + 'px';
+        // Reflect chart-open state on the Analysis-tab toggle buttons.
+        var ht = document.getElementById('hist-toggle');
+        var tt = document.getElementById('timing-toggle');
+        if (ht) ht.classList.toggle('active', !!histOpen);
+        if (tt) tt.classList.toggle('active', !!timingOpen);
         // Re-render open panels after flex layout reflows (fixes canvas width when partner panel closes)
         setTimeout(function() { updateHistogram(); updateTimeline(); }, 50);
     }
@@ -1692,7 +1800,9 @@
         var unknownVolCount = 0;
 
         _timedEvents.forEach(function (ev) {
-            if (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e) return;
+            // Map-view clip only when the pinned "Limit to map view" toggle is on.
+            if (cbLimitView && cbLimitView.checked &&
+                (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e)) return;
             if (fs.types.indexOf(ev.ls_type) < 0) return;
             if (fs.classes.length && fs.classes.indexOf(ev.cls || '__unclassified__') < 0) return;
             // Dual-handle range filters. Each side only applies when the
@@ -2081,7 +2191,9 @@
         var total = 0;
         var unknownVolCount = 0;
         _timelineEvents.forEach(function (ev) {
-            if (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e) return;
+            // Map-view clip only when the pinned "Limit to map view" toggle is on.
+            if (cbLimitView && cbLimitView.checked &&
+                (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e)) return;
             if (fs.types.indexOf(ev.ls_type) < 0) return;
             if (fs.classes.length && fs.classes.indexOf(ev.cls || '__unclassified__') < 0) return;
             // See histogram filter above — dual-handle ranges with NULL exclusion.

@@ -91,9 +91,139 @@ body.inv-map-body {
     left: 0;
     width: 240px;
     bottom: 0;
-    overflow-y: auto;
     background: #f5f5f5;
     border-right: 1px solid #e0e0e0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Pinned strip: always visible, sits above the tab row. */
+.inv-pinned {
+    padding: 8px 12px;
+    border-bottom: 1px solid #e0d8ca;
+    background: #efe9dd;
+    flex: 0 0 auto;
+}
+.inv-pinned-row { margin-bottom: 6px; }
+.inv-pinned-basemap {
+    width: 100%;
+    padding: 3px 6px;
+    font-size: 12px;
+    border: 1px solid #c5beae;
+    border-radius: 3px;
+    background: #fff;
+    cursor: pointer;
+}
+
+/* Tab row above the panel content. */
+.inv-tabs {
+    display: flex;
+    flex: 0 0 auto;
+    border-bottom: 1px solid #d4cdc0;
+    background: #ece5d6;
+}
+.inv-tab {
+    flex: 1 1 0;
+    padding: 7px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6c5e4a;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+.inv-tab:hover { background: rgba(0,0,0,0.04); }
+.inv-tab.active {
+    color: #5D4037;
+    border-bottom-color: #5D4037;
+    background: #f5f5f5;
+}
+
+/* One panel visible at a time; non-active panels collapsed. */
+.inv-panel {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    background: #f5f5f5;
+}
+.inv-panel.hidden { display: none; }
+
+/* Reference maps panel: grid of thumbnail tiles per basemap. */
+.refmaps-category {
+    padding: 8px 14px 4px;
+    font-size: 11px;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.refmaps-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 0 14px 10px;
+}
+.refmap-option {
+    cursor: pointer;
+    border: 2px solid transparent;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #fff;
+    transition: border-color 0.12s;
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+}
+.refmap-option:hover { border-color: #c5beae; }
+.refmap-option.active { border-color: #5D4037; }
+.refmap-thumb {
+    width: 100%;
+    height: 64px;
+    object-fit: cover;
+    background: linear-gradient(135deg, #e8e2d5 0%, #d4cdc0 100%);
+    display: block;
+}
+.refmap-thumb-placeholder {
+    width: 100%; height: 64px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #e8e2d5, #d4cdc0);
+    color: #888; font-size: 10px;
+}
+.refmap-label {
+    padding: 3px 4px;
+    font-size: 11px;
+    line-height: 1.2;
+    color: #333;
+    background: #f5efe2;
+}
+.refmap-option.active .refmap-label {
+    background: #5D4037;
+    color: #fff;
+    font-weight: 600;
+}
+
+/* Analysis panel button styling. */
+.inv-analysis-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 7px 10px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    background: #fff;
+    border: 1px solid #d4cdc0;
+    border-radius: 3px;
+    cursor: pointer;
+    color: #333;
+}
+.inv-analysis-btn:hover { background: #f7f3eb; border-color: #5D4037; }
+.inv-analysis-btn.active {
+    background: #5D4037;
+    color: #fff;
+    border-color: #5D4037;
 }
 .inv-nav {
     list-style: none;
@@ -470,33 +600,6 @@ body.inv-article-body {
 }
 #timing-close:hover { color: #333; }
 #timing-canvas { display: block; width: 100%; flex: 1; }
-
-/* ---- Basemap picker ---- */
-#basemap-picker {
-    position: absolute;
-    bottom: 32px;
-    left: 10px;
-    z-index: 10;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.bm-btn {
-    display: block;
-    padding: 3px 9px;
-    font-size: 11px;
-    background: rgba(255,255,255,0.88);
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    cursor: pointer;
-    text-align: left;
-    color: #333;
-    white-space: nowrap;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-}
-.bm-btn:hover  { background: rgba(255,255,255,1); }
-.bm-btn.active { background: #5D4037; color: #fff; border-color: #5D4037; }
 
 /* ---- Legend — absolute within #inventory-content ---- */
 #map-legend {

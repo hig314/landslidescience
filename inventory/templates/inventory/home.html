@@ -11,6 +11,33 @@
 
 {% block body %}
 <aside class="inv-sidebar">
+  {# ---- Pinned strip: always visible regardless of active tab ---- #}
+  <div class="inv-pinned">
+    <div class="inv-pinned-row">
+      <label class="nav-filter-label small" style="display:inline-flex; margin-right:10px;">
+        <input type="checkbox" class="filter-type" value="slow" checked> Slow
+      </label>
+      <label class="nav-filter-label small" style="display:inline-flex;">
+        <input type="checkbox" class="filter-type" value="catastrophic" checked> Catastrophic
+      </label>
+    </div>
+    <div class="inv-pinned-row">
+      <label class="nav-filter-label small" style="display:inline-flex; color:#555;">
+        <input type="checkbox" id="cb-limit-view"> Limit to map view
+      </label>
+    </div>
+    <select id="pinned-basemap" class="inv-pinned-basemap" title="Basemap"></select>
+  </div>
+
+  {# ---- Tabs ---- #}
+  <nav class="inv-tabs" role="tablist">
+    <button class="inv-tab active" data-tab="inventory" role="tab" aria-selected="true">Inventory</button>
+    <button class="inv-tab" data-tab="refmaps" role="tab" aria-selected="false">Reference maps</button>
+    <button class="inv-tab" data-tab="analysis" role="tab" aria-selected="false">Analysis</button>
+  </nav>
+
+  {# ---- Inventory panel: existing filters ---- #}
+  <section class="inv-panel" data-panel="inventory">
   <ul class="inv-nav">
     <li class="nav-item title">
       Class
@@ -18,19 +45,6 @@
         <a href="#" id="class-all">all</a> /
         <a href="#" id="class-none">none</a>
       </span>
-    </li>
-    <li class="nav-item filter-control" style="padding-top:0; padding-bottom:4px;">
-      <label class="nav-filter-label small" style="display:inline-flex; margin-right:10px;">
-        <input type="checkbox" class="filter-type" value="slow" checked> Slow
-      </label>
-      <label class="nav-filter-label small" style="display:inline-flex;">
-        <input type="checkbox" class="filter-type" value="catastrophic" checked> Catastrophic
-      </label>
-    </li>
-    <li class="nav-item filter-control" style="padding-top:0; padding-bottom:4px;">
-      <label class="nav-filter-label small" style="display:inline-flex; color:#888;">
-        <input type="checkbox" id="cb-limit-view"> Limit counts to map view
-      </label>
     </li>
 
     {# ---- Slow: active (obvious/patchy) ---- #}
@@ -116,17 +130,6 @@
     <li class="nav-item separator"></li>
 
     {# ---- Other layers (hidden by default) ---- #}
-    <li class="nav-item nav-class-header">Other layers</li>
-    <li class="nav-item filter-control">
-      <label class="nav-filter-label small">
-        <input type="checkbox" id="cb-survey-circles">
-        Survey circles
-        <span style="color:#888; font-size:10px;">&nbsp;(completeness evaluation)</span>
-      </label>
-    </li>
-
-    <li class="nav-item separator"></li>
-
     {# ---- Include-only checkboxes ---- #}
     <li class="nav-item nav-class-header">Include only</li>
     <li class="nav-item filter-control">
@@ -191,6 +194,36 @@
       <div class="slider-label"><span id="year-label">All</span></div>
     </li>
   </ul>
+  </section>
+
+  {# ---- Reference maps panel: populated by JS (basemap hierarchy + overlays) ---- #}
+  <section class="inv-panel hidden" data-panel="refmaps">
+    <div id="refmaps-content">
+      <p style="font-size:12px; color:#888; padding:10px 14px;">Loading…</p>
+    </div>
+    <hr style="border:none; border-top:1px solid #e0d8ca; margin:10px 14px;">
+    <div style="padding:0 14px 10px;">
+      <div style="font-size:11px; color:#666; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Reference layers</div>
+      <label class="nav-filter-label small">
+        <input type="checkbox" id="cb-survey-circles">
+        Survey circles
+        <span style="color:#888; font-size:10px;">&nbsp;(completeness evaluation)</span>
+      </label>
+    </div>
+  </section>
+
+  {# ---- Analysis panel: chart toggles + limit-counts ---- #}
+  <section class="inv-panel hidden" data-panel="analysis">
+    <div style="padding:12px 14px;">
+      <button id="hist-toggle" class="inv-analysis-btn">&#9656; Seasonal timing</button>
+      <button id="timing-toggle" class="inv-analysis-btn">&#9656; Time-series</button>
+      <p style="font-size:11px; color:#888; margin:10px 0 0;">
+        Counts and chart data respect the "Limit to map view" toggle in the
+        pinned strip above. With it off, all records are summarized; with
+        it on, only those within the current map viewport.
+      </p>
+    </div>
+  </section>
 </aside>
 
 <main id="inventory-content">
@@ -237,34 +270,14 @@
     </div>
   </div>
 
-  <div id="basemap-picker"></div>
-
   <div id="measure-readout" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); background:rgba(255,255,255,0.92); border:1px solid rgba(0,0,0,0.12); border-radius:4px; padding:5px 12px; font-size:13px; font-family:system-ui,sans-serif; color:#222; box-shadow:0 1px 3px rgba(0,0,0,0.15); z-index:5; display:none;"></div>
 
-  <div id="map-legend">
-    <div class="legend-row">
-      <span class="legend-dot" style="background:#d3e9cf"></span>
-      <span class="legend-dot" style="background:#faf075; margin-left:3px"></span>
-      <span class="legend-dot" style="background:#f69fa1; margin-left:3px"></span>
-      Slow (geomorphic &rarr; obvious)
-    </div>
-    <div class="legend-row">
-      <span class="legend-dot" style="background:#3f67b1"></span>
-      Catastrophic &nbsp;
-      <span class="legend-dot" style="background:#3f67b1; box-shadow:0 0 0 2.5px #f69fa1"></span>
-      + precursory creep &nbsp;
-      <span class="legend-dot" style="background:#96b8df"></span>
-      Hol/Mod/Sm
-    </div>
+  {# Zoom hint + Methods link float bottom-right; the class-key legend
+     was removed because the Inventory tab shows the same swatches. #}
+  <div id="map-overlay-info">
     <div id="zoom-hint">Zoom in for polygons</div>
-    <div class="legend-row" style="margin-top:5px; border-top:1px solid rgba(0,0,0,0.12); padding-top:4px;">
-      <a href="#" id="hist-toggle" style="font-size:11px; color:#444; text-decoration:none;">&#9656; Seasonal timing</a>
-    </div>
-    <div class="legend-row">
-      <a href="#" id="timing-toggle" style="font-size:11px; color:#444; text-decoration:none;">&#9656; Timing</a>
-    </div>
-    <div class="legend-row" style="margin-top:3px; border-top:1px solid rgba(0,0,0,0.08); padding-top:3px;">
-      <a href="{% url 'inventory:methods' %}" target="_blank" style="font-size:11px; color:#888; text-decoration:none;">Methods</a>
+    <div class="overlay-row">
+      <a href="{% url 'inventory:methods' %}" target="_blank">Methods</a>
     </div>
   </div>
 </main>
