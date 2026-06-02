@@ -288,6 +288,22 @@
 <script>
   // Inject role flag for the map detail panel — editors get a "⚙ Manage" link.
   window._isInventoryEditor = {% if is_inventory_editor %}true{% else %}false{% endif %};
+  // Basemap thumbnail URLs resolved through {% verbatim %}{% static %}{% endverbatim %}, so on prod each one
+  // comes through as a content-hashed filename with Cache-Control:
+  // max-age=31536000, public, immutable. They're shipped with the
+  // codebase under static/inventory/img/basemap-thumbs/ — small,
+  // versioned, and never change without a code update.
+  window.LS_CONFIG = window.LS_CONFIG || {};
+  window.LS_CONFIG.basemapThumbs = {
+    'streets':      '{% static "inventory/img/basemap-thumbs/streets.png" %}',
+    'esri-img':     '{% static "inventory/img/basemap-thumbs/esri-img.png" %}',
+    's2-cloudless': '{% static "inventory/img/basemap-thumbs/s2-cloudless.jpg" %}',
+    'esri-topo':    '{% static "inventory/img/basemap-thumbs/esri-topo.png" %}',
+    'usgs-topo':    '{% static "inventory/img/basemap-thumbs/usgs-topo.png" %}',
+    'usgs-img':     '{% static "inventory/img/basemap-thumbs/usgs-img.png" %}',
+    'nrcs-ahap':    '{% static "inventory/img/basemap-thumbs/nrcs-ahap.png" %}',
+    'usgs-hist':    '{% static "inventory/img/basemap-thumbs/usgs-hist.png" %}'
+  };
 </script>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>

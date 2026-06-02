@@ -453,11 +453,19 @@
     ];
     var REFMAPS_CATEGORY_ORDER = ['Imagery', 'Topo', 'Historical', 'Other'];
 
-    // Per-basemap thumbnail URL. The `thumb` field is either an absolute
-    // URL (legacy) or a static-relative path that we resolve through
-    // STATIC_BASE — keeps the thumbnails as locally-served, cacheable
-    // assets that don't depend on external services per page-load.
+    // Per-basemap thumbnail URL. Preference order:
+    //   1. CFG.basemapThumbs[id]  — injected by the home template, which
+    //      runs each path through {% static %}; on prod these come out as
+    //      content-hashed filenames with Cache-Control: max-age=31536000,
+    //      public, immutable. Best caching.
+    //   2. bm.thumb               — absolute URL or static-relative path
+    //      (used by snapshot bundles where the template-injected map
+    //      isn't present).
+    //   3. Substituted z=4 tile from the live tile template (last resort).
     function basemapThumbnailUrl(bm) {
+        if (CFG.basemapThumbs && CFG.basemapThumbs[bm.id]) {
+            return CFG.basemapThumbs[bm.id];
+        }
         if (bm.thumb) {
             return /^https?:/.test(bm.thumb) ? bm.thumb : (STATIC_BASE + bm.thumb);
         }
