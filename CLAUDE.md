@@ -125,7 +125,30 @@ Local dev `.env` has `INVENTORY_PREVIEW_PASSWORD=devpreview2026` for testing the
 4. Edit non-geometry fields. Save.
 5. The audit log records who and when. The list view shows it.
 
-**Not yet supported via UI**: polygon editing, creating new landslide records. Those flow through QGIS/PostGIS for now. Future phase will add click-on-map polygon creation and external polygon imports.
+To bulk-add new landslides, use the upload path — see *Inventory induction workflow* below.
+
+**Not yet supported via UI**: polygon editing in-browser, click-on-map landslide creation. Those flow through QGIS/PostGIS for now.
+
+## Inventory induction workflow
+
+New landslides enter the inventory via upload at `/inventory/manage/import/`. The flow:
+
+1. Editor uploads a GeoJSON zip, `.geojson`, `.gpkg`, `.shp` (+ sidecars), or `.kml`. Multi-format ingestion goes through `pyogrio` + `shapely` → normalized GeoJSON FeatureCollections.
+2. Upload preview shows a diff (would-add / would-update / would-skip) and surfaces normalization warnings.
+3. **Common-fields form** at Apply: blanket values for fields the user wants to set on all new records (e.g. `noted_by`, `landslide_type`). `owner` is auto-populated from the logged-in user (data-admin only). Subset choices exclude locked subsets (e.g. `alaska-2025`). `unique_name` is excluded from blanket population (must be unique per record).
+4. On Apply, new landslides are inserted with `reviewed_at` NULL — i.e., **pending**.
+5. The user is redirected to `/inventory/manage/review/<first_pending_id>/` — a review form with a mini-map (basemap selector only, no measure/circles, polygons embedded server-side). The form excludes rule-populated columns (those should be computed at save time; see below). On save, `reviewed_at` is stamped and the view redirects to the next pending record.
+6. Pending records survive logout / browser close. They surface again next time the editor visits review.
+
+Upload-side normalization (in `io_geojson.py`):
+- `_normalize_controlled_vocab` — case-folds + trims `role` and `landslide_type`, applies vocab aliases (`Deposit` → `deposit`, etc.).
+- `_synthesize_landslides_from_flat_polygons` — when a flat-polygons-only file is uploaded, polygons grouped by `unique_name` are inferred into a synthesized landslide record (landslide_type inferred from the polygon roles).
+- `LANDSLIDES_AUTO_COLS = ('created_at', 'updated_at', 'reviewed_at')` — these are server-managed and ignored in uploads.
+
+**Half-implemented (tracked as task #61)**:
+- Per-record rule cascade is NOT applied on save (review-form save just stamps `reviewed_at`). Rule-populated columns are saved as whatever was uploaded — i.e. blank/defaults if not provided. The columns are also excluded from the form, so the editor cannot supply them by hand either. Net: those fields get silently dropped to NULL on induction.
+- Pending records (`reviewed_at IS NULL`) are NOT hidden from public views — the home counts, features API, snapshot build, and slug lookups all include them. This is intentional only until the rule cascade lands; once it does, the public surfaces should filter on `reviewed_at IS NOT NULL`.
+- `/inventory/manage/` has no "show only pending" filter UI yet.
 
 ## GeoJSON round-trip
 
@@ -208,6 +231,29 @@ docker compose exec web python manage.py archive_planet_stories
 slugs added through the edit form, classifies them by HEAD-probing GCS, and
 stamps disk-archive metadata. `--no-probe` skips the GCS check (useful when
 offline). `--dry-run` rolls back at the end.
+
+## Inventory map UI structure
+
+The sidebar at `/inventory/` is a three-tab layout with a pinned strip on top:
+
+- **Pinned strip** (always visible above the tabs): basemap quick-select, type checkboxes, "Limit to map view" toggle. The Limit toggle is universal — it affects inventory class counts AND the seasonal histogram + time-series chart.
+- **Inventory tab**: class checkboxes + dot-color legend + record count breakdown.
+- **Reference maps tab**: categorized basemap cards (Imagery / Topo / Historical / Other) with thumbnails, Windy.com-style. "Reference layers" section at the bottom for toggleable overlays (currently: Survey circles, and the two USGS susceptibility models lw / n10).
+- **Analysis tab**: triggers for the seasonal histogram + time-series chart (both respect the Limit toggle).
+
+There is no on-map legend or floating basemap-picker — those got removed in favor of the Inventory tab's color key.
+
+**Basemap thumbnails** ship as committed static assets at `inventory/static/inventory/img/basemap-thumbs/*.{png,jpg}` (~180 KB total). The HTML template injects a `basemapThumbs` dict into `LS_CONFIG` via `{% static %}` → WhiteNoise serves them with content-hashed filenames + `Cache-Control: max-age=315360000, public, immutable`. The snapshot build sets `staticBase: './static/'` so the same machinery works in the offline bundle.
+
+**Susceptibility overlays** (Reference layers → lw / n10): two toggleable, self-hosted raster overlays of the USGS Slope-Relief Threshold landslide-susceptibility models (Belair et al. 2024, 90 m). Mutually exclusive in the UI (one model at a time). **Alaska coverage** — this is why they're self-hosted rather than the old `tiles.arcgis.com/.../US_Landslide_Susceptibility` MapServer, which is conterminous-US only.
+
+How it works (pre-colored tiles):
+- `tools/build_susc_tiles.sh` reprojects each AK GeoTIFF (EPSG:3338, Int32 0–81 = count of susceptible 10 m sub-cells per 90 m cell, NoData = 2147483647) to EPSG:3857, clips to an Alaska window (the Aleutians straddle the antimeridian; an unclipped warp yields a globe-width canvas), bakes color with `gdaldem color-relief` from `tools/susc_color.txt` (RGBA, NoData → transparent), tiles z3–10 (XYZ), and prunes fully-transparent ocean tiles. Output: `data/susc_tiles/{lw,n10}/{z}/{x}/{y}.png` (~300 MB each; gitignored, never in the image).
+- **Why pre-colored, not recolored client-side:** MapLibre GL JS (5.5) does **not** implement Mapbox's `raster-color`/`raster-value` paint properties — confirmed absent from the 5.5.0 bundle — so a single-band value raster can't be colorized in the browser without a custom WebGL layer. Color is therefore baked at tile-gen time. **To recolor: edit `tools/susc_color.txt` and re-run the script** (cost = re-tiling, a few minutes). `map.js` renders the tiles as a plain raster layer (`raster-opacity: 1`; per-pixel alpha is in the tiles).
+- Served by the `susc_tile` view in `landslidescience/urls.py` at `/tiles/susc/<model>/{z}/{x}/{y}.png` with an immutable cache header. `data/` is volume-mounted (`docker-compose.yml`) in both dev and prod, so one route serves both. The build script runs locally (the web container has no GDAL); tiles ship to the droplet via a **separate** rsync (the main deploy rsync excludes `data/`).
+- Snapshots: tiles are not bundled (too big); `susTileBase` stays `/tiles/susc/`, so a toggled overlay is simply inert in an offline bundle.
+
+Task #69 (self-hosted recolorable susceptibility) — **done**. Follow-on (separate task): sample lw/n10 values at each landslide centroid and expose susceptibility-based filtering in the inventory.
 
 ## Forward-looking integration
 

@@ -14,6 +14,19 @@
     // so they're self-contained.
     var STATIC_BASE = CFG.staticBase || '/static/';
 
+    // USGS Belair et al. (2024) landslide-susceptibility overlays (Alaska).
+    // Self-hosted, pre-colored XYZ PNGs (YlOrRd, transparent over NoData) built
+    // by tools/build_susc_tiles.sh and served at /tiles/susc/<key>/. MapLibre
+    // GL JS does not implement Mapbox's `raster-color`, so color is baked at
+    // tile-gen time from tools/susc_color.txt — recoloring = re-running that
+    // script, not editing JS.
+    var SUSC_TILE_BASE = CFG.susTileBase || '/tiles/susc/';
+    // The two USGS model variants. Mutually exclusive in the UI (one at a time).
+    var SUSC_LAYERS = [
+        { key: 'lw',  cb: 'cb-susc-lw',  attr: 'Susceptibility (lw): USGS, Belair et al. 2024' },
+        { key: 'n10', cb: 'cb-susc-n10', attr: 'Susceptibility (n10): USGS, Belair et al. 2024' }
+    ];
+
     // Version token embedded by Django — changes on each worker start / data reload.
     // Appended to API URLs so browsers never serve stale cached responses.
     var DATA_V = document.getElementById('map').dataset.version || '';
@@ -671,6 +684,31 @@
     function initDataLayers() {
         var bId = map.getLayer('measure-fill') ? 'measure-fill' : undefined;
 
+        // USGS susceptibility overlays (lw / n10), pre-colored raster tiles.
+        // Added first so the inventory data layers stack ON TOP. Initial
+        // visibility reflects the toggle state so a basemap switch (which re-runs
+        // initDataLayers) preserves the user's choice. Per-pixel alpha is baked
+        // into the tiles, so raster-opacity stays at 1. Citation: USGS, Belair
+        // et al. 2024 (Slope-Relief Threshold susceptibility, 90 m).
+        SUSC_LAYERS.forEach(function (s) {
+            var cb = document.getElementById(s.cb);
+            map.addSource('susc-' + s.key, {
+                type: 'raster',
+                tiles: [SUSC_TILE_BASE + s.key + '/{z}/{x}/{y}.png'],
+                tileSize: 256,
+                minzoom: 3,
+                maxzoom: 10,
+                attribution: s.attr
+            });
+            map.addLayer({
+                id: 'susc-' + s.key + '-layer',
+                type: 'raster',
+                source: 'susc-' + s.key,
+                layout: { 'visibility': (cb && cb.checked) ? 'visible' : 'none' },
+                paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
+            }, bId);
+        });
+
         map.addSource('landslides', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addSource('polygons',   { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
@@ -1080,6 +1118,28 @@
     var cbLimitView    = document.getElementById('cb-limit-view');
     [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012].forEach(function (cb) {
         if (cb) cb.addEventListener('change', buildFilter);
+    });
+
+    // Susceptibility overlays (lw / n10) — mutually exclusive. Checking one
+    // unchecks (and hides) the other; either can be off. Sources/layers are
+    // configured at initDataLayers time, so toggling just flips visibility;
+    // tiles are fetched on demand by MapLibre on first activation.
+    var suscCbs = SUSC_LAYERS.map(function (s) { return document.getElementById(s.cb); });
+    function setSuscVis(i, vis) {
+        var id = 'susc-' + SUSC_LAYERS[i].key + '-layer';
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+    }
+    SUSC_LAYERS.forEach(function (s, i) {
+        var cb = suscCbs[i];
+        if (!cb) return;
+        cb.addEventListener('change', function () {
+            if (cb.checked) {
+                suscCbs.forEach(function (other, j) {
+                    if (other && j !== i && other.checked) { other.checked = false; setSuscVis(j, 'none'); }
+                });
+            }
+            setSuscVis(i, cb.checked ? 'visible' : 'none');
+        });
     });
 
     // Survey-circles toggle — lazy-fetches on first activation, then just

@@ -1,0 +1,17 @@
+# Color ramp for the USGS susceptibility overlays (gdaldem color-relief format).
+# Columns: VALUE  R  G  B  A   — VALUE is in source units (0-81 = count of
+# susceptible 10 m sub-cells per 90 m cell, i.e. fraction susceptible = value/81).
+# gdaldem interpolates RGBA linearly between stops. `nv` = NoData (ocean / no
+# data) -> fully transparent.
+#
+# THIS FILE IS THE RECOLOR KNOB. Edit the stops, then re-run
+# tools/build_susc_tiles.sh to regenerate the tiles. Palette: ColorBrewer YlOrRd
+# with a transparent low end so low-susceptibility terrain lets the basemap read
+# through.
+nv   0   0   0   0
+0  255 255 178   0
+4  255 255 178 130
+16 254 204  92 175
+32 253 141  60 200
+53 240  59  32 220
+81 189   0  38 235
