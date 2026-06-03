@@ -239,7 +239,9 @@ The sidebar at `/inventory/` is a three-tab layout with a pinned strip on top:
 - **Pinned strip** (always visible above the tabs): basemap quick-select, type checkboxes, "Limit to map view" toggle. The Limit toggle is universal — it affects inventory class counts AND the seasonal histogram + time-series chart.
 - **Inventory tab**: class checkboxes + dot-color legend + record count breakdown.
 - **Reference maps tab**: categorized basemap cards (Imagery / Topo / Historical / Other) with thumbnails, Windy.com-style. "Reference layers" section at the bottom for toggleable overlays (currently: Survey circles, and the two USGS susceptibility models lw / n10).
-- **Analysis tab**: triggers for the seasonal histogram + time-series chart (both respect the Limit toggle).
+- **Analysis tab**: triggers for the seasonal histogram, time-series chart, and the lw × n10 susceptibility scatter — each opens as a floating, draggable, resizable panel (see *Floating analysis panels* below). The histogram + time-series respect the Limit toggle.
+
+(The n10/lw susceptibility range sliders live in the **Inventory** filter panel alongside the source-area / deposit-area / volume / age dual-range filters.)
 
 There is no on-map legend or floating basemap-picker — those got removed in favor of the Inventory tab's color key.
 
