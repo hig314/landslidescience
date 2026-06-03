@@ -35,6 +35,8 @@ COLOR_FILE="${COLOR_FILE:-$ROOT_SH/susc_color.txt}"
 # PROJ data — without this the QGIS-bundled GDAL can't find proj.db and
 # mis-georeferences the XYZ tiles.
 export PROJ_LIB="${PROJ_LIB:-/Applications/QGIS-LTR.app/Contents/Resources/proj}"
+# Don't scatter PAM .aux.xml sidecars next to every tile during the prune scan.
+export GDAL_PAM_ENABLED=NO
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC_DIR="$ROOT/data/usgs_susceptibility"
@@ -79,8 +81,12 @@ build_one () {
       "$src" "$TMP_DIR/${key}_3857.tif"
   fi
 
-  echo "  [2/3] color-relief via $(basename "$COLOR_FILE") (RGBA; NoData -> transparent)"
-  "$DEM" color-relief "$TMP_DIR/${key}_3857.tif" "$COLOR_FILE" \
+  # Per-model color file (tools/susc_color_<key>.txt) if present, else the
+  # shared COLOR_FILE. Lets n10 and lw use different class breaks.
+  local cf="$ROOT_SH/susc_color_${key}.txt"
+  [ -f "$cf" ] || cf="$COLOR_FILE"
+  echo "  [2/3] color-relief via $(basename "$cf") (RGBA; NoData -> transparent)"
+  "$DEM" color-relief "$TMP_DIR/${key}_3857.tif" "$cf" \
     "$TMP_DIR/${key}_color.tif" -alpha -co COMPRESS=LZW -q
 
   echo "  [3/3] tile z$MINZOOM-$MAXZOOM (XYZ)"

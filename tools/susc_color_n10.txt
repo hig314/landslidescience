@@ -1,0 +1,15 @@
+# n10 discrete frequency-ratio classes (gdaldem color-relief).
+# Columns: VALUE R G B A. Breaks at n10's FR jump (see susceptibility analysis):
+#   0      = none        -> transparent
+#   1-62   = Low   (FR ~0.2, under-represented) -> pale yellow, faint
+#   63-80  = High  (FR ~13-15)                  -> orange
+#   81      = Very High (FR ~20)                -> red
+# Same-color entries within a class make the steps effectively hard at integer
+# values (color-relief only interpolates across the sub-integer gap at a break).
+nv  0   0   0   0
+0   0   0   0   0
+1   255 255 178  90
+62  255 255 178  90
+63  253 141  60 190
+80  253 141  60 190
+81  227  26  28 235

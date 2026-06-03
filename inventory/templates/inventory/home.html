@@ -193,6 +193,32 @@
       </div>
       <div class="slider-label"><span id="year-label">All</span></div>
     </li>
+
+    {# ---- Susceptibility sliders (dual): filter landslides by their sampled USGS value 0-81 ---- #}
+    <li class="nav-item nav-class-header">Susceptibility — n10 <span style="font-size:9px;font-weight:normal;color:#999;">(USGS, 0–81)</span></li>
+    <li class="nav-item filter-control">
+      <div class="dual-range" data-slider="susc-n10">
+        <div class="dual-track"></div>
+        <div class="dual-progress"></div>
+        <input type="range" class="dual-min" id="susc-n10-min" min="0" max="81" step="1" value="0">
+        <input type="range" class="dual-max" id="susc-n10-max" min="0" max="81" step="1" value="81">
+      </div>
+      <div class="slider-label"><span id="susc-n10-label">All</span></div>
+    </li>
+
+    <li class="nav-item nav-class-header">Susceptibility — lw <span style="font-size:9px;font-weight:normal;color:#999;">(USGS, 0–81)</span></li>
+    <li class="nav-item filter-control">
+      <div class="dual-range" data-slider="susc-lw">
+        <div class="dual-track"></div>
+        <div class="dual-progress"></div>
+        <input type="range" class="dual-min" id="susc-lw-min" min="0" max="81" step="1" value="0">
+        <input type="range" class="dual-max" id="susc-lw-max" min="0" max="81" step="1" value="81">
+      </div>
+      <div class="slider-label"><span id="susc-lw-label">All</span></div>
+    </li>
+    <li class="nav-item filter-control" style="padding-top:0;">
+      <div class="slider-label" style="color:#666;"><span id="susc-filter-count">All landslides</span></div>
+    </li>
   </ul>
   </section>
 

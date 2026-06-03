@@ -21,11 +21,34 @@
     // tile-gen time from tools/susc_color.txt — recoloring = re-running that
     // script, not editing JS.
     var SUSC_TILE_BASE = CFG.susTileBase || '/tiles/susc/';
+    // Cache-buster for the susceptibility tiles. The tile route sends a 1-year
+    // immutable Cache-Control, and tile URLs are NOT content-hashed, so any time
+    // the tiles are rebuilt with different pixels (e.g. a recolor / reclass) this
+    // MUST be bumped or clients keep the stale image for a year. v2 = discrete
+    // frequency-ratio classes (was v1 = continuous YlOrRd ramp).
+    var SUSC_TILE_V = '2';
     // The two USGS model variants. Mutually exclusive in the UI (one at a time).
     var SUSC_LAYERS = [
         { key: 'lw',  cb: 'cb-susc-lw',  attr: 'Susceptibility (lw): USGS, Belair et al. 2024' },
         { key: 'n10', cb: 'cb-susc-n10', attr: 'Susceptibility (n10): USGS, Belair et al. 2024' }
     ];
+    // Per-landslide sampled susceptibility values {id: {n10, lw}}, used by the
+    // n10/lw range sliders to filter the inventory points. Precomputed offline
+    // (tools/sample, written to this static JSON) since the web container has no
+    // GDAL. Loaded once; merged into the feature properties as `n10` / `lw`.
+    var SUSC_VALUES = null;
+    var _suscValuesPromise = fetch(STATIC_BASE + 'inventory/susc_values.json?v=' + DATA_V)
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { SUSC_VALUES = j; })
+        .catch(function () { SUSC_VALUES = null; });
+    function mergeSuscValues(data) {
+        if (!SUSC_VALUES || !data || !data.features) return;
+        data.features.forEach(function (ft) {
+            var v = SUSC_VALUES[String(ft.properties.id)];
+            ft.properties.n10 = (v && v.n10 != null) ? v.n10 : null;
+            ft.properties.lw  = (v && v.lw  != null) ? v.lw  : null;
+        });
+    }
 
     // Version token embedded by Django — changes on each worker start / data reload.
     // Appended to API URLs so browsers never serve stale cached responses.
@@ -666,6 +689,13 @@
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 _featuresData = data;
+                // Attach sampled susceptibility once the value table is in, then
+                // (re)apply the data + filters so the n10/lw sliders work.
+                _suscValuesPromise.then(function () {
+                    mergeSuscValues(data);
+                    if (map.getSource('landslides')) map.getSource('landslides').setData(data);
+                    if (map.getLayer('points')) buildFilter();
+                });
                 if (map.getSource('landslides')) map.getSource('landslides').setData(data);
             })
             .catch(function (e) { console.error('Feature load failed:', e); });
@@ -694,7 +724,7 @@
             var cb = document.getElementById(s.cb);
             map.addSource('susc-' + s.key, {
                 type: 'raster',
-                tiles: [SUSC_TILE_BASE + s.key + '/{z}/{x}/{y}.png'],
+                tiles: [SUSC_TILE_BASE + s.key + '/{z}/{x}/{y}.png?v=' + SUSC_TILE_V],
                 tileSize: 256,
                 minzoom: 3,
                 maxzoom: 10,
@@ -1065,6 +1095,13 @@
         return YEAR_LABELS[loV].replace(/^≥\s?/, '') + ' – '
              + YEAR_LABELS[hiV].replace(/^≥\s?/, '');
     }
+    function fmtSuscRange(loV, hiV, sliderMax) {
+        var minActive = loV > 0, maxActive = hiV < sliderMax;
+        if (!minActive && !maxActive) return 'All';
+        if (minActive && !maxActive) return '≥ ' + loV;
+        if (!minActive && maxActive) return '≤ ' + hiV;
+        return loV + ' – ' + hiV;
+    }
 
     function _setupDual(slug, fmtRange) {
         var minEl = document.getElementById(slug + '-min');
@@ -1104,6 +1141,8 @@
     var srcAreaDual = _setupDual('src-area', fmtAreaRange);
     var depAreaDual = _setupDual('dep-area', fmtAreaRange);
     var volDual     = _setupDual('vol',      fmtVolRange);
+    var suscN10Dual = _setupDual('susc-n10', fmtSuscRange);
+    var suscLwDual  = _setupDual('susc-lw',  fmtSuscRange);
     var yearDual    = _setupDual('year',     fmtYearRange);
 
     var cbMolards      = document.getElementById('cb-molards');
@@ -1407,6 +1446,9 @@
         addRangeFilter(depAreaDual, 'area_dep',          areaPosToValue,
                         ['==', ['get', 'landslide_type'], 'slow']);
         addRangeFilter(volDual,     'volume_preferred',  volPosToValue);
+        // Susceptibility sliders: slider position == raster value (0-81) directly.
+        addRangeFilter(suscN10Dual, 'n10', function (p) { return p; });
+        addRangeFilter(suscLwDual,  'lw',  function (p) { return p; });
         // Year is a step-1 integer slider mapped through yearPosToMinNum
         // (Holocene = -1, Modern = 0, 2012-2025 = 2012..2025).
         if (yearDual) {
@@ -1437,7 +1479,37 @@
         updateHistogram();
         updateTimeline();
         scheduleSidebarCountUpdate();
+        updateSuscCount();
         writeUrlState();
+    }
+
+    // Live readout for the susceptibility sliders: how many landslides fall in
+    // the n10 AND lw boxes (over the whole inventory, independent of the class /
+    // type filters — answers "how many sit in this susceptibility range").
+    function _suscRange(dual) {
+        if (!dual) return null;
+        var lo = parseFloat(dual.minEl.value), hi = parseFloat(dual.maxEl.value);
+        return { lo: lo, hi: hi, minA: lo > dual.sliderMin, maxA: hi < dual.sliderMax };
+    }
+    function updateSuscCount() {
+        var el = document.getElementById('susc-filter-count');
+        if (!el || !_featuresData || !_featuresData.features) return;
+        var rn = _suscRange(suscN10Dual), rl = _suscRange(suscLwDual);
+        var anyActive = (rn && (rn.minA || rn.maxA)) || (rl && (rl.minA || rl.maxA));
+        if (!anyActive) { el.textContent = 'All landslides'; return; }
+        var total = _featuresData.features.length, inrange = 0;
+        _featuresData.features.forEach(function (ft) {
+            var p = ft.properties, ok = true;
+            [[rn, p.n10], [rl, p.lw]].forEach(function (pair) {
+                var r = pair[0], val = pair[1];
+                if (!r || (!r.minA && !r.maxA)) return;
+                if (val == null) { ok = false; return; }
+                if (r.minA && val < r.lo) ok = false;
+                if (r.maxA && val > r.hi) ok = false;
+            });
+            if (ok) inrange++;
+        });
+        el.textContent = inrange + ' of ' + total + ' landslides in range';
     }
 
     document.querySelectorAll('.filter-type').forEach(function (cb) { cb.addEventListener('change', buildFilter); });
