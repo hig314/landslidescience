@@ -41,6 +41,13 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) { SUSC_VALUES = j; })
         .catch(function () { SUSC_VALUES = null; });
+    // 82×82 joint density of ALL Alaska terrain in lw×n10 space (grid[n10*82+lw]),
+    // drawn as the heatmap behind the scatter dots. Precomputed offline.
+    var SUSC_TERRAIN = null;
+    fetch(STATIC_BASE + 'inventory/susc_terrain_density.json?v=' + DATA_V)
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { SUSC_TERRAIN = j; scatterDrawAll(); })
+        .catch(function () { SUSC_TERRAIN = null; });
     function mergeSuscValues(data) {
         if (!SUSC_VALUES || !data || !data.features) return;
         data.features.forEach(function (ft) {
@@ -695,6 +702,7 @@
                     mergeSuscValues(data);
                     if (map.getSource('landslides')) map.getSource('landslides').setData(data);
                     if (map.getLayer('points')) buildFilter();
+                    scatterDrawAll();
                 });
                 if (map.getSource('landslides')) map.getSource('landslides').setData(data);
             })
@@ -988,10 +996,7 @@
         .then(function (r) { return r.json(); })
         .then(function (d) {
             _timedEvents = d.events;
-            if (_urlPanels.openHist && histPanel) {
-                histPanel.classList.remove('hidden');
-                updateChartsContainer();
-            }
+            if (_urlPanels.openHist && histFP) histFP.open();
             updateHistogram();
         })
         .catch(function (e) { console.error('Timed events load failed:', e); });
@@ -1009,10 +1014,7 @@
         .then(function (r) { return r.json(); })
         .then(function (d) {
             _timelineEvents = d.events;
-            if (_urlPanels.openTiming && timingPanel) {
-                timingPanel.classList.remove('hidden');
-                updateChartsContainer();
-            }
+            if (_urlPanels.openTiming && timingFP) timingFP.open();
             updateTimeline();
         })
         .catch(function (e) { console.error('Timeline events load failed:', e); });
@@ -1480,6 +1482,7 @@
         updateTimeline();
         scheduleSidebarCountUpdate();
         updateSuscCount();
+        scatterSyncBox();
         writeUrlState();
     }
 
@@ -1509,7 +1512,10 @@
             });
             if (ok) inrange++;
         });
-        el.textContent = inrange + ' of ' + total + ' landslides in range';
+        var txt = inrange + ' of ' + total + ' landslides in range';
+        el.textContent = txt;
+        var sc = document.getElementById('scatter-count');
+        if (sc) sc.textContent = anyActive ? txt : '';
     }
 
     document.querySelectorAll('.filter-type').forEach(function (cb) { cb.addEventListener('change', buildFilter); });
@@ -1829,28 +1835,70 @@
     // ===========================================================================
     var histPanel      = document.getElementById('hist-panel');
     var timingPanel    = document.getElementById('timing-panel');
-    var chartsContainer = document.getElementById('charts-container');
+    var scatterPanel   = document.getElementById('scatter-float');
 
-    var mapOverlayInfo = document.getElementById('map-overlay-info');
+    // The three analysis graphs (seasonal histogram, time-series, scatter) are
+    // all floating, draggable, resizable panels. Panel objects are assigned at
+    // their wiring sites below; declared here so the async URL-state hydration
+    // (which runs after init) can open them.
+    var histFP, timingFP, scatterFP;
 
-    function updateChartsContainer() {
-        if (!chartsContainer) return;
-        var histOpen   = histPanel   && !histPanel.classList.contains('hidden');
-        var timingOpen = timingPanel && !timingPanel.classList.contains('hidden');
-        var chartsOpen = histOpen || timingOpen;
-        if (chartsOpen) chartsContainer.classList.remove('hidden');
-        else            chartsContainer.classList.add('hidden');
-        // Lift the bottom-right overlay above the chart panel so the
-        // Methods link + zoom hint stay readable.
-        var liftPx = chartsOpen ? 208 : 32;
-        if (mapOverlayInfo) mapOverlayInfo.style.bottom = liftPx + 'px';
-        // Reflect chart-open state on the Analysis-tab toggle buttons.
-        var ht = document.getElementById('hist-toggle');
-        var tt = document.getElementById('timing-toggle');
-        if (ht) ht.classList.toggle('active', !!histOpen);
-        if (tt) tt.classList.toggle('active', !!timingOpen);
-        // Re-render open panels after flex layout reflows (fixes canvas width when partner panel closes)
-        setTimeout(function() { updateHistogram(); updateTimeline(); }, 50);
+    // Shared floating-panel behavior: toggle/close, jump-free header drag
+    // (clamped to the offset parent), and a debounced redraw on resize. opts:
+    // {handle, toggle, close, onResize}. Returns {open, close, isOpen}.
+    function makeFloatingPanel(panel, opts) {
+        if (!panel) return { open: function () {}, close: function () {}, isOpen: function () { return false; } };
+        opts = opts || {};
+        var handle = opts.handle, toggle = opts.toggle, closeBtn = opts.close,
+            onResize = opts.onResize, onChange = opts.onChange;
+        function isOpen() { return !panel.classList.contains('hidden'); }
+        function open() {
+            panel.classList.remove('hidden');
+            if (toggle) toggle.classList.add('active');
+            if (onResize) setTimeout(onResize, 60);   // after layout settles
+            if (onChange) onChange();
+        }
+        function close() {
+            panel.classList.add('hidden');
+            if (toggle) toggle.classList.remove('active');
+            if (onChange) onChange();
+        }
+        if (toggle)   toggle.addEventListener('click', function (e) { e.preventDefault(); isOpen() ? close() : open(); });
+        if (closeBtn) closeBtn.addEventListener('click', function (e) { e.preventDefault(); close(); });
+
+        if (onResize && window.ResizeObserver) {
+            var raf = null;
+            new ResizeObserver(function () {
+                if (!isOpen()) return;
+                if (raf) cancelAnimationFrame(raf);
+                raf = requestAnimationFrame(onResize);
+            }).observe(panel);
+        }
+        if (handle) {
+            var moving = false, offX = 0, offY = 0, parRect = null;
+            handle.addEventListener('pointerdown', function (e) {
+                if (e.target.closest('button, a, input, label, select')) return;  // let controls work
+                moving = true;
+                var r = panel.getBoundingClientRect();
+                parRect = (panel.offsetParent || document.body).getBoundingClientRect();
+                offX = e.clientX - r.left; offY = e.clientY - r.top;
+                // Pin current position as left/top BEFORE clearing right/bottom so
+                // the anchor flip doesn't jump.
+                panel.style.left = (r.left - parRect.left) + 'px';
+                panel.style.top  = (r.top  - parRect.top)  + 'px';
+                panel.style.right = 'auto'; panel.style.bottom = 'auto';
+                handle.setPointerCapture(e.pointerId);
+                e.preventDefault();
+            });
+            handle.addEventListener('pointermove', function (e) {
+                if (!moving) return;
+                var w = panel.offsetWidth, h = panel.offsetHeight;
+                panel.style.left = Math.max(0, Math.min(parRect.width  - w, e.clientX - offX - parRect.left)) + 'px';
+                panel.style.top  = Math.max(0, Math.min(parRect.height - h, e.clientY - offY - parRect.top))  + 'px';
+            });
+            handle.addEventListener('pointerup', function () { moving = false; });
+        }
+        return { open: open, close: close, isOpen: isOpen };
     }
 
     // ---------------------------------------------------------------------------
@@ -2099,8 +2147,9 @@
         if (!result || result.count === 0) {
             ctx.clearRect(0, 0, W, H);
             ctx.fillStyle = '#aaa'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
-            ctx.fillText(result ? 'No timed events in current view' : 'Loading…', W/2, H/2);
-            if (subtitle) subtitle.textContent = '0 events with precise timing in view';
+            var inView0 = (cbLimitView && cbLimitView.checked) ? ' in view' : '';
+            ctx.fillText(result ? ('No timed events' + (inView0 ? ' in current view' : '')) : 'Loading…', W/2, H/2);
+            if (subtitle) subtitle.textContent = '0 events with precise timing' + inView0;
             return;
         }
         var maxDays = histDaysSlider ? parseInt(histDaysSlider.value) : 30;
@@ -2121,8 +2170,9 @@
             bc[36] *= normF;
         }
 
+        var inView = (cbLimitView && cbLimitView.checked) ? ' in view' : '';
         var subtitleText = result.count + ' event' + (result.count === 1 ? '' : 's') +
-            ' in view \u2264\u202f' + maxDays + '\u202fd uncertainty';
+            inView + ' \u2264\u202f' + maxDays + '\u202fd uncertainty';
         if (useVol && result.unknownVolCount) {
             subtitleText += ' \u00b7 ' + result.unknownVolCount + ' with unknown volume';
         }
@@ -2274,28 +2324,14 @@
         if (histPanel && !histPanel.classList.contains('hidden')) renderHistogram(computeHistogram());
     }
 
-    // Histogram toggle
-    var histToggle = document.getElementById('hist-toggle');
-    var histClose  = document.getElementById('hist-close');
-
-    if (histToggle && histPanel) {
-        histToggle.addEventListener('click', function (e) {
-            e.preventDefault();
-            histPanel.classList.toggle('hidden');
-            updateChartsContainer();
-            if (!histPanel.classList.contains('hidden')) {
-                setTimeout(updateHistogram, 50);
-            }
-            writeUrlState();
-        });
-    }
-    if (histClose) {
-        histClose.addEventListener('click', function () {
-            histPanel.classList.add('hidden');
-            updateChartsContainer();
-            writeUrlState();
-        });
-    }
+    // Histogram floating panel
+    histFP = makeFloatingPanel(histPanel, {
+        handle:   histPanel ? histPanel.querySelector('.hist-header') : null,
+        toggle:   document.getElementById('hist-toggle'),
+        close:    document.getElementById('hist-close'),
+        onResize: updateHistogram,
+        onChange: writeUrlState
+    });
 
     // ===========================================================================
     // Timeline histogram
@@ -2444,6 +2480,16 @@
         }
         normalize({ H: 10000, M: 150 });
 
+        // Express the rate per MONTH (the finest bin granularity) instead of per
+        // year: divide every bin + volume by 12. The chart shape is unchanged —
+        // only the y-axis units — but the monthly-resolution tail reads more
+        // intuitively (one event in a month → 1 ev/month, not 12 ev/yr).
+        Object.keys(bins).forEach(function (k) {
+            bins[k]     /= 12;
+            volBins[k]  /= 12;
+            volMaxEv[k] /= 12;
+        });
+
         return {
             bins: bins, total: total,
             volBins: volBins, volMaxEv: volMaxEv,
@@ -2469,12 +2515,14 @@
         if (!result || result.total === 0) {
             ctx.clearRect(0, 0, W, H);
             ctx.fillStyle = '#aaa'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
-            ctx.fillText(result ? 'No events with temporal data in current view' : 'Loading\u2026', W/2, H/2);
-            if (subtitle) subtitle.textContent = '0 events with temporal data in view';
+            var inViewTl0 = (cbLimitView && cbLimitView.checked) ? ' in view' : '';
+            ctx.fillText(result ? ('No events with temporal data' + (inViewTl0 ? ' in current view' : '')) : 'Loading\u2026', W/2, H/2);
+            if (subtitle) subtitle.textContent = '0 events with temporal data' + inViewTl0;
             return;
         }
         var useVolTl = cbTimingVol && cbTimingVol.checked;
-        var subtitleTl = result.total + ' event' + (result.total === 1 ? '' : 's') + ' with temporal data in view';
+        var inViewTl = (cbLimitView && cbLimitView.checked) ? ' in view' : '';
+        var subtitleTl = result.total + ' event' + (result.total === 1 ? '' : 's') + ' with temporal data' + inViewTl;
         if (useVolTl && result.unknownVolCount) {
             subtitleTl += ' \u00b7 ' + result.unknownVolCount + ' with unknown volume';
         }
@@ -2665,7 +2713,7 @@
         ctx.save();
         ctx.translate(8, mt + ch / 2); ctx.rotate(-Math.PI / 2);
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#888'; ctx.font = '8px sans-serif';
-        ctx.fillText(useVolTl ? 'volume (m³) / yr' : 'events / yr', 0, 0);
+        ctx.fillText(useVolTl ? 'volume (m³) / month' : 'events / month', 0, 0);
         ctx.restore();
 
         // X-axis labels
@@ -2729,28 +2777,302 @@
     if (cbHistLog)   cbHistLog.addEventListener('change',   function () { updateHistogram(); writeUrlState(); });
     if (cbHistVol)   cbHistVol.addEventListener('change',   function () { updateHistogram(); writeUrlState(); });
 
-    // Timing panel toggle
-    var timingToggle = document.getElementById('timing-toggle');
-    var timingClose  = document.getElementById('timing-close');
+    // Timeline floating panel
+    timingFP = makeFloatingPanel(timingPanel, {
+        handle:   timingPanel ? timingPanel.querySelector('.timing-header') : null,
+        toggle:   document.getElementById('timing-toggle'),
+        close:    document.getElementById('timing-close'),
+        onResize: updateTimeline,
+        onChange: writeUrlState
+    });
 
-    if (timingToggle && timingPanel) {
-        timingToggle.addEventListener('click', function (e) {
-            e.preventDefault();
-            timingPanel.classList.toggle('hidden');
-            updateChartsContainer();
-            if (!timingPanel.classList.contains('hidden')) {
-                setTimeout(updateTimeline, 50);
+    // ===========================================================================
+    // Susceptibility scatter (lw × n10) — brushable, two-way synced to the
+    // n10 / lw sliders. Drag a box to set the slider ranges; moving the sliders
+    // redraws the box. Dots colored by landslide type. Values from susc_values.
+    // ===========================================================================
+    var SVGNS = 'http://www.w3.org/2000/svg';
+    var SUSC_VMAX = 81;
+    var _scDims = null;   // {x0,y0,w,h} plot rect in px; set by scatterDrawAll
+    var scatterSvg  = document.getElementById('scatter-svg');
+    var scatterHeat = document.getElementById('scatter-heat');
+
+    function _svgEl(name, attrs) {
+        var el = document.createElementNS(SVGNS, name);
+        for (var k in attrs) el.setAttribute(k, attrs[k]);
+        return el;
+    }
+    function _scVx(lw)  { return _scDims.x0 + (lw  / SUSC_VMAX) * _scDims.w; }
+    function _scVy(n10) { return _scDims.y0 + (1 - n10 / SUSC_VMAX) * _scDims.h; }
+    function _scPxToLw(px)  { return Math.max(0, Math.min(SUSC_VMAX, Math.round((px - _scDims.x0) / _scDims.w * SUSC_VMAX))); }
+    function _scPxToN10(py) { return Math.max(0, Math.min(SUSC_VMAX, Math.round((1 - (py - _scDims.y0) / _scDims.h) * SUSC_VMAX))); }
+
+    function scatterDrawAll() {
+        if (!scatterSvg || !scatterPanel || scatterPanel.classList.contains('hidden')) return;
+        var W = scatterSvg.clientWidth, H = scatterSvg.clientHeight;
+        if (!W || !H) return;
+        var padL = 30, padR = 10, padT = 8, padB = 22;
+        _scDims = { x0: padL, y0: padT, w: W - padL - padR, h: H - padT - padB };
+        while (scatterSvg.firstChild) scatterSvg.removeChild(scatterSvg.firstChild);
+
+        // axes box
+        scatterSvg.appendChild(_svgEl('rect', { x: _scDims.x0, y: _scDims.y0, width: _scDims.w, height: _scDims.h,
+            fill: 'none', stroke: '#ddd', 'stroke-width': 1 }));
+        // ticks + labels
+        [0, 20, 40, 60, 81].forEach(function (t) {
+            var x = _scVx(t), y = _scVy(t);
+            scatterSvg.appendChild(_svgEl('line', { x1: x, y1: _scDims.y0 + _scDims.h, x2: x, y2: _scDims.y0 + _scDims.h + 3, stroke: '#bbb' }));
+            var xl = _svgEl('text', { x: x, y: _scDims.y0 + _scDims.h + 13, 'text-anchor': 'middle', 'font-size': 9, fill: '#888' });
+            xl.textContent = t; scatterSvg.appendChild(xl);
+            scatterSvg.appendChild(_svgEl('line', { x1: _scDims.x0 - 3, y1: y, x2: _scDims.x0, y2: y, stroke: '#bbb' }));
+            var yl = _svgEl('text', { x: _scDims.x0 - 5, y: y + 3, 'text-anchor': 'end', 'font-size': 9, fill: '#888' });
+            yl.textContent = t; scatterSvg.appendChild(yl);
+        });
+        var xt = _svgEl('text', { x: _scDims.x0 + _scDims.w / 2, y: H - 1, 'text-anchor': 'middle', 'font-size': 9, fill: '#666' });
+        xt.textContent = 'lw →'; scatterSvg.appendChild(xt);
+        var yt = _svgEl('text', { x: 9, y: _scDims.y0 + _scDims.h / 2, 'text-anchor': 'middle', 'font-size': 9, fill: '#666',
+            transform: 'rotate(-90 9 ' + (_scDims.y0 + _scDims.h / 2) + ')' });
+        yt.textContent = 'n10 →'; scatterSvg.appendChild(yt);
+
+        // (landslides are drawn as a grid on the canvas in scatterDrawHeat)
+        // selection box + transient drag rect (positioned later)
+        scatterSvg.appendChild(_svgEl('rect', { id: 'scatter-box', fill: 'rgba(60,103,177,0.12)',
+            stroke: '#3f67b1', 'stroke-width': 1, 'stroke-dasharray': '3 2', display: 'none', 'pointer-events': 'none' }));
+        scatterSvg.appendChild(_svgEl('rect', { id: 'scatter-drag', fill: 'rgba(0,0,0,0.06)',
+            stroke: '#666', 'stroke-width': 1, display: 'none', 'pointer-events': 'none' }));
+        scatterSyncBox();
+        scatterDrawHeat();   // terrain backdrop on the canvas behind (drawn last so a
+                             // heat error can't abort the interactive svg layer above)
+    }
+
+    // Position the dashed selection box from the current slider values.
+    function scatterSyncBox() {
+        if (!scatterSvg || !_scDims) return;
+        var box = document.getElementById('scatter-box');
+        if (!box || !suscLwDual || !suscN10Dual) return;
+        var lwLo = parseFloat(suscLwDual.minEl.value), lwHi = parseFloat(suscLwDual.maxEl.value);
+        var nLo  = parseFloat(suscN10Dual.minEl.value), nHi = parseFloat(suscN10Dual.maxEl.value);
+        var active = lwLo > 0 || lwHi < SUSC_VMAX || nLo > 0 || nHi < SUSC_VMAX;
+        // "clear box" is only meaningful when a selection exists — dim it otherwise
+        // so it's not an enigmatic no-op.
+        var clr = document.getElementById('scatter-clear');
+        if (clr) clr.classList.toggle('disabled', !active);
+        if (!active) { box.setAttribute('display', 'none'); return; }
+        var x = _scVx(lwLo), w = _scVx(lwHi) - x;
+        var y = _scVy(nHi),  h = _scVy(nLo) - y;
+        box.setAttribute('x', x); box.setAttribute('y', y);
+        box.setAttribute('width', Math.max(0, w)); box.setAttribute('height', Math.max(0, h));
+        box.setAttribute('display', 'block');
+    }
+
+    function _scatterSetSliders(lwLo, lwHi, nLo, nHi) {
+        suscLwDual.minEl.value = lwLo;  suscLwDual.maxEl.value = lwHi;  suscLwDual.refresh();
+        suscN10Dual.minEl.value = nLo;  suscN10Dual.maxEl.value = nHi;  suscN10Dual.refresh();
+        buildFilter();   // applies the filter, updates counts, redraws the box
+    }
+
+    // ColorBrewer ramps: pale Blues for the terrain backdrop (stays subordinate),
+    // dark Reds for the landslide grid drawn on top. Both discretized (binned).
+    // Terrain = pale Blues; landslides = dark Reds. Constraint (colorblind-safe):
+    // every red is DARKER in value than every blue, so the two layers separate on
+    // luminance, not just hue. Darkest blue (#5793c3) ≈ L0.54; lightest red
+    // (#d7301f) ≈ L0.32.
+    var TERRAIN_RAMP = ['#f7fbff','#d8e7f5','#b3d0e8','#86b3d8','#5793c3'];
+    var LS_RAMP      = ['#d7301f','#a50f15','#7a0a10','#560409','#380006'];
+    var CELL_KM2 = 0.09 * 0.09;       // one 90 m raster cell = 0.0081 km²
+    var P_PER_KKM2 = 1000 / CELL_KM2; // fraction -> landslides per 1000 km²
+    var _lsGrid = null;               // landslide centroid counts per (lw,n10) cell
+
+    function scatterComputeLsGrid() {
+        var B = SUSC_TERRAIN ? SUSC_TERRAIN.size : 82;
+        var g = new Int32Array(B * B);
+        if (_featuresData && _featuresData.features) {
+            _featuresData.features.forEach(function (ft) {
+                var p = ft.properties;
+                if (p.n10 == null || p.lw == null) return;
+                g[p.n10 * B + p.lw]++;
+            });
+        }
+        _lsGrid = g; return g;
+    }
+    // Quantile (equal-count) binner: each of n bins holds ~1/n of the supplied
+    // nonzero cell values, so the color range is used evenly regardless of the
+    // value distribution. edges = n+1 quantile boundaries (the legend labels them
+    // under equal-width swatches). Ties push equal values into the higher bin.
+    function _quantileBinner(vals, n) {
+        var s = vals.slice().sort(function (a, b) { return a - b; });
+        var m = s.length, edges = [];
+        for (var i = 0; i <= n; i++) edges.push(m ? s[Math.min(m - 1, Math.floor(i / n * m))] : 0);
+        if (m) { edges[0] = s[0]; edges[n] = s[m - 1]; }
+        return {
+            edges: edges,
+            bin: function (v) { var b = 0; for (var i = 1; i < n; i++) { if (v >= edges[i]) b = i; } return b; }
+        };
+    }
+    // log-spaced binner over [lo, hi] (edges as an array, same shape as above).
+    // Used for the count layer: counts are skewed integers (mostly 1, a few high),
+    // where quantile bins collapse on ties — log spreads the high tail across colors.
+    function _logBinner(lo, hi, n) {
+        var a = Math.log(lo), b = Math.log(hi), d = (b - a) || 1, edges = [];
+        for (var i = 0; i <= n; i++) edges.push(Math.exp(a + d * i / n));
+        return {
+            edges: edges,
+            bin: function (v) { return v <= 0 ? 0 : Math.max(0, Math.min(n - 1, Math.floor((Math.log(v) - a) / d * n))); }
+        };
+    }
+    function _fmtNum(v) {
+        if (!v) return '0';
+        var a = Math.abs(v);
+        if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M';
+        if (a >= 1e3) return (v / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k';
+        if (a >= 10)  return v.toFixed(0);
+        if (a >= 1)   return v.toFixed(1);
+        if (a >= 0.01) return v.toFixed(2);
+        return v.toExponential(1);
+    }
+    function _cellRect(l, n) { var x0 = _scVx(l), y0 = _scVy(n + 1); return [x0, y0, (_scVx(l + 1) - x0) + 0.6, (_scVy(n) - y0) + 0.6]; }
+
+    // Terrain-density backdrop (pale, binned) + landslide grid (dark) on top.
+    // Landslide layer = raw centroid count, or (proportion mode) the fraction of
+    // terrain cells of that (lw,n10) value that contain a centroid (drawn ‰).
+    function scatterDrawHeat() {
+        if (!scatterHeat || !_scDims || !SUSC_TERRAIN) return;
+        var body = scatterHeat.parentNode;
+        var W = body.clientWidth, H = body.clientHeight;
+        var dpr = window.devicePixelRatio || 1;
+        scatterHeat.width = Math.round(W * dpr); scatterHeat.height = Math.round(H * dpr);
+        var ctx = scatterHeat.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, W, H);
+
+        var B = SUSC_TERRAIN.size, tgrid = SUSC_TERRAIN.grid;
+        scatterComputeLsGrid();
+        var pe = document.getElementById('scatter-prop');
+        var propMode = pe && pe.checked;
+
+        var i, r;
+        // terrain layer (pale, quintile bins over the nonzero cells)
+        var tVals = [];
+        for (i = 0; i < B * B; i++) if (tgrid[i]) tVals.push(tgrid[i]);
+        var tBins = _quantileBinner(tVals, TERRAIN_RAMP.length);
+        for (i = 0; i < B * B; i++) {
+            if (!tgrid[i]) continue;
+            r = _cellRect(i % B, (i / B) | 0);
+            ctx.fillStyle = TERRAIN_RAMP[tBins.bin(tgrid[i])];
+            ctx.fillRect(r[0], r[1], r[2], r[3]);
+        }
+        // landslide layer (dark). Proportion = quantile (continuous, even bins);
+        // count = log (skewed integers — quantile would collapse on ties).
+        var lsVals = new Float64Array(B * B), lsNonzero = [], lsMax = 0, v;
+        for (i = 0; i < B * B; i++) {
+            if (!_lsGrid[i]) continue;
+            v = propMode ? (tgrid[i] > 0 ? _lsGrid[i] / tgrid[i] : 0) : _lsGrid[i];
+            lsVals[i] = v;
+            if (v > 0) { lsNonzero.push(v); if (v > lsMax) lsMax = v; }
+        }
+        var lBins = propMode ? _quantileBinner(lsNonzero, LS_RAMP.length)
+                             : _logBinner(1, lsMax || 1, LS_RAMP.length);
+        for (i = 0; i < B * B; i++) {
+            if (!lsVals[i]) continue;
+            r = _cellRect(i % B, (i / B) | 0);
+            ctx.fillStyle = LS_RAMP[lBins.bin(lsVals[i])];
+            ctx.fillRect(r[0], r[1], r[2], r[3]);
+        }
+        scatterRenderLegend(tBins.edges, lBins.edges, propMode);
+    }
+
+    function scatterRenderLegend(tEdges, lEdges, propMode) {
+        var el = document.getElementById('scatter-legend');
+        if (!el) return;
+        function bar(ramp, edges, fmt) {
+            return '<div class="leg-bar">' + ramp.map(function (c, i) {
+                return '<span style="background:' + c + '" title="' + fmt(edges[i]) + ' – ' + fmt(edges[i + 1]) + '"></span>';
+            }).join('') + '</div>';
+        }
+        function allEdges(edges, fmt) {   // every quintile boundary, under the bar
+            return '<div class="leg-edges">' + edges.map(function (v) { return '<span>' + fmt(v) + '</span>'; }).join('') + '</div>';
+        }
+        var tKm2 = tEdges.map(function (v) { return v * CELL_KM2; });
+        var tHtml = '<div class="leg-row"><span class="leg-title">Terrain km²/cell</span>' +
+            '<div style="flex:1">' + bar(TERRAIN_RAMP, tKm2, _fmtNum) + allEdges(tKm2, _fmtNum) + '</div></div>';
+        var lTitle = propMode ? 'Slides/1000 km²' : 'Slides/cell';
+        var lEdgesD = propMode ? lEdges.map(function (v) { return v * P_PER_KKM2; }) : lEdges;
+        var lHtml = '<div class="leg-row"><span class="leg-title">' + lTitle + '</span>' +
+            '<div style="flex:1">' + bar(LS_RAMP, lEdgesD, _fmtNum) + allEdges(lEdgesD, _fmtNum) + '</div></div>';
+        el.innerHTML = tHtml + lHtml;
+    }
+
+    // Hover readout: exact numbers for the cell under the cursor.
+    function scatterCellTip(e, p) {
+        if (!_scDims || !SUSC_TERRAIN ||
+            p.x < _scDims.x0 || p.y < _scDims.y0 ||
+            p.x > _scDims.x0 + _scDims.w || p.y > _scDims.y0 + _scDims.h) { hideChartTip(); return; }
+        var B = SUSC_TERRAIN.size, lw = _scPxToLw(p.x), n10 = _scPxToN10(p.y);
+        var tc = SUSC_TERRAIN.grid[n10 * B + lw] || 0;
+        var lc = (_lsGrid ? _lsGrid[n10 * B + lw] : 0) || 0;
+        var dens = tc > 0 ? (lc / tc * P_PER_KKM2) : 0;   // slides per 1000 km²
+        showChartTip(e.clientX, e.clientY,
+            'lw ' + lw + ', n10 ' + n10 + ' · ' + _fmtNum(tc * CELL_KM2) + ' km² · ' +
+            lc + ' slide' + (lc === 1 ? '' : 's') + (lc ? ' (' + _fmtNum(dens) + '/1000 km²)' : ''));
+    }
+
+    // Drag-to-select
+    (function () {
+        if (!scatterSvg) return;
+        var dragging = false, sx = 0, sy = 0;
+        function localPt(e) {
+            var r = scatterSvg.getBoundingClientRect();
+            return { x: e.clientX - r.left, y: e.clientY - r.top };
+        }
+        scatterSvg.addEventListener('pointerdown', function (e) {
+            if (!_scDims) return;
+            e.preventDefault();   // stop native selection/drag (was causing a start jump)
+            var p = localPt(e);
+            dragging = true; sx = p.x; sy = p.y;
+            scatterSvg.setPointerCapture(e.pointerId);
+        });
+        scatterSvg.addEventListener('pointermove', function (e) {
+            var p = localPt(e);
+            if (dragging) {
+                var dr = document.getElementById('scatter-drag');
+                if (!dr) return;
+                dr.setAttribute('x', Math.min(sx, p.x)); dr.setAttribute('y', Math.min(sy, p.y));
+                dr.setAttribute('width', Math.abs(p.x - sx)); dr.setAttribute('height', Math.abs(p.y - sy));
+                dr.setAttribute('display', 'block');
+                return;
             }
-            writeUrlState();
+            scatterCellTip(e, p);   // hover readout of exact per-cell numbers
+        });
+        scatterSvg.addEventListener('pointerleave', hideChartTip);
+        scatterSvg.addEventListener('pointerup', function (e) {
+            if (!dragging) return;
+            dragging = false;
+            var dr = document.getElementById('scatter-drag');
+            if (dr) dr.setAttribute('display', 'none');
+            var p = localPt(e);
+            if (Math.abs(p.x - sx) < 4 && Math.abs(p.y - sy) < 4) return;  // treat as a click, not a box
+            var lwA = _scPxToLw(sx), lwB = _scPxToLw(p.x);
+            var nA  = _scPxToN10(sy), nB = _scPxToN10(p.y);
+            _scatterSetSliders(Math.min(lwA, lwB), Math.max(lwA, lwB), Math.min(nA, nB), Math.max(nA, nB));
+        });
+    }());
+
+    scatterFP = makeFloatingPanel(scatterPanel, {
+        handle:   document.getElementById('scatter-handle'),
+        toggle:   document.getElementById('scatter-toggle'),
+        close:    document.getElementById('scatter-close'),
+        onResize: scatterDrawAll
+    });
+    // Scatter-specific controls (not part of the shared floating behavior).
+    var scatterClear = document.getElementById('scatter-clear');
+    if (scatterClear) {
+        scatterClear.addEventListener('click', function (e) {
+            e.preventDefault();
+            _scatterSetSliders(0, SUSC_VMAX, 0, SUSC_VMAX);
         });
     }
-    if (timingClose) {
-        timingClose.addEventListener('click', function () {
-            timingPanel.classList.add('hidden');
-            updateChartsContainer();
-            writeUrlState();
-        });
-    }
+    var scatterProp = document.getElementById('scatter-prop');
+    if (scatterProp) scatterProp.addEventListener('change', scatterDrawAll);
 
     // ===========================================================================
     // Canvas mouseover tooltips
@@ -2777,10 +3099,10 @@
             else { var p = k.split('-'); lbl = MONTHS[parseInt(p[1])] + ' ' + p[0]; }
             var tip;
             if (cbTimingVol && cbTimingVol.checked) {
-                tip = lbl + ': ' + fmtVolBig(hit.val) + ' / yr';
+                tip = lbl + ': ' + fmtVolBig(hit.val) + ' / month';
                 if (hit.maxEv > 0) tip += ' \u00b7 largest ' + fmtVolBig(hit.maxEv);
             } else {
-                tip = lbl + ': ' + fmtEvYr(hit.val) + ' ev/yr';
+                tip = lbl + ': ' + fmtEvYr(hit.val) + ' ev/month';
             }
             showChartTip(e.clientX, e.clientY, tip);
         });

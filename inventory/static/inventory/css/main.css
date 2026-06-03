@@ -530,30 +530,74 @@ body.inv-article-body {
 .ext-links a:hover { background: #e8e8e8; }
 
 /* ---- Charts container — holds both temporal histogram panels side-by-side ---- */
-.charts-container {
+/* ---- Floating susceptibility scatter panel (draggable + resizable) ---- */
+/* ---- Shared floating, draggable, resizable analysis panel ---- */
+.float-panel {
     position: absolute;
-    bottom: 0; left: 0; right: 0;
-    height: 200px;
-    display: flex;
-    flex-direction: row;
-    z-index: 11;
-    border-top: 1px solid #ccc;
-    box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
-    background: rgba(255,255,255,0.96);
-}
-.charts-container.hidden { display: none; }
-
-/* ---- Seasonal timing histogram panel ---- */
-.hist-panel {
-    flex: 1;
-    min-width: 0;
-    height: 100%;
+    z-index: 12;
+    min-width: 240px; min-height: 200px;
     display: flex;
     flex-direction: column;
-    border-right: 1px solid #e8e8e8;
+    background: rgba(255,255,255,0.97);
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.22);
+    resize: both;
+    overflow: hidden;
 }
-.hist-panel.hidden { display: none; }
+.float-panel.hidden { display: none; }
+.float-header { cursor: move; user-select: none; }
+/* Default positions/sizes — just starting points; all three are draggable. */
+#scatter-float { top: 64px;  right: 16px; width: 380px; height: 380px; }
+#hist-panel    { top: 64px;  left: 16px;  width: 480px; height: 244px; }
+#timing-panel  { top: 320px; left: 16px;  width: 560px; height: 244px; }
+.scatter-float-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px 5px 10px;
+    border-bottom: 1px solid #eee;
+    font-size: 11px;
+    color: #555;
+    cursor: move;
+    user-select: none;
+    flex-shrink: 0;
+}
+.scatter-float-header .scatter-title { font-weight: 600; color: #444; white-space: nowrap; }
+.scatter-float-header .scatter-legend { display: inline-flex; gap: 8px; font-size: 10px; color: #777; white-space: nowrap; }
+.scatter-float-header #scatter-count { margin-left: auto; font-size: 11px; color: #666; white-space: nowrap; }
+.scatter-float-header #scatter-clear { font-size: 11px; }
+.scatter-float-header #scatter-clear.disabled { opacity: 0.3; pointer-events: none; }
+.scatter-float-header #scatter-close {
+    background: none; border: none; font-size: 18px; line-height: 1;
+    cursor: pointer; color: #999; padding: 0 2px;
+}
+.scatter-float-header #scatter-close:hover { color: #333; }
+#scatter-body { position: relative; flex: 1; min-height: 0; }
+#scatter-heat { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#scatter-svg  { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.scatter-hint {
+    position: absolute; left: 34px; bottom: 4px;
+    font-size: 9px; color: #aaa; pointer-events: none;
+}
+.scatter-float-header .scatter-prop-lbl {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; color: #555; white-space: nowrap; cursor: pointer;
+}
+.scatter-legend-foot {
+    flex-shrink: 0;
+    border-top: 1px solid #eee;
+    padding: 4px 8px 5px;
+    font-size: 9px; color: #666;
+    background: #fff;
+}
+.scatter-legend-foot .leg-row { display: flex; align-items: center; gap: 4px; margin: 1px 0; }
+.scatter-legend-foot .leg-title { width: 70px; flex-shrink: 0; color: #555; }
+.scatter-legend-foot .leg-bar { display: flex; flex: 1; height: 11px; }
+.scatter-legend-foot .leg-bar span { flex: 1; }
+.scatter-legend-foot .leg-edges { display: flex; justify-content: space-between; color: #999; font-size: 8px; }
 
+/* ---- Seasonal timing histogram panel (floating; layout via .float-panel) ---- */
 .hist-header {
     display: flex;
     align-items: center;
@@ -573,16 +617,7 @@ body.inv-article-body {
 #hist-close:hover { color: #333; }
 #hist-canvas { display: block; width: 100%; flex: 1; }
 
-/* ---- Timeline histogram panel ---- */
-.timing-panel {
-    flex: 1;
-    min-width: 0;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-.timing-panel.hidden { display: none; }
-
+/* ---- Timeline histogram panel (floating; layout via .float-panel) ---- */
 .timing-header {
     display: flex;
     align-items: center;

@@ -254,6 +254,7 @@
     <div style="padding:12px 14px;">
       <button id="hist-toggle" class="inv-analysis-btn">&#9656; Seasonal timing</button>
       <button id="timing-toggle" class="inv-analysis-btn">&#9656; Time-series</button>
+      <button id="scatter-toggle" class="inv-analysis-btn">&#9656; Susceptibility scatter (lw × n10)</button>
       <p style="font-size:11px; color:#888; margin:10px 0 0;">
         Counts and chart data respect the "Limit to map view" toggle in the
         pinned strip above. With it off, all records are summarized; with
@@ -271,9 +272,8 @@
     <div id="detail-content"></div>
   </div>
 
-  <div id="charts-container" class="charts-container hidden">
-    <div id="hist-panel" class="hist-panel hidden">
-      <div class="hist-header">
+    <div id="hist-panel" class="float-panel hist-panel hidden">
+      <div class="hist-header float-header">
         <span id="hist-subtitle">Computing…</span>
         <label style="margin-left:auto; font-size:11px; color:#555; white-space:nowrap; display:flex; align-items:center; gap:5px;">
           Max uncertainty
@@ -292,8 +292,8 @@
       <canvas id="hist-canvas"></canvas>
     </div>
 
-    <div id="timing-panel" class="timing-panel hidden">
-      <div class="timing-header">
+    <div id="timing-panel" class="float-panel timing-panel hidden">
+      <div class="timing-header float-header">
         <span id="timing-subtitle">Loading…</span>
         <label style="margin-left:auto; font-size:11px; color:#555; white-space:nowrap; display:flex; align-items:center; gap:4px;">
           <input type="checkbox" id="timing-volume"> volume
@@ -305,6 +305,24 @@
       </div>
       <canvas id="timing-canvas"></canvas>
     </div>
+
+  {# ---- Floating susceptibility scatter (lw × n10), draggable + resizable ---- #}
+  <div id="scatter-float" class="float-panel scatter-float hidden">
+    <div id="scatter-handle" class="scatter-float-header float-header">
+      <span class="scatter-title">Susceptibility&nbsp; lw&nbsp;(x)&nbsp;×&nbsp;n10&nbsp;(y)</span>
+      <label class="scatter-prop-lbl" title="Landslide layer: raw centroid count per cell, or the per-mil proportion of terrain cells of that (lw,n10) value that contain a landslide centroid.">
+        <input type="checkbox" id="scatter-prop"> proportion&nbsp;(‰)
+      </label>
+      <span id="scatter-count"></span>
+      <a href="#" id="scatter-clear" class="disabled" title="Reset the lw/n10 selection box to the full range. Drag a box on the plot first; this clears it.">clear box</a>
+      <button id="scatter-close" title="Close">&times;</button>
+    </div>
+    <div id="scatter-body">
+      <canvas id="scatter-heat"></canvas>
+      <svg id="scatter-svg"></svg>
+      <div class="scatter-hint">drag to box a range · drag header to move · grab corner to resize</div>
+    </div>
+    <div id="scatter-legend" class="scatter-legend-foot"></div>
   </div>
 
   <div id="measure-readout" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); background:rgba(255,255,255,0.92); border:1px solid rgba(0,0,0,0.12); border-radius:4px; padding:5px 12px; font-size:13px; font-family:system-ui,sans-serif; color:#222; box-shadow:0 1px 3px rgba(0,0,0,0.15); z-index:5; display:none;"></div>
