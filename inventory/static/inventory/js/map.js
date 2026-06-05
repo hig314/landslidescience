@@ -610,6 +610,7 @@
     var _settings = null, _mapReady = false, _settingsReady = false, _layersInitialized = false;
     var _featuresData = null;      // cached GeoJSON so re-init after basemap switch is instant
     var _surveyCirclesData = null; // cached survey-circles GeoJSON (fetched on first toggle)
+    var _faultsData = null;        // cached AK Quaternary faults GeoJSON (fetched at init; on by default)
     var _currentBasemap = _initialBasemapId;
 
     // Layer style variables set by initLayers, reused by initDataLayers on basemap switch
@@ -746,6 +747,23 @@
                 paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
             }, bId);
         });
+
+        // Alaska Quaternary faults & folds (DGGS QFF — Koehler 2013). Reference
+        // vector overlay, ON by default. Added here so it sits below the
+        // landslide layers (inventory stays on top). Loaded once from a static
+        // GeoJSON; inferred traces drawn fainter. Click → fault attributes.
+        var faultsVis = (cbFaults && cbFaults.checked) ? 'visible' : 'none';
+        map.addSource('faults', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+            id: 'faults-line', type: 'line', source: 'faults',
+            layout: { 'visibility': faultsVis, 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+                'line-color': '#b5179e',
+                'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.7, 10, 1.6, 14, 2.6],
+                'line-opacity': ['match', ['get', 'FTYPE'], 'Inferred', 0.5, 0.85]
+            }
+        }, bId);
+        if (_faultsData) map.getSource('faults').setData(_faultsData);
 
         map.addSource('landslides', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addSource('polygons',   { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -1209,6 +1227,33 @@
         });
     }
 
+    // Alaska Quaternary faults & folds (DGGS QFF) — reference overlay, ON by
+    // default. Unlike survey-circles we fetch eagerly (small vector file) so the
+    // layer is populated as soon as the map loads. The source/layer themselves
+    // are created in initDataLayers; here we load the data and wire the toggle.
+    var cbFaults = document.getElementById('cb-faults');
+    function loadFaults() {
+        if (_faultsData) {
+            if (map.getSource('faults')) map.getSource('faults').setData(_faultsData);
+            return;
+        }
+        fetch(STATIC_BASE + 'inventory/ak_qff.geojson?v=' + DATA_V)
+            .then(function (r) { return r.json(); })
+            .then(function (fc) {
+                _faultsData = fc;
+                if (map.getSource('faults')) map.getSource('faults').setData(fc);
+            })
+            .catch(function (e) { console.error('faults fetch failed:', e); });
+    }
+    loadFaults();
+    if (cbFaults) {
+        cbFaults.addEventListener('change', function () {
+            var vis = cbFaults.checked ? 'visible' : 'none';
+            if (map.getLayer('faults-line')) map.setLayoutProperty('faults-line', 'visibility', vis);
+            if (cbFaults.checked) loadFaults();
+        });
+    }
+
     var histDaysSlider = document.getElementById('hist-days-slider');
     var histDaysLabel  = document.getElementById('hist-days-label');
     if (histDaysSlider) histDaysSlider.addEventListener('input', function () {
@@ -1628,6 +1673,28 @@
         map.setFilter('polygon-hover', ['==', 'landslide_id', -1]);
     });
 
+    // Quaternary fault trace → popup with name/age/slip attributes (DGGS QFF).
+    map.on('click', 'faults-line', function (e) {
+        if (map.__measureActive) return;
+        var p = e.features[0].properties || {};
+        function row(lbl, val) {
+            if (val === undefined || val === null || val === '' || val === 'Unknown') return '';
+            return '<div style="margin:1px 0;"><span style="color:#888;">' + lbl + ':</span> ' + val + '</div>';
+        }
+        var html = '<div style="font:12px/1.4 system-ui,sans-serif; max-width:240px;">' +
+            '<div style="font-weight:600; color:#b5179e; margin-bottom:3px;">' +
+                (p.NAME || 'Unnamed fault') + '</div>' +
+            row('Age', p.AGE) + row('Type', p.FTYPE) +
+            row('Slip rate', p.SLIPRATE) + row('Slip sense', p.SLIPSENSE) +
+            row('Dip dir', p.DIPDIRECTI) +
+            '<div style="margin-top:4px; color:#aaa; font-size:10px;">DGGS DDS 3 (Koehler, 2013)</div>' +
+            '</div>';
+        new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
+            .setLngLat(e.lngLat).setHTML(html).addTo(map);
+    });
+    map.on('mouseenter', 'faults-line', function () { if (!map.__measureActive) map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'faults-line', function () { if (!map.__measureActive) map.getCanvas().style.cursor = ''; });
+
     // ---------------------------------------------------------------------------
     // Detail panel
     // ---------------------------------------------------------------------------
@@ -1729,7 +1796,8 @@
             { label:'Sentinel-2',    icon:'S2',     url:normUrl(d.sentinel2_link),     title:'Copernicus Sentinel-2' },
             { label:'Sentinel-1',    icon:'S1',     url:normUrl(d.sentinel1_link),     title:'Copernicus Sentinel-1 SAR' },
             { label:'OPERA Asc',     icon:'↑', url:normUrl(d.opera_asc_link),     title:'OPERA InSAR displacement — ascending' },
-            { label:'OPERA Desc',    icon:'↓', url:normUrl(d.opera_desc_link),    title:'OPERA InSAR displacement — descending' }
+            { label:'OPERA Desc',    icon:'↓', url:normUrl(d.opera_desc_link),    title:'OPERA InSAR displacement — descending' },
+            { label:'USGS topo',     icon:'⛰', url:normUrl(d.topoview_link),      title:'USGS TopoView — historic topographic maps' }
         ].filter(function (l) { return l.url; });
 
         if (imgLinks.length) {

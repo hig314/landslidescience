@@ -127,7 +127,11 @@ Local dev `.env` has `INVENTORY_PREVIEW_PASSWORD=devpreview2026` for testing the
 
 To bulk-add new landslides, use the upload path — see *Inventory induction workflow* below.
 
-**Not yet supported via UI**: polygon editing in-browser, click-on-map landslide creation. Those flow through QGIS/PostGIS for now.
+Both the edit and review forms embed a shared imagery-switchable preview map (`_polygon_map.html`) — the landslide's polygons over selectable basemaps (ESRI / Sentinel-2 / **AHAP 1978–86** / topo …), so the editor can flip modern↔historic imagery to spot slow change. Default fit zoom is capped at 15 (~the most real detail AHAP carries). `polygons_geojson` is built in both modes for it. (AHAP loads slowly via the USDA ImageServer exportImage endpoint, and returns blank outside its AK extent — a pre-rendered AHAP tile cache near landslides is a possible future optimization.)
+
+Polygon **roles** (source/body/deposit) ARE editable in the edit/review form (`polygon_role_<id>`), so a mis-typed landslide can be corrected end-to-end — switch `landslide_type` *and* the role (slow↔body, catastrophic↔source/deposit), and the rule cascade re-runs on save (also triggered outside review when type/role changed) to recompute the centroid/areas/class. The edit/review form also offers location-seeded reference links via `_imagery_suggestions` (centroid, or the polygon-union centroid for pending records): ESRI Wayback / Google satellite as paste-into-field suggestions next to `esri_wayback_link`/`google_images_link`, read-only OPERA InSAR ascending/descending links next to `insar_opera`, and a USGS TopoView (historic topo, zoom 13) link. The public map detail popup (`api_detail` → `map.js` imagery list) carries the deterministic OPERA + TopoView links too (`topoview_link`).
+
+**Not yet supported via UI**: polygon *geometry* editing in-browser, click-on-map landslide creation. Those flow through QGIS/PostGIS for now.
 
 ## Inventory induction workflow
 
@@ -141,14 +145,25 @@ New landslides enter the inventory via upload at `/inventory/manage/import/`. Th
 6. Pending records survive logout / browser close. They surface again next time the editor visits review.
 
 Upload-side normalization (in `io_geojson.py`):
-- `_normalize_controlled_vocab` — case-folds + trims `role` and `landslide_type`, applies vocab aliases (`Deposit` → `deposit`, etc.).
+- `_normalize_controlled_vocab` / `_norm_against` — generous matching of `role` (source/body/deposit) and `landslide_type` (slow/catastrophic): case-insensitive + trim, punctuation-stripped, depluralized, `_VOCAB_ALIASES` (e.g. `bodies`→body), and a conservative fuzzy typo-correction (difflib ratio ≥ 0.8, unambiguous only — so `sorce`→source, `depsit`→deposit, but `flow`/`head-scarp`/`src` are left for validation). Every correction emits a warning shown in the preview.
 - `_synthesize_landslides_from_flat_polygons` — when a flat-polygons-only file is uploaded, polygons grouped by `unique_name` are inferred into a synthesized landslide record (landslide_type inferred from the polygon roles).
 - `LANDSLIDES_AUTO_COLS = ('created_at', 'updated_at', 'reviewed_at')` — these are server-managed and ignored in uploads.
 
-**Half-implemented (tracked as task #61)**:
-- Per-record rule cascade is NOT applied on save (review-form save just stamps `reviewed_at`). Rule-populated columns are saved as whatever was uploaded — i.e. blank/defaults if not provided. The columns are also excluded from the form, so the editor cannot supply them by hand either. Net: those fields get silently dropped to NULL on induction.
-- Pending records (`reviewed_at IS NULL`) are NOT hidden from public views — the home counts, features API, snapshot build, and slug lookups all include them. This is intentional only until the rule cascade lands; once it does, the public surfaces should filter on `reviewed_at IS NOT NULL`.
-- `/inventory/manage/` has no "show only pending" filter UI yet.
+## Induction safety & collision detection
+
+A landslide is **publicly visible only when `reviewed_at IS NOT NULL AND deprecated_at IS NULL`** — i.e. inducted (reviewed) and not superseded. The predicate is centralized in `views.public_landslide_filter(alias)` and applied to every public surface (home counts, features/polygons/detail APIs, chart data, slug map; the snapshot inherits it through the API client). Two hidden states:
+- **Pending** (`reviewed_at IS NULL`): freshly uploaded, not yet reviewed.
+- **Deprecated** (`deprecated_at IS NOT NULL`, `superseded_by` → new id): retained for provenance but retired by a merge (see below). Schema via `migrate_deprecated.py`.
+
+On review-save, `derived.apply_rules_for_landslide(cur, ls_id)` runs the full rule cascade for that record (centroids, areas, volumes, class — identical to the batch rule-apply) **then** stamps `reviewed_at`, in one transaction (cascade failure → stays pending). `/inventory/manage/` has a `?status=pending|active|deprecated|all` filter (default hides deprecated) with status badges.
+
+**Collision detection** (`io_geojson._detect_collisions`, surfaced in the import preview, **report-only** for now): each would-add landslide is flagged if it collides with an existing non-deprecated record:
+- **Name** — `name_key()` (NFC + whitespace-collapsed + casefolded) matches an existing name; classified `exact` vs `case` (case/whitespace-only diff). Names are compared, never auto-rewritten.
+- **Location** — a candidate polygon within `COLLISION_NEAR_M` (200 m, geography `ST_DWithin`) AND polygon-pair IoU > `COLLISION_IOU` (0.80, EPSG:3338).
+
+Each collision gets a `resolution` (one source of truth for preview + apply): **`update`** — polygons identical (IoU ≥ `COLLISION_IDENTICAL_IOU` = 0.999): the same landslide re-applied (master-file workflow) → `apply_import` UPDATEs the existing record in place, keeping its id/history (matched-updated count on the done page); **`block`** — name-exact dup with non-identical geometry: would violate the `landslides_unique_name_key` UNIQUE constraint, so apply refuses up front with an actionable message (never the raw 500 it used to throw — and any other DB error during apply is also caught → clean message, full rollback); **`review`** — case/whitespace name dup or a near (non-identical) overlap: inserts as new, surfaced for the editor. The preview's collision block shows the per-row action.
+
+**Still to build (Phase 2–3, task #61):** the supersede/merge UI for `block`/`review` collisions that aren't simple identical re-imports — keep the improved upload, deprecate the original (`deprecated_at`/`superseded_by`), carry valuable linked data (Planet stories, subsets, null-only fields) forward via an explicit picker; plus a `[Place][Letter][year]` name suggester for distinct-location name clashes. Plan: `~/.claude/plans/temporal-toasting-jellyfish.md`.
 
 ## GeoJSON round-trip
 

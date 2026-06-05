@@ -4,10 +4,7 @@
 {% block body_class %}inv-article-body{% endblock %}
 
 {% block extra_styles %}
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.css">
 <style>
-  .review-map { width: 100%; height: 360px; border: 1px solid #d4cdc0;
-                 border-radius: 4px; background: #f0ece4; }
   .review-pending-banner {
     background: #fff3cd; border: 1px solid #ffeeba; color: #664d03;
     padding: 8px 14px; border-radius: 4px; font-size: 13px;
@@ -41,7 +38,7 @@
     </div>
   {% endif %}
 
-  <div id="review-map" class="review-map"></div>
+  {% include 'inventory/_polygon_map.html' %}
 
   <form method="post" style="margin-top: 18px;">
     {% csrf_token %}
@@ -56,6 +53,13 @@
           {% if field.field.required %}<span style="color:#b00020;">*</span>{% endif %}
         </label>
         {{ field }}
+        {% if field.name == 'esri_wayback_link' and imagery_suggestions.esri_wayback_link %}
+          {% include 'inventory/_imagery_suggest.html' with url=imagery_suggestions.esri_wayback_link fid=field.id_for_label label='ESRI Wayback' %}
+        {% elif field.name == 'google_images_link' and imagery_suggestions.google_images_link %}
+          {% include 'inventory/_imagery_suggest.html' with url=imagery_suggestions.google_images_link fid=field.id_for_label label='Google satellite' %}
+        {% elif field.name == 'insar_opera' and imagery_suggestions.opera_asc %}
+          {% include 'inventory/_opera_links.html' with asc=imagery_suggestions.opera_asc desc=imagery_suggestions.opera_desc %}
+        {% endif %}
         {% if field.help_text %}
           <p style="font-size:11px; color:#888; margin: 3px 0 0;">{{ field.help_text }}</p>
         {% endif %}
@@ -64,6 +68,9 @@
         {% endif %}
       </div>
     {% endfor %}
+
+    {% include 'inventory/_polygon_roles.html' %}
+    {% include 'inventory/_reference_links.html' %}
 
     {% if all_subsets %}
       <div style="margin: 22px 0 4px;">
@@ -109,135 +116,4 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
-<script>
-(function () {
-  // Polygons for this landslide, embedded server-side. Inline rather than
-  // fetched so the mini-map renders without an extra round trip.
-  var POLYGONS = {{ polygons_geojson|safe }};
-
-  // Same basemap list as the main inventory map. Duplicated here because
-  // the review page is intentionally minimal and doesn't load map.js.
-  var BASEMAPS = [
-    { id: 'streets',     label: 'Streets',
-      style: 'https://tiles.openfreemap.org/styles/liberty' },
-    { id: 'esri-img',    label: 'ESRI Imagery',
-      tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      labelTiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-      attr: '© Esri, Maxar, Earthstar Geographics' },
-    { id: 's2-cloudless', label: 'Sentinel-2 cloudless',
-      tiles: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg',
-      attr: 'Sentinel-2 cloudless 2024 by <a href="https://s2maps.eu/">EOX</a>' },
-    { id: 'esri-topo',   label: 'ESRI Topo',
-      tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-      attr: '© Esri, USGS, NOAA' },
-    { id: 'usgs-topo',   label: 'USGS Topo',
-      tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
-      attr: 'USGS National Map' },
-    { id: 'usgs-img',    label: 'USGS Imagery',
-      tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
-      attr: 'USGS National Map' },
-    { id: 'nrcs-ahap',   label: 'AHAP 1978-1986',
-      tiles: 'https://apps.geo.fpac.usda.gov/nrcs-imagery/rest/services/ortho_imagery/ahap_1978_to_1986_150cm_colorbalance/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=jpgpng&f=image',
-      attr: 'Alaska High-Altitude Photography (USDA NRCS, 1978-1986)' },
-    { id: 'usgs-hist',   label: 'USGS Hist. Topo',
-      tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}',
-      attr: '© Esri, USGS' },
-  ];
-  var DEFAULT_BASEMAP_ID = 'esri-img';
-
-  function buildRasterStyle(bm) {
-    if (bm.style) return bm.style;
-    var sources = { basemap: { type: 'raster', tiles: [bm.tiles], tileSize: 256, attribution: bm.attr || '' } };
-    var layers  = [{ id: 'basemap', type: 'raster', source: 'basemap' }];
-    if (bm.labelTiles) {
-      sources.basemap_labels = { type: 'raster', tiles: [bm.labelTiles], tileSize: 256 };
-      layers.push({ id: 'basemap-labels', type: 'raster', source: 'basemap_labels' });
-    }
-    return { version: 8, sources: sources, layers: layers };
-  }
-
-  function findBasemap(id) {
-    for (var i = 0; i < BASEMAPS.length; i++) if (BASEMAPS[i].id === id) return BASEMAPS[i];
-    return null;
-  }
-
-  // Bounds from polygon geometry (lon/lat).
-  function fcBounds(fc) {
-    var minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
-    function walk(coords) {
-      if (typeof coords[0] === 'number') {
-        if (coords[0] < minx) minx = coords[0];
-        if (coords[0] > maxx) maxx = coords[0];
-        if (coords[1] < miny) miny = coords[1];
-        if (coords[1] > maxy) maxy = coords[1];
-      } else for (var i = 0; i < coords.length; i++) walk(coords[i]);
-    }
-    (fc.features || []).forEach(function (f) {
-      if (f.geometry && f.geometry.coordinates) walk(f.geometry.coordinates);
-    });
-    return isFinite(minx) ? [[minx, miny], [maxx, maxy]] : null;
-  }
-
-  var initialBM = findBasemap(DEFAULT_BASEMAP_ID) || BASEMAPS[0];
-  var map = new maplibregl.Map({
-    container: 'review-map',
-    style: buildRasterStyle(initialBM),
-    center: [-153, 62],
-    zoom: 4,
-  });
-
-  // Basemap switcher control — same shape as the main map's, single-button form.
-  function BasemapSwitcher() {}
-  BasemapSwitcher.prototype.onAdd = function () {
-    var el = document.createElement('div');
-    el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
-    var sel = document.createElement('select');
-    sel.style.cssText = 'border:none; background:#fff; padding:4px 6px; font-size:12px;';
-    BASEMAPS.forEach(function (bm) {
-      var opt = document.createElement('option');
-      opt.value = bm.id; opt.textContent = bm.label;
-      if (bm.id === initialBM.id) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    sel.addEventListener('change', function () {
-      var bm = findBasemap(sel.value);
-      if (!bm) return;
-      map.setStyle(buildRasterStyle(bm), { diff: false });
-      map.once('idle', function () { addPolygonLayer(); fitToPolygons(); });
-    });
-    el.appendChild(sel);
-    return el;
-  };
-  BasemapSwitcher.prototype.onRemove = function () {};
-
-  function addPolygonLayer() {
-    if (map.getSource('lspoly')) return;
-    map.addSource('lspoly', { type: 'geojson', data: POLYGONS });
-    map.addLayer({
-      id: 'lspoly-fill', type: 'fill', source: 'lspoly',
-      paint: {
-        'fill-color': '#3f67b1',
-        'fill-opacity': 0.30,
-      },
-    });
-    map.addLayer({
-      id: 'lspoly-line', type: 'line', source: 'lspoly',
-      paint: { 'line-color': '#3f67b1', 'line-width': 2 },
-    });
-  }
-
-  function fitToPolygons() {
-    var b = fcBounds(POLYGONS);
-    if (b) map.fitBounds(b, { padding: 32, animate: false, maxZoom: 14 });
-  }
-
-  map.addControl(new BasemapSwitcher(), 'top-right');
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
-  map.on('load', function () {
-    addPolygonLayer();
-    fitToPolygons();
-  });
-})();
-</script>
 {% endblock %}

@@ -1,0 +1,13 @@
+{% comment %}
+Imagery-link helper: open a suggested view (centered on the centroid) in a new
+tab, adjust it, then paste the final URL into the field above. Or seed the field
+with the suggestion as a starting value.
+Params: url (suggested URL), fid (target input id_for_label), label.
+{% endcomment %}
+<div style="margin-top:3px; font-size:11px;">
+  <a href="{{ url }}" target="_blank" rel="noopener">↗ open suggested {{ label }} view</a>
+  ·
+  <a href="#" data-url="{{ url }}"
+     onclick="document.getElementById('{{ fid }}').value=this.dataset.url;return false;">use as starting value</a>
+  <span style="color:#999;">— frame the landslide there, then paste the final URL above.</span>
+</div>

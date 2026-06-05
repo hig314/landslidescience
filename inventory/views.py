@@ -139,13 +139,49 @@ def _slugify(name):
     return _SLUG_NON_ALNUM_RE.sub('-', name).strip('-').lower()
 
 
+def _imagery_suggestions(lat, lon):
+    """Pre-built imagery-browser URLs centered on a landslide's centroid, to
+    seed the esri_wayback_link / google_images_link fields. The editor opens
+    one, pans/zooms to frame the landslide, then copies the final URL back into
+    the field. Formats match what's already in the inventory (ESRI Wayback #ext
+    bbox; Google Maps satellite @lat,lon,<alt>m)."""
+    import math
+    if lat is None or lon is None:
+        return {}
+    half_m = 750.0  # ~1.5 km view
+    dlat = half_m / 111000.0
+    dlon = half_m / (111000.0 * max(0.1, math.cos(math.radians(lat))))
+    ext = f"{lon - dlon:.5f},{lat - dlat:.5f},{lon + dlon:.5f},{lat + dlat:.5f}"
+    opera = (f"https://displacement.asf.alaska.edu/#/?dispOverview=VEL&zoom=14.5"
+             f"&center={lon:.4f},{lat:.4f}&flightDirs=")
+    return {
+        'esri_wayback_link':  f"https://livingatlas.arcgis.com/wayback/#ext={ext}",
+        'google_images_link': f"https://www.google.com/maps/@{lat:.6f},{lon:.6f},1500m/data=!3m1!1e3",
+        'opera_asc':  opera + 'ASCENDING',
+        'opera_desc': opera + 'DESCENDING',
+        'topoview':   f"https://ngmdb.usgs.gov/topoview/viewer/#13/{lat:.4f}/{lon:.4f}",
+    }
+
+
+def public_landslide_filter(alias='l'):
+    """SQL predicate for the publicly/active-visible landslides: reviewed
+    (inducted) and not deprecated (superseded). Applied to every public surface
+    — home counts, features/polygons APIs, chart data, slug map, snapshot — so
+    pending uploads and superseded originals never leak to the public map.
+    Keep all public queries in sync via this one helper.
+    """
+    a = (alias + '.') if alias else ''
+    return f"{a}reviewed_at IS NOT NULL AND {a}deprecated_at IS NULL"
+
+
 def _slug_map():
     if 'slug_map' in _cache:
         return _cache['slug_map']
     conn = _get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id, unique_name FROM landslides ORDER BY id")
+        cur.execute(f"SELECT id, unique_name FROM landslides l "
+                    f"WHERE {public_landslide_filter('l')} ORDER BY id")
         rows = cur.fetchall()
         conn.rollback()
     finally:
@@ -215,8 +251,8 @@ def _home_counts(subset):
         return _cache['home_counts'], _cache['unclassified_count']
 
     join = ""
-    where_class = ["l.landslide_class IS NOT NULL", "l.landslide_class != ''"]
-    where_null  = ["(l.landslide_class IS NULL OR l.landslide_class = '')"]
+    where_class = [public_landslide_filter('l'), "l.landslide_class IS NOT NULL", "l.landslide_class != ''"]
+    where_null  = [public_landslide_filter('l'), "(l.landslide_class IS NULL OR l.landslide_class = '')"]
     params      = []
     if subset:
         join = ("JOIN landslide_subsets lps ON lps.landslide_id = l.id "
@@ -299,7 +335,7 @@ def api_features(request):
         resp['Cache-Control'] = 'no-cache'
         return resp
 
-    conditions = []
+    conditions = [public_landslide_filter('l')]
     params = []
 
     ls_type = request.GET.get("type")
@@ -453,7 +489,8 @@ def api_polygons(request):
     except (ValueError, AttributeError):
         return JsonResponse({"error": "bbox required: minLon,minLat,maxLon,maxLat"}, status=400)
 
-    conditions = ["ST_Intersects(p.geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))"]
+    conditions = ["ST_Intersects(p.geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))",
+                  public_landslide_filter('l')]
     params = [min_lon, min_lat, max_lon, max_lat]
 
     ls_type = request.GET.get("type")
@@ -553,7 +590,11 @@ def api_detail(request, landslide_id):
                         'https://displacement.asf.alaska.edu/#/?dispOverview=VEL&zoom=14.5&center='
                         || ROUND(ST_X(ctr.pt)::numeric, 4) || ',' || ROUND(ST_Y(ctr.pt)::numeric, 4)
                         || '&flightDirs=DESCENDING'
-                    END AS opera_desc_link
+                    END AS opera_desc_link,
+                    CASE WHEN ctr.pt IS NULL THEN NULL ELSE
+                        'https://ngmdb.usgs.gov/topoview/viewer/#13/'
+                        || ROUND(ST_Y(ctr.pt)::numeric, 4) || '/' || ROUND(ST_X(ctr.pt)::numeric, 4)
+                    END AS topoview_link
                 FROM landslides ls
                 LEFT JOIN LATERAL (
                     SELECT ST_Centroid(lp.geom) AS pt
@@ -568,6 +609,8 @@ def api_detail(request, landslide_id):
                     LIMIT 1
                 ) ctr ON true
                 WHERE ls.id = %s
+                  -- public-only (keep in sync with public_landslide_filter('ls')):
+                  AND ls.reviewed_at IS NOT NULL AND ls.deprecated_at IS NULL
             ) l
             """,
             (landslide_id,),
@@ -637,6 +680,8 @@ def api_timed_events(request):
                OR (l.date_min IS NOT NULL AND l.date_max IS NOT NULL
                    AND l.date_max >= l.date_min))
           AND l.centroid_lat IS NOT NULL
+          -- public-only (keep in sync with public_landslide_filter('l')):
+          AND l.reviewed_at IS NOT NULL AND l.deprecated_at IS NULL
         ORDER BY l.id
     """
     conn = _get_conn()
@@ -717,6 +762,8 @@ def api_timeline_events(request):
             (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume
         FROM landslides l
         WHERE l.centroid_lat IS NOT NULL
+          -- public-only (keep in sync with public_landslide_filter('l')):
+          AND l.reviewed_at IS NOT NULL AND l.deprecated_at IS NULL
         ORDER BY l.id
     """
     conn = _get_conn()
@@ -847,10 +894,22 @@ def manage_list(request):
             WHERE lps.landslide_id = l.id AND s.slug = %s
         )""")
         params.append(subset_f)
+    # Induction status filter. Default hides deprecated (superseded) records;
+    # 'all' shows everything; explicit values isolate one bucket.
+    status_f = request.GET.get('status', '')
+    if status_f == 'pending':
+        where.append("l.reviewed_at IS NULL AND l.deprecated_at IS NULL")
+    elif status_f == 'active':
+        where.append("l.reviewed_at IS NOT NULL AND l.deprecated_at IS NULL")
+    elif status_f == 'deprecated':
+        where.append("l.deprecated_at IS NOT NULL")
+    elif status_f != 'all':
+        where.append("l.deprecated_at IS NULL")   # default: hide deprecated
     where_clause = ' AND '.join(where)
 
     list_sql = f"""
         SELECT l.id, l.unique_name, l.landslide_type, l.landslide_class,
+               l.reviewed_at, l.deprecated_at, l.superseded_by,
                COALESCE(
                    (SELECT array_agg(s.slug ORDER BY s.slug)
                     FROM landslide_subsets lps
@@ -917,6 +976,7 @@ def manage_list(request):
         'type_f':      type_f,
         'class_f':     class_f,
         'subset_f':    subset_f,
+        'status_f':    status_f,
         'all_classes': all_classes or [],
         'all_subsets': all_subsets or [],
     })
@@ -984,6 +1044,9 @@ def manage_edit(request, landslide_id, review_mode=False):
         form = LandslideEditForm(request.POST)
         if form.is_valid():
             data = form.cleaned_data
+            type_changed = ('landslide_type' in col_names
+                            and data.get('landslide_type') != initial.get('landslide_type'))
+            roles_changed = False
             # If the editor changed planet_story_link, mirror the change into
             # the planet_stories N:M tables so api_detail (which now reads
             # from the join) reflects it immediately. When this view grows
@@ -1058,6 +1121,22 @@ def manage_edit(request, landslide_id, review_mode=False):
                         [(landslide_id, sid) for sid in to_add],
                     )
 
+                # Polygon role edits (source/body/deposit), submitted as
+                # polygon_role_<id>. Exposed so a mis-typed landslide can be
+                # fully corrected: switching landslide_type also needs the role
+                # to match (slow→body; catastrophic→source/deposit) or the
+                # centroid rule won't resolve. The cascade below recomputes.
+                cur.execute("SELECT id, role FROM landslide_polygons WHERE landslide_id = %s",
+                            (landslide_id,))
+                for pid, cur_role in cur.fetchall():
+                    posted = request.POST.get(f'polygon_role_{pid}')
+                    if posted in ('source', 'body', 'deposit') and posted != cur_role:
+                        cur.execute(
+                            "UPDATE landslide_polygons SET role = %s WHERE id = %s AND landslide_id = %s",
+                            (posted, pid, landslide_id),
+                        )
+                        roles_changed = True
+
                 conn.commit()
             except Exception as exc:
                 conn.rollback()
@@ -1065,17 +1144,27 @@ def manage_edit(request, landslide_id, review_mode=False):
             finally:
                 _put_conn(conn)
 
-            if not error_msg and review_mode:
-                # Mark this record as inducted. Rule cascade (chunk 3)
-                # runs here; for now just stamp reviewed_at.
+            if not error_msg and (review_mode or roles_changed or type_changed):
+                # Apply the per-record rule cascade (centroids, areas, volumes,
+                # class — same as the batch rule-apply) so computed columns stay
+                # consistent. Runs on induction (review) and whenever a
+                # geometry-affecting field changed (landslide_type / polygon
+                # role). On review it also stamps reviewed_at. One transaction;
+                # failure leaves the record unreviewed/unchanged.
+                from .derived import apply_rules_for_landslide
                 conn = _get_conn()
                 try:
                     cur = conn.cursor()
-                    cur.execute(
-                        "UPDATE landslides SET reviewed_at = NOW() WHERE id = %s",
-                        (landslide_id,),
-                    )
+                    apply_rules_for_landslide(cur, landslide_id)
+                    if review_mode:
+                        cur.execute(
+                            "UPDATE landslides SET reviewed_at = NOW() WHERE id = %s",
+                            (landslide_id,),
+                        )
                     conn.commit()
+                except Exception as exc:
+                    conn.rollback()
+                    error_msg = f'Rule cascade failed: {exc}'
                 finally:
                     _put_conn(conn)
 
@@ -1144,42 +1233,78 @@ def manage_edit(request, landslide_id, review_mode=False):
 
     # Review-mode extras: polygon GeoJSON for the mini-map, plus the
     # remaining-pending count so the editor knows how far along they are.
+    # Polygon GeoJSON for the preview mini-map — built in BOTH modes now (the
+    # edit form gets the same imagery-switchable map as review, for slow-change
+    # comparison via AHAP). ::text yields JSON-encoded text we embed via |safe.
     polygons_geojson = None
     pending_remaining = None
-    if review_mode:
-        conn = _get_conn()
-        try:
-            cur = conn.cursor()
-            # ::text yields a JSON-encoded string we can embed straight into
-            # JS via `|safe` — Postgres' json_build_object → ::text path
-            # gives valid JSON, vs psycopg2's auto-decode which produces a
-            # Python dict that Django renders as repr (not parseable JS).
-            cur.execute("""
-                SELECT json_build_object(
-                    'type', 'FeatureCollection',
-                    'features', COALESCE(json_agg(
-                        json_build_object(
-                            'type', 'Feature',
-                            'geometry', ST_AsGeoJSON(geom)::json,
-                            'properties', json_build_object('role', role,
-                                                             'is_primary', is_primary)
-                        )
-                    ), '[]'::json)
-                )::text
-                FROM landslide_polygons WHERE landslide_id = %s
-            """, (landslide_id,))
-            polygons_geojson = cur.fetchone()[0]
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT json_build_object(
+                'type', 'FeatureCollection',
+                'features', COALESCE(json_agg(
+                    json_build_object(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(geom)::json,
+                        'properties', json_build_object('role', role,
+                                                         'is_primary', is_primary)
+                    )
+                ), '[]'::json)
+            )::text
+            FROM landslide_polygons WHERE landslide_id = %s
+        """, (landslide_id,))
+        polygons_geojson = cur.fetchone()[0]
+        if review_mode:
             cur.execute("SELECT COUNT(*) FROM landslides WHERE reviewed_at IS NULL")
             pending_remaining = cur.fetchone()[0]
-            conn.rollback()
-        finally:
-            _put_conn(conn)
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+
+    # Imagery-link suggestions seeded from the centroid (ESRI Wayback + Google).
+    # Pending records haven't run the rule cascade yet (centroid_lat/lon NULL),
+    # so fall back to the centroid of the polygons' union.
+    imagery_suggestions = {}
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT COALESCE(l.centroid_lat, ST_Y(ST_Centroid(ST_Collect(p.geom)))),
+                   COALESCE(l.centroid_lon, ST_X(ST_Centroid(ST_Collect(p.geom))))
+            FROM landslides l
+            LEFT JOIN landslide_polygons p ON p.landslide_id = l.id
+            WHERE l.id = %s
+            GROUP BY l.id, l.centroid_lat, l.centroid_lon
+        """, (landslide_id,))
+        crow = cur.fetchone()
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    if crow:
+        imagery_suggestions = _imagery_suggestions(crow[0], crow[1])
+
+    # Polygons (id, role) so the form can expose role editing — needed to fully
+    # correct a mis-typed landslide (type switch + matching role).
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, role, is_primary FROM landslide_polygons "
+            "WHERE landslide_id = %s ORDER BY id", (landslide_id,))
+        polygons = [{'id': r[0], 'role': r[1], 'is_primary': r[2]} for r in cur.fetchall()]
+        conn.rollback()
+    finally:
+        _put_conn(conn)
 
     template = 'inventory/manage_review.html' if review_mode else 'inventory/manage_edit.html'
     return render(request, template, {
         'form':              form,
         'landslide_id':      landslide_id,
         'unique_name':       unique_name,
+        'imagery_suggestions': imagery_suggestions,
+        'polygons':          polygons,
         'slug':              _slug_for_id(landslide_id),
         'editable_fields':   col_names,
         'common_classes':    COMMON_CLASS_VALUES,
@@ -1511,13 +1636,16 @@ def manage_import(request):
             initial['noted_by'] = full_name
         common_form = CommonForm(initial=initial or None)
 
+        from . import io_geojson as _iog
         return render(request, 'inventory/manage_import_preview.html', {
-            'diff':        diff,
-            'manifest':    manifest,
-            'token':       token,
-            'filename':    request.FILES['upload'].name,
-            'subsets':     subsets,
-            'common_form': common_form,
+            'diff':            diff,
+            'manifest':        manifest,
+            'token':           token,
+            'filename':        request.FILES['upload'].name,
+            'subsets':         subsets,
+            'common_form':     common_form,
+            'COLLISION_IOU':   _iog.COLLISION_IOU,
+            'COLLISION_NEAR_M': _iog.COLLISION_NEAR_M,
         })
 
     return render(request, 'inventory/manage_import.html', {})

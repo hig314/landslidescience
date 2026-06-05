@@ -12,7 +12,54 @@
     {% if manifest %}Exported {{ manifest.exported_at }} (format v{{ manifest.export_format_version }}).{% endif %}
   </p>
 
-  {% for table_name, t in diff.items %}
+  {% if diff.collisions %}
+    <div style="margin-top:18px; border:1px solid #e6b800; background:#fffbe6; border-radius:5px; padding:12px 14px;">
+      <h3 style="margin:0 0 6px; font-size:15px; color:#8a6d00;">
+        ⚠ {{ diff.collisions|length }} possible duplicate(s) / name collision(s)
+      </h3>
+      <p style="font-size:12px; color:#777; margin:0 0 8px;">
+        These uploads match an existing record by name or location (name = case/whitespace-insensitive;
+        location = polygon IoU &gt; {{ COLLISION_IOU }} within {{ COLLISION_NEAR_M }} m). The
+        <strong>action</strong> column shows what Apply will do.
+      </p>
+      <table class="methods-table" style="font-size:12px;">
+        <thead><tr><th>upload</th><th>name match</th><th>location match (IoU)</th><th>action on Apply</th></tr></thead>
+        <tbody>
+          {% for c in diff.collisions %}
+            <tr>
+              <td><code>{{ c.upload_id }}</code><br><span style="color:#555;">{{ c.unique_name }}</span></td>
+              <td>
+                {% for m in c.name_matches %}
+                  <div>#{{ m.id }} <span style="color:#555;">{{ m.stored_name }}</span>
+                    <span style="font-size:10px; color:#a40000;">[{{ m.kind }}]</span></div>
+                {% empty %}<span style="color:#bbb;">—</span>{% endfor %}
+              </td>
+              <td>
+                {% for m in c.spatial_matches %}
+                  <div>#{{ m.id }} <span style="color:#555;">{{ m.unique_name }}</span>
+                    <span style="font-size:10px; color:#a40000;">IoU {{ m.iou }}</span></div>
+                {% empty %}<span style="color:#bbb;">—</span>{% endfor %}
+              </td>
+              <td>
+                {% if c.resolution == 'update' %}
+                  <span style="color:#2e7d32;">↻ identical — will <strong>update</strong> existing #{{ c.identical_id }} in place</span>
+                {% elif c.resolution == 'block' %}
+                  <span style="color:#a40000;">✗ name taken — <strong>blocks Apply</strong>; rename or merge first</span>
+                {% else %}
+                  <span style="color:#8a6d00;">⚠ near-duplicate — inserts as new (review)</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if diff.has_block %}
+        <p style="font-size:12px; color:#a40000; margin:8px 0 0;"><strong>Note:</strong> at least one row blocks Apply (name already taken). Resolve those before applying, or remove them from the upload.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% for table_name, t in diff.items %}{% if table_name == 'landslides' or table_name == 'landslide_polygons' %}
     <h3 style="margin-top: 24px; font-size:15px;">{{ table_name }}</h3>
     <table class="methods-table" style="font-size:13px; margin-top: 6px;">
       <tr><th style="width:30%">Updates</th><td><strong>{{ t.updates|length }}</strong> row(s) will be modified</td></tr>
@@ -93,7 +140,7 @@
         </table>
       </details>
     {% endif %}
-  {% endfor %}
+  {% endif %}{% endfor %}
 
   <hr style="margin: 28px 0 18px; border:none; border-top:1px solid #e0e0e0;">
 

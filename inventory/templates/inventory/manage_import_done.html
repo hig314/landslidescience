@@ -9,10 +9,17 @@
   <table class="methods-table" style="font-size:13px;">
     <tr><th>landslides updated</th><td>{{ summary.landslides_updated }}</td></tr>
     <tr><th>landslides inserted</th><td>{{ summary.landslides_inserted }}</td></tr>
+    <tr><th>matched &amp; updated in place (identical re-import)</th><td>{{ summary.landslides_matched_updated }}</td></tr>
     <tr><th>polygons updated</th><td>{{ summary.polygons_updated }}</td></tr>
     <tr><th>polygons inserted</th><td>{{ summary.polygons_inserted }}</td></tr>
     <tr><th>skipped</th><td>{{ summary.skipped }}</td></tr>
   </table>
+  {% if summary.matched_updates %}
+    <p style="font-size:12px; color:#2e7d32; margin-top:10px;">
+      Identical re-imports updated in place (existing record kept):
+      {% for id, name in summary.matched_updates %}#{{ id }} {{ name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+    </p>
+  {% endif %}
   <p style="margin-top: 22px;">
     <a href="{% url 'inventory:manage_list' %}">← Back to records</a>
     &nbsp;·&nbsp;

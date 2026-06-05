@@ -1,0 +1,14 @@
+{% comment %}
+OPERA InSAR displacement viewer links (read-only), seeded from the centroid —
+opens ASF's displacement portal at this site so the reviewer can judge the
+insar_opera flag. Not a stored field (links are deterministic from location).
+Params: asc, desc (URLs).
+{% endcomment %}
+{% if asc and desc %}
+<div style="margin-top:3px; font-size:11px;">
+  OPERA InSAR:
+  <a href="{{ asc }}" target="_blank" rel="noopener">↗ ascending</a> ·
+  <a href="{{ desc }}" target="_blank" rel="noopener">↗ descending</a>
+  <span style="color:#999;">— check ASF displacement for a velocity signal at this site.</span>
+</div>
+{% endif %}

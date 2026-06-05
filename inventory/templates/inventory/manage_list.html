@@ -55,8 +55,15 @@
         <option value="{{ s.slug }}" {% if subset_f == s.slug %}selected{% endif %}>{{ s.name }}</option>
       {% endfor %}
     </select>
+    <select name="status" title="Induction status" style="padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px;">
+      <option value="" {% if not status_f %}selected{% endif %}>Active + pending</option>
+      <option value="active"     {% if status_f == 'active' %}selected{% endif %}>Active only</option>
+      <option value="pending"    {% if status_f == 'pending' %}selected{% endif %}>Pending review</option>
+      <option value="deprecated" {% if status_f == 'deprecated' %}selected{% endif %}>Deprecated</option>
+      <option value="all"        {% if status_f == 'all' %}selected{% endif %}>All</option>
+    </select>
     <button type="submit" style="padding:6px 18px; font-size:13px; background:#5D4037; color:#fff; border:none; border-radius:3px; cursor:pointer;">Filter</button>
-    {% if q or type_f or class_f or subset_f %}
+    {% if q or type_f or class_f or subset_f or status_f %}
       <a href="{% url 'inventory:manage_list' %}"
          style="padding:6px 12px; font-size:13px; color:#666; text-decoration:none; align-self:center;">Clear</a>
     {% endif %}
@@ -67,6 +74,7 @@
       <tr>
         <th>ID</th>
         <th>Name</th>
+        <th>Status</th>
         <th>Type</th>
         <th>Class</th>
         <th>Subset</th>
@@ -80,6 +88,16 @@
       <tr>
         <td>{{ r.id }}</td>
         <td><a href="{% url 'inventory:manage_edit' landslide_id=r.id %}">{{ r.unique_name }}</a></td>
+        <td>
+          {% if r.deprecated_at %}
+            <span style="background:#fde0e0; color:#a40000; padding:1px 6px; border-radius:8px; font-size:11px;">deprecated</span>
+            {% if r.superseded_by %}<a href="{% url 'inventory:manage_edit' landslide_id=r.superseded_by %}" title="superseded by" style="font-size:11px;">→#{{ r.superseded_by }}</a>{% endif %}
+          {% elif not r.reviewed_at %}
+            <span style="background:#fff3cd; color:#8a6d00; padding:1px 6px; border-radius:8px; font-size:11px;">pending</span>
+          {% else %}
+            <span style="background:#e3f2e3; color:#2e7d32; padding:1px 6px; border-radius:8px; font-size:11px;">active</span>
+          {% endif %}
+        </td>
         <td>{{ r.landslide_type }}</td>
         <td>{{ r.landslide_class|default:"—" }}</td>
         <td>{% if r.subset_slugs %}{{ r.subset_slugs|join:", " }}{% else %}—{% endif %}</td>
@@ -94,7 +112,7 @@
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="8" style="text-align:center; padding:30px; color:#888;">No records match.</td></tr>
+      <tr><td colspan="9" style="text-align:center; padding:30px; color:#888;">No records match.</td></tr>
       {% endfor %}
     </tbody>
   </table>

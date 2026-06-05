@@ -854,3 +854,38 @@ def diff_against_db(cur, rule_name):
                 'pct_diff': _pct_diff_str(row[target_column], new),
             })
     return {'agreements': agreements, 'changes': changes}
+
+
+def apply_rules_for_landslide(cur, ls_id):
+    """Apply every derived RULE to ONE landslide (and its polygons), in
+    dependency order (the RULES insertion order: polygon geometry → areas →
+    centroids → volumes → class). Used at induction (review-save) so a newly
+    inserted record gets the same computed columns the batch rule-apply would
+    produce.
+
+    Reuses ``diff_against_db`` per rule (identical compute/normalize as the
+    batch ``manage_rule_apply``) and applies only the changes that touch this
+    landslide's rows. Each rule re-reads the DB, so later rules see earlier
+    rules' writes within the same transaction. The caller owns the transaction
+    (commit/rollback). Returns the number of column writes.
+    """
+    cur.execute("SELECT id FROM landslide_polygons WHERE landslide_id = %s", (ls_id,))
+    poly_ids = {r[0] for r in cur.fetchall()}
+
+    writes = 0
+    for name, fn in RULES.items():
+        target_table = getattr(fn, 'target_table', 'landslides')
+        target_column = fn.target_column
+        result = diff_against_db(cur, name)
+        for ch in result['changes']:
+            rid = ch['id']
+            if target_table == 'landslides' and rid != ls_id:
+                continue
+            if target_table == 'landslide_polygons' and rid not in poly_ids:
+                continue
+            cur.execute(
+                f"UPDATE {target_table} SET {target_column} = %s WHERE id = %s",
+                (ch['new'], rid),
+            )
+            writes += 1
+    return writes

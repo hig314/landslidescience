@@ -1,0 +1,11 @@
+{% comment %}
+Standalone location reference links for the edit/review form (read-only, seeded
+from the centroid). Currently USGS TopoView (historic topo maps). ESRI/Google
+are paste-into-field helpers next to their fields; OPERA sits by insar_opera.
+{% endcomment %}
+{% if imagery_suggestions.topoview %}
+<div style="margin:16px 0; font-size:12px;">
+  <a href="{{ imagery_suggestions.topoview }}" target="_blank" rel="noopener">↗ USGS historic topo maps (TopoView)</a>
+  <span style="color:#999;">— historic published USGS topographic maps at this location.</span>
+</div>
+{% endif %}

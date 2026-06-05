@@ -24,14 +24,31 @@ Import semantics (first-shot scope):
 """
 import datetime
 import decimal
+import difflib
 import json
+import unicodedata
 
 from .views import _get_conn, _put_conn
 
 EXPORT_FORMAT_VERSION = 1
 
-# Columns we don't round-trip — Postgres auto-manages these.
-LANDSLIDES_AUTO_COLS = ('created_at', 'updated_at', 'reviewed_at')
+# Columns we don't round-trip — server-managed (Postgres auto / induction /
+# supersede-merge flow), never written or exported via the normal upload path.
+LANDSLIDES_AUTO_COLS = ('created_at', 'updated_at', 'reviewed_at',
+                        'deprecated_at', 'superseded_by')
+
+
+def normalize_name(s):
+    """Canonical form of a unique_name for *comparison*: NFC unicode, trimmed,
+    internal whitespace collapsed. Capitalization is preserved (proper nouns)."""
+    if s is None:
+        return ''
+    return ' '.join(unicodedata.normalize('NFC', str(s)).split())
+
+
+def name_key(s):
+    """Case-insensitive comparison key — catches case/whitespace-only diffs."""
+    return normalize_name(s).casefold()
 
 
 class _GeoJSONEncoder(json.JSONEncoder):
@@ -803,6 +820,14 @@ def _synthesize_landslides_from_flat_polygons(landslides_fc, polygons_fc,
     return warnings
 
 
+# Explicit controlled-vocab aliases the fuzzy/plural rules don't catch
+# (irregular plurals; add unambiguous synonyms/abbreviations here as they show
+# up in real uploads). Keys are alnum-lowercased; values are canonical.
+_VOCAB_ALIASES = {
+    'bodies': 'body',
+}
+
+
 def _normalize_controlled_vocab(landslides_fc, polygons_fc):
     """Case-fold and strip whitespace on controlled-vocabulary fields so the
     importer accepts "Deposit", "DEPOSIT ", "Slow ", etc. without forcing
@@ -811,14 +836,35 @@ def _normalize_controlled_vocab(landslides_fc, polygons_fc):
     warnings = []
 
     def _norm_against(value, canonical_set):
+        """Generously map a controlled-vocab value to its canonical form:
+        case-insensitive + trim, then alnum-only, depluralize, and finally a
+        conservative fuzzy (typo) match (difflib ratio ≥ 0.8, unambiguous only).
+        Returns (normalized_or_original, changed). Unknown/ambiguous values are
+        left as-is so validation flags them; every correction emits a warning."""
         if value is None:
             return None, False
-        s = str(value).strip().lower()
+        raw = str(value)
+        s = raw.strip().lower()
         if s == '':
             return None, False
         if s in canonical_set:
-            return s, (s != value)
-        return value, False  # unknown — leave alone so validation can flag it
+            return s, (s != raw)
+        # Strip anything but letters/digits ("Source.", "head-scarp" → "headscarp").
+        cleaned = ''.join(ch for ch in s if ch.isalnum())
+        if cleaned in canonical_set:
+            return cleaned, True
+        # Aliases the fuzzy/plural rules miss (irregular plurals, common synonyms).
+        alias = _VOCAB_ALIASES.get(cleaned)
+        if alias in canonical_set:
+            return alias, True
+        if cleaned.endswith('s') and cleaned[:-1] in canonical_set:   # plural
+            return cleaned[:-1], True
+        # Typo correction: accept only a single close match (avoid guessing
+        # between e.g. two similar canonical terms).
+        matches = difflib.get_close_matches(cleaned, sorted(canonical_set), n=2, cutoff=0.8)
+        if len(matches) == 1:
+            return matches[0], True
+        return value, False  # unknown / ambiguous — leave alone for validation
 
     polygon_roles = {'source', 'body', 'deposit'}
     landslide_types = {'slow', 'catastrophic'}
@@ -890,10 +936,115 @@ def compute_diff(landslides_fc, polygons_fc):
                                                                 and 'polygon' not in w)
         po_diff['warnings'].extend(w for w in norm_warnings if 'polygon' in w
                                                                 or 'role' in w)
+        # Flag would-add records that collide with existing data (by name or
+        # location) so the preview can route them to review/merge.
+        collisions = _detect_collisions(cur, ls_diff['would_add'], polygons_fc)
         conn.rollback()
     finally:
         _put_conn(conn)
-    return {'landslides': ls_diff, 'landslide_polygons': po_diff}
+    has_block = any(c['resolution'] == 'block' for c in collisions)
+    return {'landslides': ls_diff, 'landslide_polygons': po_diff,
+            'collisions': collisions, 'has_block': has_block}
+
+
+# Spatial near-duplicate thresholds (see the induction plan).
+# NEAR_M gates candidates by polygon proximity (more robust than centroid-to-
+# centroid, which is sensitive to how each centroid was defined); IoU is the
+# real duplicate test.
+COLLISION_NEAR_M = 200
+COLLISION_IOU = 0.80           # polygon-pair IoU above this flags a duplicate
+COLLISION_IDENTICAL_IOU = 0.999  # at/above this the upload IS the same landslide → update in place
+
+
+def _detect_collisions(cur, would_add, polygons_fc):
+    """Flag would-add landslides that collide with existing non-deprecated
+    records — by NAME (case/whitespace-insensitive key) or by LOCATION (centroid
+    within COLLISION_CENTROID_M metres AND some uploaded↔existing polygon pair
+    with IoU > COLLISION_IOU, in EPSG:3338). Report-only: returns one dict per
+    colliding upload for the preview to surface.
+    """
+    if not would_add:
+        return []
+
+    # Name index of existing active/pending records (deprecated names are retired).
+    cur.execute("SELECT id, unique_name FROM landslides "
+                "WHERE deprecated_at IS NULL AND unique_name IS NOT NULL")
+    by_key = {}
+    for nid, nname in cur.fetchall():
+        by_key.setdefault(name_key(nname), []).append((nid, nname))
+
+    # Uploaded polygons grouped by their landslide_id (GeoJSON, EPSG:4326).
+    polys_by_ls = {}
+    for feat in (polygons_fc.get('features') or []):
+        geom = feat.get('geometry')
+        lid = (feat.get('properties') or {}).get('landslide_id')
+        if geom is not None and lid is not None:
+            polys_by_ls.setdefault(lid, []).append(json.dumps(geom))
+
+    iou_expr = ("ST_Area(ST_Intersection(np.geom, cand.geom)) "
+                "/ NULLIF(ST_Area(ST_Union(np.geom, cand.geom)), 0)")
+    spatial_sql = f"""
+        WITH newp AS (
+            SELECT ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(g), 4326)) AS g4326
+            FROM unnest(%s::text[]) AS g
+        ),
+        nu4326 AS (SELECT ST_Union(g4326) AS u FROM newp),
+        np3338 AS (SELECT ST_Transform(g4326, 3338) AS geom FROM newp),
+        cand AS (   -- candidate polygons within NEAR_M of the upload (geography metres)
+            SELECT p.landslide_id, ST_MakeValid(ST_Transform(p.geom, 3338)) AS geom
+            FROM landslide_polygons p
+            JOIN landslides l ON l.id = p.landslide_id AND l.deprecated_at IS NULL
+            CROSS JOIN nu4326
+            WHERE ST_DWithin(p.geom::geography, nu4326.u::geography, %s)
+        )
+        SELECT l.id, l.unique_name, MAX({iou_expr}) AS iou
+        FROM cand
+        JOIN landslides l ON l.id = cand.landslide_id
+        CROSS JOIN np3338 np
+        GROUP BY l.id, l.unique_name
+        HAVING MAX({iou_expr}) > %s
+        ORDER BY iou DESC
+    """
+
+    collisions = []
+    for a in would_add:
+        upload_id = a['id']
+        uname = a.get('unique_name') or ''
+        name_matches = [
+            {'id': nid, 'stored_name': stored, 'kind': 'exact' if stored == uname else 'case'}
+            for nid, stored in by_key.get(name_key(uname), [])
+        ]
+        spatial_matches = []
+        geoms = polys_by_ls.get(upload_id)
+        if geoms:
+            cur.execute(spatial_sql, (geoms, COLLISION_NEAR_M, COLLISION_IOU))
+            for cid, cname, iou in cur.fetchall():
+                spatial_matches.append({'id': cid, 'unique_name': cname, 'iou': round(float(iou), 3)})
+        if not (name_matches or spatial_matches):
+            continue
+        # Classify the resolution (one source of truth for preview + apply):
+        #   update — polygons identical (IoU ≥ identical): same landslide
+        #            re-uploaded → update the existing record in place.
+        #   block  — name-exact dup with non-identical geometry → would violate
+        #            the unique_name constraint; must rename/merge first.
+        #   review — case/whitespace name dup or a near (not identical) overlap
+        #            → surfaced for the editor; not auto-resolved or blocked.
+        best = max(spatial_matches, key=lambda m: m['iou'], default=None)
+        if best and best['iou'] >= COLLISION_IDENTICAL_IOU:
+            resolution, identical_id = 'update', best['id']
+        elif any(m['kind'] == 'exact' for m in name_matches):
+            resolution, identical_id = 'block', None
+        else:
+            resolution, identical_id = 'review', None
+        collisions.append({
+            'upload_id':       upload_id,
+            'unique_name':     uname,
+            'name_matches':    name_matches,
+            'spatial_matches': spatial_matches,
+            'resolution':      resolution,
+            'identical_id':    identical_id,
+        })
+    return collisions
 
 
 _VALID_LANDSLIDE_TYPES = ('slow', 'catastrophic')
@@ -1105,6 +1256,27 @@ def apply_import(landslides_fc, polygons_fc, user, subset_slug=None, common_fiel
         raise ImportError_('Upload has validation errors; refusing to apply:\n  '
                             + '\n  '.join(blocking))
 
+    # Identical re-imports → update-in-place. A would-add landslide whose
+    # polygons are essentially identical (IoU ≥ IDENTICAL_IOU) to an existing
+    # record is the SAME landslide being re-applied (the master-file workflow):
+    # update that record rather than inserting a duplicate (which would also hit
+    # the unique_name constraint). Maps upload-side id → existing landslide id.
+    identical_to = {c['upload_id']: c['identical_id']
+                    for c in diff.get('collisions', []) if c['resolution'] == 'update'}
+
+    # 'block' collisions (name-exact dup, non-identical geometry) would violate
+    # the unique_name DB constraint — refuse up front with an actionable message
+    # instead of letting the INSERT 500.
+    name_conflicts = [
+        f"{c['unique_name']!r} already exists as record #{c['name_matches'][0]['id']}"
+        for c in diff.get('collisions', []) if c['resolution'] == 'block'
+    ]
+    if name_conflicts:
+        raise ImportError_(
+            'Upload would duplicate existing names (unique_name must be unique). '
+            'Rename these — or use the merge/supersede flow once available — '
+            'before applying:\n  ' + '\n  '.join(name_conflicts))
+
     ls_by_id = {(f.get('id') or f.get('properties', {}).get('id')): f
                 for f in landslides_fc.get('features', [])}
     po_by_id = {(f.get('id') or f.get('properties', {}).get('id')): f
@@ -1114,6 +1286,8 @@ def apply_import(landslides_fc, polygons_fc, user, subset_slug=None, common_fiel
     summary = {
         'landslides_updated':  0, 'polygons_updated':  0,
         'landslides_inserted': 0, 'polygons_inserted': 0,
+        'landslides_matched_updated': 0,   # identical re-imports updated in place
+        'matched_updates': [],             # (existing_id, name) for the done page
         'skipped': 0,
     }
 
@@ -1188,6 +1362,8 @@ def apply_import(landslides_fc, polygons_fc, user, subset_slug=None, common_fiel
 
         for a in diff['landslides']['would_add']:
             upload_id = a['id']
+            if upload_id in identical_to:
+                continue  # identical re-import — handled as an update below
             feat  = ls_by_id[upload_id]
             props = feat.get('properties', {})
             cols, vals = [], []
@@ -1212,6 +1388,34 @@ def apply_import(landslides_fc, polygons_fc, user, subset_slug=None, common_fiel
             summary['landslides_inserted'] += 1
             affected_landslide_ids.add(real_id)
 
+        # ---- Identical re-imports: UPDATE the matched existing record ----
+        # The upload's polygons are essentially identical to this existing
+        # record's, so it's the same landslide re-applied. Refresh its non-geom
+        # columns from the upload (only columns the upload supplies; geometry is
+        # unchanged so polygons are skipped below). The existing id/history/
+        # review status are preserved.
+        for upload_id, existing_id in identical_to.items():
+            upload_to_real[upload_id] = existing_id   # so any new polys would map here
+            feat  = ls_by_id.get(upload_id)
+            props = (feat or {}).get('properties', {})
+            sets, vals = [], []
+            for col in insertable_landslide_cols:
+                if col in props:
+                    sets.append(f'{col} = %s')
+                    vals.append(_coerce(ls_types[col], props[col]))
+            if sets:
+                vals.append(existing_id)
+                cur.execute(f"UPDATE landslides SET {', '.join(sets)} WHERE id = %s", vals)
+            if subset_id is not None:
+                cur.execute(
+                    "INSERT INTO landslide_subsets (landslide_id, subset_id) "
+                    "VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    (existing_id, subset_id),
+                )
+            summary['landslides_matched_updated'] += 1
+            summary['matched_updates'].append((existing_id, props.get('unique_name')))
+            affected_landslide_ids.add(existing_id)
+
         # ---- INSERT new polygons ----
         # Polygon landslide_id either points at an upload-side id we just
         # allocated above, or at a DB row that already existed at diff time.
@@ -1221,6 +1425,8 @@ def apply_import(landslides_fc, polygons_fc, user, subset_slug=None, common_fiel
             feat  = po_by_id[a['id']]
             props = feat.get('properties', {})
             ls_ref = props.get('landslide_id')
+            if ls_ref in identical_to:
+                continue  # identical re-import — geometry already in DB, skip
             real_ls_id = upload_to_real.get(ls_ref, ls_ref)
             cols = ['landslide_id', 'geom']
             vals = [real_ls_id, json.dumps(feat['geometry'])]
@@ -1239,9 +1445,15 @@ def apply_import(landslides_fc, polygons_fc, user, subset_slug=None, common_fiel
             affected_landslide_ids.add(real_ls_id)
 
         conn.commit()
-    except Exception:
+    except ImportError_:
         conn.rollback()
         raise
+    except Exception as exc:
+        # Any DB-level failure (e.g. a unique/constraint violation we didn't
+        # pre-check) → roll back fully and surface a clean message rather than a
+        # 500. Nothing is saved.
+        conn.rollback()
+        raise ImportError_(f'Apply failed — no changes were saved. Database error:\n  {exc}') from exc
     finally:
         _put_conn(conn)
 

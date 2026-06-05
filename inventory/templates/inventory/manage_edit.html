@@ -17,6 +17,8 @@
   <h2 style="font-size:19px; margin: 0 0 4px;">{{ unique_name }}</h2>
   <p style="font-size:12px; color:#888; margin-top:0;">id={{ landslide_id }}</p>
 
+  {% include 'inventory/_polygon_map.html' %}
+
   {% if error_msg %}
     <div style="margin: 14px 0; padding: 10px 14px; background:#fef0f0; border:1px solid #f5c2c2; border-radius:4px; color:#902;">
       {{ error_msg }}
@@ -113,6 +115,13 @@
         {% else %}
           {{ field }}
         {% endif %}
+        {% if field.name == 'esri_wayback_link' and imagery_suggestions.esri_wayback_link %}
+          {% include 'inventory/_imagery_suggest.html' with url=imagery_suggestions.esri_wayback_link fid=field.id_for_label label='ESRI Wayback' %}
+        {% elif field.name == 'google_images_link' and imagery_suggestions.google_images_link %}
+          {% include 'inventory/_imagery_suggest.html' with url=imagery_suggestions.google_images_link fid=field.id_for_label label='Google satellite' %}
+        {% elif field.name == 'insar_opera' and imagery_suggestions.opera_asc %}
+          {% include 'inventory/_opera_links.html' with asc=imagery_suggestions.opera_asc desc=imagery_suggestions.opera_desc %}
+        {% endif %}
         {% if field.help_text %}
           <p style="font-size:11px; color:#888; margin: 3px 0 0;">{{ field.help_text }}</p>
         {% endif %}
@@ -122,9 +131,13 @@
       </div>
     {% endfor %}
 
-    {# Subset memberships — checkbox group. Lives inside the same <form>
-       so submitting saves both the column fields and the memberships in
-       one transaction. #}
+    {% include 'inventory/_polygon_roles.html' %}
+    {% include 'inventory/_reference_links.html' %}
+
+    {% comment %}
+    Subset memberships — checkbox group. Lives inside the same <form> so
+    submitting saves both the column fields and the memberships in one transaction.
+    {% endcomment %}
     {% if all_subsets %}
       <div style="margin: 22px 0 4px;">
         <label style="display:block; font-size:13px; color:#555; margin-bottom:6px;">
