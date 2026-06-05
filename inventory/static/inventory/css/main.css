@@ -889,8 +889,8 @@ body.inv-article-body {
     color: #fff;
 }
 
-/* --- "New record" tool (editor-only) ---
- * Compact "NEW" label; brown background keeps it legible on any basemap
+/* --- "+data" upload tool (editor-only) ---
+ * Compact "+data" label; brown background keeps it legible on any basemap
  * and visually distinct from the white-bg measure + zoom controls. */
 .inv-newrec-ctrl {
     background: transparent !important;

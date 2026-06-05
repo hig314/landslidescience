@@ -585,12 +585,12 @@
         el.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-newrec-ctrl';
         var b = document.createElement('button');
         b.type = 'button';
-        b.title = 'Add new landslide(s) — opens upload form';
-        b.setAttribute('aria-label', 'Add new landslide');
-        // "+" was ambiguous with the zoom-in control and rendered as a
-        // white glyph that disappeared against light basemaps. "NEW"
-        // text is unambiguous and reads cleanly against any background.
-        b.textContent = 'NEW';
+        b.title = 'Add landslide data — opens the GeoJSON upload form';
+        b.setAttribute('aria-label', 'Add landslide data');
+        // A bare "+" was ambiguous with the zoom-in control and vanished as a
+        // white glyph on light basemaps; "+data" labels the action clearly
+        // (upload) and reads cleanly against any background.
+        b.textContent = '+data';
         b.addEventListener('click', function () {
             window.location.href = '/inventory/manage/import/';
         });
