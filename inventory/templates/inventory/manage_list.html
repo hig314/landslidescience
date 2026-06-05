@@ -8,6 +8,12 @@
   <div style="display:flex; align-items:center; gap:16px; margin-bottom: 14px; flex-wrap: wrap;">
     <h2 style="font-size:18px; margin: 0;">Landslide records</h2>
     <span style="font-size:13px; color:#666;">{{ total }} total</span>
+    {% if pending_count %}
+      <a href="{% url 'inventory:manage_review' landslide_id=pending_first_id %}" class="inv-review-btn"
+         title="Step through every pending record in the review flow (recent uploads first).">
+        ▶ Review {{ pending_count }} pending
+      </a>
+    {% endif %}
     <div style="margin-left:auto; display:flex; gap:8px;">
       <a href="{% url 'inventory:export' %}" class="inv-action-btn">⬇ Export GeoJSON</a>
       <a href="{% url 'inventory:manage_import' %}" class="inv-action-btn">⬆ Import GeoJSON</a>
@@ -33,6 +39,18 @@
       border: 1px solid #d6c8c2;
     }
     .inv-action-btn.inv-action-btn-light:hover { background: #e6dfdc; }
+    .inv-review-btn {
+      display: inline-block;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      background: #f0a500;
+      color: #4a3800;
+      text-decoration: none;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    .inv-review-btn:hover { background: #d99400; }
   </style>
 
   <form method="get" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 14px; padding:10px 14px; background:#f7f7f7; border-radius:5px; border:1px solid #e0e0e0;">

@@ -949,6 +949,19 @@ def manage_list(request):
         cur.execute(count_sql, params)
         total = cur.fetchone()[0]
 
+        # Pending-review queue summary (independent of the active filters) so the
+        # header can offer a one-click jump straight into the review flow.
+        cur.execute("""
+            SELECT COUNT(*) AS n,
+                   (SELECT id FROM landslides
+                    WHERE reviewed_at IS NULL AND deprecated_at IS NULL
+                    ORDER BY created_at DESC LIMIT 1) AS first_id
+            FROM landslides
+            WHERE reviewed_at IS NULL AND deprecated_at IS NULL
+        """)
+        prow = cur.fetchone()
+        pending_count, pending_first_id = prow[0], prow[1]
+
         cur.execute(facet_sql)
         all_classes = cur.fetchone()[0]
         cur.execute(subsets_sql)
@@ -979,6 +992,8 @@ def manage_list(request):
         'status_f':    status_f,
         'all_classes': all_classes or [],
         'all_subsets': all_subsets or [],
+        'pending_count':    pending_count,
+        'pending_first_id': pending_first_id,
     })
 
 
