@@ -684,6 +684,17 @@ def _coerce(udt_name, val):
             return datetime.datetime.fromisoformat(val)
         return val
     if udt_name == 'bool':
+        # Booleans arrive as native bool, numeric 1/0, or strings depending on
+        # the source format. A naive bool(val) turns the *string* "false" / "0"
+        # / "no" into True (non-empty string), silently flipping flags like
+        # molards. Parse string forms explicitly; leave unrecognized as NULL.
+        if isinstance(val, str):
+            s = val.strip().lower()
+            if s in ('true', 't', 'yes', 'y', '1'):
+                return True
+            if s in ('false', 'f', 'no', 'n', '0', ''):
+                return False
+            return None
         return bool(val)
     if udt_name in ('int4', 'int8'):
         return int(val) if val != '' else None

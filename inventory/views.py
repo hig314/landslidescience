@@ -516,7 +516,33 @@ def api_polygons(request):
                         'role', p.role,
                         'area', p.area,
                         'thickness', p.thickness,
-                        'polygon_volume', p.polygon_volume
+                        'polygon_volume', p.polygon_volume,
+                        -- Landslide-level filter fields, mirrored from api_features
+                        -- so the shared map filter hides/shows points and polygons
+                        -- consistently (without these, any flag/range filter drops
+                        -- every polygon because the property is absent). n10/lw are
+                        -- merged client-side (by landslide_id), as for points.
+                        'volume_preferred', l.volume_preferred,
+                        'area_src', CASE WHEN l.landslide_type = 'slow'
+                                         THEN l.area_body ELSE l.area_source END,
+                        'area_dep', CASE WHEN l.landslide_type = 'catastrophic'
+                                         THEN l.area_deposit ELSE NULL END,
+                        'year_num', CASE
+                            WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
+                            WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
+                            WHEN l.year_text ~ '^[0-9]{4}$' THEN l.year_text::int
+                            WHEN l.date_min IS NOT NULL THEN EXTRACT(YEAR FROM l.date_min)::int
+                            ELSE NULL
+                        END,
+                        'molards',                     l.molards,
+                        'stream_damming',              l.stream_damming,
+                        'precursory_headscarp',        l.precursory_headscarp,
+                        'has_site_specific_volume',   (l.volume_site_specific IS NOT NULL),
+                        'exclusively_supraglacial',    l.exclusively_supraglacial,
+                        'creeping_permafrost_mass',    l.creeping_permafrost_mass,
+                        'has_seismic',                (l.seismic_datetime IS NOT NULL),
+                        'has_time_bracket',           (l.date_min IS NOT NULL AND l.date_max IS NOT NULL),
+                        'post_2012_activity_increase', l.post_2012_activity_increase
                     )
                 )
             ), '[]'::json)
@@ -834,6 +860,9 @@ _FORM_EXCLUDED_COLS = (
     # State column managed by the review workflow — never set by the form
     # directly; it gets set to NOW() when a pending record completes review.
     'reviewed_at',
+    # Supersede/merge state — managed by the merge flow, never the edit form.
+    # (If editable, a normal save would write NULL and silently un-deprecate.)
+    'deprecated_at', 'superseded_by',
     # Legacy column — superseded by the landslide_subsets M:N join. The
     # subset-membership UI on the edit form writes the new table; the
     # legacy column will be dropped after the rest of the transition lands.

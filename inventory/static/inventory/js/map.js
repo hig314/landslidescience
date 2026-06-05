@@ -51,7 +51,9 @@
     function mergeSuscValues(data) {
         if (!SUSC_VALUES || !data || !data.features) return;
         data.features.forEach(function (ft) {
-            var v = SUSC_VALUES[String(ft.properties.id)];
+            // Points key on the landslide id; polygons carry landslide_id.
+            var key = ft.properties.id != null ? ft.properties.id : ft.properties.landslide_id;
+            var v = SUSC_VALUES[String(key)];
             ft.properties.n10 = (v && v.n10 != null) ? v.n10 : null;
             ft.properties.lw  = (v && v.lw  != null) ? v.lw  : null;
         });
@@ -996,7 +998,15 @@
                 var bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',');
                 fetch(API_BASE + 'api/polygons/?bbox=' + bbox)
                     .then(function (r) { return r.json(); })
-                    .then(function (data) { map.getSource('polygons').setData(data); })
+                    .then(function (data) {
+                        // Merge n10/lw so the susceptibility sliders filter
+                        // polygons the same way they filter points.
+                        _suscValuesPromise.then(function () {
+                            mergeSuscValues(data);
+                            map.getSource('polygons').setData(data);
+                            buildFilter();
+                        });
+                    })
                     .catch(function (e) { console.error('Polygon load failed:', e); })
                     .finally(function () { polygonLoadPending = false; });
             }
