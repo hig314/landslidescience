@@ -7,6 +7,36 @@
 
 {% block extra_styles %}
   <link href="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.css" rel="stylesheet">
+  <style>
+    /* Draw-new tool: floating queue panel + name/role popup (editor-only). */
+    .inv-draw-panel {
+      position: fixed; right: 14px; bottom: 14px; z-index: 9; width: 280px;
+      background: #fff; border: 1px solid #d4cdc0; border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.18); padding: 10px 12px;
+      font: 13px/1.4 system-ui, sans-serif; max-height: 60vh; overflow:auto;
+    }
+    .inv-draw-hd { font-weight: 600; color: #00504a; margin-bottom: 4px; }
+    .inv-draw-list { display: flex; flex-direction: column; gap: 8px; }
+    .idq-group { border: 1px solid #e3ddd4; border-radius: 4px; padding: 6px 8px; }
+    .idq-name { font-size: 13px; color: #333; margin-bottom: 4px; }
+    .idq-del { font-size: 11px; padding: 2px 7px; margin: 2px 4px 0 0; cursor: pointer;
+               background: #f0ebe9; color: #5D4037; border: 1px solid #d6c8c2; border-radius: 3px; }
+    .idq-warn { font-size: 11px; color: #a05a00; margin-top: 4px; }
+    .inv-draw-panel button.primary { background: #00897b; color: #fff; border: none; }
+    .inv-draw-panel button { font-size: 12px; padding: 5px 10px; border-radius: 4px;
+                             border: 1px solid #d6c8c2; background: #f0ebe9; color: #5D4037; cursor: pointer; }
+    .inv-draw-panel button:disabled { opacity: 0.5; cursor: default; }
+    .inv-draw-popup { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,0.25);
+                      display: flex; align-items: center; justify-content: center; }
+    .inv-draw-popup-box { background: #fff; border-radius: 6px; padding: 16px 18px; width: 300px;
+                          font: 13px/1.4 system-ui, sans-serif; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+    .inv-draw-popup-box input, .inv-draw-popup-box select {
+      width: 100%; padding: 6px 8px; font-size: 13px; margin-bottom: 6px;
+      border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; }
+    .inv-draw-popup-box button.primary { background: #00897b; color: #fff; border: none; }
+    .inv-draw-popup-box button { font-size: 13px; padding: 5px 12px; border-radius: 4px;
+                                 border: 1px solid #d6c8c2; background: #f0ebe9; color: #5D4037; cursor: pointer; }
+  </style>
 {% endblock %}
 
 {% block body %}
@@ -348,6 +378,10 @@
 <script>
   // Inject role flag for the map detail panel — editors get a "⚙ Manage" link.
   window._isInventoryEditor = {% if is_inventory_editor %}true{% else %}false{% endif %};
+  {% if is_inventory_editor %}
+  // CSRF token for the editor-only draw-tool POSTs (stage/delete/commit).
+  window.CSRF_TOKEN = '{{ csrf_token }}';
+  {% endif %}
   // Basemap thumbnail URLs resolved through {% verbatim %}{% static %}{% endverbatim %}, so on prod each one
   // comes through as a content-hashed filename with Cache-Control:
   // max-age=31536000, public, immutable. They're shipped with the
@@ -367,5 +401,9 @@
 </script>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
+{% if is_inventory_editor %}
+<script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
+<script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>
+{% endif %}
 <script src="{% static 'inventory/js/map.js' %}"></script>
 {% endblock %}

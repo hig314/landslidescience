@@ -21,7 +21,7 @@ from django.conf import settings
 from django.http import FileResponse, HttpResponse, HttpResponseNotFound, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_safe
+from django.views.decorators.http import require_POST, require_safe
 
 from .auth import inventory_editor_required
 from .middleware import SESSION_KEY as _PREVIEW_SESSION_KEY
@@ -562,6 +562,57 @@ def api_polygons(request):
         _put_conn(conn)
 
     return HttpResponse(json.dumps(result), content_type="application/json")
+
+
+@inventory_editor_required
+@require_safe
+def api_provisional(request):
+    """Editor-only: pending (provisional) landslides — not yet reviewed, hidden
+    from the public map. Returned so editors can see what they've added while
+    mapping a series (rendered in a distinct colour). Points sit at the centroid
+    (falling back to the polygon union for records the cascade hasn't run on)."""
+    sql = """
+        SELECT json_build_object(
+            'points', json_build_object('type', 'FeatureCollection', 'features', (
+                SELECT COALESCE(json_agg(json_build_object(
+                    'type', 'Feature',
+                    'geometry', json_build_object('type', 'Point',
+                        'coordinates', json_build_array(pt_lon, pt_lat)),
+                    'properties', json_build_object('id', id, 'unique_name', unique_name,
+                                                    'landslide_type', landslide_type)
+                )), '[]'::json)
+                FROM (
+                    SELECT l.id, l.unique_name, l.landslide_type,
+                           COALESCE(l.centroid_lon, ST_X(ST_Centroid(ST_Collect(p.geom)))) AS pt_lon,
+                           COALESCE(l.centroid_lat, ST_Y(ST_Centroid(ST_Collect(p.geom)))) AS pt_lat
+                    FROM landslides l LEFT JOIN landslide_polygons p ON p.landslide_id = l.id
+                    WHERE l.reviewed_at IS NULL AND l.deprecated_at IS NULL
+                    GROUP BY l.id
+                ) s WHERE pt_lon IS NOT NULL
+            )),
+            'polygons', json_build_object('type', 'FeatureCollection', 'features', (
+                SELECT COALESCE(json_agg(json_build_object(
+                    'type', 'Feature',
+                    'geometry', ST_AsGeoJSON(p.geom)::json,
+                    'properties', json_build_object('landslide_id', p.landslide_id,
+                                                    'unique_name', l.unique_name, 'role', p.role)
+                )), '[]'::json)
+                FROM landslide_polygons p JOIN landslides l ON l.id = p.landslide_id
+                WHERE l.reviewed_at IS NULL AND l.deprecated_at IS NULL
+            ))
+        )
+    """
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(sql)
+        result = cur.fetchone()[0]
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    resp = HttpResponse(json.dumps(result), content_type="application/json")
+    resp['Cache-Control'] = 'no-store'   # editor-specific + changes as they map
+    return resp
 
 
 def api_detail(request, landslide_id):
@@ -1291,9 +1342,10 @@ def manage_edit(request, landslide_id, review_mode=False):
                 'features', COALESCE(json_agg(
                     json_build_object(
                         'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(geom)::json,
-                        'properties', json_build_object('role', role,
-                                                         'is_primary', is_primary)
+                        'geometry', ST_AsGeoJSON(geom, 15)::json,
+                        'properties', json_build_object('db_id', id,
+                                                        'role', role,
+                                                        'is_primary', is_primary)
                     )
                 ), '[]'::json)
             )::text
@@ -1347,6 +1399,7 @@ def manage_edit(request, landslide_id, review_mode=False):
         'form':              form,
         'landslide_id':      landslide_id,
         'unique_name':       unique_name,
+        'landslide_type':    initial.get('landslide_type', ''),
         'imagery_suggestions': imagery_suggestions,
         'polygons':          polygons,
         'slug':              _slug_for_id(landslide_id),
@@ -1773,6 +1826,619 @@ def manage_import_apply(request):
             return redirect('inventory:manage_review', landslide_id=next_id)
 
     return render(request, 'inventory/manage_import_done.html', {'summary': summary})
+
+
+# Geometry written from Terra Draw (simple WGS84 Polygon) coerced to the
+# landslide_polygons MULTIPOLYGON/4326 column: set SRID explicitly, make valid,
+# force polygonal output (drop stray points/lines a self-touch can produce),
+# then promote to MultiPolygon.
+_GEOM_WRITE_EXPR = ("ST_Multi(ST_CollectionExtract("
+                    "ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 3))")
+_POLY_MIN_AREA_M2 = 1.0          # reject degenerate / collapsed polygons
+_POLY_ROLES = ('source', 'body', 'deposit')
+
+
+def _snapshot_polygon(cur, polygon_id, landslide_id, operation, user):
+    """Copy a polygon's CURRENT row into landslide_polygons_history before an
+    UPDATE/DELETE overwrites or removes it. Runs inside the caller's
+    transaction so the snapshot and the write commit (or roll back) together."""
+    uid = getattr(user, 'id', None)
+    cur.execute("""
+        INSERT INTO landslide_polygons_history
+            (polygon_id, landslide_id, role, area, geom, operation, edited_by_id)
+        SELECT id, landslide_id, role, area, geom, %s, %s
+        FROM landslide_polygons WHERE id = %s
+    """, (operation, uid, polygon_id))
+
+
+@inventory_editor_required
+@require_POST
+def manage_polygons_save(request, landslide_id):
+    """Persist in-app polygon geometry edits for one landslide.
+
+    JSON body: {updates:[{db_id, geometry}], inserts:[{role, geometry}],
+    deletes:[db_id, ...]} where geometry is a GeoJSON Polygon (WGS84) from
+    Terra Draw. Pre-edit rows are snapshotted to landslide_polygons_history;
+    all writes run in one transaction, then the rule cascade recomputes
+    area/centroid/size/class, the edit is audited, and caches are invalidated.
+    Returns {ok, summary} or {ok:false, error}."""
+    from . import derived
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+
+    updates = payload.get('updates') or []
+    inserts = payload.get('inserts') or []
+    deletes = payload.get('deletes') or []
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+
+        cur.execute("SELECT landslide_type FROM landslides WHERE id = %s", (landslide_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error': 'Landslide not found.'}, status=404)
+        ls_type = row[0]
+        primary_role = 'source' if ls_type == 'catastrophic' else 'body'
+
+        cur.execute("SELECT id FROM landslide_polygons WHERE landslide_id = %s",
+                    (landslide_id,))
+        current_ids = {r[0] for r in cur.fetchall()}
+
+        try:
+            del_ids = {int(d) for d in deletes}
+            upd_ids = {int(u['db_id']) for u in updates}
+        except (TypeError, ValueError, KeyError):
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error': 'Malformed update/delete ids.'}, status=400)
+
+        bad = (del_ids | upd_ids) - current_ids
+        if bad:
+            conn.rollback()
+            return JsonResponse(
+                {'ok': False, 'error': f'Polygon id(s) {sorted(bad)} are not on this landslide.'},
+                status=400)
+
+        # A landslide must retain at least one polygon.
+        if not (current_ids - del_ids) and not inserts:
+            conn.rollback()
+            return JsonResponse(
+                {'ok': False, 'error': 'A landslide must keep at least one polygon. '
+                                       'Deprecate the record instead of deleting all geometry.'},
+                status=400)
+
+        def _area_m2(geojson_str):
+            cur.execute(f"SELECT ST_Area(ST_Transform({_GEOM_WRITE_EXPR}, 3338))",
+                        (geojson_str,))
+            return cur.fetchone()[0] or 0.0
+
+        n_upd = n_ins = n_del = 0
+
+        # ---- DELETE (snapshot first) ----
+        for did in del_ids:
+            _snapshot_polygon(cur, did, landslide_id, 'delete', request.user)
+            cur.execute("DELETE FROM landslide_polygons WHERE id = %s", (did,))
+            n_del += 1
+
+        # ---- UPDATE geometry (skip true no-ops; snapshot before rewrite) ----
+        for u in updates:
+            did = int(u['db_id'])
+            gj = json.dumps(u['geometry'])
+            cur.execute(f"SELECT ST_Equals(geom, {_GEOM_WRITE_EXPR}) "
+                        f"FROM landslide_polygons WHERE id = %s", (gj, did))
+            if cur.fetchone()[0]:
+                continue  # unchanged — never rewrite (keeps round-trip pristine)
+            if _area_m2(gj) < _POLY_MIN_AREA_M2:
+                conn.rollback()
+                return JsonResponse(
+                    {'ok': False, 'error': f'Polygon {did} collapsed to near-zero area.'},
+                    status=400)
+            _snapshot_polygon(cur, did, landslide_id, 'update', request.user)
+            cur.execute(f"UPDATE landslide_polygons SET geom = {_GEOM_WRITE_EXPR} "
+                        f"WHERE id = %s", (gj, did))
+            n_upd += 1
+
+        # ---- INSERT new polygons (role required; is_primary inferred) ----
+        cur.execute("SELECT role FROM landslide_polygons "
+                    "WHERE landslide_id = %s AND is_primary", (landslide_id,))
+        existing_primary_roles = {r[0] for r in cur.fetchall()}
+        for ins in inserts:
+            role = (ins.get('role') or '').strip().lower()
+            if role not in _POLY_ROLES:
+                conn.rollback()
+                return JsonResponse(
+                    {'ok': False, 'error': f'Invalid role "{role}". Use source / body / deposit.'},
+                    status=400)
+            gj = json.dumps(ins.get('geometry'))
+            if _area_m2(gj) < _POLY_MIN_AREA_M2:
+                conn.rollback()
+                return JsonResponse(
+                    {'ok': False, 'error': 'A drawn polygon has near-zero area.'}, status=400)
+            # Primary only if it's the type's primary role and none exists yet.
+            is_primary = (role == primary_role) and (role not in existing_primary_roles)
+            if is_primary:
+                existing_primary_roles.add(role)
+            cur.execute(
+                f"INSERT INTO landslide_polygons (landslide_id, role, is_primary, geom) "
+                f"VALUES (%s, %s, %s, {_GEOM_WRITE_EXPR})",
+                (landslide_id, role, is_primary, gj))
+            n_ins += 1
+
+        # Recompute area/centroid/size_inclusion/class from the new geometry.
+        derived.apply_rules_for_landslide(cur, landslide_id)
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        return JsonResponse(
+            {'ok': False, 'error': f'Save failed — no changes were saved. {exc}'},
+            status=500)
+    finally:
+        _put_conn(conn)
+
+    from .models import LandslideEditMeta
+    LandslideEditMeta.objects.update_or_create(
+        landslide_id=landslide_id, defaults={'last_edited_by': request.user})
+    _invalidate('features', 'home_counts', 'unclassified_count',
+                'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
+
+    return JsonResponse({'ok': True,
+                         'summary': {'updated': n_upd, 'inserted': n_ins, 'deleted': n_del}})
+
+
+@inventory_editor_required
+def manage_new(request):
+    """Create a brand-new landslide by drawing it in the browser.
+
+    GET  → render the draw page (imagery map + Terra Draw + name/type/role form).
+    POST → JSON {unique_name, landslide_type, polygons:[{role, geometry}]}.
+           The drawn data is shaped into the same upload form the file-import
+           path produces and run through `apply_import`, so it shares one
+           insert + collision-detection + validation pipeline. Drawn Polygons
+           are wrapped as MultiPolygon to match the landslide_polygons column.
+           On success the record is inserted PENDING (reviewed_at NULL); the
+           rule cascade is run so it's map-ready, and the editor is sent into
+           the review flow. Returns {ok, redirect} or {ok:false, error}."""
+    from . import derived
+    from .io_geojson import apply_import, ImportError_
+
+    if request.method != 'POST':
+        return render(request, 'inventory/manage_new.html', {})
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+
+    unique_name = (payload.get('unique_name') or '').strip()
+    ls_type     = (payload.get('landslide_type') or '').strip().lower()
+    drawn       = payload.get('polygons') or []
+
+    if not unique_name:
+        return JsonResponse({'ok': False, 'error': 'A unique name is required.'}, status=400)
+    if ls_type not in ('slow', 'catastrophic'):
+        return JsonResponse({'ok': False, 'error': 'Landslide type must be slow or catastrophic.'}, status=400)
+    if not drawn:
+        return JsonResponse({'ok': False, 'error': 'Draw at least one polygon.'}, status=400)
+    for d in drawn:
+        if (d.get('role') or '').strip().lower() not in _POLY_ROLES:
+            return JsonResponse({'ok': False, 'error': 'Each polygon needs a role (source / body / deposit).'}, status=400)
+        g = d.get('geometry') or {}
+        if g.get('type') not in ('Polygon', 'MultiPolygon'):
+            return JsonResponse({'ok': False, 'error': 'Each polygon must have polygon geometry.'}, status=400)
+
+    # Shape the drawn data into the file-import upload form. A synthetic string
+    # id ties the polygons to the not-yet-inserted landslide; apply_import
+    # treats string ids as new records (same as a fresh file upload).
+    synth_id = 'draw-1'
+    landslides_fc = {'type': 'FeatureCollection', 'features': [{
+        'type': 'Feature', 'geometry': None,
+        'properties': {'id': synth_id, 'unique_name': unique_name,
+                       'landslide_type': ls_type},
+    }]}
+    poly_feats = []
+    for i, d in enumerate(drawn, 1):
+        g = d['geometry']
+        # Coerce Polygon → MultiPolygon to match landslide_polygons.geom typmod
+        # (apply_import inserts the geometry verbatim via ST_GeomFromGeoJSON).
+        if g['type'] == 'Polygon':
+            g = {'type': 'MultiPolygon', 'coordinates': [g['coordinates']]}
+        poly_feats.append({
+            'type': 'Feature', 'geometry': g,
+            'properties': {'id': f'{synth_id}-p{i}', 'landslide_id': synth_id,
+                           'role': d['role'].strip().lower()},
+        })
+    polygons_fc = {'type': 'FeatureCollection', 'features': poly_feats}
+
+    try:
+        apply_import(landslides_fc, polygons_fc, request.user)
+    except ImportError_ as e:
+        # Name-exact collision (unique_name taken) and other blocks land here.
+        return JsonResponse({'ok': False, 'error': str(e)}, status=409)
+    except Exception as exc:
+        return JsonResponse({'ok': False, 'error': f'Create failed — nothing saved. {exc}'}, status=500)
+
+    # apply_import doesn't run the rule cascade; do it now so the new record has
+    # area/centroid/class populated and shows on the map once reviewed.
+    conn = _get_conn()
+    new_id = None
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM landslides WHERE unique_name = %s", (unique_name,))
+        r = cur.fetchone()
+        if r:
+            new_id = r[0]
+            derived.apply_rules_for_landslide(cur, new_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+
+    _invalidate('features', 'home_counts', 'unclassified_count',
+                'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
+
+    redirect_url = (reverse('inventory:manage_review', kwargs={'landslide_id': new_id})
+                    if new_id else reverse('inventory:manage_list'))
+    return JsonResponse({'ok': True, 'landslide_id': new_id, 'redirect': redirect_url})
+
+
+# ---------------------------------------------------------------------------
+# Draw-on-the-main-map: provisional landslide components, staged server-side.
+#
+# Editors draw polygons on the inventory map and assign each a name + role.
+# Finished components are staged in `provisional_polygons` (per editor) so a
+# reload/crash doesn't lose work. Polygons sharing a unique_name become one
+# landslide on commit (reusing the import synthesize-by-name path). See the
+# migrate_provisional_polygons command.
+# ---------------------------------------------------------------------------
+_PROV_DISPERSED_M = 5000.0   # same-name components farther apart than this → warn
+
+
+def _draw_geom_to_multi(geom):
+    """A drawn GeoJSON Polygon → MultiPolygon (the landslide_polygons typmod).
+    MultiPolygon passes through unchanged. Returns None on anything else."""
+    if not isinstance(geom, dict):
+        return None
+    if geom.get('type') == 'MultiPolygon':
+        return geom
+    if geom.get('type') == 'Polygon':
+        return {'type': 'MultiPolygon', 'coordinates': [geom.get('coordinates')]}
+    return None
+
+
+def _provisional_rows(cur, editor_id):
+    """This editor's staged components, geometry as GeoJSON."""
+    cur.execute("""
+        SELECT id, unique_name, role, ST_AsGeoJSON(geom)::json AS geom, created_at
+        FROM provisional_polygons WHERE editor_id = %s
+        ORDER BY unique_name, created_at
+    """, (editor_id,))
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def _provisional_fcs(rows):
+    """Build the (empty landslides_fc, polygons_fc) the import pipeline expects.
+    Each polygon is an orphan (landslide_id=None) carrying unique_name + role,
+    so `_synthesize_landslides_from_flat_polygons` groups them by name and
+    infers landslide_type from the roles."""
+    poly_feats = [{
+        'type': 'Feature', 'geometry': r['geom'],
+        'properties': {'id': f'prov-{r["id"]}', 'landslide_id': None,
+                       'unique_name': r['unique_name'], 'role': r['role']},
+    } for r in rows]
+    return ({'type': 'FeatureCollection', 'features': []},
+            {'type': 'FeatureCollection', 'features': poly_feats})
+
+
+def _draw_existing_landslides(cur, names):
+    """{lower(name): (id, landslide_type)} for non-deprecated landslides whose
+    unique_name matches any of `names`. A staged group whose name already exists
+    is *attached* to that landslide (e.g. drawing a source for a committed
+    deposit) rather than creating a duplicate. unique_name is unique, so at most
+    one match per name."""
+    if not names:
+        return {}
+    cur.execute("SELECT id, unique_name, landslide_type FROM landslides "
+                "WHERE lower(unique_name) = ANY(%s) AND deprecated_at IS NULL",
+                ([n.lower() for n in names],))
+    return {r[1].lower(): (r[0], r[2]) for r in cur.fetchall()}
+
+
+@inventory_editor_required
+@require_POST
+def manage_draw_stage(request):
+    """Stage one finished drawn polygon. Body: {unique_name, role, geometry}."""
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+
+    name = (payload.get('unique_name') or '').strip()
+    role = (payload.get('role') or '').strip().lower()
+    multi = _draw_geom_to_multi(payload.get('geometry'))
+    if not name:
+        return JsonResponse({'ok': False, 'error': 'A name is required.'}, status=400)
+    if role not in _POLY_ROLES:
+        return JsonResponse({'ok': False, 'error': 'Role must be source / body / deposit.'}, status=400)
+    if multi is None:
+        return JsonResponse({'ok': False, 'error': 'Polygon geometry required.'}, status=400)
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO provisional_polygons (editor_id, unique_name, role, geom)
+            VALUES (%s, %s, %s, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))
+            RETURNING id, ST_AsGeoJSON(geom)::json
+        """, (request.user.id, name, role, json.dumps(multi)))
+        new_id, geom = cur.fetchone()
+        # Warn if the name already belongs to an active landslide.
+        cur.execute("SELECT 1 FROM landslides WHERE lower(unique_name) = lower(%s) "
+                    "AND deprecated_at IS NULL LIMIT 1", (name,))
+        name_in_db = cur.fetchone() is not None
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        return JsonResponse({'ok': False, 'error': f'Stage failed: {exc}'}, status=500)
+    finally:
+        _put_conn(conn)
+
+    return JsonResponse({'ok': True, 'name_in_db': name_in_db, 'component': {
+        'id': new_id, 'unique_name': name, 'role': role, 'geometry': geom}})
+
+
+@inventory_editor_required
+@require_safe
+def manage_draw_list(request):
+    """This editor's staged components (for resume-on-load + the queue panel)."""
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        rows = _provisional_rows(cur, request.user.id)
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    return JsonResponse({'ok': True, 'components': [
+        {'id': r['id'], 'unique_name': r['unique_name'], 'role': r['role'],
+         'geometry': r['geom']} for r in rows]})
+
+
+@inventory_editor_required
+@require_POST
+def manage_draw_delete(request):
+    """Delete staged components. Body: {ids:[...]} or {all:true}."""
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        if payload.get('all'):
+            cur.execute("DELETE FROM provisional_polygons WHERE editor_id = %s",
+                        (request.user.id,))
+        else:
+            ids = payload.get('ids') or []
+            try:
+                ids = [int(i) for i in ids]
+            except (TypeError, ValueError):
+                conn.rollback()
+                return JsonResponse({'ok': False, 'error': 'Bad ids.'}, status=400)
+            if ids:
+                cur.execute("DELETE FROM provisional_polygons "
+                            "WHERE editor_id = %s AND id = ANY(%s)", (request.user.id, ids))
+        n = cur.rowcount
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        return JsonResponse({'ok': False, 'error': f'Delete failed: {exc}'}, status=500)
+    finally:
+        _put_conn(conn)
+    return JsonResponse({'ok': True, 'deleted': n})
+
+
+@inventory_editor_required
+@require_safe
+def manage_draw_preview(request):
+    """Pre-commit report: how the staged components group into landslides, plus
+    warnings (so the editor isn't surprised by a block at commit time)."""
+    from .io_geojson import compute_diff
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        rows = _provisional_rows(cur, request.user.id)
+        # Bounding-box diagonal (EPSG:3338, metres) per name — a dispersed
+        # same-name group is probably two sites typed with one name.
+        cur.execute("""
+            SELECT unique_name,
+                   sqrt(power(ST_XMax(e) - ST_XMin(e), 2) + power(ST_YMax(e) - ST_YMin(e), 2))
+            FROM (SELECT unique_name, ST_Extent(ST_Transform(geom, 3338)) AS e
+                  FROM provisional_polygons WHERE editor_id = %s GROUP BY unique_name) s
+        """, (request.user.id,))
+        spread = {n: (d or 0.0) for n, d in cur.fetchall()}
+        names = sorted({r['unique_name'] for r in rows})
+        existing = _draw_existing_landslides(cur, names)   # lower(name) -> (id, type)
+        # Distance (m, 3338) from each attach group's staged polygons to the
+        # existing landslide it would join — a far one is likely a name reuse.
+        attach_dist = {}
+        attach_names = [n for n in names if n.lower() in existing]
+        if attach_names:
+            cur.execute("""
+                SELECT pp.unique_name,
+                       ST_Distance(ST_Transform(ST_Centroid(ST_Collect(pp.geom)), 3338),
+                                   ST_Transform(le.geom, 3338))
+                FROM provisional_polygons pp
+                JOIN LATERAL (
+                    SELECT ST_Centroid(ST_Collect(lp.geom)) AS geom
+                    FROM landslide_polygons lp JOIN landslides l ON l.id = lp.landslide_id
+                    WHERE lower(l.unique_name) = lower(pp.unique_name) AND l.deprecated_at IS NULL
+                ) le ON true
+                WHERE pp.editor_id = %s AND lower(pp.unique_name) = ANY(%s)
+                GROUP BY pp.unique_name, le.geom
+            """, (request.user.id, [n.lower() for n in attach_names]))
+            for nm, d in cur.fetchall():
+                attach_dist[nm.lower()] = d or 0.0
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+
+    if not rows:
+        return JsonResponse({'ok': True, 'groups': [], 'has_block': False})
+
+    # Group by name (preserve role multiset) for the display.
+    by_name = {}
+    for r in rows:
+        by_name.setdefault(r['unique_name'], []).append(r['role'])
+
+    # The import collision/block check only applies to NEW names; existing names
+    # attach to their landslide and never block.
+    create_rows = [r for r in rows if r['unique_name'].lower() not in existing]
+    inferred, coll_by_name, has_block = {}, {}, False
+    if create_rows:
+        landslides_fc, polygons_fc = _provisional_fcs(create_rows)
+        diff = compute_diff(landslides_fc, polygons_fc)
+        for a in diff['landslides']['would_add']:
+            props = (a.get('properties') or a)
+            nm = props.get('unique_name')
+            if nm:
+                inferred[nm] = props.get('landslide_type')
+        for c in diff.get('collisions', []):
+            coll_by_name.setdefault(c.get('unique_name'), []).append(c)
+        has_block = bool(diff.get('has_block'))
+
+    groups = []
+    for name, roles in by_name.items():
+        warnings = []
+        ex = existing.get(name.lower())
+        if ex:
+            warnings.append(f'→ adds to existing landslide #{ex[0]} ({ex[1] or "?"})')
+            if attach_dist.get(name.lower(), 0) > _PROV_DISPERSED_M:
+                warnings.append(f'but {attach_dist[name.lower()]/1000:.1f} km away — same name, different place?')
+        else:
+            if spread.get(name, 0) > _PROV_DISPERSED_M:
+                warnings.append(f'components span {spread[name]/1000:.1f} km — same name, far apart?')
+            cols = coll_by_name.get(name, [])
+            if any(c.get('resolution') == 'block' for c in cols):
+                warnings.append('NAME ALREADY EXISTS — will block commit; rename')
+            elif cols:
+                warnings.append('overlaps an existing landslide — possible duplicate')
+        if len(roles) > 4:
+            warnings.append(f'{len(roles)} polygons under one name')
+        dup = {x for x in roles if roles.count(x) > 1}
+        if dup:
+            warnings.append('duplicate role(s): ' + ', '.join(sorted(dup)))
+        groups.append({'unique_name': name, 'roles': roles,
+                       'attach_to': (ex[0] if ex else None),
+                       'landslide_type': inferred.get(name) or (ex[1] if ex else None),
+                       'warnings': warnings})
+
+    return JsonResponse({'ok': True, 'groups': groups, 'has_block': has_block})
+
+
+@inventory_editor_required
+@require_POST
+def manage_draw_commit(request):
+    """Commit this editor's staged components, then open the review queue.
+
+    A staged name that does NOT exist yet → a new pending landslide (one per
+    name, via the import synthesize path). A staged name that ALREADY exists
+    (non-deprecated) → its polygons are *attached* to that landslide (e.g. a
+    source drawn for an already-committed deposit), with is_primary inferred —
+    so "same name = same landslide" holds across commits."""
+    from . import derived
+    from .io_geojson import apply_import, ImportError_
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        rows = _provisional_rows(cur, request.user.id)
+        names = sorted({r['unique_name'] for r in rows})
+        existing = _draw_existing_landslides(cur, names)
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    if not rows:
+        return JsonResponse({'ok': False, 'error': 'Nothing staged to commit.'}, status=400)
+
+    create_rows = [r for r in rows if r['unique_name'].lower() not in existing]
+    attach_rows = [r for r in rows if r['unique_name'].lower() in existing]
+    created_names = sorted({r['unique_name'] for r in create_rows})
+
+    affected_ids = set()
+
+    # 1) New names → create pending landslides via the import pipeline.
+    if create_rows:
+        landslides_fc, polygons_fc = _provisional_fcs(create_rows)
+        try:
+            apply_import(landslides_fc, polygons_fc, request.user)
+        except ImportError_ as e:
+            return JsonResponse({'ok': False, 'error': str(e)}, status=409)
+        except Exception as exc:
+            return JsonResponse({'ok': False, 'error': f'Commit failed — nothing saved. {exc}'}, status=500)
+        # Clear the created rows immediately (apply_import committed the records),
+        # so a retry after a later failure can't double-insert them.
+        conn = _get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM provisional_polygons WHERE editor_id = %s AND id = ANY(%s)",
+                        (request.user.id, [r['id'] for r in create_rows]))
+            conn.commit()
+        finally:
+            _put_conn(conn)
+
+    # 2) Existing names → attach their polygons to that landslide; cascade all
+    #    touched records (new + attached); clear the attached staged rows.
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        if created_names:
+            cur.execute("SELECT id FROM landslides WHERE unique_name = ANY(%s)", (created_names,))
+            for (lid,) in cur.fetchall():
+                affected_ids.add(lid)
+        attach_primary = {}   # ex_id -> primary role for its type
+        for r in attach_rows:
+            ex_id, ex_type = existing[r['unique_name'].lower()]
+            attach_primary[ex_id] = 'source' if ex_type == 'catastrophic' else 'body'
+            # Copy the staged geometry straight over (already MultiPolygon/4326).
+            cur.execute("""
+                INSERT INTO landslide_polygons (landslide_id, role, geom)
+                SELECT %s, %s, geom FROM provisional_polygons WHERE id = %s
+            """, (ex_id, r['role'], r['id']))
+            affected_ids.add(ex_id)
+        # Normalise is_primary to the role convention (catastrophic→source,
+        # slow→body) so adding e.g. a source to a deposit-only record makes the
+        # source primary and demotes the deposit — the centroid follows.
+        for ex_id, primary_role in attach_primary.items():
+            cur.execute("UPDATE landslide_polygons SET is_primary = (role = %s) WHERE landslide_id = %s",
+                        (primary_role, ex_id))
+        for lid in affected_ids:
+            derived.apply_rules_for_landslide(cur, lid)
+        if attach_rows:
+            cur.execute("DELETE FROM provisional_polygons WHERE editor_id = %s AND id = ANY(%s)",
+                        (request.user.id, [r['id'] for r in attach_rows]))
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        return JsonResponse({'ok': False, 'error': f'Commit failed attaching polygons — {exc}'}, status=500)
+    finally:
+        _put_conn(conn)
+
+    _invalidate('features', 'home_counts', 'unclassified_count',
+                'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
+
+    # Prefer a freshly-created pending record for review; else an attached one.
+    next_id = _first_pending_landslide() or (sorted(affected_ids)[0] if affected_ids else None)
+    redirect_url = (reverse('inventory:manage_review', kwargs={'landslide_id': next_id})
+                    if next_id else reverse('inventory:manage_list'))
+    return JsonResponse({'ok': True, 'created': created_names,
+                         'attached': sorted({r['unique_name'] for r in attach_rows}),
+                         'redirect': redirect_url})
 
 
 _SUBSET_SLUG_RE = re.compile(r'^[a-z0-9][a-z0-9-]*$')

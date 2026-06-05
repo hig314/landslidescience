@@ -1,0 +1,29 @@
+{% extends "inventory/base.html" %}
+{% block title %}Draw a new landslide{% endblock %}
+{% block page_title %}Manage · draw new landslide{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 820px; margin: 24px auto; padding: 0 24px;">
+  <p style="font-size:13px; margin-bottom: 6px;">
+    <a href="{% url 'inventory:manage_list' %}">← Back to records</a>
+  </p>
+  <h2 style="font-size:19px; margin: 0 0 4px;">Draw a new landslide</h2>
+  <p style="font-size:12px; color:#888; margin-top:0; line-height:1.5;">
+    Pick an imagery basemap (incl. AHAP for historic comparison) and zoom to the
+    site, then <strong>+ Add polygon</strong> to trace it. Assign each polygon a
+    role, enter a unique name and type, and <strong>Create landslide</strong> —
+    the record is added as <em>pending</em> and opens in the review form so you
+    can fill in the rest. The basemap locks once you start drawing.
+  </p>
+
+  <script>
+    window.LS_POLY_EDIT = {
+      mode: 'create',
+      createUrl: "{% url 'inventory:manage_new' %}",
+      csrftoken: "{{ csrf_token }}"
+    };
+  </script>
+  {% include 'inventory/_polygon_map.html' with poly_create_mode=True %}
+</div>
+{% endblock %}

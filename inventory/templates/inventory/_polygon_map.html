@@ -11,14 +11,29 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
 <style>
   .ls-poly-map { width: 100%; height: 360px; border: 1px solid #d4cdc0;
                  border-radius: 4px; background: #f0ece4; }
+  .ls-poly-edit-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+                      margin: 8px 0 2px; }
+  .ls-poly-btn { font-size: 12px; padding: 5px 10px; border: 1px solid #d6c8c2;
+                 background: #f0ebe9; color: #5D4037; border-radius: 4px; cursor: pointer; }
+  .ls-poly-btn:hover { background: #e6dfdc; }
+  .ls-poly-btn-primary { background: #5D4037; color: #fff; border-color: #5D4037; }
+  .ls-poly-btn-primary:hover { background: #432d27; }
+  .ls-poly-roles { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; margin-top: 4px; }
+  .ls-poly-role-row { font-size: 12px; color: #555; display: inline-flex; align-items: center; gap: 4px; }
+  .ls-poly-role-row select { font-size: 12px; padding: 2px 4px; }
+  .ls-poly-status { width: 100%; font-size: 11px; color: #777; margin-top: 4px; min-height: 14px; }
+  .ls-poly-msg { font-size: 11px; }
+  .ls-poly-msg-info { color: #777; }
+  .ls-poly-msg-warn { color: #a05a00; }
 </style>
 <div id="ls-poly-map" class="ls-poly-map"></div>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
 <script>
 (function () {
-  var POLYGONS = {{ polygons_geojson|safe }};
+  var CREATE_MODE = {% if poly_create_mode %}true{% else %}false{% endif %};
+  var POLYGONS = {% if polygons_geojson %}{{ polygons_geojson|safe }}{% else %}{ type: 'FeatureCollection', features: [] }{% endif %};
   var container = document.getElementById('ls-poly-map');
-  if (!POLYGONS || !(POLYGONS.features || []).length) {
+  if (!CREATE_MODE && (!POLYGONS || !(POLYGONS.features || []).length)) {
     if (container) { container.style.display = 'none'; }
     return;  // nothing to show (e.g. a record with no polygons yet)
   }
@@ -92,11 +107,13 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
     zoom: 4,
   });
 
+  var _basemapSel = null;   // captured so edit mode can lock it (terra_draw.js)
   function BasemapSwitcher() {}
   BasemapSwitcher.prototype.onAdd = function () {
     var el = document.createElement('div');
     el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
     var sel = document.createElement('select');
+    _basemapSel = sel;
     sel.style.cssText = 'border:none; background:#fff; padding:4px 6px; font-size:12px;';
     BASEMAPS.forEach(function (bm) {
       var opt = document.createElement('option');
@@ -154,5 +171,25 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
   map.addControl(new BasemapSwitcher(), 'top-right');
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
   map.on('load', function () { loadFaults(); addPolygonLayer(); fitToPolygons(); });
+
+  // Expose a small API for the optional geometry editor (terra_draw.js). The
+  // editor hides the read-only preview layers and locks the basemap selector
+  // while a Terra Draw session is active.
+  window.LSPolyMap = {
+    map: map,
+    polygons: POLYGONS,
+    get basemapSelectEl() { return _basemapSel; },
+    showPreview: function (visible) {
+      var v = visible ? 'visible' : 'none';
+      ['lspoly-fill', 'lspoly-line'].forEach(function (id) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v);
+      });
+    }
+  };
 })();
 </script>
+{% if poly_edit_enabled or poly_create_mode %}
+<script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
+<script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>
+<script src="{% static 'inventory/js/terra_draw.js' %}"></script>
+{% endif %}

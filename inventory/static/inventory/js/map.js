@@ -90,8 +90,8 @@
     // ---------------------------------------------------------------------------
     // URL hash state — `#map=zoom/lat/lon&base=<id>&id=<n>`
     // ---------------------------------------------------------------------------
-    function parseHashState() {
-        var h = location.hash || '';
+    function parseHashState(hashStr) {
+        var h = hashStr != null ? hashStr : (location.hash || '');
         if (h.charAt(0) === '#') h = h.substring(1);
         var out = {};
         h.split('&').forEach(function (kv) {
@@ -117,6 +117,18 @@
         return out;
     }
     var _initialHash = parseHashState();
+    // Returning from a data form (no hash in the URL) restores the last view the
+    // editor was at, so they can bounce between mapping and populating fields
+    // without losing their place.
+    if (!location.hash) {
+        try {
+            var _savedView = localStorage.getItem('ls_map_view');
+            if (_savedView) {
+                var _sv = parseHashState(_savedView);
+                if (_sv.zoom != null) _initialHash = _sv;
+            }
+        } catch (e) {}
+    }
     var _pendingDetailId = _initialHash.id || null;
 
     function writeHashState() {
@@ -125,6 +137,7 @@
         if (_currentBasemap && _currentBasemap !== DEFAULT_BASEMAP_ID) parts.push('base=' + _currentBasemap);
         var newHash = '#' + parts.join('&');
         if (location.hash !== newHash) history.replaceState(null, '', newHash);
+        try { localStorage.setItem('ls_map_view', newHash); } catch (e) {}
     }
 
     // ---------------------------------------------------------------------------
@@ -197,6 +210,8 @@
     MeasureControl.prototype.onRemove = function () { /* not used */ };
 
     MeasureControl.prototype._setMode = function (mode) {
+        // Mutual exclusion with the draw-new tool — don't start measuring mid-draw.
+        if (mode !== 'idle' && this._map.__drawActive) return;
         if (this._mode === mode) return;
         // Switching out of an in-progress shape commits whatever is valid so far.
         if (this._mode !== 'idle') this._finalize();
@@ -600,8 +615,333 @@
         return el;
     };
     NewRecordControl.prototype.onRemove = function () {};
+
+    // Editor-only: "+draw" → /inventory/manage/new/ to draw a brand-new
+    // landslide from scratch (Terra Draw), as opposed to "+data" file upload.
+    // --- Draw-new tool: draw landslide polygons directly on the main map. ---
+    // Each finished polygon gets a name + role and is staged server-side
+    // (provisional_polygons). Polygons sharing a name become one landslide on
+    // commit (the import synthesize-by-name path). Terra Draw holds at most the
+    // one in-progress polygon; staged ones live in our own `prov-src` (re-added
+    // on style.load, so they survive basemap switches).
+    var DRAW_BASE = '/inventory/manage/draw/';
+    var _td = null;                  // Terra Draw instance (0-1 in-progress feature)
+    var _prov = [];                  // staged components [{id, unique_name, role, geometry}]
+    var _drawPanel = null, _drawStatus = null;
+
+    function _csrf() {
+        if (window.CSRF_TOKEN) return window.CSRF_TOKEN;
+        var m = document.cookie.match(/csrftoken=([^;]+)/);
+        return m ? m[1] : '';
+    }
+    function _drawPost(path, body) {
+        return fetch(DRAW_BASE + path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _csrf() },
+            body: JSON.stringify(body || {})
+        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); });
+    }
+    window.__drawFlash = function (msg) { if (_drawStatus) _drawStatus.textContent = msg; };
+
+    // Provisional layers (re-added on every style.load, below the measure stack).
+    function ensureProvLayers() {
+        if (!map.getSource('prov-src')) {
+            map.addSource('prov-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        }
+        var bId = map.getLayer('measure-fill') ? 'measure-fill' : undefined;
+        if (!map.getLayer('prov-fill')) {
+            map.addLayer({ id: 'prov-fill', type: 'fill', source: 'prov-src',
+                paint: { 'fill-color': '#00b3a4', 'fill-opacity': 0.25 } }, bId);
+        }
+        if (!map.getLayer('prov-line')) {
+            map.addLayer({ id: 'prov-line', type: 'line', source: 'prov-src',
+                paint: { 'line-color': '#00897b', 'line-width': 2, 'line-dasharray': [2, 1.5] } }, bId);
+        }
+        // (Name labels intentionally omitted — symbol layers depend on a glyph
+        // server that varies by basemap and 404s; the queue panel shows names.)
+    }
+    function refreshProvData() {
+        ensureProvLayers();   // guarantee the source + layers exist first
+        var src = map.getSource('prov-src');
+        if (!src) { console.warn('refreshProvData: prov-src missing'); return; }
+        var feats = _prov.map(function (c) {
+            return { type: 'Feature', geometry: c.geometry,
+                     properties: { label: c.unique_name + ' (' + c.role + ')' } };
+        });
+        console.log('refreshProvData: staged=' + feats.length +
+                    ' prov-fill=' + !!map.getLayer('prov-fill') +
+                    ' geom0=' + (feats[0] && feats[0].geometry && feats[0].geometry.type));
+        src.setData({ type: 'FeatureCollection', features: feats });
+    }
+
+    function startTD() {
+        if (_td) return;
+        _td = new terraDraw.TerraDraw({
+            adapter: new terraDrawMaplibreGlAdapter.TerraDrawMapLibreGLAdapter({ map: map }),
+            modes: [new terraDraw.TerraDrawPolygonMode({
+                // Default 40px treats clicks near any existing vertex as
+                // "close the ring" (premature finish + dropped points). Tighten
+                // it so only a deliberate click on the first point closes; use
+                // Enter to finish, Escape to cancel.
+                pointerDistance: 8,
+                keyEvents: { finish: 'Enter', cancel: 'Escape' },
+                validation: function (f, ctx) {
+                    if (terraDraw.ValidateNotSelfIntersecting &&
+                        (ctx.updateType === 'finish' || ctx.updateType === 'commit')) {
+                        return terraDraw.ValidateNotSelfIntersecting(f);
+                    }
+                    return { valid: true };
+                }
+            })]
+        });
+        _td.start();
+        _td.setMode('polygon');
+        _td.on('change', onTDChange);
+        // `change`/'create' fires on the FIRST click (feature created), not at
+        // completion. The polygon is done on the `finish` event (double-click /
+        // closing the ring) — that's when we ask for a name + role.
+        _td.on('finish', onTDFinish);
+        map.doubleClickZoom.disable();
+    }
+    function stopTD() {
+        if (_td) { try { _td.stop(); } catch (e) {} _td = null; }
+        map.doubleClickZoom.enable();
+        map.__drawPolyOpen = false;
+    }
+    function onTDChange(ids, type) {
+        // A non-empty snapshot means a polygon is mid-draw → lock the basemap.
+        map.__drawPolyOpen = !!(_td && _td.getSnapshot().length);
+    }
+    function onTDFinish(id) {
+        openNamePopup(id);
+    }
+
+    function openNamePopup(fid) {
+        var feat = _td && _td.getSnapshot().filter(function (f) { return f.id === fid; })[0];
+        if (!feat) return;
+        var names = {}; _prov.forEach(function (c) { names[c.unique_name] = 1; });
+
+        var ov = document.createElement('div'); ov.className = 'inv-draw-popup';
+        ov.innerHTML =
+            '<div class="inv-draw-popup-box">' +
+            '<div style="font-weight:600;margin-bottom:6px;">Name this polygon</div>' +
+            '<input id="idp-name" list="idp-names" placeholder="landslide name" autocomplete="off">' +
+            '<datalist id="idp-names">' + Object.keys(names).map(function (n) {
+                return '<option value="' + n.replace(/"/g, '&quot;') + '">'; }).join('') + '</datalist>' +
+            '<select id="idp-role"><option value="source">source</option>' +
+            '<option value="body" selected>body</option><option value="deposit">deposit</option></select>' +
+            '<div id="idp-warn" style="font-size:11px;color:#a05a00;min-height:13px;margin-top:4px;"></div>' +
+            '<div style="margin-top:8px;text-align:right;">' +
+            '<button id="idp-cancel" type="button">Cancel</button> ' +
+            '<button id="idp-ok" type="button" class="primary">Add</button></div>' +
+            '<div style="font-size:11px;color:#888;margin-top:6px;">Tip: reuse a name to add another component (e.g. source + deposit) to the same landslide.</div>' +
+            '</div>';
+        document.body.appendChild(ov);
+        var nameEl = ov.querySelector('#idp-name'), roleEl = ov.querySelector('#idp-role');
+        var warnEl = ov.querySelector('#idp-warn');
+        nameEl.focus();
+        function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
+        function discard() { if (_td) { _td.removeFeatures([fid]); _td.setMode('polygon'); } map.__drawPolyOpen = false; close(); }
+        ov.querySelector('#idp-cancel').addEventListener('click', discard);
+        ov.querySelector('#idp-ok').addEventListener('click', function () {
+            var nm = (nameEl.value || '').trim(), role = roleEl.value;
+            if (!nm) { warnEl.textContent = 'Enter a name.'; return; }
+            _drawPost('stage/', { unique_name: nm, role: role, geometry: feat.geometry }).then(function (res) {
+                if (res.ok && res.j.ok) {
+                    _prov.push(res.j.component);
+                    refreshProvData(); renderQueue();
+                    if (_td) { _td.removeFeatures([fid]); _td.setMode('polygon'); }
+                    map.__drawPolyOpen = false; close();
+                } else {
+                    warnEl.textContent = (res.j && res.j.error) || 'Stage failed.';
+                }
+            }).catch(function (e) { warnEl.textContent = 'Stage failed: ' + e; });
+        });
+    }
+
+    function loadProvisional() {
+        fetch(DRAW_BASE + 'list/').then(function (r) { return r.json(); }).then(function (j) {
+            _prov = (j && j.components) || [];
+            refreshProvData(); renderQueue();
+        }).catch(function () {});
+    }
+
+    function renderQueue() {
+        if (!_drawPanel) return;
+        var q = _drawPanel.querySelector('#idq-list');
+        // Group by name client-side; fetch server preview for warnings + block.
+        var groups = {};
+        _prov.forEach(function (c) { (groups[c.unique_name] = groups[c.unique_name] || []).push(c); });
+        var names = Object.keys(groups);
+        q.innerHTML = names.length ? '' : '<div style="color:#888;font-size:12px;">No components yet — draw a polygon.</div>';
+        names.forEach(function (nm) {
+            var comps = groups[nm];
+            var row = document.createElement('div'); row.className = 'idq-group';
+            row.innerHTML = '<div class="idq-name">' + nm + ' <span style="color:#888;">· ' +
+                comps.length + ' poly · ' + comps.map(function (c) { return c.role; }).join(', ') +
+                '</span></div>';
+            comps.forEach(function (c) {
+                var x = document.createElement('button'); x.type = 'button'; x.className = 'idq-del';
+                x.textContent = '✕ ' + c.role; x.title = 'Remove this component';
+                x.addEventListener('click', function () {
+                    _drawPost('delete/', { ids: [c.id] }).then(function () {
+                        _prov = _prov.filter(function (p) { return p.id !== c.id; });
+                        refreshProvData(); renderQueue();
+                    });
+                });
+                row.appendChild(x);
+            });
+            var warn = document.createElement('div'); warn.className = 'idq-warn'; warn.dataset.name = nm;
+            row.appendChild(warn);
+            q.appendChild(row);
+        });
+        // Server-side warnings + commit-block.
+        var commitBtn = _drawPanel.querySelector('#idq-commit');
+        if (!names.length) { if (commitBtn) commitBtn.disabled = true; return; }
+        fetch(DRAW_BASE + 'preview/').then(function (r) { return r.json(); }).then(function (pv) {
+            if (!pv || !pv.ok) return;
+            (pv.groups || []).forEach(function (g) {
+                var el = _drawPanel.querySelector('.idq-warn[data-name="' + (CSS && CSS.escape ? CSS.escape(g.unique_name) : g.unique_name) + '"]');
+                if (el && g.warnings && g.warnings.length) {
+                    // "→ adds to existing" is informational, not a warning.
+                    el.textContent = g.warnings.map(function (w) {
+                        return w.charAt(0) === '→' ? w : '⚠ ' + w;
+                    }).join('  ·  ');
+                }
+            });
+            if (commitBtn) commitBtn.disabled = !!pv.has_block;
+        }).catch(function () {});
+    }
+
+    function openPanel() {
+        if (_drawPanel) { _drawPanel.style.display = ''; return; }
+        var p = document.createElement('div'); p.className = 'inv-draw-panel';
+        p.innerHTML =
+            '<div class="inv-draw-hd">✏ Draw new landslide</div>' +
+            '<div style="font-size:11px;color:#666;line-height:1.4;margin-bottom:6px;">' +
+            'Click to add vertices, press <b>Enter</b> to finish (Esc cancels), then name it. ' +
+            'Same name = same landslide. Pick imagery before drawing each polygon.</div>' +
+            '<div id="idq-list" class="inv-draw-list"></div>' +
+            '<div id="idq-status" class="ls-poly-status" style="min-height:14px;"></div>' +
+            '<div style="margin-top:8px;display:flex;gap:6px;">' +
+            '<button id="idq-commit" type="button" class="primary" disabled>Commit → review</button>' +
+            '<button id="idq-discard" type="button">Discard all</button>' +
+            '<button id="idq-done" type="button" style="margin-left:auto;">Exit</button></div>';
+        document.body.appendChild(p);
+        _drawPanel = p; _drawStatus = p.querySelector('#idq-status');
+        p.querySelector('#idq-commit').addEventListener('click', function () {
+            window.__drawFlash('Committing…');
+            _drawPost('commit/').then(function (res) {
+                if (res.ok && res.j.ok) { window.location.href = res.j.redirect; }
+                else { window.__drawFlash((res.j && res.j.error) || 'Commit failed.'); renderQueue(); }
+            });
+        });
+        p.querySelector('#idq-discard').addEventListener('click', function () {
+            if (!window.confirm('Discard all staged components?')) return;
+            _drawPost('delete/', { all: true }).then(function () { _prov = []; refreshProvData(); renderQueue(); });
+        });
+        p.querySelector('#idq-done').addEventListener('click', function () { _drawCtrl.deactivate(); });
+    }
+    function closePanel() { if (_drawPanel) _drawPanel.style.display = 'none'; }
+
+    function DrawModeControl() {}
+    DrawModeControl.prototype.onAdd = function (mapArg) {
+        var self = this; this._map = mapArg; this._on = false;
+        var el = document.createElement('div');
+        el.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-newrec-ctrl';
+        var b = document.createElement('button');
+        b.type = 'button'; b.textContent = '✏ draw';
+        b.title = 'Draw a new landslide on the map';
+        b.setAttribute('aria-label', 'Draw a new landslide');
+        b.addEventListener('click', function () { self.toggle(); });
+        this._btn = b; el.appendChild(b);
+        // Provisional layers + staged data survive basemap switches (re-added on
+        // every style.load, MeasureControl pattern).
+        map.on('style.load', refreshProvData);
+        if (map.isStyleLoaded()) refreshProvData();
+        return el;
+    };
+    DrawModeControl.prototype.onRemove = function () {};
+    DrawModeControl.prototype.toggle = function () { this._on ? this.deactivate() : this.activate(); };
+    DrawModeControl.prototype.activate = function () {
+        if (map.__measureActive) { alert('Exit the measure tool first.'); return; }
+        if (typeof terraDraw === 'undefined' || typeof terraDrawMaplibreGlAdapter === 'undefined') {
+            alert('Drawing library failed to load — check your connection and reload.');
+            return;
+        }
+        map.__drawActive = true; this._on = true; this._btn.classList.add('active');
+        map.getCanvas().style.cursor = 'crosshair';
+        // Open the panel first so any Terra Draw init error is visible (and the
+        // catch below fully deactivates, so a failure never locks the map up).
+        try {
+            ensureProvLayers();
+            openPanel();
+            startTD();
+            loadProvisional();
+        } catch (e) {
+            console.error('draw activate failed:', e);
+            this.deactivate();
+            alert('Could not start the draw tool: ' + (e && e.message ? e.message : e));
+        }
+    };
+    DrawModeControl.prototype.deactivate = function () {
+        map.__drawActive = false; this._on = false; this._btn.classList.remove('active');
+        map.getCanvas().style.cursor = '';
+        stopTD(); closePanel();
+    };
+
+    // --- Editor-only: provisional (pending) landslides, shown in magenta. ---
+    // Pending records are hidden from the public map; editors see them so they
+    // can tell what they've already added while mapping a series. Click one to
+    // open its review form. Survives basemap switches (style.load), like measure.
+    var _pendingData = { points: { type: 'FeatureCollection', features: [] },
+                         polygons: { type: 'FeatureCollection', features: [] } };
+    function ensurePendingLayers() {
+        if (!map.getSource('pending-poly-src')) map.addSource('pending-poly-src', { type: 'geojson', data: _pendingData.polygons });
+        if (!map.getSource('pending-pt-src'))   map.addSource('pending-pt-src',   { type: 'geojson', data: _pendingData.points });
+        var bId = map.getLayer('measure-fill') ? 'measure-fill' : undefined;
+        if (!map.getLayer('pending-poly-fill')) map.addLayer({ id: 'pending-poly-fill', type: 'fill', source: 'pending-poly-src',
+            paint: { 'fill-color': '#d6219e', 'fill-opacity': 0.12 } }, bId);
+        if (!map.getLayer('pending-poly-line')) map.addLayer({ id: 'pending-poly-line', type: 'line', source: 'pending-poly-src',
+            paint: { 'line-color': '#d6219e', 'line-width': 2, 'line-dasharray': [3, 1.5] } }, bId);
+        if (!map.getLayer('pending-pt')) map.addLayer({ id: 'pending-pt', type: 'circle', source: 'pending-pt-src',
+            paint: { 'circle-radius': 6, 'circle-color': '#d6219e', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } }, bId);
+        // (Name labels omitted — glyph server varies by basemap and 404s.)
+        setPendingData();
+    }
+    function setPendingData() {
+        if (!map.getSource('pending-poly-src')) ensurePendingLayers();
+        if (map.getSource('pending-poly-src')) map.getSource('pending-poly-src').setData(_pendingData.polygons);
+        if (map.getSource('pending-pt-src'))   map.getSource('pending-pt-src').setData(_pendingData.points);
+    }
+    function loadPending() {
+        fetch(API_BASE + 'api/provisional/').then(function (r) { return r.json(); }).then(function (d) {
+            _pendingData = { points: d.points || { type: 'FeatureCollection', features: [] },
+                             polygons: d.polygons || { type: 'FeatureCollection', features: [] } };
+            console.log('provisional loaded:', (_pendingData.points.features || []).length, 'points,',
+                        (_pendingData.polygons.features || []).length, 'polygons');
+            setPendingData();
+        }).catch(function (e) { console.error('provisional load failed:', e); });
+    }
+
+    var _drawCtrl = null;
     if (window._isInventoryEditor) {
         map.addControl(new NewRecordControl(), 'top-left');
+        _drawCtrl = new DrawModeControl();
+        map.addControl(_drawCtrl, 'top-left');
+
+        map.on('style.load', ensurePendingLayers);
+        if (map.isStyleLoaded()) ensurePendingLayers();
+        loadPending();
+        document.addEventListener('visibilitychange', function () { if (!document.hidden) loadPending(); });
+
+        function _openPending(id) { if (!map.__measureActive && !map.__drawActive && id) window.location.href = '/inventory/manage/' + id + '/review/'; }
+        map.on('click', 'pending-pt',        function (e) { _openPending(e.features[0].properties.id); });
+        map.on('click', 'pending-poly-fill', function (e) { _openPending(e.features[0].properties.landslide_id); });
+        ['pending-pt', 'pending-poly-fill'].forEach(function (lyr) {
+            map.on('mouseenter', lyr, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = 'pointer'; });
+            map.on('mouseleave', lyr, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = ''; });
+        });
     }
 
     // ---------------------------------------------------------------------------
@@ -874,6 +1214,13 @@
     function setBasemap(id) {
         var bm = findBasemap(id);
         if (!bm || id === _currentBasemap) return;
+        // While a polygon is mid-draw, a basemap switch (setStyle) would wipe the
+        // in-progress geometry. Staged components survive (re-added on style.load),
+        // so switching between polygons is fine — only block during an open draw.
+        if (map.__drawPolyOpen) {
+            if (window.__drawFlash) window.__drawFlash('Finish or cancel the current polygon before switching imagery.');
+            return;
+        }
         _currentBasemap = id;
         // Visual selection across the three places it appears.
         document.querySelectorAll('.refmap-option').forEach(function (b) {
@@ -1670,13 +2017,14 @@
     // ---------------------------------------------------------------------------
     // Click / hover interaction
     // ---------------------------------------------------------------------------
-    map.on('click', 'points',       function (e) { if (map.__measureActive) return; showDetail(e.features[0].properties.id); });
-    map.on('click', 'polygon-fill', function (e) { if (map.__measureActive) return; showDetail(e.features[0].properties.landslide_id); });
+    map.on('click', 'points',       function (e) { if (map.__measureActive || map.__drawActive) return; showDetail(e.features[0].properties.id); });
+    map.on('click', 'polygon-fill', function (e) { if (map.__measureActive || map.__drawActive) return; showDetail(e.features[0].properties.landslide_id); });
     ['points', 'polygon-fill'].forEach(function (layer) {
-        map.on('mouseenter', layer, function () { if (!map.__measureActive) map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', layer, function () { if (!map.__measureActive) map.getCanvas().style.cursor = ''; });
+        map.on('mouseenter', layer, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', layer, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = ''; });
     });
     map.on('mousemove',  'polygon-fill', function (e) {
+        if (map.__measureActive || map.__drawActive) return;
         map.setFilter('polygon-hover', ['==', 'landslide_id', e.features[0].properties.landslide_id]);
     });
     map.on('mouseleave', 'polygon-fill', function () {
@@ -1685,7 +2033,7 @@
 
     // Quaternary fault trace → popup with name/age/slip attributes (DGGS QFF).
     map.on('click', 'faults-line', function (e) {
-        if (map.__measureActive) return;
+        if (map.__measureActive || map.__drawActive) return;
         var p = e.features[0].properties || {};
         function row(lbl, val) {
             if (val === undefined || val === null || val === '' || val === 'Unknown') return '';
@@ -1702,8 +2050,8 @@
         new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
             .setLngLat(e.lngLat).setHTML(html).addTo(map);
     });
-    map.on('mouseenter', 'faults-line', function () { if (!map.__measureActive) map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'faults-line', function () { if (!map.__measureActive) map.getCanvas().style.cursor = ''; });
+    map.on('mouseenter', 'faults-line', function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'faults-line', function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = ''; });
 
     // ---------------------------------------------------------------------------
     // Detail panel
