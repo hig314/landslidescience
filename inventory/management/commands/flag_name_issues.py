@@ -3,11 +3,16 @@
 Sets landslides.flagged = true (+ a flag_reason note) on active records whose
 unique_name:
   (a) contains a weakly-associated-placename marker ('trib' / 'neighbor') — these
-      should move to the `X` distinctor form; or
+      should move to the `~` near-feature distinctor form; or
   (b) is an un-disambiguated token-prefix of another record's name (the shorter
       lacks the letter/number a sibling carries). A sibling that adds only a time
       qualifier (year, incl. 2024.1, or Holocene/Modern) is the intended
-      slow+catastrophic same-spot pair (standard case 2) and is NOT flagged.
+      slow+catastrophic same-spot pair (standard case 2) and is NOT flagged; nor
+      is one that adds a bare number ("Moose Creek 2", case 5) or a `~`
+      near-feature distinctor (case 6); or
+  (d) carries a lone 'X' token — the retired near-feature distinctor (it collided
+      with the slope-letter sequence at the 24th slope, 'X'). Flagged so an editor
+      can rename it to '~' or clear the flag if the X is a slope letter.
 
 Re-runnable: only sets flagged on matches and fills flag_reason where it's blank
 (never clobbers a hand-written reason). `--dry-run` reports only. `--reset` first
@@ -22,7 +27,11 @@ from django.core.management.base import BaseCommand
 
 _WEAK_RE = re.compile(r'\b(trib(?:utary)?|neighbou?r)\b', re.IGNORECASE)
 
-_WEAK_REASON = "weakly-associated placename ('trib'/'neighbor') — consider the X distinctor"
+_WEAK_REASON = "weakly-associated placename ('trib'/'neighbor') — consider the ~ distinctor"
+
+_X_REASON = ("contains a standalone 'X' — the X distinctor is retired (use '~' for a "
+             "near-feature placename). Rename to '~' if that's the meaning, else clear "
+             "the flag (it's a slope letter).")
 
 # A trailing token that is *only* a time qualifier (a 4-digit year, or the
 # epoch words) marks the deliberate slow+catastrophic same-spot pairing — e.g.
@@ -71,6 +80,17 @@ class Command(BaseCommand):
                 if _WEAK_RE.search(nm or ''):
                     add(lid, _WEAK_REASON)
 
+            # (d) a lone 'X' token — the retired near-feature distinctor (it
+            # collided with the slope-letter sequence once that reached the 24th
+            # slope, also 'X'). Flag every record with a standalone X so an editor
+            # can decide: rename it '~' (near-feature meaning) or clear the flag
+            # (it's a slope letter). Multi-letter slope labels ("AX") aren't lone
+            # X tokens, so they're untouched. Runs before (b)/(c) so X records get
+            # this actionable reason (first reason wins).
+            for lid, nm in rows:
+                if 'x' in name_key(nm).split():
+                    add(lid, _X_REASON)
+
             # (b) an un-disambiguated base name that is a token-PREFIX of another
             # record's name → the shorter one lacks the disambiguation a sibling
             # has (e.g. "Eagle Creek" alongside "Eagle Creek A"; "Moose Creek"
@@ -105,6 +125,11 @@ class Command(BaseCommand):
                                 # intended form ("Moose Creek" + "Moose Creek 2",
                                 # standard case 5). The unnumbered base is the
                                 # first feature and needs no disambiguation.
+                                continue
+                            if first_extra == '~':
+                                # a '~' near-feature distinctor sibling
+                                # ("Eureka Glacier" + "Eureka Glacier ~ …",
+                                # standard case 6) — intended; the base is fine.
                                 continue
                             # Base ends in a time qualifier and the sibling tacks
                             # on a letter ("Hick's Creek E Holocene" + "… B") →
@@ -143,13 +168,18 @@ class Command(BaseCommand):
             # reason text), so a re-run is a clean sweep that drops stale flags.
             # Manually-set flags (other/blank reasons) are left untouched.
             if opts['reset']:
+                # Match by reason PREFIX (no params → single %), so this also
+                # clears flags written by an earlier version of this scan whose
+                # wording differs (e.g. the weak reason that said "X" before the
+                # switch to "~"). Hand-set flags (other wording) are left alone.
                 cur.execute(
                     "UPDATE landslides SET flagged = false, flag_reason = NULL "
-                    "WHERE flagged AND (flag_reason = %s "
-                    "  OR flag_reason LIKE 'base name of %% — needs disambiguation%%' "
-                    "  OR flag_reason LIKE 'letter-suffixed repeat failure%%' "
-                    "  OR flag_reason LIKE 'first of repeat failures%%')",
-                    (_WEAK_REASON,))
+                    "WHERE flagged AND ("
+                    "     flag_reason LIKE 'weakly-associated placename%'"
+                    "  OR flag_reason LIKE 'base name of %'"
+                    "  OR flag_reason LIKE 'letter-suffixed repeat failure%'"
+                    "  OR flag_reason LIKE 'first of repeat failures%'"
+                    "  OR flag_reason LIKE 'contains a standalone %')")
                 self.stdout.write(f"--reset: cleared {cur.rowcount} prior auto-flag(s).")
 
             for lid, reason in reasons.items():
