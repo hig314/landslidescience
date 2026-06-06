@@ -1,0 +1,33 @@
+{% comment %}
+One landslide edit-form field. Context:
+  field  — a bound form field
+  vis    — extra CSS class for per-type visibility ('', 'grp-event',
+           'creep-gate', 'creep-detail', 'creep-slow-only')
+Imagery suggestions + the class datalist are inherited from the parent context.
+{% endcomment %}
+<div class="ls-field {{ vis }}" data-field="{{ field.name }}" style="margin-bottom: 14px;">
+  <label for="{{ field.id_for_label }}" style="display:block; font-size:13px; color:#555; margin-bottom:3px;">
+    {{ field.label }}
+    {% if field.field.required %}<span style="color:#b00020;">*</span>{% endif %}
+  </label>
+  {% if field.name == 'landslide_class' %}
+    <input type="text" name="{{ field.name }}" id="{{ field.id_for_label }}"
+           value="{{ field.value|default_if_none:'' }}" list="class-options" maxlength="200"
+           style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box;">
+  {% else %}
+    {{ field }}
+  {% endif %}
+  {% if field.name == 'esri_wayback_link' and imagery_suggestions.esri_wayback_link %}
+    {% include 'inventory/_imagery_suggest.html' with url=imagery_suggestions.esri_wayback_link fid=field.id_for_label label='ESRI Wayback' %}
+  {% elif field.name == 'google_images_link' and imagery_suggestions.google_images_link %}
+    {% include 'inventory/_imagery_suggest.html' with url=imagery_suggestions.google_images_link fid=field.id_for_label label='Google satellite' %}
+  {% elif field.name == 'insar_opera' and imagery_suggestions.opera_asc %}
+    {% include 'inventory/_opera_links.html' with asc=imagery_suggestions.opera_asc desc=imagery_suggestions.opera_desc %}
+  {% endif %}
+  {% if field.help_text %}
+    <p style="font-size:11px; color:#888; margin: 3px 0 0;">{{ field.help_text }}</p>
+  {% endif %}
+  {% if field.errors %}
+    <p style="font-size:12px; color:#b00020; margin: 3px 0 0;">{{ field.errors|join:", " }}</p>
+  {% endif %}
+</div>

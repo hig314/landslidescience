@@ -1,0 +1,170 @@
+{% extends "inventory/base.html" %}
+{% block title %}Naming conventions — Alaska Landslide Inventory{% endblock %}
+{% block page_title %}Naming conventions{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block extra_styles %}
+<style>
+  .name-example {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: #f0ebe9;
+      color: #5D4037;
+      padding: 1px 6px;
+      border-radius: 3px;
+      white-space: nowrap;
+  }
+  .naming-page table.name-table {
+      border-collapse: collapse;
+      margin: 14px 0;
+      width: 100%;
+  }
+  .naming-page table.name-table th,
+  .naming-page table.name-table td {
+      border: 1px solid #ddd;
+      padding: 7px 10px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+  }
+  .naming-page table.name-table th { background: #f7f4f1; }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="methods-page naming-page">
+
+<h2>Naming conventions</h2>
+
+<p class="methods-intro">
+  Many Alaska placenames recur across distinct landslides (there are several
+  "Moose Creek"s), and many failures sit <em>near</em> a named feature without
+  being on it. To keep every landslide's <code>unique_name</code> both
+  human-readable and unambiguous, names are built from a <strong>base
+  placename</strong> followed by compact disambiguators, read left&rarr;right
+  from most to least significant. Every <code>unique_name</code> is unique
+  across the inventory.
+</p>
+
+<h3>1. A single landslide at a uniquely-named feature</h3>
+<p>
+  Use the placename alone for a slow landslide; add a <strong>time qualifier</strong>
+  for a catastrophic one (the year if known, otherwise the epoch):
+</p>
+<ul>
+  <li><span class="name-example">Toyota Creek</span> &mdash; a slow landslide.</li>
+  <li><span class="name-example">Toyota Creek 2004</span> or
+      <span class="name-example">Toyota Creek Holocene</span> &mdash; a
+      catastrophic failure.</li>
+</ul>
+
+<h3>2. A slow and a catastrophic landslide at the same place</h3>
+<p>
+  They share the base name &mdash; the time qualifier on the catastrophic one is
+  enough to tell them apart:
+</p>
+<ul>
+  <li><span class="name-example">Toyota Creek</span> (the slow mass) +
+      <span class="name-example">Toyota Creek Holocene</span> (the catastrophic
+      event at the same spot).</li>
+</ul>
+<p>
+  If they're in <em>somewhat different</em> spots on the same feature, add a
+  distinguishing <strong>letter</strong>:
+</p>
+<ul>
+  <li><span class="name-example">Toyota Creek A</span>,
+      <span class="name-example">Toyota Creek B Holocene</span>.</li>
+</ul>
+
+<h3>3. Several of the same type along one feature</h3>
+<p>Distinguish the slopes with <strong>letters</strong>:</p>
+<ul>
+  <li><span class="name-example">Toyota Creek A</span>,
+      <span class="name-example">Toyota Creek B</span>,
+      <span class="name-example">Toyota Creek C</span> &hellip;</li>
+</ul>
+
+<h3>4. One slope failing catastrophically more than once</h3>
+<p>
+  Distinguish the events by <strong>year</strong> (or epoch). When more than one
+  event falls in the <em>same time-bin</em> &mdash; the same year, or both
+  <span class="name-example">Holocene</span>/<span class="name-example">Modern</span>
+  &mdash; append a <strong><span class="name-example">.N</span></strong> index:
+  <span class="name-example">.1</span> for the first, <span class="name-example">.2</span>
+  for the second, and so on.
+</p>
+<ul>
+  <li><span class="name-example">Toyota Creek B 2016.1</span>,
+      <span class="name-example">Toyota Creek B 2016.2</span> &mdash; two
+      catastrophic failures of slope&nbsp;B in 2016.</li>
+  <li><span class="name-example">Barabara Creek B Holocene.1</span>,
+      <span class="name-example">Barabara Creek B Holocene.2</span> &mdash;
+      repeated Holocene-age failures of slope&nbsp;B.</li>
+</ul>
+
+<h3>5. A genuinely different feature that shares a name</h3>
+<p>
+  When two unrelated landslides would otherwise carry the same placename (the
+  "Moose Creek" case), append a <strong>number</strong> to the second feature,
+  then letters for slopes on it. The number distinguishes the
+  <em>feature</em>; the letters distinguish slopes:
+</p>
+<ul>
+  <li><span class="name-example">Moose Creek</span> &mdash; the first feature.</li>
+  <li><span class="name-example">Moose Creek 2 A</span>,
+      <span class="name-example">Moose Creek 2 B</span> &mdash; a different
+      Moose Creek elsewhere.</li>
+</ul>
+
+<h3>6. Weakly-associated placenames (the <span class="name-example">X</span> distinctor)</h3>
+<p>
+  When a landslide is only <em>near</em> a named feature &mdash; not on it &mdash;
+  insert an <strong><span class="name-example">X</span></strong> right after the
+  base name to flag that the association is loose. (Names containing
+  <em>"trib"</em> or <em>"neighbor"</em> are the old, ad-hoc form of this and
+  should be migrated to the <span class="name-example">X</span> form.)
+</p>
+<table class="name-table">
+  <tr><th>Component</th><th>Means</th></tr>
+  <tr><td><span class="name-example">Eureka Glacier</span></td>
+      <td>the nearby named feature the name borrows from</td></tr>
+  <tr><td><span class="name-example">X</span></td>
+      <td>this landslide is near, not on, Eureka Glacier</td></tr>
+  <tr><td><span class="name-example">2</span></td>
+      <td>the 2nd distinct feature borrowing the Eureka Glacier name</td></tr>
+  <tr><td><span class="name-example">C</span></td>
+      <td>the 3rd failing slope on that feature</td></tr>
+  <tr><td><span class="name-example">2016.2</span></td>
+      <td>the year of the catastrophic failure, and the <span class="name-example">.2</span>
+          index marking the 2nd failure of that slope in 2016</td></tr>
+</table>
+<p>
+  &hellip; so <span class="name-example">Eureka Glacier X 2 C 2016.2</span> reads
+  as the full, ordered description above.
+</p>
+
+<h3>Order of components</h3>
+<p>
+  Read left to right, components run from most to least significant:
+  <strong>base placename</strong> &rarr; optional
+  <span class="name-example">X</span> &rarr; optional feature
+  <strong>number</strong> &rarr; slope <strong>letter</strong> &rarr;
+  <strong>year</strong> or epoch (catastrophic) &rarr; per-time-bin
+  <strong><span class="name-example">.N</span></strong> index. Omit any
+  component that isn't needed.
+</p>
+
+<p class="methods-intro" style="background:#f7f4f1; padding:10px 14px; border-left:3px solid #b8a78f; border-radius:3px;">
+  Names are applied by editors. The viewer flags likely non-conforming names
+  (e.g. those containing "trib"/"neighbor", or an un-disambiguated base shared
+  with another record) for review, and refuses a rename or a drawn polygon that
+  would collide with an existing name &mdash; nudging toward a disambiguator
+  rather than a silent duplicate.
+</p>
+
+<p style="margin-top:24px;">
+  &larr; Back to <a href="{% url 'inventory:methods' %}">Methods</a>.
+</p>
+
+</div>
+{% endblock %}

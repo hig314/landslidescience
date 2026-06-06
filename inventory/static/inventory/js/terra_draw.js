@@ -224,19 +224,15 @@
           } } }
         }),
         new TD.TerraDrawPolygonMode({
+          // No self-intersection validation — complex/twisted outlines must be
+          // drawable; the server runs ST_MakeValid on save.
           pointerDistance: 8,
-          keyEvents: { finish: 'Enter', cancel: 'Escape' },
-          validation: function (feature, ctx) {
-            if (TD.ValidateNotSelfIntersecting &&
-                (ctx.updateType === 'finish' || ctx.updateType === 'commit')) {
-              return TD.ValidateNotSelfIntersecting(feature);
-            }
-            return { valid: true };
-          }
+          keyEvents: { finish: 'Enter', cancel: 'Escape' }
         })
       ]
     });
     draw.start();
+    window.__lsTdActive = true;   // suppresses the edit-map right-click copy-coords
     draw.on('change', onChange);
     draw.on('finish', onFinish);
     draw.on('select', function (id) { selectedId = id; });
@@ -287,6 +283,7 @@
   function teardown() {
     try { map.off('style.load', reloadEditAfterStyle); } catch (e) {}
     if (draw) { try { draw.stop(); } catch (e) {} draw = null; }
+    window.__lsTdActive = false;
     editing = false; selectedId = null;
     host.showPreview(true);
   }

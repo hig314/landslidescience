@@ -682,16 +682,11 @@
                 // Default 40px treats clicks near any existing vertex as
                 // "close the ring" (premature finish + dropped points). Tighten
                 // it so only a deliberate click on the first point closes; use
-                // Enter to finish, Escape to cancel.
+                // Enter to finish, Escape to cancel. No self-intersection
+                // validation — complex/twisted outlines must be drawable; the
+                // server runs ST_MakeValid on save.
                 pointerDistance: 8,
-                keyEvents: { finish: 'Enter', cancel: 'Escape' },
-                validation: function (f, ctx) {
-                    if (terraDraw.ValidateNotSelfIntersecting &&
-                        (ctx.updateType === 'finish' || ctx.updateType === 'commit')) {
-                        return terraDraw.ValidateNotSelfIntersecting(f);
-                    }
-                    return { valid: true };
-                }
+                keyEvents: { finish: 'Enter', cancel: 'Escape' }
             })]
         });
         _td.start();
@@ -931,6 +926,61 @@
         }).catch(function (e) { console.error('provisional load failed:', e); });
     }
 
+    // --- Editor-only: pin a field to show its value as a label on every
+    // landslide. The label layer rides on the 'landslides' source, so it is
+    // re-added by initDataLayers on every basemap switch. Font 'Noto Sans
+    // Regular' is served by both glyph servers (demotiles + OpenFreeMap). ---
+    var _pinField = '';
+    try { _pinField = localStorage.getItem('ls_pin_field') || ''; } catch (e) {}
+    function ensurePinLabel() {
+        if (!window._isInventoryEditor || !map.getSource('landslides')) return;
+        if (!_pinField) { if (map.getLayer('pin-label')) map.removeLayer('pin-label'); return; }
+        var expr = ['to-string', ['coalesce', ['get', _pinField], '']];
+        if (map.getLayer('pin-label')) { map.setLayoutProperty('pin-label', 'text-field', expr); return; }
+        try {
+            map.addLayer({
+                id: 'pin-label', type: 'symbol', source: 'landslides',
+                layout: {
+                    'text-field': expr,
+                    'text-font': ['Noto Sans Regular'],
+                    'text-size': 11,
+                    'text-offset': [0, 1.1],
+                    'text-anchor': 'top',
+                    'text-allow-overlap': false,
+                    'text-optional': true
+                },
+                paint: { 'text-color': '#1a1a1a', 'text-halo-color': '#fff', 'text-halo-width': 1.6 }
+            });
+            if (typeof buildFilter === 'function') buildFilter();   // apply the active filter to the new layer
+        } catch (e) { console.warn('pin-label add failed:', e); }
+    }
+    function setPinField(field) {
+        _pinField = field || '';
+        try { localStorage.setItem('ls_pin_field', _pinField); } catch (e) {}
+        ensurePinLabel();
+    }
+
+    // Live-update one feature's property in the 'landslides' source after an
+    // inline info-box edit, so the pinned label + active filter reflect it
+    // without a full reload.
+    function _patchFeatureProp(id, name, value) {
+        if (!_featuresData || !_featuresData.features) return;
+        var feats = _featuresData.features;
+        for (var i = 0; i < feats.length; i++) {
+            if (feats[i].properties && feats[i].properties.id === id) {
+                feats[i].properties[name] = value;
+                break;
+            }
+        }
+        if (map.getSource('landslides')) map.getSource('landslides').setData(_featuresData);
+        if (typeof buildFilter === 'function') buildFilter();
+    }
+
+    // Pinnable fields are manually-entered text only — no rule-derived columns
+    // (class, creep behavior) and not `flagged` (cleared via its own banner).
+    var _PIN_LABELS = { unique_name: 'Name', owner: 'Owner',
+                        noted_by: 'Noted by', year_text: 'Year' };
+
     var _drawCtrl = null;
     if (window._isInventoryEditor) {
         map.addControl(new NewRecordControl(), 'top-left');
@@ -949,6 +999,13 @@
             map.on('mouseenter', lyr, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = 'pointer'; });
             map.on('mouseleave', lyr, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = ''; });
         });
+
+        // Pin-field dropdown: restore the saved choice, relabel on change.
+        var pinSel = document.getElementById('pin-field');
+        if (pinSel) {
+            if (_pinField) pinSel.value = _pinField;
+            pinSel.addEventListener('change', function () { setPinField(pinSel.value); });
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -963,7 +1020,7 @@
     var _currentBasemap = _initialBasemapId;
 
     // Layer style variables set by initLayers, reused by initDataLayers on basemap switch
-    var _cG, _cS, _cO, _cC, _cCPale, _OFF, _sk, _fOp, _lW, _rSm, _rMd, _rLg;
+    var _palette, _fOp, _lW, _rSm, _rMd, _rLg;
     var _classFill, _classStroke, _classStrokeW;
 
     // tryInit: called once at startup when both map and settings are ready.
@@ -1003,43 +1060,14 @@
     // ---------------------------------------------------------------------------
     function initLayers(s) {
         POLYGON_ZOOM = parseInt(s.polygon_zoom, 10) || 7;
-        _cG     = s.color_geomorph || '#d3e9cf';
-        _cS     = s.color_subtle   || '#faf075';
-        _cO     = s.color_obvious  || '#f69fa1';
-        _cC     = s.color_cat      || '#3f67b1';
-        _cCPale = '#96b8df';  // de-emphasized catastrophic (Holocene, Modern, Small)
-        _OFF    = '#9e9e9e';  // unclassified: blank/unrecognized landslide_class
-        _sk  = s.stroke_color   || '#ffffff';
-        _fOp = parseFloat(s.fill_opacity) || 0.35;
-        _lW  = parseFloat(s.line_width)   || 1.5;
-        _rSm = parseFloat(s.circle_sm)    || 3;
-        _rMd = parseFloat(s.circle_md)    || 5;
-        _rLg = parseFloat(s.circle_lg)    || 7;
-
-        _classFill = [
-            'match', ['get', 'landslide_class'],
-            'Slow Obvious creep', _cO, 'Slow Patchy obvious creep', _cO,
-            'Slow Subtle creep', _cS,
-            'Slow Geomorph creep', _cG, 'Small slow landslide', _cG,
-            'Catastrophic Cryptic', _cC,
-            'Catastrophic Obvious creep', _cC, 'Catastrophic Patchy obvious creep', _cC,
-            'Catastrophic Subtle creep', _cC, 'Catastrophic Geomorph creep', _cC,
-            'Catastrophic Modern', _cCPale, 'Catastrophic Holocene', _cCPale,
-            'Small catastrophic landslide', _cCPale,
-            _OFF   // blank / unrecognized landslide_class → neutral off-colour
-        ];
-        _classStroke = [
-            'match', ['get', 'landslide_class'],
-            'Catastrophic Obvious creep', _cO, 'Catastrophic Patchy obvious creep', _cO,
-            'Catastrophic Subtle creep', _cS, 'Catastrophic Geomorph creep', _cG,
-            _sk
-        ];
-        _classStrokeW = [
-            'match', ['get', 'landslide_class'],
-            'Catastrophic Obvious creep', 3, 'Catastrophic Patchy obvious creep', 3,
-            'Catastrophic Subtle creep', 3, 'Catastrophic Geomorph creep', 3,
-            1
-        ];
+        // Resolve the shared palette + paint expressions (ls_colors.js) so the
+        // main map and the per-record form preview map stay in lock-step.
+        _palette = window.LSColors.palette(s);
+        _fOp = _palette.fOp; _lW = _palette.lW;
+        _rSm = _palette.rSm; _rMd = _palette.rMd; _rLg = _palette.rLg;
+        _classFill    = window.LSColors.classFill(_palette);
+        _classStroke  = window.LSColors.classStroke(_palette);
+        _classStrokeW = window.LSColors.classStrokeWidth();
 
         initDataLayers();
 
@@ -1147,26 +1175,18 @@
                 'circle-opacity': 0.9
             }
         }, bId);
+        ensurePinLabel();   // editor-only field labels (re-added with the layers)
         map.addLayer({
             id: 'polygon-fill', type: 'fill', source: 'polygons',
             paint: {
-                'fill-color': ['case',
-                    // blank/unclassified → off-colour, before the role tint, so
-                    // an unclassified catastrophic polygon matches its grey dot.
-                    ['==', ['coalesce', ['get', 'landslide_class'], ''], ''], _OFF,
-                    ['==', ['get', 'role'], 'deposit'], _cC,
-                    ['==', ['get', 'role'], 'source'],  _cC,
-                    _classFill],
+                'fill-color': window.LSColors.polygonFill(_palette),
                 'fill-opacity': _fOp
             }
         }, bId);
         map.addLayer({
             id: 'polygon-outline', type: 'line', source: 'polygons',
             paint: {
-                'line-color': ['case',
-                    ['==', ['get', 'role'], 'deposit'], '#1a3f80',
-                    ['==', ['get', 'role'], 'source'],  '#1a3f80',
-                    _sk],
+                'line-color': window.LSColors.polygonOutline(_palette),
                 'line-width': _lW
             }
         }, bId);
@@ -1542,8 +1562,9 @@
     var cbTimed        = document.getElementById('cb-timed');
     var cbSeismic      = document.getElementById('cb-seismic');
     var cbPost2012     = document.getElementById('cb-post2012');
+    var cbFlagged      = document.getElementById('cb-flagged');   // editor-only
     var cbLimitView    = document.getElementById('cb-limit-view');
-    [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012].forEach(function (cb) {
+    [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012, cbFlagged].forEach(function (cb) {
         if (cb) cb.addEventListener('change', buildFilter);
     });
 
@@ -1806,6 +1827,7 @@
             map.setFilter('points', hideAll);
             map.setFilter('polygon-fill', hideAll);
             map.setFilter('polygon-outline', hideAll);
+            if (map.getLayer('pin-label')) map.setFilter('pin-label', hideAll);
             updateHistogram();
             updateTimeline();
             scheduleSidebarCountUpdate();
@@ -1887,10 +1909,12 @@
         if (cbTimed        && cbTimed.checked)         f.push(['==', ['get', 'has_time_bracket'], true]);
         if (cbSeismic      && cbSeismic.checked)       f.push(['==', ['get', 'has_seismic'], true]);
         if (cbPost2012     && cbPost2012.checked)      f.push(['==', ['get', 'post_2012_activity_increase'], true]);
+        if (cbFlagged      && cbFlagged.checked)       f.push(['==', ['get', 'flagged'], true]);
 
         map.setFilter('points', f);
         map.setFilter('polygon-fill', f);
         map.setFilter('polygon-outline', f);
+        if (map.getLayer('pin-label')) map.setFilter('pin-label', f);
         updateHistogram();
         updateTimeline();
         scheduleSidebarCountUpdate();
@@ -2028,6 +2052,34 @@
     // ---------------------------------------------------------------------------
     // Click / hover interaction
     // ---------------------------------------------------------------------------
+    // Right-click (Ctrl-click on Mac) anywhere on the map → copy "lat, lon" to
+    // the clipboard for pasting into Planet etc. Skipped while a draw/measure
+    // session is active (there, right-click deletes a vertex).
+    map.on('contextmenu', function (e) {
+        if (map.__measureActive || map.__drawActive) return;
+        e.preventDefault();
+        var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
+        var done = function () { _coordToast(txt + ' copied'); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(txt).then(done, function () { _coordToast(txt); });
+        } else { _coordToast(txt); }
+    });
+    function _coordToast(msg) {
+        var t = document.getElementById('_coord-toast');
+        if (!t) {
+            t = document.createElement('div');
+            t.id = '_coord-toast';
+            t.style.cssText = 'position:absolute;bottom:24px;left:50%;transform:translateX(-50%);' +
+                'background:rgba(20,20,20,.88);color:#fff;padding:6px 12px;border-radius:4px;' +
+                'font-size:13px;z-index:5;pointer-events:none;transition:opacity .3s;opacity:0;';
+            (document.getElementById('map') || document.body).appendChild(t);
+        }
+        t.textContent = msg;
+        t.style.opacity = '1';
+        clearTimeout(t._h);
+        t._h = setTimeout(function () { t.style.opacity = '0'; }, 1600);
+    }
+
     map.on('click', 'points',       function (e) { if (map.__measureActive || map.__drawActive) return; showDetail(e.features[0].properties.id); });
     map.on('click', 'polygon-fill', function (e) { if (map.__measureActive || map.__drawActive) return; showDetail(e.features[0].properties.landslide_id); });
     ['points', 'polygon-fill'].forEach(function (layer) {
@@ -2155,6 +2207,32 @@
                 (d.landslide_type === 'slow' ? 'Slow' : 'Catastrophic') + '</span>';
         if (d.landslide_class) html += ' <span class="class-badge">' + esc(d.landslide_class) + '</span>';
 
+        // Editor-only: flag banner with a Clear button. Shown whenever the
+        // record is flagged, independent of what's pinned — clearing the flag
+        // is a review action, not a field-edit.
+        if (window._isInventoryEditor && d.flagged) {
+            html += '<div class="flag-banner" data-id="' + d.id + '" ' +
+                    'style="margin:8px 0;padding:6px 9px;background:#fff4e5;border:1px solid #f0c98a;' +
+                    'border-radius:4px;font-size:12px;color:#8a5a00;">' +
+                    '<span style="font-weight:600;">⚑ Flagged for review.</span> ' +
+                    (d.flag_reason ? esc(d.flag_reason) + ' ' : '') +
+                    '<button type="button" id="flag-clear-btn" style="margin-left:4px;font-size:11px;' +
+                    'padding:1px 8px;border:1px solid #d2a766;border-radius:3px;background:#fff;cursor:pointer;">' +
+                    'Clear flag</button> <span id="flag-clear-status" style="font-weight:400;"></span></div>';
+        }
+
+        // Editor-only: inline editor for the currently pinned field (rename
+        // workflow — see the map label + filter update live on save).
+        if (window._isInventoryEditor && _pinField) {
+            var pf = _pinField, pv = d[pf], plabel = _PIN_LABELS[pf] || pf;
+            html += '<div class="pin-editor" data-id="' + d.id + '" data-field="' + esc(pf) + '" ' +
+                    'style="margin:8px 0;padding:6px 8px;background:#f4f6f8;border-radius:4px;">' +
+                    '<div style="font-size:11px;font-weight:600;color:#555;margin-bottom:3px;">' + esc(plabel) +
+                    ' <span id="pin-edit-status" style="font-weight:400;"></span></div>' +
+                    '<input type="text" id="pin-edit-input" value="' + esc(pv == null ? '' : pv) +
+                    '" style="width:100%;box-sizing:border-box;"></div>';
+        }
+
         if (prominent) {
             stories.forEach(function (s) { html += renderPlanetStory(s); });
         }
@@ -2257,6 +2335,68 @@
 
         document.getElementById('detail-content').innerHTML = html;
         document.getElementById('detail-panel').classList.remove('hidden');
+
+        // Wire the Clear-flag button (if rendered): set flagged=false via
+        // manage_edit_field, then live-patch the source so the count/filter drop it.
+        var flagBtn = document.getElementById('flag-clear-btn');
+        if (flagBtn) {
+            var flagWrap = flagBtn.closest('.flag-banner');
+            var flagId = +flagWrap.getAttribute('data-id');
+            var flagStat = document.getElementById('flag-clear-status');
+            flagBtn.addEventListener('click', function () {
+                flagBtn.disabled = true;
+                flagStat.style.color = '#1a73e8'; flagStat.textContent = 'clearing…';
+                fetch('/inventory/manage/' + flagId + '/field/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
+                    body: JSON.stringify({ name: 'flagged', value: false })
+                }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+                  .then(function (res) {
+                    if (res.ok && res.j.ok) {
+                        _patchFeatureProp(flagId, 'flagged', false);
+                        flagWrap.style.display = 'none';
+                    } else {
+                        flagBtn.disabled = false;
+                        flagStat.style.color = '#c00';
+                        flagStat.textContent = (res.j && res.j.error) || 'failed';
+                    }
+                }).catch(function () {
+                    flagBtn.disabled = false; flagStat.style.color = '#c00'; flagStat.textContent = 'failed';
+                });
+            });
+        }
+
+        // Wire the inline pinned-field editor (if rendered). Saves per-field to
+        // manage_edit_field, then live-patches the source so label + filter update.
+        var pinInp = document.getElementById('pin-edit-input');
+        if (pinInp) {
+            var pinWrap = pinInp.closest('.pin-editor');
+            var pinId = +pinWrap.getAttribute('data-id');
+            var pinFld = pinWrap.getAttribute('data-field');
+            var pinStat = document.getElementById('pin-edit-status');
+            var setStat = function (c, t) { pinStat.style.color = c; pinStat.textContent = t; };
+            pinInp.addEventListener('change', function () {
+                var isBool = !!pinInp.getAttribute('data-bool');
+                var value = isBool ? pinInp.checked : pinInp.value;
+                setStat('#1a73e8', 'saving…');
+                fetch('/inventory/manage/' + pinId + '/field/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
+                    body: JSON.stringify({ name: pinFld, value: value })
+                }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+                  .then(function (res) {
+                    if (res.ok && res.j.ok) {
+                        var saved = (res.j.value != null) ? res.j.value : value;
+                        if (!isBool && res.j.value != null) pinInp.value = res.j.value;
+                        setStat('#1a73e8', '✓ saved');
+                        setTimeout(function () { pinStat.textContent = ''; }, 1400);
+                        _patchFeatureProp(pinId, pinFld, saved);
+                    } else {
+                        setStat('#c00', (res.j && res.j.error) || 'save failed');
+                    }
+                }).catch(function () { setStat('#c00', 'save failed'); });
+            });
+        }
     }
 
     function esc(s) {

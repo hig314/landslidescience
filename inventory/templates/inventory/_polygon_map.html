@@ -28,6 +28,7 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
 </style>
 <div id="ls-poly-map" class="ls-poly-map"></div>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
+<script src="{% static 'inventory/js/ls_colors.js' %}"></script>
 <script>
 (function () {
   var CREATE_MODE = {% if poly_create_mode %}true{% else %}false{% endif %};
@@ -154,14 +155,30 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
       .catch(function (e) { console.error('faults fetch failed:', e); });
   }
 
+  // Shared color palette (ls_colors.js). Starts at defaults, then upgraded to
+  // the real map_settings once fetched, so the preview matches the main map's
+  // class colors / stroke / opacity. POLYGONS carry landslide_class + role, the
+  // props the shared expressions key on.
+  var _lsStyle = window.LSColors.palette({});
+  fetch('/inventory/api/settings/').then(function (r) { return r.json(); })
+    .then(function (s) {
+      _lsStyle = window.LSColors.palette(s);
+      if (map.getLayer('lspoly-fill')) {
+        map.setPaintProperty('lspoly-fill', 'fill-color', window.LSColors.polygonFill(_lsStyle));
+        map.setPaintProperty('lspoly-fill', 'fill-opacity', _lsStyle.fOp);
+        map.setPaintProperty('lspoly-line', 'line-color', window.LSColors.polygonOutline(_lsStyle));
+        map.setPaintProperty('lspoly-line', 'line-width', _lsStyle.lW);
+      }
+    }).catch(function () { /* keep defaults */ });
+
   function addPolygonLayer() {
     addFaultsLayer();
     if (map.getSource('lspoly')) return;
     map.addSource('lspoly', { type: 'geojson', data: POLYGONS });
     map.addLayer({ id: 'lspoly-fill', type: 'fill', source: 'lspoly',
-      paint: { 'fill-color': '#3f67b1', 'fill-opacity': 0.30 } });
+      paint: { 'fill-color': window.LSColors.polygonFill(_lsStyle), 'fill-opacity': _lsStyle.fOp } });
     map.addLayer({ id: 'lspoly-line', type: 'line', source: 'lspoly',
-      paint: { 'line-color': '#3f67b1', 'line-width': 2 } });
+      paint: { 'line-color': window.LSColors.polygonOutline(_lsStyle), 'line-width': _lsStyle.lW } });
   }
   function fitToPolygons() {
     var b = fcBounds(POLYGONS);
@@ -171,6 +188,29 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
   map.addControl(new BasemapSwitcher(), 'top-right');
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
   map.on('load', function () { loadFaults(); addPolygonLayer(); fitToPolygons(); });
+
+  // Right-click (Ctrl-click on Mac) → copy "lat, lon" for pasting into Planet.
+  // Suppressed while a Terra Draw session is active (there right-click deletes a
+  // vertex). __lsTdActive is set by terra_draw.js.
+  map.on('contextmenu', function (e) {
+    if (window.__lsTdActive) return;
+    e.preventDefault();
+    var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).catch(function () {});
+    var t = document.getElementById('_poly-coord-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = '_poly-coord-toast';
+      t.style.cssText = 'position:absolute;bottom:18px;left:50%;transform:translateX(-50%);' +
+        'background:rgba(20,20,20,.88);color:#fff;padding:5px 10px;border-radius:4px;font-size:12px;' +
+        'z-index:5;pointer-events:none;transition:opacity .3s;opacity:0;';
+      (document.getElementById('ls-poly-map') || document.body).appendChild(t);
+    }
+    t.textContent = txt + ' copied';
+    t.style.opacity = '1';
+    clearTimeout(t._h);
+    t._h = setTimeout(function () { t.style.opacity = '0'; }, 1600);
+  });
 
   // Expose a small API for the optional geometry editor (terra_draw.js). The
   // editor hides the read-only preview layers and locks the basemap selector

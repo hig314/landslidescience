@@ -247,18 +247,21 @@ def _home_counts(subset):
     The unfiltered case is cached for the worker lifetime (hot path);
     filtered cases hit the DB each time (rare).
     """
-    if subset is None and 'home_counts' in _cache and 'unclassified_count' in _cache:
-        return _cache['home_counts'], _cache['unclassified_count']
+    if (subset is None and 'home_counts' in _cache and 'unclassified_count' in _cache
+            and 'flagged_count' in _cache):
+        return _cache['home_counts'], _cache['unclassified_count'], _cache['flagged_count']
 
     join = ""
     where_class = [public_landslide_filter('l'), "l.landslide_class IS NOT NULL", "l.landslide_class != ''"]
     where_null  = [public_landslide_filter('l'), "(l.landslide_class IS NULL OR l.landslide_class = '')"]
+    where_flag  = [public_landslide_filter('l'), "l.flagged"]
     params      = []
     if subset:
         join = ("JOIN landslide_subsets lps ON lps.landslide_id = l.id "
                 "JOIN subsets s ON s.id = lps.subset_id")
         where_class.append("s.slug = %s")
         where_null.append("s.slug = %s")
+        where_flag.append("s.slug = %s")
         params.append(subset)
 
     counts_sql = f"""
@@ -269,6 +272,7 @@ def _home_counts(subset):
         ORDER BY l.landslide_type, cnt DESC
     """
     null_sql = f"SELECT COUNT(*) FROM landslides l {join} WHERE {' AND '.join(where_null)}"
+    flag_sql = f"SELECT COUNT(*) FROM landslides l {join} WHERE {' AND '.join(where_flag)}"
 
     conn = _get_conn()
     try:
@@ -277,6 +281,8 @@ def _home_counts(subset):
         counts = {(r[0], r[1]): r[2] for r in cur.fetchall()}
         cur.execute(null_sql, params)
         unclassified = cur.fetchone()[0]
+        cur.execute(flag_sql, params)
+        flagged = cur.fetchone()[0]
         conn.rollback()
     finally:
         _put_conn(conn)
@@ -284,7 +290,8 @@ def _home_counts(subset):
     if subset is None:
         _cache['home_counts']        = counts
         _cache['unclassified_count'] = unclassified
-    return counts, unclassified
+        _cache['flagged_count']      = flagged
+    return counts, unclassified, flagged
 
 
 def home(request):
@@ -294,7 +301,7 @@ def home(request):
     # unfiltered case is hot and cached; the filtered case is rare (mostly
     # exercised by snapshot builds) so we don't cache it.
     subset = (request.GET.get('subset') or '').strip() or None
-    counts, unclassified = _home_counts(subset)
+    counts, unclassified, flagged = _home_counts(subset)
 
     def make_class_list(type_key, order):
         # Always include every known class — count=0 entries render as a
@@ -311,6 +318,7 @@ def home(request):
         "cat_recent":         make_class_list('catastrophic', _CAT_RECENT_ORDER),
         "cat_other":          make_class_list('catastrophic', _CAT_OTHER_ORDER),
         "unclassified_count": unclassified,
+        "flagged_count":      flagged,
         "data_version":       _data_version,
     })
 
@@ -319,9 +327,45 @@ def methods(request):
     return render(request, "inventory/methods.html")
 
 
+def naming(request):
+    return render(request, "inventory/naming.html")
+
+
 # ---------------------------------------------------------------------------
 # GeoJSON API
 # ---------------------------------------------------------------------------
+
+# Landslide-level properties consumed by the shared MapLibre filter (`buildFilter`
+# in map.js). SINGLE SOURCE OF TRUTH: spliced into BOTH api_features (centroid
+# points) and api_polygons so one filter expression hides/shows points and
+# polygons identically. Add a filterable field here ONCE — never hand-mirror it
+# into just one query: a property absent from the other source silently drops
+# every feature there whenever that filter is active (exactly how `flagged`
+# regressed for polygons). Both queries alias the landslides table as `l`; the
+# `%%` escapes survive psycopg2 parameter substitution.
+_FILTER_PROPS_SQL = """
+                        'volume_preferred', l.volume_preferred,
+                        'area_src', CASE WHEN l.landslide_type = 'slow'
+                                         THEN l.area_body ELSE l.area_source END,
+                        'area_dep', CASE WHEN l.landslide_type = 'catastrophic'
+                                         THEN l.area_deposit ELSE NULL END,
+                        'year_num', CASE
+                            WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
+                            WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
+                            WHEN l.year_text ~ '^[0-9]{4}$' THEN l.year_text::int
+                            WHEN l.date_min IS NOT NULL THEN EXTRACT(YEAR FROM l.date_min)::int
+                            ELSE NULL
+                        END,
+                        'molards',                     l.molards,
+                        'stream_damming',              l.stream_damming,
+                        'precursory_headscarp',        l.precursory_headscarp,
+                        'has_site_specific_volume',   (l.volume_site_specific IS NOT NULL),
+                        'exclusively_supraglacial',    l.exclusively_supraglacial,
+                        'creeping_permafrost_mass',    l.creeping_permafrost_mass,
+                        'has_seismic',                (l.seismic_datetime IS NOT NULL),
+                        'has_time_bracket',           (l.date_min IS NOT NULL AND l.date_max IS NOT NULL),
+                        'post_2012_activity_increase', l.post_2012_activity_increase,
+                        'flagged',                     COALESCE(l.flagged, false)"""
 
 def api_features(request):
     """
@@ -385,29 +429,16 @@ def api_features(request):
                              WHERE lps.landslide_id = l.id),
                             '[]'::json),
                         'description', l.description,
-                        'volume_preferred', l.volume_preferred,
                         'volume_method', l.volume_method,
                         'display_area', COALESCE(l.area_body, l.area_deposit),
-                        'area_src', CASE WHEN l.landslide_type = 'slow'
-                                         THEN l.area_body ELSE l.area_source END,
-                        'area_dep', CASE WHEN l.landslide_type = 'catastrophic'
-                                         THEN l.area_deposit ELSE NULL END,
-                        'year_num', CASE
-                            WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
-                            WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
-                            WHEN l.year_text ~ '^[0-9]{4}$' THEN l.year_text::int
-                            WHEN l.date_min IS NOT NULL THEN EXTRACT(YEAR FROM l.date_min)::int
-                            ELSE NULL
-                        END,
-                        'molards',                   l.molards,
-                        'stream_damming',            l.stream_damming,
-                        'precursory_headscarp',      l.precursory_headscarp,
-                        'has_site_specific_volume', (l.volume_site_specific IS NOT NULL),
-                        'exclusively_supraglacial',  l.exclusively_supraglacial,
-                        'creeping_permafrost_mass',  l.creeping_permafrost_mass,
-                        'has_seismic',              (l.seismic_datetime IS NOT NULL),
-                        'has_time_bracket',         (l.date_min IS NOT NULL AND l.date_max IS NOT NULL),
-                        'post_2012_activity_increase', l.post_2012_activity_increase
+                        -- display-only extras (labels / info-box); not filter inputs
+                        'flag_reason',  l.flag_reason,
+                        'owner',        l.owner,
+                        'noted_by',     l.noted_by,
+                        'year_text',    l.year_text,
+                        'creep_behavior', l.creep_behavior,
+                        -- shared filter properties (mirror of api_polygons) →
+                        {_FILTER_PROPS_SQL}
                     )
                 )
             ), '[]'::json)
@@ -517,32 +548,11 @@ def api_polygons(request):
                         'area', p.area,
                         'thickness', p.thickness,
                         'polygon_volume', p.polygon_volume,
-                        -- Landslide-level filter fields, mirrored from api_features
-                        -- so the shared map filter hides/shows points and polygons
-                        -- consistently (without these, any flag/range filter drops
-                        -- every polygon because the property is absent). n10/lw are
-                        -- merged client-side (by landslide_id), as for points.
-                        'volume_preferred', l.volume_preferred,
-                        'area_src', CASE WHEN l.landslide_type = 'slow'
-                                         THEN l.area_body ELSE l.area_source END,
-                        'area_dep', CASE WHEN l.landslide_type = 'catastrophic'
-                                         THEN l.area_deposit ELSE NULL END,
-                        'year_num', CASE
-                            WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
-                            WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
-                            WHEN l.year_text ~ '^[0-9]{4}$' THEN l.year_text::int
-                            WHEN l.date_min IS NOT NULL THEN EXTRACT(YEAR FROM l.date_min)::int
-                            ELSE NULL
-                        END,
-                        'molards',                     l.molards,
-                        'stream_damming',              l.stream_damming,
-                        'precursory_headscarp',        l.precursory_headscarp,
-                        'has_site_specific_volume',   (l.volume_site_specific IS NOT NULL),
-                        'exclusively_supraglacial',    l.exclusively_supraglacial,
-                        'creeping_permafrost_mass',    l.creeping_permafrost_mass,
-                        'has_seismic',                (l.seismic_datetime IS NOT NULL),
-                        'has_time_bracket',           (l.date_min IS NOT NULL AND l.date_max IS NOT NULL),
-                        'post_2012_activity_increase', l.post_2012_activity_increase
+                        -- shared filter properties (same fragment as api_features)
+                        -- so one map filter hides/shows points and polygons
+                        -- identically. n10/lw are merged client-side (by
+                        -- landslide_id), as for points.
+                        {_FILTER_PROPS_SQL}
                     )
                 )
             ), '[]'::json)
@@ -1086,6 +1096,77 @@ def manage_review(request, landslide_id):
     return manage_edit(request, landslide_id, review_mode=True)
 
 
+# Edit-form field grouping (manage_edit.html). Drives the section layout and
+# the slow/catastrophic show-hide that streamlines data entry. Fields not listed
+# here fall into a trailing "Other" group so a newly-added column still surfaces.
+# Rule-derived columns live in 'computed' (rendered collapsed). Per-type
+# visibility is applied client-side by manage_edit.html using the `vis` class
+# computed in _group_edit_fields().
+_EDIT_FIELD_GROUPS = [
+    {'key': 'core', 'title': '', 'fields': [
+        'unique_name', 'landslide_type', 'description', 'notes',
+        'noted_by', 'owner', 'ongoing_work', 'stream_damming', 'volume_site_specific']},
+    {'key': 'creep', 'title': 'Creep / slow-movement detection', 'fields': [
+        'creep_evaluated',
+        'planet_labs_creep', 'planet_labs_patchy_creep',
+        'insar_schaefer', 'insar_kim', 'insar_opera', 'insar_other',
+        'other_subtle_creep', 'geomorph_creep',
+        'post_2012_activity_increase', 'creeping_permafrost_mass']},
+    {'key': 'event', 'title': 'Catastrophic event & timing', 'fields': [
+        'catastrophic_failure_years', 'year_text', 'date_min', 'date_max',
+        'precursory_headscarp', 'exclusively_supraglacial', 'molards',
+        'seismic_datetime', 'seismic_note', 'seismic_credit']},
+    {'key': 'imagery', 'title': 'Imagery & external links', 'fields': [
+        'planet_story_link', 'esri_wayback_link', 'google_images_link',
+        'sentinel2_link', 'sentinel1_link']},
+    {'key': 'review', 'title': 'Review flag', 'fields': ['flagged', 'flag_reason']},
+    {'key': 'computed', 'title': 'Computed (auto-filled — override only if needed)',
+     'collapsed': True, 'fields': [
+        'landslide_class', 'size_inclusion', 'creep_behavior', 'insar_creep',
+        'volume_preferred', 'volume_method', 'volume_estimated',
+        'area_body', 'area_source', 'area_deposit',
+        'volume_body', 'volume_source', 'volume_deposit',
+        'centroid_albers_x', 'centroid_albers_y', 'centroid_lat', 'centroid_lon']},
+]
+# Within the creep group, these two are slow-only (hidden for catastrophic even
+# when creep is being evaluated). creep_evaluated is the gate; the remaining
+# creep fields show for slow, or for catastrophic only once the gate is checked.
+_CREEP_SLOW_ONLY = {'post_2012_activity_increase', 'creeping_permafrost_mass'}
+
+
+def _group_edit_fields(form):
+    """Bucket a LandslideEditForm's bound fields into _EDIT_FIELD_GROUPS, tagging
+    each with a `vis` class the template/JS use for per-type visibility. Returns
+    a list of {'meta', 'items':[{'field', 'vis'}]}; unlisted columns trail in an
+    'Other' group so the form never silently drops a field."""
+    seen = set()
+    grouped = []
+    for g in _EDIT_FIELD_GROUPS:
+        items = []
+        for name in g['fields']:
+            if name not in form.fields:
+                continue
+            seen.add(name)
+            if g['key'] == 'event':
+                vis = 'grp-event'
+            elif g['key'] == 'creep':
+                if name == 'creep_evaluated':
+                    vis = 'creep-gate'
+                elif name in _CREEP_SLOW_ONLY:
+                    vis = 'creep-slow-only'
+                else:
+                    vis = 'creep-detail'
+            else:
+                vis = ''
+            items.append({'field': form[name], 'vis': vis})
+        if items:
+            grouped.append({'meta': g, 'items': items})
+    rest = [{'field': form[n], 'vis': ''} for n in form.fields if n not in seen]
+    if rest:
+        grouped.append({'meta': {'key': 'other', 'title': 'Other'}, 'items': rest})
+    return grouped
+
+
 @inventory_editor_required
 def manage_edit(request, landslide_id, review_mode=False):
     """Edit a single landslide record. GET = form; POST = validate + UPDATE.
@@ -1368,14 +1449,20 @@ def manage_edit(request, landslide_id, review_mode=False):
                 'features', COALESCE(json_agg(
                     json_build_object(
                         'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(geom, 15)::json,
-                        'properties', json_build_object('db_id', id,
-                                                        'role', role,
-                                                        'is_primary', is_primary)
+                        'geometry', ST_AsGeoJSON(p.geom, 15)::json,
+                        'properties', json_build_object('db_id', p.id,
+                                                        'role', p.role,
+                                                        'is_primary', p.is_primary,
+                                                        -- so the preview map colors
+                                                        -- polygons by class, matching
+                                                        -- the main map (ls_colors.js)
+                                                        'landslide_class', l.landslide_class)
                     )
                 ), '[]'::json)
             )::text
-            FROM landslide_polygons WHERE landslide_id = %s
+            FROM landslide_polygons p
+            JOIN landslides l ON l.id = p.landslide_id
+            WHERE p.landslide_id = %s
         """, (landslide_id,))
         polygons_geojson = cur.fetchone()[0]
         if review_mode:
@@ -1423,6 +1510,9 @@ def manage_edit(request, landslide_id, review_mode=False):
     template = 'inventory/manage_review.html' if review_mode else 'inventory/manage_edit.html'
     return render(request, template, {
         'form':              form,
+        # Grouped bound-fields for the edit form's sectioned, type-aware layout
+        # (review mode keeps its own flat template).
+        'field_groups':      None if review_mode else _group_edit_fields(form),
         'landslide_id':      landslide_id,
         'unique_name':       unique_name,
         'landslide_type':    initial.get('landslide_type', ''),
@@ -2137,6 +2227,27 @@ def manage_edit_field(request, landslide_id):
             conn.rollback()
             return JsonResponse({'ok': False, 'error': f'Too long (max {col["max_length"]}).'}, status=400)
 
+        # Names must be unique (the disambiguation standard guarantees it): block
+        # a rename that collides with another non-deprecated record, comparing on
+        # the same normalized key as the import/draw paths (case + whitespace
+        # insensitive). This is the rename-side counterpart to the draw-commit
+        # attach hard-block — manage_edit_field is a generic per-field UPDATE, so
+        # without this a rename to an existing name slips through silently.
+        if name == 'unique_name' and isinstance(val, str) and val.strip():
+            cur.execute(
+                "SELECT id, unique_name FROM landslides "
+                "WHERE id != %s AND deprecated_at IS NULL "
+                "AND regexp_replace(lower(btrim(unique_name)), '\\s+', ' ', 'g') "
+                "  = regexp_replace(lower(btrim(%s)), '\\s+', ' ', 'g')",
+                (landslide_id, val))
+            dup = cur.fetchone()
+            if dup:
+                conn.rollback()
+                return JsonResponse({'ok': False, 'error': (
+                    f'"{val}" is already used by landslide #{dup[0]} — names must be '
+                    f'unique. Add a disambiguator per the naming standard '
+                    f'(e.g. "{val} 2", or a letter/year).')}, status=409)
+
         # name is whitelisted from information_schema (not user-supplied SQL).
         cur.execute(f"UPDATE landslides SET {name} = %s WHERE id = %s", (val, landslide_id))
         if cur.rowcount == 0:
@@ -2164,7 +2275,7 @@ def manage_edit_field(request, landslide_id):
     from .models import LandslideEditMeta
     LandslideEditMeta.objects.update_or_create(
         landslide_id=landslide_id, defaults={'last_edited_by': request.user})
-    _invalidate('features', 'home_counts', 'unclassified_count',
+    _invalidate('features', 'home_counts', 'unclassified_count', 'flagged_count',
                 'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
 
     # Render dates back in the human format for the field's own display refresh.
@@ -2368,9 +2479,9 @@ def manage_draw_stage(request):
     conn = _get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(f"""
             INSERT INTO provisional_polygons (editor_id, unique_name, role, geom)
-            VALUES (%s, %s, %s, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))
+            VALUES (%s, %s, %s, {_GEOM_WRITE_EXPR})
             RETURNING id, ST_AsGeoJSON(geom)::json
         """, (request.user.id, name, role, json.dumps(multi)))
         new_id, geom = cur.fetchone()
@@ -2552,16 +2663,42 @@ def manage_draw_commit(request):
     from .io_geojson import apply_import, ImportError_
 
     conn = _get_conn()
+    far = []
     try:
         cur = conn.cursor()
         rows = _provisional_rows(cur, request.user.id)
         names = sorted({r['unique_name'] for r in rows})
         existing = _draw_existing_landslides(cur, names)
+        # How far is each attach group from the existing same-named landslide?
+        # A large gap means it's a *different* site sharing a name (the Moose
+        # Creek case) — block rather than silently merge.
+        attach_names = [n for n in names if n.lower() in existing]
+        if attach_names:
+            cur.execute("""
+                SELECT pp.unique_name,
+                       ST_Distance(ST_Transform(ST_Centroid(ST_Collect(pp.geom)), 3338),
+                                   ST_Transform(le.geom, 3338))
+                FROM provisional_polygons pp
+                JOIN LATERAL (
+                    SELECT ST_Centroid(ST_Collect(lp.geom)) AS geom
+                    FROM landslide_polygons lp JOIN landslides l ON l.id = lp.landslide_id
+                    WHERE lower(l.unique_name) = lower(pp.unique_name) AND l.deprecated_at IS NULL
+                ) le ON true
+                WHERE pp.editor_id = %s AND lower(pp.unique_name) = ANY(%s)
+                GROUP BY pp.unique_name, le.geom
+            """, (request.user.id, [n.lower() for n in attach_names]))
+            far = [(nm, d) for nm, d in cur.fetchall() if (d or 0) > _PROV_DISPERSED_M]
         conn.rollback()
     finally:
         _put_conn(conn)
     if not rows:
         return JsonResponse({'ok': False, 'error': 'Nothing staged to commit.'}, status=400)
+    if far:
+        nm, d = far[0]
+        return JsonResponse({'ok': False, 'error':
+            f'"{nm}" already exists ~{d/1000:.0f} km away — that looks like a different '
+            f'landslide sharing a name. Give this one a distinct name (e.g. "{nm} 2") '
+            f'before committing.'}, status=409)
 
     create_rows = [r for r in rows if r['unique_name'].lower() not in existing]
     attach_rows = [r for r in rows if r['unique_name'].lower() in existing]
@@ -2958,8 +3095,16 @@ def preview_login(request):
     expected = settings.INVENTORY_PREVIEW_PASSWORD
     next_url = request.GET.get('next') or request.POST.get('next') or '/inventory/'
     # Only allow same-site redirects to /inventory/* to avoid open-redirect.
-    if not next_url.startswith('/inventory/'):
+    # Never bounce back to the preview page itself (a stale ?next= chain after
+    # login would otherwise loop here showing the form).
+    if not next_url.startswith('/inventory/') or next_url.startswith(request.path):
         next_url = '/inventory/'
+
+    # Already past the barrier (logged in, or password already entered)? Step
+    # aside — the middleware lets these through, so showing the form here is
+    # just a redirect-chain artifact (e.g. logging in via ?next=/inventory/preview/).
+    if request.user.is_authenticated or request.session.get(_PREVIEW_SESSION_KEY):
+        return redirect(next_url)
 
     error = None
     if request.method == 'POST':
