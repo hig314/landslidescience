@@ -151,15 +151,34 @@
   as the full, ordered description above.
 </p>
 
+<p style="background:#f4f6f8; padding:8px 12px; border-radius:4px;">
+  <strong>The side of the <span class="name-example">~</span> matters.</strong>
+  Everything <em>before</em> the <span class="name-example">~</span> is the base
+  feature the landslide is loosely tied to; a number <em>after</em> the
+  <span class="name-example">~</span> counts <em>which</em> near-feature it is. So
+  a number before vs. after the tilde means different things:
+</p>
+<ul>
+  <li><span class="name-example">Toyota Creek ~ 2</span> &mdash; the
+      <strong>2nd</strong> area loosely associated with <strong>Toyota Creek</strong>
+      (the <span class="name-example">2</span> counts near-features of Toyota Creek).</li>
+  <li><span class="name-example">Toyota Creek 2 ~</span> &mdash; a landslide loosely
+      associated with <strong>Toyota Creek&nbsp;2</strong>, which is itself a distinct
+      feature (case&nbsp;5) &mdash; here the <span class="name-example">2</span> is part
+      of <em>that feature's</em> name and the <span class="name-example">~</span> marks
+      loose association with it.</li>
+</ul>
+
 <h3>Order of components</h3>
 <p>
   Read left to right, components run from most to least significant:
-  <strong>base placename</strong> &rarr; optional
-  <span class="name-example">~</span> &rarr; optional feature
-  <strong>number</strong> &rarr; slope <strong>letter</strong> &rarr;
-  <strong>year</strong> or epoch (catastrophic) &rarr; per-time-bin
-  <strong><span class="name-example">.N</span></strong> index. Omit any
-  component that isn't needed.
+  <strong>base placename</strong> (which may already carry a case&nbsp;5
+  feature <strong>number</strong>, e.g. <span class="name-example">Toyota Creek 2</span>)
+  &rarr; optional <span class="name-example">~</span> &rarr; optional near-feature
+  <strong>number</strong> (which one near the base) &rarr; slope
+  <strong>letter</strong> &rarr; <strong>year</strong> or epoch (catastrophic)
+  &rarr; per-time-bin <strong><span class="name-example">.N</span></strong> index.
+  Omit any component that isn't needed.
 </p>
 
 <p class="methods-intro" style="background:#f7f4f1; padding:10px 14px; border-left:3px solid #b8a78f; border-radius:3px;">
