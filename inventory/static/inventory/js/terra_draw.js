@@ -37,6 +37,7 @@
   // ---- state (reset each time edit mode is entered) ----
   var draw, editing = false, selectedId = null;
   var uuidToDbId, featureRole, originalDbIds, dirtyDbIds;
+  var _editShadow = [];   // basemap-switch-proof copy of the edited polygons
 
   function uuid() {
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -162,14 +163,52 @@
     }
 
     editing = true;
-    uuidToDbId = {}; featureRole = {}; dirtyDbIds = {}; originalDbIds = [];
+    uuidToDbId = {}; featureRole = {}; dirtyDbIds = {}; originalDbIds = []; _editShadow = [];
     host.showPreview(false);
-    if (host.basemapSelectEl) host.basemapSelectEl.disabled = true;
 
     makeDraw();
     loadFeatures();
     draw.setMode('select');
+    snapshotEditState();
+    // Switching basemaps mid-edit is allowed now — Terra Draw is rebuilt on the
+    // new style (style.load) and the edited polygons restored from the shadow.
+    map.on('style.load', reloadEditAfterStyle);
     renderEditBar();
+  }
+
+  function snapshotEditState() {
+    if (!draw) return;
+    _editShadow = realPolys(draw.getSnapshot()).map(function (f) {
+      return { geometry: f.geometry,
+               db_id: (uuidToDbId[f.id] != null ? uuidToDbId[f.id] : null),
+               role: featureRole[f.id] || null };
+    });
+  }
+
+  // A basemap switch does setStyle({diff:false}), wiping Terra Draw's layers.
+  // Rebuild the session on the new style and restore the edited polygons from
+  // the shadow (kept current on every change), preserving the db-id mapping +
+  // dirty state so Save still diffs correctly.
+  function reloadEditAfterStyle() {
+    if (!editing) return;
+    var dirty = dirtyDbIds, orig = originalDbIds;
+    try { if (draw) draw.stop(); } catch (e) {}
+    draw = null;
+    makeDraw();
+    uuidToDbId = {}; featureRole = {};
+    var feats = [];
+    _editShadow.forEach(function (m) {
+      var id = uuid();
+      feats.push({ id: id, type: 'Feature', geometry: m.geometry, properties: { mode: 'polygon' } });
+      if (m.db_id != null) uuidToDbId[id] = m.db_id;
+      if (m.role != null) featureRole[id] = m.role;
+    });
+    if (feats.length) draw.addFeatures(feats);
+    dirtyDbIds = dirty; originalDbIds = orig;
+    draw.setMode('select');
+    // The switch re-adds the read-only preview layers (visible) on idle — hide
+    // them again so they don't double-render under the editable copy.
+    map.once('idle', function () { host.showPreview(false); });
   }
 
   // Build + start a Terra Draw session (select + polygon modes) on the map and
@@ -225,6 +264,7 @@
     (ids || []).forEach(function (id) {
       if (uuidToDbId[id] != null) dirtyDbIds[uuidToDbId[id]] = true;
     });
+    snapshotEditState();   // keep the basemap-switch shadow current
     if (type === 'delete') renderNewPolyRoles();
   }
 
@@ -245,9 +285,9 @@
   }
 
   function teardown() {
+    try { map.off('style.load', reloadEditAfterStyle); } catch (e) {}
     if (draw) { try { draw.stop(); } catch (e) {} draw = null; }
     editing = false; selectedId = null;
-    if (host.basemapSelectEl) host.basemapSelectEl.disabled = false;
     host.showPreview(true);
   }
 
@@ -283,13 +323,44 @@
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (res) {
         if (res.ok && res.j.ok) {
-          // Reload so the server-rendered preview + derived fields reflect the
-          // new geometry (areas, centroid, class).
-          window.location.reload();
+          // Update geometry-derived fields + reconcile the edit session in place
+          // — NO page reload, so unsaved field edits (e.g. description) survive.
+          applyDerivedToForm(res.j.derived);
+          reloadFromServer(res.j.polygons);
+          flashMode('Geometry saved ✓ — areas/centroid updated. Remember to Save the form to keep field edits.');
         } else {
           flashMode('Save failed: ' + (res.j && res.j.error ? res.j.error : 'unknown error'));
         }
       }).catch(function (e) { flashMode('Save failed: ' + e); });
+  }
+
+  // Push the server-recomputed derived columns into their form inputs, so the
+  // form reflects the new geometry without a reload (and a later form Save
+  // writes the fresh values rather than stale ones).
+  function applyDerivedToForm(derived) {
+    if (!derived) return;
+    Object.keys(derived).forEach(function (k) {
+      var el = document.querySelector('[name="' + k + '"]');
+      if (!el) return;
+      var v = derived[k];
+      if (el.type === 'checkbox') el.checked = !!v;
+      else el.value = (v == null ? '' : v);
+    });
+  }
+
+  // Re-sync the edit session (and the read-only preview) with the saved polygons
+  // returned by the server: fresh db-ids, cleared dirty/inserts/deletes.
+  function reloadFromServer(polysFC) {
+    if (!polysFC) return;
+    host.polygons = polysFC;
+    if (map.getSource('lspoly')) map.getSource('lspoly').setData(polysFC);
+    if (!draw) return;
+    try { draw.clear(); } catch (e) {}
+    uuidToDbId = {}; featureRole = {}; dirtyDbIds = {}; originalDbIds = [];
+    loadFeatures();
+    snapshotEditState();
+    draw.setMode('select');
+    renderNewPolyRoles();
   }
 
   // ---------------------------------------------------------------- create mode

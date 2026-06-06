@@ -1,0 +1,20 @@
+{% comment %}
+Per-field autosave wiring for the edit/review form. Include after the form
+(which must have id="ls-edit-form"). Needs `landslide_id` in context.
+{% endcomment %}
+{% load static %}
+<script>
+  window.LS_AUTOSAVE = {
+    url: "{% url 'inventory:manage_edit_field' landslide_id %}",
+    csrftoken: "{{ csrf_token }}"
+  };
+</script>
+<style>
+  .ls-save-status { font-size: 11px; margin-left: 8px; transition: opacity .5s; white-space: nowrap; }
+  .ls-save-status.saving { color: #999; }
+  .ls-save-status.saved  { color: #1a73e8; }
+  .ls-save-status.error  { color: #c0271e; }
+  .ls-field-saved { box-shadow: 0 0 0 2px #8ab4f8 !important; transition: box-shadow .3s; }
+  .ls-field-error { border-color: #c0271e !important; }
+</style>
+<script src="{% static 'inventory/js/autosave.js' %}"></script>

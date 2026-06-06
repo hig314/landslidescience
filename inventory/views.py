@@ -1133,6 +1133,15 @@ def manage_edit(request, landslide_id, review_mode=False):
     LandslideEditForm = build_landslide_form_class(cols_meta)
     initial = {f: row[i + 2] for i, f in enumerate(col_names)}
     unique_name = initial.get('unique_name', '')
+    # Auto-fill the editor's identity into a blank owner / noted_by (same default
+    # the file-import preview applies), so a record they touch is credited to
+    # them by default. They can override before saving.
+    if 'owner' in col_names and not initial.get('owner') and request.user.username:
+        initial['owner'] = request.user.username
+    if 'noted_by' in col_names and not initial.get('noted_by'):
+        _full = (request.user.get_full_name() or '').strip()
+        if _full:
+            initial['noted_by'] = _full
 
     error_msg = None
     if request.method == 'POST':
@@ -1223,7 +1232,9 @@ def manage_edit(request, landslide_id, review_mode=False):
                 # centroid rule won't resolve. The cascade below recomputes.
                 cur.execute("SELECT id, role FROM landslide_polygons WHERE landslide_id = %s",
                             (landslide_id,))
+                poly_ids = []
                 for pid, cur_role in cur.fetchall():
+                    poly_ids.append(pid)
                     posted = request.POST.get(f'polygon_role_{pid}')
                     if posted in ('source', 'body', 'deposit') and posted != cur_role:
                         cur.execute(
@@ -1231,6 +1242,21 @@ def manage_edit(request, landslide_id, review_mode=False):
                             (posted, pid, landslide_id),
                         )
                         roles_changed = True
+
+                # Primary polygon (the one that defines the centroid), submitted
+                # as polygon_primary. Set is_primary on the chosen polygon and
+                # clear it on the rest — lets the editor fix a wrong primary
+                # (e.g. a deposit marked primary). The cascade recomputes the
+                # centroid from the new primary.
+                try:
+                    posted_primary = int(request.POST.get('polygon_primary') or 0)
+                except (TypeError, ValueError):
+                    posted_primary = 0
+                if posted_primary and posted_primary in poly_ids:
+                    cur.execute(
+                        "UPDATE landslide_polygons SET is_primary = (id = %s) "
+                        "WHERE landslide_id = %s", (posted_primary, landslide_id))
+                    roles_changed = True
 
                 conn.commit()
             except Exception as exc:
@@ -1985,8 +2011,165 @@ def manage_polygons_save(request, landslide_id):
     _invalidate('features', 'home_counts', 'unclassified_count',
                 'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
 
+    # Return the recomputed geometry-derived fields + the current polygons so the
+    # editor can refresh them in place WITHOUT a page reload — a reload would
+    # discard any unsaved edits the user has in the form (e.g. description).
+    _DERIVED_COLS = ['area_body', 'area_source', 'area_deposit',
+                     'centroid_lat', 'centroid_lon', 'centroid_albers_x', 'centroid_albers_y',
+                     'volume_body', 'volume_source', 'volume_deposit',
+                     'volume_estimated', 'volume_preferred', 'size_inclusion', 'landslide_class']
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(f"SELECT {', '.join(_DERIVED_COLS)} FROM landslides WHERE id = %s",
+                    (landslide_id,))
+        row = cur.fetchone()
+        derived_vals = dict(zip(_DERIVED_COLS, row)) if row else {}
+        cur.execute("""
+            SELECT json_build_object('type', 'FeatureCollection', 'features',
+                COALESCE(json_agg(json_build_object(
+                    'type', 'Feature', 'geometry', ST_AsGeoJSON(geom, 15)::json,
+                    'properties', json_build_object('db_id', id, 'role', role, 'is_primary', is_primary)
+                )), '[]'::json))
+            FROM landslide_polygons WHERE landslide_id = %s
+        """, (landslide_id,))
+        polygons = cur.fetchone()[0]
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+
     return JsonResponse({'ok': True,
-                         'summary': {'updated': n_upd, 'inserted': n_ins, 'deleted': n_del}})
+                         'summary': {'updated': n_upd, 'inserted': n_ins, 'deleted': n_del},
+                         'derived': derived_vals, 'polygons': polygons})
+
+
+# ---------------------------------------------------------------------------
+# Per-field autosave (edit/review form). Each scalar field saves on blur via
+# manage_edit_field; rule-input fields re-run the cascade and return the
+# updated derived columns so the form refreshes in place.
+# ---------------------------------------------------------------------------
+_HUMAN_DATE_FORMATS = ('%Y-%m-%d', '%d-%b-%Y', '%d %b %Y', '%d-%B-%Y',
+                       '%d %B %Y', '%m/%d/%Y')
+
+
+def _parse_human_date(s):
+    import datetime as _dt
+    s = (s or '').strip()
+    if not s:
+        return None
+    for fmt in _HUMAN_DATE_FORMATS:
+        try:
+            return _dt.datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    raise ValueError(f'Unrecognized date "{s}" — try 14-Sep-2010.')
+
+
+def _coerce_field_value(udt, value):
+    """Coerce a JSON value to the column's Python type for a single-field save.
+    Raises ValueError with an editor-friendly message on bad input."""
+    import datetime as _dt
+    if value is None:
+        return None
+    if udt == 'bool':
+        if isinstance(value, bool):
+            return value
+        s = str(value).strip().lower()
+        if s in ('true', 't', 'yes', 'y', '1', 'on'):
+            return True
+        if s in ('false', 'f', 'no', 'n', '0', '', 'off'):
+            return False
+        raise ValueError(f'Expected yes/no, got "{value}".')
+    if udt == 'date':
+        return _parse_human_date(value) if isinstance(value, str) else value
+    if udt == 'timestamptz':
+        s = str(value).strip()
+        return _dt.datetime.fromisoformat(s) if s else None
+    if udt in ('int4', 'int8'):
+        s = str(value).strip()
+        return int(s) if s else None
+    if udt == 'float8':
+        s = str(value).strip()
+        return float(s) if s else None
+    s = value if isinstance(value, str) else str(value)
+    s = s.strip()
+    return s or None
+
+
+@inventory_editor_required
+@require_POST
+def manage_edit_field(request, landslide_id):
+    """Autosave a single editable field. Body: {name, value}. Returns
+    {ok, derived?} or {ok:false, error}. Re-runs the rule cascade (and returns
+    the refreshed derived columns) when the saved field feeds a rule."""
+    from . import derived as _derived
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+    name = (payload.get('name') or '').strip()
+
+    # Columns that feed a rule (cascade on edit) vs columns a rule writes
+    # (editing one is a manual override — don't cascade and clobber it).
+    rule_inputs, rule_targets = set(), set()
+    for fn in _derived.RULES.values():
+        rule_targets.add(fn.target_column)
+        for inp in getattr(fn, 'inputs', ()):
+            col = inp.split('.', 1)[1] if '.' in inp else inp
+            if '.' not in inp or inp.startswith('landslides.'):
+                rule_inputs.add(col)
+
+    conn = _get_conn()
+    derived_vals = None
+    try:
+        cur = conn.cursor()
+        cols = _discover_editable_columns(cur)
+        col = next((c for c in cols if c['name'] == name), None)
+        if not col:
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error': 'Field is not editable.'}, status=400)
+        try:
+            val = _coerce_field_value(col['udt'], payload.get('value'))
+        except ValueError as e:
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error': str(e)}, status=400)
+        if col.get('max_length') and isinstance(val, str) and len(val) > col['max_length']:
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error': f'Too long (max {col["max_length"]}).'}, status=400)
+
+        # name is whitelisted from information_schema (not user-supplied SQL).
+        cur.execute(f"UPDATE landslides SET {name} = %s WHERE id = %s", (val, landslide_id))
+        if cur.rowcount == 0:
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error': 'Record not found.'}, status=404)
+
+        cascaded = (name in rule_inputs) and (name not in rule_targets)
+        if cascaded:
+            _derived.apply_rules_for_landslide(cur, landslide_id)
+            _DERIVED_COLS = ['area_body', 'area_source', 'area_deposit', 'size_inclusion',
+                             'landslide_class', 'creep_behavior', 'insar_creep',
+                             'volume_estimated', 'volume_preferred', 'volume_method',
+                             'centroid_lat', 'centroid_lon']
+            cur.execute(f"SELECT {', '.join(_DERIVED_COLS)} FROM landslides WHERE id = %s",
+                        (landslide_id,))
+            row = cur.fetchone()
+            derived_vals = dict(zip(_DERIVED_COLS, row)) if row else None
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        return JsonResponse({'ok': False, 'error': f'Save failed: {exc}'}, status=500)
+    finally:
+        _put_conn(conn)
+
+    from .models import LandslideEditMeta
+    LandslideEditMeta.objects.update_or_create(
+        landslide_id=landslide_id, defaults={'last_edited_by': request.user})
+    _invalidate('features', 'home_counts', 'unclassified_count',
+                'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
+
+    # Render dates back in the human format for the field's own display refresh.
+    out_val = val.strftime('%d-%b-%Y') if hasattr(val, 'strftime') and col['udt'] == 'date' else None
+    return JsonResponse({'ok': True, 'derived': derived_vals, 'value': out_val})
 
 
 @inventory_editor_required
@@ -2054,7 +2237,8 @@ def manage_new(request):
     polygons_fc = {'type': 'FeatureCollection', 'features': poly_feats}
 
     try:
-        apply_import(landslides_fc, polygons_fc, request.user)
+        apply_import(landslides_fc, polygons_fc, request.user,
+                     common_fields=_editor_identity_fields(request.user))
     except ImportError_ as e:
         # Name-exact collision (unique_name taken) and other blocks land here.
         return JsonResponse({'ok': False, 'error': str(e)}, status=409)
@@ -2147,6 +2331,19 @@ def _draw_existing_landslides(cur, names):
                 "WHERE lower(unique_name) = ANY(%s) AND deprecated_at IS NULL",
                 ([n.lower() for n in names],))
     return {r[1].lower(): (r[0], r[2]) for r in cur.fetchall()}
+
+
+def _editor_identity_fields(user):
+    """Defaults stamped onto records an editor creates, matching the file-import
+    preview's auto-fill: `owner` = username (canonical id), `noted_by` = full
+    name (display credit). Applied via apply_import's common_fields."""
+    fields = {}
+    if getattr(user, 'username', None):
+        fields['owner'] = user.username
+    full = (user.get_full_name() or '').strip() if hasattr(user, 'get_full_name') else ''
+    if full:
+        fields['noted_by'] = full
+    return fields
 
 
 @inventory_editor_required
@@ -2376,6 +2573,9 @@ def manage_draw_commit(request):
     if create_rows:
         landslides_fc, polygons_fc = _provisional_fcs(create_rows)
         try:
+            # Landslides are synthesized from the polygons inside apply_import,
+            # so common_fields wouldn't reach them; owner/noted_by are stamped
+            # post-insert below instead.
             apply_import(landslides_fc, polygons_fc, request.user)
         except ImportError_ as e:
             return JsonResponse({'ok': False, 'error': str(e)}, status=409)
@@ -2397,10 +2597,20 @@ def manage_draw_commit(request):
     conn = _get_conn()
     try:
         cur = conn.cursor()
+        created_ids = []
         if created_names:
             cur.execute("SELECT id FROM landslides WHERE unique_name = ANY(%s)", (created_names,))
-            for (lid,) in cur.fetchall():
-                affected_ids.add(lid)
+            created_ids = [r[0] for r in cur.fetchall()]
+            affected_ids.update(created_ids)
+        # Stamp the editor's identity on the new records (only where unset), the
+        # same auto-fill the file-import preview applies.
+        identity = _editor_identity_fields(request.user)
+        if created_ids and identity.get('owner'):
+            cur.execute("UPDATE landslides SET owner = %s WHERE id = ANY(%s) AND owner IS NULL",
+                        (identity['owner'], created_ids))
+        if created_ids and identity.get('noted_by'):
+            cur.execute("UPDATE landslides SET noted_by = %s WHERE id = ANY(%s) AND noted_by IS NULL",
+                        (identity['noted_by'], created_ids))
         attach_primary = {}   # ex_id -> primary role for its type
         for r in attach_rows:
             ex_id, ex_type = existing[r['unique_name'].lower()]

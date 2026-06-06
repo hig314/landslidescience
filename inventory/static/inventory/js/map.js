@@ -871,6 +871,7 @@
         }
         map.__drawActive = true; this._on = true; this._btn.classList.add('active');
         map.getCanvas().style.cursor = 'crosshair';
+        var self = this;
         // Open the panel first so any Terra Draw init error is visible (and the
         // catch below fully deactivates, so a failure never locks the map up).
         try {
@@ -878,6 +879,11 @@
             openPanel();
             startTD();
             loadProvisional();
+            // Basemap switch (setStyle) wipes Terra Draw's layers — rebuild it on
+            // the new style so drawing keeps working. (Switching is blocked while
+            // a polygon is open, so there's no in-progress ring to lose here.)
+            this._styleReload = function () { if (self._on) { stopTD(); startTD(); } };
+            map.on('style.load', this._styleReload);
         } catch (e) {
             console.error('draw activate failed:', e);
             this.deactivate();
@@ -887,6 +893,7 @@
     DrawModeControl.prototype.deactivate = function () {
         map.__drawActive = false; this._on = false; this._btn.classList.remove('active');
         map.getCanvas().style.cursor = '';
+        if (this._styleReload) { map.off('style.load', this._styleReload); this._styleReload = null; }
         stopTD(); closePanel();
     };
 
@@ -956,7 +963,7 @@
     var _currentBasemap = _initialBasemapId;
 
     // Layer style variables set by initLayers, reused by initDataLayers on basemap switch
-    var _cG, _cS, _cO, _cC, _cCPale, _sk, _fOp, _lW, _rSm, _rMd, _rLg;
+    var _cG, _cS, _cO, _cC, _cCPale, _OFF, _sk, _fOp, _lW, _rSm, _rMd, _rLg;
     var _classFill, _classStroke, _classStrokeW;
 
     // tryInit: called once at startup when both map and settings are ready.
@@ -1001,6 +1008,7 @@
         _cO     = s.color_obvious  || '#f69fa1';
         _cC     = s.color_cat      || '#3f67b1';
         _cCPale = '#96b8df';  // de-emphasized catastrophic (Holocene, Modern, Small)
+        _OFF    = '#9e9e9e';  // unclassified: blank/unrecognized landslide_class
         _sk  = s.stroke_color   || '#ffffff';
         _fOp = parseFloat(s.fill_opacity) || 0.35;
         _lW  = parseFloat(s.line_width)   || 1.5;
@@ -1018,7 +1026,7 @@
             'Catastrophic Subtle creep', _cC, 'Catastrophic Geomorph creep', _cC,
             'Catastrophic Modern', _cCPale, 'Catastrophic Holocene', _cCPale,
             'Small catastrophic landslide', _cCPale,
-            _cG
+            _OFF   // blank / unrecognized landslide_class → neutral off-colour
         ];
         _classStroke = [
             'match', ['get', 'landslide_class'],
@@ -1143,6 +1151,9 @@
             id: 'polygon-fill', type: 'fill', source: 'polygons',
             paint: {
                 'fill-color': ['case',
+                    // blank/unclassified → off-colour, before the role tint, so
+                    // an unclassified catastrophic polygon matches its grey dot.
+                    ['==', ['coalesce', ['get', 'landslide_class'], ''], ''], _OFF,
                     ['==', ['get', 'role'], 'deposit'], _cC,
                     ['==', ['get', 'role'], 'source'],  _cC,
                     _classFill],
@@ -2159,7 +2170,7 @@
         ].filter(function (l) { return l.url; });
 
         if (imgLinks.length) {
-            html += '<div class="imagery-links"><div class="detail-section-title" style="margin-bottom:5px;">Imagery</div>';
+            html += '<div class="imagery-links"><div class="detail-section-title" style="margin-bottom:5px;">External map resources</div>';
             imgLinks.forEach(function (l) {
                 html += '<a class="imagery-btn" href="' + esc(l.url) + '" target="_blank" rel="noopener" title="' + esc(l.title) + '">' +
                         '<span class="imagery-icon">' + l.icon + '</span>' + esc(l.label) + '</a>';

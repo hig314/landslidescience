@@ -91,9 +91,14 @@ def build_landslide_form_class(cols_meta, all_optional=False, exclude=None):
         elif udt == 'float8':
             fields[name] = forms.FloatField(required=required)
         elif udt == 'date':
+            # Typeable text (not the browser date-picker) so the editor can
+            # enter the unambiguous "14-Sep-2010" form (and ISO still works).
             fields[name] = forms.DateField(
                 required=required,
-                widget=forms.DateInput(attrs={'type': 'date'}),
+                input_formats=['%d-%b-%Y', '%d %b %Y', '%d-%B-%Y', '%d %B %Y',
+                               '%Y-%m-%d', '%m/%d/%Y'],
+                widget=forms.DateInput(format='%d-%b-%Y',
+                                       attrs={'placeholder': 'e.g. 14-Sep-2010'}),
             )
         elif udt == 'timestamptz':
             fields[name] = forms.DateTimeField(

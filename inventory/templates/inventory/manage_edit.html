@@ -104,7 +104,7 @@
     </div>
   {% endif %}
 
-  <form method="post" style="margin-top: 18px;">
+  <form id="ls-edit-form" method="post" style="margin-top: 18px;">
     {% csrf_token %}
 
     {# Datalist for class autocomplete #}
@@ -186,6 +186,8 @@
       <a href="{% url 'inventory:manage_list' %}" style="font-size:13px; color:#666;">Cancel</a>
     </div>
   </form>
+
+  {% include 'inventory/_autosave.html' %}
 
   <hr style="margin: 36px 0 18px; border: none; border-top: 1px solid #e0e0e0;">
 

@@ -1,25 +1,46 @@
 {% comment %}
-Per-polygon role editor (must sit inside the edit/review form). Lets the editor
-fix polygon roles — needed when switching landslide_type, since slow uses a
-`body` polygon and catastrophic's centroid comes from `source`/`deposit`. Saved
-by manage_edit (polygon_role_<id>); the rule cascade then recomputes the
-centroid for the new type/role.
+Per-polygon role + primary editor (must sit inside the edit/review form). Lets
+the editor fix polygon roles (needed when switching landslide_type — slow uses
+`body`, catastrophic's centroid comes from `source`/`deposit`) and pick which
+polygon is PRIMARY (the one that defines the centroid). Saved by manage_edit
+(polygon_role_<id>, polygon_primary); the rule cascade then recomputes the
+centroid/areas for the new role/primary.
 {% endcomment %}
 {% if polygons %}
 <div style="margin: 16px 0; padding:10px 12px; border:1px solid #e0d8ca; border-radius:4px; background:#faf8f3;">
-  <div style="font-size:13px; color:#555; margin-bottom:6px;">
-    Polygon roles
-    <span style="font-size:11px; color:#999;">— slow → <code>body</code>; catastrophic → <code>source</code>/<code>deposit</code></span>
+  <div style="font-size:13px; color:#555; margin-bottom:8px;">
+    Polygon roles &amp; primary
+    <span style="font-size:11px; color:#999;">— landslide #{{ landslide_id }}; slow → <code>body</code>;
+      catastrophic → <code>source</code>/<code>deposit</code>; <b>primary</b> = polygon used for the centroid</span>
   </div>
-  {% for p in polygons %}
-    <label style="display:inline-flex; align-items:center; gap:6px; font-size:12px; margin:2px 16px 2px 0;">
-      polygon&nbsp;#{{ p.id }}{% if p.is_primary %} <span style="font-size:10px;color:#999;">(primary)</span>{% endif %}
-      <select name="polygon_role_{{ p.id }}" style="padding:3px 6px; font-size:12px; border:1px solid #ccc; border-radius:3px;">
-        <option value="source"  {% if p.role == 'source' %}selected{% endif %}>source</option>
-        <option value="body"    {% if p.role == 'body' %}selected{% endif %}>body</option>
-        <option value="deposit" {% if p.role == 'deposit' %}selected{% endif %}>deposit</option>
-      </select>
-    </label>
-  {% endfor %}
+  <table style="font-size:12px; border-collapse:collapse;">
+    <thead>
+      <tr style="color:#999; text-align:left;">
+        <th style="padding:2px 14px 2px 0; font-weight:normal;">polygon</th>
+        <th style="padding:2px 14px 2px 0; font-weight:normal;">role</th>
+        <th style="padding:2px 0; font-weight:normal;">primary</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in polygons %}
+        <tr>
+          <td style="padding:3px 14px 3px 0;">#{{ p.id }}</td>
+          <td style="padding:3px 14px 3px 0;">
+            <select name="polygon_role_{{ p.id }}" style="padding:3px 6px; font-size:12px; border:1px solid #ccc; border-radius:3px;">
+              <option value="source"  {% if p.role == 'source' %}selected{% endif %}>source</option>
+              <option value="body"    {% if p.role == 'body' %}selected{% endif %}>body</option>
+              <option value="deposit" {% if p.role == 'deposit' %}selected{% endif %}>deposit</option>
+            </select>
+          </td>
+          <td style="padding:3px 0;">
+            <label style="display:inline-flex; align-items:center; gap:4px;">
+              <input type="radio" name="polygon_primary" value="{{ p.id }}" {% if p.is_primary %}checked{% endif %}>
+              primary
+            </label>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endif %}

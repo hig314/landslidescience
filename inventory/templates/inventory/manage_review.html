@@ -50,7 +50,7 @@
   </script>
   {% include 'inventory/_polygon_map.html' with poly_edit_enabled=True %}
 
-  <form method="post" style="margin-top: 18px;">
+  <form id="ls-edit-form" method="post" style="margin-top: 18px;">
     {% csrf_token %}
     <datalist id="class-options">
       {% for c in common_classes %}<option value="{{ c }}">{% endfor %}
@@ -112,6 +112,8 @@
       <a href="{% url 'inventory:manage_list' %}" style="font-size:13px; color:#666;">Pause (record stays pending)</a>
     </div>
   </form>
+
+  {% include 'inventory/_autosave.html' %}
 </div>
 
 <style>
