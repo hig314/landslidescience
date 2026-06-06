@@ -81,6 +81,9 @@ class Command(BaseCommand):
             #     Holocene / Modern) is the deliberate slow+catastrophic
             #     same-spot pairing (standard, case 2) — e.g. "Long Lake" +
             #     "Long Lake Holocene". Skip those.
+            #   - A sibling whose only extra token is a bare number is the
+            #     different-feature distinctor (standard, case 5) — e.g.
+            #     "Moose Creek" + "Moose Creek 2". The base is fine. Skip those.
             # Bucket by first token to keep it cheap.
             buckets = {}
             for lid, nm in rows:
@@ -97,6 +100,12 @@ class Command(BaseCommand):
                             first_extra = b[2][len(a[2])]
                             if _is_time_qualifier(first_extra):
                                 continue   # legit slow+catastrophic same-spot pair
+                            if re.fullmatch(r'\d+', first_extra):
+                                # a different-feature number distinctor — the
+                                # intended form ("Moose Creek" + "Moose Creek 2",
+                                # standard case 5). The unnumbered base is the
+                                # first feature and needs no disambiguation.
+                                continue
                             # Base ends in a time qualifier and the sibling tacks
                             # on a letter ("Hick's Creek E Holocene" + "… B") →
                             # this base is the first of repeat failures in a
