@@ -716,16 +716,22 @@ def _normalize(v):
     return None if v == '' else v
 
 
-def _equal(old, new):
-    """Equality with float tolerance — areas in m² are stored as float8."""
+def _equal(old, new, column=None):
+    """Equality with a tolerance appropriate to the column's units.
+
+    Centroid columns are compared as a true distance in METERS (lat/lon degrees
+    scaled to meters), never as a flat degree tolerance — see _CENTROID_COLS.
+    Everything else keeps the 1.0 tolerance, which covers float-rounding noise
+    in areas (stored as float8 m², rounded to whole m² in the SQL)."""
     old, new = _normalize(old), _normalize(new)
     if old is None and new is None:
         return True
     if old is None or new is None:
         return False
+    if column in _CENTROID_COLS:
+        scale = _M_PER_DEG_LAT if column in _CENTROID_DEG_COLS else 1.0  # Albers already m
+        return abs(float(old) - float(new)) * scale <= _CENTROID_TOLERANCE_M
     if isinstance(old, float) or isinstance(new, float):
-        # 1 m² tolerance covers float-rounding noise; we round to whole m²
-        # in the SQL so this rarely fires.
         return abs(float(old) - float(new)) <= 1.0
     return old == new
 
@@ -786,6 +792,24 @@ def _label_select(target_table):
     return 'NULL', ''
 
 
+# Centroid columns are positions, so equality must be judged as a real ground
+# DISTANCE in meters — never a flat tolerance on raw degrees. A degree of
+# longitude is only ~0.45 of a degree of latitude in meters at 63°N, and the
+# generic 1.0 tolerance (meant for areas in m²) treated centroids up to ~1°
+# (~100 km) apart as "equal" — so a stored lat/lon that was wrong by a fraction
+# of a degree was never corrected, and could sit inconsistent with the Albers
+# columns (the mixed-axis centroid that corrupted merged-record 1446). We
+# instead convert each centroid column's difference to meters and threshold
+# that. lat/lon use meters-per-degree (a conservative equator scale for lon, so
+# a real move is never masked); Albers X/Y are already meters.
+_CENTROID_COLS = ('centroid_albers_x', 'centroid_albers_y',
+                  'centroid_lat', 'centroid_lon')
+_CENTROID_DEG_COLS = ('centroid_lat', 'centroid_lon')
+_M_PER_DEG_LAT = 111320.0          # meters per degree of latitude (and an upper
+                                   # bound for longitude → conservative for lon)
+_CENTROID_TOLERANCE_M = 0.5        # two centroids within 0.5 m are the same point
+
+
 def diff_against_db(cur, rule_name):
     """Compute proposed vs stored values for every row in the rule's target table.
 
@@ -812,7 +836,7 @@ def diff_against_db(cur, rule_name):
         agreements, changes = 0, []
         for row_id, old, label in cur.fetchall():
             new = computed.get(row_id)
-            if _equal(old, new):
+            if _equal(old, new, target_column):
                 agreements += 1
             else:
                 old_n, new_n = _normalize(old), _normalize(new)
@@ -840,7 +864,7 @@ def diff_against_db(cur, rule_name):
         row = dict(zip(cols, raw[:-1]))
         label = raw[-1]
         new = fn(row)
-        if _equal(row[target_column], new):
+        if _equal(row[target_column], new, target_column):
             agreements += 1
         else:
             old_n, new_n = _normalize(row[target_column]), _normalize(new)
