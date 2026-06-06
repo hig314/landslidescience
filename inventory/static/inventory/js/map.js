@@ -2175,6 +2175,45 @@
                '<span class="planet-icon">P</span> View Planet Story</a>';
     }
 
+    // Find an active landslide by its exact unique_name → {id, lat, lon} (names
+    // are unique). Lets a flag reason's referenced landslide become a jump link.
+    function _featureByName(name) {
+        if (!_featuresData || !_featuresData.features) return null;
+        var feats = _featuresData.features;
+        for (var i = 0; i < feats.length; i++) {
+            var p = feats[i].properties;
+            if (p && p.unique_name === name) {
+                var c = feats[i].geometry && feats[i].geometry.coordinates;
+                return { id: p.id, lon: c ? c[0] : null, lat: c ? c[1] : null };
+            }
+        }
+        return null;
+    }
+
+    // Render a flag_reason as HTML; turn a "base name of '<NAME>'" reference
+    // into a link that flies to + opens that landslide. Only the base-name
+    // reason references a real record (the others quote examples), so anything
+    // else (or an unresolved name) just renders as escaped text.
+    function linkifyFlagReason(reason) {
+        var m = reason.match(/^base name of '(.+)' — needs disambiguation/);
+        if (m) {
+            var refName = m[1];
+            var ref = _featureByName(refName);
+            if (ref) {
+                var rest = reason.slice(("base name of '" + refName + "'").length);
+                var data = ' data-id="' + ref.id + '"' +
+                    (ref.lat != null && ref.lon != null
+                        ? ' data-lat="' + (+ref.lat).toFixed(4) + '" data-lon="' + (+ref.lon).toFixed(4) + '"'
+                        : '');
+                return "base name of '" +
+                    '<a href="#" class="flag-jump"' + data +
+                    ' title="Jump to this landslide" style="color:#1a5fb4;text-decoration:underline;">' +
+                    esc(refName) + '</a>' + "'" + esc(rest);
+            }
+        }
+        return esc(reason);
+    }
+
     function renderDetail(d) {
         var html = '';
         var stories = d.planet_stories || [];
@@ -2215,7 +2254,7 @@
                     'style="margin:8px 0;padding:6px 9px;background:#fff4e5;border:1px solid #f0c98a;' +
                     'border-radius:4px;font-size:12px;color:#8a5a00;">' +
                     '<span style="font-weight:600;">⚑ Flagged for review.</span> ' +
-                    (d.flag_reason ? esc(d.flag_reason) + ' ' : '') +
+                    (d.flag_reason ? linkifyFlagReason(d.flag_reason) + ' ' : '') +
                     '<button type="button" id="flag-clear-btn" style="margin-left:4px;font-size:11px;' +
                     'padding:1px 8px;border:1px solid #d2a766;border-radius:3px;background:#fff;cursor:pointer;">' +
                     'Clear flag</button> <span id="flag-clear-status" style="font-weight:400;"></span></div>';
@@ -3716,7 +3755,7 @@
     // "open in new tab" still works.
     document.addEventListener('click', function (e) {
         if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-        var a = e.target.closest && e.target.closest('a.landslide-permalink');
+        var a = e.target.closest && e.target.closest('a.landslide-permalink, a.flag-jump');
         if (!a) return;
         e.preventDefault();
         var lat = a.getAttribute('data-lat');
