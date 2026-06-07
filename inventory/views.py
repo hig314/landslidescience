@@ -1266,7 +1266,10 @@ def manage_review(request, landslide_id):
 _EDIT_FIELD_GROUPS = [
     {'key': 'core', 'title': '', 'fields': [
         'unique_name', 'landslide_type', 'description', 'notes',
-        'noted_by', 'owner', 'ongoing_work', 'stream_damming', 'volume_site_specific']},
+        'noted_by', 'owner', 'ongoing_work', 'stream_damming',
+        # a slow landslide's history of catastrophic failures — relevant to both
+        # types, so it stays visible in the slow form (not hidden with 'event').
+        'catastrophic_failure_years', 'volume_site_specific']},
     {'key': 'creep', 'title': 'Creep / slow-movement detection', 'fields': [
         'creep_evaluated',
         'planet_labs_creep', 'planet_labs_patchy_creep',
@@ -1274,7 +1277,7 @@ _EDIT_FIELD_GROUPS = [
         'other_subtle_creep', 'geomorph_creep',
         'post_2012_activity_increase', 'creeping_permafrost_mass']},
     {'key': 'event', 'title': 'Catastrophic event & timing', 'fields': [
-        'catastrophic_failure_years', 'year_text', 'date_min', 'date_max',
+        'year_text', 'date_min', 'date_max',
         'precursory_headscarp', 'exclusively_supraglacial', 'molards',
         'seismic_datetime', 'seismic_note', 'seismic_credit']},
     {'key': 'imagery', 'title': 'Imagery & external links', 'fields': [
