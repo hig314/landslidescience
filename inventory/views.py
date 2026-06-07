@@ -912,6 +912,158 @@ def api_settings(request):
 
 
 # ---------------------------------------------------------------------------
+# QuickMapServices (QMS) catalog proxy — editor-only basemap browser.
+# The QMS catalog API (qms.nextgis.com) is fetched server-side so the browser
+# isn't blocked by CORS, and so we can normalize each service for MapLibre:
+# only EPSG:3857 raster tiles align on a Web-Mercator map (Yandex etc. are
+# EPSG:3395 and misregister, badly at Alaska latitudes), and TMS vs XYZ tile
+# origin maps to the raster source `scheme`. The actual tiles load straight from
+# the origin (raster image tiles need no CORS); only the catalog needs proxying.
+# ---------------------------------------------------------------------------
+_QMS_BASE = 'https://qms.nextgis.com/api/v1/geoservices/'
+_QMS_COMPAT_EPSG = {3857, 900913, 102100, 102113}   # all == spherical Web Mercator
+# Tile-URL placeholders the client can resolve: {x}/{y}/{z} native; {-y} → tms
+# scheme; and {q}/{quadkey}/{s}/{subdomain}/{switch:…} via the map's
+# transformRequest (Bing-style quadkey + subdomain rotation). Anything else
+# (e.g. WMS {bbox}) is genuinely unsupported.
+_QMS_KNOWN_PH = {'{x}', '{y}', '{z}', '{-y}', '{q}', '{quadkey}', '{s}', '{subdomain}'}
+
+
+def _qms_unsupported_placeholders(url):
+    bad = []
+    for tok in re.findall(r'\{[^}]+\}', url):
+        if tok in _QMS_KNOWN_PH or tok.startswith('{switch:'):
+            continue
+        bad.append(tok)
+    return bad
+
+
+def _qms_fetch(url):
+    import urllib.request
+    req = urllib.request.Request(url, headers={'User-Agent': 'landslidescience.org QMS browser'})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read().decode('utf-8'))
+
+
+@inventory_editor_required
+@require_safe
+def api_qms_search(request):
+    """Search the QMS catalog (raster/TMS services only). Returns trimmed rows
+    with a `compatible` flag (EPSG:3857 + currently working)."""
+    import urllib.parse
+    q = (request.GET.get('q') or '').strip()
+    if not q:
+        return JsonResponse({'results': []})
+    url = _QMS_BASE + '?' + urllib.parse.urlencode({'search': q, 'type': 'tms', 'limit': 25})
+    try:
+        data = _qms_fetch(url)
+    except Exception as exc:
+        return JsonResponse({'error': f'QMS unreachable: {exc}'}, status=502)
+    results = [{
+        'id': r['id'], 'name': r['name'], 'epsg': r.get('epsg'),
+        'status': r.get('cumulative_status'),
+        # short description + submitter help tell apart near-identical names
+        # ("Yandex Satellite" vs "Yandex Satellite 26" vs "… renew").
+        'desc': ((r.get('desc') or '').strip().replace('\r', ' ').replace('\n', ' ')[:90]) or None,
+        'submitter': r.get('submitter_name'),
+        'compatible': r.get('epsg') in _QMS_COMPAT_EPSG and r.get('cumulative_status') == 'works',
+    } for r in data.get('results', [])]
+    return JsonResponse({'results': results, 'count': data.get('count')})
+
+
+def _qms_resolve(qms_id):
+    """Fetch one QMS service and normalize it into a MapLibre raster descriptor.
+    Shared by the detail endpoint and the promote endpoint. Raises on fetch
+    failure (caller handles)."""
+    d = _qms_fetch(_QMS_BASE + f'{int(qms_id)}/')
+    tile = d.get('url') or ''
+    scheme = 'xyz' if d.get('y_origin_top', True) else 'tms'
+    if '{-y}' in tile:                 # OSGeo-TMS bottom origin written as {-y}
+        tile = tile.replace('{-y}', '{y}')
+        scheme = 'tms'
+    unsupported = _qms_unsupported_placeholders(tile)   # {q}/{switch}/{s} are now resolved client-side
+    return {
+        'id': d['id'], 'name': d['name'], 'url': tile, 'epsg': d.get('epsg'),
+        'z_min': d.get('z_min') or 0, 'z_max': d.get('z_max') or 19, 'scheme': scheme,
+        'copyright_text': d.get('copyright_text') or '', 'license_url': d.get('license_url'),
+        'compatible': d.get('epsg') in _QMS_COMPAT_EPSG and not unsupported,
+        'unsupported': unsupported,
+    }
+
+
+def _qms_layer_descriptor(layer):
+    """A promoted QmsLayer row → the basemap descriptor the map consumes."""
+    return {
+        'id': f'qmsshared-{layer.qms_id}', 'qms_id': layer.qms_id,
+        'label': layer.name, 'category': 'Shared',
+        'tiles': layer.tile_url, 'scheme': layer.scheme,
+        'minzoom': layer.z_min, 'maxzoom': layer.z_max,
+        'attr': layer.attribution or f'QMS #{layer.qms_id}',
+        'epsg': layer.epsg, 'public': layer.public,
+    }
+
+
+@inventory_editor_required
+@require_safe
+def api_qms_detail(request, qms_id):
+    """Resolve one QMS service into a MapLibre-ready raster descriptor (+ the
+    `compatible`/`unsupported` flags so the client can warn before adding)."""
+    try:
+        return JsonResponse(_qms_resolve(qms_id))
+    except Exception as exc:
+        return JsonResponse({'error': f'QMS unreachable: {exc}'}, status=502)
+
+
+@require_safe
+def api_qms_promoted(request):
+    """Admin-curated QMS layers visible to the requester: everyone sees the
+    `public` ones; inventory editors also see the editors-only ones. Public
+    endpoint (no auth required) — the public set is intentionally world-visible."""
+    from .models import QmsLayer
+    from .auth import is_inventory_editor
+    qs = QmsLayer.objects.all() if is_inventory_editor(request.user) \
+        else QmsLayer.objects.filter(public=True)
+    return JsonResponse({'layers': [_qms_layer_descriptor(l) for l in qs]})
+
+
+@inventory_editor_required
+@require_POST
+def api_qms_promote(request):
+    """Promote a QMS service to the shared set (editors only). Body: {qms_id,
+    public}. Resolves + stores it; re-promoting updates its scope."""
+    from .models import QmsLayer
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+        qms_id = int(payload['qms_id'])
+    except (ValueError, KeyError, TypeError):
+        return JsonResponse({'error': 'qms_id required'}, status=400)
+    public = bool(payload.get('public'))
+    try:
+        det = _qms_resolve(qms_id)
+    except Exception as exc:
+        return JsonResponse({'error': f'QMS unreachable: {exc}'}, status=502)
+    if det['unsupported'] or not det['url']:
+        return JsonResponse({'error': 'Layer uses tile placeholders this map cannot use.'}, status=400)
+    layer, _ = QmsLayer.objects.update_or_create(
+        qms_id=qms_id,
+        defaults={'name': det['name'], 'tile_url': det['url'], 'epsg': det['epsg'],
+                  'scheme': det['scheme'], 'z_min': det['z_min'], 'z_max': det['z_max'],
+                  'attribution': det['copyright_text'], 'public': public,
+                  'added_by': request.user},
+    )
+    return JsonResponse({'ok': True, 'layer': _qms_layer_descriptor(layer)})
+
+
+@inventory_editor_required
+@require_POST
+def api_qms_unpromote(request, qms_id):
+    """Remove a QMS layer from the shared set (editors only)."""
+    from .models import QmsLayer
+    QmsLayer.objects.filter(qms_id=int(qms_id)).delete()
+    return JsonResponse({'ok': True})
+
+
+# ---------------------------------------------------------------------------
 # Editor UI — /inventory/manage/* (inventory_editors group)
 # ---------------------------------------------------------------------------
 
@@ -1119,7 +1271,10 @@ _EDIT_FIELD_GROUPS = [
     {'key': 'imagery', 'title': 'Imagery & external links', 'fields': [
         'planet_story_link', 'esri_wayback_link', 'google_images_link',
         'sentinel2_link', 'sentinel1_link']},
-    {'key': 'review', 'title': 'Review flag', 'fields': ['flagged', 'flag_reason']},
+    # Collapsed by default: the flag is mainly a scan/filter triage tool and is
+    # cleared from the map info-box, not normally edited here — but kept reachable.
+    {'key': 'review', 'title': 'Review flag', 'collapsed': True,
+     'fields': ['flagged', 'flag_reason']},
     {'key': 'computed', 'title': 'Computed (auto-filled — override only if needed)',
      'collapsed': True, 'fields': [
         'landslide_class', 'size_inclusion', 'creep_behavior', 'insar_creep',
@@ -1510,9 +1665,11 @@ def manage_edit(request, landslide_id, review_mode=False):
     template = 'inventory/manage_review.html' if review_mode else 'inventory/manage_edit.html'
     return render(request, template, {
         'form':              form,
-        # Grouped bound-fields for the edit form's sectioned, type-aware layout
-        # (review mode keeps its own flat template).
-        'field_groups':      None if review_mode else _group_edit_fields(form),
+        # Grouped bound-fields for the sectioned, type-aware layout — used by
+        # both the edit and review forms. In review mode the form already
+        # excludes rule-target columns, so the 'computed' group is empty and
+        # simply doesn't render.
+        'field_groups':      _group_edit_fields(form),
         'landslide_id':      landslide_id,
         'unique_name':       unique_name,
         'landslide_type':    initial.get('landslide_type', ''),

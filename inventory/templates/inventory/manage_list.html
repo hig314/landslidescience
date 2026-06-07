@@ -19,6 +19,9 @@
       <a href="{% url 'inventory:manage_import' %}" class="inv-action-btn">⬆ Import GeoJSON</a>
       <a href="{% url 'inventory:rules' %}" class="inv-action-btn inv-action-btn-light">ƒ Rules</a>
       <a href="{% url 'inventory:manage_settings' %}" class="inv-action-btn inv-action-btn-light">⚙ Map settings</a>
+      {% if user.is_superuser %}
+        <a href="/admin/" class="inv-action-btn inv-action-btn-light" title="Django admin (superusers only)">🛠 Django admin</a>
+      {% endif %}
     </div>
   </div>
   <style>

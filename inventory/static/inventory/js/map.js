@@ -511,7 +511,7 @@
           thumb: 'inventory/img/basemap-thumbs/usgs-hist.png',
           attr: '© Esri, USGS — USA historical topographic maps' },
     ];
-    var REFMAPS_CATEGORY_ORDER = ['Imagery', 'Topo', 'Historical', 'Other'];
+    var REFMAPS_CATEGORY_ORDER = ['Imagery', 'Topo', 'Historical', 'Other', 'Shared', 'QMS'];
 
     // Per-basemap thumbnail URL. Preference order:
     //   1. CFG.basemapThumbs[id]  — injected by the home template, which
@@ -531,13 +531,61 @@
         }
         if (bm.style) return null;
         var bbox = '-15028131,7514064,-12523443,10018752';
-        return bm.tiles
-            .replace('{z}', '4').replace('{y}', '4').replace('{x}', '2')
+        var z = 4, x = 2, y = 4;
+        var t = bm.tiles
+            .replace('{z}', z).replace('{y}', y).replace('{x}', x)
             .replace('{bbox-epsg-3857}', bbox);
+        // quadkey/subdomain layers ({q} etc.) need those resolved for the thumb too
+        if (_QMS_QK_RE.test(t)) t = _qmsResolveTile(t, x, y, z);
+        return t;
+    }
+
+    // Some QMS layers (Bing-style) use tile-URL placeholders MapLibre can't
+    // template: {q}/{quadkey} (quadkey) and {switch:a,b,c}/{s}/{subdomain}
+    // (subdomain rotation). We hand those a sentinel tile URL carrying the real
+    // template; transformRequest below rewrites each tile request into the real
+    // URL with the quadkey computed from z/x/y. Loaded as a normal image tile,
+    // so no CORS dependency.
+    var _QMS_QK_RE = /\{q\}|\{quadkey\}|\{switch:[^}]+\}|\{s\}|\{subdomain\}/;
+    function _qmsWrapTiles(url) {
+        return _QMS_QK_RE.test(url)
+            ? 'https://qmsq.invalid/{z}/{x}/{y}?u=' + encodeURIComponent(url)
+            : url;
+    }
+    function _tileToQuadkey(x, y, z) {
+        var qk = '';
+        for (var i = z; i > 0; i--) {
+            var digit = 0, mask = 1 << (i - 1);
+            if (x & mask) digit += 1;
+            if (y & mask) digit += 2;
+            qk += digit;
+        }
+        return qk;
+    }
+    // Resolve the quadkey/subdomain placeholders in a real tile URL for tile x/y/z.
+    function _qmsResolveTile(real, x, y, z) {
+        var qk = _tileToQuadkey(x, y, z);
+        return real.replace(/\{q\}/g, qk).replace(/\{quadkey\}/g, qk)
+                   .replace(/\{switch:([^}]+)\}/g, function (_m, list) {
+                       var a = list.split(','); return a[(x + y) % a.length];
+                   })
+                   .replace(/\{s\}/g, 'a').replace(/\{subdomain\}/g, 'a');
+    }
+    function _qmsTransformRequest(url) {
+        if (url.indexOf('https://qmsq.invalid/') !== 0) return;   // not ours → unchanged
+        try {
+            var u = new URL(url);
+            var p = u.pathname.split('/').filter(Boolean);         // [z, x, y]
+            return { url: _qmsResolveTile(u.searchParams.get('u') || '', +p[1], +p[2], +p[0]) };
+        } catch (e) { return; }
     }
 
     function buildRasterStyle(bm) {
-        var sources = { basemap: { type: 'raster', tiles: [bm.tiles], tileSize: 256, attribution: bm.attr || '' } };
+        var base = { type: 'raster', tiles: [_qmsWrapTiles(bm.tiles)], tileSize: bm.tileSize || 256, attribution: bm.attr || '' };
+        if (bm.scheme) base.scheme = bm.scheme;            // 'tms' for bottom-origin tiles (QMS)
+        if (bm.minzoom != null) base.minzoom = bm.minzoom;
+        if (bm.maxzoom != null) base.maxzoom = bm.maxzoom; // overzoom past the source's top zoom instead of 404
+        var sources = { basemap: base };
         var layers  = [{ id: 'basemap', type: 'raster', source: 'basemap' }];
         if (bm.labelTiles) {
             sources.labels = { type: 'raster', tiles: [bm.labelTiles], tileSize: 256 };
@@ -548,10 +596,23 @@
                  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf' };
     }
 
+    // User-added QuickMapServices basemaps (editor exploration tool), persisted
+    // per browser in localStorage and merged into BASEMAPS under the 'QMS'
+    // category. The QMS catalog is searched via the editor-only api/qms proxy.
+    function _loadQmsBasemaps() {
+        try { return JSON.parse(localStorage.getItem('ls_qms_basemaps') || '[]') || []; } catch (e) { return []; }
+    }
+    function _saveQmsBasemaps(list) {
+        try { localStorage.setItem('ls_qms_basemaps', JSON.stringify(list)); } catch (e) {}
+    }
+
     function findBasemap(id) {
         for (var i = 0; i < BASEMAPS.length; i++) if (BASEMAPS[i].id === id) return BASEMAPS[i];
         return null;
     }
+
+    // Merge any previously-added QMS basemaps so they're selectable on load.
+    _loadQmsBasemaps().forEach(function (b) { if (b && b.id && !findBasemap(b.id)) BASEMAPS.push(b); });
 
     var _initialBasemapId = (_initialHash.base && findBasemap(_initialHash.base))
                             ? _initialHash.base : DEFAULT_BASEMAP_ID;
@@ -565,7 +626,8 @@
         style: _initialBasemap.style ? _initialBasemap.style : buildRasterStyle(_initialBasemap),
         center: (_initialHash.lon != null && _initialHash.lat != null)
                 ? [_initialHash.lon, _initialHash.lat] : [-153, 62],
-        zoom: (_initialHash.zoom != null) ? _initialHash.zoom : 4
+        zoom: (_initialHash.zoom != null) ? _initialHash.zoom : 4,
+        transformRequest: _qmsTransformRequest   // resolves quadkey/subdomain QMS tiles
     });
     // Globe projection — MapLibre 4.x. Re-assert on every style.load so
     // external-URL basemaps (whose JSON we don't control) also get it.
@@ -1276,6 +1338,343 @@
     // ---------------------------------------------------------------------------
     // Sidebar shell: tabs + Reference-maps panel build-out + pinned basemap
     // ---------------------------------------------------------------------------
+    // One basemap card (thumbnail + label; QMS cards get a remove ×).
+    function _buildBasemapCard(bm) {
+        var card = document.createElement('div');
+        card.className = 'refmap-option' + (bm.id === _currentBasemap ? ' active' : '');
+        card.dataset.id = bm.id;
+        var tipLines = [bm.label];
+        if (bm.category === 'Shared') tipLines.push('Shared with: ' + (bm.public ? 'everyone' : 'data admins'));
+        if (bm.coverage) tipLines.push('Coverage: ' + bm.coverage);
+        if (bm.attr)     tipLines.push(bm.attr);
+        card.title = tipLines.join('\n');
+        var thumbUrl = basemapThumbnailUrl(bm);
+        if (thumbUrl) {
+            var img = document.createElement('img');
+            img.className = 'refmap-thumb'; img.alt = ''; img.loading = 'lazy'; img.src = thumbUrl;
+            img.onerror = function () {
+                var ph = document.createElement('div');
+                ph.className = 'refmap-thumb-placeholder'; ph.textContent = bm.label;
+                img.replaceWith(ph);
+            };
+            card.appendChild(img);
+        } else {
+            var ph = document.createElement('div');
+            ph.className = 'refmap-thumb-placeholder'; ph.textContent = bm.label;
+            card.appendChild(ph);
+        }
+        var lbl = document.createElement('div');
+        lbl.className = 'refmap-label'; lbl.textContent = bm.label;
+        card.appendChild(lbl);
+        card.addEventListener('click', function () { setBasemap(bm.id); });
+        var isSharedEditable = bm.category === 'Shared' && window._isInventoryEditor;
+        if (bm._qms || isSharedEditable) {
+            card.style.position = 'relative';
+            var x = document.createElement('button');
+            x.type = 'button'; x.textContent = '×';
+            x.title = bm._qms ? 'Remove this QMS layer (just you)' : 'Stop sharing this layer with others';
+            x.style.cssText = 'position:absolute;top:2px;right:2px;width:16px;height:16px;line-height:14px;' +
+                'padding:0;border:none;border-radius:3px;background:rgba(0,0,0,.55);color:#fff;font-size:12px;cursor:pointer;';
+            x.addEventListener('click', function (e) {
+                e.stopPropagation();
+                if (bm._qms) _removeQmsBasemap(bm.id);
+                else _unpromoteQms(bm.qms_id);
+            });
+            card.appendChild(x);
+        }
+        // Editor: + on a locally-added QMS card → share it with other users.
+        if (bm._qms && window._isInventoryEditor) {
+            card.style.position = 'relative';
+            var plus = document.createElement('button');
+            plus.type = 'button'; plus.textContent = '+';
+            plus.title = 'Make this layer available to other users';
+            plus.style.cssText = 'position:absolute;top:2px;right:20px;width:16px;height:16px;line-height:14px;' +
+                'padding:0;border:none;border-radius:3px;background:rgba(46,125,50,.85);color:#fff;font-size:14px;cursor:pointer;';
+            plus.addEventListener('click', function (e) {
+                e.stopPropagation();
+                _showShareMenu(plus, bm.id.replace('qms-', ''));
+            });
+            card.appendChild(plus);
+        }
+        if (bm.category === 'Shared') {   // small scope tag
+            var tag = document.createElement('div');
+            tag.textContent = bm.public ? 'everyone' : 'admins';
+            tag.style.cssText = 'position:absolute;bottom:2px;left:2px;font-size:9px;padding:0 3px;border-radius:2px;' +
+                'background:rgba(0,0,0,.6);color:#fff;';
+            card.style.position = 'relative';
+            card.appendChild(tag);
+        }
+        return card;
+    }
+
+    // Rebuild the Reference-maps cards + the pinned dropdown from BASEMAPS.
+    // Called once at startup and again whenever a QMS layer is added/removed.
+    function rebuildBasemapUI() {
+        var rm = document.getElementById('refmaps-content');
+        if (rm) {
+            rm.innerHTML = '';
+            if (window._isInventoryEditor) rm.appendChild(_buildQmsSearchUI());
+            REFMAPS_CATEGORY_ORDER.forEach(function (cat) {
+                var inCat = BASEMAPS.filter(function (bm) { return bm.category === cat; });
+                if (!inCat.length) return;
+                var hdr = document.createElement('div');
+                hdr.className = 'refmaps-category'; hdr.textContent = cat;
+                rm.appendChild(hdr);
+                var grid = document.createElement('div');
+                grid.className = 'refmaps-grid';
+                inCat.forEach(function (bm) { grid.appendChild(_buildBasemapCard(bm)); });
+                rm.appendChild(grid);
+            });
+        }
+        var pinned = document.getElementById('pinned-basemap');
+        if (pinned) {
+            pinned.innerHTML = '';
+            BASEMAPS.forEach(function (bm) {
+                var opt = document.createElement('option');
+                opt.value = bm.id; opt.textContent = bm.label;
+                if (bm.id === _currentBasemap) opt.selected = true;
+                pinned.appendChild(opt);
+            });
+        }
+    }
+
+    // Editor-only QMS catalog search box (added at the top of the refmaps panel).
+    // Sidebar entry: a button that opens the floating QMS browser (the sidebar
+    // is too narrow for a comfortable results list). Added layers still land as
+    // thumbnail cards in the Reference-maps panel.
+    function _buildQmsSearchUI() {
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'margin-bottom:10px;';
+        var hdr = document.createElement('div');
+        hdr.className = 'refmaps-category'; hdr.textContent = 'Add layer · QuickMapServices';
+        wrap.appendChild(hdr);
+        var btn = document.createElement('button');
+        btn.type = 'button'; btn.textContent = '🔍 Browse QMS layers…';
+        btn.style.cssText = 'width:100%;font-size:12px;padding:6px 8px;border:1px solid #bbb;border-radius:3px;background:#f4f4f4;cursor:pointer;';
+        btn.addEventListener('click', function () {
+            _ensureQmsBox();
+            if (_qmsFP) _qmsFP.open();
+            var i = document.getElementById('qms-box-q'); if (i) i.focus();
+        });
+        wrap.appendChild(btn);
+        return wrap;
+    }
+
+    // The floating QMS browser (created lazily on first open; reuses the shared
+    // float-panel: draggable header + close + resize).
+    var _qmsFP = null;
+    function _ensureQmsBox() {
+        var box = document.getElementById('qms-box');
+        if (box) return box;
+        box = document.createElement('div');
+        box.id = 'qms-box';
+        box.className = 'float-panel hidden';
+        box.style.cssText = 'left:90px;top:80px;width:440px;height:480px;';
+        box.innerHTML =
+            '<div class="float-header" id="qms-box-header" style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f0ebe9;border-bottom:1px solid #ddd;">' +
+                '<span style="font-weight:600;font-size:13px;color:#5D4037;">QuickMapServices — add a layer</span>' +
+                '<button id="qms-box-close" title="Close" style="margin-left:auto;border:none;background:none;font-size:18px;line-height:1;color:#666;cursor:pointer;">&times;</button>' +
+            '</div>' +
+            '<div style="padding:8px 10px 4px;display:flex;gap:6px;">' +
+                '<input id="qms-box-q" type="text" placeholder="search… e.g. ESRI Satellite, topo, hillshade" ' +
+                    'style="flex:1;font-size:13px;padding:4px 8px;border:1px solid #ccc;border-radius:3px;">' +
+                '<button id="qms-box-go" type="button" style="font-size:13px;padding:4px 12px;border:1px solid #bbb;border-radius:3px;background:#f4f4f4;cursor:pointer;">Search</button>' +
+            '</div>' +
+            '<div style="padding:0 10px 6px;font-size:11px;color:#999;line-height:1.35;">Raster/TMS layers. Only EPSG:3857 aligns on this map (others flagged). Added layers appear in the Reference-maps panel.</div>' +
+            '<div id="qms-box-results" style="flex:1;overflow:auto;border-top:1px solid #eee;"></div>';
+        var host = (document.getElementById('hist-panel') && document.getElementById('hist-panel').parentNode)
+                   || (document.getElementById('map') && document.getElementById('map').parentNode)
+                   || document.body;
+        host.appendChild(box);
+        var q = box.querySelector('#qms-box-q'),
+            go = box.querySelector('#qms-box-go'),
+            res = box.querySelector('#qms-box-results');
+        function run() {
+            var query = q.value.trim();
+            if (!query) return;
+            res.innerHTML = '<div style="color:#888;padding:8px;font-size:12px;">searching…</div>';
+            fetch(API_BASE + 'api/qms/?q=' + encodeURIComponent(query))
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (d.error) { res.innerHTML = '<div style="color:#c00;padding:8px;font-size:12px;">' + esc(d.error) + '</div>'; return; }
+                    if (!d.results || !d.results.length) { res.innerHTML = '<div style="color:#888;padding:8px;font-size:12px;">no raster/TMS results</div>'; return; }
+                    res.innerHTML = '';
+                    d.results.forEach(function (it) { res.appendChild(_qmsBoxRow(it)); });
+                })
+                .catch(function () { res.innerHTML = '<div style="color:#c00;padding:8px;font-size:12px;">search failed</div>'; });
+        }
+        go.addEventListener('click', run);
+        q.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+        _qmsFP = makeFloatingPanel(box, { handle: box.querySelector('#qms-box-header'), close: box.querySelector('#qms-box-close') });
+        return box;
+    }
+
+    // One roomy result row: wrapping name + description/submitter + EPSG + Add.
+    function _qmsBoxRow(it) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:8px;border-bottom:1px solid #eee;';
+        var info = document.createElement('div');
+        info.style.cssText = 'flex:1;min-width:0;';
+        var name = document.createElement('div');
+        name.textContent = it.name;
+        name.style.cssText = 'font-size:13px;color:#222;font-weight:500;line-height:1.25;word-break:break-word;';
+        info.appendChild(name);
+        var bits = [];
+        if (it.desc) bits.push(it.desc);
+        bits.push('QMS #' + it.id);
+        if (it.submitter) bits.push('by ' + it.submitter);
+        var meta = document.createElement('div');
+        meta.textContent = bits.join('  ·  ');
+        meta.style.cssText = 'font-size:11px;color:#999;margin-top:2px;line-height:1.3;word-break:break-word;';
+        info.appendChild(meta);
+        var col = document.createElement('div');
+        col.style.cssText = 'display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:none;';
+        var badge = document.createElement('span');
+        badge.textContent = 'EPSG:' + it.epsg;
+        badge.style.cssText = 'font-size:10px;padding:0 5px;border-radius:3px;white-space:nowrap;' +
+            (it.compatible ? 'background:#e3f2e3;color:#2e7d32;' : 'background:#fdeede;color:#a15c00;');
+        if (!it.compatible) badge.title = 'Not EPSG:3857 (or not working) — will misalign on this map';
+        var add = document.createElement('button');
+        add.type = 'button'; add.textContent = 'Add';
+        add.style.cssText = 'font-size:12px;padding:2px 12px;border:1px solid #bbb;border-radius:3px;background:#f4f4f4;cursor:pointer;';
+        add.addEventListener('click', function () {
+            add.disabled = true; add.textContent = '…';
+            fetch(API_BASE + 'api/qms/' + it.id + '/')
+                .then(function (r) { return r.json(); })
+                .then(function (det) {
+                    if (det.error || !det.url) { add.textContent = 'err'; return; }
+                    if (det.unsupported && det.unsupported.length) {
+                        alert('"' + det.name + '" uses tile placeholders MapLibre can’t handle (' +
+                              det.unsupported.join(' ') + ') — skipping.');
+                        add.disabled = false; add.textContent = 'Add'; return;
+                    }
+                    if (!det.compatible &&
+                        !confirm('"' + det.name + '" is EPSG:' + det.epsg + ', not 3857 — it will misalign ' +
+                                 '(worse toward the poles, so noticeably in Alaska). Add anyway?')) {
+                        add.disabled = false; add.textContent = 'Add'; return;
+                    }
+                    _addQmsBasemap(det);
+                    add.textContent = '✓ added';
+                })
+                .catch(function () { add.disabled = false; add.textContent = 'Add'; });
+        });
+        col.appendChild(badge); col.appendChild(add);
+        row.appendChild(info); row.appendChild(col);
+        return row;
+    }
+
+    function _addQmsBasemap(det) {
+        var id = 'qms-' + det.id;
+        if (!findBasemap(id)) {
+            var bm = { id: id, label: det.name, category: 'QMS',
+                       coverage: 'EPSG:' + det.epsg + (det.compatible ? '' : ' — may misalign'),
+                       tiles: det.url, attr: det.copyright_text || ('QMS #' + det.id),
+                       scheme: det.scheme, minzoom: det.z_min || 0, maxzoom: det.z_max || 19, _qms: true };
+            BASEMAPS.push(bm);
+            var saved = _loadQmsBasemaps(); saved.push(bm); _saveQmsBasemaps(saved);
+            rebuildBasemapUI();
+        }
+        setBasemap(id);
+    }
+
+    function _removeQmsBasemap(id) {
+        for (var i = 0; i < BASEMAPS.length; i++) {
+            if (BASEMAPS[i].id === id) { BASEMAPS.splice(i, 1); break; }
+        }
+        _saveQmsBasemaps(_loadQmsBasemaps().filter(function (b) { return b.id !== id; }));
+        if (_currentBasemap === id) setBasemap(DEFAULT_BASEMAP_ID);  // setBasemap re-runs the UI active state
+        rebuildBasemapUI();
+    }
+
+    // ---- Shared (admin-curated) QMS layers: server-stored, scoped public/editors ----
+    function _mergePromotedLayer(layer) {   // add or refresh one shared layer in BASEMAPS
+        var i = BASEMAPS.findIndex ? BASEMAPS.findIndex(function (b) { return b.id === layer.id; }) : -1;
+        if (i >= 0) BASEMAPS[i] = layer; else BASEMAPS.push(layer);
+        rebuildBasemapUI();
+    }
+
+    // Load the shared set for the current user (public sees public ones; editors
+    // also see editors-only). Public endpoint — called for everyone at startup.
+    function _loadPromotedQms() {
+        fetch(API_BASE + 'api/qms/promoted/')
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d || !d.layers || !d.layers.length) return;
+                d.layers.forEach(function (l) { if (!findBasemap(l.id)) BASEMAPS.push(l); });
+                rebuildBasemapUI();
+            }).catch(function () {});
+    }
+
+    // Small popup menu off the card's + button: pick who to share with.
+    function _showShareMenu(anchor, qmsId) {
+        var old = document.getElementById('qms-share-menu');
+        if (old) old.remove();
+        var menu = document.createElement('div');
+        menu.id = 'qms-share-menu';
+        menu.style.cssText = 'position:fixed;z-index:30;background:#fff;border:1px solid #bbb;border-radius:4px;' +
+            'box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:12px;overflow:hidden;';
+        var r = anchor.getBoundingClientRect();
+        menu.style.left = Math.round(r.left) + 'px';
+        menu.style.top  = Math.round(r.bottom + 3) + 'px';
+        [['Data admins', false], ['Everyone', true]].forEach(function (opt) {
+            var b = document.createElement('button');
+            b.type = 'button'; b.textContent = 'Share → ' + opt[0];
+            b.style.cssText = 'display:block;width:100%;text-align:left;padding:6px 14px;border:none;' +
+                'background:#fff;cursor:pointer;white-space:nowrap;';
+            b.addEventListener('mouseenter', function () { b.style.background = '#f0ebe9'; });
+            b.addEventListener('mouseleave', function () { b.style.background = '#fff'; });
+            b.addEventListener('click', function () { menu.remove(); _shareLocalQms(qmsId, opt[1]); });
+            menu.appendChild(b);
+        });
+        document.body.appendChild(menu);
+        setTimeout(function () {
+            document.addEventListener('click', function onDoc(ev) {
+                if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', onDoc); }
+            });
+        }, 0);
+    }
+
+    // Promote a locally-added QMS layer, then fold the local copy into the shared
+    // one (same tiles → no reload if it was the active basemap).
+    function _shareLocalQms(qmsId, isPublic) {
+        _promoteQms(qmsId, isPublic, function (err) {
+            if (err) { alert(err); return; }
+            var localId = 'qms-' + qmsId, sharedId = 'qmsshared-' + qmsId;
+            var wasCurrent = _currentBasemap === localId;
+            for (var i = 0; i < BASEMAPS.length; i++) { if (BASEMAPS[i].id === localId) { BASEMAPS.splice(i, 1); break; } }
+            _saveQmsBasemaps(_loadQmsBasemaps().filter(function (b) { return b.id !== localId; }));
+            if (wasCurrent) _currentBasemap = sharedId;   // identical tiles; just move the selection
+            rebuildBasemapUI();
+        });
+    }
+
+    // Promote a QMS service to the shared set (editor-only).
+    function _promoteQms(qmsId, isPublic, onDone) {
+        fetch(API_BASE + 'api/qms/promote/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
+            body: JSON.stringify({ qms_id: qmsId, public: !!isPublic })
+        }).then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (j.error || !j.layer) { onDone(j.error || 'failed'); return; }
+            _mergePromotedLayer(j.layer);
+            onDone(null);
+          }).catch(function () { onDone('failed'); });
+    }
+
+    function _unpromoteQms(qmsId) {
+        if (!confirm('Stop sharing this layer with others?')) return;
+        fetch(API_BASE + 'api/qms/' + qmsId + '/unpromote/', {
+            method: 'POST', headers: { 'X-CSRFToken': window.CSRF_TOKEN }
+        }).then(function (r) { return r.json(); })
+          .then(function () {
+            var id = 'qmsshared-' + qmsId;
+            for (var i = 0; i < BASEMAPS.length; i++) { if (BASEMAPS[i].id === id) { BASEMAPS.splice(i, 1); break; } }
+            if (_currentBasemap === id) setBasemap(DEFAULT_BASEMAP_ID);
+            rebuildBasemapUI();
+          }).catch(function () {});
+    }
+
     (function () {
         // Tab switching: one panel visible at a time.
         document.querySelectorAll('.inv-tab').forEach(function (tab) {
@@ -1292,72 +1691,12 @@
             });
         });
 
-        // Reference-maps panel: categorized cards with thumbnail + label.
-        var rm = document.getElementById('refmaps-content');
-        if (rm) {
-            rm.innerHTML = '';
-            REFMAPS_CATEGORY_ORDER.forEach(function (cat) {
-                var inCat = BASEMAPS.filter(function (bm) { return bm.category === cat; });
-                if (!inCat.length) return;
-                var hdr = document.createElement('div');
-                hdr.className = 'refmaps-category';
-                hdr.textContent = cat;
-                rm.appendChild(hdr);
-                var grid = document.createElement('div');
-                grid.className = 'refmaps-grid';
-                inCat.forEach(function (bm) {
-                    var card = document.createElement('div');
-                    card.className = 'refmap-option' + (bm.id === _currentBasemap ? ' active' : '');
-                    card.dataset.id = bm.id;
-                    // Multi-line tooltip: name, coverage extent, citation.
-                    var tipLines = [bm.label];
-                    if (bm.coverage) tipLines.push('Coverage: ' + bm.coverage);
-                    if (bm.attr)     tipLines.push(bm.attr);
-                    card.title = tipLines.join('\n');
-                    var thumbUrl = basemapThumbnailUrl(bm);
-                    if (thumbUrl) {
-                        var img = document.createElement('img');
-                        img.className = 'refmap-thumb';
-                        img.alt = '';
-                        img.loading = 'lazy';
-                        img.src = thumbUrl;
-                        // Fall back to a colored placeholder if the request fails.
-                        img.onerror = function () {
-                            var ph = document.createElement('div');
-                            ph.className = 'refmap-thumb-placeholder';
-                            ph.textContent = bm.label;
-                            img.replaceWith(ph);
-                        };
-                        card.appendChild(img);
-                    } else {
-                        var ph = document.createElement('div');
-                        ph.className = 'refmap-thumb-placeholder';
-                        ph.textContent = bm.label;
-                        card.appendChild(ph);
-                    }
-                    var lbl = document.createElement('div');
-                    lbl.className = 'refmap-label';
-                    lbl.textContent = bm.label;
-                    card.appendChild(lbl);
-                    card.addEventListener('click', function () { setBasemap(bm.id); });
-                    grid.appendChild(card);
-                });
-                rm.appendChild(grid);
-            });
-        }
+        rebuildBasemapUI();
+        _loadPromotedQms();   // merge admin-curated shared layers (public set for everyone)
 
-        // Pinned basemap quick-select: a flat dropdown showing every option.
+        // Pinned basemap quick-select change handler (options (re)built by rebuildBasemapUI).
         var pinned = document.getElementById('pinned-basemap');
-        if (pinned) {
-            BASEMAPS.forEach(function (bm) {
-                var opt = document.createElement('option');
-                opt.value = bm.id;
-                opt.textContent = bm.label;
-                if (bm.id === _currentBasemap) opt.selected = true;
-                pinned.appendChild(opt);
-            });
-            pinned.addEventListener('change', function () { setBasemap(pinned.value); });
-        }
+        if (pinned) pinned.addEventListener('change', function () { setBasemap(pinned.value); });
     }());
 
     // ---------------------------------------------------------------------------

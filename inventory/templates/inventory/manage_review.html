@@ -56,25 +56,24 @@
       {% for c in common_classes %}<option value="{{ c }}">{% endfor %}
     </datalist>
 
-    {% for field in form %}
-      <div style="margin-bottom: 14px;">
-        <label for="{{ field.id_for_label }}" style="display:block; font-size:13px; color:#555; margin-bottom:3px;">
-          {{ field.label }}
-          {% if field.field.required %}<span style="color:#b00020;">*</span>{% endif %}
-        </label>
-        {{ field }}
-        {% if field.name == 'esri_wayback_link' and imagery_suggestions.esri_wayback_link %}
-          {% include 'inventory/_imagery_suggest.html' with url=imagery_suggestions.esri_wayback_link fid=field.id_for_label label='ESRI Wayback' %}
-        {% elif field.name == 'google_images_link' and imagery_suggestions.google_images_link %}
-          {% include 'inventory/_imagery_suggest.html' with url=imagery_suggestions.google_images_link fid=field.id_for_label label='Google satellite' %}
-        {% elif field.name == 'insar_opera' and imagery_suggestions.opera_asc %}
-          {% include 'inventory/_opera_links.html' with asc=imagery_suggestions.opera_asc desc=imagery_suggestions.opera_desc %}
-        {% endif %}
-        {% if field.help_text %}
-          <p style="font-size:11px; color:#888; margin: 3px 0 0;">{{ field.help_text }}</p>
-        {% endif %}
-        {% if field.errors %}
-          <p style="font-size:12px; color:#b00020; margin: 3px 0 0;">{{ field.errors|join:", " }}</p>
+    {# Sectioned, type-aware layout (shared with the edit form). Irrelevant
+       groups are hidden per landslide_type by the script below. In review mode
+       rule-target columns are excluded from the form, so the 'computed' group
+       is empty and doesn't render. #}
+    {% for g in field_groups %}
+      <div class="field-group group-{{ g.meta.key }}{% if g.meta.key == 'event' %} grp-event{% endif %}">
+        {% if g.meta.collapsed %}
+          <details class="computed-fields" style="margin:18px 0 4px;">
+            <summary style="cursor:pointer; font-size:13px; color:#666; font-weight:600;">{{ g.meta.title }}</summary>
+            <div style="margin-top:10px;">
+              {% for item in g.items %}{% include 'inventory/_edit_field.html' with field=item.field vis=item.vis %}{% endfor %}
+            </div>
+          </details>
+        {% else %}
+          {% if g.meta.title %}
+            <h3 class="field-group-title" style="font-size:14px; color:#5D4037; margin:22px 0 8px; padding-bottom:4px; border-bottom:1px solid #eee;">{{ g.meta.title }}</h3>
+          {% endif %}
+          {% for item in g.items %}{% include 'inventory/_edit_field.html' with field=item.field vis=item.vis %}{% endfor %}
         {% endif %}
       </div>
     {% endfor %}
@@ -128,4 +127,34 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+  // Type-aware field visibility (same rules as the edit form): hide the
+  // catastrophic event/timing group for slow records; gate creep-detection for
+  // catastrophic behind "creep evaluated"; post-2012/permafrost are slow-only.
+  // Hidden fields stay in the form (display:none) so their values still POST.
+  (function () {
+    var form = document.getElementById('ls-edit-form');
+    if (!form) return;
+    var typeSel   = document.getElementById('id_landslide_type');
+    var creepEval = document.getElementById('id_creep_evaluated');
+    function show(sel, on) {
+      form.querySelectorAll(sel).forEach(function (el) { el.style.display = on ? '' : 'none'; });
+    }
+    function apply() {
+      var type = typeSel ? typeSel.value : '';
+      var cat  = type === 'catastrophic';
+      var slow = type === 'slow';
+      if (!cat && !slow) {
+        show('.grp-event', true); show('.creep-slow-only', true); show('.creep-detail', true);
+        return;
+      }
+      show('.grp-event', cat);
+      show('.creep-slow-only', slow);
+      show('.creep-detail', slow || (cat && creepEval && creepEval.checked));
+    }
+    if (typeSel)   typeSel.addEventListener('change', apply);
+    if (creepEval) creepEval.addEventListener('change', apply);
+    apply();
+  })();
+</script>
 {% endblock %}
