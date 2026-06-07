@@ -966,7 +966,9 @@ def api_qms_search(request):
         # ("Yandex Satellite" vs "Yandex Satellite 26" vs "… renew").
         'desc': ((r.get('desc') or '').strip().replace('\r', ' ').replace('\n', ' ')[:90]) or None,
         'submitter': r.get('submitter_name'),
-        'compatible': r.get('epsg') in _QMS_COMPAT_EPSG and r.get('cumulative_status') == 'works',
+        'compatible': (r.get('epsg') in _QMS_COMPAT_EPSG
+                       or (r.get('epsg') == 3395 and r.get('cors_status') == 'enabled'))
+                      and r.get('cumulative_status') == 'works',
     } for r in data.get('results', [])]
     return JsonResponse({'results': results, 'count': data.get('count')})
 
@@ -982,11 +984,17 @@ def _qms_resolve(qms_id):
         tile = tile.replace('{-y}', '{y}')
         scheme = 'tms'
     unsupported = _qms_unsupported_placeholders(tile)   # {q}/{switch}/{s} are now resolved client-side
+    epsg = d.get('epsg')
+    # EPSG:3395 (ellipsoidal Mercator, e.g. Yandex) can be reprojected to 3857
+    # client-side (1-D vertical warp) — but the warp fetches + canvas-reads tiles,
+    # so it needs CORS. Only then is it "compatible".
+    reproject = 'epsg3395' if (epsg == 3395 and d.get('cors_status') == 'enabled') else None
     return {
-        'id': d['id'], 'name': d['name'], 'url': tile, 'epsg': d.get('epsg'),
+        'id': d['id'], 'name': d['name'], 'url': tile, 'epsg': epsg,
         'z_min': d.get('z_min') or 0, 'z_max': d.get('z_max') or 19, 'scheme': scheme,
+        'reproject': reproject,
         'copyright_text': d.get('copyright_text') or '', 'license_url': d.get('license_url'),
-        'compatible': d.get('epsg') in _QMS_COMPAT_EPSG and not unsupported,
+        'compatible': (epsg in _QMS_COMPAT_EPSG or bool(reproject)) and not unsupported,
         'unsupported': unsupported,
     }
 
@@ -998,6 +1006,7 @@ def _qms_layer_descriptor(layer):
         'label': layer.name, 'category': 'Shared',
         'tiles': layer.tile_url, 'scheme': layer.scheme,
         'minzoom': layer.z_min, 'maxzoom': layer.z_max,
+        'reproject': 'epsg3395' if layer.epsg == 3395 else None,
         'attr': layer.attribution or f'QMS #{layer.qms_id}',
         'epsg': layer.epsg, 'public': layer.public,
     }

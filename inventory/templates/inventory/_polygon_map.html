@@ -29,6 +29,7 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
 <div id="ls-poly-map" class="ls-poly-map"></div>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
 <script src="{% static 'inventory/js/ls_colors.js' %}"></script>
+<script src="{% static 'inventory/js/basemaps.js' %}"></script>
 <script>
 (function () {
   var CREATE_MODE = {% if poly_create_mode %}true{% else %}false{% endif %};
@@ -39,46 +40,19 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
     return;  // nothing to show (e.g. a record with no polygons yet)
   }
 
-  // Basemap list — mirrors the main inventory map. AHAP is the historic layer
-  // used for slow-change comparison. (Kept in sync with map.js BASEMAPS.)
-  var BASEMAPS = [
-    { id: 'esri-img',    label: 'ESRI Imagery',
-      tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      labelTiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-      attr: '© Esri, Maxar, Earthstar Geographics' },
-    { id: 's2-cloudless', label: 'Sentinel-2 cloudless',
-      tiles: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg',
-      attr: 'Sentinel-2 cloudless 2024 by <a href="https://s2maps.eu/">EOX</a>' },
-    { id: 'nrcs-ahap',   label: 'AHAP 1978-1986',
-      tiles: 'https://apps.geo.fpac.usda.gov/nrcs-imagery/rest/services/ortho_imagery/ahap_1978_to_1986_150cm_colorbalance/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=jpgpng&f=image',
-      attr: 'Alaska High-Altitude Photography (USDA NRCS, 1978-1986)' },
-    { id: 'usgs-img',    label: 'USGS Imagery',
-      tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
-      attr: 'USGS National Map' },
-    { id: 'esri-topo',   label: 'ESRI Topo',
-      tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-      attr: '© Esri, USGS, NOAA' },
-    { id: 'usgs-topo',   label: 'USGS Topo',
-      tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
-      attr: 'USGS National Map' },
-    { id: 'usgs-hist',   label: 'USGS Hist. Topo',
-      tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}',
-      attr: '© Esri, USGS' },
-    { id: 'streets',     label: 'Streets',
-      style: 'https://tiles.openfreemap.org/styles/liberty' },
-  ];
+  // Basemaps come from the shared module (basemaps.js) — same definitions and
+  // tile transforms (scheme / quadkey / EPSG:3395 reprojection) as the main map,
+  // so the two can't drift. Admin-shared QMS layers are appended below, so an
+  // editor can flip through Yandex/QMS imagery while mapping geometry.
+  var BASEMAPS = LSBasemaps.DEFAULTS.slice();
   var DEFAULT_BASEMAP_ID = 'esri-img';
   var FIT_MAX_ZOOM = 15;   // ~the most real detail AHAP carries (MapLibre zoom)
+  LSBasemaps.registerProtocols();
 
-  function buildRasterStyle(bm) {
-    if (bm.style) return bm.style;
-    var sources = { basemap: { type: 'raster', tiles: [bm.tiles], tileSize: 256, attribution: bm.attr || '' } };
-    var layers  = [{ id: 'basemap', type: 'raster', source: 'basemap' }];
-    if (bm.labelTiles) {
-      sources.basemap_labels = { type: 'raster', tiles: [bm.labelTiles], tileSize: 256 };
-      layers.push({ id: 'basemap-labels', type: 'raster', source: 'basemap_labels' });
-    }
-    return { version: 8, sources: sources, layers: layers };
+  // Vector style URL passes through as-is; raster basemaps go through the shared
+  // builder (flat map here, so no globe/glyphs).
+  function styleFor(bm) {
+    return bm.style ? bm.style : LSBasemaps.buildRasterStyle(bm, { globe: false });
   }
   function findBasemap(id) {
     for (var i = 0; i < BASEMAPS.length; i++) if (BASEMAPS[i].id === id) return BASEMAPS[i];
@@ -103,9 +77,10 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
   var initialBM = findBasemap(DEFAULT_BASEMAP_ID) || BASEMAPS[0];
   var map = new maplibregl.Map({
     container: 'ls-poly-map',
-    style: buildRasterStyle(initialBM),
+    style: styleFor(initialBM),
     center: [-153, 62],
     zoom: 4,
+    transformRequest: LSBasemaps.transformRequest,   // quadkey/subdomain QMS tiles
   });
 
   var _basemapSel = null;   // captured so edit mode can lock it (terra_draw.js)
@@ -125,13 +100,30 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
     sel.addEventListener('change', function () {
       var bm = findBasemap(sel.value);
       if (!bm) return;
-      map.setStyle(buildRasterStyle(bm), { diff: false });
+      map.setStyle(styleFor(bm), { diff: false });
       map.once('idle', function () { addPolygonLayer(); });
     });
     el.appendChild(sel);
     return el;
   };
   BasemapSwitcher.prototype.onRemove = function () {};
+
+  // Append admin-shared QMS layers (editor-scope here, since the edit/review
+  // forms are editor-only) so they're flippable in the switcher.
+  function loadSharedBasemaps() {
+    fetch("{% url 'inventory:api_qms_promoted' %}").then(function (r) { return r.json(); })
+      .then(function (d) {
+        (d && d.layers || []).forEach(function (l) {
+          if (findBasemap(l.id)) return;
+          BASEMAPS.push(l);
+          if (_basemapSel) {
+            var opt = document.createElement('option');
+            opt.value = l.id; opt.textContent = l.label + ' (shared)';
+            _basemapSel.appendChild(opt);
+          }
+        });
+      }).catch(function () {});
+  }
 
   // Alaska Quaternary faults & folds (DGGS QFF — Koehler 2013), fetched once and
   // cached. Always-on reference here; drawn below the landslide polygons.
@@ -187,7 +179,7 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
 
   map.addControl(new BasemapSwitcher(), 'top-right');
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
-  map.on('load', function () { loadFaults(); addPolygonLayer(); fitToPolygons(); });
+  map.on('load', function () { loadFaults(); addPolygonLayer(); fitToPolygons(); loadSharedBasemaps(); });
 
   // Right-click (Ctrl-click on Mac) → copy "lat, lon" for pasting into Planet.
   // Suppressed while a Terra Draw session is active (there right-click deletes a

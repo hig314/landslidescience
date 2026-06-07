@@ -451,66 +451,9 @@
     // window.LS_CONFIG.basemaps. If a provider URL ever changes (EOX, USGS,
     // ESRI), the snapshot's tile config can be patched in place without
     // touching the live app or rebuilding the snapshot.
-    var BASEMAPS = CFG.basemaps || [
-        // For vector-style basemaps there's no raster tile we can pull as
-        // a thumbnail, so we point at a representative OSM tile (Anchorage)
-        // since OSM is the data behind the Liberty style — gives the
-        // thumbnail a "street-grid" look rather than a generic placeholder.
-        // Vector-style basemap: no raster to extract a thumbnail from, so
-        // point at a representative OSM tile centered on Anchorage's street
-        // grid. OSM is the data behind the Liberty style so the look is
-        // analogous to what the live basemap shows.
-        { id: 'streets',   label: 'Streets', category: 'Other',
-          coverage: 'Global',
-          style: 'https://tiles.openfreemap.org/styles/liberty',
-          thumb: 'inventory/img/basemap-thumbs/streets.png',
-          attr: '© OpenFreeMap & OpenStreetMap contributors' },
-        { id: 'esri-img',  label: 'ESRI Imagery', category: 'Imagery',
-          coverage: 'Global',
-          tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-          labelTiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-          thumb: 'inventory/img/basemap-thumbs/esri-img.png',
-          attr: '© Esri, Maxar, Earthstar Geographics' },
-        { id: 's2-cloudless', label: 'Sentinel-2 cloudless', category: 'Imagery',
-          coverage: 'Global, 10 m',
-          tiles: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg',
-          thumb: 'inventory/img/basemap-thumbs/s2-cloudless.jpg',
-          attr: 'Sentinel-2 cloudless 2024 by EOX (modified Copernicus Sentinel data 2024)' },
-        { id: 'esri-topo', label: 'ESRI Topo', category: 'Topo',
-          coverage: 'Global',
-          tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-          thumb: 'inventory/img/basemap-thumbs/esri-topo.png',
-          attr: '© Esri, USGS, NOAA' },
-        { id: 'usgs-topo', label: 'USGS Topo', category: 'Topo',
-          coverage: 'Global (detailed in US only)',
-          tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
-          thumb: 'inventory/img/basemap-thumbs/usgs-topo.png',
-          attr: 'USGS National Map' },
-        { id: 'usgs-img',  label: 'USGS Imagery', category: 'Imagery',
-          coverage: 'Global (high-res in US only)',
-          tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
-          thumb: 'inventory/img/basemap-thumbs/usgs-img.png',
-          attr: 'USGS National Map' },
-        // USDA NRCS Alaska High-Altitude Photography (1978-1986, 1.5 m,
-        // color-balanced). The ImageServer doesn't expose XYZ tiles, but
-        // MapLibre's {bbox-epsg-3857} placeholder lets us drive its
-        // exportImage endpoint per tile. Coverage is ~90% of Alaska —
-        // outside the AHAP extent the server returns transparent tiles.
-        // The south coast (Seldovia/Homer/Kachemak) is a notable gap;
-        // the Wrangell-St. Elias region (Calamity Gulch area, around the
-        // Bagley Icefield) is well-covered with dramatic mountain + glacier
-        // terrain, so it's the thumbnail location.
-        { id: 'nrcs-ahap', label: 'AHAP 1978-1986', category: 'Historical',
-          coverage: 'Alaska (partial)',
-          tiles: 'https://apps.geo.fpac.usda.gov/nrcs-imagery/rest/services/ortho_imagery/ahap_1978_to_1986_150cm_colorbalance/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=jpgpng&f=image',
-          thumb: 'inventory/img/basemap-thumbs/nrcs-ahap.png',
-          attr: 'Alaska High-Altitude Photography (1978-1986), USDA NRCS / FPAC Geospatial Business Branch' },
-        { id: 'usgs-hist', label: 'USGS Hist. Topo', category: 'Historical',
-          coverage: 'United States',
-          tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}',
-          thumb: 'inventory/img/basemap-thumbs/usgs-hist.png',
-          attr: '© Esri, USGS — USA historical topographic maps' },
-    ];
+    // Built-in basemap descriptors live in the shared module (basemaps.js) so
+    // the main map and the edit/review preview map share one definition.
+    var BASEMAPS = CFG.basemaps || LSBasemaps.DEFAULTS.slice();
     var REFMAPS_CATEGORY_ORDER = ['Imagery', 'Topo', 'Historical', 'Other', 'Shared', 'QMS'];
 
     // Per-basemap thumbnail URL. Preference order:
@@ -523,77 +466,18 @@
     //      isn't present).
     //   3. Substituted z=4 tile from the live tile template (last resort).
     function basemapThumbnailUrl(bm) {
-        if (CFG.basemapThumbs && CFG.basemapThumbs[bm.id]) {
-            return CFG.basemapThumbs[bm.id];
-        }
-        if (bm.thumb) {
-            return /^https?:/.test(bm.thumb) ? bm.thumb : (STATIC_BASE + bm.thumb);
-        }
-        if (bm.style) return null;
-        var bbox = '-15028131,7514064,-12523443,10018752';
-        var z = 4, x = 2, y = 4;
-        var t = bm.tiles
-            .replace('{z}', z).replace('{y}', y).replace('{x}', x)
-            .replace('{bbox-epsg-3857}', bbox);
-        // quadkey/subdomain layers ({q} etc.) need those resolved for the thumb too
-        if (_QMS_QK_RE.test(t)) t = _qmsResolveTile(t, x, y, z);
-        return t;
+        return LSBasemaps.thumbnailUrl(bm, { basemapThumbs: CFG.basemapThumbs, staticBase: STATIC_BASE });
     }
 
-    // Some QMS layers (Bing-style) use tile-URL placeholders MapLibre can't
-    // template: {q}/{quadkey} (quadkey) and {switch:a,b,c}/{s}/{subdomain}
-    // (subdomain rotation). We hand those a sentinel tile URL carrying the real
-    // template; transformRequest below rewrites each tile request into the real
-    // URL with the quadkey computed from z/x/y. Loaded as a normal image tile,
-    // so no CORS dependency.
-    var _QMS_QK_RE = /\{q\}|\{quadkey\}|\{switch:[^}]+\}|\{s\}|\{subdomain\}/;
-    function _qmsWrapTiles(url) {
-        return _QMS_QK_RE.test(url)
-            ? 'https://qmsq.invalid/{z}/{x}/{y}?u=' + encodeURIComponent(url)
-            : url;
-    }
-    function _tileToQuadkey(x, y, z) {
-        var qk = '';
-        for (var i = z; i > 0; i--) {
-            var digit = 0, mask = 1 << (i - 1);
-            if (x & mask) digit += 1;
-            if (y & mask) digit += 2;
-            qk += digit;
-        }
-        return qk;
-    }
-    // Resolve the quadkey/subdomain placeholders in a real tile URL for tile x/y/z.
-    function _qmsResolveTile(real, x, y, z) {
-        var qk = _tileToQuadkey(x, y, z);
-        return real.replace(/\{q\}/g, qk).replace(/\{quadkey\}/g, qk)
-                   .replace(/\{switch:([^}]+)\}/g, function (_m, list) {
-                       var a = list.split(','); return a[(x + y) % a.length];
-                   })
-                   .replace(/\{s\}/g, 'a').replace(/\{subdomain\}/g, 'a');
-    }
-    function _qmsTransformRequest(url) {
-        if (url.indexOf('https://qmsq.invalid/') !== 0) return;   // not ours → unchanged
-        try {
-            var u = new URL(url);
-            var p = u.pathname.split('/').filter(Boolean);         // [z, x, y]
-            return { url: _qmsResolveTile(u.searchParams.get('u') || '', +p[1], +p[2], +p[0]) };
-        } catch (e) { return; }
-    }
-
+    // Tile-URL transforms (quadkey/subdomain via transformRequest, EPSG:3395
+    // reprojection via the 'reproj' protocol) live in basemaps.js. The main map
+    // wants globe projection + the demotiles glyph server.
+    LSBasemaps.registerProtocols();
     function buildRasterStyle(bm) {
-        var base = { type: 'raster', tiles: [_qmsWrapTiles(bm.tiles)], tileSize: bm.tileSize || 256, attribution: bm.attr || '' };
-        if (bm.scheme) base.scheme = bm.scheme;            // 'tms' for bottom-origin tiles (QMS)
-        if (bm.minzoom != null) base.minzoom = bm.minzoom;
-        if (bm.maxzoom != null) base.maxzoom = bm.maxzoom; // overzoom past the source's top zoom instead of 404
-        var sources = { basemap: base };
-        var layers  = [{ id: 'basemap', type: 'raster', source: 'basemap' }];
-        if (bm.labelTiles) {
-            sources.labels = { type: 'raster', tiles: [bm.labelTiles], tileSize: 256 };
-            layers.push({ id: 'labels', type: 'raster', source: 'labels' });
-        }
-        return { version: 8, sources: sources, layers: layers,
-                 projection: { type: 'globe' },
-                 glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf' };
+        return LSBasemaps.buildRasterStyle(bm, {
+            globe: true,
+            glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        });
     }
 
     // User-added QuickMapServices basemaps (editor exploration tool), persisted
@@ -612,7 +496,13 @@
     }
 
     // Merge any previously-added QMS basemaps so they're selectable on load.
-    _loadQmsBasemaps().forEach(function (b) { if (b && b.id && !findBasemap(b.id)) BASEMAPS.push(b); });
+    _loadQmsBasemaps().forEach(function (b) {
+        if (!b || !b.id || findBasemap(b.id)) return;
+        // Self-heal layers saved before reproject existed: an EPSG:3395 layer
+        // with no reproject flag would render as raw (misaligned) tiles.
+        if (!b.reproject && b.coverage && b.coverage.indexOf('EPSG:3395') === 0) b.reproject = 'epsg3395';
+        BASEMAPS.push(b);
+    });
 
     var _initialBasemapId = (_initialHash.base && findBasemap(_initialHash.base))
                             ? _initialHash.base : DEFAULT_BASEMAP_ID;
@@ -627,7 +517,7 @@
         center: (_initialHash.lon != null && _initialHash.lat != null)
                 ? [_initialHash.lon, _initialHash.lat] : [-153, 62],
         zoom: (_initialHash.zoom != null) ? _initialHash.zoom : 4,
-        transformRequest: _qmsTransformRequest   // resolves quadkey/subdomain QMS tiles
+        transformRequest: LSBasemaps.transformRequest   // resolves quadkey/subdomain QMS tiles
     });
     // Globe projection — MapLibre 4.x. Re-assert on every style.load so
     // external-URL basemaps (whose JSON we don't control) also get it.
@@ -1567,9 +1457,10 @@
         var id = 'qms-' + det.id;
         if (!findBasemap(id)) {
             var bm = { id: id, label: det.name, category: 'QMS',
-                       coverage: 'EPSG:' + det.epsg + (det.compatible ? '' : ' — may misalign'),
+                       coverage: 'EPSG:' + det.epsg + (det.reproject ? ' (reprojected)' : (det.compatible ? '' : ' — may misalign')),
                        tiles: det.url, attr: det.copyright_text || ('QMS #' + det.id),
-                       scheme: det.scheme, minzoom: det.z_min || 0, maxzoom: det.z_max || 19, _qms: true };
+                       scheme: det.scheme, reproject: det.reproject,
+                       minzoom: det.z_min || 0, maxzoom: det.z_max || 19, _qms: true };
             BASEMAPS.push(bm);
             var saved = _loadQmsBasemaps(); saved.push(bm); _saveQmsBasemaps(saved);
             rebuildBasemapUI();
