@@ -867,6 +867,7 @@
         if (!map.getSource('pending-poly-src')) ensurePendingLayers();
         if (map.getSource('pending-poly-src')) map.getSource('pending-poly-src').setData(_pendingData.polygons);
         if (map.getSource('pending-pt-src'))   map.getSource('pending-pt-src').setData(_pendingData.points);
+        _swipeSetPending();   // mirror to the comparison map too
     }
     function loadPending() {
         fetch(API_BASE + 'api/provisional/').then(function (r) { return r.json(); }).then(function (d) {
@@ -967,6 +968,7 @@
     var polygonLoadPending = false;
     var _settings = null, _mapReady = false, _settingsReady = false, _layersInitialized = false;
     var _featuresData = null;      // cached GeoJSON so re-init after basemap switch is instant
+    var _polygonsData = null;      // last loaded polygons GeoJSON (mirrored to the swipe map)
     var _surveyCirclesData = null; // cached survey-circles GeoJSON (fetched on first toggle)
     var _faultsData = null;        // cached AK Quaternary faults GeoJSON (fetched at init; on by default)
     var _currentBasemap = _initialBasemapId;
@@ -1032,14 +1034,51 @@
                 _suscValuesPromise.then(function () {
                     mergeSuscValues(data);
                     if (map.getSource('landslides')) map.getSource('landslides').setData(data);
+                    _swipeSetFeatures(data);
                     if (map.getLayer('points')) buildFilter();
                     scatterDrawAll();
                 });
                 if (map.getSource('landslides')) map.getSource('landslides').setData(data);
+                _swipeSetFeatures(data);
             })
             .catch(function (e) { console.error('Feature load failed:', e); });
 
         map.on('moveend', onMoveEnd);
+    }
+
+    // Landslide data layers (points + the two polygon layers), shared by the
+    // main map and the swipe comparison map so their symbology is identical.
+    // Paint references the module-scope style vars set by initLayers + the
+    // shared LSColors expressions. Returns [points, polygon-fill, polygon-outline].
+    function _landslideLayerDefs() {
+        return [
+            {
+                id: 'points', type: 'circle', source: 'landslides',
+                layout: {
+                    'circle-sort-key': ['match', ['get', 'landslide_class'],
+                        'Catastrophic Cryptic', 50,
+                        'Slow Obvious creep', 40, 'Slow Patchy obvious creep', 40,
+                        'Catastrophic Obvious creep', 40, 'Catastrophic Patchy obvious creep', 40,
+                        'Slow Subtle creep', 30, 'Catastrophic Subtle creep', 30,
+                        'Slow Geomorph creep', 20, 'Small slow landslide', 20, 'Catastrophic Geomorph creep', 20,
+                        10]
+                },
+                paint: {
+                    'circle-color': _classFill,
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'],
+                        4,  ['match', ['get', 'landslide_class'], ['Small slow landslide', 'Small catastrophic landslide'], _rSm * 0.6, _rSm],
+                        8,  ['match', ['get', 'landslide_class'], ['Small slow landslide', 'Small catastrophic landslide'], _rMd * 0.6, _rMd],
+                        12, ['match', ['get', 'landslide_class'], ['Small slow landslide', 'Small catastrophic landslide'], _rLg * 0.6, _rLg]],
+                    'circle-stroke-width': _classStrokeW,
+                    'circle-stroke-color': _classStroke,
+                    'circle-opacity': 0.9
+                }
+            },
+            { id: 'polygon-fill', type: 'fill', source: 'polygons',
+              paint: { 'fill-color': window.LSColors.polygonFill(_palette), 'fill-opacity': _fOp } },
+            { id: 'polygon-outline', type: 'line', source: 'polygons',
+              paint: { 'line-color': window.LSColors.polygonOutline(_palette), 'line-width': _lW } },
+        ];
     }
 
     // Add/re-add data sources and layers (called on initial load and after every basemap switch).
@@ -1098,50 +1137,11 @@
         map.addSource('landslides', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addSource('polygons',   { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
-        map.addLayer({
-            id: 'points', type: 'circle', source: 'landslides',
-            layout: {
-                'circle-sort-key': ['match', ['get', 'landslide_class'],
-                    // Top: post-2012 catastrophic (dark blue, no precursor)
-                    'Catastrophic Cryptic', 50,
-                    // Obviously creeping (red halo or red dot)
-                    'Slow Obvious creep', 40, 'Slow Patchy obvious creep', 40,
-                    'Catastrophic Obvious creep', 40, 'Catastrophic Patchy obvious creep', 40,
-                    // Subtle (yellow)
-                    'Slow Subtle creep', 30, 'Catastrophic Subtle creep', 30,
-                    // Geomorphic (green)
-                    'Slow Geomorph creep', 20, 'Small slow landslide', 20, 'Catastrophic Geomorph creep', 20,
-                    // Bottom: de-emphasized pale blue
-                    10
-                ]
-            },
-            paint: {
-                'circle-color': _classFill,
-                'circle-radius': ['interpolate', ['linear'], ['zoom'],
-                    4,  ['match', ['get', 'landslide_class'], ['Small slow landslide', 'Small catastrophic landslide'], _rSm * 0.6, _rSm],
-                    8,  ['match', ['get', 'landslide_class'], ['Small slow landslide', 'Small catastrophic landslide'], _rMd * 0.6, _rMd],
-                    12, ['match', ['get', 'landslide_class'], ['Small slow landslide', 'Small catastrophic landslide'], _rLg * 0.6, _rLg]
-                ],
-                'circle-stroke-width': _classStrokeW,
-                'circle-stroke-color': _classStroke,
-                'circle-opacity': 0.9
-            }
-        }, bId);
-        ensurePinLabel();   // editor-only field labels (re-added with the layers)
-        map.addLayer({
-            id: 'polygon-fill', type: 'fill', source: 'polygons',
-            paint: {
-                'fill-color': window.LSColors.polygonFill(_palette),
-                'fill-opacity': _fOp
-            }
-        }, bId);
-        map.addLayer({
-            id: 'polygon-outline', type: 'line', source: 'polygons',
-            paint: {
-                'line-color': window.LSColors.polygonOutline(_palette),
-                'line-width': _lW
-            }
-        }, bId);
+        var _ldefs = _landslideLayerDefs();
+        map.addLayer(_ldefs[0], bId);   // points
+        ensurePinLabel();               // editor-only field labels (re-added with the layers)
+        map.addLayer(_ldefs[1], bId);   // polygon-fill
+        map.addLayer(_ldefs[2], bId);   // polygon-outline
         map.addLayer({
             id: 'polygon-hover', type: 'line', source: 'polygons',
             filter: ['==', 'landslide_id', -1],
@@ -1315,6 +1315,7 @@
                 inCat.forEach(function (bm) { grid.appendChild(_buildBasemapCard(bm)); });
                 rm.appendChild(grid);
             });
+            rm.appendChild(_buildSwipeUI());   // swipe/compare controls
         }
         var pinned = document.getElementById('pinned-basemap');
         if (pinned) {
@@ -1566,6 +1567,164 @@
           }).catch(function () {});
     }
 
+    // ---------------------------------------------------------------------------
+    // Swipe / wipe comparison: a second, view-synced map (basemap B + the same
+    // landslide layers) clipped to one side of a draggable divider, stacked over
+    // the main map. Data is drawn on BOTH maps so it reads continuous across the
+    // divider; the comparison map is pointer-events:none so clicks fall through
+    // to the main map. Reuses the shared basemap + color modules and the active
+    // filter, so toggling classes/types off gives a clean image-only swipe.
+    // ---------------------------------------------------------------------------
+    var _swipe = { map: null, container: null, divider: null, basemapId: null, x: 50, on: false };
+    var _swipeFilter = null;        // last filter expression (applied to a newly-enabled swipe map)
+
+    function _swipeSetFeatures(data) {
+        if (_swipe.map && _swipe.map.getSource('landslides')) _swipe.map.getSource('landslides').setData(data);
+    }
+    function _swipeSetPolygons(data) {
+        if (_swipe.map && _swipe.map.getSource('polygons')) _swipe.map.getSource('polygons').setData(data);
+    }
+    function _swipeSetFilter(f) {
+        if (!_swipe.map) return;
+        ['points', 'polygon-fill', 'polygon-outline'].forEach(function (id) {
+            if (_swipe.map.getLayer(id)) _swipe.map.setFilter(id, f);
+        });
+    }
+    function _swipeAddData(cmap) {
+        if (!cmap.getSource('landslides'))
+            cmap.addSource('landslides', { type: 'geojson', data: _featuresData || { type: 'FeatureCollection', features: [] } });
+        if (!cmap.getSource('polygons'))
+            cmap.addSource('polygons', { type: 'geojson', data: _polygonsData || { type: 'FeatureCollection', features: [] } });
+        _landslideLayerDefs().forEach(function (def) { if (!cmap.getLayer(def.id)) cmap.addLayer(def); });
+        if (_swipeFilter) _swipeSetFilter(_swipeFilter);
+        // Editor-only provisional (pending) layers — mirror the main map's magenta drafts.
+        if (window._isInventoryEditor) {
+            if (!cmap.getSource('pending-poly-src')) cmap.addSource('pending-poly-src', { type: 'geojson', data: _pendingData.polygons });
+            if (!cmap.getSource('pending-pt-src'))   cmap.addSource('pending-pt-src',   { type: 'geojson', data: _pendingData.points });
+            if (!cmap.getLayer('pending-poly-fill')) cmap.addLayer({ id: 'pending-poly-fill', type: 'fill', source: 'pending-poly-src',
+                paint: { 'fill-color': '#d6219e', 'fill-opacity': 0.12 } });
+            if (!cmap.getLayer('pending-poly-line')) cmap.addLayer({ id: 'pending-poly-line', type: 'line', source: 'pending-poly-src',
+                paint: { 'line-color': '#d6219e', 'line-width': 2, 'line-dasharray': [3, 1.5] } });
+            if (!cmap.getLayer('pending-pt')) cmap.addLayer({ id: 'pending-pt', type: 'circle', source: 'pending-pt-src',
+                paint: { 'circle-radius': 6, 'circle-color': '#d6219e', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+        }
+    }
+    function _swipeSetPending() {
+        if (!_swipe.map) return;
+        if (_swipe.map.getSource('pending-poly-src')) _swipe.map.getSource('pending-poly-src').setData(_pendingData.polygons);
+        if (_swipe.map.getSource('pending-pt-src'))   _swipe.map.getSource('pending-pt-src').setData(_pendingData.points);
+    }
+    function _swipeSyncView() {
+        if (!_swipe.map || !_swipe.on) return;
+        _swipe.map.jumpTo({ center: map.getCenter(), zoom: map.getZoom(),
+                            bearing: map.getBearing(), pitch: map.getPitch() });
+    }
+    function _swipeSetX(x) {
+        _swipe.x = Math.max(0, Math.min(100, x));
+        if (_swipe.container) _swipe.container.style.clipPath = 'inset(0 0 0 ' + _swipe.x + '%)';
+        if (_swipe.divider) _swipe.divider.style.left = _swipe.x + '%';
+    }
+    function _swipeStyleFor(bm) { return bm.style ? bm.style : buildRasterStyle(bm); }
+
+    function _swipeEnsure() {
+        if (_swipe.map) return;
+        var host = document.getElementById('map').parentNode;
+        var cont = document.createElement('div');
+        cont.id = 'swipe-map';
+        cont.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;z-index:2;pointer-events:none;';
+        cont.style.clipPath = 'inset(0 0 0 ' + _swipe.x + '%)';
+        host.appendChild(cont);
+        _swipe.container = cont;
+
+        var divr = document.createElement('div');
+        divr.id = 'swipe-divider';
+        divr.style.cssText = 'position:absolute;top:0;bottom:0;left:' + _swipe.x + '%;width:3px;margin-left:-1.5px;' +
+            'background:#fff;box-shadow:0 0 3px rgba(0,0,0,.6);z-index:3;cursor:ew-resize;touch-action:none;';
+        var handle = document.createElement('div');
+        handle.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:26px;height:26px;' +
+            'border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.4);color:#5D4037;font-size:13px;' +
+            'display:flex;align-items:center;justify-content:center;';
+        handle.textContent = '⇄';
+        divr.appendChild(handle);
+        host.appendChild(divr);
+        _swipe.divider = divr;
+        var dragging = false;
+        divr.addEventListener('pointerdown', function (e) { dragging = true; divr.setPointerCapture(e.pointerId); e.preventDefault(); });
+        divr.addEventListener('pointermove', function (e) {
+            if (!dragging) return;
+            var r = host.getBoundingClientRect();
+            _swipeSetX((e.clientX - r.left) / r.width * 100);
+        });
+        divr.addEventListener('pointerup', function () { dragging = false; });
+
+        var bm = findBasemap(_swipe.basemapId) || findBasemap(DEFAULT_BASEMAP_ID);
+        _swipe.basemapId = bm.id;
+        var cmap = new maplibregl.Map({
+            container: cont, style: _swipeStyleFor(bm),
+            center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch(),
+            interactive: false, attributionControl: false,
+            transformRequest: LSBasemaps.transformRequest,
+        });
+        _swipe.map = cmap;
+        cmap.on('style.load', function () {
+            if (typeof cmap.setProjection === 'function') { try { cmap.setProjection({ type: 'globe' }); } catch (e) {} }
+            _swipeAddData(cmap);
+        });
+        map.on('move', _swipeSyncView);
+        map.on('resize', function () { if (_swipe.map) _swipe.map.resize(); });
+    }
+
+    function _swipeEnable(basemapId) {
+        var hadMap = !!_swipe.map;
+        if (basemapId) _swipe.basemapId = basemapId;
+        _swipeEnsure();
+        if (hadMap && basemapId) _swipeSetBasemap(basemapId);   // existing map → switch its basemap
+        _swipe.on = true;
+        if (_swipe.container) _swipe.container.style.display = '';
+        if (_swipe.divider) _swipe.divider.style.display = '';
+        _swipeSyncView();
+        if (_swipe.map) _swipe.map.resize();
+    }
+    function _swipeDisable() {
+        _swipe.on = false;
+        if (_swipe.container) _swipe.container.style.display = 'none';
+        if (_swipe.divider) _swipe.divider.style.display = 'none';
+    }
+    function _swipeSetBasemap(id) {
+        var bm = findBasemap(id);
+        _swipe.basemapId = id;
+        if (bm && _swipe.map) _swipe.map.setStyle(_swipeStyleFor(bm), { diff: false });  // style.load re-adds data
+    }
+
+    function _buildSwipeUI() {
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'margin-top:12px;';
+        var hdr = document.createElement('div');
+        hdr.className = 'refmaps-category'; hdr.textContent = 'Compare (swipe)';
+        wrap.appendChild(hdr);
+        var hint = document.createElement('div');
+        hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:5px;line-height:1.35;';
+        hint.textContent = 'Add a wiper-comparison base-map on the right.';
+        wrap.appendChild(hint);
+        var sel = document.createElement('select');
+        sel.style.cssText = 'width:100%;font-size:12px;padding:3px 4px;border:1px solid #ccc;border-radius:3px;';
+        var none = document.createElement('option');
+        none.value = ''; none.textContent = 'none';
+        if (!_swipe.on) none.selected = true;
+        sel.appendChild(none);
+        BASEMAPS.forEach(function (bm) {
+            var opt = document.createElement('option');
+            opt.value = bm.id; opt.textContent = bm.label;
+            if (_swipe.on && bm.id === _swipe.basemapId) opt.selected = true;
+            sel.appendChild(opt);
+        });
+        wrap.appendChild(sel);
+        sel.addEventListener('change', function () {
+            if (!sel.value) _swipeDisable(); else _swipeEnable(sel.value);
+        });
+        return wrap;
+    }
+
     (function () {
         // Tab switching: one panel visible at a time.
         document.querySelectorAll('.inv-tab').forEach(function (tab) {
@@ -1596,7 +1755,9 @@
     function onMoveEnd() {
         if (!map.getSource('polygons')) return;
         if (map.getZoom() < POLYGON_ZOOM) {
-            map.getSource('polygons').setData({ type: 'FeatureCollection', features: [] });
+            _polygonsData = { type: 'FeatureCollection', features: [] };
+            map.getSource('polygons').setData(_polygonsData);
+            _swipeSetPolygons(_polygonsData);
             document.getElementById('zoom-hint').style.display = '';
         } else {
             document.getElementById('zoom-hint').style.display = 'none';
@@ -1611,7 +1772,9 @@
                         // polygons the same way they filter points.
                         _suscValuesPromise.then(function () {
                             mergeSuscValues(data);
+                            _polygonsData = data;
                             map.getSource('polygons').setData(data);
+                            _swipeSetPolygons(data);
                             buildFilter();
                         });
                     })
@@ -2058,6 +2221,7 @@
             map.setFilter('polygon-fill', hideAll);
             map.setFilter('polygon-outline', hideAll);
             if (map.getLayer('pin-label')) map.setFilter('pin-label', hideAll);
+            _swipeSetFilter(hideAll);
             updateHistogram();
             updateTimeline();
             scheduleSidebarCountUpdate();
@@ -2145,6 +2309,8 @@
         map.setFilter('polygon-fill', f);
         map.setFilter('polygon-outline', f);
         if (map.getLayer('pin-label')) map.setFilter('pin-label', f);
+        _swipeFilter = f;            // remember so a newly-enabled swipe map can apply it
+        _swipeSetFilter(f);
         updateHistogram();
         updateTimeline();
         scheduleSidebarCountUpdate();

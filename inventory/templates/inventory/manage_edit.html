@@ -112,8 +112,10 @@
       {% for c in common_classes %}<option value="{{ c }}">{% endfor %}
     </datalist>
 
-    {# Sectioned, type-aware layout. Irrelevant groups are hidden per
-       landslide_type by the script at the bottom; computed fields collapse. #}
+    {% comment %}
+      Sectioned, type-aware layout. Irrelevant groups are hidden per
+      landslide_type by the script at the bottom; computed fields collapse.
+    {% endcomment %}
     {% for g in field_groups %}
       <div class="field-group group-{{ g.meta.key }}{% if g.meta.key == 'event' %} grp-event{% endif %}">
         {% if g.meta.collapsed %}
