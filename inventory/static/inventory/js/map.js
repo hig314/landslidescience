@@ -1049,30 +1049,30 @@
     // Landslide data layers (points + the two polygon layers), shared by the
     // main map and the swipe comparison map so their symbology is identical.
     // Paint references the module-scope style vars set by initLayers + the
-    // shared LSColors expressions. Returns [points, polygon-fill, polygon-outline].
+    // shared LSColors expressions. Returns [points, points-patchy, polygon-fill, polygon-outline].
     function _landslideLayerDefs() {
         return [
             {
                 id: 'points', type: 'circle', source: 'landslides',
-                layout: {
-                    'circle-sort-key': ['match', ['get', 'landslide_class'],
-                        'Catastrophic Cryptic', 50,
-                        'Slow Obvious creep', 40, 'Slow Patchy obvious creep', 40,
-                        'Catastrophic Obvious creep', 40, 'Catastrophic Patchy obvious creep', 40,
-                        'Slow Subtle creep', 30, 'Catastrophic Subtle creep', 30,
-                        'Slow Geomorph creep', 20, 'Small slow landslide', 20, 'Catastrophic Geomorph creep', 20,
-                        10]
-                },
+                layout: { 'circle-sort-key': window.LSColors.pointSortKey() },
                 paint: {
                     'circle-color': _classFill,
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'],
-                        4,  ['match', ['get', 'landslide_class'], ['Small slow landslide', 'Small catastrophic landslide'], _rSm * 0.6, _rSm],
-                        8,  ['match', ['get', 'landslide_class'], ['Small slow landslide', 'Small catastrophic landslide'], _rMd * 0.6, _rMd],
-                        12, ['match', ['get', 'landslide_class'], ['Small slow landslide', 'Small catastrophic landslide'], _rLg * 0.6, _rLg]],
+                    'circle-radius': window.LSColors.pointRadius(_palette, 1),
                     'circle-stroke-width': _classStrokeW,
                     'circle-stroke-color': _classStroke,
                     'circle-opacity': 0.9
                 }
+            },
+            // Slow patchy-obvious: a small red center dot over the yellow base
+            // (symbolically "partly obvious"). Scaled to sit inside the dot.
+            { id: 'points-patchy', type: 'circle', source: 'landslides',
+              filter: window.LSColors.PATCHY_FILTER,
+              paint: {
+                  'circle-color': _palette.patchyDot,
+                  'circle-radius': window.LSColors.pointRadius(_palette, 0.45),
+                  'circle-stroke-width': 0,
+                  'circle-opacity': 0.95
+              }
             },
             { id: 'polygon-fill', type: 'fill', source: 'polygons',
               paint: { 'fill-color': window.LSColors.polygonFill(_palette), 'fill-opacity': _fOp } },
@@ -1139,9 +1139,10 @@
 
         var _ldefs = _landslideLayerDefs();
         map.addLayer(_ldefs[0], bId);   // points
+        map.addLayer(_ldefs[1], bId);   // points-patchy (red center)
         ensurePinLabel();               // editor-only field labels (re-added with the layers)
-        map.addLayer(_ldefs[1], bId);   // polygon-fill
-        map.addLayer(_ldefs[2], bId);   // polygon-outline
+        map.addLayer(_ldefs[2], bId);   // polygon-fill
+        map.addLayer(_ldefs[3], bId);   // polygon-outline
         map.addLayer({
             id: 'polygon-hover', type: 'line', source: 'polygons',
             filter: ['==', 'landslide_id', -1],

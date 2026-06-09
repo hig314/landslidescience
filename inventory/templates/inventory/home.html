@@ -84,7 +84,7 @@
       <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked
                {% if cnt == 0 %}disabled{% endif %}>
-        <span class="cls-dot cls-dot-slow" style="background:{{ color }};"></span>
+        {% include 'inventory/_cls_dot.html' with dot_class='cls-dot-slow' %}
         <span class="cls-name">{{ cls }}</span>
         <span class="cls-count">{{ cnt }}</span>
       </label>
@@ -104,7 +104,7 @@
       <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked
                {% if cnt == 0 %}disabled{% endif %}>
-        <span class="cls-dot cls-dot-slow" style="background:{{ color }};"></span>
+        {% include 'inventory/_cls_dot.html' with dot_class='cls-dot-slow' %}
         <span class="cls-name">{{ cls }}</span>
         <span class="cls-count">{{ cnt }}</span>
       </label>
@@ -118,7 +118,7 @@
       <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked
                {% if cnt == 0 %}disabled{% endif %}>
-        <span class="cls-dot cls-dot-cat" style="background:{{ color }};{% if halo %} box-shadow: 0 0 0 2px {{ halo }};{% endif %}"></span>
+        {% include 'inventory/_cls_dot.html' with dot_class='cls-dot-cat' %}
         <span class="cls-name">{{ cls }}</span>
         <span class="cls-count">{{ cnt }}</span>
       </label>
@@ -138,7 +138,7 @@
       <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked
                {% if cnt == 0 %}disabled{% endif %}>
-        <span class="cls-dot cls-dot-cat" style="background:{{ color }};"></span>
+        {% include 'inventory/_cls_dot.html' with dot_class='cls-dot-cat' %}
         <span class="cls-name">{{ cls }}</span>
         <span class="cls-count">{{ cnt }}</span>
       </label>
@@ -151,7 +151,7 @@
       <label class="nav-filter-label {% if unclassified_count == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="__unclassified__" checked
                {% if unclassified_count == 0 %}disabled{% endif %}>
-        <span class="cls-dot" style="background:#999; border:1px dashed #555;"></span>
+        <span class="cls-dot" style="background:{{ incomplete_color }}; border:1px dashed #7a1163;"></span>
         <span class="cls-name">Incomplete classification</span>
         <span class="cls-count">{{ unclassified_count }}</span>
       </label>

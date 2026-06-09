@@ -1,0 +1,7 @@
+{% comment %}
+Legend swatch for one class row. Inherits cls / color / halo from the loop;
+caller passes dot_class ('cls-dot-slow' or 'cls-dot-cat'). The two size-only
+"Small …" rows render a little row of dots (their members vary in color);
+slow patchy-obvious gets a red center over the yellow base — both mirror the
+map styling in ls_colors.js.
+{% endcomment %}{% if cls == 'Small slow landslide' %}<span class="cls-dot-row" title="small landslides (any creep style), shown at half size">{% for c in small_slow_swatch %}<span class="cls-mini cls-mini-slow" style="background:{{ c }};"></span>{% endfor %}</span>{% elif cls == 'Small catastrophic landslide' %}<span class="cls-dot-row" title="small landslides (any age), shown at half size">{% for c in small_cat_swatch %}<span class="cls-mini cls-mini-cat" style="background:{{ c }};"></span>{% endfor %}</span>{% elif cls == 'Slow Patchy obvious creep' %}<span class="cls-dot cls-dot-slow" style="background:radial-gradient(circle at 50% 50%, {{ patchy_center }} 0 40%, {{ color }} 42% 100%);"></span>{% else %}<span class="cls-dot {{ dot_class }}" style="background:{{ color }};{% if halo %} box-shadow: 0 0 0 2px {{ halo }};{% endif %}"></span>{% endif %}

@@ -69,27 +69,43 @@ _CAT_OTHER_ORDER = [
     'Catastrophic Holocene',
     'Small catastrophic landslide',
 ]
+# Palette — MUST stay in sync with ls_colors.js (DEFAULTS). Slow color = creep
+# style; catastrophic color = age band; magenta = "incomplete" (missing the
+# dimension display rests on). The two "Small …" legend rows render as a little
+# row of dots (the styles members can take), not one color — see home.html.
+_C_OBVIOUS    = '#f69fa1'   # slow obvious creep (red)
+_C_SUBTLE     = '#faf075'   # slow subtle / patchy-obvious base (yellow)
+_C_GEOMORPH   = '#d3e9cf'   # slow geomorph creep (green)
+_C_RECENT     = '#2b368f'   # catastrophic ≥2012 (deep saturated blue)
+_C_MODERN     = '#5479bd'   # catastrophic Modern (medium blue)
+_C_HOLOCENE   = '#aecbe9'   # catastrophic Holocene (pale blue)
+_C_INCOMPLETE = '#d11fa0'   # no creep (slow) / no age (catastrophic)
+_C_PATCHY_DOT = '#d62728'   # red center over the yellow patchy-obvious dot
+
+_SMALL_SLOW_SWATCH = [_C_OBVIOUS, _C_SUBTLE, _C_GEOMORPH]
+_SMALL_CAT_SWATCH  = [_C_RECENT, _C_MODERN, _C_HOLOCENE]
+
 _CLASS_COLOR = {
-    'Slow Obvious creep':                '#f69fa1',
-    'Slow Patchy obvious creep':         '#f69fa1',
-    'Slow Subtle creep':                 '#faf075',
-    'Slow Geomorph creep':               '#d3e9cf',
-    'Small slow landslide':              '#d3e9cf',
-    'Catastrophic Cryptic':              '#3f67b1',
-    'Small catastrophic landslide':      '#96b8df',
-    'Catastrophic Holocene':             '#96b8df',
-    'Catastrophic Modern':               '#96b8df',
-    'Catastrophic Obvious creep':        '#3f67b1',
-    'Catastrophic Patchy obvious creep': '#3f67b1',
-    'Catastrophic Subtle creep':         '#3f67b1',
-    'Catastrophic Geomorph creep':       '#3f67b1',
+    'Slow Obvious creep':                _C_OBVIOUS,
+    'Slow Patchy obvious creep':         _C_SUBTLE,   # yellow base; red center added in template
+    'Slow Subtle creep':                 _C_SUBTLE,
+    'Slow Geomorph creep':               _C_GEOMORPH,
+    'Small slow landslide':              _C_GEOMORPH,  # row of dots in template
+    'Catastrophic Cryptic':              _C_RECENT,
+    'Small catastrophic landslide':      _C_MODERN,    # row of dots in template
+    'Catastrophic Holocene':             _C_HOLOCENE,
+    'Catastrophic Modern':               _C_MODERN,
+    'Catastrophic Obvious creep':        _C_RECENT,
+    'Catastrophic Patchy obvious creep': _C_RECENT,
+    'Catastrophic Subtle creep':         _C_RECENT,
+    'Catastrophic Geomorph creep':       _C_RECENT,
 }
 # Halo color for catastrophic landslides with precursory creep
 _HALO_COLOR = {
-    'Catastrophic Obvious creep':        '#f69fa1',
-    'Catastrophic Patchy obvious creep': '#f69fa1',
-    'Catastrophic Subtle creep':         '#faf075',
-    'Catastrophic Geomorph creep':       '#d3e9cf',
+    'Catastrophic Obvious creep':        _C_OBVIOUS,
+    'Catastrophic Patchy obvious creep': _C_OBVIOUS,
+    'Catastrophic Subtle creep':         _C_SUBTLE,
+    'Catastrophic Geomorph creep':       _C_GEOMORPH,
 }
 
 # ---------------------------------------------------------------------------
@@ -320,6 +336,12 @@ def home(request):
         "unclassified_count": unclassified,
         "flagged_count":      flagged,
         "data_version":       _data_version,
+        # Legend swatches for the two size-only "Small …" rows (members vary in
+        # color) + the patchy-obvious red center + the "incomplete" magenta.
+        "small_slow_swatch":  _SMALL_SLOW_SWATCH,
+        "small_cat_swatch":   _SMALL_CAT_SWATCH,
+        "patchy_center":      _C_PATCHY_DOT,
+        "incomplete_color":   _C_INCOMPLETE,
     })
 
 
@@ -437,6 +459,7 @@ def api_features(request):
                         'noted_by',     l.noted_by,
                         'year_text',    l.year_text,
                         'creep_behavior', l.creep_behavior,
+                        'size_inclusion', l.size_inclusion,   -- drives dot size (full vs half)
                         -- shared filter properties (mirror of api_polygons) →
                         {_FILTER_PROPS_SQL}
                     )
@@ -544,6 +567,7 @@ def api_polygons(request):
                         'unique_name', l.unique_name,
                         'landslide_type', l.landslide_type,
                         'landslide_class', l.landslide_class,
+                        'creep_behavior', l.creep_behavior,   -- polygon fill = creep (slow) / age (cat)
                         'role', p.role,
                         'area', p.area,
                         'thickness', p.thickness,
@@ -1620,10 +1644,20 @@ def manage_edit(request, landslide_id, review_mode=False):
                         'properties', json_build_object('db_id', p.id,
                                                         'role', p.role,
                                                         'is_primary', p.is_primary,
-                                                        -- so the preview map colors
-                                                        -- polygons by class, matching
-                                                        -- the main map (ls_colors.js)
-                                                        'landslide_class', l.landslide_class)
+                                                        -- so the preview map colors polygons
+                                                        -- by the same attributes as the main
+                                                        -- map (ls_colors.js): type + creep +
+                                                        -- age. landslide_class kept for ref.
+                                                        'landslide_class', l.landslide_class,
+                                                        'landslide_type', l.landslide_type,
+                                                        'creep_behavior', l.creep_behavior,
+                                                        'year_num', CASE
+                                                            WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
+                                                            WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
+                                                            WHEN l.year_text ~ '^[0-9]{4}$' THEN l.year_text::int
+                                                            WHEN l.date_min IS NOT NULL THEN EXTRACT(YEAR FROM l.date_min)::int
+                                                            ELSE NULL
+                                                        END)
                     )
                 ), '[]'::json)
             )::text
