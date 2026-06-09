@@ -239,6 +239,17 @@
     draw.on('deselect', function () { selectedId = null; });
   }
 
+  // Terra Draw rejects coordinates carrying more than 9 decimal places
+  // ("Feature has invalid coordinates"); our stored geometry is served at 15 dp
+  // (ST_AsGeoJSON(…, 15)). Round on the way in — 9 dp ≈ 0.1 mm, far below any
+  // mapping accuracy — so existing polygons load into the editor instead of
+  // coming up empty.
+  function round9(coords) {
+    if (typeof coords[0] === 'number')
+      return [Math.round(coords[0] * 1e9) / 1e9, Math.round(coords[1] * 1e9) / 1e9];
+    return coords.map(round9);
+  }
+
   function loadFeatures() {
     var feats = [];
     (host.polygons.features || []).forEach(function (f) {
@@ -247,8 +258,9 @@
       // Our data is single-part; take the first part defensively.
       var polys = toPolygons(f.geometry);
       if (!polys.length) return;
+      var geom = { type: 'Polygon', coordinates: round9(polys[0].coordinates) };
       var id = uuid();
-      feats.push({ id: id, type: 'Feature', geometry: polys[0], properties: { mode: 'polygon' } });
+      feats.push({ id: id, type: 'Feature', geometry: geom, properties: { mode: 'polygon' } });
       if (dbId != null) { uuidToDbId[id] = dbId; originalDbIds.push(dbId); }
       if (role != null) featureRole[id] = role;
     });

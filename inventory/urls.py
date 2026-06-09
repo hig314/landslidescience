@@ -60,6 +60,7 @@ urlpatterns = [
     path('manage/draw/preview/', views.manage_draw_preview, name='manage_draw_preview'),
     path('manage/draw/commit/', views.manage_draw_commit, name='manage_draw_commit'),
     path('manage/<int:landslide_id>/', views.manage_edit, name='manage_edit'),
+    path('manage/<int:landslide_id>/delete/', views.manage_delete, name='manage_delete'),
     path('manage/<int:landslide_id>/review/', views.manage_review, name='manage_review'),
     path('manage/<int:landslide_id>/polygons/', views.manage_polygons_save,
          name='manage_polygons_save'),

@@ -371,10 +371,17 @@ _FILTER_PROPS_SQL = """
                                          THEN l.area_body ELSE l.area_source END,
                         'area_dep', CASE WHEN l.landslide_type = 'catastrophic'
                                          THEN l.area_deposit ELSE NULL END,
+                        -- Age band for the map (catastrophic color) + age slider.
+                        -- Mirrors derived._resolve_event_era so SMALL catastrophic
+                        -- records (whose landslide_class is "Small …", carrying no
+                        -- era token) still resolve their age from year_text/seismic.
                         'year_num', CASE
+                            WHEN l.seismic_datetime IS NOT NULL THEN EXTRACT(YEAR FROM l.seismic_datetime)::int
+                            WHEN l.year_text ~ '^[0-9]{4}$' THEN l.year_text::int
+                            WHEN l.year_text ILIKE '%%holocene%%' THEN -1
+                            WHEN l.year_text ILIKE '%%modern%%'   THEN 0
                             WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
                             WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
-                            WHEN l.year_text ~ '^[0-9]{4}$' THEN l.year_text::int
                             WHEN l.date_min IS NOT NULL THEN EXTRACT(YEAR FROM l.date_min)::int
                             ELSE NULL
                         END,
@@ -761,9 +768,12 @@ def api_timed_events(request):
             l.centroid_lat AS lat,
             l.centroid_lon AS lon,
             CASE
+                WHEN l.seismic_datetime IS NOT NULL        THEN EXTRACT(YEAR FROM l.seismic_datetime)::int
+                WHEN l.year_text ~ '^[0-9]{4}$'           THEN l.year_text::int
+                WHEN l.year_text ILIKE '%%holocene%%'      THEN -1
+                WHEN l.year_text ILIKE '%%modern%%'        THEN 0
                 WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
                 WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
-                WHEN l.year_text ~ '^[0-9]{4}$'           THEN l.year_text::int
                 WHEN l.date_min IS NOT NULL                THEN EXTRACT(YEAR FROM l.date_min)::int
                 ELSE NULL
             END AS year_num,
@@ -856,9 +866,12 @@ def api_timeline_events(request):
             l.centroid_lat AS lat,
             l.centroid_lon AS lon,
             CASE
+                WHEN l.seismic_datetime IS NOT NULL        THEN EXTRACT(YEAR FROM l.seismic_datetime)::int
+                WHEN l.year_text ~ '^[0-9]{4}$'           THEN l.year_text::int
+                WHEN l.year_text ILIKE '%%holocene%%'      THEN -1
+                WHEN l.year_text ILIKE '%%modern%%'        THEN 0
                 WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
                 WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
-                WHEN l.year_text ~ '^[0-9]{4}$'           THEN l.year_text::int
                 WHEN l.date_min IS NOT NULL                THEN EXTRACT(YEAR FROM l.date_min)::int
                 ELSE NULL
             END AS year_num,
@@ -1269,7 +1282,55 @@ def manage_list(request):
         'all_subsets': all_subsets or [],
         'pending_count':    pending_count,
         'pending_first_id': pending_first_id,
+        'deleted_name':     request.GET.get('deleted', ''),
     })
+
+
+@inventory_editor_required
+@require_POST
+def manage_delete(request, landslide_id):
+    """Permanently delete a landslide and everything keyed to it — polygons,
+    polygon edit-history, subset memberships, Planet-Story links, and edit
+    metadata — in one transaction. Irreversible; distinct from deprecation
+    (the soft, non-destructive retire). Restricted to superusers.
+    """
+    if not request.user.is_superuser:
+        return HttpResponse(
+            'Permanently deleting a landslide is restricted to superusers. '
+            'Use Deprecate to retire a record non-destructively.', status=403)
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT unique_name FROM landslides WHERE id = %s", (landslide_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return redirect('inventory:manage_list')
+        name = row[0] or f'id {landslide_id}'
+        # Children first, then clear inbound supersede pointers, then the row.
+        cur.execute("DELETE FROM landslide_polygons_history WHERE landslide_id = %s", (landslide_id,))
+        cur.execute("DELETE FROM landslide_polygons WHERE landslide_id = %s", (landslide_id,))
+        cur.execute("DELETE FROM landslide_subsets WHERE landslide_id = %s", (landslide_id,))
+        cur.execute("DELETE FROM landslide_planet_stories WHERE landslide_id = %s", (landslide_id,))
+        cur.execute("UPDATE landslides SET superseded_by = NULL WHERE superseded_by = %s", (landslide_id,))
+        cur.execute("DELETE FROM landslides WHERE id = %s", (landslide_id,))
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        return HttpResponse(f'Delete failed: {exc}', status=500)
+    finally:
+        _put_conn(conn)
+
+    # SQLite-side edit metadata (separate DB, outside the PostGIS transaction).
+    from .models import LandslideEditMeta
+    LandslideEditMeta.objects.filter(landslide_id=landslide_id).delete()
+
+    _invalidate('features', 'home_counts', 'unclassified_count', 'flagged_count',
+                'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
+
+    from urllib.parse import quote
+    return redirect(f"{reverse('inventory:manage_list')}?deleted={quote(name)}")
 
 
 @inventory_editor_required
@@ -1652,9 +1713,12 @@ def manage_edit(request, landslide_id, review_mode=False):
                                                         'landslide_type', l.landslide_type,
                                                         'creep_behavior', l.creep_behavior,
                                                         'year_num', CASE
+                                                            WHEN l.seismic_datetime IS NOT NULL THEN EXTRACT(YEAR FROM l.seismic_datetime)::int
+                                                            WHEN l.year_text ~ '^[0-9]{4}$' THEN l.year_text::int
+                                                            WHEN l.year_text ILIKE '%%holocene%%' THEN -1
+                                                            WHEN l.year_text ILIKE '%%modern%%'   THEN 0
                                                             WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
                                                             WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
-                                                            WHEN l.year_text ~ '^[0-9]{4}$' THEN l.year_text::int
                                                             WHEN l.date_min IS NOT NULL THEN EXTRACT(YEAR FROM l.date_min)::int
                                                             ELSE NULL
                                                         END)
@@ -1708,6 +1772,27 @@ def manage_edit(request, landslide_id, review_mode=False):
     finally:
         _put_conn(conn)
 
+    # Hard-delete impact summary (superusers only) — itemizes what a permanent
+    # delete would remove, for the danger-zone warning.
+    delete_impact = None
+    if request.user.is_superuser:
+        conn = _get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT (SELECT COUNT(*) FROM landslide_polygons         WHERE landslide_id = %s),
+                       (SELECT COUNT(*) FROM landslide_polygons_history  WHERE landslide_id = %s),
+                       (SELECT COUNT(*) FROM landslide_subsets           WHERE landslide_id = %s),
+                       (SELECT COUNT(*) FROM landslide_planet_stories    WHERE landslide_id = %s),
+                       (SELECT COUNT(*) FROM landslides                  WHERE superseded_by = %s)
+            """, (landslide_id,) * 5)
+            pc, hc, sc, plc, supc = cur.fetchone()
+            conn.rollback()
+        finally:
+            _put_conn(conn)
+        delete_impact = {'polygons': pc, 'history': hc, 'subsets': sc,
+                         'planet_stories': plc, 'superseding_ptrs': supc}
+
     template = 'inventory/manage_review.html' if review_mode else 'inventory/manage_edit.html'
     return render(request, template, {
         'form':              form,
@@ -1731,6 +1816,8 @@ def manage_edit(request, landslide_id, review_mode=False):
         'review_mode':       review_mode,
         'polygons_geojson':  polygons_geojson,
         'pending_remaining': pending_remaining,
+        'delete_impact':     delete_impact,
+        'can_hard_delete':   request.user.is_superuser,
     })
 
 

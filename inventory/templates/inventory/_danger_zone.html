@@ -1,0 +1,49 @@
+{% comment %}
+Superuser-only permanent-delete control for a landslide. Distinct from
+deprecation (soft retire). Itemizes exactly what the delete removes (counts
+from the manage_edit view's delete_impact), then gates the button behind an
+"I understand" checkbox AND a native confirm(). POSTs to manage_delete.
+Requires context: can_hard_delete, delete_impact, unique_name, landslide_id.
+{% endcomment %}
+{% if can_hard_delete %}
+<hr style="margin: 34px 0 14px; border: none; border-top: 1px solid #e0e0e0;">
+<details class="danger-zone" style="border:1px solid #f0c2c2; border-radius:6px; background:#fff8f8;">
+  <summary style="cursor:pointer; padding:11px 14px; color:#a11; font-weight:600; font-size:13px;">
+    ⚠ Danger zone — permanently delete this landslide
+  </summary>
+  <div style="padding:6px 16px 16px;">
+    <p style="font-size:13px; color:#444; margin-top:6px;">
+      This is <strong>not</strong> deprecation. It permanently removes the record and
+      everything keyed to it. <strong style="color:#a11;">This cannot be undone.</strong>
+    </p>
+    <p style="font-size:13px; color:#444; margin-bottom:6px;">
+      Deleting <strong>{{ unique_name }}</strong> (id {{ landslide_id }}) will remove:
+    </p>
+    <ul style="font-size:13px; color:#444; margin:0 0 12px; padding-left:20px; line-height:1.6;">
+      <li><strong>{{ delete_impact.polygons }}</strong> polygon{{ delete_impact.polygons|pluralize }} (geometry — source / deposit / body)</li>
+      <li><strong>{{ delete_impact.history }}</strong> polygon edit-history row{{ delete_impact.history|pluralize }}</li>
+      <li><strong>{{ delete_impact.subsets }}</strong> subset membership{{ delete_impact.subsets|pluralize }} (the subsets themselves are kept)</li>
+      <li><strong>{{ delete_impact.planet_stories }}</strong> Planet Stories link{{ delete_impact.planet_stories|pluralize }}{% if delete_impact.planet_stories %} (any archived MP4s stay cached){% endif %}</li>
+      <li>this record's edit metadata (last editor / timestamp)</li>
+      {% if delete_impact.superseding_ptrs %}<li><strong>{{ delete_impact.superseding_ptrs }}</strong> deprecated record{{ delete_impact.superseding_ptrs|pluralize }} pointing here will have their “superseded by” link cleared</li>{% endif %}
+    </ul>
+    <p style="font-size:12px; color:#999; margin:0 0 14px;">
+      Note: the map's susceptibility cache keeps a stale entry for this id until the next susc rebuild (harmless).
+    </p>
+    <form method="post" action="{% url 'inventory:manage_delete' landslide_id %}"
+          onsubmit="return confirm('Permanently delete “{{ unique_name|escapejs }}” (id {{ landslide_id }}) and its {{ delete_impact.polygons }} polygon(s), {{ delete_impact.subsets }} subset membership(s), and {{ delete_impact.planet_stories }} Planet link(s)?\n\nThis CANNOT be undone.');">
+      {% csrf_token %}
+      <label style="display:flex; align-items:center; gap:7px; font-size:13px; color:#a11; margin-bottom:11px;">
+        <input type="checkbox"
+               onchange="this.closest('form').querySelector('button[type=submit]').disabled = !this.checked;">
+        I understand this permanently deletes the record and cannot be undone.
+      </label>
+      <button type="submit" disabled
+              style="padding:8px 18px; background:#b71c1c; color:#fff; border:none; border-radius:4px;
+                     font-size:13px; cursor:pointer;">
+        Delete permanently
+      </button>
+    </form>
+  </div>
+</details>
+{% endif %}

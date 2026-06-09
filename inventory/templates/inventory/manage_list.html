@@ -5,6 +5,12 @@
 
 {% block body %}
 <div style="max-width: 1100px; margin: 24px auto; padding: 0 24px;">
+  {% if deleted_name %}
+    <div style="margin-bottom:14px; padding:9px 14px; background:#fdecea; border:1px solid #f5c2c2;
+                border-radius:4px; color:#7a1411; font-size:13px;">
+      Permanently deleted <strong>{{ deleted_name }}</strong> and all data keyed to it.
+    </div>
+  {% endif %}
   <div style="display:flex; align-items:center; gap:16px; margin-bottom: 14px; flex-wrap: wrap;">
     <h2 style="font-size:18px; margin: 0;">Landslide records</h2>
     <span style="font-size:13px; color:#666;">{{ total }} total</span>
