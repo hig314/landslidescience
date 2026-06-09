@@ -1585,11 +1585,29 @@
     function _swipeSetPolygons(data) {
         if (_swipe.map && _swipe.map.getSource('polygons')) _swipe.map.getSource('polygons').setData(data);
     }
-    function _swipeSetFilter(f) {
-        if (!_swipe.map) return;
-        ['points', 'polygon-fill', 'polygon-outline'].forEach(function (id) {
-            if (_swipe.map.getLayer(id)) _swipe.map.setFilter(id, f);
+    // Single source of truth for the class/flag-filterable landslide layers, so
+    // every filter site (main map, hide-all, swipe mirror) stays in lock-step.
+    // A compound-symbol sublayer carries a `base` filter AND-combined with the
+    // active user filter — adding a future sublayer here makes it participate in
+    // filtering automatically (no hand-maintained id lists to forget).
+    function _landslideFilterLayers() {
+        return [
+            { id: 'points' },
+            { id: 'points-patchy', base: window.LSColors.PATCHY_FILTER },
+            { id: 'polygon-fill' },
+            { id: 'polygon-outline' },
+            { id: 'pin-label' },
+        ];
+    }
+    function _applyLandslideFilter(m, userFilter) {
+        if (!m) return;
+        _landslideFilterLayers().forEach(function (s) {
+            if (!m.getLayer(s.id)) return;   // e.g. the swipe map has no pin-label
+            m.setFilter(s.id, s.base ? ['all', s.base, userFilter] : userFilter);
         });
+    }
+    function _swipeSetFilter(f) {
+        _applyLandslideFilter(_swipe.map, f);
     }
     function _swipeAddData(cmap) {
         if (!cmap.getSource('landslides'))
@@ -2218,10 +2236,7 @@
 
         var hideAll = ['==', ['literal', '1'], '0'];
         if (!activeTypes.length || !activeClasses.length) {
-            map.setFilter('points', hideAll);
-            map.setFilter('polygon-fill', hideAll);
-            map.setFilter('polygon-outline', hideAll);
-            if (map.getLayer('pin-label')) map.setFilter('pin-label', hideAll);
+            _applyLandslideFilter(map, hideAll);
             _swipeSetFilter(hideAll);
             updateHistogram();
             updateTimeline();
@@ -2306,10 +2321,7 @@
         if (cbPost2012     && cbPost2012.checked)      f.push(['==', ['get', 'post_2012_activity_increase'], true]);
         if (cbFlagged      && cbFlagged.checked)       f.push(['==', ['get', 'flagged'], true]);
 
-        map.setFilter('points', f);
-        map.setFilter('polygon-fill', f);
-        map.setFilter('polygon-outline', f);
-        if (map.getLayer('pin-label')) map.setFilter('pin-label', f);
+        _applyLandslideFilter(map, f);
         _swipeFilter = f;            // remember so a newly-enabled swipe map can apply it
         _swipeSetFilter(f);
         updateHistogram();
