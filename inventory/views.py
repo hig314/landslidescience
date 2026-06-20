@@ -155,23 +155,90 @@ def _slugify(name):
     return _SLUG_NON_ALNUM_RE.sub('-', name).strip('-').lower()
 
 
+# ---------------------------------------------------------------------------
+# ESRI Wayback historical-imagery links.
+#
+# ESRI replaced the old hash format that framed a view by bounding box
+#     .../wayback/#ext=<lonW>,<latS>,<lonE>,<latN>[&active=<release>]
+# with a center+zoom format
+#     .../wayback/#mapCenter=<lon>%2C<lat>%2C<zoom>&mode=explore[&active=<release>]
+# The new app ignores #ext=, so legacy links open to the whole world. Both the
+# auto-seeded suggestions below and the stored inventory links are generated /
+# normalized through these helpers. `active` is the Wayback release id (which
+# historical capture is shown) and is preserved verbatim when present.
+# ---------------------------------------------------------------------------
+
+# Default zoom for a freshly-seeded suggestion: ~1.5 km wide at AK latitudes,
+# matching the framing the old #ext= seed used (half_m = 750 m).
+_WAYBACK_SEED_ZOOM = 16
+
+
+def _wayback_zoom_for_bbox(lon_w, lat_s, lon_e, lat_n):
+    """Slippy-map zoom that frames a lon/lat bounding box in the Wayback app.
+    Picks the zoom at which the box fits a reference viewport in both axes."""
+    import math
+    lat_mid = (lat_s + lat_n) / 2.0
+    cos_lat = max(0.01, math.cos(math.radians(lat_mid)))
+    # Reference viewport (px) used to translate an extent into a zoom level.
+    vw, vh = 1280.0, 900.0
+    # metres-per-pixel at zoom z is 156543.034 * cos(lat) / 2**z; solve for the
+    # largest z whose pixel size still spans each edge inside the viewport.
+    z_lon = math.log2(156543.03392 * vw / (max(1e-9, abs(lon_e - lon_w)) * 111320.0))
+    z_lat = math.log2(156543.03392 * cos_lat * vh
+                      / (max(1e-9, abs(lat_n - lat_s)) * 111320.0))
+    return max(10, min(19, int(round(min(z_lon, z_lat)))))
+
+
+def _wayback_url(lon, lat, zoom=_WAYBACK_SEED_ZOOM, active=None, mode='explore',
+                 extra=None):
+    """Build a current-format ESRI Wayback URL centered on lon/lat."""
+    from urllib.parse import quote
+    parts = [f"mapCenter={quote(f'{lon:.5f},{lat:.5f},{int(round(zoom))}')}"]
+    if mode:
+        parts.append(f"mode={mode}")
+    if active not in (None, ''):
+        parts.append(f"active={active}")
+    for k, v in (extra or []):
+        parts.append(f"{k}={quote(v)}" if v != '' else k)
+    return "https://livingatlas.arcgis.com/wayback/#" + "&".join(parts)
+
+
+def _convert_wayback_ext_url(url):
+    """Convert a legacy #ext= Wayback URL to the current #mapCenter= form,
+    preserving any `active` release and other hash params. Returns
+    (url, changed); non-#ext / unparseable URLs come back unchanged."""
+    from urllib.parse import parse_qsl
+    if not url or '#ext=' not in url:
+        return url, False
+    pairs = parse_qsl(url.partition('#')[2], keep_blank_values=True)
+    ext = next((v for k, v in pairs if k == 'ext'), None)
+    if not ext:
+        return url, False
+    try:
+        lon_w, lat_s, lon_e, lat_n = (float(x) for x in ext.split(','))
+    except ValueError:
+        return url, False
+    active = next((v for k, v in pairs if k == 'active'), None)
+    mode = next((v for k, v in pairs if k == 'mode'), None) or 'explore'
+    extra = [(k, v) for k, v in pairs if k not in ('ext', 'active', 'mode')]
+    new = _wayback_url((lon_w + lon_e) / 2.0, (lat_s + lat_n) / 2.0,
+                       _wayback_zoom_for_bbox(lon_w, lat_s, lon_e, lat_n),
+                       active=active, mode=mode, extra=extra)
+    return new, (new != url)
+
+
 def _imagery_suggestions(lat, lon):
     """Pre-built imagery-browser URLs centered on a landslide's centroid, to
     seed the esri_wayback_link / google_images_link fields. The editor opens
     one, pans/zooms to frame the landslide, then copies the final URL back into
-    the field. Formats match what's already in the inventory (ESRI Wayback #ext
-    bbox; Google Maps satellite @lat,lon,<alt>m)."""
-    import math
+    the field. Formats match what's already in the inventory (ESRI Wayback
+    #mapCenter center+zoom; Google Maps satellite @lat,lon,<alt>m)."""
     if lat is None or lon is None:
         return {}
-    half_m = 750.0  # ~1.5 km view
-    dlat = half_m / 111000.0
-    dlon = half_m / (111000.0 * max(0.1, math.cos(math.radians(lat))))
-    ext = f"{lon - dlon:.5f},{lat - dlat:.5f},{lon + dlon:.5f},{lat + dlat:.5f}"
     opera = (f"https://displacement.asf.alaska.edu/#/?dispOverview=VEL&zoom=14.5"
              f"&center={lon:.4f},{lat:.4f}&flightDirs=")
     return {
-        'esri_wayback_link':  f"https://livingatlas.arcgis.com/wayback/#ext={ext}",
+        'esri_wayback_link':  _wayback_url(lon, lat),
         'google_images_link': f"https://www.google.com/maps/@{lat:.6f},{lon:.6f},1500m/data=!3m1!1e3",
         'opera_asc':  opera + 'ASCENDING',
         'opera_desc': opera + 'DESCENDING',
