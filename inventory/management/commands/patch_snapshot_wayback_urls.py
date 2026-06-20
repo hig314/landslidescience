@@ -34,10 +34,12 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-# A Wayback #ext= URL as it appears inside a JSON string: starts with the fixed
-# base+hash and runs to the closing quote (the URL contains no " or backslash).
-_EXT_URL_RE = re.compile(
-    r'https://livingatlas\.arcgis\.com/wayback/#ext=[^"\\]*')
+# A Wayback URL as it appears inside a JSON string: the fixed base, running to
+# the closing quote (the URL contains no " or backslash). Every match is fed to
+# _convert_wayback_ext_url, which rewrites a bbox (#ext= or #active=N&ext=) and
+# leaves already-converted (#mapCenter=) links untouched.
+_WB_URL_RE = re.compile(
+    r'https://livingatlas\.arcgis\.com/wayback/[^"\\]*')
 
 
 class Command(BaseCommand):
@@ -53,9 +55,9 @@ class Command(BaseCommand):
         from inventory.views import _convert_wayback_ext_url
 
         def patch_text(text):
-            """Replace every #ext= URL in `text`; return (new_text, n_urls)."""
+            """Convert every legacy Wayback URL in `text`; return (new_text, n)."""
             replaced = 0
-            for url in set(_EXT_URL_RE.findall(text)):
+            for url in set(_WB_URL_RE.findall(text)):
                 new, changed = _convert_wayback_ext_url(url)
                 if changed:
                     replaced += text.count(url)
@@ -94,7 +96,7 @@ class Command(BaseCommand):
         total = touched = 0
         for f in files:
             text = f.read_text(encoding='utf-8')
-            if '#ext=' not in text:
+            if 'ext=' not in text:
                 continue
             new_text, n = self.patch_text(text)
             if n:
@@ -117,7 +119,7 @@ class Command(BaseCommand):
         with zipfile.ZipFile(zip_path) as zin:
             for info in zin.infolist():
                 data = zin.read(info.filename)
-                if b'#ext=' in data:
+                if b'ext=' in data:
                     new_text, n = self.patch_text(data.decode('utf-8'))
                     if n:
                         total += n

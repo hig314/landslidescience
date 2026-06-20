@@ -204,15 +204,20 @@ def _wayback_url(lon, lat, zoom=_WAYBACK_SEED_ZOOM, active=None, mode='explore',
 
 
 def _convert_wayback_ext_url(url):
-    """Convert a legacy #ext= Wayback URL to the current #mapCenter= form,
-    preserving any `active` release and other hash params. Returns
-    (url, changed); non-#ext / unparseable URLs come back unchanged."""
+    """Convert a legacy bbox Wayback URL to the current #mapCenter= form,
+    preserving any `active` release and other hash params. Handles `ext` at any
+    position in the hash (#ext=..., #active=N&ext=...). Returns (url, changed);
+    already-converted (has mapCenter) / non-ext / unparseable URLs come back
+    unchanged."""
     from urllib.parse import parse_qsl
-    if not url or '#ext=' not in url:
+    frag = url.partition('#')[2] if url else ''
+    if 'ext=' not in frag:
         return url, False
-    pairs = parse_qsl(url.partition('#')[2], keep_blank_values=True)
+    pairs = parse_qsl(frag, keep_blank_values=True)
+    keys = {k for k, _ in pairs}
     ext = next((v for k, v in pairs if k == 'ext'), None)
-    if not ext:
+    if not ext or 'mapCenter' in keys:
+        # No bbox to convert, or the hash already carries a center the app reads.
         return url, False
     try:
         lon_w, lat_s, lon_e, lat_n = (float(x) for x in ext.split(','))

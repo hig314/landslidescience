@@ -35,17 +35,21 @@ class Command(BaseCommand):
         conn = _get_conn()
         try:
             cur = conn.cursor()
+            # Select every Wayback link and let _convert_wayback_ext_url decide:
+            # it converts a bbox (#ext= or #active=N&ext=) and leaves links that
+            # already carry a mapCenter untouched. Gating on the converter rather
+            # than an SQL pattern avoids missing ext params past the first slot.
             cur.execute("SELECT id, esri_wayback_link FROM landslides "
-                        "WHERE esri_wayback_link LIKE '%#ext=%' ORDER BY id")
+                        "WHERE esri_wayback_link LIKE "
+                        "'%livingatlas.arcgis.com/wayback%' ORDER BY id")
             rows = cur.fetchall()
 
             changed = skipped = 0
             for id_, url in rows:
                 new, did = _convert_wayback_ext_url(url)
                 if not did:
+                    # Already in #mapCenter= form (or nothing to convert).
                     skipped += 1
-                    self.stdout.write(self.style.WARNING(
-                        f"  SKIP {id_}: unparseable -> {url}"))
                     continue
                 cur.execute("UPDATE landslides SET esri_wayback_link=%s "
                             "WHERE id=%s", (new, id_))
