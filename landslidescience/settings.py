@@ -27,6 +27,11 @@ if DEBUG:
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
+# Rolling sessions: reset the expiry clock on every request so an actively-used
+# editor session doesn't lapse mid-work. The window stays SESSION_COOKIE_AGE
+# (Django default, 2 weeks) but counts from the last request, not from login.
+SESSION_SAVE_EVERY_REQUEST = True
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',

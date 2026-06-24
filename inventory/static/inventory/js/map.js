@@ -586,12 +586,35 @@
         var m = document.cookie.match(/csrftoken=([^;]+)/);
         return m ? m[1] : '';
     }
+    // An expired/absent editor session 302-redirects the manage endpoints to
+    // the admin login page; fetch follows the redirect, so we get a 200 HTML
+    // page rather than JSON. Detect that (redirected, or a non-JSON body) and
+    // raise a clear "session expired" error instead of letting r.json() choke
+    // on "<!DOCTYPE …".
+    function _isAuthRedirect(r) {
+        var ct = r.headers.get('content-type') || '';
+        return r.redirected || ct.indexOf('application/json') === -1;
+    }
+    function _authExpiredError() {
+        var e = new Error('Your editor session has expired — please log in again.');
+        e.authExpired = true;
+        return e;
+    }
     function _drawPost(path, body) {
         return fetch(DRAW_BASE + path, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _csrf() },
             body: JSON.stringify(body || {})
-        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); });
+        }).then(function (r) {
+            if (_isAuthRedirect(r)) throw _authExpiredError();
+            return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+        });
+    }
+    // Plain-text flash for the panel/status line, with a login hint when the
+    // session has lapsed (staged components are server-side, so they survive).
+    function _drawAuthFlash() {
+        window.__drawFlash('Session expired — log in at /admin/login/ (new tab), '
+            + 'then reopen this panel. Staged components are saved.');
     }
     window.__drawFlash = function (msg) { if (_drawStatus) _drawStatus.textContent = msg; };
 
@@ -702,7 +725,16 @@
                 } else {
                     warnEl.textContent = (res.j && res.j.error) || 'Stage failed.';
                 }
-            }).catch(function (e) { warnEl.textContent = 'Stage failed: ' + e; });
+            }).catch(function (e) {
+                if (e && e.authExpired) {
+                    warnEl.innerHTML = 'Your editor session has expired. '
+                        + '<a href="/admin/login/?next=/inventory/" target="_blank" '
+                        + 'rel="noopener">Log in</a>, then click Add again — your '
+                        + 'staged components are saved.';
+                } else {
+                    warnEl.textContent = 'Stage failed: ' + (e && e.message ? e.message : e);
+                }
+            });
         });
     }
 
@@ -734,6 +766,8 @@
                     _drawPost('delete/', { ids: [c.id] }).then(function () {
                         _prov = _prov.filter(function (p) { return p.id !== c.id; });
                         refreshProvData(); renderQueue();
+                    }).catch(function (e) {
+                        if (e && e.authExpired) _drawAuthFlash();
                     });
                 });
                 row.appendChild(x);
@@ -781,11 +815,15 @@
             _drawPost('commit/').then(function (res) {
                 if (res.ok && res.j.ok) { window.location.href = res.j.redirect; }
                 else { window.__drawFlash((res.j && res.j.error) || 'Commit failed.'); renderQueue(); }
+            }).catch(function (e) {
+                if (e && e.authExpired) _drawAuthFlash();
+                else window.__drawFlash('Commit failed: ' + (e && e.message ? e.message : e));
             });
         });
         p.querySelector('#idq-discard').addEventListener('click', function () {
             if (!window.confirm('Discard all staged components?')) return;
-            _drawPost('delete/', { all: true }).then(function () { _prov = []; refreshProvData(); renderQueue(); });
+            _drawPost('delete/', { all: true }).then(function () { _prov = []; refreshProvData(); renderQueue(); })
+                .catch(function (e) { if (e && e.authExpired) _drawAuthFlash(); });
         });
         p.querySelector('#idq-done').addEventListener('click', function () { _drawCtrl.deactivate(); });
     }
