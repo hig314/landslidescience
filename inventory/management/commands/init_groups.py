@@ -9,6 +9,7 @@ from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 
+from files.models import HostedFile
 from inventory.auth import GROUP_INVENTORY_EDITORS, GROUP_SITE_ADMINS
 from pages.models import Page
 
@@ -33,9 +34,19 @@ class Command(BaseCommand):
             codename__in=['add_page', 'change_page', 'delete_page', 'view_page'],
         )
         admins.permissions.add(*page_perms)
+
+        # site_admins also get full CRUD on HostedFile (the `files` app) so they
+        # can publish files at /files/<name> via /admin/files/hostedfile/.
+        file_ct = ContentType.objects.get_for_model(HostedFile)
+        file_perms = Permission.objects.filter(
+            content_type=file_ct,
+            codename__in=['add_hostedfile', 'change_hostedfile',
+                          'delete_hostedfile', 'view_hostedfile'],
+        )
+        admins.permissions.add(*file_perms)
         self.stdout.write(
             f"  {GROUP_SITE_ADMINS}: {'created' if ac else 'already exists'} "
-            f"with {page_perms.count()} Page permissions"
+            f"with {page_perms.count()} Page + {file_perms.count()} HostedFile permissions"
         )
         self.stdout.write(self.style.SUCCESS('Done.'))
         self.stdout.write(

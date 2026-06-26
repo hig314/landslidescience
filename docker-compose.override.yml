@@ -5,6 +5,7 @@ services:
     volumes:
       - ./pages:/app/pages
       - ./inventory:/app/inventory
+      - ./files:/app/files
       - ./landslidescience:/app/landslidescience
       - ./manage.py:/app/manage.py
     networks:

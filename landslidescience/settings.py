@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'pages',
     'inventory',
+    'files',
 ]
 
 MIDDLEWARE = [
@@ -89,6 +90,12 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Admin-uploaded hosted files (the `files` app). Lives under data/ so it's
+# volume-mounted into the container in both dev and prod and gitignored.
+# Served by files.views.serve at /files/<name> — there is no MEDIA_URL static
+# route (no direct /media/ exposure).
+MEDIA_ROOT = BASE_DIR / 'data' / 'media'
 STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
     'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
