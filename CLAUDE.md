@@ -30,6 +30,7 @@ pushing untested code to GH.
 |---|---|
 | `pages` | Editable site content (homepage, `/tracyarm2025/`). `Page` model in SQLite, edited via `/admin/`. |
 | `inventory` | Public landslide inventory map. Reads `tethys_db.landslides` (PostGIS) over the shared Docker network via raw psycopg2 — no Django ORM models for landslide data. The only Django model in this app is `LandslideEditMeta` (audit log, in SQLite). |
+| `files` | Admin-managed public file hosting. `HostedFile` model in SQLite; bytes stored under `data/media/`; served (unlisted) at `/files/<name>`. See *Hosted files* below. |
 
 ## URL map
 
@@ -48,7 +49,8 @@ pushing untested code to GH.
 | `/inventory/manage/settings/` | inventory_editors + Hig | Map display settings (colors, point sizes) |
 | `/inventory/export/` | public *(behind preview password)* | Download zip of GeoJSON + QGIS .qml styles |
 | `/inventory/manage/import/` | inventory_editors + Hig | Upload zip/.geojson; preview diff; confirm to apply |
-| `/admin/` | site_admins (Page perms) + Hig | Django admin — Page model + User/Group management |
+| `/files/<name>` | public *(unlisted)* | Serves an admin-uploaded `HostedFile` by its URL token (no auth, no preview barrier). |
+| `/admin/` | site_admins (Page + HostedFile perms) + Hig | Django admin — Page + HostedFile models + User/Group management |
 
 ## Auth & permissions
 
@@ -57,17 +59,29 @@ Two non-superuser groups (created/maintained idempotently by `python manage.py i
 | Group | What they can do | Where they work |
 |---|---|---|
 | `inventory_editors` | Edit landslide records via custom UI | `/inventory/manage/` |
-| `site_admins` | Edit Page content (homepage, /tracyarm2025/) | `/admin/` |
+| `site_admins` | Edit Page content (homepage, /tracyarm2025/) + manage `HostedFile`s (`/files/`) | `/admin/` |
 
 Adding a user (do this via `/admin/auth/user/`):
 1. Create user with a temp password.
 2. Set `is_staff=True` (required to log in at /admin/login/, which is the only login page).
 3. For inventory editors: add to the `inventory_editors` group. They will see an empty Django admin landing — they navigate to `/inventory/manage/` for their work.
-4. For site admins: add to the `site_admins` group. They get full CRUD on Page in /admin/.
+4. For site admins: add to the `site_admins` group. They get full CRUD on Page **and HostedFile** in /admin/.
 
 Hig (superuser) bypasses all role checks.
 
+**Sessions are rolling** — `SESSION_SAVE_EVERY_REQUEST = True` (settings.py) resets the 2-week `SESSION_COOKIE_AGE` clock on every request, so an actively-used editor session doesn't lapse mid-work; an idle one still expires after two weeks (that's expected, not a bug — distinct from the *fleet-wide* logout that only a `DJANGO_SECRET_KEY` change causes). When a session does expire, the manage endpoints 302-redirect to the login page; the in-app draw flow (`_drawPost` in `map.js`) detects that redirect / non-JSON response and shows a clear "log in again" message instead of choking on the login HTML with `Unexpected token '<' … is not valid JSON`. Staged draw components live server-side (`provisional_polygons`), so they survive the re-login.
+
 If the "empty admin landing for editors" friction becomes annoying, wire up `django.contrib.auth.urls` at `/accounts/login/` and update `inventory.auth.inventory_editor_required` to redirect there. For now, deferred.
+
+## Hosted files
+
+The `files` app hosts arbitrary admin-uploaded files at stable, human-readable public URLs — a place to park a KML, PDF, dataset, etc. and hand out a link. Managed entirely through Django admin at `/admin/files/hostedfile/` (superusers + `site_admins`).
+
+- **Model `HostedFile`** (SQLite): `file` (FileField), `name` (the public URL token), plus `title`/`description` (admin-only notes), `inline` (bool), `content_type` (MIME override). On save, blank `name` auto-fills from the uploaded filename.
+- **Public URL = `/files/<name>`**, served by `files.views.serve` (a `FileResponse`). The URL token is **decoupled from disk storage**: `name` is the URL, `file.name` is wherever Django's storage wrote the bytes (it may suffix on collision — fine). `name` is unique and regex-constrained to `[A-Za-z0-9._-]` (matches `files/urls.py`), so no path traversal. MIME is `content_type` if set, else guessed — with an `_EXTRA_TYPES` table in `views.py` for geo types Python misses (`.kml`/`.kmz`/`.geojson`/`.gpkg`). `inline` toggles `Content-Disposition: inline` vs `attachment`.
+- **Fully public, unlisted.** No auth and no preview-password barrier (that middleware only guards `/inventory/*`). Nothing links to the files, so they're reachable only by someone who knows the URL. `robots.txt` disallows all during pre-release anyway.
+- **Storage: `MEDIA_ROOT = data/media/`** (`upload_to='hosted_files/'`). `data/` is volume-mounted in dev and prod and gitignored, so uploads **persist across deploys** and are never committed or baked into the image. There is **no `/media/` static route** — the only way out is the `/files/<name>` view.
+- **Permissions** are granted in `init_groups` (HostedFile CRUD → `site_admins`), so **re-run `init_groups` after deploying** if the group needs the perms (as with any group change).
 
 ## Pre-launch preview password
 
