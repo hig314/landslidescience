@@ -906,12 +906,9 @@
         if (!map.getSource('pending-poly-src')) map.addSource('pending-poly-src', { type: 'geojson', data: _pendingData.polygons });
         if (!map.getSource('pending-pt-src'))   map.addSource('pending-pt-src',   { type: 'geojson', data: _pendingData.points });
         var bId = map.getLayer('measure-fill') ? 'measure-fill' : undefined;
-        if (!map.getLayer('pending-poly-fill')) map.addLayer({ id: 'pending-poly-fill', type: 'fill', source: 'pending-poly-src',
-            paint: { 'fill-color': '#d6219e', 'fill-opacity': 0.12 } }, bId);
-        if (!map.getLayer('pending-poly-line')) map.addLayer({ id: 'pending-poly-line', type: 'line', source: 'pending-poly-src',
-            paint: { 'line-color': '#d6219e', 'line-width': 2, 'line-dasharray': [3, 1.5] } }, bId);
-        if (!map.getLayer('pending-pt')) map.addLayer({ id: 'pending-pt', type: 'circle', source: 'pending-pt-src',
-            paint: { 'circle-radius': 6, 'circle-color': '#d6219e', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } }, bId);
+        _pendingLayerDefs().forEach(function (def) {
+            if (!map.getLayer(def.id)) map.addLayer(def, bId);
+        });
         // (Name labels omitted — glyph server varies by basemap and 404s.)
         setPendingData();
     }
@@ -937,13 +934,15 @@
     // Regular' is served by both glyph servers (demotiles + OpenFreeMap). ---
     var _pinField = '';
     try { _pinField = localStorage.getItem('ls_pin_field') || ''; } catch (e) {}
-    function ensurePinLabel() {
-        if (!window._isInventoryEditor || !map.getSource('landslides')) return;
-        if (!_pinField) { if (map.getLayer('pin-label')) map.removeLayer('pin-label'); return; }
+    // Per-map worker: add/update/remove the pin-label layer on one map.
+    // Returns true when the layer was newly added (caller re-applies the filter).
+    function _ensurePinLabelOn(m) {
+        if (!window._isInventoryEditor || !m || !m.getSource('landslides')) return false;
+        if (!_pinField) { if (m.getLayer('pin-label')) m.removeLayer('pin-label'); return false; }
         var expr = ['to-string', ['coalesce', ['get', _pinField], '']];
-        if (map.getLayer('pin-label')) { map.setLayoutProperty('pin-label', 'text-field', expr); return; }
+        if (m.getLayer('pin-label')) { m.setLayoutProperty('pin-label', 'text-field', expr); return false; }
         try {
-            map.addLayer({
+            m.addLayer({
                 id: 'pin-label', type: 'symbol', source: 'landslides',
                 layout: {
                     'text-field': expr,
@@ -956,8 +955,16 @@
                 },
                 paint: { 'text-color': '#1a1a1a', 'text-halo-color': '#fff', 'text-halo-width': 1.6 }
             });
-            if (typeof buildFilter === 'function') buildFilter();   // apply the active filter to the new layer
-        } catch (e) { console.warn('pin-label add failed:', e); }
+            return true;
+        } catch (e) { console.warn('pin-label add failed:', e); return false; }
+    }
+    // Mirrors to the swipe comparison map so a pinned label doesn't cut off at
+    // the wiper divider.
+    function ensurePinLabel() {
+        var added = _ensurePinLabelOn(map);
+        if (_swipe.map) added = _ensurePinLabelOn(_swipe.map) || added;
+        // Apply the active filter to the newly-added layer(s).
+        if (added && typeof buildFilter === 'function') buildFilter();
     }
     function setPinField(field) {
         _pinField = field || '';
@@ -978,6 +985,7 @@
             }
         }
         if (map.getSource('landslides')) map.getSource('landslides').setData(_featuresData);
+        _swipeSetFeatures(_featuresData);   // keep the comparison pane's copy in step
         if (typeof buildFilter === 'function') buildFilter();
     }
 
@@ -1077,6 +1085,11 @@
 
         initDataLayers();
 
+        // A hash-restored wiper can create the comparison map before settings
+        // arrive; its style.load then bails on the missing palette (_swipeAddData
+        // guard). Now that the palette exists, build its stack.
+        if (_swipe.map && _swipe.map.isStyleLoaded()) _swipeAddData(_swipe.map);
+
         fetch(API_BASE + 'api/features/?v=' + DATA_V)
             .then(function (r) { return r.json(); })
             .then(function (data) {
@@ -1133,6 +1146,93 @@
         ];
     }
 
+    // Overlay / auxiliary source+layer defs shared verbatim by the main map and
+    // the swipe comparison map (same reasoning as _landslideLayerDefs: one def =
+    // identical paint on both panes, so nothing can drift). Visibility is read
+    // from the sidebar checkboxes at build time; later toggles mirror to both
+    // maps via _swipeAlso.
+    function _suscSourceDef(s) {
+        return {
+            type: 'raster',
+            tiles: [SUSC_TILE_BASE + s.key + '/{z}/{x}/{y}.png?v=' + SUSC_TILE_V],
+            tileSize: 256,
+            minzoom: 3,
+            maxzoom: 10,
+            attribution: s.attr
+        };
+    }
+    function _suscLayerDef(s) {
+        var cb = document.getElementById(s.cb);
+        return {
+            id: 'susc-' + s.key + '-layer',
+            type: 'raster',
+            source: 'susc-' + s.key,
+            layout: { 'visibility': (cb && cb.checked) ? 'visible' : 'none' },
+            paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
+        };
+    }
+    function _faultsLayerDef() {
+        return {
+            id: 'faults-line', type: 'line', source: 'faults',
+            layout: { 'visibility': (cbFaults && cbFaults.checked) ? 'visible' : 'none',
+                      'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+                'line-color': '#b5179e',
+                'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.7, 10, 1.6, 14, 2.6],
+                'line-opacity': ['match', ['get', 'FTYPE'], 'Inferred', 0.5, 0.85]
+            }
+        };
+    }
+    function _polygonHoverDef() {
+        return {
+            id: 'polygon-hover', type: 'line', source: 'polygons',
+            filter: ['==', 'landslide_id', -1],
+            paint: { 'line-color': '#fff', 'line-width': 2.5, 'line-opacity': 0.8 }
+        };
+    }
+    function _surveyCircleLayerDefs() {
+        var vis = (cbSurveyCircles && cbSurveyCircles.checked) ? 'visible' : 'none';
+        return [
+            {
+                id: 'survey-circles-outline', type: 'line', source: 'survey-circles',
+                layout: { 'visibility': vis },
+                paint: {
+                    'line-color': '#000',
+                    'line-opacity': 0.85,
+                    'line-width': ['case',
+                        ['>', ['coalesce', ['get', 'update_total'], 0], 0], 2.2,
+                        0.6
+                    ]
+                }
+            },
+            {
+                id: 'survey-circles-label', type: 'symbol', source: 'survey-circles',
+                filter: ['>', ['coalesce', ['get', 'update_total'], 0], 0],
+                layout: {
+                    'visibility': vis,
+                    'text-field': ['to-string', ['get', 'update_total']],
+                    'text-size': 12,
+                    'text-allow-overlap': true
+                },
+                paint: {
+                    'text-color': '#000',
+                    'text-halo-color': '#fff',
+                    'text-halo-width': 1.5
+                }
+            },
+        ];
+    }
+    function _pendingLayerDefs() {
+        return [
+            { id: 'pending-poly-fill', type: 'fill', source: 'pending-poly-src',
+              paint: { 'fill-color': '#d6219e', 'fill-opacity': 0.12 } },
+            { id: 'pending-poly-line', type: 'line', source: 'pending-poly-src',
+              paint: { 'line-color': '#d6219e', 'line-width': 2, 'line-dasharray': [3, 1.5] } },
+            { id: 'pending-pt', type: 'circle', source: 'pending-pt-src',
+              paint: { 'circle-radius': 6, 'circle-color': '#d6219e', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } },
+        ];
+    }
+
     // Add/re-add data sources and layers (called on initial load and after every basemap switch).
     //
     // Layer-order invariant: the measure-tool layers are kept at the top of the
@@ -1151,39 +1251,16 @@
         // into the tiles, so raster-opacity stays at 1. Citation: USGS, Belair
         // et al. 2024 (Slope-Relief Threshold susceptibility, 90 m).
         SUSC_LAYERS.forEach(function (s) {
-            var cb = document.getElementById(s.cb);
-            map.addSource('susc-' + s.key, {
-                type: 'raster',
-                tiles: [SUSC_TILE_BASE + s.key + '/{z}/{x}/{y}.png?v=' + SUSC_TILE_V],
-                tileSize: 256,
-                minzoom: 3,
-                maxzoom: 10,
-                attribution: s.attr
-            });
-            map.addLayer({
-                id: 'susc-' + s.key + '-layer',
-                type: 'raster',
-                source: 'susc-' + s.key,
-                layout: { 'visibility': (cb && cb.checked) ? 'visible' : 'none' },
-                paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
-            }, bId);
+            map.addSource('susc-' + s.key, _suscSourceDef(s));
+            map.addLayer(_suscLayerDef(s), bId);
         });
 
         // Alaska Quaternary faults & folds (DGGS QFF — Koehler 2013). Reference
         // vector overlay, ON by default. Added here so it sits below the
         // landslide layers (inventory stays on top). Loaded once from a static
         // GeoJSON; inferred traces drawn fainter. Click → fault attributes.
-        var faultsVis = (cbFaults && cbFaults.checked) ? 'visible' : 'none';
         map.addSource('faults', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-        map.addLayer({
-            id: 'faults-line', type: 'line', source: 'faults',
-            layout: { 'visibility': faultsVis, 'line-cap': 'round', 'line-join': 'round' },
-            paint: {
-                'line-color': '#b5179e',
-                'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.7, 10, 1.6, 14, 2.6],
-                'line-opacity': ['match', ['get', 'FTYPE'], 'Inferred', 0.5, 0.85]
-            }
-        }, bId);
+        map.addLayer(_faultsLayerDef(), bId);
         if (_faultsData) map.getSource('faults').setData(_faultsData);
 
         map.addSource('landslides', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -1195,11 +1272,7 @@
         ensurePinLabel();               // editor-only field labels (re-added with the layers)
         map.addLayer(_ldefs[2], bId);   // polygon-fill
         map.addLayer(_ldefs[3], bId);   // polygon-outline
-        map.addLayer({
-            id: 'polygon-hover', type: 'line', source: 'polygons',
-            filter: ['==', 'landslide_id', -1],
-            paint: { 'line-color': '#fff', 'line-width': 2.5, 'line-opacity': 0.8 }
-        }, bId);
+        map.addLayer(_polygonHoverDef(), bId);
 
         // Survey-circles layer — black outline only (no fill); thin for
         // circles with no landslides identified (update_total=0), bold for
@@ -1207,36 +1280,9 @@
         // hit circles. Togglable in the legend; visibility on layer creation
         // reflects the current checkbox state (the JS source of truth) so a
         // basemap switch doesn't clobber the user's choice.
-        var circlesVis = (cbSurveyCircles && cbSurveyCircles.checked) ? 'visible' : 'none';
         map.addSource('survey-circles',
             { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-        map.addLayer({
-            id: 'survey-circles-outline', type: 'line', source: 'survey-circles',
-            layout: { 'visibility': circlesVis },
-            paint: {
-                'line-color': '#000',
-                'line-opacity': 0.85,
-                'line-width': ['case',
-                    ['>', ['coalesce', ['get', 'update_total'], 0], 0], 2.2,
-                    0.6
-                ]
-            }
-        }, bId);
-        map.addLayer({
-            id: 'survey-circles-label', type: 'symbol', source: 'survey-circles',
-            filter: ['>', ['coalesce', ['get', 'update_total'], 0], 0],
-            layout: {
-                'visibility': circlesVis,
-                'text-field': ['to-string', ['get', 'update_total']],
-                'text-size': 12,
-                'text-allow-overlap': true
-            },
-            paint: {
-                'text-color': '#000',
-                'text-halo-color': '#fff',
-                'text-halo-width': 1.5
-            }
-        }, bId);
+        _surveyCircleLayerDefs().forEach(function (def) { map.addLayer(def, bId); });
         if (_surveyCirclesData) map.getSource('survey-circles').setData(_surveyCirclesData);
 
         if (_featuresData) map.getSource('landslides').setData(_featuresData);
@@ -1655,31 +1701,50 @@
     function _applyLandslideFilter(m, userFilter) {
         if (!m) return;
         _landslideFilterLayers().forEach(function (s) {
-            if (!m.getLayer(s.id)) return;   // e.g. the swipe map has no pin-label
+            if (!m.getLayer(s.id)) return;   // e.g. pin-label when no field is pinned
             m.setFilter(s.id, s.base ? ['all', s.base, userFilter] : userFilter);
         });
     }
     function _swipeSetFilter(f) {
         _applyLandslideFilter(_swipe.map, f);
     }
+    // Run fn against the comparison map too (when it exists) — used by every
+    // visibility toggle / data load / hover site so both panes stay in step.
+    function _swipeAlso(fn) {
+        if (_swipe.map) fn(_swipe.map);
+    }
+    // Build the comparison map's data stack: the SAME defs in the SAME relative
+    // order as the main map, so the display reads seamlessly across the divider
+    // (same defs = same paint, same order = same occlusion). Main-map order,
+    // bottom→top: pending (added at style.load there) → susc rasters → faults →
+    // points → points-patchy → polygon-fill → polygon-outline → polygon-hover →
+    // survey circles → pin-label. Interaction-only layers (measure, draw draft)
+    // are deliberately not mirrored — the basemap locks while they're active.
     function _swipeAddData(cmap) {
+        if (!_palette) return;   // initLayers hasn't run yet — re-invoked from there
+        if (window._isInventoryEditor) {
+            if (!cmap.getSource('pending-poly-src')) cmap.addSource('pending-poly-src', { type: 'geojson', data: _pendingData.polygons });
+            if (!cmap.getSource('pending-pt-src'))   cmap.addSource('pending-pt-src',   { type: 'geojson', data: _pendingData.points });
+            _pendingLayerDefs().forEach(function (def) { if (!cmap.getLayer(def.id)) cmap.addLayer(def); });
+        }
+        SUSC_LAYERS.forEach(function (s) {
+            if (!cmap.getSource('susc-' + s.key)) cmap.addSource('susc-' + s.key, _suscSourceDef(s));
+            if (!cmap.getLayer('susc-' + s.key + '-layer')) cmap.addLayer(_suscLayerDef(s));
+        });
+        if (!cmap.getSource('faults'))
+            cmap.addSource('faults', { type: 'geojson', data: _faultsData || { type: 'FeatureCollection', features: [] } });
+        if (!cmap.getLayer('faults-line')) cmap.addLayer(_faultsLayerDef());
         if (!cmap.getSource('landslides'))
             cmap.addSource('landslides', { type: 'geojson', data: _featuresData || { type: 'FeatureCollection', features: [] } });
         if (!cmap.getSource('polygons'))
             cmap.addSource('polygons', { type: 'geojson', data: _polygonsData || { type: 'FeatureCollection', features: [] } });
         _landslideLayerDefs().forEach(function (def) { if (!cmap.getLayer(def.id)) cmap.addLayer(def); });
+        if (!cmap.getLayer('polygon-hover')) cmap.addLayer(_polygonHoverDef());
+        if (!cmap.getSource('survey-circles'))
+            cmap.addSource('survey-circles', { type: 'geojson', data: _surveyCirclesData || { type: 'FeatureCollection', features: [] } });
+        _surveyCircleLayerDefs().forEach(function (def) { if (!cmap.getLayer(def.id)) cmap.addLayer(def); });
+        _ensurePinLabelOn(cmap);   // editor pinned-field labels (top, like the main map)
         if (_swipeFilter) _swipeSetFilter(_swipeFilter);
-        // Editor-only provisional (pending) layers — mirror the main map's magenta drafts.
-        if (window._isInventoryEditor) {
-            if (!cmap.getSource('pending-poly-src')) cmap.addSource('pending-poly-src', { type: 'geojson', data: _pendingData.polygons });
-            if (!cmap.getSource('pending-pt-src'))   cmap.addSource('pending-pt-src',   { type: 'geojson', data: _pendingData.points });
-            if (!cmap.getLayer('pending-poly-fill')) cmap.addLayer({ id: 'pending-poly-fill', type: 'fill', source: 'pending-poly-src',
-                paint: { 'fill-color': '#d6219e', 'fill-opacity': 0.12 } });
-            if (!cmap.getLayer('pending-poly-line')) cmap.addLayer({ id: 'pending-poly-line', type: 'line', source: 'pending-poly-src',
-                paint: { 'line-color': '#d6219e', 'line-width': 2, 'line-dasharray': [3, 1.5] } });
-            if (!cmap.getLayer('pending-pt')) cmap.addLayer({ id: 'pending-pt', type: 'circle', source: 'pending-pt-src',
-                paint: { 'circle-radius': 6, 'circle-color': '#d6219e', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
-        }
     }
     function _swipeSetPending() {
         if (!_swipe.map) return;
@@ -2100,6 +2165,7 @@
     function setSuscVis(i, vis) {
         var id = 'susc-' + SUSC_LAYERS[i].key + '-layer';
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+        _swipeAlso(function (m) { if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', vis); });
     }
     SUSC_LAYERS.forEach(function (s, i) {
         var cb = suscCbs[i];
@@ -2123,6 +2189,7 @@
             var apply = function () {
                 ['survey-circles-outline', 'survey-circles-label'].forEach(function (id) {
                     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+                    _swipeAlso(function (m) { if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', vis); });
                 });
             };
             if (cbSurveyCircles.checked && !_surveyCirclesData) {
@@ -2131,6 +2198,7 @@
                     .then(function (fc) {
                         _surveyCirclesData = fc;
                         if (map.getSource('survey-circles')) map.getSource('survey-circles').setData(fc);
+                        _swipeAlso(function (m) { if (m.getSource('survey-circles')) m.getSource('survey-circles').setData(fc); });
                         apply();
                     })
                     .catch(function (e) { console.error('survey_circles fetch failed:', e); });
@@ -2146,15 +2214,16 @@
     // are created in initDataLayers; here we load the data and wire the toggle.
     var cbFaults = document.getElementById('cb-faults');
     function loadFaults() {
-        if (_faultsData) {
+        var seed = function () {
             if (map.getSource('faults')) map.getSource('faults').setData(_faultsData);
-            return;
-        }
+            _swipeAlso(function (m) { if (m.getSource('faults')) m.getSource('faults').setData(_faultsData); });
+        };
+        if (_faultsData) { seed(); return; }
         fetch(STATIC_BASE + 'inventory/ak_qff.geojson?v=' + DATA_V)
             .then(function (r) { return r.json(); })
             .then(function (fc) {
                 _faultsData = fc;
-                if (map.getSource('faults')) map.getSource('faults').setData(fc);
+                seed();
             })
             .catch(function (e) { console.error('faults fetch failed:', e); });
     }
@@ -2163,6 +2232,7 @@
         cbFaults.addEventListener('change', function () {
             var vis = cbFaults.checked ? 'visible' : 'none';
             if (map.getLayer('faults-line')) map.setLayoutProperty('faults-line', 'visibility', vis);
+            _swipeAlso(function (m) { if (m.getLayer('faults-line')) m.setLayoutProperty('faults-line', 'visibility', vis); });
             if (cbFaults.checked) loadFaults();
         });
     }
@@ -2349,6 +2419,7 @@
         var hideAll = ['==', ['literal', '1'], '0'];
         if (!activeTypes.length || !activeClasses.length) {
             _applyLandslideFilter(map, hideAll);
+            _swipeFilter = hideAll;   // so a swipe map enabled later doesn't resurrect the old filter
             _swipeSetFilter(hideAll);
             updateHistogram();
             updateTimeline();
@@ -2607,12 +2678,19 @@
         map.on('mouseenter', layer, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', layer, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = ''; });
     });
+    // Hover highlight is filter-driven, so mirror it to the comparison map —
+    // otherwise the white outline cuts off at the wiper divider.
+    function _setPolygonHover(landslideId) {
+        var f = ['==', 'landslide_id', landslideId];
+        if (map.getLayer('polygon-hover')) map.setFilter('polygon-hover', f);
+        _swipeAlso(function (m) { if (m.getLayer('polygon-hover')) m.setFilter('polygon-hover', f); });
+    }
     map.on('mousemove',  'polygon-fill', function (e) {
         if (map.__measureActive || map.__drawActive) return;
-        map.setFilter('polygon-hover', ['==', 'landslide_id', e.features[0].properties.landslide_id]);
+        _setPolygonHover(e.features[0].properties.landslide_id);
     });
     map.on('mouseleave', 'polygon-fill', function () {
-        map.setFilter('polygon-hover', ['==', 'landslide_id', -1]);
+        _setPolygonHover(-1);
     });
 
     // Quaternary fault trace → popup with name/age/slip attributes (DGGS QFF).
