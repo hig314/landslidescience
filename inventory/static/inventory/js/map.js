@@ -109,6 +109,11 @@
                 }
             } else if (k === 'base') {
                 out.base = v;
+            } else if (k === 'swipe') {
+                if (v) out.swipe = v;
+            } else if (k === 'sx') {
+                var x = parseFloat(v);
+                if (isFinite(x) && x >= 0 && x <= 100) out.sx = x;
             } else if (k === 'id') {
                 var n = parseInt(v, 10);
                 if (n > 0) out.id = n;
@@ -130,11 +135,20 @@
         } catch (e) {}
     }
     var _pendingDetailId = _initialHash.id || null;
+    // Wiper state to restore once its basemap is resolvable (built-ins are
+    // available immediately; a shared QMS layer only after api/qms/promoted).
+    var _pendingSwipe = _initialHash.swipe
+        ? { base: _initialHash.swipe, x: (_initialHash.sx != null ? _initialHash.sx : 50) }
+        : null;
 
     function writeHashState() {
         var c = map.getCenter(), z = map.getZoom();
         var parts = ['map=' + z.toFixed(2) + '/' + c.lat.toFixed(4) + '/' + c.lng.toFixed(4)];
         if (_currentBasemap && _currentBasemap !== DEFAULT_BASEMAP_ID) parts.push('base=' + _currentBasemap);
+        if (_swipe.on && _swipe.basemapId) {
+            parts.push('swipe=' + _swipe.basemapId);
+            parts.push('sx=' + Math.round(_swipe.x));
+        }
         var newHash = '#' + parts.join('&');
         if (location.hash !== newHash) history.replaceState(null, '', newHash);
         try { localStorage.setItem('ls_map_view', newHash); } catch (e) {}
@@ -1533,7 +1547,8 @@
                 if (!d || !d.layers || !d.layers.length) return;
                 d.layers.forEach(function (l) { if (!findBasemap(l.id)) BASEMAPS.push(l); });
                 rebuildBasemapUI();
-            }).catch(function () {});
+            }).catch(function () {})
+            .then(function () { _applyPendingSwipe(); });  // hash wiper on a now-merged shared layer
     }
 
     // Small popup menu off the card's + button: pick who to share with.
@@ -1712,7 +1727,10 @@
             var r = host.getBoundingClientRect();
             _swipeSetX((e.clientX - r.left) / r.width * 100);
         });
-        divr.addEventListener('pointerup', function () { dragging = false; });
+        divr.addEventListener('pointerup', function () {
+            dragging = false;
+            if (_mapReady) writeHashState();   // capture the divider position (sx=)
+        });
 
         var bm = findBasemap(_swipe.basemapId) || findBasemap(DEFAULT_BASEMAP_ID);
         _swipe.basemapId = bm.id;
@@ -1741,16 +1759,70 @@
         if (_swipe.divider) _swipe.divider.style.display = '';
         _swipeSyncView();
         if (_swipe.map) _swipe.map.resize();
+        if (_mapReady) writeHashState();
     }
     function _swipeDisable() {
         _swipe.on = false;
         if (_swipe.container) _swipe.container.style.display = 'none';
         if (_swipe.divider) _swipe.divider.style.display = 'none';
+        if (_mapReady) writeHashState();
     }
     function _swipeSetBasemap(id) {
         var bm = findBasemap(id);
         _swipe.basemapId = id;
         if (bm && _swipe.map) _swipe.map.setStyle(_swipeStyleFor(bm), { diff: false });  // style.load re-adds data
+    }
+    // Keep the Compare (swipe) dropdown in step when swipe state changes
+    // programmatically (hash restore, default-view apply).
+    function _syncSwipeSelect() {
+        var sel = document.getElementById('swipe-select');
+        if (sel) sel.value = _swipe.on ? (_swipe.basemapId || '') : '';
+    }
+    // Restore a wiper carried in the URL hash (or the saved localStorage view).
+    // Called at startup and again after promoted QMS layers merge — a shared
+    // layer referenced by the hash isn't findable until then.
+    function _applyPendingSwipe() {
+        if (!_pendingSwipe) return;
+        var bm = findBasemap(_pendingSwipe.base);
+        if (!bm) return;   // maybe a promoted QMS layer still loading — retried later
+        var x = _pendingSwipe.x;
+        _pendingSwipe = null;
+        _swipeSetX(x);
+        _swipeEnable(bm.id);
+        _syncSwipeSelect();
+    }
+
+    // ---------------------------------------------------------------------------
+    // View-state strings — the hash format (`map=z/lat/lon&base=…&swipe=…&sx=…`,
+    // no leading '#') doubling as a landslide's stored default view.
+    // ---------------------------------------------------------------------------
+    function _currentViewString() {
+        var c = map.getCenter(), z = map.getZoom();
+        // Unlike writeHashState, always pin the basemap: a curated view should
+        // reproduce its imagery even if the site default changes later.
+        var parts = ['map=' + z.toFixed(2) + '/' + c.lat.toFixed(4) + '/' + c.lng.toFixed(4),
+                     'base=' + _currentBasemap];
+        if (_swipe.on && _swipe.basemapId) {
+            parts.push('swipe=' + _swipe.basemapId);
+            parts.push('sx=' + Math.round(_swipe.x));
+        }
+        return parts.join('&');
+    }
+    // Fully apply a stored view: basemap, wiper (off if the view has none),
+    // then fly to its center/zoom.
+    function applyViewString(v) {
+        var s = parseHashState('#' + v);
+        if (s.base && s.base !== _currentBasemap && findBasemap(s.base)) setBasemap(s.base);
+        if (s.swipe && findBasemap(s.swipe)) {
+            if (s.sx != null) _swipeSetX(s.sx);
+            _swipeEnable(s.swipe);
+        } else {
+            _swipeDisable();
+        }
+        _syncSwipeSelect();
+        if (s.lat != null && s.lon != null && s.zoom != null) {
+            map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
+        }
     }
 
     function _buildSwipeUI() {
@@ -1764,6 +1836,7 @@
         hint.textContent = 'Add a wiper-comparison base-map on the right.';
         wrap.appendChild(hint);
         var sel = document.createElement('select');
+        sel.id = 'swipe-select';
         sel.style.cssText = 'width:100%;font-size:12px;padding:3px 4px;border:1px solid #ccc;border-radius:3px;';
         var none = document.createElement('option');
         none.value = ''; none.textContent = 'none';
@@ -1799,6 +1872,7 @@
         });
 
         rebuildBasemapUI();
+        _applyPendingSwipe(); // wiper from the URL hash / saved view (built-in + local layers)
         _loadPromotedQms();   // merge admin-curated shared layers (public set for everyone)
 
         // Pinned basemap quick-select change handler (options (re)built by rebuildBasemapUI).
@@ -2683,6 +2757,9 @@
                 permaData += ' data-lat="' + (+d.centroid_lat).toFixed(4) + '"'
                           +  ' data-lon="' + (+d.centroid_lon).toFixed(4) + '"';
             }
+            // In-app permalink clicks reproduce the curated view, matching what
+            // a fresh visitor to the slug URL gets from slug_redirect.
+            if (d.default_map_view) permaData += ' data-view="' + esc(d.default_map_view) + '"';
             html += '<h3><a class="landslide-permalink" href="' + permalink + '"' +
                     permaData + ' title="Permalink — right-click to copy">' +
                     esc(d.unique_name) + '</a>' + manageLink + '</h3>';
@@ -2692,6 +2769,31 @@
         html += '<span class="type-badge ' + d.landslide_type + '">' +
                 (d.landslide_type === 'slow' ? 'Slow' : 'Catastrophic') + '</span>';
         if (d.landslide_class) html += ' <span class="class-badge">' + esc(d.landslide_class) + '</span>';
+
+        // Default view — a curated map view (center/zoom/basemap, optionally a
+        // wiper) stored per landslide. Anyone can apply it; editors set/clear it
+        // from whatever the map currently shows.
+        var hasDefView = !!d.default_map_view;
+        if (hasDefView || window._isInventoryEditor) {
+            var dvBtn = 'font-size:11px;padding:2px 8px;border:1px solid #bbb;border-radius:3px;' +
+                        'background:#fff;cursor:pointer;';
+            html += '<div id="defview-row" style="margin:8px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">';
+            if (hasDefView) {
+                html += '<button type="button" id="defview-apply" style="' + dvBtn +
+                        'border-color:#5D4037;color:#5D4037;" title="Zoom to this landslide’s preferred view">' +
+                        '⌖ Default view</button>';
+            }
+            if (window._isInventoryEditor) {
+                html += '<button type="button" id="defview-set" style="' + dvBtn +
+                        '" title="Save the current map view (center, zoom, basemap, wiper) as this landslide’s default">' +
+                        (hasDefView ? 'Update' : 'Set') + ' default view</button>';
+                if (hasDefView) {
+                    html += '<button type="button" id="defview-clear" style="' + dvBtn +
+                            '" title="Remove the saved default view">✕</button>';
+                }
+            }
+            html += '<span id="defview-status" style="font-size:11px;"></span></div>';
+        }
 
         // Editor-only: flag banner with a Clear button. Shown whenever the
         // record is flagged, independent of what's pinned — clearing the flag
@@ -2883,6 +2985,40 @@
                 }).catch(function () { setStat('#c00', 'save failed'); });
             });
         }
+
+        // Wire the default-view buttons (if rendered). Set/clear save through
+        // manage_edit_field (default_map_view is an ordinary landslides column);
+        // on success the panel re-renders so the button row reflects the state.
+        var dvApply = document.getElementById('defview-apply');
+        if (dvApply) dvApply.addEventListener('click', function () {
+            applyViewString(d.default_map_view);
+        });
+        function _saveDefView(value, busyLabel) {
+            var stat = document.getElementById('defview-status');
+            stat.style.color = '#1a73e8'; stat.textContent = busyLabel;
+            fetch('/inventory/manage/' + d.id + '/field/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
+                body: JSON.stringify({ name: 'default_map_view', value: value })
+            }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+              .then(function (res) {
+                if (res.ok && res.j.ok) {
+                    d.default_map_view = value;
+                    renderDetail(d);
+                } else {
+                    stat.style.color = '#c00';
+                    stat.textContent = (res.j && res.j.error) || 'save failed';
+                }
+            }).catch(function () { stat.style.color = '#c00'; stat.textContent = 'save failed'; });
+        }
+        var dvSet = document.getElementById('defview-set');
+        if (dvSet) dvSet.addEventListener('click', function () {
+            _saveDefView(_currentViewString(), 'saving…');
+        });
+        var dvClear = document.getElementById('defview-clear');
+        if (dvClear) dvClear.addEventListener('click', function () {
+            _saveDefView(null, 'clearing…');
+        });
     }
 
     function esc(s) {
@@ -4205,17 +4341,21 @@
         var a = e.target.closest && e.target.closest('a.landslide-permalink, a.flag-jump');
         if (!a) return;
         e.preventDefault();
-        var lat = a.getAttribute('data-lat');
-        var lon = a.getAttribute('data-lon');
-        var id  = a.getAttribute('data-id');
-        var newHash = (lat && lon)
-            ? '#map=13/' + lat + '/' + lon + '&id=' + id
-            : '#id=' + id;
+        var lat  = a.getAttribute('data-lat');
+        var lon  = a.getAttribute('data-lon');
+        var id   = a.getAttribute('data-id');
+        var view = a.getAttribute('data-view');   // curated default view, when set
+        var newHash = view
+            ? '#' + view + '&id=' + id
+            : (lat && lon)
+                ? '#map=13/' + lat + '/' + lon + '&id=' + id
+                : '#id=' + id;
         if (location.hash !== newHash) {
             location.hash = newHash;
         } else {
             // Same hash — listener won't fire. Re-trigger smooth-zoom/detail.
-            if (lat && lon) map.flyTo({ center: [+lon, +lat], zoom: 13 });
+            if (view) applyViewString(view);
+            else if (lat && lon) map.flyTo({ center: [+lon, +lat], zoom: 13 });
             if (id) showDetail(+id);
         }
     });
@@ -4229,6 +4369,14 @@
         if (location.hash === _lastHash) return;
         _lastHash = location.hash;
         var s = parseHashState();
+        if (s.base && s.base !== _currentBasemap && findBasemap(s.base)) setBasemap(s.base);
+        // A wiper in the hash is applied; a hash without one leaves the current
+        // wiper alone (permalink clicks shouldn't kill an open comparison).
+        if (s.swipe && findBasemap(s.swipe)) {
+            if (s.sx != null) _swipeSetX(s.sx);
+            _swipeEnable(s.swipe);
+            _syncSwipeSelect();
+        }
         if (s.lat != null && s.lon != null && s.zoom != null) {
             map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
         }

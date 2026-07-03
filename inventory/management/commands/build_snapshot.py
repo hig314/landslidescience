@@ -175,6 +175,7 @@ class Command(BaseCommand):
         self._write_json(archive_dir / 'api' / 'timeline_events' / 'index.json', tl)
 
         self.stdout.write(f"rendering api/landslide/<id> + slug stubs for {len(member_ids)} members ...")
+        from inventory.views import valid_view_state
         # Slugs are only safe at the snapshot root if they don't collide
         # with the existing top-level names. The shape `[a-z0-9-]+` keeps
         # them clear of `api`, `static`, `rules`, `methods.html`, `index.html`,
@@ -198,7 +199,12 @@ class Command(BaseCommand):
                 id_to_slug[lid] = slug
                 lat = d.get('centroid_lat')
                 lon = d.get('centroid_lon')
-                if lat is not None and lon is not None:
+                dview = (d.get('default_map_view') or '').strip()
+                if valid_view_state(dview):
+                    # Curated default view (may include a wiper) — parallels
+                    # slug_redirect on the live site.
+                    target = f'../#{dview}&id={lid}'
+                elif lat is not None and lon is not None:
                     target = f'../#map=13/{float(lat):.4f}/{float(lon):.4f}&id={lid}'
                 else:
                     target = f'../#id={lid}'

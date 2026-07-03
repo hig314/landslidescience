@@ -148,7 +148,21 @@ _SLUG_NON_ALNUM_RE = re.compile(r'[^A-Za-z0-9]+')
 _RESERVED_SLUGS = {'api', 'admin', 'methods', 'static', 'accounts', ''}
 
 # Constant target zoom for slug deep-links — at AK latitudes, ~10 km wide.
+# Overridden per-landslide by a stored default_map_view (see below).
 _SLUG_ZOOM = 13
+
+# Per-landslide curated default view (landslides.default_map_view, added by
+# migrate_default_view): a URL-hash view-state string with no leading '#' —
+#     map=<zoom>/<lat>/<lon>&base=<id>[&swipe=<id>&sx=<pct>]
+# Set by editors from the map's detail panel; consumed by slug deep-links and
+# snapshot slug stubs. Conservative charset because the value is emitted into
+# a redirect Location header and a snapshot HTML attribute — anything that
+# fails validation is ignored in favor of the centroid fallback.
+_VIEW_STATE_RE = re.compile(r'^[A-Za-z0-9_.\-/&=~%]+$')
+
+
+def valid_view_state(v):
+    return bool(v) and bool(_VIEW_STATE_RE.match(v)) and 'map=' in v
 
 
 def _slugify(name):
@@ -307,16 +321,22 @@ def slug_redirect(request, slug):
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT centroid_lon, centroid_lat FROM landslides WHERE id = %s",
+            "SELECT centroid_lon, centroid_lat, default_map_view "
+            "FROM landslides WHERE id = %s",
             (landslide_id,),
         )
         row = cur.fetchone()
         conn.rollback()
     finally:
         _put_conn(conn)
-    if not row or row[0] is None:
+    if not row:
         return redirect('/inventory/#id={}'.format(landslide_id))
-    lon, lat = row
+    lon, lat, dview = row
+    dview = (dview or '').strip()
+    if valid_view_state(dview):
+        return redirect('/inventory/#{}&id={}'.format(dview, landslide_id))
+    if lon is None:
+        return redirect('/inventory/#id={}'.format(landslide_id))
     return redirect(
         '/inventory/#map={zoom}/{lat:.4f}/{lon:.4f}&id={id}'.format(
             zoom=_SLUG_ZOOM, lat=lat, lon=lon, id=landslide_id,
@@ -2609,6 +2629,15 @@ def manage_edit_field(request, landslide_id):
                     f'"{val}" is already used by landslide #{dup[0]} — names must be '
                     f'unique. Add a disambiguator per the naming standard '
                     f'(e.g. "{val} 2", or a letter/year).')}, status=409)
+
+        # A default map view must be a well-formed hash view-state string —
+        # slug_redirect emits it into a Location header, so anything else is
+        # rejected here rather than silently ignored at serve time.
+        if name == 'default_map_view' and val is not None and not valid_view_state(val):
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error': (
+                'Not a valid map-view string (expected '
+                '"map=zoom/lat/lon&base=…[&swipe=…&sx=…]").')}, status=400)
 
         # name is whitelisted from information_schema (not user-supplied SQL).
         cur.execute(f"UPDATE landslides SET {name} = %s WHERE id = %s", (val, landslide_id))
