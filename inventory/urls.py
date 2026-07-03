@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import views
+from . import trace_views, views
 
 app_name = 'inventory'
 
@@ -19,6 +19,20 @@ urlpatterns = [
     path('api/qms/promote/', views.api_qms_promote, name='api_qms_promote'),
     path('api/qms/<int:qms_id>/', views.api_qms_detail, name='api_qms_detail'),
     path('api/qms/<int:qms_id>/unpromote/', views.api_qms_unpromote, name='api_qms_unpromote'),
+    # Trace rasters — editor-uploaded GeoTIFF overlays (all editor-gated,
+    # incl. tiles; see inventory/trace_views.py).
+    path('api/trace_rasters/', trace_views.trace_list, name='trace_list'),
+    path('api/trace_rasters/upload/', trace_views.trace_upload, name='trace_upload'),
+    path('api/trace_rasters/<int:raster_id>/status/', trace_views.trace_status,
+         name='trace_status'),
+    path('api/trace_rasters/<int:raster_id>/rebuild/', trace_views.trace_rebuild,
+         name='trace_rebuild'),
+    path('api/trace_rasters/<int:raster_id>/delete/', trace_views.trace_delete,
+         name='trace_delete'),
+    path('api/trace_rasters/<int:raster_id>/link/', trace_views.trace_link,
+         name='trace_link'),
+    re_path(r'^tiles/trace/(?P<raster_id>\d+)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
+            trace_views.trace_tile, name='trace_tile'),
     path('api/timed_events/', views.api_timed_events, name='api_timed_events'),
     path('api/timeline_events/', views.api_timeline_events, name='api_timeline_events'),
     path('api/survey_circles/',  views.api_survey_circles,  name='api_survey_circles'),

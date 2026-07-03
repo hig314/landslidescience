@@ -7,3 +7,9 @@ psycopg2-binary>=2.9,<3
 # into GeoJSON dicts for downstream code that already speaks GeoJSON.
 pyogrio>=0.10,<1
 shapely>=2.0,<3
+# Bakes editor-uploaded GeoTIFFs into XYZ tile pyramids (trace overlays).
+# rasterio is pyogrio's raster twin — GDAL ships in the wheel. Imported
+# lazily (inventory/raster_tiles.py only), so the web app never needs it
+# at import time; if it breaks, only new raster uploads break.
+rasterio>=1.4,<2
+numpy>=1.26,<3

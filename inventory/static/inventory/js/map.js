@@ -1263,6 +1263,11 @@
         map.addLayer(_faultsLayerDef(), bId);
         if (_faultsData) map.getSource('faults').setData(_faultsData);
 
+        // Editor trace-raster overlays sit here in the stack: above basemap +
+        // susceptibility, below faults and all landslide data. Re-added after
+        // every basemap switch, like everything else in this function.
+        if (window._isInventoryEditor) _traceReplayLayers();
+
         map.addSource('landslides', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addSource('polygons',   { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
@@ -1415,6 +1420,7 @@
                 rm.appendChild(grid);
             });
             rm.appendChild(_buildSwipeUI());   // swipe/compare controls
+            if (window._isInventoryEditor) rm.appendChild(_buildTraceUI());   // GeoTIFF trace overlays
         }
         var pinned = document.getElementById('pinned-basemap');
         if (pinned) {
@@ -1920,6 +1926,361 @@
         return wrap;
     }
 
+    // ---------------------------------------------------------------------------
+    // Traced imagery — editor-uploaded GeoTIFF overlays (trace rasters).
+    // Upload → the server bakes an XYZ pyramid in the background → the overlay
+    // renders under the landslide layers so geometry can be traced in-app with
+    // the ✏ draw tool. Editor-only end to end: the registry fetch is gated on
+    // _isInventoryEditor, tiles are auth-checked server-side, and none of it
+    // exists on the public map or in snapshots. Deliberately NOT mirrored to
+    // the swipe pane (unlike inventory data): the overlay is *imagery*, so
+    // keeping it main-pane-only makes the wiper a before/after comparison
+    // against any basemap.
+    // ---------------------------------------------------------------------------
+    var _traceRasters = [];   // rows from api/trace_rasters/
+    var _traceActive  = {};   // id -> opacity (0..1); presence = overlay enabled
+    var _tracePolls   = {};   // id -> setInterval handle while processing
+
+    function _traceRow(id) {
+        for (var i = 0; i < _traceRasters.length; i++)
+            if (_traceRasters[i].id === id) return _traceRasters[i];
+        return null;
+    }
+    function _traceAddLayer(id) {
+        var r = _traceRow(id);
+        if (!r || r.status !== 'ready' || r.bounds_w == null) return;
+        var srcId = 'trace-src-' + id, lyrId = 'trace-' + id;
+        if (!map.getSource(srcId)) {
+            map.addSource(srcId, {
+                type: 'raster',
+                tiles: [API_BASE + 'tiles/trace/' + id + '/{z}/{x}/{y}.png'],
+                tileSize: 256, minzoom: r.min_zoom, maxzoom: r.max_zoom,
+                bounds: [r.bounds_w, r.bounds_s, r.bounds_e, r.bounds_n]
+            });
+        }
+        if (!map.getLayer(lyrId)) {
+            // Above basemap + susceptibility, below faults and every landslide
+            // layer — traced geometry must draw on top of the image.
+            var beforeId = map.getLayer('faults-line') ? 'faults-line'
+                         : (map.getLayer('points') ? 'points' : undefined);
+            map.addLayer({
+                id: lyrId, type: 'raster', source: srcId,
+                paint: { 'raster-opacity': (_traceActive[id] != null ? _traceActive[id] : 1) }
+            }, beforeId);
+        }
+    }
+    function _traceRemoveLayer(id) {
+        if (map.getLayer('trace-' + id)) map.removeLayer('trace-' + id);
+        if (map.getSource('trace-src-' + id)) map.removeSource('trace-src-' + id);
+    }
+    // Re-add enabled overlays after a basemap switch (called by initDataLayers,
+    // right after faults-line exists so the insertion point is stable).
+    function _traceReplayLayers() {
+        Object.keys(_traceActive).forEach(function (id) { _traceAddLayer(+id); });
+    }
+    function _traceZoomTo(r) {
+        if (r.bounds_w == null) return;
+        map.fitBounds([[r.bounds_w, r.bounds_s], [r.bounds_e, r.bounds_n]],
+                      { padding: 60, maxZoom: r.max_zoom || 16 });
+    }
+    function _tracePost(url, body) {
+        var opts = { method: 'POST', headers: { 'X-CSRFToken': window.CSRF_TOKEN } };
+        if (body) {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.body = JSON.stringify(body);
+        }
+        return fetch(url, opts).then(function (res) {
+            return res.json().then(function (j) { return { ok: res.ok, j: j }; });
+        });
+    }
+    function _traceReplaceRow(row) {
+        for (var i = 0; i < _traceRasters.length; i++) {
+            if (_traceRasters[i].id === row.id) { _traceRasters[i] = row; return; }
+        }
+        _traceRasters.unshift(row);
+    }
+    function _tracePoll(id) {
+        if (_tracePolls[id]) return;
+        _tracePolls[id] = setInterval(function () {
+            fetch(API_BASE + 'api/trace_rasters/' + id + '/status/')
+                .then(function (res) { return res.ok ? res.json() : null; })
+                .then(function (row) {
+                    if (!row || !row.id) return;
+                    _traceReplaceRow(row);
+                    if (row.status !== 'processing') {
+                        clearInterval(_tracePolls[id]);
+                        delete _tracePolls[id];
+                        if (row.status === 'ready') {
+                            _traceActive[id] = 1;   // fresh bake → show it and go there
+                            _traceAddLayer(id);
+                            _traceZoomTo(row);
+                        }
+                        _renderTraceRows();
+                    }
+                }).catch(function () {});
+        }, 2500);
+    }
+    function _traceLoad() {
+        if (!window._isInventoryEditor) return;
+        fetch(API_BASE + 'api/trace_rasters/')
+            .then(function (res) { return res.json(); })
+            .then(function (d) {
+                _traceRasters = (d && d.rasters) || [];
+                _renderTraceRows();
+                _traceRasters.forEach(function (r) {
+                    if (r.status === 'processing' && !r.stalled) _tracePoll(r.id);
+                });
+            }).catch(function () {});
+    }
+
+    var _TRACE_BTN_CSS = 'font-size:11px;padding:1px 6px;border:1px solid #bbb;' +
+                         'border-radius:3px;background:#fff;cursor:pointer;';
+
+    function _renderTraceRows() {
+        var box = document.getElementById('trace-imagery-rows');
+        if (!box) return;
+        box.innerHTML = '';
+        if (!_traceRasters.length) {
+            box.innerHTML = '<div style="font-size:11px;color:#999;">No uploads yet.</div>';
+            return;
+        }
+        _traceRasters.forEach(function (r) {
+            var row = document.createElement('div');
+            row.style.cssText = 'padding:5px 6px;border:1px solid #e0dcd8;border-radius:4px;' +
+                                'margin-bottom:5px;font-size:12px;background:#fff;';
+            var top = document.createElement('div');
+            top.style.cssText = 'display:flex;align-items:center;gap:5px;';
+
+            var cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = _traceActive[r.id] != null;
+            cb.disabled = r.status !== 'ready';
+            cb.title = 'Show on map';
+            cb.addEventListener('change', function () {
+                if (cb.checked) {
+                    if (_traceActive[r.id] == null) _traceActive[r.id] = 1;
+                    _traceAddLayer(r.id);
+                } else {
+                    delete _traceActive[r.id];
+                    _traceRemoveLayer(r.id);
+                }
+            });
+            top.appendChild(cb);
+
+            var lbl = document.createElement('span');
+            lbl.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+            lbl.textContent = r.title + (r.image_date ? ' · ' + r.image_date : '');
+            var tipLines = [r.title];
+            if (r.image_date)   tipLines.push('Image date: ' + r.image_date);
+            if (r.source_note)  tipLines.push(r.source_note);
+            if (r.uploaded_by)  tipLines.push('Uploaded by ' + r.uploaded_by + ' ' + r.created_at.slice(0, 10));
+            if (r.tile_count)   tipLines.push(r.tile_count + ' tiles, z' + r.min_zoom + '–' + r.max_zoom);
+            lbl.title = tipLines.join('\n');
+            top.appendChild(lbl);
+
+            if (r.status === 'processing') {
+                var st = document.createElement('span');
+                st.style.cssText = 'font-size:11px;color:' + (r.stalled ? '#c00' : '#1a73e8') + ';';
+                st.textContent = r.stalled ? 'stalled' : 'processing…';
+                top.appendChild(st);
+            } else if (r.status === 'error') {
+                var er = document.createElement('span');
+                er.style.cssText = 'font-size:11px;color:#c00;cursor:help;';
+                er.textContent = '✖ failed';
+                er.title = r.error || 'bake failed';
+                top.appendChild(er);
+            }
+
+            function btn(txt, title, fn) {
+                var b = document.createElement('button');
+                b.type = 'button'; b.textContent = txt; b.title = title;
+                b.style.cssText = _TRACE_BTN_CSS;
+                b.addEventListener('click', fn);
+                top.appendChild(b);
+                return b;
+            }
+            if (r.status === 'ready') {
+                btn('⌖', 'Zoom to this image', function () { _traceZoomTo(r); });
+            }
+            if (r.status === 'error' || r.stalled) {
+                btn('⟳', 'Re-bake from the uploaded original', function () {
+                    _tracePost(API_BASE + 'api/trace_rasters/' + r.id + '/rebuild/')
+                        .then(function (res) {
+                            if (res.ok && res.j.ok) {
+                                r.status = 'processing'; r.stalled = false; r.error = null;
+                                _renderTraceRows();
+                                _tracePoll(r.id);
+                            } else alert((res.j && res.j.error) || 'rebuild failed');
+                        });
+                });
+            }
+            btn('×', 'Delete this upload (tiles + original)', function () {
+                if (!confirm('Delete "' + r.title + '" — tiles and the uploaded original?')) return;
+                _tracePost(API_BASE + 'api/trace_rasters/' + r.id + '/delete/')
+                    .then(function (res) {
+                        if (res.ok && res.j.ok) {
+                            delete _traceActive[r.id];
+                            _traceRemoveLayer(r.id);
+                            _traceRasters = _traceRasters.filter(function (x) { return x.id !== r.id; });
+                            _renderTraceRows();
+                        } else alert((res.j && res.j.error) || 'delete failed');
+                    });
+            });
+            row.appendChild(top);
+
+            if (r.status === 'ready') {
+                var line2 = document.createElement('div');
+                line2.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:3px;';
+                var opLbl = document.createElement('span');
+                opLbl.style.cssText = 'font-size:10px;color:#777;';
+                opLbl.textContent = 'opacity';
+                var op = document.createElement('input');
+                op.type = 'range'; op.min = '0'; op.max = '100';
+                op.value = String(Math.round((_traceActive[r.id] != null ? _traceActive[r.id] : 1) * 100));
+                op.style.cssText = 'flex:1;height:14px;';
+                op.title = 'Dim the image against the basemap while tracing';
+                op.addEventListener('input', function () {
+                    var v = (+op.value) / 100;
+                    if (_traceActive[r.id] != null) {
+                        _traceActive[r.id] = v;
+                        if (map.getLayer('trace-' + r.id))
+                            map.setPaintProperty('trace-' + r.id, 'raster-opacity', v);
+                    }
+                });
+                line2.appendChild(opLbl);
+                line2.appendChild(op);
+
+                // Provenance link: which landslide this image was traced into.
+                var link = document.createElement('span');
+                link.style.cssText = 'font-size:10px;white-space:nowrap;';
+                function renderLink() {
+                    link.innerHTML = '';
+                    if (r.landslide_id) {
+                        var a = document.createElement('a');
+                        a.href = '#id=' + r.landslide_id;
+                        a.textContent = '→ #' + r.landslide_id;
+                        a.title = 'Traced into landslide #' + r.landslide_id + ' — click to open';
+                        a.style.cssText = 'color:#1a5fb4;';
+                        var un = document.createElement('button');
+                        un.type = 'button'; un.textContent = '✕';
+                        un.title = 'Clear this link';
+                        un.style.cssText = 'border:none;background:none;color:#999;cursor:pointer;font-size:10px;padding:0 2px;';
+                        un.addEventListener('click', function () { saveLink(null); });
+                        link.appendChild(a); link.appendChild(un);
+                    } else {
+                        var lb = document.createElement('button');
+                        lb.type = 'button'; lb.textContent = '⚲ link';
+                        lb.title = 'Record which landslide this image was traced into '
+                                 + '(open that landslide’s info panel first)';
+                        lb.style.cssText = 'border:none;background:none;color:#1a5fb4;cursor:pointer;font-size:10px;padding:0;';
+                        lb.addEventListener('click', function () {
+                            if (!_lastDetail) { alert('Open the landslide’s info panel first, then click link.'); return; }
+                            if (!confirm('Link "' + r.title + '" to ' + _lastDetail.name + ' (#' + _lastDetail.id + ')?')) return;
+                            saveLink(_lastDetail.id);
+                        });
+                        link.appendChild(lb);
+                    }
+                }
+                function saveLink(lid) {
+                    _tracePost(API_BASE + 'api/trace_rasters/' + r.id + '/link/', { landslide_id: lid })
+                        .then(function (res) {
+                            if (res.ok && res.j.ok) { r.landslide_id = lid; renderLink(); }
+                            else alert((res.j && res.j.error) || 'link failed');
+                        });
+                }
+                renderLink();
+                line2.appendChild(link);
+                row.appendChild(line2);
+            }
+
+            box.appendChild(row);
+        });
+    }
+
+    function _buildTraceUI() {
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'margin-top:12px;';
+        var hdr = document.createElement('div');
+        hdr.className = 'refmaps-category';
+        hdr.textContent = 'Traced imagery (uploads)';
+        wrap.appendChild(hdr);
+        var hint = document.createElement('div');
+        hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:5px;line-height:1.35;';
+        hint.textContent = 'Upload a georeferenced GeoTIFF, then trace it with the ✏ draw tool. Data admins only.';
+        wrap.appendChild(hint);
+
+        var rows = document.createElement('div');
+        rows.id = 'trace-imagery-rows';
+        wrap.appendChild(rows);
+
+        var det = document.createElement('details');
+        var sum = document.createElement('summary');
+        sum.textContent = '＋ Upload GeoTIFF…';
+        sum.style.cssText = 'cursor:pointer;font-size:12px;color:#1a5fb4;';
+        det.appendChild(sum);
+        var form = document.createElement('div');
+        form.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:5px;';
+        var inpCss = 'font-size:12px;padding:3px 4px;border:1px solid #ccc;border-radius:3px;width:100%;box-sizing:border-box;';
+        var titleInp = document.createElement('input');
+        titleInp.type = 'text'; titleInp.placeholder = 'Title (defaults to filename)';
+        titleInp.style.cssText = inpCss;
+        var dateInp = document.createElement('input');
+        dateInp.type = 'date';
+        dateInp.title = 'Image capture date — your date-bracketing evidence';
+        dateInp.style.cssText = inpCss;
+        var srcInp = document.createElement('input');
+        srcInp.type = 'text'; srcInp.placeholder = 'Source note (e.g. PlanetScope scene id)';
+        srcInp.style.cssText = inpCss;
+        var fileInp = document.createElement('input');
+        fileInp.type = 'file'; fileInp.accept = '.tif,.tiff,image/tiff';
+        fileInp.style.cssText = 'font-size:11px;';
+        var goBtn = document.createElement('button');
+        goBtn.type = 'button'; goBtn.textContent = 'Upload';
+        goBtn.style.cssText = _TRACE_BTN_CSS + 'align-self:flex-start;padding:3px 12px;';
+        var stat = document.createElement('span');
+        stat.style.cssText = 'font-size:11px;';
+        form.appendChild(titleInp); form.appendChild(dateInp);
+        form.appendChild(srcInp); form.appendChild(fileInp);
+        form.appendChild(goBtn); form.appendChild(stat);
+        det.appendChild(form);
+        wrap.appendChild(det);
+
+        goBtn.addEventListener('click', function () {
+            var f = fileInp.files && fileInp.files[0];
+            if (!f) { stat.style.color = '#c00'; stat.textContent = 'Choose a GeoTIFF first.'; return; }
+            var fd = new FormData();
+            fd.append('file', f);
+            fd.append('title', titleInp.value.trim());
+            fd.append('image_date', dateInp.value);
+            fd.append('source_note', srcInp.value.trim());
+            goBtn.disabled = true;
+            stat.style.color = '#1a73e8'; stat.textContent = 'uploading…';
+            fetch(API_BASE + 'api/trace_rasters/upload/', {
+                method: 'POST', headers: { 'X-CSRFToken': window.CSRF_TOKEN }, body: fd
+            }).then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
+              .then(function (res) {
+                goBtn.disabled = false;
+                if (res.ok && res.j.ok) {
+                    stat.textContent = '';
+                    titleInp.value = ''; srcInp.value = ''; dateInp.value = ''; fileInp.value = '';
+                    det.open = false;
+                    _traceReplaceRow(res.j.raster);
+                    _renderTraceRows();
+                    _tracePoll(res.j.id);
+                } else {
+                    stat.style.color = '#c00';
+                    stat.textContent = (res.j && res.j.error) || 'upload failed';
+                }
+            }).catch(function () {
+                goBtn.disabled = false;
+                stat.style.color = '#c00'; stat.textContent = 'upload failed';
+            });
+        });
+
+        _renderTraceRows();   // populate the freshly-created container
+        return wrap;
+    }
+
     (function () {
         // Tab switching: one panel visible at a time.
         document.querySelectorAll('.inv-tab').forEach(function (tab) {
@@ -1939,6 +2300,7 @@
         rebuildBasemapUI();
         _applyPendingSwipe(); // wiper from the URL hash / saved view (built-in + local layers)
         _loadPromotedQms();   // merge admin-curated shared layers (public set for everyone)
+        _traceLoad();         // editor GeoTIFF overlays (no-op for the public)
 
         // Pinned basemap quick-select change handler (options (re)built by rebuildBasemapUI).
         var pinned = document.getElementById('pinned-basemap');
@@ -2718,6 +3080,8 @@
     // ---------------------------------------------------------------------------
     // Detail panel
     // ---------------------------------------------------------------------------
+    var _lastDetail = null;   // {id, name} of the last-opened landslide (trace-overlay linking)
+
     function showDetail(id) {
         fetch(API_BASE + 'api/landslide/' + id + '/')
             .then(function (r) { return r.json(); })
@@ -2814,6 +3178,7 @@
     }
 
     function renderDetail(d) {
+        _lastDetail = { id: d.id, name: d.unique_name };   // trace-overlay link target
         var html = '';
         var stories = d.planet_stories || [];
         var prominent = stories.length > 0 && planetIsProminent(d);
