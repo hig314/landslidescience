@@ -70,6 +70,32 @@ def _count_tiles(min_zoom, max_zoom, bounds):
 
 # --- entry points -----------------------------------------------------------
 
+def _check_georef(crs, transform):
+    """Raise ValueError (editor-facing message) unless the georeferencing is
+    actually usable. Three failure shapes seen in the wild:
+      - no CRS at all;
+      - identity transform (georef lives in a sidecar .tfw/.aux.xml that
+        didn't come along in the upload, or was never there);
+      - a *degenerate* transform — zero pixel size / zero determinant, e.g. a
+        clip tool that wrote the clip window's pixel offsets into the origin
+        and 0 for the scales. GDAL fails these deep in the warper with
+        'Cannot invert geotransform'; catching them here turns a background
+        bake failure into an instant, actionable upload error.
+    """
+    if crs is None or transform is None or transform.is_identity:
+        raise ValueError('This raster carries no georeferencing (CRS + transform). '
+                         'If your GIS shows it georeferenced, the georef may live in '
+                         'a sidecar file (.tfw / .aux.xml) that is not inside the '
+                         '.tif — re-export as a self-contained GeoTIFF.')
+    if transform.determinant == 0:
+        raise ValueError('This raster\'s geotransform is broken (zero pixel size — '
+                         f'origin {transform.c:g},{transform.f:g}, scales '
+                         f'{transform.a:g},{transform.e:g}), so it cannot be placed '
+                         'on the map. The tool that made it dropped the real '
+                         'transform — re-export it (e.g. gdal_translate from the '
+                         'un-clipped original, or QGIS → Export → Save As GeoTIFF).')
+
+
 def probe(path):
     """Fast pre-flight: openable + georeferenced. Raises ValueError with an
     editor-facing message otherwise. Called synchronously at upload so the
@@ -81,9 +107,7 @@ def probe(path):
             crs, transform = src.crs, src.transform
     except Exception:
         raise ValueError('Could not read this file as a raster — is it a GeoTIFF?')
-    if crs is None or transform is None or transform.is_identity:
-        raise ValueError('This raster carries no georeferencing (CRS + transform). '
-                         'Export a GeoTIFF with an embedded CRS and try again.')
+    _check_georef(crs, transform)
 
 
 def process(raster_id):
@@ -121,8 +145,7 @@ def _bake(src_path, out_dir):
     from rasterio.warp import transform_bounds
 
     with rasterio.open(src_path) as src:
-        if src.crs is None or src.transform is None or src.transform.is_identity:
-            raise ValueError('Raster carries no georeferencing (CRS + transform).')
+        _check_georef(src.crs, src.transform)
 
         # Probe pass: warped bounds + native resolution in 3857.
         with WarpedVRT(src, crs='EPSG:3857', resampling=Resampling.bilinear) as vrt:
