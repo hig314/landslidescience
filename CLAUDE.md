@@ -180,6 +180,8 @@ Both the edit and review forms embed a shared imagery-switchable preview map (`_
 
 `api_features` carries `size_inclusion` + `creep_behavior`; `api_polygons` carries `creep_behavior` (so a polygon matches its centroid dot); the edit-preview polygons query carries `landslide_type`/`creep_behavior`/`year_num`. **`year_num` is derived to mirror `derived._resolve_event_era`** (priority: `seismic_datetime` → 4-digit `year_text` → `year_text` Modern/Holocene token → class era token → `date_min`) — defined once in `_FILTER_PROPS_SQL` and repeated in the timed/timeline-event queries + the edit-preview query. This matters because SMALL catastrophic records have `landslide_class = "Small catastrophic landslide"` (no era token), so keying age off the class alone left them magenta even when timed. Add or change a color/expression **only in ls_colors.js**. The legend (home.html `_CLASS_COLOR` + `_HALO_COLOR` + the `_cls_dot.html` partial) mirrors these colors — the two size-only "Small …" rows render a little **row of dots** (their members vary in color), patchy shows a red-center swatch, incomplete is magenta.
 
+**Polygon primary convention is enforced on every automatic entry path** via `derived.normalize_primary()` (called by draw commit create+attach, `manage_polygons_save` adds *and* deletes, and `apply_import`): slow → body primary; catastrophic → exactly ONE source primary, deposits never primary; catastrophic with no source → no primary (centroid falls back to the deposit by role order). Keeps an already-flagged candidate, else lowest id — matching the centroid LATERAL's ordering, so compliant records never move. The review form's explicit per-row primary radio remains the manual escape hatch (not normalized). `python manage.py normalize_primary_polygons [--dry-run]` sweeps the backlog (restart web after a live run to drop cached centroids); run once per environment after deploy.
+
 Polygon **roles** (source/body/deposit) ARE editable in the edit/review form (`polygon_role_<id>`), so a mis-typed landslide can be corrected end-to-end — switch `landslide_type` *and* the role (slow↔body, catastrophic↔source/deposit), and the rule cascade re-runs on save (also triggered outside review when type/role changed) to recompute the centroid/areas/class. The edit/review form also offers location-seeded reference links via `_imagery_suggestions` (centroid, or the polygon-union centroid for pending records): ESRI Wayback / Google satellite as paste-into-field suggestions next to `esri_wayback_link`/`google_images_link`, read-only OPERA InSAR ascending/descending links next to `insar_opera`, and a USGS TopoView (historic topo, zoom 13) link. The public map detail popup (`api_detail` → `map.js` imagery list) carries the deterministic OPERA + TopoView links too (`topoview_link`).
 
 **ESRI Wayback link format (maintenance note).** `esri_wayback_link` uses ESRI's current **center+zoom** hash: `…/wayback/#mapCenter=<lon>%2C<lat>%2C<zoom>&mode=explore[&active=<release>]` (`active` = which historical capture is shown). ESRI **retired the old bounding-box hash** (`#ext=<lonW>,<latS>,<lonE>,<latN>`) — the new app silently ignores it, so legacy links opened to the whole world. The conversion (bbox → centroid + equivalent zoom, preserving `active`) lives in `views.py`: `_wayback_url` builds a link, `_convert_wayback_ext_url` converts one (handling `ext` at **any** hash position, e.g. `#active=N&ext=…`, and leaving links that already carry a `mapCenter` untouched) — shared by the auto-seeded suggestions and the migration. Two idempotent, `--dry-run`-capable commands fixed the stored data (run once per environment — the dev and prod databases/snapshots are separate):
@@ -339,6 +341,24 @@ Schema:
 The legacy `landslides.planet_story_link` text column is still written by
 the edit form and kept in sync with the join tables on save. It will be
 dropped after the edit form gains a proper multi-story management UI.
+
+**Runtime sync + auto-archive (`inventory/planet.py`).** Every path that
+writes `planet_story_link` keeps the N:M tables in step and archives new
+animations automatically — no manual command needed for the common case:
+`planet.sync_story_link` (autosave `manage_edit_field` — the main path, which
+previously updated only the text column, so review-form links never embedded
+— and the `manage_edit` full-form save, whose old inline block it replaced)
+plus `planet.ensure_story_rows` (additive, `apply_import` for file uploads,
+filtered so a master-file re-import doesn't re-probe known stories). A
+newly-linked slug is then probed + archived by `planet.ensure_archived_async`
+in a background thread (downloads can exceed gunicorn's 30 s window):
+HEAD 200 → timelapse → download to `data/planet_stories/<slug>.mp4` + stamp;
+404 → comparison; network hiccup → left NULL for the batch commands to retry
+(same disk layout + COALESCE stamping semantics, so hook and batch are
+idempotent with each other). Slugs are charset-validated (`[A-Za-z0-9_-]+`,
+matching the serving route) before becoming GCS URLs/filenames. Once
+archived, `api_detail` returns `mp4_url` and the map detail panel embeds the
+player on next open.
 
 ### Stable serving URL — load-bearing for snapshots
 

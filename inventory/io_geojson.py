@@ -1463,6 +1463,31 @@ def apply_import(landslides_fc, polygons_fc, user, subset_slug=None, common_fiel
         for ls_id in affected_landslide_ids:
             derived.normalize_primary(cur, ls_id)
 
+        # Records arriving with a planet_story_link get their N:M story rows
+        # ensured now (additive — no membership deletes on update-in-place),
+        # and newly-seen stories are probed + archived after commit so the
+        # animation embeds in the landslide view without a manual command.
+        from . import planet
+        new_story_slugs = set()
+        if affected_landslide_ids:
+            cur.execute(
+                "SELECT id, planet_story_link FROM landslides "
+                "WHERE id = ANY(%s) AND planet_story_link IS NOT NULL "
+                "AND planet_story_link != ''", (list(affected_landslide_ids),))
+            seen = set()
+            for ls_id, link in cur.fetchall():
+                slug = planet.ensure_story_rows(cur, ls_id, link)
+                if slug:
+                    seen.add(slug)
+            # Only background-archive stories that still need work — a
+            # master-file re-import must not spawn a thread per known story.
+            if seen:
+                cur.execute(
+                    "SELECT slug FROM planet_stories WHERE slug = ANY(%s) "
+                    "AND (story_type IS NULL OR (story_type = 'timelapse' "
+                    "     AND mp4_archived_at IS NULL))", (list(seen),))
+                new_story_slugs = {r[0] for r in cur.fetchall()}
+
         conn.commit()
     except ImportError_:
         conn.rollback()
@@ -1475,6 +1500,9 @@ def apply_import(landslides_fc, polygons_fc, user, subset_slug=None, common_fiel
         raise ImportError_(f'Apply failed — no changes were saved. Database error:\n  {exc}') from exc
     finally:
         _put_conn(conn)
+
+    for slug in new_story_slugs:
+        planet.ensure_archived_async(slug)
 
     for ls_id in affected_landslide_ids:
         LandslideEditMeta.objects.update_or_create(

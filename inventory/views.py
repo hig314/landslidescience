@@ -23,6 +23,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST, require_safe
 
+from . import planet
 from .auth import inventory_editor_required
 from .middleware import SESSION_KEY as _PREVIEW_SESSION_KEY
 
@@ -1576,13 +1577,7 @@ def manage_edit(request, landslide_id, review_mode=False):
             type_changed = ('landslide_type' in col_names
                             and data.get('landslide_type') != initial.get('landslide_type'))
             roles_changed = False
-            # If the editor changed planet_story_link, mirror the change into
-            # the planet_stories N:M tables so api_detail (which now reads
-            # from the join) reflects it immediately. When this view grows
-            # multi-story management UI, this block becomes the source of
-            # truth and the column write goes away.
-            old_slug = _planet_slug_from_url(initial.get('planet_story_link'))
-            new_slug = _planet_slug_from_url(data.get('planet_story_link'))
+            new_story_slug = None   # set by the planet sync below; archived post-commit
 
             # Subset memberships submitted as checkboxes named "subset_<id>".
             posted_subset_ids = set()
@@ -1602,24 +1597,13 @@ def manage_edit(request, landslide_id, review_mode=False):
             try:
                 cur = conn.cursor()
                 cur.execute(update_sql, values)
-                if old_slug != new_slug:
-                    if old_slug:
-                        cur.execute(
-                            "DELETE FROM landslide_planet_stories "
-                            "WHERE landslide_id = %s AND slug = %s",
-                            (landslide_id, old_slug),
-                        )
-                    if new_slug:
-                        cur.execute(
-                            "INSERT INTO planet_stories (slug) VALUES (%s) "
-                            "ON CONFLICT (slug) DO NOTHING",
-                            (new_slug,),
-                        )
-                        cur.execute(
-                            "INSERT INTO landslide_planet_stories (landslide_id, slug) "
-                            "VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                            (landslide_id, new_slug),
-                        )
+                # Mirror a planet_story_link change into the N:M tables so
+                # api_detail (which reads from the join) reflects it
+                # immediately; a newly-linked story is probed + archived in
+                # the background after commit.
+                new_story_slug = planet.sync_story_link(
+                    cur, landslide_id,
+                    initial.get('planet_story_link'), data.get('planet_story_link'))
 
                 # Sync subset memberships to the checkbox state. Frozen
                 # (snapshotted) subsets are excluded from both directions
@@ -1715,6 +1699,7 @@ def manage_edit(request, landslide_id, review_mode=False):
                     _put_conn(conn)
 
             if not error_msg:
+                planet.ensure_archived_async(new_story_slug)
                 LandslideEditMeta.objects.update_or_create(
                     landslide_id=landslide_id,
                     defaults={'last_edited_by': request.user},
@@ -2586,6 +2571,7 @@ def manage_edit_field(request, landslide_id):
 
     conn = _get_conn()
     derived_vals = None
+    new_story_slug = None
     try:
         cur = conn.cursor()
         cols = _discover_editable_columns(cur)
@@ -2632,11 +2618,26 @@ def manage_edit_field(request, landslide_id):
                 'Not a valid map-view string (expected '
                 '"map=zoom/lat/lon&base=…[&swipe=…&sx=…]").')}, status=400)
 
+        # planet_story_link keeps the N:M story tables in step (this autosave
+        # endpoint is the main path scalar fields save through — without the
+        # sync a review-form link never reached planet_stories, so nothing
+        # archived and nothing embedded). Newly-linked story → probed +
+        # archived in the background after commit.
+        old_story_url = None
+        if name == 'planet_story_link':
+            cur.execute("SELECT planet_story_link FROM landslides WHERE id = %s",
+                        (landslide_id,))
+            r0 = cur.fetchone()
+            old_story_url = r0[0] if r0 else None
+
         # name is whitelisted from information_schema (not user-supplied SQL).
         cur.execute(f"UPDATE landslides SET {name} = %s WHERE id = %s", (val, landslide_id))
         if cur.rowcount == 0:
             conn.rollback()
             return JsonResponse({'ok': False, 'error': 'Record not found.'}, status=404)
+
+        if name == 'planet_story_link':
+            new_story_slug = planet.sync_story_link(cur, landslide_id, old_story_url, val)
 
         cascaded = (name in rule_inputs) and (name not in rule_targets)
         if cascaded:
@@ -2655,6 +2656,8 @@ def manage_edit_field(request, landslide_id):
         return JsonResponse({'ok': False, 'error': f'Save failed: {exc}'}, status=500)
     finally:
         _put_conn(conn)
+
+    planet.ensure_archived_async(new_story_slug)
 
     from .models import LandslideEditMeta
     LandslideEditMeta.objects.update_or_create(
