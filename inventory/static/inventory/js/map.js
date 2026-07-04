@@ -1940,6 +1940,7 @@
     var _traceRasters = [];   // rows from api/trace_rasters/
     var _traceActive  = {};   // id -> opacity (0..1); presence = overlay enabled
     var _tracePolls   = {};   // id -> setInterval handle while processing
+    var _traceListOpen = false;   // uploads list collapsed by default; sticky per session
 
     function _traceRow(id) {
         for (var i = 0; i < _traceRasters.length; i++)
@@ -1959,10 +1960,19 @@
             });
         }
         if (!map.getLayer(lyrId)) {
-            // Above basemap + susceptibility, below faults and every landslide
-            // layer — traced geometry must draw on top of the image.
-            var beforeId = map.getLayer('faults-line') ? 'faults-line'
-                         : (map.getLayer('points') ? 'points' : undefined);
+            // The image goes at the very BOTTOM of the data stack — below
+            // pending magenta too (pending is the lowest data layer, so a
+            // freshly-traced-and-committed record must still draw on top of
+            // the image it was traced from), then susc, faults, and every
+            // landslide layer above.
+            var beforeId;
+            ['pending-poly-fill']
+                .concat(SUSC_LAYERS.map(function (s) { return 'susc-' + s.key + '-layer'; }))
+                .concat(['faults-line', 'points'])
+                .some(function (cand) {
+                    if (map.getLayer(cand)) { beforeId = cand; return true; }
+                    return false;
+                });
             map.addLayer({
                 id: lyrId, type: 'raster', source: srcId,
                 paint: { 'raster-opacity': (_traceActive[id] != null ? _traceActive[id] : 1) }
@@ -1982,6 +1992,21 @@
         if (r.bounds_w == null) return;
         map.fitBounds([[r.bounds_w, r.bounds_s], [r.bounds_e, r.bounds_n]],
                       { padding: 60, maxZoom: r.max_zoom || 16 });
+    }
+    // Thumbnail for a baked raster: its center tile at the zoom where the
+    // image roughly fills one tile (slippy math as in basemaps.js). The tile
+    // is guaranteed cached-immutable; a missing one (nodata center) just
+    // hides the <img> via onerror.
+    function _traceThumbUrl(r) {
+        if (r.bounds_w == null || r.min_zoom == null) return null;
+        var lonSpan = Math.max(1e-6, r.bounds_e - r.bounds_w);
+        var z = Math.max(r.min_zoom, Math.min(r.max_zoom, Math.floor(Math.log2(360 / lonSpan))));
+        var lon = (r.bounds_w + r.bounds_e) / 2;
+        var lat = (r.bounds_s + r.bounds_n) / 2;
+        var n = Math.pow(2, z);
+        var x = Math.floor((lon + 180) / 360 * n);
+        var y = Math.floor((1 - Math.asinh(Math.tan(lat * Math.PI / 180)) / Math.PI) / 2 * n);
+        return API_BASE + 'tiles/trace/' + r.id + '/' + z + '/' + x + '/' + y + '.png';
     }
     function _tracePost(url, body) {
         var opts = { method: 'POST', headers: { 'X-CSRFToken': window.CSRF_TOKEN } };
@@ -2036,7 +2061,27 @@
     var _TRACE_BTN_CSS = 'font-size:11px;padding:1px 6px;border:1px solid #bbb;' +
                          'border-radius:3px;background:#fff;cursor:pointer;';
 
+    // Summary line on the collapsed uploads list — kept current from every
+    // state change (enable/disable, upload, poll completion, delete).
+    function _traceUpdateSummary() {
+        var sum = document.getElementById('trace-list-summary');
+        if (!sum) return;
+        if (!_traceRasters.length) { sum.textContent = 'No uploads yet'; return; }
+        var shown = Object.keys(_traceActive).length;
+        var txt = _traceRasters.length + ' upload' + (_traceRasters.length === 1 ? '' : 's');
+        if (shown) txt += ' · ' + shown + ' on map';
+        if (_traceRasters.some(function (r) { return r.status === 'processing' && !r.stalled; }))
+            txt += ' · processing…';
+        sum.textContent = txt;
+    }
+    function _traceSetListOpen(open) {
+        _traceListOpen = open;
+        var det = document.getElementById('trace-list-details');
+        if (det) det.open = open;
+    }
+
     function _renderTraceRows() {
+        _traceUpdateSummary();
         var box = document.getElementById('trace-imagery-rows');
         if (!box) return;
         box.innerHTML = '';
@@ -2064,6 +2109,7 @@
                     delete _traceActive[r.id];
                     _traceRemoveLayer(r.id);
                 }
+                _traceUpdateSummary();
             });
             top.appendChild(cb);
 
@@ -2209,9 +2255,22 @@
         hint.textContent = 'Upload a georeferenced GeoTIFF, then trace it with the ✏ draw tool. Data admins only.';
         wrap.appendChild(hint);
 
+        // Uploads list — collapsed by default so a growing library doesn't
+        // swamp the panel; the summary line carries the counts. Upload stays
+        // visible below regardless.
+        var listDet = document.createElement('details');
+        listDet.id = 'trace-list-details';
+        listDet.open = _traceListOpen;
+        var listSum = document.createElement('summary');
+        listSum.id = 'trace-list-summary';
+        listSum.style.cssText = 'cursor:pointer;font-size:12px;color:#555;margin-bottom:4px;';
+        listSum.textContent = 'No uploads yet';
+        listDet.appendChild(listSum);
+        listDet.addEventListener('toggle', function () { _traceListOpen = listDet.open; });
         var rows = document.createElement('div');
         rows.id = 'trace-imagery-rows';
-        wrap.appendChild(rows);
+        listDet.appendChild(rows);
+        wrap.appendChild(listDet);
 
         var det = document.createElement('details');
         var sum = document.createElement('summary');
@@ -2265,6 +2324,7 @@
                     titleInp.value = ''; srcInp.value = ''; dateInp.value = ''; fileInp.value = '';
                     det.open = false;
                     _traceReplaceRow(res.j.raster);
+                    _traceSetListOpen(true);   // show the new row's processing status
                     _renderTraceRows();
                     _tracePoll(res.j.id);
                 } else {
@@ -3238,6 +3298,16 @@
             html += '<span id="defview-status" style="font-size:11px;"></span></div>';
         }
 
+        // Editor-only: trace imagery linked to this landslide — the record of
+        // what it was traced from, one click to bring back. Cards are built
+        // with DOM after the innerHTML set (thumbnails + click handlers).
+        var linkedTraces = window._isInventoryEditor
+            ? _traceRasters.filter(function (r) {
+                return r.landslide_id === d.id && r.status === 'ready';
+              })
+            : [];
+        if (linkedTraces.length) html += '<div id="detail-trace-cards"></div>';
+
         // Editor-only: flag banner with a Clear button. Shown whenever the
         // record is flagged, independent of what's pinned — clearing the flag
         // is a review action, not a field-edit.
@@ -3462,6 +3532,55 @@
         if (dvClear) dvClear.addEventListener('click', function () {
             _saveDefView(null, 'clearing…');
         });
+
+        // Build the linked trace-imagery cards (thumbnail + title + date;
+        // click = show the overlay and zoom to it).
+        var tcBox = document.getElementById('detail-trace-cards');
+        if (tcBox) {
+            var cap = document.createElement('div');
+            cap.className = 'detail-section-title';
+            cap.style.cssText = 'margin:8px 0 4px;';
+            cap.textContent = 'Traced from';
+            tcBox.appendChild(cap);
+            linkedTraces.forEach(function (r) {
+                var card = document.createElement('div');
+                card.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 7px;' +
+                    'margin-bottom:4px;border:1px solid #d8d2cc;border-radius:5px;background:#faf8f6;' +
+                    'cursor:pointer;';
+                card.title = 'Show this image on the map and zoom to it'
+                           + (r.source_note ? '\n' + r.source_note : '');
+                var thumbUrl = _traceThumbUrl(r);
+                if (thumbUrl) {
+                    var img = document.createElement('img');
+                    img.src = thumbUrl;
+                    img.alt = '';
+                    img.style.cssText = 'width:44px;height:44px;object-fit:cover;border-radius:3px;' +
+                        'background:#3a3a3a;flex:none;';
+                    img.onerror = function () { img.remove(); };
+                    card.appendChild(img);
+                }
+                var txt = document.createElement('div');
+                txt.style.cssText = 'min-width:0;font-size:12px;line-height:1.3;';
+                var t1 = document.createElement('div');
+                t1.style.cssText = 'font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                t1.textContent = r.title;
+                var t2 = document.createElement('div');
+                t2.style.cssText = 'color:#777;font-size:11px;';
+                t2.textContent = (r.image_date ? 'imaged ' + r.image_date : '')
+                               + (_traceActive[r.id] != null ? '  · on map' : '');
+                txt.appendChild(t1); txt.appendChild(t2);
+                card.appendChild(txt);
+                card.addEventListener('click', function () {
+                    if (_traceActive[r.id] == null) _traceActive[r.id] = 1;
+                    _traceAddLayer(r.id);
+                    _traceZoomTo(r);
+                    _traceUpdateSummary();
+                    _renderTraceRows();
+                    t2.textContent = (r.image_date ? 'imaged ' + r.image_date : '') + '  · on map';
+                });
+                tcBox.appendChild(card);
+            });
+        }
     }
 
     function esc(s) {
