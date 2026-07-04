@@ -2380,9 +2380,6 @@ def manage_polygons_save(request, landslide_id):
         if not row:
             conn.rollback()
             return JsonResponse({'ok': False, 'error': 'Landslide not found.'}, status=404)
-        ls_type = row[0]
-        primary_role = 'source' if ls_type == 'catastrophic' else 'body'
-
         cur.execute("SELECT id FROM landslide_polygons WHERE landslide_id = %s",
                     (landslide_id,))
         current_ids = {r[0] for r in cur.fetchall()}
@@ -2440,10 +2437,7 @@ def manage_polygons_save(request, landslide_id):
                         f"WHERE id = %s", (gj, did))
             n_upd += 1
 
-        # ---- INSERT new polygons (role required; is_primary inferred) ----
-        cur.execute("SELECT role FROM landslide_polygons "
-                    "WHERE landslide_id = %s AND is_primary", (landslide_id,))
-        existing_primary_roles = {r[0] for r in cur.fetchall()}
+        # ---- INSERT new polygons (role required) ----
         for ins in inserts:
             role = (ins.get('role') or '').strip().lower()
             if role not in _POLY_ROLES:
@@ -2456,17 +2450,16 @@ def manage_polygons_save(request, landslide_id):
                 conn.rollback()
                 return JsonResponse(
                     {'ok': False, 'error': 'A drawn polygon has near-zero area.'}, status=400)
-            # Primary only if it's the type's primary role and none exists yet.
-            is_primary = (role == primary_role) and (role not in existing_primary_roles)
-            if is_primary:
-                existing_primary_roles.add(role)
             cur.execute(
-                f"INSERT INTO landslide_polygons (landslide_id, role, is_primary, geom) "
-                f"VALUES (%s, %s, %s, {_GEOM_WRITE_EXPR})",
-                (landslide_id, role, is_primary, gj))
+                f"INSERT INTO landslide_polygons (landslide_id, role, geom) "
+                f"VALUES (%s, %s, {_GEOM_WRITE_EXPR})",
+                (landslide_id, role, gj))
             n_ins += 1
 
-        # Recompute area/centroid/size_inclusion/class from the new geometry.
+        # Re-assert the primary convention over the changed polygon set (adds
+        # AND deletes — deleting the primary source must promote another), then
+        # recompute area/centroid/size_inclusion/class from the new geometry.
+        derived.normalize_primary(cur, landslide_id)
         derived.apply_rules_for_landslide(cur, landslide_id)
         conn.commit()
     except Exception as exc:
@@ -3139,23 +3132,22 @@ def manage_draw_commit(request):
         if created_ids and identity.get('noted_by'):
             cur.execute("UPDATE landslides SET noted_by = %s WHERE id = ANY(%s) AND noted_by IS NULL",
                         (identity['noted_by'], created_ids))
-        attach_primary = {}   # ex_id -> primary role for its type
         for r in attach_rows:
             ex_id, ex_type = existing[r['unique_name'].lower()]
-            attach_primary[ex_id] = 'source' if ex_type == 'catastrophic' else 'body'
             # Copy the staged geometry straight over (already MultiPolygon/4326).
             cur.execute("""
                 INSERT INTO landslide_polygons (landslide_id, role, geom)
                 SELECT %s, %s, geom FROM provisional_polygons WHERE id = %s
             """, (ex_id, r['role'], r['id']))
             affected_ids.add(ex_id)
-        # Normalise is_primary to the role convention (catastrophic→source,
-        # slow→body) so adding e.g. a source to a deposit-only record makes the
-        # source primary and demotes the deposit — the centroid follows.
-        for ex_id, primary_role in attach_primary.items():
-            cur.execute("UPDATE landslide_polygons SET is_primary = (role = %s) WHERE landslide_id = %s",
-                        (primary_role, ex_id))
+        # Normalise is_primary to the role convention (catastrophic→ONE source,
+        # deposits never primary; slow→body) on every touched record — both
+        # freshly created and attached-to — so adding e.g. a source to a
+        # deposit-only record makes the source primary and demotes the deposit
+        # (the centroid follows), and a draw-created record never leaves here
+        # with no primary at all.
         for lid in affected_ids:
+            derived.normalize_primary(cur, lid)
             derived.apply_rules_for_landslide(cur, lid)
         if attach_rows:
             cur.execute("DELETE FROM provisional_polygons WHERE editor_id = %s AND id = ANY(%s)",

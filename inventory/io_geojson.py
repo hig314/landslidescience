@@ -1455,6 +1455,14 @@ def apply_import(landslides_fc, polygons_fc, user, subset_slug=None, common_fiel
             summary['polygons_inserted'] += 1
             affected_landslide_ids.add(real_ls_id)
 
+        # Re-assert the is_primary convention (catastrophic→ONE source,
+        # deposits never primary; slow→body) on every touched record —
+        # uploads and draw-staged polygons may carry no is_primary at all,
+        # or values that violate the manifest convention.
+        from . import derived
+        for ls_id in affected_landslide_ids:
+            derived.normalize_primary(cur, ls_id)
+
         conn.commit()
     except ImportError_:
         conn.rollback()

@@ -880,6 +880,46 @@ def diff_against_db(cur, rule_name):
     return {'agreements': agreements, 'changes': changes}
 
 
+def normalize_primary(cur, ls_id):
+    """Enforce the is_primary convention on one landslide's polygons
+    (manifest `polygon_conventions.is_primary`): slow → the body polygon is
+    primary; catastrophic → exactly ONE source polygon is primary and
+    deposits are never primary; a catastrophic with no source has NO primary
+    (the centroid LATERAL falls back to the deposit by role order).
+
+    Called from every *automatic* geometry-entry path (draw create + attach,
+    edit-map polygon save, file import) — NOT from the review form's explicit
+    per-row primary radio, which stays the manual escape hatch. When several
+    polygons of the primary role exist, an already-flagged one is kept, else
+    the lowest id wins (matches the centroid LATERAL's `is_primary DESC, id`
+    ordering, so normalization never moves an existing centroid).
+
+    Returns True if any row changed. The caller owns the transaction and is
+    expected to run the rule cascade afterwards.
+    """
+    cur.execute("SELECT landslide_type FROM landslides WHERE id = %s", (ls_id,))
+    row = cur.fetchone()
+    if not row:
+        return False
+    primary_role = 'source' if row[0] == 'catastrophic' else 'body'
+    cur.execute("SELECT id, role, is_primary FROM landslide_polygons "
+                "WHERE landslide_id = %s ORDER BY is_primary DESC NULLS LAST, id",
+                (ls_id,))
+    polys = cur.fetchall()
+    candidates = [p for p in polys if p[1] == primary_role]
+    # Desired state: the first candidate (kept-if-already-primary, else lowest
+    # id) is primary; everything else is not. No candidates → nothing primary.
+    keep_id = candidates[0][0] if candidates else None
+    changed = False
+    for pid, _role, is_primary in polys:
+        want = (pid == keep_id)
+        if bool(is_primary) != want:
+            cur.execute("UPDATE landslide_polygons SET is_primary = %s WHERE id = %s",
+                        (want, pid))
+            changed = True
+    return changed
+
+
 def apply_rules_for_landslide(cur, ls_id):
     """Apply every derived RULE to ONE landslide (and its polygons), in
     dependency order (the RULES insertion order: polygon geometry → areas →
