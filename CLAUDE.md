@@ -191,6 +191,18 @@ Polygon **roles** (source/body/deposit) ARE editable in the edit/review form (`p
 
 If ESRI changes the format again, update those two `views.py` helpers and re-run both commands per environment.
 
+**Links in description / notes.** The two free-text fields support a
+**links-only markdown subset**: `[text](https://…)` plus bare http(s) URLs
+render as anchors in the map detail panel (`richText()` in map.js —
+tokenize-links-first-then-escape, hrefs scheme-anchored to `https?://`, so
+`[x](javascript:…)` and any pasted markup stay literal text). Values remain
+plain text in the DB — exports/QGIS/api_detail see the raw string; nothing
+else renders markdown (deliberately: no accidental formatting from stray
+`*`/`#` in existing prose). Pasting rich text (copied from a web page/doc)
+into these textareas converts anchors to `[text](url)` automatically
+(`_paste_links.html`, shared by edit + review); if the clipboard HTML
+carries no links, the normal plain-text paste proceeds untouched.
+
 **Form ergonomics.** Scalar fields **autosave on blur** (`autosave.js` → `manage_edit_field`), with a per-field status (blue ✓ / red error); the "Save changes" button remains for subset memberships + the polygon role/primary table. Date fields are typeable in the unambiguous **`14-Sep-2010`** form (and ISO). A field that feeds a rule re-runs the cascade and refreshes the derived fields in place. `owner`/`noted_by` auto-fill with the editor's identity (username / full name) on blank records (and on draw-created ones). The polygon primary (centroid-defining) is selectable per-row in the role table. Saving geometry no longer reloads the page — it refreshes the derived fields in place so unsaved field edits survive. On the public map a record missing the dimension its display rests on (slow without `creep_behavior`, catastrophic without a resolvable age) draws **magenta** (see *Map symbology* above) — a visible "incomplete" signal, not a hard error.
 
 ## In-app polygon geometry: edit & draw (Terra Draw)

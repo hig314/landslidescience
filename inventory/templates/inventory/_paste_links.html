@@ -1,0 +1,59 @@
+{% comment %}
+Paste-with-links for the free-text fields (description / notes), shared by
+manage_edit + manage_review. When the clipboard carries text/html (a copy
+from a web page or doc), anchors are converted to the links-only markdown
+subset the map detail panel renders ([text](https://...)); block elements
+become newlines. If the conversion yields no links, the default plain-text
+paste proceeds untouched. Values remain plain text in the DB either way.
+{% endcomment %}
+<script>
+  (function () {
+    var FIELDS = { description: 1, notes: 1 };
+
+    function htmlToLinkText(html) {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      function walk(node) {
+        var out = '';
+        node.childNodes.forEach(function (ch) {
+          if (ch.nodeType === 3) { out += ch.nodeValue.replace(/\s+/g, ' '); return; }
+          if (ch.nodeType !== 1) return;
+          var tag = ch.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE') return;
+          if (tag === 'A' && /^https?:\/\//.test(ch.href)) {
+            var txt = ch.textContent.replace(/\s+/g, ' ').trim();
+            // Bare-URL anchor text -> just the URL; else [text](url).
+            out += (!txt || txt === ch.href) ? ch.href : '[' + txt + '](' + ch.href + ')';
+            return;
+          }
+          if (tag === 'BR') { out += '\n'; return; }
+          var block = /^(P|DIV|LI|TR|H[1-6]|UL|OL|TABLE|BLOCKQUOTE|SECTION|ARTICLE)$/.test(tag);
+          out += walk(ch);
+          if (block) out += '\n';
+        });
+        return out;
+      }
+      return walk(doc.body)
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+    }
+
+    document.addEventListener('paste', function (e) {
+      var t = e.target;
+      if (!t || t.tagName !== 'TEXTAREA' || !FIELDS[t.name]) return;
+      if (!e.clipboardData) return;
+      var html = e.clipboardData.getData('text/html');
+      if (!html) return;
+      var converted = htmlToLinkText(html);
+      // Only intercept when the conversion actually preserved a link the
+      // plain-text paste would lose.
+      if (!/\[[^\]]+\]\(https?:\/\//.test(converted)) return;
+      e.preventDefault();
+      t.setRangeText(converted, t.selectionStart, t.selectionEnd, 'end');
+      // Let autosave (blur) and any dirty-tracking see the change.
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+      t.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  })();
+</script>

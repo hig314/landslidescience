@@ -3357,7 +3357,7 @@
             html += '</div>';
         }
 
-        if (d.description) html += '<p class="detail-desc">' + esc(d.description) + '</p>';
+        if (d.description) html += '<p class="detail-desc">' + richText(d.description) + '</p>';
 
         var attrs = [];
         if (d.subsets && d.subsets.length) {
@@ -3418,7 +3418,7 @@
 
         if (d.notes) {
             html += '<div class="detail-section"><div class="detail-section-title">Notes</div>' +
-                    '<p class="detail-desc" style="margin:0">' + esc(d.notes) + '</p></div>';
+                    '<p class="detail-desc" style="margin:0">' + richText(d.notes) + '</p></div>';
         }
 
         if (!prominent && stories.length) {
@@ -3585,6 +3585,28 @@
 
     function esc(s) {
         return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Linkify for the free-text fields (description / notes): a links-only
+    // markdown subset — [text](https://…) plus bare http(s) URLs become
+    // anchors; everything else stays literal text, so existing plain-text
+    // values render unchanged. Links are tokenized out of the RAW text
+    // (placeholders), the remainder is escaped, then anchors are re-inserted
+    // with href/label escaped individually — hrefs are scheme-anchored to
+    // https?://, so [x](javascript:…) stays literal text.
+    function richText(s) {
+        var links = [];
+        var txt = String(s).replace(/\u0000/g, '').replace(
+            /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]])/g,
+            function (m, label, url, bare) {
+                links.push({ label: label || bare, href: url || bare });
+                return '\u0000' + (links.length - 1) + '\u0000';
+            });
+        return esc(txt).replace(/\u0000(\d+)\u0000/g, function (m, i) {
+            var l = links[+i];
+            return '<a href="' + esc(l.href) + '" target="_blank" rel="noopener" ' +
+                   'style="color:#1a5fb4;">' + esc(l.label) + '</a>';
+        });
     }
 
     document.getElementById('close-panel').addEventListener('click', function () {
