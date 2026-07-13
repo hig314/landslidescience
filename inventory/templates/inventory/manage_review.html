@@ -163,17 +163,29 @@
     function show(sel, on) {
       form.querySelectorAll(sel).forEach(function (el) { el.style.display = on ? '' : 'none'; });
     }
+    // Gate indicator by creep_evaluated — mirrors manage_edit.html.
+    function gateHint(cat, checked) {
+      var h = document.getElementById('creep-gate-hint');
+      if (!h) return;
+      if (!cat) { h.style.display = 'none'; return; }
+      h.style.display = '';
+      h.textContent = checked
+        ? '⤵ Creep-evidence fields are shown below.'
+        : '⤵ Check to reveal the creep-evidence fields (OPERA / other InSAR, Planet creep flags, geomorphic creep …).';
+    }
     function apply() {
       var type = typeSel ? typeSel.value : '';
       var cat  = type === 'catastrophic';
       var slow = type === 'slow';
       if (!cat && !slow) {
         show('.grp-event', true); show('.creep-slow-only', true); show('.creep-detail', true);
+        gateHint(false, false);
         return;
       }
       show('.grp-event', cat);
       show('.creep-slow-only', slow);
       show('.creep-detail', slow || (cat && creepEval && creepEval.checked));
+      gateHint(cat, !!(creepEval && creepEval.checked));
     }
     if (typeSel)   typeSel.addEventListener('change', apply);
     if (creepEval) creepEval.addEventListener('change', apply);

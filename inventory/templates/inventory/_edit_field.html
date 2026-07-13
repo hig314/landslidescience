@@ -24,6 +24,16 @@ Imagery suggestions + the class datalist are inherited from the parent context.
   {% elif field.name == 'insar_opera' and imagery_suggestions.opera_asc %}
     {% include 'inventory/_opera_links.html' with asc=imagery_suggestions.opera_asc desc=imagery_suggestions.opera_desc %}
   {% endif %}
+  {% if vis == 'creep-gate' %}
+    {% comment %}
+    Gate indicator — the visibility JS in manage_edit/manage_review rewrites
+    this per state (catastrophic + unchecked → "check to reveal …").
+    {% endcomment %}
+    <p id="creep-gate-hint" style="font-size:11px; color:#8a5a00; margin:3px 0 0;">
+      ⤵ On catastrophic records, checking this reveals the creep-evidence fields below
+      (OPERA / other InSAR, Planet creep flags, geomorphic creep …).
+    </p>
+  {% endif %}
   {% if field.help_text %}
     <p style="font-size:11px; color:#888; margin: 3px 0 0;">{{ field.help_text }}</p>
   {% endif %}
