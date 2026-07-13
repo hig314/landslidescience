@@ -1609,10 +1609,15 @@ def manage_edit(request, landslide_id, review_mode=False):
                 # (snapshotted) subsets are excluded from both directions
                 # of the diff — their membership can't be changed once a
                 # snapshot has captured them, so any attempt to add/remove
-                # via a crafted POST is silently dropped.
-                cur.execute(
-                    "SELECT DISTINCT subset_id FROM snapshots WHERE subset_id IS NOT NULL"
-                )
+                # via a crafted POST is silently dropped. Region-kind
+                # subsets are excluded the same way: their membership is
+                # computed from the centroid, and a form save must never
+                # fight the automation.
+                cur.execute("""
+                    SELECT DISTINCT subset_id FROM snapshots WHERE subset_id IS NOT NULL
+                    UNION
+                    SELECT id FROM subsets WHERE kind = 'region'
+                """)
                 frozen_ids = {r[0] for r in cur.fetchall()}
                 cur.execute(
                     "SELECT subset_id FROM landslide_subsets WHERE landslide_id = %s",
@@ -1739,7 +1744,8 @@ def manage_edit(request, landslide_id, review_mode=False):
                    ) AS is_member,
                    EXISTS (
                        SELECT 1 FROM snapshots sn WHERE sn.subset_id = s.id
-                   ) AS is_frozen
+                   ) AS is_frozen,
+                   s.kind = 'region' AS is_region
             FROM subsets s
             ORDER BY s.is_publication DESC, s.name
         """, (landslide_id,))
@@ -1747,10 +1753,16 @@ def manage_edit(request, landslide_id, review_mode=False):
         conn.rollback()
     finally:
         _put_conn(conn)
+    # Tag subsets → checkbox group; region subsets → read-only chips (their
+    # membership is computed from the centroid and refreshed by the cascade).
     all_subsets_for_form = [
         {'id': r[0], 'slug': r[1], 'name': r[2],
          'is_publication': r[3], 'is_member': r[4], 'is_frozen': r[5]}
-        for r in subset_rows
+        for r in subset_rows if not r[6]
+    ]
+    region_memberships = [
+        {'slug': r[1], 'name': r[2]}
+        for r in subset_rows if r[6] and r[4]
     ]
     planet_stories = [{
         'slug':        r[0],
@@ -1889,6 +1901,7 @@ def manage_edit(request, landslide_id, review_mode=False):
         'error_msg':         error_msg,
         'planet_stories':    planet_stories,
         'all_subsets':       all_subsets_for_form,
+        'region_memberships': region_memberships,
         'planet_msg':        request.GET.get('planet_msg', ''),
         'review_mode':       review_mode,
         'polygons_geojson':  polygons_geojson,
@@ -2176,6 +2189,8 @@ def manage_import(request):
         # silently after a publication. (The check is by FK from
         # snapshots.subset_id; a snapshot for the full inventory has
         # NULL subset_id so it doesn't freeze any specific subset.)
+        # Region-kind subsets are excluded too: their membership is computed
+        # from the centroid (inventory/regions.py), never assigned.
         from .forms import build_landslide_form_class
         conn = _get_conn()
         try:
@@ -2183,7 +2198,8 @@ def manage_import(request):
             cur.execute("""
                 SELECT s.slug, s.name
                 FROM subsets s
-                WHERE NOT EXISTS (
+                WHERE s.kind != 'region'
+                  AND NOT EXISTS (
                     SELECT 1 FROM snapshots sn WHERE sn.subset_id = s.id
                 )
                 ORDER BY s.is_publication DESC, s.name

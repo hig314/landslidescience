@@ -201,7 +201,7 @@ Geometry can be created/edited in-browser via **Terra Draw** (loaded from CDN, e
 - **Draw new on the main map** — the **✏ draw** control (`DrawModeControl` in `map.js`): trace a polygon → name + role popup → staged server-side in `provisional_polygons` (per-editor, survives reload). **Same name = same landslide.** A draft teal overlay shows staged polygons (own source, re-added on `style.load`, MeasureControl pattern; `__drawActive` flag suppresses landslide clicks + is mutually exclusive with measure; basemap locks only while a polygon is open). The queue panel groups by name (`manage_draw_preview` flags dispersed/duplicate/collision); **Commit** (`manage_draw_commit`): new names → `apply_import` synthesize-by-name (type inferred from roles); **names that already exist → polygons are *attached* to that landslide** (e.g. a source for a committed deposit), `is_primary` normalized to the role convention. Then cascade + redirect into review. **Attach hard-block:** if the staged name matches an existing landslide whose centroid is **> ~5 km** away (`_PROV_DISPERSED_M`), commit is **refused** (409) with "… exists ~N km away — give this one a distinct name (e.g. 'X 2')" rather than silently merging two different features under one name (this is how record 1446 merged two 100 km-apart "Moose Creek" landslides). The legit nearby-attach case still works.
 - **Provisional (pending) records on the map** — editors see them in **magenta** (`api/provisional/`, editor-only, not cached; `pending-*` layers in `map.js`), click → review form. Public never sees pending. The map also restores the last view (localStorage) when you return with no hash, and the edit/review forms have a **↩ Map** link, so you can bounce between mapping and form-filling.
 
-**Migrations (run on prod at deploy, idempotent, like `migrate_deprecated`):** `migrate_polygon_history`, `migrate_provisional_polygons`, `migrate_flag_review` (adds `flagged` + `flag_reason`), `migrate_default_view` (adds `default_map_view`). (The standalone `/manage/new/` draw page was superseded by the main-map tool and is now unused — safe to retire.)
+**Migrations (run on prod at deploy, idempotent, like `migrate_deprecated`):** `migrate_polygon_history`, `migrate_provisional_polygons`, `migrate_flag_review` (adds `flagged` + `flag_reason`), `migrate_default_view` (adds `default_map_view`), `migrate_regions` (adds `subsets.kind`/`region_geom`, `landslides.country`, `countries` table; follow with `load_countries` + the `load_region_geometry` runs — see *Subsets* section). (The standalone `/manage/new/` draw page was superseded by the main-map tool and is now unused — safe to retire.)
 
 **Permanent delete (superuser-only).** The edit/review forms carry a "Danger zone" (`_danger_zone.html`) that **hard-deletes** a landslide and everything keyed to it — polygons, polygon edit-history, subset memberships, Planet-Story links, the SQLite `LandslideEditMeta`, and clears any inbound `superseded_by` pointers — in one transaction via `manage_delete` (`POST manage/<id>/delete/`), then invalidates caches and redirects to the list with a banner. Itemizes the impact counts up front, gated behind an "I understand" checkbox **and** a `confirm()`. Distinct from **deprecation** (the soft, provenance-keeping retire); data editors only deprecate — hard delete is restricted to superusers (in-view `is_superuser` check, not just the editor decorator).
 
@@ -249,6 +249,53 @@ Editors upload a georeferenced image from the map (Reference maps tab → **Trac
 - **UI scaling**: the uploads list is **collapsed by default** behind a summary line ("N uploads · M on map · processing…"); the ＋ Upload control stays visible regardless. Uploading auto-opens the list to show bake progress. A landslide whose info panel is open shows its **linked trace imagery as "Traced from" cards** (tile-derived thumbnail via `_traceThumbUrl` + title + image date); clicking a card enables the overlay and zooms to it — so returning to a record resurfaces its source imagery without hunting the list.
 - **rasterio dependency** (+numpy; requirements.txt) is pyogrio's raster twin — GDAL in the wheel — and is imported **only inside `raster_tiles.py` functions**, never at module import: the site runs fine without it, and a broken wheel breaks only new uploads. The Dockerfile installs `libexpat1` (runtime lib rasterio's bundled GDAL links against; python:slim lacks it).
 - **The tracing itself is the existing draw flow** — nothing changed there: trace → name+role → staged → Commit (same-name attach, 5 km hard-block, etc.) → review.
+
+## Subsets: tags vs spatial regions, and the country attribute
+
+Subsets come in two kinds (`subsets.kind`, schema via `migrate_regions`):
+
+- **`tag`** — hand-curated, e.g. `alaska-2025` (publication subset, frozen by
+  its snapshot — untouched by everything below).
+- **`region`** — defined by a polygon (`subsets.region_geom`, MultiPolygon
+  4326). Membership = the record's stored **primary-polygon centroid** falls
+  inside (ST_Covers), computed by `inventory/regions.py` and **materialized
+  in `landslide_subsets`** — so every read path (map `?subset=` filter,
+  counts, exports, snapshots, facets) is unchanged; regions.py is the only
+  writer. Refreshes: per-record at the end of `apply_rules_for_landslide`
+  (regions are derived state and ride the cascade choke point); per-subset
+  via `load_region_geometry` (loads/replaces a polygon from any
+  pyogrio-readable file, prints the full membership diff — **run --dry-run
+  first and keep the output; that diff is the change record**); globally via
+  `refresh_region_subsets [--dry-run]`. Guards everywhere: frozen
+  (snapshotted) subsets are never touched, deprecated records keep their
+  memberships, NULL-centroid records belong to no region, and each polygon
+  PART must span <180° longitude (antimeridian split required — the whole
+  MultiPolygon may span the dateline via split parts, like TIGER Alaska).
+  UI: region memberships render as read-only "computed from location" chips
+  on the edit/review forms (excluded from the checkbox sync alongside frozen
+  subsets); the import picker excludes regions.
+
+Current regions (converted 2026-07-12; per-record diff record in
+`/Volumes/Nunatak/Landslides/AK_systematic_surveys/region_polygons/`):
+`alaska` = TIGER/Line 2024 state boundary (extends to the 3-nmi
+territorial-sea limit — smooth offshore edge, exact land border, all inside
+waters interior; already dateline-split), `kim` = Kim_all study area
+(deliberately crosses into Canada), `schaefer`, `higman` = study-area
+polygons from the inventory paper. Seed files live in `data/regions_seed/`
+(gitignored — copy to the droplet before running the loads on prod).
+
+**`landslides.country`** is a derived rule (`compute_country`,
+`/inventory/rules/country/`): centroid tested against the `countries`
+reference table — Marine Regions **"EEZ + land union"** polygons
+(`load_countries`; source layer `MarineRegions:eez_land` via WFS **1.0.0**
+— the 2.0 export is lat/lon axis-swapped; **CC-BY, attribute Flanders
+Marine Institute / marineregions.org** wherever country values are
+published). Land + waters to 200 nmi per sovereign, so fjord/nearshore
+centroids resolve by pure containment; `sovereign1` is used (country level,
+not territory). The table is created empty by `migrate_regions` so the rule
+is always valid; country is NULL until `load_countries` runs. This is the
+universal floor beneath the region layer: a site outside every region still
+carries its nationality.
 
 ## Inventory induction workflow
 

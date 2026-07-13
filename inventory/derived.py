@@ -613,6 +613,39 @@ compute_centroid_lon.inputs        = ('landslide_polygons.geom',
 compute_centroid_lon.summary       = 'Primary-polygon centroid longitude (WGS84).'
 
 
+def compute_country():
+    """Country attribution from the primary-polygon centroid.
+
+    The centroid point is tested against the `countries` reference table —
+    Marine Regions "EEZ + land union" polygons (load_countries), i.e. each
+    sovereign's land PLUS its waters out to 200 nmi — so a centroid in a
+    fjord or nearshore attributes correctly with pure containment (no
+    nearest-neighbor fallback needed). ST_Covers so a boundary point counts;
+    ORDER BY name for a deterministic pick where overlapping/joint-regime
+    EEZ claims exist. NULL centroid (no polygons yet) → NULL country. An
+    empty countries table (reference data not loaded) leaves every value
+    NULL rather than erroring — the table itself is created by
+    migrate_regions so this SQL is always valid.
+    """
+    return """
+        SELECT l.id,
+               CASE WHEN l.centroid_lon IS NULL OR l.centroid_lat IS NULL THEN NULL
+                    ELSE (SELECT c.name FROM countries c
+                          WHERE ST_Covers(c.geom,
+                                ST_SetSRID(ST_MakePoint(l.centroid_lon, l.centroid_lat), 4326))
+                          ORDER BY c.name LIMIT 1)
+               END AS computed
+        FROM landslides l
+        ORDER BY l.id
+    """
+
+compute_country.is_sql        = True
+compute_country.target_table  = 'landslides'
+compute_country.target_column = 'country'
+compute_country.inputs        = ('landslides.centroid_lat', 'landslides.centroid_lon')
+compute_country.summary       = 'Country (sovereign) containing the centroid, via EEZ+land polygons.'
+
+
 def compute_volume_preferred(row):
     """The single best volume to report for this landslide.
 
@@ -687,6 +720,8 @@ RULES = {
     'centroid_albers_y':  compute_centroid_albers_y,
     'centroid_lat':       compute_centroid_lat,
     'centroid_lon':       compute_centroid_lon,
+    # Centroid → country attribution (EEZ+land reference polygons)
+    'country':            compute_country,
     # Per-polygon volume (uses area + type + creeping_permafrost + role)
     'polygon_volume':     compute_polygon_volume,
     # Per-polygon volume → landslide role aggregates
@@ -952,4 +987,10 @@ def apply_rules_for_landslide(cur, ls_id):
                 (ch['new'], rid),
             )
             writes += 1
+
+    # Region-subset membership is derived state too (centroid vs the region
+    # polygons) — refresh it here so it rides the same choke point every
+    # centroid change flows through. Frozen/deprecated guards live inside.
+    from . import regions
+    regions.refresh_for_landslide(cur, ls_id)
     return writes
