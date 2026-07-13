@@ -3115,6 +3115,38 @@
         _setPolygonHover(-1);
     });
 
+    // Double-click a landslide → jump to its curated default view (center,
+    // zoom, basemap, and wiper state via applyViewString — the wiper turns
+    // OFF if the stored view has none), falling back to a plain centroid
+    // zoom when no default view is stored. preventDefault suppresses the
+    // map's own double-click zoom; the pair of single clicks has already
+    // opened the detail panel, so this just re-renders it with fresh data.
+    function _dblclickDefaultView(e) {
+        if (map.__measureActive || map.__drawActive) return;
+        // A dot over its own polygon matches both layers — handle once.
+        if (e.originalEvent) {
+            if (e.originalEvent._lsDefView) return;
+            e.originalEvent._lsDefView = true;
+        }
+        e.preventDefault();
+        var p = e.features[0].properties;
+        var id = p.id != null ? p.id : p.landslide_id;
+        if (!id) return;
+        fetch(API_BASE + 'api/landslide/' + id + '/')
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                renderDetail(d);
+                if (d.default_map_view) {
+                    applyViewString(d.default_map_view);
+                } else if (d.centroid_lat != null && d.centroid_lon != null) {
+                    map.flyTo({ center: [+d.centroid_lon, +d.centroid_lat], zoom: 13 });
+                }
+            })
+            .catch(function (err) { console.error('Default view failed:', err); });
+    }
+    map.on('dblclick', 'points',       _dblclickDefaultView);
+    map.on('dblclick', 'polygon-fill', _dblclickDefaultView);
+
     // Quaternary fault trace → popup with name/age/slip attributes (DGGS QFF).
     map.on('click', 'faults-line', function (e) {
         if (map.__measureActive || map.__drawActive) return;
