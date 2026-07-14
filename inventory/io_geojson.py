@@ -342,7 +342,16 @@ def build_export_bundle(urls=None):
                           'are never flagged primary. A small number of '
                           'catastrophic records have no source polygon at '
                           'all — these have no primary polygon, and the '
-                          'centroid falls back to the deposit.',
+                          'centroid falls back to the deposit. The convention '
+                          'is enforced automatically on every data-entry path.',
+        },
+        'attribution': {
+            'country_column': 'The `country` property is derived by '
+                              'point-in-polygon of the primary-polygon centroid '
+                              'against the Marine Regions "EEZ + land union" '
+                              'dataset (Flanders Marine Institute, '
+                              'https://marineregions.org/, CC-BY). Reuse of the '
+                              'country values should credit Marine Regions.',
         },
         'coordinate_reference_systems': {
             'feature_geometries': {

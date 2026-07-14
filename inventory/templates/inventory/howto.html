@@ -1,0 +1,210 @@
+{% extends "inventory/base.html" %}
+{% block title %}How to use this site — Alaska Landslide Inventory{% endblock %}
+{% block page_title %}How to use this site{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 760px; margin: 24px auto; padding: 0 24px 48px;">
+
+<h2>How to use this site</h2>
+<p style="color:#555;">
+  Practical answers for the <a href="{% url 'inventory:home' %}">inventory
+  map</a>, most-asked first. This page is about <em>driving the site</em>;
+  the science behind the data — classification, rules, areas and volumes —
+  lives in <a href="{% url 'inventory:methods' %}">Methods</a>.
+</p>
+
+<!-- ================================================================== -->
+<h3 id="symbols">What do the dots and colors mean?</h3>
+<ul>
+  <li><strong>Catastrophic landslides are blues</strong>, darkest for the
+    most recent (2012+), lighter for Modern (1850–2011), lightest for
+    Holocene. A colored ring around a catastrophic dot records precursory
+    creep evidence.</li>
+  <li><strong>Slow-moving landslides are red / yellow / green</strong> by
+    strength of movement evidence: red = obvious creep, yellow = subtle
+    (e.g. InSAR-detected), green = geomorphic evidence only. A yellow dot
+    with a red center = patchy obvious creep.</li>
+  <li><strong>Magenta</strong> = a record still missing the key attribute
+    its display depends on (under review).</li>
+  <li><strong>Half-size dots</strong> are features below the inventory's
+    size thresholds; they carry the same colors.</li>
+  <li>The full clickable legend, with per-class counts, is the
+    <em>Inventory</em> tab of the sidebar. <strong>Zoom in</strong> and the
+    dots gain their mapped outlines (source, body, deposit polygons).</li>
+</ul>
+
+<h3 id="lookat">How do I look at a specific landslide?</h3>
+<ul>
+  <li><strong>Click</strong> any dot or polygon: the panel shows its
+    attributes, evidence, imagery links, and — for many recent events — an
+    embedded Planet satellite timelapse.</li>
+  <li><strong>Double-click</strong> a landslide to jump to its curated
+    best view (framing, imagery, sometimes a before/after wiper). The
+    <em>⌖ Default view</em> button in the panel does the same.</li>
+  <li>The record's <strong>name is a permalink</strong> — right-click it
+    and copy to share a URL that opens the map right there.</li>
+</ul>
+
+<h3 id="imagery">How do I change the imagery, or compare two eras?</h3>
+<ul>
+  <li>Switch basemaps with the dropdown at the top of the sidebar, or
+    browse thumbnails in the <em>Reference&nbsp;maps</em> tab — including
+    <strong>1978–86 AHAP aerial photography</strong> and historic topo.</li>
+  <li>For side-by-side comparison, use <em>Compare (swipe)</em> at the
+    bottom of Reference&nbsp;maps: pick a second basemap and drag the ⇄
+    divider — e.g. AHAP on the left, modern satellite on the right, to see
+    decades of change. Landslide data reads continuously across the
+    divider; untick classes for a clean image-only wipe.</li>
+  <li>Each landslide's panel also links out to external imagery browsers
+    (ESRI Wayback time series, Sentinel, OPERA InSAR, historic topo).</li>
+</ul>
+
+<h3 id="share">How do I share exactly what I'm seeing?</h3>
+<p>
+  Copy the address bar — the URL always encodes your center, zoom,
+  basemap, and any active wiper (with its divider position). For a single
+  landslide, prefer its name-permalink; that link survives map changes and
+  opens at the record's curated view.
+</p>
+
+<h3 id="filter">How do I filter what's shown?</h3>
+<ul>
+  <li>Type and class checkboxes: pinned strip + <em>Inventory</em> tab;
+    counts update live.</li>
+  <li>Dual-handle sliders (Inventory tab) filter by source/deposit area,
+    volume, age, and modeled susceptibility.</li>
+  <li><strong>Limit to map view</strong> restricts the counts and the
+    analysis charts to the current screen.</li>
+</ul>
+
+<h3 id="analysis">How do I explore timing and statistics?</h3>
+<p>
+  The <em>Analysis</em> tab opens floating panels: the seasonal histogram,
+  the time series, and the susceptibility scatter — on the scatter,
+  <strong>drag a box</strong> to filter the map to that range (two-way
+  synced with the sliders).
+</p>
+
+<h3 id="download">How do I get the data?</h3>
+<p>
+  <strong>⬇ Download</strong> in the header: the full inventory as GeoJSON
+  with QGIS styles and a manifest (formats, conventions, rules,
+  attribution). Drag into QGIS and the styling auto-applies. See
+  <a href="{% url 'inventory:methods' %}">Methods §1</a> for the format.
+</p>
+
+<h3 id="tricks">Small conveniences</h3>
+<ul>
+  <li><strong>Right-click</strong> (Ctrl-click on Mac) anywhere on the map
+    copies the coordinates to your clipboard.</li>
+  <li>Leaving the map to another page and returning restores the view you
+    left.</li>
+</ul>
+
+{% if is_inventory_editor %}
+<!-- ================================================================== -->
+<hr style="margin:36px 0 28px; border:none; border-top:2px solid #d8d2cc;">
+<h2 id="admin">For data admins</h2>
+<p style="color:#8a5a00; font-size:13px;">
+  Visible to inventory editors only — most-common tasks first.
+</p>
+
+<h3 id="edit-basics">How do I edit a record?</h3>
+<ul>
+  <li>Click the <strong>⚙ gear</strong> in its map panel (or go through
+    <a href="{% url 'inventory:manage_list' %}">Manage</a>). Scalar fields
+    <strong>autosave on blur</strong> (blue ✓); dates accept
+    <code>14-Sep-2010</code> or ISO; <em>Save changes</em> is only for
+    subset checkboxes and the polygon role table.</li>
+  <li><strong>Links in description / notes</strong>: write
+    <code>[text](https://…)</code>, or just paste text copied from a web
+    page — links convert automatically and render clickable on the map.</li>
+  <li>On catastrophic records, tick <strong>Creep evaluated</strong> to
+    reveal the creep-evidence fields; the read-only OPERA links beside
+    <code>insar_opera</code> open the InSAR viewer at the site.</li>
+</ul>
+
+<h3 id="draw">How do I add a new landslide?</h3>
+<ul>
+  <li><strong>✏ draw</strong> (top-left on the map) → click vertices →
+    <strong>Enter</strong> to finish, <strong>Esc</strong> to cancel →
+    name + role (source / body / deposit).</li>
+  <li><strong>Same name = same landslide</strong>: stage several polygons
+    under one name to build one record; an existing name attaches the
+    polygon to that record (refused if it's &gt;~5&nbsp;km away — use a
+    distinct name).</li>
+  <li>Teal drafts survive reloads; <strong>Commit</strong> creates pending
+    (magenta, editor-only) records and opens review.</li>
+</ul>
+
+<h3 id="geometry">How do I fix existing geometry?</h3>
+<p>
+  In the record's form, <strong>✎ Edit geometry</strong> on the preview
+  map: drag vertices, add/delete polygons, <strong>Save</strong>. History
+  is kept, derived fields recompute, and the primary polygon re-normalizes
+  automatically (catastrophic → one source; slow → body) — the role
+  table's radio is the manual override.
+</p>
+
+<h3 id="trace-rasters">How do I trace from my own imagery (GeoTIFF)?</h3>
+<ul>
+  <li>Reference&nbsp;maps → <em>Traced imagery (uploads)</em> →
+    <strong>＋ Upload GeoTIFF</strong>. Requirements: a georeferenced
+    GeoTIFF (embedded CRS; any projection). Give it a title, the
+    <strong>image capture date</strong> (dating evidence), and a source
+    note.</li>
+  <li>After the bake (seconds–minutes) the image appears under the data
+    layers; dim it with its opacity slider and trace with ✏.</li>
+  <li>Afterwards, with the landslide's panel open, click
+    <strong>⚲ link</strong> on the upload row — the record's panel then
+    offers a <em>Traced from</em> card that restores the image in one
+    click.</li>
+  <li>Uploads are admin-only and stay out of the wiper's comparison pane,
+    so you can wipe between your image and any basemap.</li>
+</ul>
+
+<h3 id="defaultviews">How do I set how a landslide is first seen?</h3>
+<p>
+  Frame the map (center, zoom, basemap, wiper) → open the record's panel →
+  <strong>Set default view</strong>. Slug links, permalinks, and
+  double-click use it from then on. Frame <em>public</em> records over
+  public basemaps — trace uploads aren't visible to visitors.
+</p>
+
+<h3 id="planet">How do I add a Planet animation?</h3>
+<p>
+  Paste the <code>planet.com/stories/…</code> URL into
+  <code>planet_story_link</code> and save. Classification, archiving, and
+  the in-panel embed happen automatically within a minute or so.
+</p>
+
+<h3 id="flags">How do I work through flagged records?</h3>
+<p>
+  Scans (naming, undated catastrophics, weak timing, broken encodings) set
+  ⚑ flags with reasons. On the map: filter to <em>Flagged</em>, pin a
+  field under <em>Map labels</em>, click through, fix inline, and
+  <strong>Clear flag</strong>.
+</p>
+
+<h3 id="subsets-admin">How do subsets work now?</h3>
+<ul>
+  <li><strong>Tags</strong> (e.g. <code>alaska-2025</code>) are hand-checked
+    on the edit form; snapshotted tags are frozen.</li>
+  <li><strong>Regions</strong> (alaska, kim, schaefer, higman) compute
+    membership from the primary-polygon centroid — the form chips are
+    read-only and follow the geometry. Region polygons are replaced via
+    <code>load_region_geometry</code> (ops docs).</li>
+</ul>
+
+<h3 id="import">How do I bulk import or export?</h3>
+<p>
+  <a href="{% url 'inventory:manage_list' %}">Manage</a> → ⬆ Import
+  (GeoJSON zip, .gpkg, .shp, .kml) shows a preview diff — adds, updates,
+  collisions — before anything is applied; new records enter review.
+  ⬇ Export round-trips through QGIS byte-stably.
+</p>
+{% endif %}
+
+</div>
+{% endblock %}

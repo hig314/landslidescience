@@ -442,6 +442,12 @@ def methods(request):
     return render(request, "inventory/methods.html")
 
 
+def howto(request):
+    # Public page; the admin section inside the template is gated on the
+    # is_inventory_editor context-processor flag.
+    return render(request, "inventory/howto.html")
+
+
 def naming(request):
     return render(request, "inventory/naming.html")
 
