@@ -60,6 +60,17 @@
       tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}',
       thumb: 'inventory/img/basemap-thumbs/usgs-hist.png',
       attr: '© Esri, USGS — USA historical topographic maps' },
+    // Blank white canvas — no tiles at all. Lets the inventory data (or a
+    // semi-transparent overlay like OPERA velocity) read without any imagery
+    // behind it, on either side of the compare wiper. Inline style object
+    // (no network); glyphs still needed for symbol layers (pin labels).
+    { id: 'blank', label: 'None (blank white)', category: 'Other', coverage: 'Global',
+      style: { version: 8,
+               glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+               sources: {},
+               layers: [{ id: 'background', type: 'background',
+                          paint: { 'background-color': '#ffffff' } }] },
+      attr: '' },
   ];
 
   // -- quadkey / subdomain placeholders (resolved client-side) ---------------

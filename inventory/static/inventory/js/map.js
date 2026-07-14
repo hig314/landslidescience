@@ -2071,8 +2071,9 @@
         wrap.appendChild(hdr);
         var hint = document.createElement('div');
         hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:5px;line-height:1.35;';
-        hint.textContent = 'Semi-transparent rasters over any basemap. ◀ / ▶ place an overlay on ' +
-                           'one side of the compare wiper (▶ needs a Compare basemap active).';
+        hint.textContent = 'Semi-transparent rasters over any basemap. Left / Right choose which ' +
+                           'side of the compare wiper an overlay appears on (Right needs a ' +
+                           'Compare basemap active; without the wiper, Left = the whole map).';
         wrap.appendChild(hint);
 
         OVERLAYS.forEach(function (ov) {
@@ -2080,26 +2081,32 @@
             var row = document.createElement('div');
             row.style.cssText = 'padding:5px 6px;border:1px solid #e0dcd8;border-radius:4px;' +
                                 'margin-bottom:5px;font-size:12px;background:#fff;';
-            var top = document.createElement('div');
-            top.style.cssText = 'display:flex;align-items:center;gap:6px;';
-            var lbl = document.createElement('span');
-            lbl.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+            // Line 1: the full label, wrapping — never truncated (an "OPERA
+            // velocity — asc…" row next to pane arrows read as if the arrows
+            // meant orbit direction).
+            var lbl = document.createElement('div');
+            lbl.style.cssText = 'font-weight:600;line-height:1.25;white-space:normal;';
             lbl.textContent = ov.label;
-            lbl.title = ov.label + '\n' + ov.sub;
-            top.appendChild(lbl);
+            row.appendChild(lbl);
+            var sub = document.createElement('div');
+            sub.style.cssText = 'font-size:10px;color:#999;margin:1px 0 4px;white-space:normal;';
+            sub.textContent = ov.sub;
+            row.appendChild(sub);
 
+            // Line 2: worded pane control — which SIDE of the compare wiper.
             var seg = document.createElement('span');
             seg.style.cssText = 'display:inline-flex;border:1px solid #bbb;border-radius:3px;overflow:hidden;';
             var btns = {};
-            [['off', 'Off', 'Hidden'],
-             ['left', '◀', 'Left / main pane only'],
-             ['both', '◀▶', 'Both panes'],
-             ['right', '▶', 'Right (compare) pane only']].forEach(function (def) {
+            [['off',  'Off',   'Hidden'],
+             ['left', 'Left',  'Left (main) side of the compare wiper — or the whole map when the wiper is off'],
+             ['both', 'Both',  'Both sides of the compare wiper'],
+             ['right','Right', 'Right (compare) side of the wiper — shows once a Compare basemap is active']]
+            .forEach(function (def) {
                 var b = document.createElement('button');
                 b.type = 'button';
                 b.textContent = def[1];
                 b.title = def[2];
-                b.style.cssText = 'font-size:10px;padding:2px 7px;border:none;cursor:pointer;' +
+                b.style.cssText = 'font-size:10px;padding:2px 8px;border:none;cursor:pointer;' +
                                   'background:#fff;color:#555;border-right:1px solid #ddd;';
                 b.addEventListener('click', function () {
                     st.pane = def[0];
@@ -2110,11 +2117,11 @@
                 btns[def[0]] = b;
                 seg.appendChild(b);
             });
-            top.appendChild(seg);
-            row.appendChild(top);
+            row.appendChild(seg);
 
-            var line2 = document.createElement('div');
-            line2.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:3px;';
+            // Line 3: opacity.
+            var line3 = document.createElement('div');
+            line3.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:4px;';
             var opLbl = document.createElement('span');
             opLbl.style.cssText = 'font-size:10px;color:#777;';
             opLbl.textContent = 'opacity';
@@ -2122,21 +2129,15 @@
             op.type = 'range'; op.min = '10'; op.max = '100';
             op.value = String(Math.round(st.opacity * 100));
             op.style.cssText = 'flex:1;height:14px;';
+            op.title = 'Dim the overlay against the basemap';
             op.addEventListener('input', function () {
                 st.opacity = (+op.value) / 100;
                 _ovSaveState();
                 _ovApplyAll();
             });
-            var sub = document.createElement('span');
-            sub.style.cssText = 'font-size:10px;color:#999;white-space:nowrap;';
-            sub.textContent = ov.sub;
-            line2.appendChild(opLbl);
-            line2.appendChild(op);
-            row.appendChild(line2);
-            var subRow = document.createElement('div');
-            subRow.style.cssText = 'margin-top:2px;';
-            subRow.appendChild(sub);
-            row.appendChild(subRow);
+            line3.appendChild(opLbl);
+            line3.appendChild(op);
+            row.appendChild(line3);
 
             function paint() {
                 Object.keys(btns).forEach(function (k) {
@@ -2144,7 +2145,7 @@
                     btns[k].style.background = on ? '#5D4037' : '#fff';
                     btns[k].style.color = on ? '#fff' : '#555';
                 });
-                line2.style.opacity = st.pane === 'off' ? 0.45 : 1;
+                line3.style.opacity = st.pane === 'off' ? 0.45 : 1;
             }
             paint();
             wrap.appendChild(row);
