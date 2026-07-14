@@ -1453,10 +1453,12 @@ _EDIT_FIELD_GROUPS = [
         'planet_labs_creep', 'planet_labs_patchy_creep',
         'insar_schaefer', 'insar_kim', 'insar_opera', 'insar_other',
         'other_subtle_creep', 'geomorph_creep',
-        'post_2012_activity_increase', 'creeping_permafrost_mass']},
+        'post_2012_activity_increase', 'creeping_permafrost_mass',
+        'glacier_contact']},
     {'key': 'event', 'title': 'Catastrophic event & timing', 'fields': [
         'year_text', 'date_min', 'date_max',
         'precursory_headscarp', 'exclusively_supraglacial', 'molards',
+        'tsunamigenic',
         'seismic_datetime', 'seismic_note', 'seismic_credit']},
     {'key': 'imagery', 'title': 'Imagery & external links', 'fields': [
         'planet_story_link', 'esri_wayback_link', 'google_images_link',
@@ -1473,10 +1475,14 @@ _EDIT_FIELD_GROUPS = [
         'volume_body', 'volume_source', 'volume_deposit',
         'centroid_albers_x', 'centroid_albers_y', 'centroid_lat', 'centroid_lon']},
 ]
-# Within the creep group, these two are slow-only (hidden for catastrophic even
+# Within the creep group, these are slow-only (hidden for catastrophic even
 # when creep is being evaluated). creep_evaluated is the gate; the remaining
 # creep fields show for slow, or for catastrophic only once the gate is checked.
-_CREEP_SLOW_ONLY = {'post_2012_activity_increase', 'creeping_permafrost_mass'}
+# glacier_contact rides here for its slow-only visibility (it's a slow-mass
+# attribute, not creep evidence — its catastrophic counterpart is the
+# tsunamigenic flag in the event group).
+_CREEP_SLOW_ONLY = {'post_2012_activity_increase', 'creeping_permafrost_mass',
+                    'glacier_contact'}
 
 
 def _group_edit_fields(form):

@@ -3440,7 +3440,9 @@
             flag(d.precursory_headscarp,'Precursory headscarp'), flag(d.molards,'Molards'),
             flag(d.exclusively_supraglacial,'Supraglacial runout'),
             flag(d.post_2012_activity_increase,'Post-2012 increase'),
-            flag(d.creeping_permafrost_mass,'Creeping permafrost')
+            flag(d.creeping_permafrost_mass,'Creeping permafrost'),
+            flag(d.tsunamigenic,'Tsunamigenic'),
+            flag(d.glacier_contact,'Glacier contact')
         ].filter(Boolean);
 
         if (evidence.length) {
