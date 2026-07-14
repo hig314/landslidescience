@@ -3276,7 +3276,10 @@
         var prominent = stories.length > 0 && planetIsProminent(d);
 
         var manageLink = window._isInventoryEditor
-            ? ' <a class="manage-gear" href="/inventory/manage/' + d.id + '/" target="_blank" ' +
+            // Same tab: map ↔ manage is the core editing loop, and the map
+            // restores its view (localStorage) on return — new tabs just
+            // accumulate stale maps. External resources stay target=_blank.
+            ? ' <a class="manage-gear" href="/inventory/manage/' + d.id + '/" ' +
               'rel="noopener" title="Edit this record in Manage">⚙</a>'
             : '';
         if (d.slug) {

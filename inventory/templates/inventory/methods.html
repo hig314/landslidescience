@@ -111,6 +111,52 @@
   <a href="{% url 'inventory:naming' %}">Naming conventions</a>.
 </p>
 
+<h4>Spatial subsets (regions)</h4>
+<p>
+  Subsets come in two kinds. <strong>Tags</strong> are hand-curated
+  groupings; the <code>alaska-2025</code> publication subset is a tag whose
+  membership was frozen when its archival snapshot was published.
+  <strong>Regions</strong> are defined by a polygon, and membership is
+  computed, not assigned: a landslide belongs to a region when the centroid
+  of its <em>primary polygon</em> (see &sect;3) falls inside the region
+  polygon. Membership recomputes automatically whenever geometry changes.
+</p>
+<ul>
+  <li>
+    <strong>alaska</strong> &mdash; the US Census TIGER/Line state boundary,
+    which extends offshore to the 3-nautical-mile territorial-sea limit, so
+    islands, fjords, and nearshore waters are interior to the region.
+  </li>
+  <li>
+    <strong>kim</strong>, <strong>schaefer</strong>, <strong>higman</strong>
+    &mdash; the systematic-survey study areas from the inventory paper. The
+    Kim area intentionally extends across the Canadian border, so a record
+    can be a member of <code>kim</code> without being in <code>alaska</code>.
+  </li>
+</ul>
+
+<h4>Country attribution</h4>
+<p>
+  Each record carries a derived <code>country</code> attribute: the primary
+  polygon's centroid is resolved against the
+  <a href="https://marineregions.org/" target="_blank" rel="noopener">Marine
+  Regions</a> &ldquo;EEZ + land union&rdquo; polygons (Flanders Marine
+  Institute, CC-BY) &mdash; each sovereign's land plus its waters to
+  200&nbsp;nautical&nbsp;miles, so a centroid in a fjord or nearshore water
+  still resolves. This is the classification floor beneath the region layer:
+  a site outside every survey region still carries its nationality.
+</p>
+
+<p>
+  Two observational flags were added in 2026:
+  <code>tsunamigenic</code> (catastrophic records &mdash; the failure
+  generated a displacement wave) and <code>glacier_contact</code> (slow
+  records &mdash; the moving mass is in contact with a glacier). Both are
+  editor-set booleans, shown in the detail panel's Detection/evidence list
+  when set; coverage is being populated progressively, so absence of the
+  flag does not yet imply absence of the phenomenon.
+</p>
+
 
 <!-- ================================================================== -->
 <h3 id="classification">2. Classification system</h3>
@@ -265,6 +311,15 @@
     polygon for dot placement.
   </li>
 </ul>
+
+<p>
+  This convention is <strong>enforced automatically</strong> on every data
+  entry path (in-browser drawing, geometry edits, and file imports): when
+  polygons are added, removed, or re-roled, the primary flag is
+  re-normalized &mdash; exactly one primary of the type's primary role, or
+  none when no polygon of that role exists &mdash; so the centroid, region
+  membership, and country attribution stay consistent with the geometry.
+</p>
 
 <h4>Centroid placement</h4>
 <p>

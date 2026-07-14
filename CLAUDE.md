@@ -496,6 +496,16 @@ Tracking this as "deferred but anticipated" so when we get to it, the UI design 
 
 ## Conventions
 
+- **Methods page freshness:** `/inventory/methods/` is the public science
+  documentation. Any change to the data model, classification, derived
+  rules, subset semantics, or attribution obligations must update
+  `methods.html` in the same change — it drifted silently through the
+  region/country work until the user asked (2026-07-13); don't repeat that.
+- **New-tab policy:** internal navigation (map ↔ manage ↔ methods) is
+  same-tab — the map restores its view from localStorage, and new tabs just
+  accumulate stale maps. `target="_blank"` is reserved for external
+  resources (imagery browsers, Planet, marineregions…) and the mid-draw
+  session-expired login link (protects an active drawing session).
 - Don't commit `.env` or `data/` (gitignored).
 - Hig is the superuser on production. Reset password via: `docker exec -it landslidescience-web python manage.py changepassword Hig`.
 - WhiteNoise serves static files in production; runserver serves them in dev.

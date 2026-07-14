@@ -10,10 +10,12 @@
     &nbsp;·&nbsp;
     <a href="{% url 'inventory:home' %}" title="Return to the map where you left off">↩ Map</a>
     &nbsp;·&nbsp;
+    {% comment %} Same tab: map ↔ manage is the editing loop; the map restores
+    its view on return, so new tabs only accumulate stale maps. {% endcomment %}
     {% if slug %}
-      <a href="/inventory/{{ slug }}/" target="_blank">View on map</a>
+      <a href="/inventory/{{ slug }}/">View on map</a>
     {% else %}
-      <a href="{% url 'inventory:home' %}#id={{ landslide_id }}" target="_blank">View on map</a>
+      <a href="{% url 'inventory:home' %}#id={{ landslide_id }}">View on map</a>
     {% endif %}
   </p>
   <h2 style="font-size:19px; margin: 0 0 4px;">{{ unique_name }}</h2>
