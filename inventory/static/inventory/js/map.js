@@ -2573,9 +2573,11 @@
     var cbTimed        = document.getElementById('cb-timed');
     var cbSeismic      = document.getElementById('cb-seismic');
     var cbPost2012     = document.getElementById('cb-post2012');
+    var cbTsunamigenic = document.getElementById('cb-tsunamigenic');
+    var cbGlacierContact = document.getElementById('cb-glacier-contact');
     var cbFlagged      = document.getElementById('cb-flagged');   // editor-only
     var cbLimitView    = document.getElementById('cb-limit-view');
-    [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012, cbFlagged].forEach(function (cb) {
+    [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012, cbTsunamigenic, cbGlacierContact, cbFlagged].forEach(function (cb) {
         if (cb) cb.addEventListener('change', buildFilter);
     });
 
@@ -2700,7 +2702,7 @@
         });
         if (anyClassOff) params.set('c', c); else params.delete('c');
 
-        // Flags bitmask: molards=1 stream=2 supraglacial=4 permafrost=8 timed=16 seismic=32 post2012=64 headscarp=128 site_volume=256
+        // Flags bitmask: molards=1 stream=2 supraglacial=4 permafrost=8 timed=16 seismic=32 post2012=64 headscarp=128 site_volume=256 tsunamigenic=512 glacier_contact=1024
         var f = 0;
         if (cbMolards      && cbMolards.checked)      f |= 1;
         if (cbStream       && cbStream.checked)        f |= 2;
@@ -2711,6 +2713,8 @@
         if (cbPost2012     && cbPost2012.checked)      f |= 64;
         if (cbHeadscarp    && cbHeadscarp.checked)     f |= 128;
         if (cbSiteVolume   && cbSiteVolume.checked)    f |= 256;
+        if (cbTsunamigenic && cbTsunamigenic.checked)  f |= 512;
+        if (cbGlacierContact && cbGlacierContact.checked) f |= 1024;
         if (f !== 0) params.set('f', f); else params.delete('f');
 
         // Dual-handle sliders: encode "lo,hi" only when off-default.
@@ -2787,6 +2791,8 @@
         if (cbPost2012)     cbPost2012.checked      = !!(f & 64);
         if (cbHeadscarp)    cbHeadscarp.checked     = !!(f & 128);
         if (cbSiteVolume)   cbSiteVolume.checked    = !!(f & 256);
+        if (cbTsunamigenic) cbTsunamigenic.checked  = !!(f & 512);
+        if (cbGlacierContact) cbGlacierContact.checked = !!(f & 1024);
 
         // Sliders
         // Hydrate dual sliders from "lo,hi" param. Backwards compat with the
@@ -2924,6 +2930,8 @@
         if (cbTimed        && cbTimed.checked)         f.push(['==', ['get', 'has_time_bracket'], true]);
         if (cbSeismic      && cbSeismic.checked)       f.push(['==', ['get', 'has_seismic'], true]);
         if (cbPost2012     && cbPost2012.checked)      f.push(['==', ['get', 'post_2012_activity_increase'], true]);
+        if (cbTsunamigenic && cbTsunamigenic.checked)  f.push(['==', ['get', 'tsunamigenic'], true]);
+        if (cbGlacierContact && cbGlacierContact.checked) f.push(['==', ['get', 'glacier_contact'], true]);
         if (cbFlagged      && cbFlagged.checked)       f.push(['==', ['get', 'flagged'], true]);
 
         _applyLandslideFilter(map, f);
@@ -3818,6 +3826,8 @@
             timed:        cbTimed        && cbTimed.checked,
             seismic:      cbSeismic      && cbSeismic.checked,
             post2012:     cbPost2012     && cbPost2012.checked,
+            tsunamigenic: cbTsunamigenic && cbTsunamigenic.checked,
+            glacierContact: cbGlacierContact && cbGlacierContact.checked,
         };
     }
 
@@ -3861,6 +3871,8 @@
             if (fs.siteVolume   && !ev.has_site_volume) return;
             if (fs.supraglacial && !ev.supraglacial)    return;
             if (fs.permafrost   && !ev.permafrost)   return;
+            if (fs.tsunamigenic && !ev.tsunamigenic) return;
+            if (fs.glacierContact && !ev.glacier_contact) return;
             if (fs.seismic && ev.timing !== 'point')  return;
             if (fs.timed   && ev.timing === 'point')  return;
 
@@ -4237,6 +4249,8 @@
             if (fs.siteVolume   && !ev.has_site_volume) return;
             if (fs.supraglacial && !ev.supraglacial)    return;
             if (fs.permafrost   && !ev.permafrost)   return;
+            if (fs.tsunamigenic && !ev.tsunamigenic) return;
+            if (fs.glacierContact && !ev.glacier_contact) return;
             if (fs.seismic      && !ev.has_seismic)  return;
             if (fs.post2012     && !ev.post_2012)    return;
 

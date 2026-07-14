@@ -485,6 +485,8 @@ _FILTER_PROPS_SQL = """
                             ELSE NULL
                         END,
                         'molards',                     l.molards,
+                        'tsunamigenic',                l.tsunamigenic,
+                        'glacier_contact',             l.glacier_contact,
                         'stream_damming',              l.stream_damming,
                         'precursory_headscarp',        l.precursory_headscarp,
                         'has_site_specific_volume',   (l.volume_site_specific IS NOT NULL),
@@ -894,7 +896,9 @@ def api_timed_events(request):
             CASE WHEN l.landslide_type = 'slow' THEN l.area_body ELSE l.area_source END AS area_src,
             CASE WHEN l.landslide_type = 'catastrophic' THEN l.area_deposit ELSE NULL END AS area_dep,
             l.precursory_headscarp,
-            (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume
+            (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume,
+            l.tsunamigenic,
+            l.glacier_contact
         FROM landslides l
         WHERE (l.seismic_datetime IS NOT NULL
                OR (l.date_min IS NOT NULL AND l.date_max IS NOT NULL
@@ -933,6 +937,8 @@ def api_timed_events(request):
             'area_dep': float(r[17]) if r[17] is not None else None,
             'headscarp':       bool(r[18]) if r[18] is not None else False,
             'has_site_volume': bool(r[19]) if r[19] is not None else False,
+            'tsunamigenic':    bool(r[20]) if r[20] is not None else False,
+            'glacier_contact': bool(r[21]) if r[21] is not None else False,
         })
     _cache['timed_events'] = events
     resp = JsonResponse({'events': events})
@@ -982,7 +988,9 @@ def api_timeline_events(request):
             CASE WHEN l.landslide_type = 'slow' THEN l.area_body ELSE l.area_source END AS area_src,
             CASE WHEN l.landslide_type = 'catastrophic' THEN l.area_deposit ELSE NULL END AS area_dep,
             l.precursory_headscarp,
-            (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume
+            (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume,
+            l.tsunamigenic,
+            l.glacier_contact
         FROM landslides l
         WHERE l.centroid_lat IS NOT NULL
           -- public-only (keep in sync with public_landslide_filter('l')):
@@ -1024,6 +1032,8 @@ def api_timeline_events(request):
             'area_dep': float(r[17]) if r[17] is not None else None,
             'headscarp':       bool(r[18]) if r[18] is not None else False,
             'has_site_volume': bool(r[19]) if r[19] is not None else False,
+            'tsunamigenic':    bool(r[20]) if r[20] is not None else False,
+            'glacier_contact': bool(r[21]) if r[21] is not None else False,
         })
     _cache['timeline_events'] = events
     resp = JsonResponse({'events': events})
