@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import trace_views, views
+from . import opera, trace_views, views
 
 app_name = 'inventory'
 
@@ -34,6 +34,9 @@ urlpatterns = [
          name='trace_link'),
     re_path(r'^tiles/trace/(?P<raster_id>\d+)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             trace_views.trace_tile, name='trace_tile'),
+    # OPERA velocity value-tile proxy (public; see inventory/opera.py).
+    re_path(r'^tiles/opera/(?P<track>asc|desc)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
+            opera.opera_tile, name='opera_tile'),
     path('api/timed_events/', views.api_timed_events, name='api_timed_events'),
     path('api/timeline_events/', views.api_timeline_events, name='api_timeline_events'),
     path('api/survey_circles/',  views.api_survey_circles,  name='api_survey_circles'),

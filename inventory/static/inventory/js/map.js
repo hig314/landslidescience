@@ -27,10 +27,12 @@
     // MUST be bumped or clients keep the stale image for a year. v2 = discrete
     // frequency-ratio classes (was v1 = continuous YlOrRd ramp).
     var SUSC_TILE_V = '2';
-    // The two USGS model variants. Mutually exclusive in the UI (one at a time).
+    // The two USGS model variants — displayed via the raster-overlay framework
+    // (OVERLAYS registry below), which replaced the old mutually-exclusive
+    // checkboxes with per-pane + opacity controls.
     var SUSC_LAYERS = [
-        { key: 'lw',  cb: 'cb-susc-lw',  attr: 'Susceptibility (lw): USGS, Belair et al. 2024' },
-        { key: 'n10', cb: 'cb-susc-n10', attr: 'Susceptibility (n10): USGS, Belair et al. 2024' }
+        { key: 'lw',  attr: 'Susceptibility (lw): USGS, Belair et al. 2024' },
+        { key: 'n10', attr: 'Susceptibility (n10): USGS, Belair et al. 2024' }
     ];
     // Per-landslide sampled susceptibility values {id: {n10, lw}}, used by the
     // n10/lw range sliders to filter the inventory points. Precomputed offline
@@ -1161,15 +1163,177 @@
             attribution: s.attr
         };
     }
-    function _suscLayerDef(s) {
-        var cb = document.getElementById(s.cb);
+
+    // ---------------------------------------------------------------------------
+    // Raster overlays — one framework for the USGS susceptibility models and the
+    // OPERA InSAR velocity mosaics. Each overlay has a PANE (off | left | both |
+    // right; left = main map, right = the wiper's comparison map) and an opacity,
+    // so e.g. ESRI imagery can sit on both sides of the wiper with ASCENDING
+    // velocity on the left and DESCENDING on the right. Overlays are imagery-like
+    // and therefore per-pane BY DESIGN — the pane-parity rule applies to
+    // landslide DATA, which stays mirrored. State persists per-browser
+    // (localStorage). Layers sit above basemap + trace rasters + pending, below
+    // faults and all landslide data (the old susceptibility slot).
+    //
+    // OPERA tiles are VALUE tiles (8-bit gray 1–255 ≙ ±30 mm/yr, alpha =
+    // coverage) proxied same-origin by inventory/opera.py; the `operacolor`
+    // protocol below decodes them on a canvas and applies ASF's exact color
+    // ramp client-side, so the rendering matches displacement.asf.alaska.edu
+    // pixel-for-pixel. Bump OPERA_TILE_V whenever the proxy cache is purged
+    // for a refreshed mosaic.
+    // ---------------------------------------------------------------------------
+    var OPERA_TILE_V = '1';
+    // ASF's ramp stops (value 1–255 → RGB), extracted from their app bundle.
+    var OPERA_RAMP = [
+        [1, [0, 18, 97]], [29, [3, 62, 125]], [58, [30, 111, 157]],
+        [86, [113, 168, 196]], [114, [201, 221, 231]], [143, [234, 206, 189]],
+        [171, [211, 151, 116]], [199, [190, 101, 51]], [228, [139, 39, 6]],
+        [255, [89, 0, 8]]
+    ];
+    var _operaLut = (function () {
+        var lut = new Uint8Array(256 * 3);
+        for (var v = 0; v < 256; v++) {
+            var lo = OPERA_RAMP[0], hi = OPERA_RAMP[OPERA_RAMP.length - 1];
+            for (var i = 0; i < OPERA_RAMP.length - 1; i++) {
+                if (v >= OPERA_RAMP[i][0] && v <= OPERA_RAMP[i + 1][0]) {
+                    lo = OPERA_RAMP[i]; hi = OPERA_RAMP[i + 1]; break;
+                }
+            }
+            var t = hi[0] === lo[0] ? 0 : Math.min(1, Math.max(0, (v - lo[0]) / (hi[0] - lo[0])));
+            for (var c = 0; c < 3; c++) {
+                lut[v * 3 + c] = Math.round(lo[1][c] + t * (hi[1][c] - lo[1][c]));
+            }
+        }
+        return lut;
+    })();
+    // Reusable transparent tile for no-coverage 404s (most ocean tiles).
+    var _operaEmptyTilePromise = null;
+    function _operaEmptyTile() {
+        if (!_operaEmptyTilePromise) {
+            _operaEmptyTilePromise = new Promise(function (resolve, reject) {
+                var c = document.createElement('canvas');
+                c.width = c.height = 1;
+                c.toBlob(function (blob) {
+                    if (!blob) { reject(new Error('empty tile failed')); return; }
+                    blob.arrayBuffer().then(function (buf) { resolve(buf); }, reject);
+                }, 'image/png');
+            });
+        }
+        return _operaEmptyTilePromise.then(function (buf) { return { data: buf }; });
+    }
+    function _operaLoader(params, abortController) {
+        // operacolor://<track>/{z}/{x}/{y}?v=N  →  same-origin proxy tile,
+        // canvas-decoded, ramp applied (alpha preserved).
+        var u = new URL(params.url.replace('operacolor://', 'https://opera.invalid/'));
+        var p = u.pathname.split('/').filter(Boolean);   // [track, z, x, y]
+        var tileUrl = API_BASE + 'tiles/opera/' + p[0] + '/' + p[1] + '/' + p[2] + '/' +
+                      p[3] + '.png?v=' + (u.searchParams.get('v') || '1');
+        return fetch(tileUrl, { signal: abortController ? abortController.signal : undefined })
+            .then(function (r) {
+                if (r.status === 404) return null;
+                if (!r.ok) throw new Error('opera tile HTTP ' + r.status);
+                return r.blob().then(function (b) { return createImageBitmap(b); });
+            })
+            .then(function (bmp) {
+                if (!bmp) return _operaEmptyTile();
+                var c = document.createElement('canvas');
+                c.width = c.height = 256;
+                var ctx = c.getContext('2d');
+                ctx.drawImage(bmp, 0, 0);
+                var img = ctx.getImageData(0, 0, 256, 256), d = img.data;
+                for (var i = 0; i < d.length; i += 4) {
+                    if (d[i + 3] === 0) continue;
+                    var v = d[i] * 3;
+                    d[i] = _operaLut[v]; d[i + 1] = _operaLut[v + 1]; d[i + 2] = _operaLut[v + 2];
+                }
+                ctx.putImageData(img, 0, 0);
+                return new Promise(function (resolve, reject) {
+                    c.toBlob(function (blob) {
+                        if (!blob) { reject(new Error('operacolor toBlob failed')); return; }
+                        blob.arrayBuffer().then(function (buf) { resolve({ data: buf }); }, reject);
+                    }, 'image/png');
+                });
+            });
+    }
+    if (typeof maplibregl !== 'undefined' && maplibregl.addProtocol) {
+        maplibregl.addProtocol('operacolor', _operaLoader);
+    }
+
+    function _operaSourceDef(track) {
         return {
-            id: 'susc-' + s.key + '-layer',
             type: 'raster',
-            source: 'susc-' + s.key,
-            layout: { 'visibility': (cb && cb.checked) ? 'visible' : 'none' },
-            paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
+            tiles: ['operacolor://' + track + '/{z}/{x}/{y}?v=' + OPERA_TILE_V],
+            tileSize: 256,
+            maxzoom: 12,
+            attribution: 'OPERA DISP-S1 velocity © NASA/JPL · mosaic ASF'
         };
+    }
+
+    // Registry — order = draw order (later entries render on top). Susc layer
+    // ids are unchanged so the trace-raster insertion chain keeps working.
+    var OVERLAYS = [
+        { id: 'susc-lw',    layerId: 'susc-lw-layer',   sourceId: 'susc-lw',
+          label: 'Susceptibility — lw',  sub: 'USGS Belair et al. 2024, 90 m',
+          sourceDef: function () { return _suscSourceDef(SUSC_LAYERS[0]); }, defOpacity: 1 },
+        { id: 'susc-n10',   layerId: 'susc-n10-layer',  sourceId: 'susc-n10',
+          label: 'Susceptibility — n10', sub: 'USGS Belair et al. 2024, 90 m',
+          sourceDef: function () { return _suscSourceDef(SUSC_LAYERS[1]); }, defOpacity: 1 },
+        { id: 'opera-asc',  layerId: 'ov-opera-asc',    sourceId: 'ov-opera-asc-src',
+          label: 'OPERA velocity — ascending', sub: 'InSAR, ±30 mm/yr · NASA/JPL + ASF',
+          sourceDef: function () { return _operaSourceDef('asc'); }, defOpacity: 0.75 },
+        { id: 'opera-desc', layerId: 'ov-opera-desc',   sourceId: 'ov-opera-desc-src',
+          label: 'OPERA velocity — descending', sub: 'InSAR, ±30 mm/yr · NASA/JPL + ASF',
+          sourceDef: function () { return _operaSourceDef('desc'); }, defOpacity: 0.75 },
+    ];
+    var _ovState = (function () {
+        var st = {};
+        try { st = JSON.parse(localStorage.getItem('ls_overlays') || '{}') || {}; } catch (e) {}
+        OVERLAYS.forEach(function (ov) {
+            var s = st[ov.id] || {};
+            st[ov.id] = {
+                pane: ['off', 'left', 'both', 'right'].indexOf(s.pane) >= 0 ? s.pane : 'off',
+                opacity: (typeof s.opacity === 'number' && s.opacity >= 0 && s.opacity <= 1)
+                    ? s.opacity : ov.defOpacity,
+            };
+        });
+        return st;
+    })();
+    function _ovSaveState() {
+        try { localStorage.setItem('ls_overlays', JSON.stringify(_ovState)); } catch (e) {}
+    }
+    function _ovVisible(ov, isSwipe) {
+        var st = _ovState[ov.id];
+        if (!st || st.pane === 'off') return false;
+        return isSwipe ? (st.pane === 'right' || st.pane === 'both')
+                       : (st.pane === 'left' || st.pane === 'both');
+    }
+    function _ovApply(m, isSwipe) {
+        if (!m) return;
+        OVERLAYS.forEach(function (ov) {
+            if (!m.getLayer(ov.layerId)) return;
+            m.setLayoutProperty(ov.layerId, 'visibility',
+                                _ovVisible(ov, isSwipe) ? 'visible' : 'none');
+            m.setPaintProperty(ov.layerId, 'raster-opacity', _ovState[ov.id].opacity);
+        });
+    }
+    function _ovApplyAll() {
+        _ovApply(map, false);
+        _ovApply(_swipe.map, true);
+    }
+    // Add all overlay sources+layers to a map (idempotent; called wherever the
+    // susceptibility layers used to be added, main + swipe).
+    function _ovEnsure(m, beforeId) {
+        OVERLAYS.forEach(function (ov) {
+            if (!m.getSource(ov.sourceId)) m.addSource(ov.sourceId, ov.sourceDef());
+            if (!m.getLayer(ov.layerId)) {
+                m.addLayer({
+                    id: ov.layerId, type: 'raster', source: ov.sourceId,
+                    layout: { 'visibility': 'none' },
+                    paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
+                }, beforeId);
+            }
+        });
+        _ovApply(m, m !== map);
     }
     function _faultsLayerDef() {
         return {
@@ -1250,10 +1414,9 @@
         // initDataLayers) preserves the user's choice. Per-pixel alpha is baked
         // into the tiles, so raster-opacity stays at 1. Citation: USGS, Belair
         // et al. 2024 (Slope-Relief Threshold susceptibility, 90 m).
-        SUSC_LAYERS.forEach(function (s) {
-            map.addSource('susc-' + s.key, _suscSourceDef(s));
-            map.addLayer(_suscLayerDef(s), bId);
-        });
+        // Raster overlays (susceptibility + OPERA velocity) — per-pane framework;
+        // this is the stack slot the susceptibility layers have always occupied.
+        _ovEnsure(map, bId);
 
         // Alaska Quaternary faults & folds (DGGS QFF — Koehler 2013). Reference
         // vector overlay, ON by default. Added here so it sits below the
@@ -1420,6 +1583,7 @@
                 rm.appendChild(grid);
             });
             rm.appendChild(_buildSwipeUI());   // swipe/compare controls
+            rm.appendChild(_buildOverlaysUI()); // susceptibility + OPERA raster overlays
             if (window._isInventoryEditor) rm.appendChild(_buildTraceUI());   // GeoTIFF trace overlays
         }
         var pinned = document.getElementById('pinned-basemap');
@@ -1733,10 +1897,10 @@
             if (!cmap.getSource('pending-pt-src'))   cmap.addSource('pending-pt-src',   { type: 'geojson', data: _pendingData.points });
             _pendingLayerDefs().forEach(function (def) { if (!cmap.getLayer(def.id)) cmap.addLayer(def); });
         }
-        SUSC_LAYERS.forEach(function (s) {
-            if (!cmap.getSource('susc-' + s.key)) cmap.addSource('susc-' + s.key, _suscSourceDef(s));
-            if (!cmap.getLayer('susc-' + s.key + '-layer')) cmap.addLayer(_suscLayerDef(s));
-        });
+        // Raster overlays: added to the swipe map too, but VISIBILITY is
+        // per-pane (the overlay framework's whole point) — unlike landslide
+        // data, overlays are imagery-like and deliberately not mirrored.
+        _ovEnsure(cmap);
         if (!cmap.getSource('faults'))
             cmap.addSource('faults', { type: 'geojson', data: _faultsData || { type: 'FeatureCollection', features: [] } });
         if (!cmap.getLayer('faults-line')) cmap.addLayer(_faultsLayerDef());
@@ -1894,6 +2058,98 @@
         if (s.lat != null && s.lon != null && s.zoom != null) {
             map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
         }
+    }
+
+    // Overlays UI — one row per registry entry: pane control (Off | ◀ left |
+    // both | right ▶) + opacity slider. "Right" renders on the wiper's
+    // comparison pane, so it only shows once a Compare basemap is active.
+    function _buildOverlaysUI() {
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'margin-top:12px;';
+        var hdr = document.createElement('div');
+        hdr.className = 'refmaps-category'; hdr.textContent = 'Overlays';
+        wrap.appendChild(hdr);
+        var hint = document.createElement('div');
+        hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:5px;line-height:1.35;';
+        hint.textContent = 'Semi-transparent rasters over any basemap. ◀ / ▶ place an overlay on ' +
+                           'one side of the compare wiper (▶ needs a Compare basemap active).';
+        wrap.appendChild(hint);
+
+        OVERLAYS.forEach(function (ov) {
+            var st = _ovState[ov.id];
+            var row = document.createElement('div');
+            row.style.cssText = 'padding:5px 6px;border:1px solid #e0dcd8;border-radius:4px;' +
+                                'margin-bottom:5px;font-size:12px;background:#fff;';
+            var top = document.createElement('div');
+            top.style.cssText = 'display:flex;align-items:center;gap:6px;';
+            var lbl = document.createElement('span');
+            lbl.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+            lbl.textContent = ov.label;
+            lbl.title = ov.label + '\n' + ov.sub;
+            top.appendChild(lbl);
+
+            var seg = document.createElement('span');
+            seg.style.cssText = 'display:inline-flex;border:1px solid #bbb;border-radius:3px;overflow:hidden;';
+            var btns = {};
+            [['off', 'Off', 'Hidden'],
+             ['left', '◀', 'Left / main pane only'],
+             ['both', '◀▶', 'Both panes'],
+             ['right', '▶', 'Right (compare) pane only']].forEach(function (def) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.textContent = def[1];
+                b.title = def[2];
+                b.style.cssText = 'font-size:10px;padding:2px 7px;border:none;cursor:pointer;' +
+                                  'background:#fff;color:#555;border-right:1px solid #ddd;';
+                b.addEventListener('click', function () {
+                    st.pane = def[0];
+                    _ovSaveState();
+                    _ovApplyAll();
+                    paint();
+                });
+                btns[def[0]] = b;
+                seg.appendChild(b);
+            });
+            top.appendChild(seg);
+            row.appendChild(top);
+
+            var line2 = document.createElement('div');
+            line2.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:3px;';
+            var opLbl = document.createElement('span');
+            opLbl.style.cssText = 'font-size:10px;color:#777;';
+            opLbl.textContent = 'opacity';
+            var op = document.createElement('input');
+            op.type = 'range'; op.min = '10'; op.max = '100';
+            op.value = String(Math.round(st.opacity * 100));
+            op.style.cssText = 'flex:1;height:14px;';
+            op.addEventListener('input', function () {
+                st.opacity = (+op.value) / 100;
+                _ovSaveState();
+                _ovApplyAll();
+            });
+            var sub = document.createElement('span');
+            sub.style.cssText = 'font-size:10px;color:#999;white-space:nowrap;';
+            sub.textContent = ov.sub;
+            line2.appendChild(opLbl);
+            line2.appendChild(op);
+            row.appendChild(line2);
+            var subRow = document.createElement('div');
+            subRow.style.cssText = 'margin-top:2px;';
+            subRow.appendChild(sub);
+            row.appendChild(subRow);
+
+            function paint() {
+                Object.keys(btns).forEach(function (k) {
+                    var on = st.pane === k;
+                    btns[k].style.background = on ? '#5D4037' : '#fff';
+                    btns[k].style.color = on ? '#fff' : '#555';
+                });
+                line2.style.opacity = st.pane === 'off' ? 0.45 : 1;
+            }
+            paint();
+            wrap.appendChild(row);
+        });
+        return wrap;
     }
 
     function _buildSwipeUI() {
@@ -2581,28 +2837,8 @@
         if (cb) cb.addEventListener('change', buildFilter);
     });
 
-    // Susceptibility overlays (lw / n10) — mutually exclusive. Checking one
-    // unchecks (and hides) the other; either can be off. Sources/layers are
-    // configured at initDataLayers time, so toggling just flips visibility;
-    // tiles are fetched on demand by MapLibre on first activation.
-    var suscCbs = SUSC_LAYERS.map(function (s) { return document.getElementById(s.cb); });
-    function setSuscVis(i, vis) {
-        var id = 'susc-' + SUSC_LAYERS[i].key + '-layer';
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
-        _swipeAlso(function (m) { if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', vis); });
-    }
-    SUSC_LAYERS.forEach(function (s, i) {
-        var cb = suscCbs[i];
-        if (!cb) return;
-        cb.addEventListener('change', function () {
-            if (cb.checked) {
-                suscCbs.forEach(function (other, j) {
-                    if (other && j !== i && other.checked) { other.checked = false; setSuscVis(j, 'none'); }
-                });
-            }
-            setSuscVis(i, cb.checked ? 'visible' : 'none');
-        });
-    });
+    // (The old mutually-exclusive susceptibility checkboxes were replaced by
+    // the raster-overlay framework — see OVERLAYS / _buildOverlaysUI.)
 
     // Survey-circles toggle — lazy-fetches on first activation, then just
     // flips visibility on subsequent toggles.

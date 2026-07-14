@@ -135,6 +135,20 @@
   </li>
 </ul>
 
+<h4>OPERA InSAR velocity overlays</h4>
+<p>
+  The map can overlay Sentinel-1 InSAR line-of-sight velocity (ascending and
+  descending tracks) from the <strong>OPERA DISP-S1</strong> product suite
+  (&copy;&nbsp;NASA/JPL), as mosaicked and served by the
+  <a href="https://displacement.asf.alaska.edu/" target="_blank" rel="noopener">Alaska
+  Satellite Facility's displacement portal</a>; this site re-serves those
+  tiles through a caching proxy and renders them with ASF's color ramp.
+  Display caveats: the tiles are 8-bit quantized (&asymp;0.24&nbsp;mm/yr
+  steps) and <strong>clipped at &plusmn;30&nbsp;mm/yr</strong>, so
+  fast-moving landslides saturate — treat the overlay as exploratory
+  visualization, not measurement.
+</p>
+
 <h4>Country attribution</h4>
 <p>
   Each record carries a derived <code>country</code> attribute: the primary
