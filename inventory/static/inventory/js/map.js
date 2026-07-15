@@ -1285,13 +1285,23 @@
           label: 'OPERA velocity — descending', sub: 'InSAR, ±30 mm/yr · NASA/JPL + ASF',
           sourceDef: function () { return _operaSourceDef('desc'); }, defOpacity: 0.75 },
     ];
+    // Per-overlay state: shown on the left (main) pane, shown on the right
+    // (wiper) pane, and a shared opacity. Each pane has its own control
+    // panel — the sidebar's Overlays section drives the left pane, the
+    // floating wiper panel drives the right — so there is no combined
+    // pane-selector to misread.
     var _ovState = (function () {
         var st = {};
         try { st = JSON.parse(localStorage.getItem('ls_overlays') || '{}') || {}; } catch (e) {}
         OVERLAYS.forEach(function (ov) {
             var s = st[ov.id] || {};
+            var left = !!s.left, right = !!s.right;
+            if (s.pane) {   // migrate the short-lived Off/Left/Both/Right form
+                left  = s.pane === 'left'  || s.pane === 'both';
+                right = s.pane === 'right' || s.pane === 'both';
+            }
             st[ov.id] = {
-                pane: ['off', 'left', 'both', 'right'].indexOf(s.pane) >= 0 ? s.pane : 'off',
+                left: left, right: right,
                 opacity: (typeof s.opacity === 'number' && s.opacity >= 0 && s.opacity <= 1)
                     ? s.opacity : ov.defOpacity,
             };
@@ -1303,9 +1313,7 @@
     }
     function _ovVisible(ov, isSwipe) {
         var st = _ovState[ov.id];
-        if (!st || st.pane === 'off') return false;
-        return isSwipe ? (st.pane === 'right' || st.pane === 'both')
-                       : (st.pane === 'left' || st.pane === 'both');
+        return st ? (isSwipe ? st.right : st.left) : false;
     }
     function _ovApply(m, isSwipe) {
         if (!m) return;
@@ -1596,6 +1604,9 @@
                 pinned.appendChild(opt);
             });
         }
+        // The wiper's right-pane panel lists the same basemaps — refresh it so
+        // newly merged QMS/shared layers appear there too.
+        if (_swipe.on) _wiperPanelRefresh();
     }
 
     // Editor-only QMS catalog search box (added at the top of the refmaps panel).
@@ -1994,12 +2005,14 @@
         if (_swipe.divider) _swipe.divider.style.display = '';
         _swipeSyncView();
         if (_swipe.map) _swipe.map.resize();
+        _syncSwipeUI();   // button label + the right-pane control panel
         if (_mapReady) writeHashState();
     }
     function _swipeDisable() {
         _swipe.on = false;
         if (_swipe.container) _swipe.container.style.display = 'none';
         if (_swipe.divider) _swipe.divider.style.display = 'none';
+        _syncSwipeUI();
         if (_mapReady) writeHashState();
     }
     function _swipeSetBasemap(id) {
@@ -2007,11 +2020,15 @@
         _swipe.basemapId = id;
         if (bm && _swipe.map) _swipe.map.setStyle(_swipeStyleFor(bm), { diff: false });  // style.load re-adds data
     }
-    // Keep the Compare (swipe) dropdown in step when swipe state changes
-    // programmatically (hash restore, default-view apply).
-    function _syncSwipeSelect() {
-        var sel = document.getElementById('swipe-select');
-        if (sel) sel.value = _swipe.on ? (_swipe.basemapId || '') : '';
+    // Keep the wiper UI (Add/Remove button + the floating right-pane panel)
+    // in step when swipe state changes programmatically (hash restore,
+    // default-view apply, in-panel basemap picks).
+    function _syncSwipeUI() {
+        var btn = document.getElementById('wiper-toggle-btn');
+        if (btn) {
+            btn.textContent = _swipe.on ? '✕ Remove wiper' : '＋ Add wiper';
+        }
+        if (_swipe.on) _wiperPanelShow(); else _wiperPanelHide();
     }
     // Restore a wiper carried in the URL hash (or the saved localStorage view).
     // Called at startup and again after promoted QMS layers merge — a shared
@@ -2024,7 +2041,7 @@
         _pendingSwipe = null;
         _swipeSetX(x);
         _swipeEnable(bm.id);
-        _syncSwipeSelect();
+        _syncSwipeUI();
     }
 
     // ---------------------------------------------------------------------------
@@ -2054,15 +2071,75 @@
         } else {
             _swipeDisable();
         }
-        _syncSwipeSelect();
+        _syncSwipeUI();
         if (s.lat != null && s.lon != null && s.zoom != null) {
             map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
         }
     }
 
-    // Overlays UI — one row per registry entry: pane control (Off | ◀ left |
-    // both | right ▶) + opacity slider. "Right" renders on the wiper's
-    // comparison pane, so it only shows once a Compare basemap is active.
+    // One overlay row for either pane's panel: full wrapping label + subtitle,
+    // an on/off checkbox for THAT pane, and the (shared) opacity slider. The
+    // slider carries a side-scoped id so its twin in the other panel can be
+    // kept in step without a rebuild.
+    function _overlayRow(ov, side) {
+        var st = _ovState[ov.id];
+        var row = document.createElement('div');
+        row.style.cssText = 'padding:5px 6px;border:1px solid #e0dcd8;border-radius:4px;' +
+                            'margin-bottom:5px;font-size:12px;background:#fff;';
+        var top = document.createElement('label');
+        top.style.cssText = 'display:flex;align-items:flex-start;gap:6px;cursor:pointer;';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!st[side];
+        cb.style.cssText = 'margin-top:2px;flex:none;';
+        top.appendChild(cb);
+        var txt = document.createElement('span');
+        var lbl = document.createElement('span');
+        lbl.style.cssText = 'display:block;font-weight:600;line-height:1.25;white-space:normal;';
+        lbl.textContent = ov.label;
+        var sub = document.createElement('span');
+        sub.style.cssText = 'display:block;font-size:10px;color:#999;white-space:normal;';
+        sub.textContent = ov.sub;
+        txt.appendChild(lbl); txt.appendChild(sub);
+        top.appendChild(txt);
+        row.appendChild(top);
+
+        var line2 = document.createElement('div');
+        line2.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:4px;';
+        var opLbl = document.createElement('span');
+        opLbl.style.cssText = 'font-size:10px;color:#777;';
+        opLbl.textContent = 'opacity';
+        var op = document.createElement('input');
+        op.type = 'range'; op.min = '10'; op.max = '100';
+        op.id = 'ov-op-' + side + '-' + ov.id;
+        op.value = String(Math.round(st.opacity * 100));
+        op.style.cssText = 'flex:1;height:14px;';
+        op.title = 'Dim the overlay against the basemap (shared between panes)';
+        line2.appendChild(opLbl);
+        line2.appendChild(op);
+        row.appendChild(line2);
+
+        function paint() { line2.style.opacity = st[side] ? 1 : 0.45; }
+        cb.addEventListener('change', function () {
+            st[side] = cb.checked;
+            _ovSaveState();
+            _ovApplyAll();
+            paint();
+        });
+        op.addEventListener('input', function () {
+            st.opacity = (+op.value) / 100;
+            _ovSaveState();
+            _ovApplyAll();
+            var twin = document.getElementById(
+                'ov-op-' + (side === 'left' ? 'right' : 'left') + '-' + ov.id);
+            if (twin) twin.value = op.value;
+        });
+        paint();
+        return row;
+    }
+
+    // Sidebar Overlays section — controls the LEFT (main) pane; the wiper's
+    // right pane gets an identical section in its own floating panel.
     function _buildOverlaysUI() {
         var wrap = document.createElement('div');
         wrap.style.cssText = 'margin-top:12px;';
@@ -2071,85 +2148,10 @@
         wrap.appendChild(hdr);
         var hint = document.createElement('div');
         hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:5px;line-height:1.35;';
-        hint.textContent = 'Semi-transparent rasters over any basemap. Left / Right choose which ' +
-                           'side of the compare wiper an overlay appears on (Right needs a ' +
-                           'Compare basemap active; without the wiper, Left = the whole map).';
+        hint.textContent = 'Semi-transparent rasters over the basemap. With a wiper added, these ' +
+                           'control the LEFT side; the wiper’s own panel controls the right.';
         wrap.appendChild(hint);
-
-        OVERLAYS.forEach(function (ov) {
-            var st = _ovState[ov.id];
-            var row = document.createElement('div');
-            row.style.cssText = 'padding:5px 6px;border:1px solid #e0dcd8;border-radius:4px;' +
-                                'margin-bottom:5px;font-size:12px;background:#fff;';
-            // Line 1: the full label, wrapping — never truncated (an "OPERA
-            // velocity — asc…" row next to pane arrows read as if the arrows
-            // meant orbit direction).
-            var lbl = document.createElement('div');
-            lbl.style.cssText = 'font-weight:600;line-height:1.25;white-space:normal;';
-            lbl.textContent = ov.label;
-            row.appendChild(lbl);
-            var sub = document.createElement('div');
-            sub.style.cssText = 'font-size:10px;color:#999;margin:1px 0 4px;white-space:normal;';
-            sub.textContent = ov.sub;
-            row.appendChild(sub);
-
-            // Line 2: worded pane control — which SIDE of the compare wiper.
-            var seg = document.createElement('span');
-            seg.style.cssText = 'display:inline-flex;border:1px solid #bbb;border-radius:3px;overflow:hidden;';
-            var btns = {};
-            [['off',  'Off',   'Hidden'],
-             ['left', 'Left',  'Left (main) side of the compare wiper — or the whole map when the wiper is off'],
-             ['both', 'Both',  'Both sides of the compare wiper'],
-             ['right','Right', 'Right (compare) side of the wiper — shows once a Compare basemap is active']]
-            .forEach(function (def) {
-                var b = document.createElement('button');
-                b.type = 'button';
-                b.textContent = def[1];
-                b.title = def[2];
-                b.style.cssText = 'font-size:10px;padding:2px 8px;border:none;cursor:pointer;' +
-                                  'background:#fff;color:#555;border-right:1px solid #ddd;';
-                b.addEventListener('click', function () {
-                    st.pane = def[0];
-                    _ovSaveState();
-                    _ovApplyAll();
-                    paint();
-                });
-                btns[def[0]] = b;
-                seg.appendChild(b);
-            });
-            row.appendChild(seg);
-
-            // Line 3: opacity.
-            var line3 = document.createElement('div');
-            line3.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:4px;';
-            var opLbl = document.createElement('span');
-            opLbl.style.cssText = 'font-size:10px;color:#777;';
-            opLbl.textContent = 'opacity';
-            var op = document.createElement('input');
-            op.type = 'range'; op.min = '10'; op.max = '100';
-            op.value = String(Math.round(st.opacity * 100));
-            op.style.cssText = 'flex:1;height:14px;';
-            op.title = 'Dim the overlay against the basemap';
-            op.addEventListener('input', function () {
-                st.opacity = (+op.value) / 100;
-                _ovSaveState();
-                _ovApplyAll();
-            });
-            line3.appendChild(opLbl);
-            line3.appendChild(op);
-            row.appendChild(line3);
-
-            function paint() {
-                Object.keys(btns).forEach(function (k) {
-                    var on = st.pane === k;
-                    btns[k].style.background = on ? '#5D4037' : '#fff';
-                    btns[k].style.color = on ? '#fff' : '#555';
-                });
-                line3.style.opacity = st.pane === 'off' ? 0.45 : 1;
-            }
-            paint();
-            wrap.appendChild(row);
-        });
+        OVERLAYS.forEach(function (ov) { wrap.appendChild(_overlayRow(ov, 'left')); });
         return wrap;
     }
 
@@ -2157,30 +2159,123 @@
         var wrap = document.createElement('div');
         wrap.style.cssText = 'margin-top:12px;';
         var hdr = document.createElement('div');
-        hdr.className = 'refmaps-category'; hdr.textContent = 'Compare (swipe)';
+        hdr.className = 'refmaps-category'; hdr.textContent = 'Compare (wiper)';
         wrap.appendChild(hdr);
         var hint = document.createElement('div');
         hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:5px;line-height:1.35;';
-        hint.textContent = 'Add a wiper-comparison base-map on the right.';
+        hint.textContent = 'Split the map with a draggable divider. A panel appears on the right ' +
+                           'to control the right side (basemap + overlays); this sidebar controls the left.';
         wrap.appendChild(hint);
-        var sel = document.createElement('select');
-        sel.id = 'swipe-select';
-        sel.style.cssText = 'width:100%;font-size:12px;padding:3px 4px;border:1px solid #ccc;border-radius:3px;';
-        var none = document.createElement('option');
-        none.value = ''; none.textContent = 'none';
-        if (!_swipe.on) none.selected = true;
-        sel.appendChild(none);
-        BASEMAPS.forEach(function (bm) {
-            var opt = document.createElement('option');
-            opt.value = bm.id; opt.textContent = bm.label;
-            if (_swipe.on && bm.id === _swipe.basemapId) opt.selected = true;
-            sel.appendChild(opt);
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = 'wiper-toggle-btn';
+        btn.textContent = _swipe.on ? '✕ Remove wiper' : '＋ Add wiper';
+        btn.style.cssText = 'width:100%;font-size:12px;padding:5px 8px;border:1px solid #5D4037;' +
+                            'border-radius:3px;background:#fff;color:#5D4037;cursor:pointer;font-weight:600;';
+        btn.addEventListener('click', function () {
+            if (_swipe.on) {
+                _swipeDisable();
+            } else {
+                // Start with both panes identical (the current basemap) — the
+                // right panel is where you then diverge the right side.
+                _swipeEnable(_swipe.basemapId || _currentBasemap);
+            }
+            _syncSwipeUI();
         });
-        wrap.appendChild(sel);
-        sel.addEventListener('change', function () {
-            if (!sel.value) _swipeDisable(); else _swipeEnable(sel.value);
-        });
+        wrap.appendChild(btn);
         return wrap;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Wiper right-pane panel — a floating panel over the map's right side,
+    // mirroring the sidebar's controls but scoped to the comparison pane:
+    // its own basemap cards and its own overlay toggles. Left panel controls
+    // the left pane, right panel the right — no combined selectors.
+    // ---------------------------------------------------------------------------
+    var _wiperPanel = null;
+    function _wiperPanelEnsure() {
+        if (_wiperPanel) return _wiperPanel;
+        var host = document.getElementById('map').parentNode;
+        var p = document.createElement('div');
+        p.id = 'wiper-panel';
+        p.style.cssText = 'position:absolute;top:10px;right:10px;width:272px;' +
+            'max-width:calc(100% - 20px);max-height:calc(100% - 60px);overflow-y:auto;' +
+            'background:#fff;border-radius:4px;box-shadow:0 2px 14px rgba(0,0,0,.28);' +
+            'z-index:9;padding:10px 12px;display:none;font-size:12px;';
+        host.appendChild(p);
+        _wiperPanel = p;
+        return p;
+    }
+    function _wiperBasemapCard(bm) {
+        var card = document.createElement('div');
+        card.className = 'refmap-option' + (bm.id === _swipe.basemapId ? ' active' : '');
+        card.title = bm.label + (bm.coverage ? '\nCoverage: ' + bm.coverage : '');
+        var thumbUrl = basemapThumbnailUrl(bm);
+        if (thumbUrl) {
+            var img = document.createElement('img');
+            img.className = 'refmap-thumb'; img.alt = ''; img.loading = 'lazy'; img.src = thumbUrl;
+            img.onerror = function () {
+                var ph = document.createElement('div');
+                ph.className = 'refmap-thumb-placeholder'; ph.textContent = bm.label;
+                img.replaceWith(ph);
+            };
+            card.appendChild(img);
+        } else {
+            var ph = document.createElement('div');
+            ph.className = 'refmap-thumb-placeholder'; ph.textContent = bm.label;
+            card.appendChild(ph);
+        }
+        var lbl = document.createElement('div');
+        lbl.className = 'refmap-label'; lbl.textContent = bm.label;
+        card.appendChild(lbl);
+        card.addEventListener('click', function () {
+            _swipeEnable(bm.id);   // switches the pane's style; _syncSwipeUI re-highlights
+        });
+        return card;
+    }
+    function _wiperPanelRefresh() {
+        var p = _wiperPanelEnsure();
+        p.innerHTML = '';
+        var head = document.createElement('div');
+        head.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:2px;';
+        var title = document.createElement('div');
+        title.style.cssText = 'flex:1;font-weight:700;font-size:13px;color:#5D4037;';
+        title.textContent = 'Right pane';
+        var x = document.createElement('button');
+        x.type = 'button'; x.textContent = '✕';
+        x.title = 'Remove the wiper';
+        x.style.cssText = 'border:none;background:none;font-size:15px;color:#888;cursor:pointer;padding:0 2px;';
+        x.addEventListener('click', function () { _swipeDisable(); _syncSwipeUI(); });
+        head.appendChild(title); head.appendChild(x);
+        p.appendChild(head);
+        var hint = document.createElement('div');
+        hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:6px;line-height:1.3;';
+        hint.textContent = 'Controls the right side of the divider. The left sidebar controls the left.';
+        p.appendChild(hint);
+
+        REFMAPS_CATEGORY_ORDER.forEach(function (cat) {
+            var inCat = BASEMAPS.filter(function (bm) { return bm.category === cat; });
+            if (!inCat.length) return;
+            var hdr = document.createElement('div');
+            hdr.className = 'refmaps-category'; hdr.textContent = cat;
+            p.appendChild(hdr);
+            var grid = document.createElement('div');
+            grid.className = 'refmaps-grid';
+            inCat.forEach(function (bm) { grid.appendChild(_wiperBasemapCard(bm)); });
+            p.appendChild(grid);
+        });
+
+        var ovHdr = document.createElement('div');
+        ovHdr.className = 'refmaps-category'; ovHdr.textContent = 'Overlays';
+        p.appendChild(ovHdr);
+        OVERLAYS.forEach(function (ov) { p.appendChild(_overlayRow(ov, 'right')); });
+    }
+    function _wiperPanelShow() {
+        _wiperPanelEnsure().style.display = '';
+        _wiperPanelRefresh();
+    }
+    function _wiperPanelHide() {
+        if (_wiperPanel) _wiperPanel.style.display = 'none';
     }
 
     // ---------------------------------------------------------------------------
@@ -5247,7 +5342,7 @@
         if (s.swipe && findBasemap(s.swipe)) {
             if (s.sx != null) _swipeSetX(s.sx);
             _swipeEnable(s.swipe);
-            _syncSwipeSelect();
+            _syncSwipeUI();
         }
         if (s.lat != null && s.lon != null && s.zoom != null) {
             map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
