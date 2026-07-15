@@ -5311,11 +5311,8 @@
     var _opCache = {};        // 'track/z/x/y' -> {img: ImageData} | {missing:true}
     var _opCacheKeys = [];
     var _opReq = 0;
-    var OP_MIN_MM = -30, OP_MAX_MM = 30, OP_BINS = 24;
+    var OP_MIN_MM = -30, OP_MAX_MM = 30;
 
-    function _opVel(v) {   // gray value (1–255) → mm/yr
-        return OP_MIN_MM + (v - 1) * (OP_MAX_MM - OP_MIN_MM) / 254;
-    }
     function _opTileData(track, z, x, y) {
         var key = track + '/' + z + '/' + x + '/' + y;
         if (_opCache[key]) return Promise.resolve(_opCache[key]);
@@ -5348,8 +5345,12 @@
         var s = Math.max(-0.9999, Math.min(0.9999, Math.sin(lat * Math.PI / 180)));
         return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * Math.pow(2, z) * 256;
     }
-    // Sum the view's pixels for one track → {hist[256], valid, totalPx}.
-    function _opCollect(track) {
+    // Joint (asc, desc) collection: both mosaics share the 3857 tile grid, so
+    // the same pixel index is the same ground cell — walk each view tile once
+    // with BOTH tracks' ImageData and count pairs where both have coverage.
+    // Returns {joint: Uint32Array(255*255) indexed (av-1)+(dv-1)*255,
+    //          both, ascOnly, descOnly, totalPx, clipped}.
+    function _opCollectJoint() {
         var zv = Math.max(0, Math.min(12, Math.ceil(map.getZoom())));
         var b = map.getBounds();
         var n = Math.pow(2, zv);
@@ -5363,15 +5364,19 @@
             for (var ty = Math.max(0, ty0); ty <= ty1; ty++) {
                 (function (tx, ty) {
                     var xw = ((tx % n) + n) % n;   // dateline wrap (Aleutians)
-                    jobs.push(_opTileData(track, zv, xw, ty)
-                        .catch(function () { return { missing: true }; })
-                        .then(function (entry) { return { tx: tx, ty: ty, entry: entry }; }));
+                    var miss = function () { return { missing: true }; };
+                    jobs.push(Promise.all([
+                        _opTileData('asc', zv, xw, ty).catch(miss),
+                        _opTileData('desc', zv, xw, ty).catch(miss)
+                    ]).then(function (pair) {
+                        return { tx: tx, ty: ty, asc: pair[0], desc: pair[1] };
+                    }));
                 })(tx, ty);
             }
         }
         return Promise.all(jobs).then(function (tiles) {
-            var hist = new Float64Array(256);
-            var valid = 0, totalPx = 0;
+            var joint = new Uint32Array(255 * 255);
+            var both = 0, ascOnly = 0, descOnly = 0, totalPx = 0, clipped = 0;
             tiles.forEach(function (t) {
                 var x0 = Math.max(0, Math.round(pxW - t.tx * 256));
                 var x1 = Math.min(256, Math.round(pxE - t.tx * 256));
@@ -5379,115 +5384,142 @@
                 var y1 = Math.min(256, Math.round(pxS - t.ty * 256));
                 if (x1 <= x0 || y1 <= y0) return;
                 totalPx += (x1 - x0) * (y1 - y0);
-                if (!t.entry || t.entry.missing || !t.entry.img) return;
-                var d = t.entry.img.data;
+                var da = (t.asc && t.asc.img) ? t.asc.img.data : null;
+                var dd = (t.desc && t.desc.img) ? t.desc.img.data : null;
+                if (!da && !dd) return;
                 for (var y = y0; y < y1; y++) {
                     var off = y * 1024;
                     for (var x = x0; x < x1; x++) {
                         var i = off + x * 4;
-                        if (d[i + 3] === 0) continue;
-                        hist[d[i]]++;
-                        valid++;
+                        var hasA = da && da[i + 3] !== 0;
+                        var hasD = dd && dd[i + 3] !== 0;
+                        if (hasA && hasD) {
+                            var av = da[i], dv = dd[i];
+                            joint[(av - 1) + (dv - 1) * 255]++;
+                            both++;
+                            if (av === 1 || av === 255 || dv === 1 || dv === 255) clipped++;
+                        } else if (hasA) {
+                            ascOnly++;
+                        } else if (hasD) {
+                            descOnly++;
+                        }
                     }
                 }
             });
-            return { hist: hist, valid: valid, totalPx: totalPx };
+            return { joint: joint, both: both, ascOnly: ascOnly, descOnly: descOnly,
+                     totalPx: totalPx, clipped: clipped };
         });
     }
-    function _opStats(res) {
-        if (!res || !res.valid) return null;
-        var bins = new Float64Array(OP_BINS), clipped = res.hist[1] + res.hist[255];
-        var cum = 0, median = null, half = res.valid / 2;
-        for (var v = 1; v <= 255; v++) {
-            var c = res.hist[v];
-            if (!c) continue;
-            var idx = Math.max(0, Math.min(OP_BINS - 1,
-                Math.floor((_opVel(v) - OP_MIN_MM) / ((OP_MAX_MM - OP_MIN_MM) / OP_BINS))));
-            bins[idx] += c;
-            if (median === null) {
-                cum += c;
-                if (cum >= half) median = _opVel(v);
-            }
-        }
-        return { bins: bins, valid: res.valid, totalPx: res.totalPx,
-                 coverage: res.valid / Math.max(1, res.totalPx),
-                 clippedPct: clipped / res.valid, median: median };
-    }
-    function _opRender(asc, desc) {
+    // 2D density heatmap: x = ascending velocity, y = descending velocity
+    // (both −30…+30 mm/yr), log-scaled Blues. The diagonals are the physical
+    // reading: motion along y=x projects the same into both look directions
+    // (vertical / N–S-ish); y=−x is opposite-sign LOS — the signature of
+    // east/west aspect-driven downslope motion.
+    function _opRender(res) {
         var cv = document.getElementById('opera-hist-canvas');
         if (!cv) return;
-        var W = cv.clientWidth || 400, H = cv.clientHeight || 180;
+        var W = cv.clientWidth || 380, H = cv.clientHeight || 340;
         var dpr = window.devicePixelRatio || 1;
         cv.width = W * dpr; cv.height = H * dpr;
         var ctx = cv.getContext('2d');
         ctx.scale(dpr, dpr);
         ctx.clearRect(0, 0, W, H);
-        var L = 36, R = 8, T = 8, B = 20;
-        var pw = W - L - R, ph = H - T - B;
-        var series = [];
-        if (asc)  series.push({ s: asc,  color: 'rgba(43,111,179,0.8)' });
-        if (desc) series.push({ s: desc, color: 'rgba(194,91,33,0.65)' });
-        var ymax = 0;
-        series.forEach(function (sr) {
-            for (var i = 0; i < OP_BINS; i++) ymax = Math.max(ymax, sr.s.bins[i] / sr.s.valid);
-        });
-        ymax = ymax || 1;
-        // axes
-        ctx.strokeStyle = '#ddd'; ctx.fillStyle = '#888';
-        ctx.font = '9px system-ui, sans-serif'; ctx.textAlign = 'center';
-        [-30, -15, 0, 15, 30].forEach(function (mm) {
-            var x = L + (mm - OP_MIN_MM) / (OP_MAX_MM - OP_MIN_MM) * pw;
-            ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, T + ph);
-            ctx.strokeStyle = mm === 0 ? '#bbb' : '#eee'; ctx.stroke();
-            ctx.fillText((mm > 0 ? '+' : '') + mm, x, H - 6);
-        });
-        ctx.textAlign = 'right';
-        [0.5, 1].forEach(function (f) {
-            var yv = ymax * f;
-            var y = T + ph - (yv / ymax) * ph;
-            ctx.fillText((yv * 100).toFixed(1) + '%', L - 4, y + 3);
-        });
-        var bw = pw / OP_BINS;
-        series.forEach(function (sr) {
-            ctx.fillStyle = sr.color;
-            for (var i = 0; i < OP_BINS; i++) {
-                var frac = sr.s.bins[i] / sr.s.valid;
-                var h = (frac / ymax) * ph;
-                if (h > 0) ctx.fillRect(L + i * bw + 1, T + ph - h, bw - 2, h);
+        var L = 40, R = 10, T = 10, B = 30;
+        var side = Math.min(W - L - R, H - T - B);   // keep the plot square
+        var px = L, py = T;
+
+        // Density image at native 255×255 value resolution.
+        var off = document.createElement('canvas');
+        off.width = off.height = 255;
+        var octx = off.getContext('2d');
+        var img = octx.createImageData(255, 255);
+        var maxC = 0, j = res.joint;
+        for (var k = 0; k < j.length; k++) if (j[k] > maxC) maxC = j[k];
+        if (maxC > 0) {
+            var logMax = Math.log(1 + maxC);
+            for (var dv = 0; dv < 255; dv++) {
+                for (var av = 0; av < 255; av++) {
+                    var c = j[av + dv * 255];
+                    var p = (av + (254 - dv) * 255) * 4;   // canvas y grows downward
+                    if (c > 0) {
+                        var t = Math.log(1 + c) / logMax;   // 0..1
+                        // white → mid blue → near-navy
+                        img.data[p]     = Math.round(255 - t * (255 - 8));
+                        img.data[p + 1] = Math.round(255 - t * (255 - 48));
+                        img.data[p + 2] = Math.round(255 - t * (255 - 107));
+                        img.data[p + 3] = 255;
+                    } else {
+                        img.data[p + 3] = 0;
+                    }
+                }
             }
+        }
+        octx.putImageData(img, 0, 0);
+
+        // plot background + density
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(px, py, side, side);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(off, px, py, side, side);
+
+        // grid, zero lines, diagonals
+        function ax(mm) { return px + (mm - OP_MIN_MM) / (OP_MAX_MM - OP_MIN_MM) * side; }
+        function ay(mm) { return py + side - (mm - OP_MIN_MM) / (OP_MAX_MM - OP_MIN_MM) * side; }
+        ctx.font = '9px system-ui, sans-serif';
+        [-30, -15, 0, 15, 30].forEach(function (mm) {
+            ctx.strokeStyle = mm === 0 ? 'rgba(0,0,0,0.28)' : 'rgba(0,0,0,0.07)';
+            ctx.beginPath(); ctx.moveTo(ax(mm), py); ctx.lineTo(ax(mm), py + side); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(px, ay(mm)); ctx.lineTo(px + side, ay(mm)); ctx.stroke();
+            ctx.fillStyle = '#888'; ctx.textAlign = 'center';
+            ctx.fillText((mm > 0 ? '+' : '') + mm, ax(mm), py + side + 12);
+            ctx.textAlign = 'right';
+            ctx.fillText((mm > 0 ? '+' : '') + mm, px - 3, ay(mm) + 3);
         });
+        ctx.strokeStyle = 'rgba(90,60,40,0.30)';
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath(); ctx.moveTo(ax(-30), ay(-30)); ctx.lineTo(ax(30), ay(30)); ctx.stroke();   // y = x
+        ctx.beginPath(); ctx.moveTo(ax(-30), ay(30)); ctx.lineTo(ax(30), ay(-30)); ctx.stroke();   // y = −x
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(90,60,40,0.55)';
+        ctx.textAlign = 'left';
+        ctx.fillText('y=x  vertical-ish', ax(17), ay(20) - 3);
+        ctx.fillText('y=−x  E–W aspect', ax(9), ay(-14) - 3);
+        // frame + axis titles
+        ctx.strokeStyle = '#bbb';
+        ctx.strokeRect(px, py, side, side);
+        ctx.fillStyle = '#666'; ctx.textAlign = 'center';
+        ctx.fillText('ascending LOS velocity (mm/yr)', px + side / 2, py + side + 24);
+        ctx.save();
+        ctx.translate(10, py + side / 2); ctx.rotate(-Math.PI / 2);
+        ctx.fillText('descending LOS velocity (mm/yr)', 0, 0);
+        ctx.restore();
+
         var foot = document.getElementById('opera-hist-foot');
         if (foot) {
-            function line(name, s, color) {
-                if (!s) return '';
-                return '<span style="color:' + color + ';font-weight:600;">' + name + '</span> ' +
-                       (s.coverage * 100).toFixed(0) + '% coverage · median ' +
-                       (s.median >= 0 ? '+' : '') + s.median.toFixed(1) + ' mm/yr · ' +
-                       (s.clippedPct * 100).toFixed(1) + '% clipped';
-            }
-            foot.innerHTML = [line('asc', asc, '#2b6fb3'), line('desc', desc, '#c25b21')]
-                .filter(Boolean).join(' &nbsp;—&nbsp; ') +
-                '<br>x = line-of-sight velocity (mm/yr), y = % of covered pixels in view. ' +
-                '8-bit quantized, clipped at ±30 mm/yr. OPERA DISP-S1 © NASA/JPL · mosaic ASF.';
+            var cov = res.totalPx ? (res.both / res.totalPx * 100).toFixed(0) : '0';
+            var clip = res.both ? (res.clipped / res.both * 100).toFixed(1) : '0';
+            foot.innerHTML =
+                '<b>' + res.both.toLocaleString() + '</b> px with both tracks (' + cov +
+                '% of view) · asc-only ' + res.ascOnly.toLocaleString() +
+                ' · desc-only ' + res.descOnly.toLocaleString() +
+                ' · ' + clip + '% clipped<br>' +
+                'Log-scaled density. Along <b>y=−x</b>: opposite LOS signs — ' +
+                'east/west aspect-driven motion. Along <b>y=x</b>: same sign in both ' +
+                'looks — vertical-ish motion. 8-bit quantized, clipped at ±30 mm/yr. ' +
+                'OPERA DISP-S1 © NASA/JPL · mosaic ASF.';
         }
     }
     function updateOperaHist() {
         if (!operaPanel || operaPanel.classList.contains('hidden')) return;
         var token = ++_opReq;
-        var wantAsc = document.getElementById('opera-hist-asc');
-        var wantDesc = document.getElementById('opera-hist-desc');
         var status = document.getElementById('opera-hist-status');
         if (status) status.textContent = 'computing…';
-        var pAsc = (wantAsc && wantAsc.checked) ? _opCollect('asc') : Promise.resolve(null);
-        var pDesc = (wantDesc && wantDesc.checked) ? _opCollect('desc') : Promise.resolve(null);
-        Promise.all([pAsc, pDesc]).then(function (r) {
+        _opCollectJoint().then(function (res) {
             if (token !== _opReq) return;   // superseded by a newer view
-            var asc = _opStats(r[0]), desc = _opStats(r[1]);
             if (status) {
-                status.textContent = (!asc && !desc)
-                    ? 'no OPERA coverage in view' : '';
+                status.textContent = res.both ? '' : 'no overlapping asc+desc coverage in view';
             }
-            _opRender(asc, desc);
+            _opRender(res);
         }).catch(function (e) {
             if (token !== _opReq) return;
             if (status) status.textContent = 'load failed';
@@ -5500,10 +5532,6 @@
         close:    document.getElementById('opera-close'),
         onResize: updateOperaHist,
         onChange: updateOperaHist
-    });
-    ['opera-hist-asc', 'opera-hist-desc'].forEach(function (id) {
-        var cb = document.getElementById(id);
-        if (cb) cb.addEventListener('change', updateOperaHist);
     });
     var _opMoveTimer = null;
     map.on('moveend', function () {

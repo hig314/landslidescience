@@ -149,12 +149,18 @@
   visualization, not measurement.
 </p>
 <p>
-  The Analysis tab's <em>OPERA velocity in view</em> panel histograms the
-  same value tiles across the pixels currently on screen (per track, with
-  coverage and median), computed client-side from the tile pyramid. The
-  same quantization and clipping caveats apply; bars are % of covered
-  pixels, uncorrected for the modest area-per-pixel variation across a
-  view's latitude span.
+  The Analysis tab's <em>OPERA velocity — asc &times; desc</em> panel is a
+  <strong>2-D histogram</strong> of the same value tiles across the pixels
+  currently on screen: ascending velocity on x, descending on y (log-scaled
+  density), computed client-side from the tile pyramid for pixels covered by
+  both tracks. Because the two tracks look at the ground from opposite
+  sides, motion signatures separate by direction: density stretched along
+  <code>y&nbsp;=&nbsp;&minus;x</code> indicates opposite line-of-sight signs
+  — east/west aspect-driven downslope motion — while
+  <code>y&nbsp;=&nbsp;x</code> indicates same-sign motion in both looks
+  (subsidence-like / vertical). The same quantization and clipping caveats
+  apply; counts are pixels, uncorrected for the modest area-per-pixel
+  variation across a view's latitude span.
 </p>
 
 <h4>Country attribution</h4>
