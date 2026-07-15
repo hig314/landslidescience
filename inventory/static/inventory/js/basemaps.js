@@ -26,6 +26,14 @@
  *   map.setStyle(LSBasemaps.buildRasterStyle(bm, { globe: true }));
  */
 (function () {
+  // Inline SVG thumbnail for the blank basemap — a white card that labels
+  // itself (no tile to sample, no static asset to ship).
+  var BLANK_THUMB = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">' +
+    '<rect width="120" height="80" fill="#ffffff"/>' +
+    '<text x="60" y="44" font-family="sans-serif" font-size="13" fill="#999" ' +
+    'text-anchor="middle">Blank White</text></svg>');
+
   var DEFAULTS = [
     { id: 'streets', label: 'Streets', category: 'Other', coverage: 'Global',
       style: 'https://tiles.openfreemap.org/styles/liberty',
@@ -64,12 +72,13 @@
     // semi-transparent overlay like OPERA velocity) read without any imagery
     // behind it, on either side of the compare wiper. Inline style object
     // (no network); glyphs still needed for symbol layers (pin labels).
-    { id: 'blank', label: 'None (blank white)', category: 'Other', coverage: 'Global',
+    { id: 'blank', label: 'Blank White', category: 'Other', coverage: 'Global',
       style: { version: 8,
                glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
                sources: {},
                layers: [{ id: 'background', type: 'background',
                           paint: { 'background-color': '#ffffff' } }] },
+      thumb: BLANK_THUMB,
       attr: '' },
   ];
 
@@ -205,7 +214,7 @@
   function thumbnailUrl(bm, cfg) {
     cfg = cfg || {};
     if (cfg.basemapThumbs && cfg.basemapThumbs[bm.id]) return cfg.basemapThumbs[bm.id];
-    if (bm.thumb) return /^https?:/.test(bm.thumb) ? bm.thumb : ((cfg.staticBase || '') + bm.thumb);
+    if (bm.thumb) return /^(https?|data):/.test(bm.thumb) ? bm.thumb : ((cfg.staticBase || '') + bm.thumb);
     if (bm.style) return null;
     var z = 4, x = 2, y = 4;
     var t = bm.tiles
