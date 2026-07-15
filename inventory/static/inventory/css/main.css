@@ -547,10 +547,11 @@ body.inv-article-body {
 }
 .float-panel.hidden { display: none; }
 .float-header { cursor: move; user-select: none; }
-/* Default positions/sizes — just starting points; all three are draggable. */
+/* Default positions/sizes — just starting points; all four are draggable. */
 #scatter-float { top: 64px;  right: 16px; width: 380px; height: 380px; }
 #hist-panel    { top: 64px;  left: 16px;  width: 480px; height: 244px; }
 #timing-panel  { top: 320px; left: 16px;  width: 560px; height: 244px; }
+#opera-float   { top: 90px;  right: 16px; width: 430px; height: 300px; }
 .scatter-float-header {
     display: flex;
     align-items: center;

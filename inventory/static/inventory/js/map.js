@@ -5298,6 +5298,220 @@
         histCanvasEl.addEventListener('mouseleave', hideChartTip);
     }
 
+    // ===========================================================================
+    // OPERA velocity — view-scoped histogram. The tile pyramid IS the
+    // pre-aggregation ("pyramiding"): the current viewport is covered by a
+    // handful of value tiles at z = min(ceil(zoom), 12), fetched same-origin
+    // from the proxy (disk- and browser-cached), canvas-decoded, cropped to
+    // the view, and histogrammed client-side in milliseconds. Gray 1–255 maps
+    // linearly onto ±30 mm/yr; alpha 0 = no coverage; values AT the ends are
+    // clipped (the product saturates there).
+    // ===========================================================================
+    var operaPanel = document.getElementById('opera-float');
+    var _opCache = {};        // 'track/z/x/y' -> {img: ImageData} | {missing:true}
+    var _opCacheKeys = [];
+    var _opReq = 0;
+    var OP_MIN_MM = -30, OP_MAX_MM = 30, OP_BINS = 24;
+
+    function _opVel(v) {   // gray value (1–255) → mm/yr
+        return OP_MIN_MM + (v - 1) * (OP_MAX_MM - OP_MIN_MM) / 254;
+    }
+    function _opTileData(track, z, x, y) {
+        var key = track + '/' + z + '/' + x + '/' + y;
+        if (_opCache[key]) return Promise.resolve(_opCache[key]);
+        return fetch(API_BASE + 'tiles/opera/' + track + '/' + z + '/' + x + '/' + y +
+                     '.png?v=' + OPERA_TILE_V)
+            .then(function (r) {
+                if (r.status === 404) return null;
+                if (!r.ok) throw new Error('opera tile HTTP ' + r.status);
+                return r.blob().then(function (b) { return createImageBitmap(b); });
+            })
+            .then(function (bmp) {
+                var entry;
+                if (!bmp) {
+                    entry = { missing: true };
+                } else {
+                    var c = document.createElement('canvas');
+                    c.width = c.height = 256;
+                    var ctx = c.getContext('2d', { willReadFrequently: true });
+                    ctx.drawImage(bmp, 0, 0);
+                    entry = { img: ctx.getImageData(0, 0, 256, 256) };
+                }
+                _opCache[key] = entry;
+                _opCacheKeys.push(key);
+                if (_opCacheKeys.length > 96) delete _opCache[_opCacheKeys.shift()];
+                return entry;
+            });
+    }
+    function _opLonPx(lon, z) { return (lon + 180) / 360 * Math.pow(2, z) * 256; }
+    function _opLatPx(lat, z) {
+        var s = Math.max(-0.9999, Math.min(0.9999, Math.sin(lat * Math.PI / 180)));
+        return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * Math.pow(2, z) * 256;
+    }
+    // Sum the view's pixels for one track → {hist[256], valid, totalPx}.
+    function _opCollect(track) {
+        var zv = Math.max(0, Math.min(12, Math.ceil(map.getZoom())));
+        var b = map.getBounds();
+        var n = Math.pow(2, zv);
+        var pxW = _opLonPx(b.getWest(), zv), pxE = _opLonPx(b.getEast(), zv);
+        var pxN = Math.max(0, _opLatPx(b.getNorth(), zv));
+        var pxS = Math.min(n * 256, _opLatPx(b.getSouth(), zv));
+        var jobs = [];
+        var tx0 = Math.floor(pxW / 256), tx1 = Math.floor((pxE - 1) / 256);
+        var ty0 = Math.floor(pxN / 256), ty1 = Math.min(n - 1, Math.floor((pxS - 1) / 256));
+        for (var tx = tx0; tx <= tx1; tx++) {
+            for (var ty = Math.max(0, ty0); ty <= ty1; ty++) {
+                (function (tx, ty) {
+                    var xw = ((tx % n) + n) % n;   // dateline wrap (Aleutians)
+                    jobs.push(_opTileData(track, zv, xw, ty)
+                        .catch(function () { return { missing: true }; })
+                        .then(function (entry) { return { tx: tx, ty: ty, entry: entry }; }));
+                })(tx, ty);
+            }
+        }
+        return Promise.all(jobs).then(function (tiles) {
+            var hist = new Float64Array(256);
+            var valid = 0, totalPx = 0;
+            tiles.forEach(function (t) {
+                var x0 = Math.max(0, Math.round(pxW - t.tx * 256));
+                var x1 = Math.min(256, Math.round(pxE - t.tx * 256));
+                var y0 = Math.max(0, Math.round(pxN - t.ty * 256));
+                var y1 = Math.min(256, Math.round(pxS - t.ty * 256));
+                if (x1 <= x0 || y1 <= y0) return;
+                totalPx += (x1 - x0) * (y1 - y0);
+                if (!t.entry || t.entry.missing || !t.entry.img) return;
+                var d = t.entry.img.data;
+                for (var y = y0; y < y1; y++) {
+                    var off = y * 1024;
+                    for (var x = x0; x < x1; x++) {
+                        var i = off + x * 4;
+                        if (d[i + 3] === 0) continue;
+                        hist[d[i]]++;
+                        valid++;
+                    }
+                }
+            });
+            return { hist: hist, valid: valid, totalPx: totalPx };
+        });
+    }
+    function _opStats(res) {
+        if (!res || !res.valid) return null;
+        var bins = new Float64Array(OP_BINS), clipped = res.hist[1] + res.hist[255];
+        var cum = 0, median = null, half = res.valid / 2;
+        for (var v = 1; v <= 255; v++) {
+            var c = res.hist[v];
+            if (!c) continue;
+            var idx = Math.max(0, Math.min(OP_BINS - 1,
+                Math.floor((_opVel(v) - OP_MIN_MM) / ((OP_MAX_MM - OP_MIN_MM) / OP_BINS))));
+            bins[idx] += c;
+            if (median === null) {
+                cum += c;
+                if (cum >= half) median = _opVel(v);
+            }
+        }
+        return { bins: bins, valid: res.valid, totalPx: res.totalPx,
+                 coverage: res.valid / Math.max(1, res.totalPx),
+                 clippedPct: clipped / res.valid, median: median };
+    }
+    function _opRender(asc, desc) {
+        var cv = document.getElementById('opera-hist-canvas');
+        if (!cv) return;
+        var W = cv.clientWidth || 400, H = cv.clientHeight || 180;
+        var dpr = window.devicePixelRatio || 1;
+        cv.width = W * dpr; cv.height = H * dpr;
+        var ctx = cv.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, W, H);
+        var L = 36, R = 8, T = 8, B = 20;
+        var pw = W - L - R, ph = H - T - B;
+        var series = [];
+        if (asc)  series.push({ s: asc,  color: 'rgba(43,111,179,0.8)' });
+        if (desc) series.push({ s: desc, color: 'rgba(194,91,33,0.65)' });
+        var ymax = 0;
+        series.forEach(function (sr) {
+            for (var i = 0; i < OP_BINS; i++) ymax = Math.max(ymax, sr.s.bins[i] / sr.s.valid);
+        });
+        ymax = ymax || 1;
+        // axes
+        ctx.strokeStyle = '#ddd'; ctx.fillStyle = '#888';
+        ctx.font = '9px system-ui, sans-serif'; ctx.textAlign = 'center';
+        [-30, -15, 0, 15, 30].forEach(function (mm) {
+            var x = L + (mm - OP_MIN_MM) / (OP_MAX_MM - OP_MIN_MM) * pw;
+            ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, T + ph);
+            ctx.strokeStyle = mm === 0 ? '#bbb' : '#eee'; ctx.stroke();
+            ctx.fillText((mm > 0 ? '+' : '') + mm, x, H - 6);
+        });
+        ctx.textAlign = 'right';
+        [0.5, 1].forEach(function (f) {
+            var yv = ymax * f;
+            var y = T + ph - (yv / ymax) * ph;
+            ctx.fillText((yv * 100).toFixed(1) + '%', L - 4, y + 3);
+        });
+        var bw = pw / OP_BINS;
+        series.forEach(function (sr) {
+            ctx.fillStyle = sr.color;
+            for (var i = 0; i < OP_BINS; i++) {
+                var frac = sr.s.bins[i] / sr.s.valid;
+                var h = (frac / ymax) * ph;
+                if (h > 0) ctx.fillRect(L + i * bw + 1, T + ph - h, bw - 2, h);
+            }
+        });
+        var foot = document.getElementById('opera-hist-foot');
+        if (foot) {
+            function line(name, s, color) {
+                if (!s) return '';
+                return '<span style="color:' + color + ';font-weight:600;">' + name + '</span> ' +
+                       (s.coverage * 100).toFixed(0) + '% coverage · median ' +
+                       (s.median >= 0 ? '+' : '') + s.median.toFixed(1) + ' mm/yr · ' +
+                       (s.clippedPct * 100).toFixed(1) + '% clipped';
+            }
+            foot.innerHTML = [line('asc', asc, '#2b6fb3'), line('desc', desc, '#c25b21')]
+                .filter(Boolean).join(' &nbsp;—&nbsp; ') +
+                '<br>x = line-of-sight velocity (mm/yr), y = % of covered pixels in view. ' +
+                '8-bit quantized, clipped at ±30 mm/yr. OPERA DISP-S1 © NASA/JPL · mosaic ASF.';
+        }
+    }
+    function updateOperaHist() {
+        if (!operaPanel || operaPanel.classList.contains('hidden')) return;
+        var token = ++_opReq;
+        var wantAsc = document.getElementById('opera-hist-asc');
+        var wantDesc = document.getElementById('opera-hist-desc');
+        var status = document.getElementById('opera-hist-status');
+        if (status) status.textContent = 'computing…';
+        var pAsc = (wantAsc && wantAsc.checked) ? _opCollect('asc') : Promise.resolve(null);
+        var pDesc = (wantDesc && wantDesc.checked) ? _opCollect('desc') : Promise.resolve(null);
+        Promise.all([pAsc, pDesc]).then(function (r) {
+            if (token !== _opReq) return;   // superseded by a newer view
+            var asc = _opStats(r[0]), desc = _opStats(r[1]);
+            if (status) {
+                status.textContent = (!asc && !desc)
+                    ? 'no OPERA coverage in view' : '';
+            }
+            _opRender(asc, desc);
+        }).catch(function (e) {
+            if (token !== _opReq) return;
+            if (status) status.textContent = 'load failed';
+            console.error('opera histogram failed:', e);
+        });
+    }
+    var operaFP = makeFloatingPanel(operaPanel, {
+        handle:   operaPanel ? document.getElementById('opera-handle') : null,
+        toggle:   document.getElementById('opera-toggle'),
+        close:    document.getElementById('opera-close'),
+        onResize: updateOperaHist,
+        onChange: updateOperaHist
+    });
+    ['opera-hist-asc', 'opera-hist-desc'].forEach(function (id) {
+        var cb = document.getElementById(id);
+        if (cb) cb.addEventListener('change', updateOperaHist);
+    });
+    var _opMoveTimer = null;
+    map.on('moveend', function () {
+        if (!operaPanel || operaPanel.classList.contains('hidden')) return;
+        clearTimeout(_opMoveTimer);
+        _opMoveTimer = setTimeout(updateOperaHist, 350);
+    });
+
     // Plain left-click on a slug permalink: intercept the navigation and
     // smooth-zoom via hashchange instead. The href is still the canonical
     // shareable slug URL — right-click "Copy link" gives that form, and
