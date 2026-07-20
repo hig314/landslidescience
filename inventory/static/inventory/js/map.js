@@ -95,7 +95,10 @@
     // spec = `l<pct>` / `r<pct>` per visible pane, pct = opacity 0–100, e.g.
     // `ov=opera-asc.l75r40,susc-lw.r100`). An `ov` param fully describes
     // overlay visibility (unlisted overlays are off); URLs without one leave
-    // overlay state alone (pre-`ov` links, permalink clicks).
+    // overlay state alone (pre-`ov` links, permalink clicks). `tab=<key>`
+    // records the active sidebar tab (inventory | refmaps | analysis) so a
+    // shared wiper comparison can land with Reference maps open; written only
+    // when not the inventory default, and absent = leave alone.
     // ---------------------------------------------------------------------------
     function parseHashState(hashStr) {
         var h = hashStr != null ? hashStr : (location.hash || '');
@@ -139,6 +142,8 @@
                     if (e.left || e.right) ovOut[m[1]] = e;
                 });
                 out.ov = ovOut;   // present (even if empty) whenever the param exists
+            } else if (k === 'tab') {
+                if (/^[a-z]+$/.test(v)) out.tab = v;   // validated against real tabs on apply
             }
         });
         return out;
@@ -173,6 +178,8 @@
         }
         var ovh = _ovEncodeHash();
         if (ovh) parts.push('ov=' + ovh);
+        var tab = _activeSidebarTab();
+        if (tab !== 'inventory') parts.push('tab=' + tab);
         var newHash = '#' + parts.join('&');
         if (location.hash !== newHash) history.replaceState(null, '', newHash);
         try { localStorage.setItem('ls_map_view', newHash); } catch (e) {}
@@ -2139,6 +2146,8 @@
         }
         var ovh = _ovEncodeHash();
         if (ovh) parts.push('ov=' + ovh);
+        var tab = _activeSidebarTab();
+        if (tab !== 'inventory') parts.push('tab=' + tab);
         return parts.join('&');
     }
     // Fully apply a stored view: basemap, wiper (off if the view has none),
@@ -2154,6 +2163,7 @@
             _swipeDisable();
         }
         if (s.ov) _ovApplyHashSpec(s.ov);
+        if (s.tab) _setSidebarTab(s.tab);
         _syncSwipeUI();
         if (s.lat != null && s.lon != null && s.zoom != null) {
             map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
@@ -2779,23 +2789,38 @@
         return wrap;
     }
 
+    // Sidebar tab switching: one panel visible at a time. Shared by the tab
+    // buttons and the URL hash (`tab=` restore); unknown keys are ignored.
+    function _setSidebarTab(key) {
+        var known = false;
+        document.querySelectorAll('.inv-tab').forEach(function (t) {
+            if (t.dataset.tab === key) known = true;
+        });
+        if (!known) return;
+        document.querySelectorAll('.inv-tab').forEach(function (t) {
+            var match = t.dataset.tab === key;
+            t.classList.toggle('active', match);
+            t.setAttribute('aria-selected', match ? 'true' : 'false');
+        });
+        document.querySelectorAll('.inv-panel').forEach(function (p) {
+            p.classList.toggle('hidden', p.dataset.panel !== key);
+        });
+    }
+    function _activeSidebarTab() {
+        var t = document.querySelector('.inv-tab.active');
+        return t ? t.dataset.tab : 'inventory';
+    }
+
     (function () {
-        // Tab switching: one panel visible at a time.
         document.querySelectorAll('.inv-tab').forEach(function (tab) {
             tab.addEventListener('click', function () {
-                var key = tab.dataset.tab;
-                document.querySelectorAll('.inv-tab').forEach(function (t) {
-                    var match = t.dataset.tab === key;
-                    t.classList.toggle('active', match);
-                    t.setAttribute('aria-selected', match ? 'true' : 'false');
-                });
-                document.querySelectorAll('.inv-panel').forEach(function (p) {
-                    p.classList.toggle('hidden', p.dataset.panel !== key);
-                });
+                _setSidebarTab(tab.dataset.tab);
+                if (_mapReady) writeHashState();
             });
         });
 
         rebuildBasemapUI();
+        if (_initialHash.tab) _setSidebarTab(_initialHash.tab); // sidebar tab from the URL / saved view
         _applyPendingSwipe(); // wiper from the URL hash / saved view (built-in + local layers)
         _loadPromotedQms();   // merge admin-curated shared layers (public set for everyone)
         _traceLoad();         // editor GeoTIFF overlays (no-op for the public)
@@ -5672,8 +5697,9 @@
             _swipeEnable(s.swipe);
             _syncSwipeUI();
         }
-        // Same leave-alone rule for overlays: only an explicit ov= is applied.
+        // Same leave-alone rule for overlays and tab: only explicit params apply.
         if (s.ov) _ovApplyHashSpec(s.ov);
+        if (s.tab) _setSidebarTab(s.tab);
         if (s.lat != null && s.lon != null && s.zoom != null) {
             map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
         }
