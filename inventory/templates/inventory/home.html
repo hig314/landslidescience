@@ -395,15 +395,14 @@
 
   <div id="measure-readout" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); background:rgba(255,255,255,0.92); border:1px solid rgba(0,0,0,0.12); border-radius:4px; padding:5px 12px; font-size:13px; font-family:system-ui,sans-serif; color:#222; box-shadow:0 1px 3px rgba(0,0,0,0.15); z-index:5; display:none;"></div>
 
-  {% comment %}Zoom hint + Methods link float bottom-right; the class-key
+  {% comment %}Zoom hint + how-to link float bottom-right; the class-key
      legend was removed because the Inventory tab shows the same swatches.
+     (Methods is linked from the top nav, so no map-corner link for it.)
   {% endcomment %}
   <div id="map-overlay-info">
     <div id="zoom-hint">Zoom in for polygons</div>
     <div class="overlay-row">
-      <a href="{% url 'inventory:methods' %}">Methods</a>
-      &nbsp;·&nbsp;
-      <a href="{% url 'inventory:howto' %}">How to use</a>
+      <a href="{% url 'inventory:howto' %}">How to use this site</a>
     </div>
   </div>
 </main>

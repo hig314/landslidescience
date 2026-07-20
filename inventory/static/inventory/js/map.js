@@ -1111,8 +1111,11 @@
 
         // A hash-restored wiper can create the comparison map before settings
         // arrive; its style.load then bails on the missing palette (_swipeAddData
-        // guard). Now that the palette exists, build its stack.
-        if (_swipe.map && _swipe.map.isStyleLoaded()) _swipeAddData(_swipe.map);
+        // guard). Now that the palette exists, build its stack. Gate on the
+        // __lsStyleReady flag, not isStyleLoaded(): the latter is false while
+        // basemap tiles are merely still downloading, which silently skipped
+        // this re-run and left the right pane with no data layers at all.
+        if (_swipe.map && _swipe.map.__lsStyleReady) _swipeAddData(_swipe.map);
 
         fetch(API_BASE + 'api/features/?v=' + DATA_V)
             .then(function (r) { return r.json(); })
@@ -2060,6 +2063,11 @@
         _swipe.map = cmap;
         cmap.on('style.load', function () {
             if (typeof cmap.setProjection === 'function') { try { cmap.setProjection({ type: 'globe' }); } catch (e) {} }
+            // Mark "safe to add sources/layers". isStyleLoaded() is NOT this —
+            // it stays false while basemap tiles are still in flight, which is
+            // exactly the window a hash-restored wiper sits in when settings
+            // arrive (initLayers uses this flag to re-run _swipeAddData).
+            cmap.__lsStyleReady = true;
             _swipeAddData(cmap);
         });
         map.on('move', _swipeSyncView);
