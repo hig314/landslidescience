@@ -90,7 +90,12 @@
     window.addEventListener('resize', function () { sizeMap(); map.resize(); onHistResize(); onTimingResize(); });
 
     // ---------------------------------------------------------------------------
-    // URL hash state — `#map=zoom/lat/lon&base=<id>&id=<n>`
+    // URL hash state — `#map=zoom/lat/lon&base=<id>&id=<n>` plus optional
+    // `swipe=<id>&sx=<pct>` (wiper) and `ov=<id>.<spec>,…` (raster overlays,
+    // spec = `l<pct>` / `r<pct>` per visible pane, pct = opacity 0–100, e.g.
+    // `ov=opera-asc.l75r40,susc-lw.r100`). An `ov` param fully describes
+    // overlay visibility (unlisted overlays are off); URLs without one leave
+    // overlay state alone (pre-`ov` links, permalink clicks).
     // ---------------------------------------------------------------------------
     function parseHashState(hashStr) {
         var h = hashStr != null ? hashStr : (location.hash || '');
@@ -119,6 +124,21 @@
             } else if (k === 'id') {
                 var n = parseInt(v, 10);
                 if (n > 0) out.id = n;
+            } else if (k === 'ov') {
+                var ovOut = {};
+                v.split(',').forEach(function (ent) {
+                    var m = /^(.+)\.((?:[lr]\d+)+)$/.exec(ent);
+                    if (!m) return;
+                    var e = {};
+                    m[2].replace(/([lr])(\d+)/g, function (_, sideCh, pct) {
+                        var o = Math.min(100, Math.max(0, parseInt(pct, 10))) / 100;
+                        if (sideCh === 'l') { e.left = true; e.opLeft = o; }
+                        else                { e.right = true; e.opRight = o; }
+                        return '';
+                    });
+                    if (e.left || e.right) ovOut[m[1]] = e;
+                });
+                out.ov = ovOut;   // present (even if empty) whenever the param exists
             }
         });
         return out;
@@ -151,6 +171,8 @@
             parts.push('swipe=' + _swipe.basemapId);
             parts.push('sx=' + Math.round(_swipe.x));
         }
+        var ovh = _ovEncodeHash();
+        if (ovh) parts.push('ov=' + ovh);
         var newHash = '#' + parts.join('&');
         if (location.hash !== newHash) history.replaceState(null, '', newHash);
         try { localStorage.setItem('ls_map_view', newHash); } catch (e) {}
@@ -1313,8 +1335,51 @@
         });
         return st;
     })();
+    // A shared URL carrying an `ov=` param overrides the saved prefs, the same
+    // way base=/swipe= in the hash do. State only — layers and both control
+    // panels are built later and read _ovState then.
+    if (_initialHash.ov) _ovMergeHashSpec(_initialHash.ov);
     function _ovSaveState() {
         try { localStorage.setItem('ls_overlays', JSON.stringify(_ovState)); } catch (e) {}
+    }
+    // Encode the visible overlays for the URL hash: `<id>.l<pct>r<pct>` per
+    // overlay, comma-joined; '' when nothing is visible (param omitted).
+    function _ovEncodeHash() {
+        var parts = [];
+        OVERLAYS.forEach(function (ov) {
+            var st = _ovState[ov.id];
+            if (!st || (!st.left && !st.right)) return;
+            var spec = '';
+            if (st.left)  spec += 'l' + Math.round(st.opLeft * 100);
+            if (st.right) spec += 'r' + Math.round(st.opRight * 100);
+            parts.push(ov.id + '.' + spec);
+        });
+        return parts.join(',');
+    }
+    // Overwrite visibility from a parsed `ov` spec (unlisted overlays go off);
+    // opacities of unlisted sides keep their current values.
+    function _ovMergeHashSpec(spec) {
+        OVERLAYS.forEach(function (ov) {
+            var st = _ovState[ov.id], s = spec[ov.id];
+            st.left  = !!(s && s.left);
+            st.right = !!(s && s.right);
+            if (s && s.opLeft  != null) st.opLeft  = s.opLeft;
+            if (s && s.opRight != null) st.opRight = s.opRight;
+        });
+    }
+    // Merge + repaint layers + refresh both control panels — for `ov` specs
+    // arriving after startup (hashchange, stored default views).
+    function _ovApplyHashSpec(spec) {
+        _ovMergeHashSpec(spec);
+        _ovSaveState();
+        _ovApplyAll();
+        _ovSyncUI();
+    }
+    // Row-refresh callbacks registered by _overlayRow, keyed `<side>-<id>`;
+    // wiper-panel rebuilds overwrite their entries.
+    var _ovRowSync = {};
+    function _ovSyncUI() {
+        Object.keys(_ovRowSync).forEach(function (k) { _ovRowSync[k](); });
     }
     function _ovVisible(ov, isSwipe) {
         var st = _ovState[ov.id];
@@ -2064,10 +2129,13 @@
             parts.push('swipe=' + _swipe.basemapId);
             parts.push('sx=' + Math.round(_swipe.x));
         }
+        var ovh = _ovEncodeHash();
+        if (ovh) parts.push('ov=' + ovh);
         return parts.join('&');
     }
     // Fully apply a stored view: basemap, wiper (off if the view has none),
-    // then fly to its center/zoom.
+    // overlays (views predating the ov param leave them alone), then fly to
+    // its center/zoom.
     function applyViewString(v) {
         var s = parseHashState('#' + v);
         if (s.base && s.base !== _currentBasemap && findBasemap(s.base)) setBasemap(s.base);
@@ -2077,6 +2145,7 @@
         } else {
             _swipeDisable();
         }
+        if (s.ov) _ovApplyHashSpec(s.ov);
         _syncSwipeUI();
         if (s.lat != null && s.lon != null && s.zoom != null) {
             map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
@@ -2130,12 +2199,19 @@
             _ovSaveState();
             _ovApplyAll();
             paint();
+            if (_mapReady) writeHashState();
         });
         op.addEventListener('input', function () {
             st[opKey] = (+op.value) / 100;
             _ovSaveState();
             _ovApplyAll();
+            if (_mapReady) writeHashState();
         });
+        _ovRowSync[side + '-' + ov.id] = function () {
+            cb.checked = !!st[side];
+            op.value = String(Math.round(st[opKey] * 100));
+            paint();
+        };
         paint();
         return row;
     }
@@ -5588,6 +5664,8 @@
             _swipeEnable(s.swipe);
             _syncSwipeUI();
         }
+        // Same leave-alone rule for overlays: only an explicit ov= is applied.
+        if (s.ov) _ovApplyHashSpec(s.ov);
         if (s.lat != null && s.lon != null && s.zoom != null) {
             map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
         }
