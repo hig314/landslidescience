@@ -1286,7 +1286,7 @@
           sourceDef: function () { return _operaSourceDef('desc'); }, defOpacity: 0.75 },
     ];
     // Per-overlay state: shown on the left (main) pane, shown on the right
-    // (wiper) pane, and a shared opacity. Each pane has its own control
+    // (wiper) pane, and a per-pane opacity. Each pane has its own control
     // panel — the sidebar's Overlays section drives the left pane, the
     // floating wiper panel drives the right — so there is no combined
     // pane-selector to misread.
@@ -1300,10 +1300,15 @@
                 left  = s.pane === 'left'  || s.pane === 'both';
                 right = s.pane === 'right' || s.pane === 'both';
             }
+            function opNum(v) {
+                return (typeof v === 'number' && v >= 0 && v <= 1) ? v : null;
+            }
+            // s.opacity is the retired shared-between-panes form; seed both sides.
+            var shared = opNum(s.opacity);
             st[ov.id] = {
                 left: left, right: right,
-                opacity: (typeof s.opacity === 'number' && s.opacity >= 0 && s.opacity <= 1)
-                    ? s.opacity : ov.defOpacity,
+                opLeft:  opNum(s.opLeft)  != null ? opNum(s.opLeft)  : (shared != null ? shared : ov.defOpacity),
+                opRight: opNum(s.opRight) != null ? opNum(s.opRight) : (shared != null ? shared : ov.defOpacity),
             };
         });
         return st;
@@ -1321,7 +1326,8 @@
             if (!m.getLayer(ov.layerId)) return;
             m.setLayoutProperty(ov.layerId, 'visibility',
                                 _ovVisible(ov, isSwipe) ? 'visible' : 'none');
-            m.setPaintProperty(ov.layerId, 'raster-opacity', _ovState[ov.id].opacity);
+            m.setPaintProperty(ov.layerId, 'raster-opacity',
+                               isSwipe ? _ovState[ov.id].opRight : _ovState[ov.id].opLeft);
         });
     }
     function _ovApplyAll() {
@@ -2078,11 +2084,10 @@
     }
 
     // One overlay row for either pane's panel: full wrapping label + subtitle,
-    // an on/off checkbox for THAT pane, and the (shared) opacity slider. The
-    // slider carries a side-scoped id so its twin in the other panel can be
-    // kept in step without a rebuild.
+    // an on/off checkbox for THAT pane, and that pane's own opacity slider.
     function _overlayRow(ov, side) {
         var st = _ovState[ov.id];
+        var opKey = side === 'left' ? 'opLeft' : 'opRight';
         var row = document.createElement('div');
         row.style.cssText = 'padding:5px 6px;border:1px solid #e0dcd8;border-radius:4px;' +
                             'margin-bottom:5px;font-size:12px;background:#fff;';
@@ -2112,9 +2117,9 @@
         var op = document.createElement('input');
         op.type = 'range'; op.min = '10'; op.max = '100';
         op.id = 'ov-op-' + side + '-' + ov.id;
-        op.value = String(Math.round(st.opacity * 100));
+        op.value = String(Math.round(st[opKey] * 100));
         op.style.cssText = 'flex:1;height:14px;';
-        op.title = 'Dim the overlay against the basemap (shared between panes)';
+        op.title = 'Dim the overlay against the basemap (this pane only)';
         line2.appendChild(opLbl);
         line2.appendChild(op);
         row.appendChild(line2);
@@ -2127,12 +2132,9 @@
             paint();
         });
         op.addEventListener('input', function () {
-            st.opacity = (+op.value) / 100;
+            st[opKey] = (+op.value) / 100;
             _ovSaveState();
             _ovApplyAll();
-            var twin = document.getElementById(
-                'ov-op-' + (side === 'left' ? 'right' : 'left') + '-' + ov.id);
-            if (twin) twin.value = op.value;
         });
         paint();
         return row;
