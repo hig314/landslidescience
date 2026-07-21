@@ -98,7 +98,9 @@
     // overlay state alone (pre-`ov` links, permalink clicks). `tab=<key>`
     // records the active sidebar tab (inventory | refmaps | analysis) so a
     // shared wiper comparison can land with Reference maps open; written only
-    // when not the inventory default, and absent = leave alone.
+    // when not the inventory default, and absent = leave alone. `an=<key>,…`
+    // records the open analysis panels (hist | timing | scatter | opera) the
+    // same way: written only when at least one is open, absent = leave alone.
     // ---------------------------------------------------------------------------
     function parseHashState(hashStr) {
         var h = hashStr != null ? hashStr : (location.hash || '');
@@ -144,6 +146,8 @@
                 out.ov = ovOut;   // present (even if empty) whenever the param exists
             } else if (k === 'tab') {
                 if (/^[a-z]+$/.test(v)) out.tab = v;   // validated against real tabs on apply
+            } else if (k === 'an') {
+                out.an = v.split(',').filter(function (x) { return /^[a-z]+$/.test(x); });
             }
         });
         return out;
@@ -180,6 +184,8 @@
         if (ovh) parts.push('ov=' + ovh);
         var tab = _activeSidebarTab();
         if (tab !== 'inventory') parts.push('tab=' + tab);
+        var an = _anEncodeHash();
+        if (an) parts.push('an=' + an);
         var newHash = '#' + parts.join('&');
         if (location.hash !== newHash) history.replaceState(null, '', newHash);
         try { localStorage.setItem('ls_map_view', newHash); } catch (e) {}
@@ -2148,6 +2154,8 @@
         if (ovh) parts.push('ov=' + ovh);
         var tab = _activeSidebarTab();
         if (tab !== 'inventory') parts.push('tab=' + tab);
+        var an = _anEncodeHash();
+        if (an) parts.push('an=' + an);
         return parts.join('&');
     }
     // Fully apply a stored view: basemap, wiper (off if the view has none),
@@ -2164,6 +2172,7 @@
         }
         if (s.ov) _ovApplyHashSpec(s.ov);
         if (s.tab) _setSidebarTab(s.tab);
+        if (s.an) _anApplyHashSpec(s.an);
         _syncSwipeUI();
         if (s.lat != null && s.lon != null && s.zoom != null) {
             map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
@@ -4128,11 +4137,13 @@
             if (toggle) toggle.classList.add('active');
             if (onResize) setTimeout(onResize, 60);   // after layout settles
             if (onChange) onChange();
+            if (_mapReady) writeHashState();   // analysis panels carry an= in the hash
         }
         function close() {
             panel.classList.add('hidden');
             if (toggle) toggle.classList.remove('active');
             if (onChange) onChange();
+            if (_mapReady) writeHashState();
         }
         if (toggle)   toggle.addEventListener('click', function (e) { e.preventDefault(); isOpen() ? close() : open(); });
         if (closeBtn) closeBtn.addEventListener('click', function (e) { e.preventDefault(); close(); });
@@ -4170,6 +4181,30 @@
             handle.addEventListener('pointerup', function () { moving = false; });
         }
         return { open: open, close: close, isOpen: isOpen };
+    }
+
+    // Analysis floating panels ↔ the URL hash's `an=` param. The registry is
+    // built lazily because the four controllers are assigned at different
+    // points during startup; keys are the hash vocabulary.
+    function _anPanels() {
+        return { hist: histFP, timing: timingFP, scatter: scatterFP, opera: operaFP };
+    }
+    function _anEncodeHash() {
+        var reg = _anPanels(), out = [];
+        Object.keys(reg).forEach(function (k) {
+            if (reg[k] && reg[k].isOpen()) out.push(k);
+        });
+        return out.join(',');
+    }
+    // An explicit an= fully describes the open set: listed panels open,
+    // unlisted close. Unknown keys are ignored.
+    function _anApplyHashSpec(list) {
+        var reg = _anPanels();
+        Object.keys(reg).forEach(function (k) {
+            if (!reg[k]) return;
+            if (list.indexOf(k) >= 0) { if (!reg[k].isOpen()) reg[k].open(); }
+            else if (reg[k].isOpen()) reg[k].close();
+        });
     }
 
     // ---------------------------------------------------------------------------
@@ -5684,6 +5719,11 @@
     // URL hash without a page reload, so we fly to the new center/zoom
     // and re-open the detail panel. Browser back/forward through map
     // states also benefits as a side effect.
+    // Analysis panels carried in the URL — applied here, after all four
+    // controllers exist. Their redraw hooks self-guard on missing data and
+    // refresh once features load, so opening this early is safe.
+    if (_initialHash.an) _anApplyHashSpec(_initialHash.an);
+
     var _lastHash = location.hash;
     window.addEventListener('hashchange', function () {
         if (location.hash === _lastHash) return;
@@ -5697,9 +5737,11 @@
             _swipeEnable(s.swipe);
             _syncSwipeUI();
         }
-        // Same leave-alone rule for overlays and tab: only explicit params apply.
+        // Same leave-alone rule for overlays, tab, and analysis panels: only
+        // explicit params apply.
         if (s.ov) _ovApplyHashSpec(s.ov);
         if (s.tab) _setSidebarTab(s.tab);
+        if (s.an) _anApplyHashSpec(s.an);
         if (s.lat != null && s.lon != null && s.zoom != null) {
             map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
         }
