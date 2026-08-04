@@ -690,7 +690,10 @@
         ensureProvLayers();   // guarantee the source + layers exist first
         var src = map.getSource('prov-src');
         if (!src) { console.warn('refreshProvData: prov-src missing'); return; }
-        var feats = _prov.map(function (c) {
+        // Staged components are drawn only while the tool is open. After Exit
+        // they'd sit on the map as unexplained "ghost" polygons — they still
+        // live server-side and come back when the tool is reopened.
+        var feats = !map.__drawActive ? [] : _prov.map(function (c) {
             return { type: 'Feature', geometry: c.geometry,
                      properties: { label: c.unique_name + ' (' + c.role + ')' } };
         });
@@ -823,6 +826,29 @@
                 });
                 row.appendChild(x);
             });
+            // Rename the whole group — the recovery path when the preview flags
+            // a name collision (or the editor just mistyped). Renaming onto
+            // another staged name merges the groups (same name = same landslide).
+            var ren = document.createElement('button'); ren.type = 'button'; ren.className = 'idq-del';
+            ren.textContent = '✎ rename'; ren.title = 'Rename this landslide (all its components)';
+            ren.addEventListener('click', function () {
+                var nm2 = window.prompt('New name for "' + nm + '":', nm);
+                if (nm2 == null) return;
+                nm2 = nm2.trim();
+                if (!nm2 || nm2 === nm) return;
+                _drawPost('rename/', { from_name: nm, to_name: nm2 }).then(function (res) {
+                    if (res.ok && res.j.ok) {
+                        _prov.forEach(function (p) { if (p.unique_name === nm) p.unique_name = nm2; });
+                        refreshProvData(); renderQueue();
+                    } else {
+                        window.__drawFlash((res.j && res.j.error) || 'Rename failed.');
+                    }
+                }).catch(function (e) {
+                    if (e && e.authExpired) _drawAuthFlash();
+                    else window.__drawFlash('Rename failed: ' + (e && e.message ? e.message : e));
+                });
+            });
+            row.appendChild(ren);
             var warn = document.createElement('div'); warn.className = 'idq-warn'; warn.dataset.name = nm;
             row.appendChild(warn);
             q.appendChild(row);
@@ -876,7 +902,15 @@
             _drawPost('delete/', { all: true }).then(function () { _prov = []; refreshProvData(); renderQueue(); })
                 .catch(function (e) { if (e && e.authExpired) _drawAuthFlash(); });
         });
-        p.querySelector('#idq-done').addEventListener('click', function () { _drawCtrl.deactivate(); });
+        p.querySelector('#idq-done').addEventListener('click', function () {
+            // Exiting with staged work is fine (it's saved server-side), but say
+            // so — a silently vanishing polygon reads as data loss or a ghost.
+            if (_prov.length &&
+                !window.confirm(_prov.length + ' staged component(s) are saved and will '
+                    + 'reappear when you reopen ✏ draw. (Use "Discard all" to delete '
+                    + 'them.)\n\nExit the draw tool?')) return;
+            _drawCtrl.deactivate();
+        });
     }
     function closePanel() { if (_drawPanel) _drawPanel.style.display = 'none'; }
 
@@ -931,6 +965,7 @@
         map.getCanvas().style.cursor = '';
         if (this._styleReload) { map.off('style.load', this._styleReload); this._styleReload = null; }
         stopTD(); closePanel();
+        refreshProvData();   // hide staged polygons (kept server-side) — no ghosts
     };
 
     // --- Editor-only: provisional (pending) landslides, shown in magenta. ---

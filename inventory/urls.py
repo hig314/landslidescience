@@ -75,6 +75,7 @@ urlpatterns = [
     path('manage/draw/stage/', views.manage_draw_stage, name='manage_draw_stage'),
     path('manage/draw/list/', views.manage_draw_list, name='manage_draw_list'),
     path('manage/draw/delete/', views.manage_draw_delete, name='manage_draw_delete'),
+    path('manage/draw/rename/', views.manage_draw_rename, name='manage_draw_rename'),
     path('manage/draw/preview/', views.manage_draw_preview, name='manage_draw_preview'),
     path('manage/draw/commit/', views.manage_draw_commit, name='manage_draw_commit'),
     path('manage/<int:landslide_id>/', views.manage_edit, name='manage_edit'),

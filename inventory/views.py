@@ -2976,6 +2976,43 @@ def manage_draw_delete(request):
 
 
 @inventory_editor_required
+@require_POST
+def manage_draw_rename(request):
+    """Rename a staged name-group (all this editor's components under it) —
+    the recovery path for a name collision surfaced in the queue preview or a
+    blocked commit. Body: {from_name, to_name}."""
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+    old = (payload.get('from_name') or '').strip()
+    new = (payload.get('to_name') or '').strip()
+    if not old or not new:
+        return JsonResponse({'ok': False, 'error': 'Both the current and the new name are required.'},
+                            status=400)
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE provisional_polygons SET unique_name = %s "
+                    "WHERE editor_id = %s AND unique_name = %s",
+                    (new, request.user.id, old))
+        n = cur.rowcount
+        # Same heads-up as stage/: does the new name belong to an active landslide?
+        cur.execute("SELECT 1 FROM landslides WHERE lower(unique_name) = lower(%s) "
+                    "AND deprecated_at IS NULL LIMIT 1", (new,))
+        name_in_db = cur.fetchone() is not None
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        return JsonResponse({'ok': False, 'error': f'Rename failed: {exc}'}, status=500)
+    finally:
+        _put_conn(conn)
+    if not n:
+        return JsonResponse({'ok': False, 'error': 'No staged components with that name.'}, status=404)
+    return JsonResponse({'ok': True, 'renamed': n, 'name_in_db': name_in_db})
+
+
+@inventory_editor_required
 @require_safe
 def manage_draw_preview(request):
     """Pre-commit report: how the staged components group into landslides, plus
