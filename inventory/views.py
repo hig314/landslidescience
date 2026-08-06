@@ -154,12 +154,14 @@ _SLUG_ZOOM = 13
 
 # Per-landslide curated default view (landslides.default_map_view, added by
 # migrate_default_view): a URL-hash view-state string with no leading '#' —
-#     map=<zoom>/<lat>/<lon>&base=<id>[&swipe=<id>&sx=<pct>]
+#     map=<zoom>/<lat>/<lon>&base=<id>[&swipe=<id>&sx=<pct>][&ov=…][&tab=…][&an=…]
 # Set by editors from the map's detail panel; consumed by slug deep-links and
 # snapshot slug stubs. Conservative charset because the value is emitted into
 # a redirect Location header and a snapshot HTML attribute — anything that
-# fails validation is ignored in favor of the centroid fallback.
-_VIEW_STATE_RE = re.compile(r'^[A-Za-z0-9_.\-/&=~%]+$')
+# fails validation is ignored in favor of the centroid fallback. Comma is a
+# RFC 3986 sub-delim (legal in a fragment) — the ov=/an= params comma-join
+# their lists.
+_VIEW_STATE_RE = re.compile(r'^[A-Za-z0-9_.\-/&=~%,]+$')
 
 
 def valid_view_state(v):
@@ -2654,7 +2656,7 @@ def manage_edit_field(request, landslide_id):
             conn.rollback()
             return JsonResponse({'ok': False, 'error': (
                 'Not a valid map-view string (expected '
-                '"map=zoom/lat/lon&base=…[&swipe=…&sx=…]").')}, status=400)
+                '"map=zoom/lat/lon&base=…[&swipe=…&sx=…][&ov=…][&tab=…][&an=…]").')}, status=400)
 
         # planet_story_link keeps the N:M story tables in step (this autosave
         # endpoint is the main path scalar fields save through — without the
