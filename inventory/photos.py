@@ -39,7 +39,7 @@ from .auth import inventory_editor_required
 
 PHOTO_ROOT = Path(settings.MEDIA_ROOT) / 'field_photos'
 
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_BYTES = 40 * 1024 * 1024
 WEB_LONG_EDGE = 2000
 THUMB_LONG_EDGE = 320
 

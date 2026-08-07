@@ -3866,7 +3866,10 @@
         }
 
         if (prominent) {
-            stories.forEach(function (s) { html += renderPlanetStory(s); });
+            // Titled wrapper so the player participates in section collapse —
+            // the biggest real-estate user in the panel.
+            html += '<div class="detail-section"><div class="detail-section-title">Planet time-lapse</div>' +
+                    stories.map(renderPlanetStory).join('') + '</div>';
         }
 
         if (pics.length) html += photoStripHtml(pics);
@@ -3971,6 +3974,10 @@
 
         document.getElementById('detail-content').innerHTML = html;
         document.getElementById('detail-panel').classList.remove('hidden');
+
+        // Collapsible sub-panels: every titled section gets a −/+ toggle,
+        // with collapsed state remembered across landslides (localStorage).
+        _setupDetailSections(document.getElementById('detail-content'));
 
         // Photo strip wiring + geotagged photo dots on the map. _detailPhotos
         // is the click-index target for both thumbs and map dots.
@@ -4170,6 +4177,60 @@
         document.getElementById('detail-panel').classList.add('hidden');
         _photoPtsSet([]);   // photo dots live only while a landslide is open
     });
+
+    // ---------------------------------------------------------------------------
+    // Collapsible detail-panel sections. Any element with a
+    // .detail-section-title child gets a −/+ toggle on the title; the nodes
+    // after the title collapse. State persists per section-title key, so
+    // "photos minimized" stays minimized across landslides and visits.
+    // ---------------------------------------------------------------------------
+    var _collapsedSections = (function () {
+        try { return JSON.parse(localStorage.getItem('ls_detail_collapsed') || '{}'); }
+        catch (e) { return {}; }
+    })();
+
+    function _setupDetailSections(root) {
+        root.querySelectorAll('.detail-section-title').forEach(function (title) {
+            var sec = title.parentNode;
+            if (!sec || sec.__lsCollapsible) return;
+            sec.__lsCollapsible = true;
+            var key = (title.textContent || '').trim().toLowerCase()
+                          .replace(/[^a-z0-9]+/g, '-');
+            // Wrap everything after the title into a collapsible body.
+            var body = document.createElement('div');
+            while (title.nextSibling) body.appendChild(title.nextSibling);
+            sec.appendChild(body);
+
+            var btn = document.createElement('button');
+            btn.className = 'section-toggle';
+            btn.style.cssText = 'float:right;border:none;background:none;cursor:pointer;' +
+                'font-size:13px;line-height:1;color:#999;padding:0 3px;';
+            title.style.cursor = 'pointer';
+            title.insertBefore(btn, title.firstChild);
+
+            function apply() {
+                var c = !!_collapsedSections[key];
+                body.style.display = c ? 'none' : '';
+                btn.textContent = c ? '+' : '−';
+                btn.title = c ? 'Expand' : 'Minimize';
+                // Don't leave a hidden time-lapse playing/downloading.
+                body.querySelectorAll('video').forEach(function (v) {
+                    if (c) v.pause();
+                    else if (v.autoplay) v.play().catch(function () {});
+                });
+            }
+            function toggle() {
+                if (_collapsedSections[key]) delete _collapsedSections[key];
+                else _collapsedSections[key] = true;
+                try { localStorage.setItem('ls_detail_collapsed',
+                                           JSON.stringify(_collapsedSections)); } catch (e) {}
+                apply();
+            }
+            btn.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
+            title.addEventListener('click', toggle);
+            apply();
+        });
+    }
 
     // ---------------------------------------------------------------------------
     // Field photos: detail-panel strip, lightbox, and map dots.
