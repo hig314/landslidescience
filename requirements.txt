@@ -13,3 +13,7 @@ shapely>=2.0,<3
 # at import time; if it breaks, only new raster uploads break.
 rasterio>=1.4,<2
 numpy>=1.26,<3
+# Field-photo ingest (inventory/photos.py): EXIF parse + web/thumb
+# derivatives; pillow-heif adds iPhone HEIC support to Pillow.
+Pillow>=10,<12
+pillow-heif>=0.16,<2

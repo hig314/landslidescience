@@ -1774,6 +1774,9 @@ def manage_edit(request, landslide_id, review_mode=False):
             ORDER BY s.is_publication DESC, s.name
         """, (landslide_id,))
         subset_rows = cur.fetchall()
+
+        from . import photos as _photos
+        photos_json = json.dumps(_photos.photos_for_landslide(cur, landslide_id))
         conn.rollback()
     finally:
         _put_conn(conn)
@@ -1927,6 +1930,7 @@ def manage_edit(request, landslide_id, review_mode=False):
         'all_subsets':       all_subsets_for_form,
         'region_memberships': region_memberships,
         'planet_msg':        request.GET.get('planet_msg', ''),
+        'photos_json':       photos_json,
         'review_mode':       review_mode,
         'polygons_geojson':  polygons_geojson,
         'pending_remaining': pending_remaining,

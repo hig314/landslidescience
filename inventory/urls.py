@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import opera, trace_views, views
+from . import opera, photos, trace_views, views
 
 app_name = 'inventory'
 
@@ -44,6 +44,10 @@ urlpatterns = [
     # reference this URL — its shape must not change without redirects.
     re_path(r'^planet/(?P<slug>[A-Za-z0-9_-]+)\.mp4$',
             views.serve_planet_mp4, name='planet_mp4'),
+    # Field-photo derivatives + originals (inventory/photos.py). Same
+    # stability contract as /planet/ — snapshots will reference these URLs.
+    re_path(r'^photo/(?P<photo_id>\d+)/(?P<name>thumb\.jpg|web\.jpg|original\.[a-z0-9]{2,5})$',
+            photos.photo_serve, name='photo_serve'),
     # Snapshot listings + bundles.
     #   /inventory/archive/                  → snapshots index (public list)
     #   /inventory/archive/<slug>/           → snapshot bundle root
@@ -87,6 +91,17 @@ urlpatterns = [
          name='manage_edit_field'),
     path('manage/<int:landslide_id>/fetch_planet/', views.manage_edit_fetch_planet,
          name='manage_edit_fetch_planet'),
+    # Field photos — editor-gated management endpoints (inventory/photos.py).
+    path('manage/<int:landslide_id>/photos/upload/', photos.photo_upload,
+         name='photo_upload'),
+    path('manage/<int:landslide_id>/photos/order/', photos.photo_order,
+         name='photo_order'),
+    path('manage/photo/<int:photo_id>/edit/', photos.photo_edit,
+         name='photo_edit'),
+    path('manage/photo/<int:photo_id>/link/', photos.photo_link,
+         name='photo_link'),
+    path('manage/photo/<int:photo_id>/unlink/', photos.photo_unlink,
+         name='photo_unlink'),
     # Catchall slug deep-link — must be LAST so named routes resolve first.
     # Trailing slash optional. The regex matches only slug-shaped tokens.
     re_path(r'^(?P<slug>[a-z0-9][a-z0-9-]*)/?$', views.slug_redirect, name='slug_redirect'),
