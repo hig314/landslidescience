@@ -83,6 +83,41 @@ The `files` app hosts arbitrary admin-uploaded files at stable, human-readable p
 - **Storage: `MEDIA_ROOT = data/media/`** (`upload_to='hosted_files/'`). `data/` is volume-mounted in dev and prod and gitignored, so uploads **persist across deploys** and are never committed or baked into the image. There is **no `/media/` static route** — the only way out is the `/files/<name>` view.
 - **Permissions** are granted in `init_groups` (HostedFile CRUD → `site_admins`), so **re-run `init_groups` after deploying** if the group needs the perms (as with any group change).
 
+## Field photos
+
+Editor-uploaded field photographs, N:M linked to landslides. All server code
+in `inventory/photos.py` (self-contained, like trace_views); schema via
+`migrate_field_photos` (run once per environment): `photos` +
+`landslide_photos (landslide_id, photo_id, sort_order)` in **PostGIS**, not
+SQLite — photos are landslide data.
+
+- **Bytes**: `data/media/field_photos/<id>/` — `original.<ext>` (never
+  re-encoded; HEIC accepted via pillow-heif), `web.jpg` (~2000 px),
+  `thumb.jpg` (~320 px). `data/` is volume-mounted → survives deploys, needs
+  its own backup story (irreplaceable, outside git).
+- **Serving URL is load-bearing** (like `/inventory/planet/…`):
+  `/inventory/photo/<id>/{thumb.jpg,web.jpg,original.<ext>}`, immutable
+  Cache-Control (bytes never change for an id). Snapshots reference these
+  URLs rather than copying bytes.
+- **Two-tier ordering**: `sort_order` set = "featured" (editor-starred,
+  drag-ordered, lead the strip/slideshow); NULL = uncurated, displayed by
+  `taken_at` (EXIF, no timezone — stored as-if-UTC, display dates only).
+- **Dedupe by sha256**: re-uploading identical bytes links the existing
+  photo — that IS the share-across-landslides path. Unlinking the last
+  landslide deletes the photo row + files; nothing orphans.
+- **EXIF ingest** (Pillow): DateTimeOriginal, GPS camera position (→
+  `geom`, Point 4326 — camera, not landslide), GPSImgDirection. Upload
+  response carries distance-from-centroid as a wrong-record check.
+- **Uploads are one file per request** (manage-card JS loops, 2 in flight,
+  per-file retry); cap 40 MB (`MAX_UPLOAD_BYTES`).
+- Public display: `api_detail.photos` (featured-first order) → detail-panel
+  strip + lightbox + white camera-dots on the map while the panel is open
+  (clustered when co-located; camera never auto-moves). Manage card:
+  `_photos_card.html` (lives OUTSIDE `#ls-edit-form` so autosave.js doesn't
+  claim its inputs).
+- Deps Pillow + pillow-heif are baked into the image → deploys that touch
+  them need the rebuild (the normal deploy flow covers it).
+
 ## Pre-launch preview password
 
 While `INVENTORY_PREVIEW_PASSWORD` is set, all `/inventory/*` paths require either authentication OR a session flag set by entering the password at `/inventory/preview/`. **Unset the env var to make `/inventory/*` fully public (post-launch).** `preview_login` short-circuits for an already-authenticated user (or one who already entered the password) — redirecting to `next` instead of showing the form — so a post-login `?next=/inventory/preview/…` redirect chain doesn't strand a logged-in editor on the barrier (and it never bounces `next` back to itself). A logged-in editor who unexpectedly lands here means the request arrived **unauthenticated** (session cookie missing/expired); a fleet-wide logout is almost always a **`DJANGO_SECRET_KEY` change** (settings.py:7 falls back to a constant, so the only way every signed session invalidates at once is the env var changing) — keep it stable in prod `.env`.

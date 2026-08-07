@@ -39,6 +39,13 @@
   <li><strong>Click</strong> any dot or polygon: the panel shows its
     attributes, evidence, imagery links, and — for many recent events — an
     embedded Planet satellite timelapse.</li>
+  <li><strong>Field photos</strong>, where available, appear as a thumbnail
+    strip in the panel — click one for a fullscreen slideshow (arrow keys or
+    swipe to browse; featured photos lead, the rest run oldest-first). While
+    the panel is open, small <strong>white dots</strong> on the map mark
+    where geotagged photos were taken — click a dot to open that photo. A
+    numbered dot is several photos from one spot. Camera positions can sit
+    well away from the landslide (aerial obliques especially).</li>
   <li><strong>Double-click</strong> a landslide to jump to its curated
     best view (framing, imagery, sometimes a before/after wiper). The
     <em>⌖ Default view</em> button in the panel does the same.</li>
@@ -114,6 +121,10 @@
 <ul>
   <li><strong>Right-click</strong> (Ctrl-click on Mac) anywhere on the map
     copies the coordinates to your clipboard.</li>
+  <li>Panel sections (time-lapse, photos, imagery links, evidence, notes)
+    minimize with the <strong>−</strong> in their header — each stays
+    minimized as you click through landslides, until you expand it
+    again.</li>
   <li>Leaving the map to another page and returning restores the view you
     left.</li>
 </ul>
@@ -194,6 +205,33 @@
   <code>planet_story_link</code> and save. Classification, archiving, and
   the in-panel embed happen automatically within a minute or so.
 </p>
+
+<h3 id="photos-admin">How do I add field photos?</h3>
+<ul>
+  <li>Open the record's form — the <strong>Field photos</strong> card sits
+    just above the attribute fields. Drop image files on it or browse
+    (JPEG / PNG / HEIC / TIFF, ≤40&nbsp;MB each). Files upload
+    individually with per-file progress and retry, so a flaky field
+    connection costs one file, not the batch. Everything in the card saves
+    immediately — the form's <em>Save changes</em> button isn't
+    involved.</li>
+  <li><strong>EXIF does the paperwork</strong>: capture date, GPS camera
+    position, and view direction are read automatically, and the tile shows
+    the distance from the record's centroid — a quick sanity check that the
+    photo landed on the right record. Captions and photographer credit
+    autosave on blur; dates accept <code>14-Sep-2010</code> or ISO.</li>
+  <li><strong>★ = featured</strong>: starred photos lead the public strip
+    and slideshow, in the order you drag them into; unstarred photos follow
+    oldest-first with no curation needed. For a record with many photos,
+    star the handful that tell the story and leave the rest.</li>
+  <li><strong>One photo on several landslides</strong>: upload the same
+    file on the other record — it links the existing photo instead of
+    storing a copy, and the tile shows &ldquo;linked to N
+    landslides&rdquo;.</li>
+  <li><strong>×</strong> removes the photo from the record. Removing it
+    from its last record deletes the photo and its files — the confirmation
+    message tells you which of the two you're about to do.</li>
+</ul>
 
 <h3 id="flags">How do I work through flagged records?</h3>
 <p>

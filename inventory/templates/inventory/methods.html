@@ -175,6 +175,29 @@
   a site outside every survey region still carries its nationality.
 </p>
 
+<h4>Field photos</h4>
+<p>
+  Records can carry <strong>field photographs</strong>, uploaded by
+  inventory editors and stored alongside the database (a
+  <code>photos</code> table, linked many-to-many through
+  <code>landslide_photos</code> &mdash; one photograph can document several
+  landslides, e.g. a single aerial frame spanning adjacent failures). The
+  original file is preserved byte-for-byte; the site serves resized
+  derivatives. Capture time, camera position, and view direction are read
+  from the image's EXIF metadata when present, and remain editor-correctable
+  afterwards. Note that a photo's location is the <em>camera</em> position,
+  not the landslide's &mdash; an aerial photograph may plot kilometers from
+  the feature it documents. When a landslide's panel is open, its geotagged
+  photos draw as white dots at those camera positions.
+</p>
+<p>
+  Display order is curated: editors star a small <em>featured</em> tier
+  (shown first, in chosen order); remaining photos follow in capture-time
+  order. Each photo carries its own photographer credit and license.
+  Photos are supplementary documentation and are not currently part of the
+  GeoJSON download.
+</p>
+
 <p>
   Two observational flags were added in 2026:
   <code>tsunamigenic</code> (catastrophic records &mdash; the failure
