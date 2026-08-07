@@ -802,6 +802,30 @@ def api_detail(request, landslide_id):
                     JOIN planet_stories ps ON ps.slug = lps.slug
                     WHERE lps.landslide_id = ls.id
                     ) AS planet_stories,
+                    -- Field photos: featured (sort_order set) first in curated
+                    -- order, then uncurated chronologically — mirrors
+                    -- photos.photos_for_landslide.
+                    (SELECT json_agg(json_build_object(
+                        'id',           ph.id,
+                        'thumb_url',    '/inventory/photo/' || ph.id || '/thumb.jpg',
+                        'web_url',      '/inventory/photo/' || ph.id || '/web.jpg',
+                        'orig_url',     '/inventory/photo/' || ph.id || '/original.' || ph.ext,
+                        'caption',      ph.caption,
+                        'photographer', ph.photographer,
+                        'license',      ph.license,
+                        'taken_at',     ph.taken_at,
+                        'lat',          ST_Y(ph.geom),
+                        'lon',          ST_X(ph.geom),
+                        'azimuth_deg',  ph.azimuth_deg,
+                        'width',        ph.width,
+                        'height',       ph.height,
+                        'sort_order',   lph.sort_order
+                    ) ORDER BY (lph.sort_order IS NULL), lph.sort_order,
+                               COALESCE(ph.taken_at, ph.uploaded_at), ph.id)
+                    FROM landslide_photos lph
+                    JOIN photos ph ON ph.id = lph.photo_id
+                    WHERE lph.landslide_id = ls.id
+                    ) AS photos,
                     CASE WHEN ctr.pt IS NULL THEN NULL ELSE
                         'https://displacement.asf.alaska.edu/#/?dispOverview=VEL&zoom=14.5&center='
                         || ROUND(ST_X(ctr.pt)::numeric, 4) || ',' || ROUND(ST_Y(ctr.pt)::numeric, 4)
