@@ -670,19 +670,24 @@
     window.__drawFlash = function (msg) { if (_drawStatus) _drawStatus.textContent = msg; };
 
     // Provisional layers (re-added on every style.load, below the measure stack).
+    // Defs shared with the swipe map's mirror (see _swipeAddData) so staged
+    // components read identically across the wiper divider.
+    function _provLayerDefs() {
+        return [
+            { id: 'prov-fill', type: 'fill', source: 'prov-src',
+              paint: { 'fill-color': '#00b3a4', 'fill-opacity': 0.25 } },
+            { id: 'prov-line', type: 'line', source: 'prov-src',
+              paint: { 'line-color': '#00897b', 'line-width': 2, 'line-dasharray': [2, 1.5] } },
+        ];
+    }
     function ensureProvLayers() {
         if (!map.getSource('prov-src')) {
             map.addSource('prov-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         }
         var bId = map.getLayer('measure-fill') ? 'measure-fill' : undefined;
-        if (!map.getLayer('prov-fill')) {
-            map.addLayer({ id: 'prov-fill', type: 'fill', source: 'prov-src',
-                paint: { 'fill-color': '#00b3a4', 'fill-opacity': 0.25 } }, bId);
-        }
-        if (!map.getLayer('prov-line')) {
-            map.addLayer({ id: 'prov-line', type: 'line', source: 'prov-src',
-                paint: { 'line-color': '#00897b', 'line-width': 2, 'line-dasharray': [2, 1.5] } }, bId);
-        }
+        _provLayerDefs().forEach(function (def) {
+            if (!map.getLayer(def.id)) map.addLayer(def, bId);
+        });
         // (Name labels intentionally omitted — symbol layers depend on a glyph
         // server that varies by basemap and 404s; the queue panel shows names.)
     }
@@ -700,7 +705,14 @@
         console.log('refreshProvData: staged=' + feats.length +
                     ' prov-fill=' + !!map.getLayer('prov-fill') +
                     ' geom0=' + (feats[0] && feats[0].geometry && feats[0].geometry.type));
-        src.setData({ type: 'FeatureCollection', features: feats });
+        var fc = { type: 'FeatureCollection', features: feats };
+        src.setData(fc);
+        // Mirror to the wiper's comparison map — the swipe container covers
+        // the right pane, so main-map-only staged polygons vanish under it.
+        _swipeAlso(function (m) {
+            var s = m.getSource('prov-src');
+            if (s) s.setData(fc);
+        });
     }
 
     function startTD() {
@@ -731,10 +743,41 @@
         if (_td) { try { _td.stop(); } catch (e) {} _td = null; }
         map.doubleClickZoom.enable();
         map.__drawPolyOpen = false;
+        _swipeDrawSync();   // clear the wiper-pane draft mirror
     }
     function onTDChange(ids, type) {
         // A non-empty snapshot means a polygon is mid-draw → lock the basemap.
         map.__drawPolyOpen = !!(_td && _td.getSnapshot().length);
+        _swipeDrawSync();
+    }
+
+    // Mirror the in-progress Terra Draw draft onto the wiper's comparison map.
+    // The swipe container sits ABOVE the main map (clipped to the right pane),
+    // so TD's own layers — main-map only — vanish under it, even though clicks
+    // pass through (the container is pointer-events:none) and drawing over the
+    // right pane WORKS. This restores the visuals: full-snapshot setData per
+    // change event (drafts are a handful of features — cheap). Styling matches
+    // Terra Draw 1.0's polygon-mode defaults.
+    function _swipeDrawSync() {
+        var cmap = _swipe.map;
+        if (!cmap || !cmap.__lsStyleReady) return;
+        var feats = (map.__drawActive && _td) ? _td.getSnapshot() : [];
+        if (!cmap.getSource('td-mirror-src')) {
+            if (!feats.length) return;   // nothing to show → nothing to build
+            cmap.addSource('td-mirror-src',
+                { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            cmap.addLayer({ id: 'td-mirror-fill', type: 'fill', source: 'td-mirror-src',
+                filter: ['==', ['geometry-type'], 'Polygon'],
+                paint: { 'fill-color': '#3f97e0', 'fill-opacity': 0.3 } });
+            cmap.addLayer({ id: 'td-mirror-line', type: 'line', source: 'td-mirror-src',
+                filter: ['==', ['geometry-type'], 'Polygon'],
+                paint: { 'line-color': '#3f97e0', 'line-width': 2 } });
+            cmap.addLayer({ id: 'td-mirror-pt', type: 'circle', source: 'td-mirror-src',
+                filter: ['==', ['geometry-type'], 'Point'],
+                paint: { 'circle-radius': 4, 'circle-color': '#ffffff',
+                         'circle-stroke-color': '#3f97e0', 'circle-stroke-width': 2 } });
+        }
+        cmap.getSource('td-mirror-src').setData({ type: 'FeatureCollection', features: feats });
     }
     function onTDFinish(id) {
         openNamePopup(id);
@@ -2075,6 +2118,17 @@
             cmap.addSource('survey-circles', { type: 'geojson', data: _surveyCirclesData || { type: 'FeatureCollection', features: [] } });
         _surveyCircleLayerDefs().forEach(function (def) { if (!cmap.getLayer(def.id)) cmap.addLayer(def); });
         _ensurePinLabelOn(cmap);   // editor pinned-field labels (top, like the main map)
+        // Draw-tool mirrors (editors): staged components + the live TD draft
+        // — interaction happens on the main map, but without these the teal
+        // staged polygons and the blue draft vanish under the right pane.
+        // Added last = top of the swipe stack, like the draw stack on main.
+        if (window._isInventoryEditor) {
+            if (!cmap.getSource('prov-src'))
+                cmap.addSource('prov-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            _provLayerDefs().forEach(function (def) { if (!cmap.getLayer(def.id)) cmap.addLayer(def); });
+            if (map.__drawActive) refreshProvData();   // push current staged set
+            _swipeDrawSync();                          // and the live draft, if any
+        }
         if (_swipeFilter) _swipeSetFilter(_swipeFilter);
     }
     function _swipeSetPending() {
