@@ -1,0 +1,14 @@
+# ITS_LIVE seasonal velocity amplitude v_amp (m/yr) — log-spaced breakpoints,
+# purple family (distinct from the speed ramp so the two layers aren't
+# confusable in the wiper). Near-zero amplitude is pale but opaque: "steady
+# flow" is signal, not absence. NoData transparent.
+# Columns: VALUE R G B A
+nv     0   0   0   0
+0    252 251 253 255
+3    218 218 235 255
+10   188 189 220 255
+30   158 154 200 255
+100  128 125 186 255
+300  106  81 163 255
+1000  84  39 143 255
+9941  45   0  75 255

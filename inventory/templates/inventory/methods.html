@@ -163,6 +163,26 @@
   variation across a view's latitude span.
 </p>
 
+<h4>ITS_LIVE glacier velocity overlays</h4>
+<p>
+  Three glacier-flow overlays derive from the NASA MEaSUREs
+  <a href="https://its-live.jpl.nasa.gov/" target="_blank" rel="noopener">ITS_LIVE</a>
+  v2 summary mosaic (120&nbsp;m, Alaska region, CC0):
+  climatological <strong>speed</strong> (2014&ndash;2022 window, log color
+  scale &mdash; glacier speeds span five orders of magnitude),
+  <strong>seasonal amplitude</strong> (amplitude of the fitted annual
+  velocity cycle &mdash; where flow is strongly seasonal), and the
+  <strong>speed trend</strong> (dv/dt: red = accelerating, blue =
+  decelerating; near-steady ice renders transparent so only genuine change
+  shows). Tiles are pre-rendered from the project's source rasters; colors
+  are baked, so the ramps live in the repository
+  (<code>tools/itslive_color_*.txt</code>). These layers are most relevant
+  to slow landslides carrying the <code>glacier_contact</code> flag.
+  Velocity data generated using auto-RIFT (Gardner et&nbsp;al., 2018) and
+  provided by the NASA MEaSUREs ITS_LIVE project (Gardner et&nbsp;al., 2025,
+  doi:10.5067/JQ6337239C96).
+</p>
+
 <h4>Country attribution</h4>
 <p>
   Each record carries a derived <code>country</code> attribute: the primary

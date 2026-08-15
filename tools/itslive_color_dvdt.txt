@@ -1,0 +1,19 @@
+# ITS_LIVE velocity trend dv_dt (m/yr per yr) — diverging ramp with a
+# TRANSPARENT dead-band at |dv_dt| < 0.25 so the layer shows only genuine
+# acceleration (warm) / deceleration (cool); steady ice vanishes instead of
+# painting everything white. Alpha ramps up with magnitude. Extremes are
+# +-~14,000 but almost all real signal is within +-100 (stddev ~9).
+# Columns: VALUE R G B A
+nv       0   0   0   0
+-14000  49  54 149 255
+-1000   69 117 180 255
+-100   116 173 209 240
+-10    171 217 233 210
+-1     224 243 248 130
+-0.25  255 255 255   0
+0.25   255 255 255   0
+1      254 224 144 130
+10     253 174  97 210
+100    244 109  67 240
+1000   215  48  39 255
+14000  165   0  38 255

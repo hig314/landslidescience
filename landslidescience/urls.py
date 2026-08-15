@@ -36,10 +36,26 @@ def susc_tile(request, model, z, x, y):
     return resp
 
 
+# Self-hosted ITS_LIVE v2 glacier-velocity composite tiles (NASA MEaSUREs
+# ITS_LIVE, Alaska RGI01A; CC0). Built by tools/build_itslive_tiles.sh into
+# data/itslive_tiles/<var>/<z>/<x>/<y>.png — pre-colored like the susc tiles;
+# same serving/caching contract (?v= cache-buster in map.js, bump on rebuild).
+_ITSLIVE_TILES_DIR = settings.BASE_DIR / 'data' / 'itslive_tiles'
+
+
+def itslive_tile(request, var, z, x, y):
+    resp = static_serve(request, f'{var}/{z}/{x}/{y}.png',
+                         document_root=str(_ITSLIVE_TILES_DIR))
+    resp['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return resp
+
+
 urlpatterns = [
     path('robots.txt', robots_txt),
     re_path(r'^tiles/susc/(?P<model>lw|n10)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             susc_tile),
+    re_path(r'^tiles/itslive/(?P<var>v|vamp|dvdt)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
+            itslive_tile),
     path('admin/', admin.site.urls),
     path('inventory/', include('inventory.urls')),
     path('files/', include('files.urls')),
