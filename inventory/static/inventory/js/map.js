@@ -1404,6 +1404,22 @@
         };
     }
 
+    // Hugonnet et al. 2021 glacier elevation change (dh/dt 2000–2019, 100 m,
+    // CC BY 4.0) — self-hosted like the ITS_LIVE pyramids; red = thinning,
+    // blue = thickening, near-balance transparent. Bump on tile rebuild.
+    var HUGONNET_TILE_V = '1';
+    var HUGONNET_TILE_BASE = CFG.hugonnetTileBase || '/tiles/hugonnet/';
+    function _hugonnetSourceDef(key) {
+        return {
+            type: 'raster',
+            tiles: [HUGONNET_TILE_BASE + key + '/{z}/{x}/{y}.png?v=' + HUGONNET_TILE_V],
+            tileSize: 256,
+            minzoom: 3,
+            maxzoom: 10,
+            attribution: 'Glacier elevation change © Hugonnet et al. 2021 (CC BY 4.0)'
+        };
+    }
+
     // Registry — order = draw order (later entries render on top). Susc layer
     // ids are unchanged so the trace-raster insertion chain keeps working.
     var OVERLAYS = [
@@ -1428,6 +1444,9 @@
         { id: 'ice-dvdt', layerId: 'ov-ice-dvdt', sourceId: 'ov-ice-dvdt-src',
           label: 'Glacier speed trend', sub: 'ITS_LIVE dv/dt — red speeding, blue slowing · NASA',
           sourceDef: function () { return _itsliveSourceDef('dvdt'); }, defOpacity: 0.9 },
+        { id: 'ice-dhdt', layerId: 'ov-ice-dhdt', sourceId: 'ov-ice-dhdt-src',
+          label: 'Glacier thinning', sub: 'dh/dt 2000–2019, red thinning · Hugonnet et al. 2021',
+          sourceDef: function () { return _hugonnetSourceDef('dhdt'); }, defOpacity: 0.9 },
     ];
     // Per-overlay state: shown on the left (main) pane, shown on the right
     // (wiper) pane, and a per-pane opacity. Each pane has its own control

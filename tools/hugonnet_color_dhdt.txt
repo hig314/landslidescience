@@ -1,0 +1,21 @@
+# Hugonnet et al. 2021 glacier dh/dt 2000–2019 (m/yr) — diverging ramp,
+# red = thinning, blue = thickening, |dh/dt| < 0.25 transparent (below
+# typical per-pixel noise; matches the ITS_LIVE trend layer's dead-band
+# convention and keeps near-balance ice from painting the map). Alaska
+# extremes run past ±25 m/yr at collapsing tidewater termini and surge
+# reservoirs; log-ish spacing keeps the common -0.5..-3 range readable.
+# Columns: VALUE R G B A
+nv      0   0   0   0
+-30   103   0  31 255
+-10   165   0  38 255
+-5    215  48  39 255
+-2    244 109  67 240
+-1    253 174  97 220
+-0.5  254 224 144 170
+-0.25 255 255 255   0
+0.25  255 255 255   0
+0.5   224 243 248 170
+1     171 217 233 220
+2     116 173 209 240
+5      69 117 180 255
+30     49  54 149 255

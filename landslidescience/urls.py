@@ -50,12 +50,27 @@ def itslive_tile(request, var, z, x, y):
     return resp
 
 
+# Hugonnet et al. 2021 glacier elevation-change tiles (dh/dt 2000–2019,
+# 100 m, CC BY 4.0). Built by tools/build_hugonnet_tiles.sh into
+# data/hugonnet_tiles/dhdt/; same contract as the other self-hosted pyramids.
+_HUGONNET_TILES_DIR = settings.BASE_DIR / 'data' / 'hugonnet_tiles'
+
+
+def hugonnet_tile(request, var, z, x, y):
+    resp = static_serve(request, f'{var}/{z}/{x}/{y}.png',
+                         document_root=str(_HUGONNET_TILES_DIR))
+    resp['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return resp
+
+
 urlpatterns = [
     path('robots.txt', robots_txt),
     re_path(r'^tiles/susc/(?P<model>lw|n10)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             susc_tile),
     re_path(r'^tiles/itslive/(?P<var>v|vamp|dvdt)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             itslive_tile),
+    re_path(r'^tiles/hugonnet/(?P<var>dhdt)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
+            hugonnet_tile),
     path('admin/', admin.site.urls),
     path('inventory/', include('inventory.urls')),
     path('files/', include('files.urls')),
