@@ -69,7 +69,7 @@ urlpatterns = [
             susc_tile),
     re_path(r'^tiles/itslive/(?P<var>v|vamp|dvdt)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             itslive_tile),
-    re_path(r'^tiles/hugonnet/(?P<var>dhdt)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
+    re_path(r'^tiles/hugonnet/(?P<var>dhdt|dhdt_smooth)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             hugonnet_tile),
     path('admin/', admin.site.urls),
     path('inventory/', include('inventory.urls')),

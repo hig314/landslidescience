@@ -1,0 +1,23 @@
+# Smoothed-variant ramp for Hugonnet dh/dt — near-zero-sensitive. Paired
+# with the bilateral pre-filter (smooth_dhdt.py): smoothing suppresses the
+# per-pixel noise that forces the standard ramp's wide ±0.25 dead-band, so
+# this ramp exposes |dh/dt| down to ±0.08 m/yr with extra color steps in
+# ±1 — where slight thickening (accumulation-zone gains, surge reservoirs)
+# lives. Same red/blue families as the standard ramp.
+# Columns: VALUE R G B A
+nv      0   0   0   0
+-30   103   0  31 255
+-10   165   0  38 255
+-5    215  48  39 250
+-2    244 109  67 240
+-1    253 174  97 230
+-0.5  254 224 144 215
+-0.2  253 240 200 185
+-0.08 255 255 255   0
+0.08  255 255 255   0
+0.2   225 245 250 185
+0.5   190 228 244 215
+1     150 205 228 230
+2     116 173 209 240
+5      69 117 180 255
+30     49  54 149 255

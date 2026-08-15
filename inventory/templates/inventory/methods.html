@@ -192,7 +192,13 @@
   satellite-stereo geodetic rates; dataset doi:10.6096/13, CC&nbsp;BY&nbsp;4.0):
   red = thinning, blue = thickening, with near-balance ice
   (|dh/dt|&nbsp;&lt;&nbsp;0.25&nbsp;m/yr, below typical per-pixel noise)
-  rendered transparent. Unlike the ITS_LIVE velocity layers this dataset is a
+  rendered transparent. A <strong>smoothed</strong> checkbox on the overlay
+  swaps in an edge-preserving (bilateral-filtered) build with a color scale
+  sensitive down to &plusmn;0.08&nbsp;m/yr: the filter averages same-regime
+  noise while leaving sharp steps (glacier margins, drawdown fronts) intact,
+  which makes slight signals &mdash; notably accumulation-zone
+  <em>thickening</em> &mdash; visible that the standard scale's noise floor
+  hides. Unlike the ITS_LIVE velocity layers this dataset is a
   fixed 2000&ndash;2019 analysis &mdash; no updating successor at comparable
   resolution exists as of 2026 &mdash; so treat it as a two-decade average,
   not current conditions. Paired with the velocity overlays it frames the

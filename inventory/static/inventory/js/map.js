@@ -1409,6 +1409,11 @@
     // blue = thickening, near-balance transparent. Bump on tile rebuild.
     var HUGONNET_TILE_V = '1';
     var HUGONNET_TILE_BASE = CFG.hugonnetTileBase || '/tiles/hugonnet/';
+    // Thinning-layer variant: standard tiles vs the bilateral-smoothed build
+    // with the near-zero-sensitive ramp. Persisted per browser; not encoded
+    // in the ov= hash (shared links show the standard variant).
+    var _dhdtVariant = false;
+    try { _dhdtVariant = localStorage.getItem('ls_dhdt_variant') === '1'; } catch (e) {}
     function _hugonnetSourceDef(key) {
         return {
             type: 'raster',
@@ -1446,7 +1451,21 @@
           sourceDef: function () { return _itsliveSourceDef('dvdt'); }, defOpacity: 0.9 },
         { id: 'ice-dhdt', layerId: 'ov-ice-dhdt', sourceId: 'ov-ice-dhdt-src',
           label: 'Glacier thinning', sub: 'dh/dt 2000–2019, red thinning · Hugonnet et al. 2021',
-          sourceDef: function () { return _hugonnetSourceDef('dhdt'); }, defOpacity: 0.9 },
+          sourceDef: function () { return _hugonnetSourceDef(_dhdtVariant ? 'dhdt_smooth' : 'dhdt'); },
+          defOpacity: 0.9,
+          // Variant checkbox on the overlay row: swaps the tile set for the
+          // bilateral-smoothed build with the near-zero-sensitive ramp.
+          // One global flag (a data variant, not a per-pane display choice).
+          variant: {
+              label: 'smoothed — reveals near-zero change',
+              title: 'Edge-preserving (bilateral) smoothing with a color scale ' +
+                     'sensitive down to ±0.08 m/yr — slight thickening becomes visible.',
+              get: function () { return _dhdtVariant; },
+              set: function (on) {
+                  _dhdtVariant = on;
+                  try { localStorage.setItem('ls_dhdt_variant', on ? '1' : '0'); } catch (e) {}
+              }
+          } },
     ];
     // Per-overlay state: shown on the left (main) pane, shown on the right
     // (wiper) pane, and a per-pane opacity. Each pane has its own control
@@ -1539,6 +1558,31 @@
     function _ovApplyAll() {
         _ovApply(map, false);
         _ovApply(_swipe.map, true);
+    }
+    // Rebuild one overlay's source in place (variant toggle changed what
+    // sourceDef returns). The layer is re-inserted at its exact previous
+    // stack position (beforeId = whatever sat directly above it), then
+    // visibility/opacity re-applied — so a variant swap never reorders.
+    function _ovSwapSource(ov) {
+        [map, _swipe.map].forEach(function (m) {
+            if (!m || !m.getLayer(ov.layerId)) return;
+            var layers = m.getStyle().layers, beforeId;
+            for (var i = 0; i < layers.length; i++) {
+                if (layers[i].id === ov.layerId) {
+                    beforeId = layers[i + 1] && layers[i + 1].id;
+                    break;
+                }
+            }
+            m.removeLayer(ov.layerId);
+            m.removeSource(ov.sourceId);
+            m.addSource(ov.sourceId, ov.sourceDef());
+            m.addLayer({
+                id: ov.layerId, type: 'raster', source: ov.sourceId,
+                layout: { 'visibility': 'none' },
+                paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
+            }, beforeId);
+        });
+        _ovApplyAll();
     }
     // Add all overlay sources+layers to a map (idempotent; called wherever the
     // susceptibility layers used to be added, main + swipe).
@@ -2356,6 +2400,29 @@
         line2.appendChild(op);
         row.appendChild(line2);
 
+        // Optional data-variant checkbox (e.g. thinning's smoothed build).
+        // Global, not per-pane: both panes' rows show the same state, and
+        // toggling swaps the tile source on both maps via _ovSwapSource.
+        var vcb = null;
+        if (ov.variant) {
+            var line3 = document.createElement('label');
+            line3.style.cssText = 'display:flex;align-items:center;gap:5px;margin-top:4px;' +
+                                  'font-size:11px;color:#555;cursor:pointer;';
+            if (ov.variant.title) line3.title = ov.variant.title;
+            vcb = document.createElement('input');
+            vcb.type = 'checkbox';
+            vcb.checked = ov.variant.get();
+            vcb.style.cssText = 'flex:none;';
+            vcb.addEventListener('change', function () {
+                ov.variant.set(vcb.checked);
+                _ovSwapSource(ov);
+                _ovSyncUI();   // mirror the twin pane's row
+            });
+            line3.appendChild(vcb);
+            line3.appendChild(document.createTextNode(ov.variant.label));
+            row.appendChild(line3);
+        }
+
         function paint() { line2.style.opacity = st[side] ? 1 : 0.45; }
         cb.addEventListener('change', function () {
             st[side] = cb.checked;
@@ -2373,6 +2440,7 @@
         _ovRowSync[side + '-' + ov.id] = function () {
             cb.checked = !!st[side];
             op.value = String(Math.round(st[opKey] * 100));
+            if (vcb) vcb.checked = ov.variant.get();
             paint();
         };
         paint();
