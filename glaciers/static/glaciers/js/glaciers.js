@@ -639,18 +639,26 @@
         var ys = B.hdr.years;
         return [ys[0], ys[ys.length - 1] + 1];
     }
+    // While the pointer is DOWN the thumb belongs to the user (it sets the
+    // target). On release the thumb snaps to the computed simT and visibly
+    // crawls toward the target as the physics catches up — the lag IS the
+    // progress indicator (amber tint while behind).
+    var scrubbing = false;
+    slider.addEventListener('pointerdown', function () { scrubbing = true; });
+    slider.addEventListener('pointerup', function () { scrubbing = false; });
+    slider.addEventListener('change', function () { scrubbing = false; });
+
     function setSimT(t, fromSlider) {
         var r = tRange();
         simT = Math.min(r[1] - 0.001, Math.max(r[0], t));
-        // While catch-up is pending the thumb belongs to the USER (it marks
-        // the target); only the date display tracks the computing simT.
-        if (!fromSlider && targetT == null) {
+        if (!fromSlider && !scrubbing) {
             slider.value = String((simT - r[0]) / (r[1] - r[0]));
         }
+        var lagging = targetT != null && Math.abs(targetT - simT) > 0.02;
+        slider.style.accentColor = lagging ? '#c9971c' : '';
         var yr = Math.floor(simT);
         var mo = Math.min(11, Math.floor((simT - yr) * 12));
-        dateEl.textContent = MONTHS[mo] + ' ' + yr +
-            (targetT != null && Math.abs(targetT - simT) > 0.02 ? ' …' : '');
+        dateEl.textContent = MONTHS[mo] + ' ' + yr + (lagging ? ' …' : '');
     }
 
     // Signed, sub-stepped advance — the one path through which time moves,
@@ -775,8 +783,7 @@
             var r = tRange();
             targetT = Math.min(r[1] - 0.001, Math.max(r[0],
                 base + (e.key === 'ArrowRight' ? step : -step)));
-            var frac = (targetT - r[0]) / (r[1] - r[0]);
-            slider.value = String(frac);
+            // No thumb jump — the thumb crawls with simT toward the target.
             e.preventDefault();
         } else if (e.key === ' ') { playBtn.click(); e.preventDefault(); }
     });
