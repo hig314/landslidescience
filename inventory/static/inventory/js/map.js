@@ -141,7 +141,14 @@
                         else                { e.right = true; e.opRight = o; }
                         return '';
                     });
-                    if (e.left || e.right) ovOut[m[1]] = e;
+                    if (e.left || e.right) {
+                        // `~`-suffixed flags on the id carry data-variant state
+                        // (e.g. `ice-dhdt~s` = smoothed build) — split them off
+                        // so the spec keys by the bare overlay id.
+                        var idBits = m[1].split('~');
+                        if (idBits.indexOf('s') > 0) e.smooth = true;
+                        ovOut[idBits[0]] = e;
+                    }
                 });
                 out.ov = ovOut;   // present (even if empty) whenever the param exists
             } else if (k === 'tab') {
@@ -1512,7 +1519,10 @@
             var spec = '';
             if (st.left)  spec += 'l' + Math.round(st.opLeft * 100);
             if (st.right) spec += 'r' + Math.round(st.opRight * 100);
-            parts.push(ov.id + '.' + spec);
+            // Active data-variant travels as a `~s` id suffix so shared URLs
+            // and saved default views reproduce it (parseHashState splits it).
+            var idTok = ov.id + (ov.variant && ov.variant.get() ? '~s' : '');
+            parts.push(idTok + '.' + spec);
         });
         return parts.join(',');
     }
@@ -1525,6 +1535,17 @@
             st.right = !!(s && s.right);
             if (s && s.opLeft  != null) st.opLeft  = s.opLeft;
             if (s && s.opRight != null) st.opRight = s.opRight;
+            // Variant flag from the hash (only when the overlay is listed —
+            // an entry fully describes its state, `~s` present or not). At
+            // startup the layers don't exist yet, so just set the flag and
+            // sourceDef picks it up at build; later, swap the source live.
+            if (ov.variant && s) {
+                var want = !!s.smooth;
+                if (want !== ov.variant.get()) {
+                    ov.variant.set(want);
+                    if (map.getLayer(ov.layerId)) _ovSwapSource(ov);
+                }
+            }
         });
     }
     // Merge + repaint layers + refresh both control panels — for `ov` specs
@@ -2418,6 +2439,7 @@
                 ov.variant.set(vcb.checked);
                 _ovSwapSource(ov);
                 _ovSyncUI();   // mirror the twin pane's row
+                if (_mapReady) writeHashState();   // variant travels in ov= (~s)
             });
             line3.appendChild(vcb);
             line3.appendChild(document.createTextNode(ov.variant.label));
