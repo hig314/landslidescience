@@ -515,6 +515,12 @@
     // settles, re-manage so newly visible ice seeds and the zoom-adaptive
     // density retargets even while paused.
     map.on('moveend', function () { if (B && simT != null) manageDensity(); });
+    // While the camera is MOVING, draw inside MapLibre's render pass — the
+    // overlay then projects with exactly the transform the basemap frame
+    // used. A free-running rAF samples the camera at a slightly different
+    // moment than the map's own render, which showed as sub-frame "waver"
+    // during drags. (The rAF loop draws only when the camera is still.)
+    map.on('render', function () { if (B && map.isMoving()) draw(); });
 
     // Speed color: same log ramp as the ice-v tiles (itslive_color_v.txt).
     var SPEED_RAMP = [
@@ -830,7 +836,7 @@
         } else if (cbTracers.checked && B && particles.length === 0 && simT != null) {
             manageDensity();               // paused with no particles → seed
         }
-        draw();
+        if (!map.isMoving()) draw();       // moving → the map's render event draws
     }
     requestAnimationFrame(frame);
 
