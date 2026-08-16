@@ -339,12 +339,12 @@
     // as you zoom in and the screen reads roughly constant. Spawning is
     // restricted to the viewport (+margin); far-off-screen particles retire
     // to reclaim quota.
-    var DENSITY = {
-        sparse: { px: 44, min: 1, max: 1 },
-        normal: { px: 26, min: 1, max: 2 },
-        dense:  { px: 15, min: 1, max: 3 }
+    var DENSITY = {                      // 4x the previous areal density
+        sparse: { px: 22, min: 1, max: 2 },
+        normal: { px: 13, min: 1, max: 2 },
+        dense:  { px: 8,  min: 1, max: 3 }
     };
-    var GLOBAL_CAP = 16000;
+    var GLOBAL_CAP = 48000;
     var FADE_STEPS = 30;                 // fade-out length (steps)
     var particles = [];
     var simT = null;                     // current sim time (fractional years)
@@ -399,8 +399,12 @@
         });
         Object.keys(byCell).forEach(function (k) {
             var list = byCell[k];
-            if (list.length > cfg.max) {
-                list.sort(function (a, b) { return b.age - a.age; });
+            // Hysteresis (max+1 before any retirement) stops the spawn/kill
+            // churn that read as "points resetting" in slow areas — and
+            // retire the NEWEST surplus, never the oldest: long-lived
+            // particles carry the longest, most informative paths.
+            if (list.length > cfg.max + 1) {
+                list.sort(function (a, b) { return a.age - b.age; });
                 for (var i = 0; i < list.length - cfg.max; i++) list[i].fade -= 1 / FADE_STEPS;
             }
         });
@@ -421,8 +425,14 @@
         }
     }
 
+    // Max displacement per RK2 step, meters. A global time step moves a
+    // km/yr-class trunk particle several grid cells at once — integration
+    // through shear margins shatters ("disintegrates") the paths. Fast
+    // particles sub-step so no single step exceeds ~half a cell; slow ones
+    // pay nothing.
+    var DMAX_M = 130;
+
     function stepParticles(dt) {
-        // RK2 midpoint; dt in years.
         for (var n = particles.length - 1; n >= 0; n--) {
             var p = particles[n];
             p.age += dt;
@@ -432,11 +442,21 @@
             }
             var v1 = sampleVelocity(p.x, p.y, simT);
             if (!v1) { p.fade = Math.min(p.fade, 1 - 1 / FADE_STEPS); continue; }
-            var mx = p.x + v1.vx * dt / 2, my = p.y + v1.vy * dt / 2;
-            var v2 = sampleVelocity(mx, my, simT + dt / 2) || v1;
-            p.x += v2.vx * dt;
-            p.y += v2.vy * dt;
-            p.speed = Math.hypot(v2.vx, v2.vy);
+            var sp1 = Math.hypot(v1.vx, v1.vy);
+            var nSub = Math.min(12, Math.max(1, Math.ceil(sp1 * Math.abs(dt) / DMAX_M)));
+            var h = dt / nSub, t = simT, v = v1;
+            for (var s = 0; s < nSub; s++) {
+                var mx = p.x + v.vx * h / 2, my = p.y + v.vy * h / 2;
+                var v2 = sampleVelocity(mx, my, t + h / 2) || v;
+                p.x += v2.vx * h;
+                p.y += v2.vy * h;
+                t += h;
+                p.speed = Math.hypot(v2.vx, v2.vy);
+                if (s < nSub - 1) {
+                    v = sampleVelocity(p.x, p.y, t);
+                    if (!v) break;
+                }
+            }
             if (!onIce(p.x, p.y)) p.fade = Math.min(p.fade, 1 - 1 / FADE_STEPS);
         }
     }
@@ -566,12 +586,17 @@
     var stepsSinceManage = 0;
     function advanceBy(dtSim) {
         if (!B) return;
+        var multi = Math.abs(dtSim) > MAX_STEP * 1.5;
         while (Math.abs(dtSim) > 1e-9) {
             var dt = Math.max(-MAX_STEP, Math.min(MAX_STEP, dtSim));
             if (cbTracers.checked) stepParticles(dt);
             setSimT(simT + dt);
             dtSim -= dt;
             if (++stepsSinceManage >= 4) { manageDensity(); stepsSinceManage = 0; }
+            // Multi-step advances (scrubs, arrow-key jumps) draw every step —
+            // otherwise a burst renders only its endpoints and the trails
+            // read as disconnected dots instead of paths.
+            if (multi) draw();
         }
     }
 
@@ -581,7 +606,7 @@
         var target = r[0] + (+slider.value) * (r[1] - r[0]);
         // Scrubbing DRIVES the simulation (capped per event so a fast drag
         // stays responsive — time follows the thumb, physics follows time).
-        var d = Math.max(-0.35, Math.min(0.35, target - simT));
+        var d = Math.max(-0.2, Math.min(0.2, target - simT));
         advanceBy(d);
         if (Math.abs(target - simT) > 0.001) {
             // Drag outpaced the cap (a long-throw jump): teleport instead —
