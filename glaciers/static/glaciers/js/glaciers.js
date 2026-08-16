@@ -291,7 +291,11 @@
         var fy = (g.y0_north - y) / g.dx - 0.5;
         if (fx < -1 || fy < -1 || fx > g.nx || fy > g.ny) return null;
         var years = B.hdr.years, nY = years.length;
-        var ty = t - years[0];                       // years since first field
+        // Annual composites are means CENTERED mid-year: field k represents
+        // years[k] + 0.5. Blending between mid-years keeps the interpolation
+        // honest; the timeline (tRange) ends at the last mid-year, so motion
+        // terminates where the data does instead of running steady-state.
+        var ty = t - (years[0] + 0.5);
         var y0 = Math.floor(ty), frac = ty - y0;
         if (y0 < 0) { y0 = 0; frac = 0; }
         if (y0 >= nY - 1) { y0 = nY - 1; frac = 0; }
@@ -658,8 +662,11 @@
     playBtn.parentNode.insertBefore(speedSel, playBtn.nextSibling);
 
     function tRange() {
+        // Mid-year of the first field to mid-year of the last — the span the
+        // annual composites actually constrain. No steady-state coasting
+        // beyond the end of data.
         var ys = B.hdr.years;
-        return [ys[0], ys[ys.length - 1] + 1];
+        return [ys[0] + 0.5, ys[ys.length - 1] + 0.5];
     }
     // While the pointer is DOWN the thumb belongs to the user (it sets the
     // target). On release the thumb snaps to the computed simT and visibly
