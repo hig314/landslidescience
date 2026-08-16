@@ -560,8 +560,10 @@
                   Math.pow(2, map.getZoom());
         var vertPx = TRAIL_DM / mpp;
         var stride = Math.max(1, Math.round(2.4 / vertPx));
-        var strideM = stride * TRAIL_DM;
         var drawTrails = cbTrails.checked;
+        ctx.lineWidth = 2.2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
 
         for (var n = 0; n < particles.length; n++) {
             var p = particles[n];
@@ -570,25 +572,36 @@
             var headVisible = !(pt.x < -10 || pt.y < -10 || pt.x > w + 10 || pt.y > h + 10);
 
             if (drawTrails && p.trail.length) {
-                var col = speedColorQ(p.speed || 0);
-                ctx.fillStyle = col;
+                // Continuous tail: stroked polyline from the head back through
+                // the recorded vertices (alpha-banded so one stroke covers a
+                // run of similar opacity). Lines, not dots — recorded spacing
+                // can exceed the dot size at high zoom, and a tail must never
+                // be gappier than the tracer.
+                ctx.strokeStyle = speedColorQ(p.speed || 0);
                 var nv = p.trail.length / 3;
-                var drawn = 0;
-                // newest → oldest, alpha = fade × distance-decay × age-decay
-                for (var k = nv - 1 - ((nv - 1) % stride); k >= 0; k -= stride) {
+                var prevX = pt.x, prevY = pt.y;
+                var band = -1, open = false, drawn = 0;
+                for (var k = nv - 1; k >= 0; k -= stride) {
                     var d = (nv - k) * TRAIL_DM;   // ground distance from head
                     var ageT = simT - p.trail[k * 3 + 2];
                     var a = p.fade * Math.exp(-d / TRAIL_D0) *
                             Math.exp(-Math.max(0, ageT) / TRAIL_T0);
-                    if (a < 0.04) break;           // monotone decreasing → done
+                    if (a < 0.035) break;          // monotone decreasing → done
                     var tll = ll3413ToLonLat(p.trail[k * 3], p.trail[k * 3 + 1]);
                     var tp = map.project(tll);
-                    if (tp.x > -10 && tp.y > -10 && tp.x < w + 10 && tp.y < h + 10) {
-                        ctx.globalAlpha = a * 0.8;
-                        ctx.fillRect(tp.x - 0.9, tp.y - 0.9, 2.0, 2.0);
+                    var b = Math.min(5, (a * 6) | 0);
+                    if (b !== band) {
+                        if (open) ctx.stroke();
+                        ctx.globalAlpha = ((b + 0.5) / 6) * 0.85;
+                        ctx.beginPath();
+                        ctx.moveTo(prevX, prevY);
+                        band = b; open = true;
                     }
-                    if (++drawn >= 80) break;      // per-particle render cap
+                    ctx.lineTo(tp.x, tp.y);
+                    prevX = tp.x; prevY = tp.y;
+                    if (++drawn >= 90) break;      // per-particle render cap
                 }
+                if (open) ctx.stroke();
             }
             if (headVisible) {
                 ctx.globalAlpha = Math.max(0, Math.min(1, p.fade));
@@ -629,10 +642,15 @@
     function setSimT(t, fromSlider) {
         var r = tRange();
         simT = Math.min(r[1] - 0.001, Math.max(r[0], t));
-        if (!fromSlider) slider.value = String((simT - r[0]) / (r[1] - r[0]));
+        // While catch-up is pending the thumb belongs to the USER (it marks
+        // the target); only the date display tracks the computing simT.
+        if (!fromSlider && targetT == null) {
+            slider.value = String((simT - r[0]) / (r[1] - r[0]));
+        }
         var yr = Math.floor(simT);
         var mo = Math.min(11, Math.floor((simT - yr) * 12));
-        dateEl.textContent = MONTHS[mo] + ' ' + yr;
+        dateEl.textContent = MONTHS[mo] + ' ' + yr +
+            (targetT != null && Math.abs(targetT - simT) > 0.02 ? ' …' : '');
     }
 
     // Signed, sub-stepped advance — the one path through which time moves,
@@ -642,37 +660,97 @@
     var stepsSinceManage = 0;
     function advanceBy(dtSim) {
         if (!B) return;
-        var multi = Math.abs(dtSim) > MAX_STEP * 1.5;
         while (Math.abs(dtSim) > 1e-9) {
             var dt = Math.max(-MAX_STEP, Math.min(MAX_STEP, dtSim));
             if (cbTracers.checked) stepParticles(dt);
             setSimT(simT + dt);
             dtSim -= dt;
             if (++stepsSinceManage >= 4) { manageDensity(); stepsSinceManage = 0; }
-            // Multi-step advances (scrubs, arrow-key jumps) draw every step —
-            // otherwise a burst renders only its endpoints and the trails
-            // read as disconnected dots instead of paths.
-            if (multi) draw();
+            _kfMaybeCapture();
         }
+    }
+
+    // -----------------------------------------------------------------
+    // Keyframe cache + budgeted catch-up: scrubbing never teleports and
+    // never blocks. The slider sets targetT; the frame loop advances the
+    // physics toward it inside a per-frame time budget (the date display
+    // lags the thumb honestly while computing). Snapshots of the particle
+    // SYSTEM (packed: position/age/fade/speed + the bright first vertices
+    // of each tail) are taken every KF_DT of simulated time; a long throw
+    // restores the nearest keyframe and advects the remainder, so repeat
+    // back-and-forth scrubs come mostly from cache. Keyframes hold
+    // PHYSICAL state, so they stay valid across zoom/density changes —
+    // manageDensity refills for the current view after a restore.
+    // -----------------------------------------------------------------
+    var targetT = null;
+    var KF_DT = 0.5;              // sim-years between keyframes
+    var KF_TRAIL = 12;            // stored tail vertices (~1.4 km — the bright part)
+    var _kf = new Map();          // key: Math.round(t / KF_DT) → {t, n, data}
+    var _kfStride = 5 + KF_TRAIL * 3;
+
+    function _kfMax() {
+        var bytes = Math.max(1, particles.length) * _kfStride * 4;
+        return Math.max(8, Math.min(24, Math.floor(90e6 / bytes)));
+    }
+    function _kfMaybeCapture() {
+        var key = Math.round(simT / KF_DT);
+        if (_kf.has(key) || !particles.length) return;
+        var data = new Float32Array(particles.length * _kfStride);
+        for (var i = 0; i < particles.length; i++) {
+            var p = particles[i], o = i * _kfStride;
+            data[o] = p.x; data[o + 1] = p.y; data[o + 2] = p.age;
+            data[o + 3] = p.fade; data[o + 4] = p.speed || 0;
+            var nv = p.trail.length / 3;
+            var take = Math.min(KF_TRAIL, nv);
+            for (var k = 0; k < take; k++) {
+                var src = (nv - take + k) * 3;
+                var d = o + 5 + k * 3;
+                data[d] = p.trail[src]; data[d + 1] = p.trail[src + 1];
+                data[d + 2] = p.trail[src + 2];
+            }
+            for (var k2 = take; k2 < KF_TRAIL; k2++) data[o + 5 + k2 * 3 + 2] = NaN;
+        }
+        _kf.set(key, { t: simT, n: particles.length, data: data });
+        // Evict the keyframe farthest from now once over budget.
+        var max = _kfMax();
+        while (_kf.size > max) {
+            var worstK = null, worstD = -1;
+            _kf.forEach(function (v, k) {
+                var dd = Math.abs(v.t - simT);
+                if (dd > worstD) { worstD = dd; worstK = k; }
+            });
+            _kf.delete(worstK);
+        }
+    }
+    function _kfRestore(kf) {
+        particles = [];
+        for (var i = 0; i < kf.n; i++) {
+            var o = i * _kfStride;
+            var p = { x: kf.data[o], y: kf.data[o + 1], age: kf.data[o + 2],
+                      fade: kf.data[o + 3], speed: kf.data[o + 4],
+                      trail: [], dAcc: 0 };
+            for (var k = 0; k < KF_TRAIL; k++) {
+                var d = o + 5 + k * 3;
+                if (kf.data[d + 2] === kf.data[d + 2]) {   // t not NaN
+                    p.trail.push(kf.data[d], kf.data[d + 1], kf.data[d + 2]);
+                }
+            }
+            particles.push(p);
+        }
+        setSimT(kf.t);
+    }
+    function _kfNearest(t) {
+        var best = null;
+        _kf.forEach(function (v) {
+            if (best === null || Math.abs(v.t - t) < Math.abs(best.t - t)) best = v;
+        });
+        return best;
     }
 
     slider.addEventListener('input', function () {
         if (!B) return;
         var r = tRange();
-        var target = r[0] + (+slider.value) * (r[1] - r[0]);
-        // Scrubbing DRIVES the simulation (capped per event so a fast drag
-        // stays responsive — time follows the thumb, physics follows time).
-        var d = Math.max(-0.2, Math.min(0.2, target - simT));
-        advanceBy(d);
-        if (Math.abs(target - simT) > 0.001) {
-            // Drag outpaced the cap (a long-throw jump): teleport instead —
-            // path-dependent particles can't meaningfully advect years in
-            // one event, so reset and reseed at the target time.
-            setSimT(target, true);
-            particles = [];
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            manageDensity();
-        }
+        targetT = r[0] + (+slider.value) * (r[1] - r[0]);
     });
     playBtn.addEventListener('click', function () {
         if (!playing && B && simT >= tRange()[1] - 0.01) {
@@ -685,24 +763,49 @@
         playBtn.textContent = playing ? '❚❚' : '▶';
     });
 
-    // Arrow keys: one month per press (Shift = one year), either direction.
+    // Arrow keys: one month per press (Shift = one year), either direction —
+    // expressed as catch-up targets so repeated presses queue smoothly.
     document.addEventListener('keydown', function (e) {
         if (!B) return;
         var tag = (e.target && e.target.tagName) || '';
         if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
         var step = e.shiftKey ? 1 : 1 / 12;
-        if (e.key === 'ArrowRight') { advanceBy(step); e.preventDefault(); }
-        else if (e.key === 'ArrowLeft') { advanceBy(-step); e.preventDefault(); }
-        else if (e.key === ' ') { playBtn.click(); e.preventDefault(); }
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            var base = targetT != null ? targetT : simT;
+            var r = tRange();
+            targetT = Math.min(r[1] - 0.001, Math.max(r[0],
+                base + (e.key === 'ArrowRight' ? step : -step)));
+            var frac = (targetT - r[0]) / (r[1] - r[0]);
+            slider.value = String(frac);
+            e.preventDefault();
+        } else if (e.key === ' ') { playBtn.click(); e.preventDefault(); }
     });
 
     var lastFrame = null;
+    var CATCHUP_BUDGET_MS = 9;    // physics time per frame while catching up
     function frame(ts) {
         requestAnimationFrame(frame);
         if (!B) return;
         var dtReal = lastFrame == null ? 0 : Math.min(0.1, (ts - lastFrame) / 1000);
         lastFrame = ts;
-        if (playing) {
+        if (targetT != null) {
+            // A long throw with a nearer keyframe: jump the physics there
+            // first, then integrate only the remainder.
+            var kf = _kfNearest(targetT);
+            if (kf && Math.abs(kf.t - targetT) + 0.3 < Math.abs(simT - targetT)) {
+                _kfRestore(kf);
+                manageDensity();   // refill for the current zoom/view
+            }
+            var t0 = performance.now();
+            while (Math.abs(targetT - simT) > 5e-4 &&
+                   performance.now() - t0 < CATCHUP_BUDGET_MS) {
+                advanceBy(Math.max(-0.06, Math.min(0.06, targetT - simT)));
+            }
+            if (Math.abs(targetT - simT) <= 5e-4) {
+                targetT = null;
+                setSimT(simT);     // re-sync thumb + drop the ellipsis
+            }
+        } else if (playing) {
             var r = tRange();
             if (simT >= r[1] - 0.002) {
                 // End of the record: STOP (no wrap into the sparse 1980s).
@@ -724,6 +827,8 @@
     function activateSite(slug) {
         var entry = (CFG.catalog || []).filter(function (c) { return c.slug === slug; })[0];
         B = null; particles = [];
+        _kf.clear();                 // keyframes belong to the previous site
+        targetT = null;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         dateEl.textContent = 'loading…';
         loadBundle(slug).then(function (bundle) {
