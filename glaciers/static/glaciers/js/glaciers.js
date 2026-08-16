@@ -765,6 +765,18 @@
         }
         var lagging = targetT != null && Math.abs(targetT - simT) > 0.02;
         slider.style.accentColor = lagging ? '#c9971c' : '';
+        // Ghost marker at the COMPUTED time — the visible lag indicator
+        // while the thumb is user-held (accent-color doesn't repaint
+        // reliably mid-drag, and the held thumb can't crawl).
+        var lagEl = document.getElementById('gl-lagmark');
+        if (lagEl) {
+            if (lagging) {
+                lagEl.style.left = (((simT - r[0]) / (r[1] - r[0])) * 100) + '%';
+                lagEl.style.display = 'block';
+            } else {
+                lagEl.style.display = 'none';
+            }
+        }
         var yr = Math.floor(simT);
         var mo = Math.min(11, Math.floor((simT - yr) * 12));
         dateEl.textContent = MONTHS[mo] + ' ' + yr + (lagging ? ' …' : '');

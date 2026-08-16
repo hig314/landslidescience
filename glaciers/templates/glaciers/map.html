@@ -30,6 +30,12 @@
     box-shadow: 0 1px 6px rgba(0,0,0,0.18);
   }
   #gl-timebar input[type=range] { flex: 1; }
+  /* Ghost marker: the COMPUTED time crawling behind a held/lagging thumb —
+     visible during the drag itself, where the thumb can't show the lag. */
+  #gl-lagmark { position: absolute; top: 50%; width: 3px; height: 16px;
+                background: #c9971c; transform: translate(-50%, -50%);
+                border-radius: 1.5px; pointer-events: none; display: none;
+                box-shadow: 0 0 3px rgba(201,151,28,0.8); }
   #gl-play { border: 1px solid #bbb; background: #f4f4f4; border-radius: 3px;
              font-size: 14px; width: 30px; height: 26px; cursor: pointer; }
   #gl-date { min-width: 84px; font-variant-numeric: tabular-nums; font-weight: 600; color: #444; }
@@ -58,7 +64,10 @@
   </div>
   <div id="gl-timebar">
     <button id="gl-play" title="Play / pause">▶</button>
-    <input type="range" id="gl-time" min="0" max="1" step="0.002" value="0">
+    <div id="gl-track" style="position:relative; flex:1; display:flex; align-items:center;">
+      <input type="range" id="gl-time" min="0" max="1" step="0.002" value="0" style="width:100%;">
+      <div id="gl-lagmark" title="Computed time (catching up)"></div>
+    </div>
     <span id="gl-date"></span>
   </div>
 </div>
