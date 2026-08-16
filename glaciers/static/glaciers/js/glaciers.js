@@ -250,13 +250,45 @@
                             }
                             return out;
                         }
-                        return {
+                        var bundle = {
                             hdr: hdr,
                             vx: view('vx'), vy: view('vy'),
                             vxAmp: view('vx_amp'), vyAmp: view('vy_amp'),
                             vxPh: view('vx_phase'), vyPh: view('vy_phase'),
-                            ice: view('landice')
+                            ice: view('landice'),
+                            recent: null
                         };
+                        if (!hdr.recent) return bundle;
+                        // Optional trailing-edge block: OBSERVED quarterly
+                        // median fields from the image-pair datacubes —
+                        // used instead of annual+climatology where they
+                        // cover (see sampleVelocity).
+                        return fetch(CFG.dataBase + hdr.recent.bin + '?v=' + TRACER_DATA_V)
+                            .then(function (r) {
+                                if (!r.ok) throw new Error('recent bin HTTP ' + r.status);
+                                return r.arrayBuffer();
+                            })
+                            .then(function (rbuf) {
+                                var rn = hdr.recent.nodata != null ? hdr.recent.nodata : -32768;
+                                function rview(name) {
+                                    var o = hdr.recent.offsets[name];
+                                    var raw = new Int16Array(rbuf, o[0] * 2, o[1]);
+                                    var out = new Float32Array(o[1]);
+                                    for (var i = 0; i < o[1]; i++) {
+                                        out[i] = raw[i] === rn ? NaN : raw[i];
+                                    }
+                                    return out;
+                                }
+                                bundle.recent = {
+                                    quarters: hdr.recent.quarters,
+                                    vx: rview('vx'), vy: rview('vy')
+                                };
+                                return bundle;
+                            })
+                            .catch(function (e) {
+                                console.warn('recent block unavailable:', e);
+                                return bundle;   // annual-only is fine
+                            });
                     });
             });
     }
@@ -290,6 +322,34 @@
         var fx = (x - g.x0) / g.dx - 0.5;
         var fy = (g.y0_north - y) / g.dx - 0.5;
         if (fx < -1 || fy < -1 || fx > g.nx || fy > g.ny) return null;
+
+        // Observed quarterly fields (image-pair composites) take precedence
+        // where they exist in time AND space — real sub-annual motion, no
+        // climatological model. Coverage holes fall through to the annual
+        // path below so particles never freeze on a gap pixel.
+        if (B.recent) {
+            var Q = B.recent.quarters;
+            if (t >= Q[0] && t <= Q[Q.length - 1]) {
+                var plane0 = g.nx * g.ny;
+                var qi = Math.min(Q.length - 1, Math.floor((t - Q[0]) / 0.25));
+                var qf = (t - Q[qi]) / 0.25;
+                var rvx = sampleGrid2(B.recent.vx.subarray(qi * plane0, (qi + 1) * plane0), g.nx, g.ny, fx, fy);
+                var rvy = sampleGrid2(B.recent.vy.subarray(qi * plane0, (qi + 1) * plane0), g.nx, g.ny, fx, fy);
+                if (qf > 0 && qi < Q.length - 1 && rvx === rvx && rvy === rvy) {
+                    var rvx1 = sampleGrid2(B.recent.vx.subarray((qi + 1) * plane0, (qi + 2) * plane0), g.nx, g.ny, fx, fy);
+                    var rvy1 = sampleGrid2(B.recent.vy.subarray((qi + 1) * plane0, (qi + 2) * plane0), g.nx, g.ny, fx, fy);
+                    if (rvx1 === rvx1 && rvy1 === rvy1) {
+                        rvx += qf * (rvx1 - rvx);
+                        rvy += qf * (rvy1 - rvy);
+                    }
+                }
+                if (rvx === rvx && rvy === rvy &&
+                    Math.abs(rvx) <= 25000 && Math.abs(rvy) <= 25000) {
+                    return { vx: rvx, vy: rvy };
+                }
+            }
+        }
+
         var years = B.hdr.years, nY = years.length;
         // Annual composites are means CENTERED mid-year: field k represents
         // years[k] + 0.5. Blending between mid-years keeps the interpolation
