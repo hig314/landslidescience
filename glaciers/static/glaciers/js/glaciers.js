@@ -870,7 +870,12 @@
     slider.addEventListener('input', function () {
         if (!B) return;
         var r = tRange();
-        targetT = r[0] + (+slider.value) * (r[1] - r[0]);
+        // Clamp to the SAME ceiling setSimT enforces (r[1] - 0.001):
+        // an exact-r[1] target could never be reached, so the catch-up
+        // loop integrated the residual every frame — perpetual motion
+        // whenever the thumb sat at the end stop.
+        targetT = Math.min(r[1] - 0.001,
+                           Math.max(r[0], r[0] + (+slider.value) * (r[1] - r[0])));
     });
     playBtn.addEventListener('click', function () {
         if (!playing && B && simT >= tRange()[1] - 0.01) {
