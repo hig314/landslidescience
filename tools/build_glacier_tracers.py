@@ -26,12 +26,62 @@ Usage: python tools/build_glacier_tracers.py [slug ...]   (default: all)
 import json
 import math
 import sys
+from collections.abc import MutableMapping
 from pathlib import Path
 
 import numpy as np
-import fsspec
+import requests
 import zarr
 from pyproj import Transformer
+from requests.adapters import HTTPAdapter, Retry
+
+
+class HttpZarrStore(MutableMapping):
+    """Read-only zarr store over plain HTTPS with real retries.
+
+    fsspec's aiohttp-based HTTP filesystem kept dying with
+    ServerDisconnectedError against S3 mid-build (hundreds of sequential
+    chunk GETs); a requests.Session with urllib3 backoff shrugs those off."""
+
+    def __init__(self, base_url):
+        self.base = base_url.rstrip('/')
+        self.s = requests.Session()
+        retry = Retry(total=6, backoff_factor=0.6, allowed_methods=['GET'],
+                      status_forcelist=[500, 502, 503, 504],
+                      raise_on_status=False)
+        self.s.mount('https://', HTTPAdapter(max_retries=retry))
+
+    def __getitem__(self, key):
+        for attempt in range(3):     # extra layer for dropped connections
+            try:
+                r = self.s.get(f'{self.base}/{key}', timeout=60)
+                break
+            except requests.RequestException:
+                if attempt == 2:
+                    raise
+        if r.status_code == 404:
+            raise KeyError(key)
+        r.raise_for_status()
+        return r.content
+
+    def __contains__(self, key):
+        try:
+            self[key]
+            return True
+        except KeyError:
+            return False
+
+    def __iter__(self):
+        return iter(())              # listing unsupported; zarr reads by key
+
+    def __len__(self):
+        return 0
+
+    def __setitem__(self, key, value):
+        raise NotImplementedError('read-only store')
+
+    def __delitem__(self, key):
+        raise NotImplementedError('read-only store')
 
 S3_HTTP = 'https://its-live-data.s3.amazonaws.com'
 COMPOSITE_PREFIX = 'composites/annual/v2-updated-september2025'
@@ -80,18 +130,32 @@ def cube_url(cx, cy):
     return None
 
 
+# The ITS_LIVE 120 m EPSG:3413 grid is NOT anchored at multiples of 120:
+# cell centers sit at x ≡ 52.5, y ≡ 67.5 (mod 120) — verified from cube
+# coordinate arrays. Snap AOI edges to the same registration so bundle cells
+# coincide exactly with data cells (the residual check below guards this).
+X_EDGE_PHASE = 112.5   # x cell-edge offset mod 120  (52.5 + 60)
+Y_EDGE_PHASE = 7.5     # y cell-edge offset mod 120  (67.5 - 60)
+
+
+def _snap(v, phase, up):
+    f = math.ceil if up else math.floor
+    return f((v - phase) / GRID) * GRID + phase
+
+
 def aoi_grid(bbox):
-    """3413 bounding box (snapped to the 120 m grid) covering a lon/lat bbox."""
+    """3413 bounding box covering a lon/lat bbox, snapped to the ITS_LIVE
+    grid registration."""
     w, s, e, n = bbox
     xs, ys = [], []
     for lon in (w, e, (w + e) / 2):
         for lat in (s, n, (s + n) / 2):
             x, y = _to3413.transform(lon, lat)
             xs.append(x); ys.append(y)
-    x0 = math.floor(min(xs) / GRID) * GRID
-    x1 = math.ceil(max(xs) / GRID) * GRID
-    y0 = math.floor(min(ys) / GRID) * GRID
-    y1 = math.ceil(max(ys) / GRID) * GRID
+    x0 = _snap(min(xs), X_EDGE_PHASE, False)
+    x1 = _snap(max(xs), X_EDGE_PHASE, True)
+    y0 = _snap(min(ys), Y_EDGE_PHASE, False)
+    y1 = _snap(max(ys), Y_EDGE_PHASE, True)
     return x0, y0, x1, y1
 
 
@@ -126,8 +190,7 @@ def build(slug):
             continue
         print(f'  cube {url.rsplit("/", 2)[-2]}/{url.rsplit("/", 1)[-1]}')
         try:
-            store = fsspec.get_mapper(url)
-            g = zarr.open(store, mode='r')
+            g = zarr.open(HttpZarrStore(url), mode='r')
         except Exception as exc:
             print(f'    SKIP (unreadable): {type(exc).__name__}')
             continue
@@ -162,7 +225,12 @@ def build(slug):
                 phase_units = ''
 
         # Overlap between this cube's grid and the AOI grid. AOI cell centers:
-        # x0 + (i+0.5)*GRID; cube arrays are cell-centered on gx/gy.
+        # x0 + (i+0.5)*GRID; cube arrays are cell-centered on gx/gy. The
+        # residual check catches any half-cell registration mismatch.
+        resx = float((gx[0] - (x0 + GRID / 2)) % GRID)
+        if min(resx, GRID - resx) > 1:
+            print(f'    WARNING: grid registration residual {resx:.1f} m '
+                  f'(cube x[0]={gx[0]:.1f}) — tracers would misalign')
         ix = np.round((gx - (x0 + GRID / 2)) / GRID).astype(int)
         iy = np.round(((y0 + GRID * (ny - 0.5)) - gy) / GRID).astype(int)  # row 0 = north
         mx = (ix >= 0) & (ix < nx)
@@ -176,18 +244,45 @@ def build(slug):
         dy_iy = iy[sy]
 
         flip = 1 if dy_iy[0] < dy_iy[-1] else -1
+
+        def masked(zarr_arr, sel):
+            """Read + mask the array's fill value to NaN. Plain zarr does NOT
+            mask stored fills the way xarray does — unmasked, the -32767
+            velocity fills became 'valid' data, contaminated every block
+            mean at coverage edges, and sent tracers rocketing at 45°
+            (vx == vy == fill). landice's fill is 0 (= not ice), fine as-is."""
+            a = np.asarray(zarr_arr[sel], np.float32)
+            fv = zarr_arr.fill_value
+            if fv is not None and not (isinstance(fv, float) and np.isnan(fv)) and fv != 0:
+                a[a == np.float32(fv)] = np.nan
+            return a
+
         for v in VARS_T:
-            arr = np.asarray(g[v][:, sy, sx], np.float32)
+            arr = masked(g[v], (slice(None), sy, sx))
             for (k_dst, k_src) in yr_map:
                 acc[v][k_dst, dy_iy.min():dy_iy.max() + 1,
                        dx_ix.min():dx_ix.max() + 1] = arr[k_src, ::flip, :]
         for v in VARS_S:
-            arr = np.asarray(g[v][sy, sx], np.float32)
+            arr = masked(g[v], (sy, sx))
             acc[v][dy_iy.min():dy_iy.max() + 1, dx_ix.min():dx_ix.max() + 1] \
-                = arr[::(1 if dy_iy[0] < dy_iy[-1] else -1), :]
+                = arr[::flip, :]
 
     if years is None:
         raise SystemExit(f'{slug}: no cubes found — check AOI/tile math.')
+
+    # ---- physical-plausibility clamps -------------------------------------
+    # Near-fill and outlier junk survives the exact fill-value mask (e.g.
+    # amp values just under the 32767 fill). Nothing real exceeds these:
+    # fastest observed glacier flow ~20 km/yr; seasonal amplitude beyond
+    # 5 km/yr and phases outside a year are fit garbage. When both
+    # components carry junk the tracers rocket diagonally — clamp to NaN.
+    for v in ('vx', 'vy'):
+        acc[v][np.abs(acc[v]) > 20000] = np.nan
+    for v in ('vx_amp', 'vy_amp'):
+        acc[v][acc[v] > 5000] = np.nan
+        acc[v][acc[v] < 0] = np.nan
+    for v in ('vx_phase', 'vy_phase'):
+        acc[v][(acc[v] < 0) | (acc[v] > 366.25)] = np.nan
 
     # ---- downsample 120 m -> 240 m (block means; halves each axis) --------
     # The full-res 43-year stack is ~180 MB — too heavy for a page load. At

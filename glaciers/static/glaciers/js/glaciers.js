@@ -308,6 +308,9 @@
             }
         }
         if (vx !== vx || vy !== vy) return null;
+        // Sanity clamp: nothing on Earth flows 25 km/yr — a value like this
+        // is an unmasked fill or corrupt cell; treat as no-data.
+        if (Math.abs(vx) > 25000 || Math.abs(vy) > 25000) return null;
         // Seasonal superposition (climatological amp + day-of-peak phase).
         var doy = (t - Math.floor(t)) * 365.25;
         var ax = sampleGrid2(B.vxAmp, g.nx, g.ny, fx, fy);
