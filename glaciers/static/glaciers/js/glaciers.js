@@ -486,9 +486,13 @@
                     // spawn drew at ~0 m/yr (near-black) until its first
                     // step: phantom "slow" dots amid fast flow, exactly
                     // where churn respawns most.
+                    // Trail seeded with the birth position — without it a new
+                    // tracer moves bare for up to TRAIL_DM (very visible when
+                    // zoomed in) before its first vertex records.
                     particles.push({ x: x, y: y, age: 0, fade: 1,
                                      speed: Math.hypot(v0.vx, v0.vy),
-                                     trail: [], dAcc: 0, pathLen: 0,
+                                     trail: [x, y, simT, 0],
+                                     dAcc: 0, pathLen: 0,
                                      dirX: v0.vx, dirY: v0.vy });
                     break;
                 }
@@ -867,6 +871,8 @@
                                  kf.data[d + 2], kf.data[d + 3]);
                 }
             }
+            // Same birth-seed rule as spawning: no bare tracers post-restore.
+            if (!p.trail.length) p.trail.push(p.x, p.y, kf.t, p.pathLen);
             particles.push(p);
         }
         setSimT(kf.t);
