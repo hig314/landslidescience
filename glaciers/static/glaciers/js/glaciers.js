@@ -335,9 +335,9 @@
     // Particles + density-managed respawn
     // ---------------------------------------------------------------------
     var DENSITY = {                      // management-cell targets
-        sparse: { cell: 3000, min: 1, max: 1, cap: 1500 },
-        normal: { cell: 1800, min: 1, max: 2, cap: 4000 },
-        dense:  { cell: 1200, min: 1, max: 3, cap: 8000 }
+        sparse: { cell: 2400, min: 1, max: 1, cap: 2500 },
+        normal: { cell: 1200, min: 1, max: 2, cap: 7000 },
+        dense:  { cell: 700,  min: 1, max: 3, cap: 14000 }
     };
     var FADE_STEPS = 30;                 // fade-out length (steps)
     var particles = [];
@@ -450,6 +450,21 @@
                         Math.round(lo[2] + t * (hi[2] - lo[2])) + ',' +
                         Math.round(lo[3] + t * (hi[3] - lo[3])) + ')';
     }
+    // Quantized LUT (64 log buckets, 0.5–20000 m/yr) — at 10k+ particles,
+    // building an rgb() string per particle per frame is real overhead.
+    var _COLOR_N = 64, _COLOR_LUT = [];
+    (function () {
+        for (var k = 0; k < _COLOR_N; k++) {
+            var v = Math.exp(Math.log(0.5) + (k / (_COLOR_N - 1)) *
+                             (Math.log(20000) - Math.log(0.5)));
+            _COLOR_LUT.push(speedColor(v));
+        }
+    })();
+    function speedColorQ(v) {
+        var k = Math.round((Math.log(Math.max(v, 0.5)) - Math.log(0.5)) /
+                           (Math.log(20000) - Math.log(0.5)) * (_COLOR_N - 1));
+        return _COLOR_LUT[Math.min(_COLOR_N - 1, Math.max(0, k))];
+    }
 
     function draw() {
         var w = canvas.getBoundingClientRect().width, h = canvas.getBoundingClientRect().height;
@@ -468,7 +483,7 @@
             var pt = map.project(ll);
             if (pt.x < -10 || pt.y < -10 || pt.x > w + 10 || pt.y > h + 10) continue;
             ctx.globalAlpha = Math.max(0, Math.min(1, p.fade));
-            ctx.fillStyle = speedColor(p.speed || 0);
+            ctx.fillStyle = speedColorQ(p.speed || 0);
             ctx.fillRect(pt.x - 1, pt.y - 1, 2.6, 2.6);
         }
         ctx.globalAlpha = 1;
