@@ -334,11 +334,17 @@
     // ---------------------------------------------------------------------
     // Particles + density-managed respawn
     // ---------------------------------------------------------------------
-    var DENSITY = {                      // management-cell targets
-        sparse: { cell: 2400, min: 1, max: 1, cap: 2500 },
-        normal: { cell: 1200, min: 1, max: 2, cap: 7000 },
-        dense:  { cell: 700,  min: 1, max: 3, cap: 14000 }
+    // Density presets are SCREEN-spacing targets (px between tracers): the
+    // management-cell size follows meters-per-pixel, so ground density rises
+    // as you zoom in and the screen reads roughly constant. Spawning is
+    // restricted to the viewport (+margin); far-off-screen particles retire
+    // to reclaim quota.
+    var DENSITY = {
+        sparse: { px: 44, min: 1, max: 1 },
+        normal: { px: 26, min: 1, max: 2 },
+        dense:  { px: 15, min: 1, max: 3 }
     };
+    var GLOBAL_CAP = 16000;
     var FADE_STEPS = 30;                 // fade-out length (steps)
     var particles = [];
     var simT = null;                     // current sim time (fractional years)
@@ -350,20 +356,47 @@
         if (!B) return;
         var cfg = densityCfg();
         var g = B.hdr.grid;
-        var cell = cfg.cell;
-        var ncx = Math.ceil(g.nx * g.dx / cell), ncy = Math.ceil(g.ny * g.dx / cell);
+        var c = map.getCenter();
+        var mpp = 156543.03392 * Math.cos(c.lat * Math.PI / 180) /
+                  Math.pow(2, map.getZoom());
+        var cell = Math.min(4000, Math.max(g.dx, cfg.px * mpp));
+
+        // Viewport (+40%) in 3413, clipped to the AOI.
+        var b = map.getBounds();
+        var mLon = (b.getEast() - b.getWest()) * 0.2;
+        var mLat = (b.getNorth() - b.getSouth()) * 0.2;
+        var xs = [], ys = [];
+        [[b.getWest() - mLon, b.getSouth() - mLat],
+         [b.getEast() + mLon, b.getSouth() - mLat],
+         [b.getWest() - mLon, b.getNorth() + mLat],
+         [b.getEast() + mLon, b.getNorth() + mLat]].forEach(function (p) {
+            var xy = lonLatTo3413(p[0], p[1]);
+            xs.push(xy[0]); ys.push(xy[1]);
+        });
+        var vx0 = Math.max(g.x0, Math.min.apply(null, xs));
+        var vx1 = Math.min(g.x0 + g.nx * g.dx, Math.max.apply(null, xs));
+        var vy1 = Math.min(g.y0_north, Math.max.apply(null, ys));
+        var vy0 = Math.max(g.y0_north - g.ny * g.dx, Math.min.apply(null, ys));
+        if (vx1 <= vx0 || vy1 <= vy0) return;   // AOI fully off-screen
+
+        var cx0 = Math.floor((vx0 - g.x0) / cell), cx1 = Math.floor((vx1 - g.x0) / cell);
+        var cy0 = Math.floor((g.y0_north - vy1) / cell), cy1 = Math.floor((g.y0_north - vy0) / cell);
+        var ncx = cx1 - cx0 + 1, ncy = cy1 - cy0 + 1;
         var counts = new Int16Array(ncx * ncy);
         var byCell = {};
         particles.forEach(function (p) {
             if (p.fade < 1) return;      // dying particles don't hold territory
-            var cx = Math.floor((p.x - g.x0) / cell);
-            var cy = Math.floor((g.y0_north - p.y) / cell);
-            if (cx < 0 || cy < 0 || cx >= ncx || cy >= ncy) return;
-            var k = cy * ncx + cx;
+            var cx = Math.floor((p.x - g.x0) / cell), cy = Math.floor((g.y0_north - p.y) / cell);
+            if (cx < cx0 - 2 || cx > cx1 + 2 || cy < cy0 - 2 || cy > cy1 + 2) {
+                // Far off-screen: retire so the cap serves what's visible.
+                p.fade = Math.min(p.fade, 1 - 1 / FADE_STEPS);
+                return;
+            }
+            if (cx < cx0 || cx > cx1 || cy < cy0 || cy > cy1) return;
+            var k = (cy - cy0) * ncx + (cx - cx0);
             counts[k]++;
             (byCell[k] = byCell[k] || []).push(p);
         });
-        // Over-max: fade the oldest surplus.
         Object.keys(byCell).forEach(function (k) {
             var list = byCell[k];
             if (list.length > cfg.max) {
@@ -371,12 +404,10 @@
                 for (var i = 0; i < list.length - cfg.max; i++) list[i].fade -= 1 / FADE_STEPS;
             }
         });
-        // Under-min: spawn in open ice cells (respect the global cap).
-        if (particles.length >= cfg.cap) return;
-        for (var cy = 0; cy < ncy; cy++) {
-            for (var cx = 0; cx < ncx; cx++) {
-                if (counts[cy * ncx + cx] >= cfg.min) continue;
-                // random point in the cell; keep only if on ice w/ velocity
+        if (particles.length >= GLOBAL_CAP) return;
+        for (var cy = cy0; cy <= cy1; cy++) {
+            for (var cx = cx0; cx <= cx1; cx++) {
+                if (counts[(cy - cy0) * ncx + (cx - cx0)] >= cfg.min) continue;
                 for (var attempt = 0; attempt < 3; attempt++) {
                     var x = g.x0 + cx * cell + Math.random() * cell;
                     var y = g.y0_north - cy * cell - Math.random() * cell;
@@ -385,7 +416,7 @@
                     particles.push({ x: x, y: y, age: 0, fade: 1 });
                     break;
                 }
-                if (particles.length >= cfg.cap) return;
+                if (particles.length >= GLOBAL_CAP) return;
             }
         }
     }
@@ -426,8 +457,11 @@
     sizeCanvas();
     window.addEventListener('resize', sizeCanvas);
     map.on('resize', sizeCanvas);
-    // Trails smear under pan/zoom — clear on any camera move.
+    // Trails smear under pan/zoom — clear on any camera move; after the move
+    // settles, re-manage so newly visible ice seeds (and the zoom-adaptive
+    // density retargets) even while paused.
     map.on('move', function () { ctx.clearRect(0, 0, canvas.width, canvas.height); });
+    map.on('moveend', function () { if (B && simT != null) manageDensity(); });
 
     // Speed color: same log ramp as the ice-v tiles (itslive_color_v.txt).
     var SPEED_RAMP = [
@@ -495,10 +529,22 @@
     var slider = document.getElementById('gl-time');
     var dateEl = document.getElementById('gl-date');
     var playBtn = document.getElementById('gl-play');
-    var YEARS_PER_SEC = 1.25;
     var MAX_STEP = 0.03;                 // yr — sub-steps keep RK2 honest
     var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    // Playback speed select (QuickTime-style). Values = sim-years per second.
+    var speedSel = document.createElement('select');
+    [['0.25', '¼×'], ['0.5', '½×'], ['1', '1×'], ['2', '2×'], ['4', '4×']]
+        .forEach(function (o) {
+            var el = document.createElement('option');
+            el.value = o[0]; el.textContent = o[1];
+            if (o[0] === '1') el.selected = true;
+            speedSel.appendChild(el);
+        });
+    speedSel.title = 'Playback speed (simulated years per second)';
+    speedSel.style.cssText = 'font-size:11px;';
+    playBtn.parentNode.insertBefore(speedSel, playBtn.nextSibling);
 
     function tRange() {
         var ys = B.hdr.years;
@@ -512,37 +558,77 @@
         var mo = Math.min(11, Math.floor((simT - yr) * 12));
         dateEl.textContent = MONTHS[mo] + ' ' + yr;
     }
+
+    // Signed, sub-stepped advance — the one path through which time moves,
+    // whether from play, slider scrubbing, or arrow keys. Negative dt runs
+    // the flow BACKWARDS (RK2 handles it), so wiping the slider drags the
+    // ice back and forth — the trails paint the motion either way.
+    var stepsSinceManage = 0;
+    function advanceBy(dtSim) {
+        if (!B) return;
+        while (Math.abs(dtSim) > 1e-9) {
+            var dt = Math.max(-MAX_STEP, Math.min(MAX_STEP, dtSim));
+            if (cbTracers.checked) stepParticles(dt);
+            setSimT(simT + dt);
+            dtSim -= dt;
+            if (++stepsSinceManage >= 4) { manageDensity(); stepsSinceManage = 0; }
+        }
+    }
+
     slider.addEventListener('input', function () {
         if (!B) return;
         var r = tRange();
-        setSimT(r[0] + (+slider.value) * (r[1] - r[0]), true);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        var target = r[0] + (+slider.value) * (r[1] - r[0]);
+        // Scrubbing DRIVES the simulation (capped per event so a fast drag
+        // stays responsive — time follows the thumb, physics follows time).
+        var d = Math.max(-0.35, Math.min(0.35, target - simT));
+        advanceBy(d);
+        if (Math.abs(target - simT) > 0.001) {
+            // Drag outpaced the cap (a long-throw jump): teleport instead —
+            // path-dependent particles can't meaningfully advect years in
+            // one event, so reset and reseed at the target time.
+            setSimT(target, true);
+            particles = [];
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            manageDensity();
+        }
     });
     playBtn.addEventListener('click', function () {
+        if (!playing && B && simT >= tRange()[1] - 0.01) {
+            // Play pressed at the end — QuickTime behavior: restart.
+            setSimT(tRange()[0]);
+            particles = [];
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
         playing = !playing;
         playBtn.textContent = playing ? '❚❚' : '▶';
     });
 
-    var lastFrame = null, stepsSinceManage = 0;
+    // Arrow keys: one month per press (Shift = one year), either direction.
+    document.addEventListener('keydown', function (e) {
+        if (!B) return;
+        var tag = (e.target && e.target.tagName) || '';
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+        var step = e.shiftKey ? 1 : 1 / 12;
+        if (e.key === 'ArrowRight') { advanceBy(step); e.preventDefault(); }
+        else if (e.key === 'ArrowLeft') { advanceBy(-step); e.preventDefault(); }
+        else if (e.key === ' ') { playBtn.click(); e.preventDefault(); }
+    });
+
+    var lastFrame = null;
     function frame(ts) {
         requestAnimationFrame(frame);
         if (!B) return;
         var dtReal = lastFrame == null ? 0 : Math.min(0.1, (ts - lastFrame) / 1000);
         lastFrame = ts;
-        if (playing && cbTracers.checked) {
-            var dtSim = dtReal * YEARS_PER_SEC;
+        if (playing) {
             var r = tRange();
-            if (simT + dtSim >= r[1]) {        // loop back to the start
-                setSimT(r[0]);
-                particles = [];
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
-            while (dtSim > 0) {
-                var dt = Math.min(dtSim, MAX_STEP);
-                stepParticles(dt);
-                setSimT(simT + dt);
-                dtSim -= dt;
-                if (++stepsSinceManage >= 4) { manageDensity(); stepsSinceManage = 0; }
+            if (simT >= r[1] - 0.002) {
+                // End of the record: STOP (no wrap into the sparse 1980s).
+                playing = false;
+                playBtn.textContent = '▶';
+            } else {
+                advanceBy(Math.min(dtReal * parseFloat(speedSel.value), r[1] - 0.001 - simT));
             }
         } else if (cbTracers.checked && B && particles.length === 0 && simT != null) {
             manageDensity();               // paused with no particles → seed
