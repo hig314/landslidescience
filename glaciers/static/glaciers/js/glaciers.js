@@ -416,8 +416,14 @@
                     var x = g.x0 + cx * cell + Math.random() * cell;
                     var y = g.y0_north - cy * cell - Math.random() * cell;
                     if (!onIce(x, y)) continue;
-                    if (!sampleVelocity(x, y, simT)) continue;
+                    var v0 = sampleVelocity(x, y, simT);
+                    if (!v0) continue;
+                    // Seed speed from the sampled field — without it a fresh
+                    // spawn drew at ~0 m/yr (near-black) until its first
+                    // step: phantom "slow" dots amid fast flow, exactly
+                    // where churn respawns most.
                     particles.push({ x: x, y: y, age: 0, fade: 1,
+                                     speed: Math.hypot(v0.vx, v0.vy),
                                      trail: [], dAcc: 0 });
                     break;
                 }
