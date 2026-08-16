@@ -1,8 +1,8 @@
 """Edge-preserving smoothing for the Hugonnet dh/dt source tiles.
 
 Bilateral filter, NoData-aware: each output pixel is the weight-normalized
-mean of its 7x7 neighborhood, weighted by BOTH spatial distance (Gaussian,
-sigma 1.5 px = 150 m) and value similarity (Gaussian, sigma 0.75 m/yr).
+mean of its 9x9 neighborhood, weighted by BOTH spatial distance (Gaussian,
+sigma 2 px = 200 m) and value similarity (Gaussian, sigma 1.0 m/yr).
 The value term is what preserves edges: neighbors across a sharp dh/dt step
 (glacier margins, tidewater drawdown fronts, surge boundaries) contribute
 ~nothing, so steps stay crisp while same-regime noise averages out. That
@@ -28,9 +28,9 @@ from osgeo import gdal
 gdal.UseExceptions()
 
 NODATA = -9999.0
-RADIUS = 3            # 7x7 window
-SIGMA_SPATIAL = 1.5   # pixels (150 m)
-SIGMA_VALUE = 0.75    # m/yr
+RADIUS = 4            # 9x9 window
+SIGMA_SPATIAL = 2.0   # pixels (200 m)
+SIGMA_VALUE = 1.0     # m/yr
 
 
 def bilateral(arr):

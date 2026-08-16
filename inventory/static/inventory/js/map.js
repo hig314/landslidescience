@@ -1407,7 +1407,7 @@
     // Hugonnet et al. 2021 glacier elevation change (dh/dt 2000–2019, 100 m,
     // CC BY 4.0) — self-hosted like the ITS_LIVE pyramids; red = thinning,
     // blue = thickening, near-balance transparent. Bump on tile rebuild.
-    var HUGONNET_TILE_V = '1';
+    var HUGONNET_TILE_V = '2';
     var HUGONNET_TILE_BASE = CFG.hugonnetTileBase || '/tiles/hugonnet/';
     // Thinning-layer variant: standard tiles vs the bilateral-smoothed build
     // with the near-zero-sensitive ramp. Persisted per browser; not encoded
@@ -1459,7 +1459,7 @@
           variant: {
               label: 'smoothed — reveals near-zero change',
               title: 'Edge-preserving (bilateral) smoothing with a color scale ' +
-                     'sensitive down to ±0.08 m/yr — slight thickening becomes visible.',
+                     'sensitive down to ±0.04 m/yr — slight thickening becomes visible.',
               get: function () { return _dhdtVariant; },
               set: function (on) {
                   _dhdtVariant = on;
@@ -2403,9 +2403,10 @@
         // Optional data-variant checkbox (e.g. thinning's smoothed build).
         // Global, not per-pane: both panes' rows show the same state, and
         // toggling swaps the tile source on both maps via _ovSwapSource.
-        var vcb = null;
+        // Grayed (not unchecked) while the overlay itself is off in this pane.
+        var vcb = null, line3 = null;
         if (ov.variant) {
-            var line3 = document.createElement('label');
+            line3 = document.createElement('label');
             line3.style.cssText = 'display:flex;align-items:center;gap:5px;margin-top:4px;' +
                                   'font-size:11px;color:#555;cursor:pointer;';
             if (ov.variant.title) line3.title = ov.variant.title;
@@ -2423,7 +2424,14 @@
             row.appendChild(line3);
         }
 
-        function paint() { line2.style.opacity = st[side] ? 1 : 0.45; }
+        function paint() {
+            line2.style.opacity = st[side] ? 1 : 0.45;
+            if (line3) {
+                line3.style.opacity = st[side] ? 1 : 0.45;
+                vcb.disabled = !st[side];
+                line3.style.cursor = st[side] ? 'pointer' : 'default';
+            }
+        }
         cb.addEventListener('change', function () {
             st[side] = cb.checked;
             _ovSaveState();
