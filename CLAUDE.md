@@ -118,6 +118,35 @@ SQLite — photos are landslide data.
 - Deps Pillow + pillow-heif are baked into the image → deploys that touch
   them need the rebuild (the normal deploy flow covers it).
 
+## /glaciers app (experimental, DEV-ONLY until MVP)
+
+Sibling map app at `/glaciers/` (`glaciers/` Django app; behind the same
+preview-password middleware as /inventory/*). **Do not deploy to prod until
+Hig declares MVP** — explicit instruction, stricter than the usual flow.
+
+- **Shared-module discipline**: basemaps from `basemaps.js`, glacier
+  overlays from `ls_overlays.js` (single source of truth with the inventory
+  map — add/change glacier overlays ONLY there). Planned convergence
+  (in order): shared hash codec (`ls_hash.js`), shared overlay framework
+  (state/rows/ov= codec into ls_overlays.js), shared wiper (`ls_swipe.js`)
+  — each extracted behavior-identical from map.js with the inventory as the
+  regression baseline, then consumed by /glaciers.
+- **Lagrangian tracers**: particles advected through the time-varying
+  ITS_LIVE field (annual vx/vy 1984–2025 + climatological seasonal
+  amp/phase superposition), density-managed respawn with fade-out. Engine:
+  `glaciers/static/glaciers/js/glaciers.js`. Bundles: built by
+  `tools/build_glacier_tracers.py` (venv w/ zarr; reads the v2 annual
+  composite cubes; 240 m int16 gzipped) into `data/glaciers/<slug>.bin.gz`
+  + `.json`, served at `/glaciers/data/` (Content-Encoding: gzip against
+  the .bin URL). Composite-cube dir naming = TRUNCATION toward zero of
+  center lon/lat (verified; script HEAD-probes candidates).
+- **Dev mount**: `./glaciers` is volume-mounted in docker-compose.override
+  like the other app dirs.
+- **Future**: glacier-properties tab paralleling the inventory's landslide
+  tab — eventual input to Bayesian failure-likelihood analysis surfaced in
+  the landslides app. Keep sidebar/tab chrome and per-glacier identity
+  (RGI ids) in mind when refactoring.
+
 ## Pre-launch preview password
 
 While `INVENTORY_PREVIEW_PASSWORD` is set, all `/inventory/*` paths require either authentication OR a session flag set by entering the password at `/inventory/preview/`. **Unset the env var to make `/inventory/*` fully public (post-launch).** `preview_login` short-circuits for an already-authenticated user (or one who already entered the password) — redirecting to `next` instead of showing the form — so a post-login `?next=/inventory/preview/…` redirect chain doesn't strand a logged-in editor on the barrier (and it never bounces `next` back to itself). A logged-in editor who unexpectedly lands here means the request arrived **unauthenticated** (session cookie missing/expired); a fleet-wide logout is almost always a **`DJANGO_SECRET_KEY` change** (settings.py:7 falls back to a constant, so the only way every signed session invalidates at once is the env var changing) — keep it stable in prod `.env`.

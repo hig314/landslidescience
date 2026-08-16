@@ -1,0 +1,74 @@
+{% extends "inventory/base.html" %}
+{% load static %}
+{% block title %}Glacier Dynamics — Alaska{% endblock %}
+{% block page_title %}Glacier dynamics (experimental){% endblock %}
+
+{% block extra_styles %}
+<link href="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  html, body { height: 100%; margin: 0; }
+  #gl-wrap { position: relative; height: calc(100vh - 52px); }
+  #gl-map { position: absolute; inset: 0; }
+  #tracer-canvas { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+  #gl-panel {
+    position: absolute; top: 10px; left: 10px; z-index: 10; width: 240px;
+    background: rgba(255,255,255,0.95); border: 1px solid #d8d2cc; border-radius: 5px;
+    padding: 10px 12px; font-size: 12px; box-shadow: 0 1px 6px rgba(0,0,0,0.18);
+    max-height: calc(100% - 90px); overflow-y: auto;
+  }
+  #gl-panel h3 { font-size: 13px; color: #5D4037; margin: 0 0 6px; }
+  #gl-panel select { width: 100%; font-size: 12px; padding: 3px; margin-bottom: 8px; }
+  #gl-timebar {
+    position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+    z-index: 10; width: min(680px, 90%); background: rgba(255,255,255,0.95);
+    border: 1px solid #d8d2cc; border-radius: 5px; padding: 8px 14px;
+    display: flex; align-items: center; gap: 10px; font-size: 12px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.18);
+  }
+  #gl-timebar input[type=range] { flex: 1; }
+  #gl-play { border: 1px solid #bbb; background: #f4f4f4; border-radius: 3px;
+             font-size: 14px; width: 30px; height: 26px; cursor: pointer; }
+  #gl-date { min-width: 84px; font-variant-numeric: tabular-nums; font-weight: 600; color: #444; }
+  .gl-ov-row { margin: 3px 0; }
+  .gl-ov-row label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
+  .gl-ov-row input[type=range] { width: 100%; height: 12px; }
+  .gl-sub { font-size: 10px; color: #999; }
+</style>
+{% endblock %}
+
+{% block body %}
+<div id="gl-wrap">
+  <div id="gl-map"></div>
+  <canvas id="tracer-canvas"></canvas>
+  <div id="gl-panel">
+    <h3>Glacier dynamics</h3>
+    <select id="gl-site"></select>
+    <div id="gl-basemap-row"></div>
+    <div id="gl-overlays"></div>
+    <div id="gl-tracer-controls"></div>
+    <div class="gl-sub" style="margin-top:8px;">
+      Tracers: NASA MEaSUREs ITS_LIVE annual velocity + seasonal fit ·
+      experimental Lagrangian visualization — particle paths integrate the
+      time-varying velocity field and inherit its artifacts.
+    </div>
+  </div>
+  <div id="gl-timebar">
+    <button id="gl-play" title="Play / pause">▶</button>
+    <input type="range" id="gl-time" min="0" max="1" step="0.002" value="0">
+    <span id="gl-date"></span>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.GL_CONFIG = {
+    catalog: {{ catalog_json|safe }},
+    dataBase: '/glaciers/data/'
+  };
+</script>
+<script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
+<script src="{% static 'inventory/js/basemaps.js' %}"></script>
+<script src="{% static 'inventory/js/ls_overlays.js' %}"></script>
+<script src="{% static 'glaciers/js/glaciers.js' %}"></script>
+{% endblock %}

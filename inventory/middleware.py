@@ -32,8 +32,9 @@ class InventoryPreviewMiddleware:
         # No barrier configured — public mode.
         if not settings.INVENTORY_PREVIEW_PASSWORD:
             return False
-        # Only gate the inventory namespace.
-        if not request.path.startswith('/inventory/'):
+        # Gate the inventory namespace and the (also pre-release) glaciers app.
+        if not (request.path.startswith('/inventory/')
+                or request.path.startswith('/glaciers/')):
             return False
         # Don't gate the preview-login page itself (would loop).
         if request.path == reverse('inventory:preview_login'):

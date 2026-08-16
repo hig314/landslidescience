@@ -1,0 +1,11 @@
+from django.urls import path, re_path
+
+from . import views
+
+app_name = 'glaciers'
+
+urlpatterns = [
+    path('', views.home, name='home'),
+    re_path(r'^data/(?P<name>[a-z0-9-]+\.(?:json|bin))$', views.tracer_data,
+            name='tracer_data'),
+]

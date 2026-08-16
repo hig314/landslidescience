@@ -6,6 +6,7 @@ services:
       - ./pages:/app/pages
       - ./inventory:/app/inventory
       - ./files:/app/files
+      - ./glaciers:/app/glaciers
       - ./landslidescience:/app/landslidescience
       - ./manage.py:/app/manage.py
     networks:

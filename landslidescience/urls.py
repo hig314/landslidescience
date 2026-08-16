@@ -73,6 +73,7 @@ urlpatterns = [
             hugonnet_tile),
     path('admin/', admin.site.urls),
     path('inventory/', include('inventory.urls')),
+    path('glaciers/', include('glaciers.urls')),
     path('files/', include('files.urls')),
     path('', include('pages.urls')),
 ]

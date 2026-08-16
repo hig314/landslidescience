@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'pages',
     'inventory',
     'files',
+    'glaciers',
 ]
 
 MIDDLEWARE = [

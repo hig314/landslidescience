@@ -1392,45 +1392,10 @@
         };
     }
 
-    // ITS_LIVE glacier-velocity composite (NASA MEaSUREs, v2 2014–ish window,
-    // 120 m, CC0). Self-hosted pre-colored tiles baked by
-    // tools/build_itslive_tiles.sh (log ramps; trend has a transparent
-    // dead-band near zero). Bump ITSLIVE_TILE_V on any tile rebuild — the
-    // route serves a 1-year immutable header.
-    var ITSLIVE_TILE_V = '1';
-    var ITSLIVE_TILE_BASE = CFG.itsliveTileBase || '/tiles/itslive/';
-    var ITSLIVE_ATTR = 'ITS_LIVE velocity (auto-RIFT; Gardner et al. 2018) · NASA MEaSUREs';
-    function _itsliveSourceDef(key) {
-        return {
-            type: 'raster',
-            tiles: [ITSLIVE_TILE_BASE + key + '/{z}/{x}/{y}.png?v=' + ITSLIVE_TILE_V],
-            tileSize: 256,
-            minzoom: 3,
-            maxzoom: 10,
-            attribution: ITSLIVE_ATTR
-        };
-    }
-
-    // Hugonnet et al. 2021 glacier elevation change (dh/dt 2000–2019, 100 m,
-    // CC BY 4.0) — self-hosted like the ITS_LIVE pyramids; red = thinning,
-    // blue = thickening, near-balance transparent. Bump on tile rebuild.
-    var HUGONNET_TILE_V = '2';
-    var HUGONNET_TILE_BASE = CFG.hugonnetTileBase || '/tiles/hugonnet/';
-    // Thinning-layer variant: standard tiles vs the bilateral-smoothed build
-    // with the near-zero-sensitive ramp. Persisted per browser; not encoded
-    // in the ov= hash (shared links show the standard variant).
-    var _dhdtVariant = false;
-    try { _dhdtVariant = localStorage.getItem('ls_dhdt_variant') === '1'; } catch (e) {}
-    function _hugonnetSourceDef(key) {
-        return {
-            type: 'raster',
-            tiles: [HUGONNET_TILE_BASE + key + '/{z}/{x}/{y}.png?v=' + HUGONNET_TILE_V],
-            tileSize: 256,
-            minzoom: 3,
-            maxzoom: 10,
-            attribution: 'Glacier elevation change © Hugonnet et al. 2021 (CC BY 4.0)'
-        };
-    }
+    // ITS_LIVE + Hugonnet glacier overlays are defined ONCE in the shared
+    // module (ls_overlays.js — also consumed by the /glaciers app); merged
+    // into the OVERLAYS registry below. Tile-base overrides come from CFG
+    // for snapshot bundles.
 
     // Registry — order = draw order (later entries render on top). Susc layer
     // ids are unchanged so the trace-raster insertion chain keeps working.
@@ -1447,33 +1412,10 @@
         { id: 'opera-desc', layerId: 'ov-opera-desc',   sourceId: 'ov-opera-desc-src',
           label: 'OPERA velocity — descending', sub: 'InSAR, ±30 mm/yr · NASA/JPL + ASF',
           sourceDef: function () { return _operaSourceDef('desc'); }, defOpacity: 0.75 },
-        { id: 'ice-v',    layerId: 'ov-ice-v',    sourceId: 'ov-ice-v-src',
-          label: 'Glacier speed', sub: 'ITS_LIVE 2014–2022 composite, 120 m · NASA',
-          sourceDef: function () { return _itsliveSourceDef('v'); }, defOpacity: 0.85 },
-        { id: 'ice-amp',  layerId: 'ov-ice-amp',  sourceId: 'ov-ice-amp-src',
-          label: 'Glacier seasonal amplitude', sub: 'ITS_LIVE v_amp, 120 m · NASA',
-          sourceDef: function () { return _itsliveSourceDef('vamp'); }, defOpacity: 0.85 },
-        { id: 'ice-dvdt', layerId: 'ov-ice-dvdt', sourceId: 'ov-ice-dvdt-src',
-          label: 'Glacier speed trend', sub: 'ITS_LIVE dv/dt — red speeding, blue slowing · NASA',
-          sourceDef: function () { return _itsliveSourceDef('dvdt'); }, defOpacity: 0.9 },
-        { id: 'ice-dhdt', layerId: 'ov-ice-dhdt', sourceId: 'ov-ice-dhdt-src',
-          label: 'Glacier thinning', sub: 'dh/dt 2000–2019, red thinning · Hugonnet et al. 2021',
-          sourceDef: function () { return _hugonnetSourceDef(_dhdtVariant ? 'dhdt_smooth' : 'dhdt'); },
-          defOpacity: 0.9,
-          // Variant checkbox on the overlay row: swaps the tile set for the
-          // bilateral-smoothed build with the near-zero-sensitive ramp.
-          // One global flag (a data variant, not a per-pane display choice).
-          variant: {
-              label: 'smoothed — reveals near-zero change',
-              title: 'Edge-preserving (bilateral) smoothing with a color scale ' +
-                     'sensitive down to ±0.04 m/yr — slight thickening becomes visible.',
-              get: function () { return _dhdtVariant; },
-              set: function (on) {
-                  _dhdtVariant = on;
-                  try { localStorage.setItem('ls_dhdt_variant', on ? '1' : '0'); } catch (e) {}
-              }
-          } },
-    ];
+    ].concat(window.LSOverlays.glacierOverlays({
+        itsliveBase: CFG.itsliveTileBase,
+        hugonnetBase: CFG.hugonnetTileBase
+    }));
     // Per-overlay state: shown on the left (main) pane, shown on the right
     // (wiper) pane, and a per-pane opacity. Each pane has its own control
     // panel — the sidebar's Overlays section drives the left pane, the
