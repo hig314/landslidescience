@@ -428,7 +428,8 @@
                     // where churn respawns most.
                     particles.push({ x: x, y: y, age: 0, fade: 1,
                                      speed: Math.hypot(v0.vx, v0.vy),
-                                     trail: [], dAcc: 0 });
+                                     trail: [], dAcc: 0, pathLen: 0,
+                                     dirX: v0.vx, dirY: v0.vy });
                     break;
                 }
                 if (particles.length >= GLOBAL_CAP) return;
@@ -451,13 +452,20 @@
     // of vanishing with a frame-clock. Reverse scrubbing UNWINDS the path
     // (future vertices drop as time walks back).
     var TRAIL_DM = 120;        // m between recorded vertices (~half a cell)
-    var TRAIL_MAX = 240;       // vertex cap per particle (~29 km of path)
+    var TRAIL_TURN = 0.35;     // rad (~20°) — heading change forces a vertex
+    var TRAIL_TURN_DMIN = 25;  // m — min spacing for turn-triggered vertices
+    var TRAIL_MAX = 240;       // vertex cap per particle
     var TRAIL_D0 = 2200;       // m — distance-fade scale of the tail
-    var TRAIL_T0 = 5;          // yr — age-fade scale (slow tails persist ~years)
+    var TRAIL_T0 = 10;         // yr — age-fade scale (slow tails persist ~decade)
 
+    // Trail entries are 4 floats: x, y, t, cumulative path length at record.
+    // Distance-triggered AND turn-triggered (a straight head→vertex chord
+    // pivots visibly through curved motion; turning records early so the
+    // rendered polyline follows the real path). Cumulative distance keeps
+    // the alpha fade honest with variable vertex spacing.
     function recordVertex(p, t) {
-        p.trail.push(p.x, p.y, t);
-        if (p.trail.length > TRAIL_MAX * 3) p.trail.splice(0, 60 * 3);
+        p.trail.push(p.x, p.y, t, p.pathLen);
+        if (p.trail.length > TRAIL_MAX * 4) p.trail.splice(0, 60 * 4);
     }
 
     // Fade progression is DISPLAY-time (per rendered frame, see
@@ -491,8 +499,20 @@
                 p.y += ddy;
                 t += h;
                 p.speed = Math.hypot(v2.vx, v2.vy);
-                p.dAcc += Math.hypot(ddx, ddy);
-                if (p.dAcc >= TRAIL_DM) { recordVertex(p, t); p.dAcc = 0; }
+                var stepD = Math.hypot(ddx, ddy);
+                p.dAcc += stepD;
+                p.pathLen += stepD;
+                var doRecord = p.dAcc >= TRAIL_DM;
+                if (!doRecord && p.dAcc >= TRAIL_TURN_DMIN && (p.dirX || p.dirY)) {
+                    var dot = (v2.vx * p.dirX + v2.vy * p.dirY) /
+                        ((Math.hypot(v2.vx, v2.vy) * Math.hypot(p.dirX, p.dirY)) + 1e-9);
+                    doRecord = Math.acos(Math.max(-1, Math.min(1, dot))) > TRAIL_TURN;
+                }
+                if (doRecord) {
+                    recordVertex(p, t);
+                    p.dAcc = 0;
+                    p.dirX = v2.vx; p.dirY = v2.vy;
+                }
                 if (s < nSub - 1) {
                     v = sampleVelocity(p.x, p.y, t);
                     if (!v) break;
@@ -501,7 +521,7 @@
             if (dt < 0 && p.trail.length) {
                 // Walking backwards: drop vertices from the (now-)future.
                 var L = p.trail.length;
-                while (L >= 3 && p.trail[L - 1] > simT) L -= 3;
+                while (L >= 4 && p.trail[L - 2] > simT) L -= 4;
                 if (L < p.trail.length) p.trail.length = L;
             }
             if (!onIce(p.x, p.y)) p.fade = Math.min(p.fade, 1 - 1 / FADE_STEPS);
@@ -604,16 +624,16 @@
                 // can exceed the dot size at high zoom, and a tail must never
                 // be gappier than the tracer.
                 ctx.strokeStyle = speedColorQ(p.speed || 0);
-                var nv = p.trail.length / 3;
+                var nv = p.trail.length / 4;
                 var prevX = pt.x, prevY = pt.y;
                 var band = -1, open = false, drawn = 0;
                 for (var k = nv - 1; k >= 0; k -= stride) {
-                    var d = (nv - k) * TRAIL_DM;   // ground distance from head
-                    var ageT = simT - p.trail[k * 3 + 2];
+                    var d = p.pathLen - p.trail[k * 4 + 3];  // true path distance from head
+                    var ageT = simT - p.trail[k * 4 + 2];
                     var a = p.fade * Math.exp(-d / TRAIL_D0) *
                             Math.exp(-Math.max(0, ageT) / TRAIL_T0);
                     if (a < 0.035) break;          // monotone decreasing → done
-                    var tll = ll3413ToLonLat(p.trail[k * 3], p.trail[k * 3 + 1]);
+                    var tll = ll3413ToLonLat(p.trail[k * 4], p.trail[k * 4 + 1]);
                     var tp = map.project(tll);
                     var b = Math.min(5, (a * 6) | 0);
                     if (b !== band) {
@@ -721,9 +741,9 @@
     // -----------------------------------------------------------------
     var targetT = null;
     var KF_DT = 0.5;              // sim-years between keyframes
-    var KF_TRAIL = 12;            // stored tail vertices (~1.4 km — the bright part)
+    var KF_TRAIL = 12;            // stored tail vertices (the bright part)
     var _kf = new Map();          // key: Math.round(t / KF_DT) → {t, n, data}
-    var _kfStride = 5 + KF_TRAIL * 3;
+    var _kfStride = 6 + KF_TRAIL * 4;   // x,y,age,fade,speed,pathLen + 4/vertex
 
     function _kfMax() {
         var bytes = Math.max(1, particles.length) * _kfStride * 4;
@@ -737,15 +757,16 @@
             var p = particles[i], o = i * _kfStride;
             data[o] = p.x; data[o + 1] = p.y; data[o + 2] = p.age;
             data[o + 3] = p.fade; data[o + 4] = p.speed || 0;
-            var nv = p.trail.length / 3;
+            data[o + 5] = p.pathLen || 0;
+            var nv = p.trail.length / 4;
             var take = Math.min(KF_TRAIL, nv);
             for (var k = 0; k < take; k++) {
-                var src = (nv - take + k) * 3;
-                var d = o + 5 + k * 3;
+                var src = (nv - take + k) * 4;
+                var d = o + 6 + k * 4;
                 data[d] = p.trail[src]; data[d + 1] = p.trail[src + 1];
-                data[d + 2] = p.trail[src + 2];
+                data[d + 2] = p.trail[src + 2]; data[d + 3] = p.trail[src + 3];
             }
-            for (var k2 = take; k2 < KF_TRAIL; k2++) data[o + 5 + k2 * 3 + 2] = NaN;
+            for (var k2 = take; k2 < KF_TRAIL; k2++) data[o + 6 + k2 * 4 + 2] = NaN;
         }
         _kf.set(key, { t: simT, n: particles.length, data: data });
         // Evict the keyframe farthest from now once over budget.
@@ -765,11 +786,13 @@
             var o = i * _kfStride;
             var p = { x: kf.data[o], y: kf.data[o + 1], age: kf.data[o + 2],
                       fade: kf.data[o + 3], speed: kf.data[o + 4],
-                      trail: [], dAcc: 0 };
+                      pathLen: kf.data[o + 5],
+                      trail: [], dAcc: 0, dirX: 0, dirY: 0 };
             for (var k = 0; k < KF_TRAIL; k++) {
-                var d = o + 5 + k * 3;
+                var d = o + 6 + k * 4;
                 if (kf.data[d + 2] === kf.data[d + 2]) {   // t not NaN
-                    p.trail.push(kf.data[d], kf.data[d + 1], kf.data[d + 2]);
+                    p.trail.push(kf.data[d], kf.data[d + 1],
+                                 kf.data[d + 2], kf.data[d + 3]);
                 }
             }
             particles.push(p);
@@ -827,8 +850,12 @@
         if (targetT != null) {
             // A long throw with a nearer keyframe: jump the physics there
             // first, then integrate only the remainder.
+            // Restore only when it saves substantial integration (>1.25 yr):
+            // a restore SWAPS the live population for the snapshot's, which
+            // reads as "points resetting" — most visible in slow areas where
+            // the honest recompute is what preserves continuity.
             var kf = _kfNearest(targetT);
-            if (kf && Math.abs(kf.t - targetT) + 0.3 < Math.abs(simT - targetT)) {
+            if (kf && Math.abs(kf.t - targetT) + 1.25 < Math.abs(simT - targetT)) {
                 _kfRestore(kf);
                 manageDensity();   // refill for the current zoom/view
             }
