@@ -417,7 +417,8 @@
                     var y = g.y0_north - cy * cell - Math.random() * cell;
                     if (!onIce(x, y)) continue;
                     if (!sampleVelocity(x, y, simT)) continue;
-                    particles.push({ x: x, y: y, age: 0, fade: 1 });
+                    particles.push({ x: x, y: y, age: 0, fade: 1,
+                                     trail: [], dAcc: 0 });
                     break;
                 }
                 if (particles.length >= GLOBAL_CAP) return;
@@ -431,6 +432,23 @@
     // particles sub-step so no single step exceeds ~half a cell; slow ones
     // pay nothing.
     var DMAX_M = 130;
+
+    // Trail model: each particle records a path vertex every TRAIL_DM meters
+    // of INTEGRATED motion (honest history — a 20 m/yr particle records one
+    // vertex per ~6 years, a 5 km/yr trunk one per ~9 days). Rendering fades
+    // by distance-from-head (D0) times a slow age term (T0, years), so fast
+    // ice keeps its long tails while slow tails persist for years instead
+    // of vanishing with a frame-clock. Reverse scrubbing UNWINDS the path
+    // (future vertices drop as time walks back).
+    var TRAIL_DM = 120;        // m between recorded vertices (~half a cell)
+    var TRAIL_MAX = 240;       // vertex cap per particle (~29 km of path)
+    var TRAIL_D0 = 2200;       // m — distance-fade scale of the tail
+    var TRAIL_T0 = 5;          // yr — age-fade scale (slow tails persist ~years)
+
+    function recordVertex(p, t) {
+        p.trail.push(p.x, p.y, t);
+        if (p.trail.length > TRAIL_MAX * 3) p.trail.splice(0, 60 * 3);
+    }
 
     function stepParticles(dt) {
         for (var n = particles.length - 1; n >= 0; n--) {
@@ -448,14 +466,23 @@
             for (var s = 0; s < nSub; s++) {
                 var mx = p.x + v.vx * h / 2, my = p.y + v.vy * h / 2;
                 var v2 = sampleVelocity(mx, my, t + h / 2) || v;
-                p.x += v2.vx * h;
-                p.y += v2.vy * h;
+                var ddx = v2.vx * h, ddy = v2.vy * h;
+                p.x += ddx;
+                p.y += ddy;
                 t += h;
                 p.speed = Math.hypot(v2.vx, v2.vy);
+                p.dAcc += Math.hypot(ddx, ddy);
+                if (p.dAcc >= TRAIL_DM) { recordVertex(p, t); p.dAcc = 0; }
                 if (s < nSub - 1) {
                     v = sampleVelocity(p.x, p.y, t);
                     if (!v) break;
                 }
+            }
+            if (dt < 0 && p.trail.length) {
+                // Walking backwards: drop vertices from the (now-)future.
+                var L = p.trail.length;
+                while (L >= 3 && p.trail[L - 1] > simT) L -= 3;
+                if (L < p.trail.length) p.trail.length = L;
             }
             if (!onIce(p.x, p.y)) p.fade = Math.min(p.fade, 1 - 1 / FADE_STEPS);
         }
@@ -477,10 +504,10 @@
     sizeCanvas();
     window.addEventListener('resize', sizeCanvas);
     map.on('resize', sizeCanvas);
-    // Trails smear under pan/zoom — clear on any camera move; after the move
-    // settles, re-manage so newly visible ice seeds (and the zoom-adaptive
-    // density retargets) even while paused.
-    map.on('move', function () { ctx.clearRect(0, 0, canvas.width, canvas.height); });
+    // Trails are re-rendered from recorded paths every frame, so they
+    // survive pan/zoom (no accumulation buffer to smear). After a move
+    // settles, re-manage so newly visible ice seeds and the zoom-adaptive
+    // density retargets even while paused.
     map.on('moveend', function () { if (B && simT != null) manageDensity(); });
 
     // Speed color: same log ramp as the ice-v tiles (itslive_color_v.txt).
@@ -522,23 +549,52 @@
 
     function draw() {
         var w = canvas.getBoundingClientRect().width, h = canvas.getBoundingClientRect().height;
-        if (cbTrails.checked) {
-            ctx.globalCompositeOperation = 'destination-out';
-            ctx.fillStyle = 'rgba(0,0,0,0.045)';
-            ctx.fillRect(0, 0, w, h);
-            ctx.globalCompositeOperation = 'source-over';
-        } else {
-            ctx.clearRect(0, 0, w, h);
-        }
+        ctx.clearRect(0, 0, w, h);
         if (!cbTracers.checked || !B) return;
+
+        // Zoom-aware vertex stride: recorded spacing is TRAIL_DM meters;
+        // render only every k-th vertex so on-screen spacing stays ≈ the
+        // tracer size (never denser than needed, never sparser than the dot).
+        var c = map.getCenter();
+        var mpp = 156543.03392 * Math.cos(c.lat * Math.PI / 180) /
+                  Math.pow(2, map.getZoom());
+        var vertPx = TRAIL_DM / mpp;
+        var stride = Math.max(1, Math.round(2.4 / vertPx));
+        var strideM = stride * TRAIL_DM;
+        var drawTrails = cbTrails.checked;
+
         for (var n = 0; n < particles.length; n++) {
             var p = particles[n];
             var ll = ll3413ToLonLat(p.x, p.y);
             var pt = map.project(ll);
-            if (pt.x < -10 || pt.y < -10 || pt.x > w + 10 || pt.y > h + 10) continue;
-            ctx.globalAlpha = Math.max(0, Math.min(1, p.fade));
-            ctx.fillStyle = speedColorQ(p.speed || 0);
-            ctx.fillRect(pt.x - 1, pt.y - 1, 2.6, 2.6);
+            var headVisible = !(pt.x < -10 || pt.y < -10 || pt.x > w + 10 || pt.y > h + 10);
+
+            if (drawTrails && p.trail.length) {
+                var col = speedColorQ(p.speed || 0);
+                ctx.fillStyle = col;
+                var nv = p.trail.length / 3;
+                var drawn = 0;
+                // newest → oldest, alpha = fade × distance-decay × age-decay
+                for (var k = nv - 1 - ((nv - 1) % stride); k >= 0; k -= stride) {
+                    var d = (nv - k) * TRAIL_DM;   // ground distance from head
+                    var ageT = simT - p.trail[k * 3 + 2];
+                    var a = p.fade * Math.exp(-d / TRAIL_D0) *
+                            Math.exp(-Math.max(0, ageT) / TRAIL_T0);
+                    if (a < 0.04) break;           // monotone decreasing → done
+                    var tll = ll3413ToLonLat(p.trail[k * 3], p.trail[k * 3 + 1]);
+                    var tp = map.project(tll);
+                    if (tp.x > -10 && tp.y > -10 && tp.x < w + 10 && tp.y < h + 10) {
+                        ctx.globalAlpha = a * 0.8;
+                        ctx.fillRect(tp.x - 0.9, tp.y - 0.9, 2.0, 2.0);
+                    }
+                    if (++drawn >= 80) break;      // per-particle render cap
+                }
+            }
+            if (headVisible) {
+                ctx.globalAlpha = Math.max(0, Math.min(1, p.fade));
+                ctx.fillStyle = speedColorQ(p.speed || 0);
+                ctx.fillRect(pt.x - 1.3, pt.y - 1.3, 2.8, 2.8);
+            }
         }
         ctx.globalAlpha = 1;
     }
