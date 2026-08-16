@@ -433,12 +433,12 @@
     // as you zoom in and the screen reads roughly constant. Spawning is
     // restricted to the viewport (+margin); far-off-screen particles retire
     // to reclaim quota.
-    var DENSITY = {                      // 4x the previous areal density
-        sparse: { px: 22, min: 1, max: 2 },
-        normal: { px: 13, min: 1, max: 2 },
-        dense:  { px: 8,  min: 1, max: 3 }
+    var DENSITY = {                      // 16x the original areal density
+        sparse: { px: 11, min: 1, max: 2 },
+        normal: { px: 7,  min: 1, max: 2 },
+        dense:  { px: 4,  min: 1, max: 3 }
     };
-    var GLOBAL_CAP = 48000;
+    var GLOBAL_CAP = 150000;
     var FADE_STEPS = 30;                 // fade-out length (steps)
     var particles = [];
     var simT = null;                     // current sim time (fractional years)
