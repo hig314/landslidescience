@@ -548,6 +548,9 @@
     var TRAIL_DM = 120;        // m between recorded vertices (~half a cell)
     var TRAIL_TURN = 0.35;     // rad (~20°) — heading change forces a vertex
     var TRAIL_TURN_DMIN = 25;  // m — min spacing for turn-triggered vertices
+    var TRAIL_DT_MAX = 0.1;    // yr — max sim-time between vertices while
+                               // moving: slow complex paths (seasonal loops)
+                               // resolve instead of a pivoting head-chord
     var TRAIL_MAX = 240;       // vertex cap per particle
     var TRAIL_D0 = 2200;       // m — distance-fade scale of the tail
     var TRAIL_T0 = 10;         // yr — age-fade scale (slow tails persist ~decade)
@@ -601,6 +604,14 @@
                     var dot = (v2.vx * p.dirX + v2.vy * p.dirY) /
                         ((Math.hypot(v2.vx, v2.vy) * Math.hypot(p.dirX, p.dirY)) + 1e-9);
                     doRecord = Math.acos(Math.max(-1, Math.min(1, dot))) > TRAIL_TURN;
+                }
+                if (!doRecord && p.dAcc >= 5 && h > 0) {
+                    // Time trigger: any real motion records at least every
+                    // TRAIL_DT_MAX sim-years, so sub-TRAIL_DM wander (slow
+                    // seasonal loops) draws as its actual path.
+                    var lastVT = p.trail.length
+                        ? p.trail[p.trail.length - 2] : -Infinity;
+                    doRecord = (t - lastVT) > TRAIL_DT_MAX;
                 }
                 if (doRecord) {
                     recordVertex(p, t);
