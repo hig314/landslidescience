@@ -456,14 +456,24 @@
         if (p.trail.length > TRAIL_MAX * 3) p.trail.splice(0, 60 * 3);
     }
 
+    // Fade progression is DISPLAY-time (per rendered frame, see
+    // progressFades), not simulation-time: a paused map must still dissolve
+    // over-dense patches (zoom-out leftovers, keyframe restores). Dying
+    // particles freeze in place and skip advection.
+    function progressFades() {
+        for (var n = particles.length - 1; n >= 0; n--) {
+            if (particles[n].fade < 1) {
+                particles[n].fade -= 1 / FADE_STEPS;
+                if (particles[n].fade <= 0) particles.splice(n, 1);
+            }
+        }
+    }
+
     function stepParticles(dt) {
         for (var n = particles.length - 1; n >= 0; n--) {
             var p = particles[n];
             p.age += dt;
-            if (p.fade < 1) {
-                p.fade -= 1 / FADE_STEPS;
-                if (p.fade <= 0) { particles.splice(n, 1); continue; }
-            }
+            if (p.fade < 1) continue;   // dying: frozen, progressFades owns it
             var v1 = sampleVelocity(p.x, p.y, simT);
             if (!v1) { p.fade = Math.min(p.fade, 1 - 1 / FADE_STEPS); continue; }
             var sp1 = Math.hypot(v1.vx, v1.vy);
@@ -836,6 +846,7 @@
         } else if (cbTracers.checked && B && particles.length === 0 && simT != null) {
             manageDensity();               // paused with no particles → seed
         }
+        progressFades();                   // display-time: fades run even paused
         if (!map.isMoving()) draw();       // moving → the map's render event draws
     }
     requestAnimationFrame(frame);
