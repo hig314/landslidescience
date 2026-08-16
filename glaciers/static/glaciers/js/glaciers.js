@@ -71,22 +71,42 @@
     }
     if (window.LSBasemaps.registerProtocols) window.LSBasemaps.registerProtocols();
 
+    // URL hash (shared codec, same grammar as /inventory/): view + basemap +
+    // overlays restore on load; site= and t= are this app's extras.
+    var _hash = window.LSHash ? window.LSHash.parse(location.hash) : { extras: {} };
+    var _currentBasemap = (_hash.base && findBasemap(_hash.base)) ? _hash.base : DEFAULT_BASEMAP;
+    var _hashHadView = _hash.zoom != null;
+    var _hashT = _hash.extras.t != null ? parseFloat(_hash.extras.t) : null;
+
     var map = new maplibregl.Map({
         container: 'gl-map',
-        style: window.LSBasemaps.buildRasterStyle(findBasemap(DEFAULT_BASEMAP)),
-        center: (CFG.catalog[0] && CFG.catalog[0].center) || [-147.07, 61.15],
-        zoom: (CFG.catalog[0] && CFG.catalog[0].zoom) || 10,
+        style: window.LSBasemaps.styleFor(findBasemap(_currentBasemap)),
+        center: _hashHadView ? [_hash.lon, _hash.lat]
+                             : ((CFG.catalog[0] && CFG.catalog[0].center) || [-147.07, 61.15]),
+        zoom: _hashHadView ? _hash.zoom
+                           : ((CFG.catalog[0] && CFG.catalog[0].zoom) || 10),
         transformRequest: window.LSBasemaps.transformRequest,
         attributionControl: { compact: true }
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    // Globe projection — parity with the inventory map (re-assert per style).
+    map.on('style.load', function () {
+        if (typeof map.setProjection === 'function') {
+            try { map.setProjection({ type: 'globe' }); } catch (e) {}
+        }
+    });
 
     // Overlays: the shared glacier set, one simple row each (checkbox +
     // opacity + the thinning variant toggle). No wiper here — the inventory
     // map is the comparison tool; this app spends its complexity on tracers.
     var OVERLAYS = window.LSOverlays.glacierOverlays({});
     var _ovState = {};
-    OVERLAYS.forEach(function (ov) { _ovState[ov.id] = { on: false, op: ov.defOpacity }; });
+    OVERLAYS.forEach(function (ov) {
+        var s = _hash.ov && _hash.ov[ov.id];
+        _ovState[ov.id] = { on: !!(s && s.left),
+                            op: (s && s.opLeft != null) ? s.opLeft : ov.defOpacity };
+        if (ov.variant && s) ov.variant.set(!!s.smooth);
+    });
 
     function ensureOverlays() {
         OVERLAYS.forEach(function (ov) {
@@ -135,10 +155,16 @@
         if (bm.id === DEFAULT_BASEMAP) o.selected = true;
         bmSel.appendChild(o);
     });
+    bmSel.value = _currentBasemap;
     bmSel.addEventListener('change', function () {
         var bm = findBasemap(bmSel.value);
-        if (bm) map.setStyle(window.LSBasemaps.buildRasterStyle(bm));
+        if (!bm) return;
+        _currentBasemap = bm.id;
+        // styleFor, not buildRasterStyle: style-carrying basemaps (Blank
+        // White) need their prebuilt style; diff:false forces the swap.
+        map.setStyle(window.LSBasemaps.styleFor(bm), { diff: false });
         // overlays re-added on style.load
+        writeHash();
     });
     bmRow.appendChild(bmSel);
 
@@ -150,6 +176,7 @@
         var lab = document.createElement('label');
         var cb = document.createElement('input');
         cb.type = 'checkbox';
+        cb.checked = st.on;   // hash-restored state
         var span = document.createElement('span');
         span.textContent = ov.label;
         span.title = ov.sub;
@@ -158,8 +185,9 @@
         var op = document.createElement('input');
         op.type = 'range'; op.min = '10'; op.max = '100';
         op.value = String(Math.round(st.op * 100));
-        op.style.display = 'none';
+        op.style.display = st.on ? '' : 'none';
         op.addEventListener('input', function () { st.op = (+op.value) / 100; applyOverlays(); });
+        op.addEventListener('change', writeHash);
         row.appendChild(op);
         var vlab = null, vcb = null;
         if (ov.variant) {
@@ -172,10 +200,11 @@
             vcb.addEventListener('change', function () {
                 ov.variant.set(vcb.checked);
                 swapOverlaySource(ov);
+                writeHash();
             });
             vlab.appendChild(vcb);
             vlab.appendChild(document.createTextNode(ov.variant.label));
-            vlab.style.display = 'none';
+            vlab.style.display = st.on ? 'flex' : 'none';
             row.appendChild(vlab);
         }
         cb.addEventListener('change', function () {
@@ -183,6 +212,7 @@
             op.style.display = st.on ? '' : 'none';
             if (vlab) vlab.style.display = st.on ? 'flex' : 'none';
             ensureOverlays();
+            writeHash();
         });
         ovWrap.appendChild(row);
     });
@@ -612,7 +642,37 @@
     // survive pan/zoom (no accumulation buffer to smear). After a move
     // settles, re-manage so newly visible ice seeds and the zoom-adaptive
     // density retargets even while paused.
-    map.on('moveend', function () { if (B && simT != null) manageDensity(); });
+    map.on('moveend', function () {
+        if (B && simT != null) manageDensity();
+        writeHash();
+    });
+
+    // Hash writer — same replaceState pattern as the inventory map. simT is
+    // written only when settled (no churn during play/catch-up; play pause,
+    // convergence, and discrete controls all call this).
+    function writeHash() {
+        if (!window.LSHash || !map) return;
+        var c = map.getCenter();
+        var ov = {};
+        OVERLAYS.forEach(function (o) {
+            var st = _ovState[o.id];
+            if (st.on) {
+                ov[o.id] = { left: true, opLeft: st.op,
+                             smooth: !!(o.variant && o.variant.get()) };
+            }
+        });
+        var h = window.LSHash.encode({
+            zoom: map.getZoom(), lat: c.lat, lon: c.lng,
+            base: _currentBasemap !== DEFAULT_BASEMAP ? _currentBasemap : null,
+            ov: Object.keys(ov).length ? ov : null,
+            extras: {
+                site: siteSel.value || null,
+                t: (simT != null && !playing && targetT == null)
+                    ? simT.toFixed(2) : null
+            }
+        });
+        if (location.hash !== h) history.replaceState(null, '', h);
+    }
     // While the camera is MOVING, draw inside MapLibre's render pass — the
     // overlay then projects with exactly the transform the basemap frame
     // used. A free-running rAF samples the camera at a slightly different
@@ -904,6 +964,7 @@
         }
         playing = !playing;
         playBtn.textContent = playing ? '❚❚' : '▶';
+        if (!playing) writeHash();   // pausing settles t=
     });
 
     // Arrow keys: one month per press (Shift = one year), either direction —
@@ -950,6 +1011,7 @@
             if (Math.abs(targetT - simT) <= 5e-4) {
                 targetT = null;
                 setSimT(simT);     // re-sync thumb + drop the ellipsis
+                writeHash();       // settled time → persist t=
             }
         } else if (playing) {
             var r = tRange();
@@ -980,17 +1042,36 @@
         dateEl.textContent = 'loading…';
         loadBundle(slug).then(function (bundle) {
             B = bundle;
-            setSimT(tRange()[0]);
+            // First load honors a hash-restored time; later loads start at
+            // the range start. Clamp handles stale t= values gracefully.
+            var t0 = tRange()[0];
+            if (_hashT != null && isFinite(_hashT)) {
+                t0 = Math.min(tRange()[1] - 0.001, Math.max(t0, _hashT));
+                _hashT = null;   // consume once
+            }
+            setSimT(t0);
             particles = [];
             manageDensity();
-            if (entry && entry.center) {
+            // A hash-restored view outranks the site's default framing —
+            // but only on the initial load (consume once).
+            if (_hashHadView) {
+                _hashHadView = false;
+            } else if (entry && entry.center) {
                 map.jumpTo({ center: entry.center, zoom: entry.zoom || 10 });
             }
+            writeHash();
         }).catch(function (e) {
             dateEl.textContent = 'no data';
             console.error('tracer bundle load failed:', e);
         });
     }
     siteSel.addEventListener('change', function () { activateSite(siteSel.value); });
-    if (CFG.catalog && CFG.catalog.length) activateSite(CFG.catalog[0].slug);
+    var _startSite = (_hash.extras.site &&
+                      (CFG.catalog || []).some(function (c) { return c.slug === _hash.extras.site; }))
+        ? _hash.extras.site
+        : (CFG.catalog && CFG.catalog.length ? CFG.catalog[0].slug : null);
+    if (_startSite) {
+        siteSel.value = _startSite;
+        activateSite(_startSite);
+    }
 })();

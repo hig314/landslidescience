@@ -1714,7 +1714,7 @@
         // basemap layers on top of them — clobbering our beforeId='measure-fill'
         // invariant. Full reload wipes sources+layers, then style.load fires
         // _ensureLayers, then idle fires initDataLayers with beforeId — clean.
-        map.setStyle(bm.style ? bm.style : buildRasterStyle(bm), { diff: false });
+        map.setStyle(LSBasemaps.styleFor(bm), { diff: false });
         // Globe is re-asserted by the persistent 'style.load' handler above.
         if (_mapReady) writeHashState();
     }
@@ -2172,7 +2172,7 @@
         if (_swipe.container) _swipe.container.style.clipPath = 'inset(0 0 0 ' + _swipe.x + '%)';
         if (_swipe.divider) _swipe.divider.style.left = _swipe.x + '%';
     }
-    function _swipeStyleFor(bm) { return bm.style ? bm.style : buildRasterStyle(bm); }
+    function _swipeStyleFor(bm) { return LSBasemaps.styleFor(bm); }
 
     function _swipeEnsure() {
         if (_swipe.map) return;

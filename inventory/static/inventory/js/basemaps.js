@@ -224,6 +224,13 @@
     return t;
   }
 
+  // The one way to turn a basemap descriptor into a map style: some
+  // basemaps (e.g. Blank White) carry a prebuilt `style` object instead of
+  // raster-tile params — callers that forget the distinction break on them.
+  function styleFor(bm, opts) {
+    return bm.style ? bm.style : buildRasterStyle(bm, opts);
+  }
+
   window.LSBasemaps = {
     DEFAULTS: DEFAULTS,
     QK_RE: QK_RE,
@@ -231,6 +238,7 @@
     transformRequest: transformRequest,
     registerProtocols: registerProtocols,
     buildRasterStyle: buildRasterStyle,
+    styleFor: styleFor,
     thumbnailUrl: thumbnailUrl,
   };
 })();
