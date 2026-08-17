@@ -18,7 +18,10 @@ Quarterly medians: pairs weighted equally, |v| > 20 km/yr discarded,
 quarters with < MIN_PAIRS pairs per pixel -> NoData. Ice mask reuses the
 main bundle's landice.
 
-Usage: python tools/build_glacier_recent.py [slug ...]   (default: all)
+Usage: python tools/build_glacier_recent.py [--since=YYYY] [slug ...]
+       (default: all sites, since 2024 — --since=2013 excavates the full
+       Landsat-8-era record; earlier optical pair density won't support
+       quarterly fits and mostly yields MIN_PAIRS holes)
 """
 import datetime as dt
 import gzip
@@ -40,6 +43,17 @@ OUT_DIR = Path(__file__).resolve().parent.parent / 'data' / 'glaciers'
 CUTOFF = dt.date(2024, 1, 1)     # composite quarters from here forward
 MIN_PAIRS = 3                    # per-pixel pairs needed for a quarter
 VMAX = 20000.0
+
+# Maximum image-pair SEPARATION, days. This is load-bearing, not tuning:
+# long-separation pairs on fast ice report near-ZERO because the surface
+# decorrelates over kilometres of displacement, and mixing them into a
+# quarterly median drags it toward garbage. Verified on Columbia's trunk
+# (tools/sweep_pairs.py): pairs under ~100 d agree at ~4,700-4,800 m/yr,
+# while 200-400 d pairs report a median of 20 m/yr and 400-600 d pairs
+# 5 m/yr at the same pixel. The pre-fix composite read 1,171 m/yr where
+# short pairs said 4,906. A pair longer than the quarter also cannot
+# describe that quarter, so this bound is physical on both counts.
+DT_MAX = 120.0
 PREFETCH_WORKERS = 16
 
 
@@ -196,8 +210,19 @@ def build(slug):
 
         fillx = vxa.fill_value
         d_recent = dates[i0:i1 + 1]
+        # Separation filter — see DT_MAX. Without it, decorrelated long
+        # pairs (near-zero on fast ice) dominate the median and the
+        # composite reads a fraction of the true speed.
+        try:
+            dt_days = np.asarray(g['date_dt'][i0:i1 + 1], np.float32)
+            short = dt_days <= DT_MAX
+        except Exception:
+            print('    WARNING: date_dt unavailable — no separation filter!')
+            short = np.ones(d_recent.shape, bool)
+        print(f'    separation filter <= {DT_MAX:.0f} d keeps '
+              f'{int(short.sum())}/{short.size} pairs', flush=True)
         q_masks = [(qi, (d_recent >= np.datetime64(qs, 'D')) &
-                        (d_recent < np.datetime64(qe, 'D')))
+                        (d_recent < np.datetime64(qe, 'D')) & short)
                    for qi, (qc, qs, qe) in enumerate(quarters)]
 
         flip = 1 if iy[sy0] < iy[sy1 - 1] else -1
@@ -287,6 +312,13 @@ def build(slug):
 
 
 if __name__ == '__main__':
-    targets = sys.argv[1:] or list(AOIS)
+    args = []
+    for a in sys.argv[1:]:
+        if a.startswith('--since='):
+            CUTOFF = dt.date(int(a.split('=')[1]), 1, 1)
+        else:
+            args.append(a)
+    targets = args or list(AOIS)
+    print(f'compositing quarters since {CUTOFF}')
     for slug in targets:
         build(slug)
