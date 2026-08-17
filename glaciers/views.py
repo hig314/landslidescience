@@ -46,6 +46,15 @@ def home(request):
 
 
 @require_safe
+def pairs(request):
+    """Raw image-pair viewer — the literal counterpart to the tracer app.
+    Bundle built by tools/build_pair_vectors.py from a sweep_pairs.py sweep."""
+    return render(request, 'glaciers/pairs.html', {
+        'bundle': request.GET.get('bundle', 'columbia_pairs'),
+    })
+
+
+@require_safe
 def tracer_data(request, name):
     """Serve a tracer bundle file (<slug>.json header or <slug>.bin arrays).
     The URL regex constrains `name` to a safe token — no traversal.
@@ -53,8 +62,17 @@ def tracer_data(request, name):
     .bin bundles are stored pre-gzipped (<slug>.bin.gz) and served with
     Content-Encoding: gzip against the .bin URL — the browser inflates and
     the JS sees the raw int16 buffer. ~4-5x smaller on the wire."""
-    gz = DATA_DIR / (name + '.gz')
-    path = DATA_DIR / name
+    # Site bundles live in data/glaciers/; experiment bundles (raw
+    # image-pair vectors) in data/glaciers/experiments/. Try both — the
+    # URL regex already constrains `name` to a safe token.
+    for base in (DATA_DIR, DATA_DIR / 'experiments'):
+        if (base / name).exists() or (base / (name + '.gz')).exists():
+            DIR = base
+            break
+    else:
+        raise Http404
+    gz = DIR / (name + '.gz')
+    path = DIR / name
     encoding = None
     if name.endswith('.bin') and gz.exists():
         path, encoding = gz, 'gzip'
