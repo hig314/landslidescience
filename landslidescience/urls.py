@@ -63,6 +63,20 @@ def hugonnet_tile(request, var, z, x, y):
     return resp
 
 
+# Our own robust fit of the raw ITS_LIVE image pairs (tools/fit_pair_rasters.py
+# -> tools/build_fit_tiles.sh), coloured with the SAME ramps as the standard
+# ITS_LIVE overlays so a visual difference is a data difference. Experimental,
+# and currently only covers the Columbia test box.
+_FIT_TILES_DIR = settings.BASE_DIR / 'data' / 'glaciers' / 'fit_tiles'
+
+
+def glacierfit_tile(request, var, z, x, y):
+    resp = static_serve(request, f'{var}/{z}/{x}/{y}.png',
+                         document_root=str(_FIT_TILES_DIR))
+    resp['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return resp
+
+
 urlpatterns = [
     path('robots.txt', robots_txt),
     re_path(r'^tiles/susc/(?P<model>lw|n10)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
@@ -71,6 +85,8 @@ urlpatterns = [
             itslive_tile),
     re_path(r'^tiles/hugonnet/(?P<var>dhdt|dhdt_smooth)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             hugonnet_tile),
+    re_path(r'^tiles/glacierfit/(?P<var>v0|amp|trend)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
+            glacierfit_tile),
     path('admin/', admin.site.urls),
     path('inventory/', include('inventory.urls')),
     path('glaciers/', include('glaciers.urls')),

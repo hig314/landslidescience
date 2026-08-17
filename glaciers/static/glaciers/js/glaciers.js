@@ -70,7 +70,33 @@
     // Overlays: the shared glacier set, one simple row each (checkbox +
     // opacity + the thinning variant toggle). No wiper here — the inventory
     // map is the comparison tool; this app spends its complexity on tracers.
-    var OVERLAYS = window.LSOverlays.glacierOverlays({});
+    // Our robust fit of the RAW image pairs (tools/fit_pair_rasters.py),
+    // tiled with the same ramps as the ITS_LIVE layers above so any visible
+    // difference is a data difference. Defined here rather than in the
+    // shared module because it is glaciers-only and experimental — the
+    // inventory map has no business carrying it.
+    var FIT_TILE_V = '1';
+    function _fitSourceDef(key) {
+        return {
+            type: 'raster',
+            tiles: ['/tiles/glacierfit/' + key + '/{z}/{x}/{y}.png?v=' + FIT_TILE_V],
+            tileSize: 256, minzoom: 6, maxzoom: 13,
+            attribution: 'Robust fit of ITS_LIVE image pairs (experimental) · NASA MEaSUREs'
+        };
+    }
+    var FIT_OVERLAYS = [
+        { id: 'fit-v0', layerId: 'ov-fit-v0', sourceId: 'ov-fit-v0-src',
+          label: 'Fitted speed (ours)', sub: 'robust fit of raw pairs @2024.5 · Columbia box only',
+          sourceDef: function () { return _fitSourceDef('v0'); }, defOpacity: 0.9 },
+        { id: 'fit-amp', layerId: 'ov-fit-amp', sourceId: 'ov-fit-amp-src',
+          label: 'Fitted seasonal amplitude (ours)', sub: 'same ramp as ITS_LIVE v_amp · Columbia box only',
+          sourceDef: function () { return _fitSourceDef('amp'); }, defOpacity: 0.9 },
+        { id: 'fit-trend', layerId: 'ov-fit-trend', sourceId: 'ov-fit-trend-src',
+          label: 'Fitted speed trend (ours)', sub: 'same ramp as ITS_LIVE dv/dt · Columbia box only',
+          sourceDef: function () { return _fitSourceDef('trend'); }, defOpacity: 0.9 },
+    ];
+
+    var OVERLAYS = window.LSOverlays.glacierOverlays({}).concat(FIT_OVERLAYS);
     var _ovState = {};
     OVERLAYS.forEach(function (ov) {
         var s = _hash.ov && _hash.ov[ov.id];
