@@ -68,7 +68,7 @@
         elDtVal = document.getElementById('pv-dtval'),
         elMode = document.getElementById('pv-mode'),
         elColor = document.getElementById('pv-color'),
-        elTrails = document.getElementById('pv-trails'),
+        elDecay = document.getElementById('pv-decay'),
         elTime = document.getElementById('pv-time'),
         elDate = document.getElementById('pv-date'),
         elPlay = document.getElementById('pv-play'),
@@ -247,14 +247,19 @@
     function draw() {
         var w = canvas.getBoundingClientRect().width,
             h = canvas.getBoundingClientRect().height;
-        if (elTrails.checked) {
+        var decay = elDecay.value;
+        if (decay === 'trails') {
             ctx.globalCompositeOperation = 'destination-out';
             ctx.fillStyle = 'rgba(0,0,0,0.10)';
             ctx.fillRect(0, 0, w, h);
             ctx.globalCompositeOperation = 'source-over';
-        } else {
+        } else if (decay === 'off') {
             ctx.clearRect(0, 0, w, h);
         }
+        // 'accum': never erase — measurements pile up so a whole season's
+        // (or decade's) sampling builds into one picture. Marks are drawn
+        // fainter so density, not saturation, carries the signal.
+        var accum = decay === 'accum';
         if (!D || simT == null) return;
 
         var lo = dtLo(), hi = dtHi();
@@ -287,11 +292,11 @@
                 var l0 = window.LSProj.toLonLat(xy[0] - vx * yrs, xy[1] - vy * yrs);
                 var q0 = map.project(l0), q1 = map.project(window.LSProj.toLonLat(xy[0], xy[1]));
                 ctx.strokeStyle = col;
-                ctx.globalAlpha = 0.28;
+                ctx.globalAlpha = accum ? 0.10 : 0.28;
                 ctx.beginPath(); ctx.moveTo(q0.x, q0.y); ctx.lineTo(q1.x, q1.y); ctx.stroke();
             }
             if (drawSwarm) {
-                ctx.globalAlpha = 0.85;
+                ctx.globalAlpha = accum ? 0.30 : 0.85;
                 ctx.fillStyle = col;
                 ctx.fillRect(p.x - 1.2, p.y - 1.2, 2.4, 2.4);
             }
@@ -301,7 +306,18 @@
     }
 
     map.on('render', function () { if (D && map.isMoving()) draw(); });
+    // A pan/zoom invalidates accumulated pixels (they were drawn in the old
+    // screen frame), so clear and let the picture rebuild.
+    map.on('movestart', function () {
+        if (elDecay.value === 'accum') ctx.clearRect(0, 0, canvas.width, canvas.height);
+    });
     map.on('moveend', writeHash);
+    // Changing what's drawn should also start the accumulation over.
+    [elDecay, elMode, elColor, elDtMin, elDtMax].forEach(function (el) {
+        el.addEventListener('input', function () {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        });
+    });
 
     var last = null;
     function frame(ts) {
