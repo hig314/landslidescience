@@ -108,11 +108,15 @@
     sel.addEventListener('click', function () { draw.setMode('select'); flashMode('Select a polygon, then drag vertices; click a midpoint to add, right-click a vertex to delete'); });
     var del = btn('🗑 Delete selected', 'Delete the selected polygon');
     del.addEventListener('click', deleteSelected);
+    var detach = btn('⤴ Detach to new landslide',
+      'Move the selected polygon off this landslide and back into your drawing ' +
+      'staging, so you can name and commit it as its own landslide');
+    detach.addEventListener('click', detachSelected);
     var save = btn('Save geometry', 'Persist changes'); save.classList.add('ls-poly-btn-primary');
     save.addEventListener('click', save_);
     var cancel = btn('Cancel', 'Discard changes');
     cancel.addEventListener('click', cancelEdit);
-    [add, sel, del, save, cancel].forEach(function (b) { bar.appendChild(b); });
+    [add, sel, del, detach, save, cancel].forEach(function (b) { bar.appendChild(b); });
     var roles = document.createElement('div'); roles.className = 'ls-poly-roles'; roles.id = 'ls-poly-roles';
     bar.appendChild(roles);
     var status = document.createElement('div'); status.className = 'ls-poly-status'; status.id = 'ls-poly-status';
@@ -290,6 +294,47 @@
     draw.removeFeatures([selectedId]);
     selectedId = null;
     renderNewPolyRoles();
+  }
+
+  // Detach: hand the polygon back to draw staging under a new name instead of
+  // destroying it. Applies IMMEDIATELY server-side (unlike geometry edits,
+  // which batch until Save) because it moves a row between tables — so it
+  // refuses while there are unsaved edits rather than interleaving the two.
+  function detachSelected() {
+    if (!selectedId) { flashMode('Select a polygon first (Select / reshape), then Detach.'); return; }
+    var dbId = uuidToDbId[selectedId];
+    if (dbId == null) {
+      flashMode('That polygon isn\'t saved yet — give it a role and Save first, or just delete it.');
+      return;
+    }
+    if (Object.keys(dirtyDbIds).length) {
+      flashMode('Save or Cancel your geometry edits first, then Detach.');
+      return;
+    }
+    var name = window.prompt(
+      'Detach this polygon into your drawing staging as its own landslide.\n\n' +
+      'Name for the new landslide (must not already exist):');
+    if (name === null) return;
+    name = name.trim();
+    if (!name) { flashMode('A name is required to detach.'); return; }
+    flashMode('Detaching…');
+    // saveUrl is .../polygons/ — the detach route hangs off it.
+    fetch(cfg.saveUrl.replace(/\/?$/, '/') + 'detach/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': cfg.csrftoken },
+      body: JSON.stringify({ polygon_id: dbId, unique_name: name })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (res.ok && res.j.ok) {
+          flashMode('Detached — "' + res.j.staged_name + '" is now in your drawing ' +
+                    'staging on the map page; name/commit it there. Reloading…');
+          setTimeout(function () { window.location.reload(); }, 1800);
+        } else {
+          flashMode((res.j && res.j.error) || 'Detach failed.');
+        }
+      }).catch(function (e) {
+        flashMode('Detach failed: ' + (e && e.message ? e.message : e));
+      });
   }
 
   function teardown() {

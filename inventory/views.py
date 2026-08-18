@@ -2404,6 +2404,98 @@ def _snapshot_polygon(cur, polygon_id, landslide_id, operation, user):
 
 @inventory_editor_required
 @require_POST
+def manage_polygon_detach(request, landslide_id):
+    """Move ONE polygon off this landslide and back into the caller's draw
+    staging, so it re-enters the normal name → preview → commit flow.
+
+    The usual cause is a name collision: a polygon drawn for a genuinely new
+    landslide got absorbed into an existing same-named one (see the attach
+    opt-in in manage_draw_commit). Deleting and redrawing loses the geometry;
+    this keeps it. `provisional_polygons` needs only (editor, name, role,
+    geom), so the round trip reuses every existing screen rather than adding
+    a second "create a landslide" form.
+
+    JSON body: {polygon_id, unique_name}. The pre-detach row is snapshotted to
+    landslide_polygons_history (operation='delete') exactly as a delete would
+    be, so the audit trail is unbroken and it stays recoverable.
+    Returns {ok, staged_name} or {ok:false, error}."""
+    from . import derived
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'ok': False, 'error': 'Bad JSON body.'}, status=400)
+
+    try:
+        polygon_id = int(payload.get('polygon_id'))
+    except (TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'polygon_id is required.'}, status=400)
+    new_name = (payload.get('unique_name') or '').strip()
+    if not new_name:
+        return JsonResponse({'ok': False, 'error':
+                             'A name for the detached landslide is required.'}, status=400)
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT role, landslide_id FROM landslide_polygons WHERE id = %s",
+                    (polygon_id,))
+        row = cur.fetchone()
+        if not row or row[1] != int(landslide_id):
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error':
+                                 'That polygon is not on this landslide.'}, status=404)
+        role = row[0]
+
+        # Refuse to strand a landslide with no geometry — deprecate the whole
+        # record instead if that is really what's wanted.
+        cur.execute("SELECT count(*) FROM landslide_polygons WHERE landslide_id = %s",
+                    (landslide_id,))
+        if (cur.fetchone()[0] or 0) <= 1:
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error':
+                                 'This is the landslide\'s only polygon — detaching it '
+                                 'would leave an empty record. Deprecate the landslide '
+                                 'instead.'}, status=409)
+
+        # A staged name that already exists would just be re-absorbed on commit.
+        cur.execute("SELECT 1 FROM landslides WHERE lower(unique_name) = lower(%s) "
+                    "AND deprecated_at IS NULL", (new_name,))
+        if cur.fetchone():
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error':
+                                 f'"{new_name}" already exists — pick a distinct name, '
+                                 f'or this would merge straight back in.'}, status=409)
+
+        _snapshot_polygon(cur, polygon_id, landslide_id, 'delete', request.user)
+        cur.execute("""
+            INSERT INTO provisional_polygons (editor_id, unique_name, role, geom)
+            SELECT %s, %s, role, geom FROM landslide_polygons WHERE id = %s
+        """, (request.user.id, new_name, polygon_id))
+        cur.execute("DELETE FROM landslide_polygons WHERE id = %s", (polygon_id,))
+
+        # The source landslide just lost geometry: re-assert the is_primary
+        # convention and recompute area/centroid/size/class.
+        derived.normalize_primary(cur, landslide_id)
+        derived.apply_rules_for_landslide(cur, landslide_id)
+        conn.commit()
+    except Exception as exc:                                    # noqa: BLE001
+        conn.rollback()
+        return JsonResponse({'ok': False, 'error':
+                             f'Detach failed — nothing changed. {exc}'}, status=500)
+    finally:
+        _put_conn(conn)
+
+    from .models import LandslideEditMeta
+    LandslideEditMeta.objects.update_or_create(
+        landslide_id=landslide_id, defaults={'last_edited_by': request.user})
+    _invalidate('features', 'home_counts', 'unclassified_count',
+                'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
+    return JsonResponse({'ok': True, 'staged_name': new_name, 'role': role})
+
+
+@inventory_editor_required
+@require_POST
 def manage_polygons_save(request, landslide_id):
     """Persist in-app polygon geometry edits for one landslide.
 
@@ -3135,6 +3227,8 @@ def manage_draw_preview(request):
             warnings.append('duplicate role(s): ' + ', '.join(sorted(dup)))
         groups.append({'unique_name': name, 'roles': roles,
                        'attach_to': (ex[0] if ex else None),
+                       'attach_distance_km': (round(attach_dist.get(name.lower(), 0) / 1000, 1)
+                                              if ex else None),
                        'landslide_type': inferred.get(name) or (ex[1] if ex else None),
                        'warnings': warnings})
 
@@ -3156,6 +3250,7 @@ def manage_draw_commit(request):
 
     conn = _get_conn()
     far = []
+    attach_dist = {}
     try:
         cur = conn.cursor()
         rows = _provisional_rows(cur, request.user.id)
@@ -3179,7 +3274,9 @@ def manage_draw_commit(request):
                 WHERE pp.editor_id = %s AND lower(pp.unique_name) = ANY(%s)
                 GROUP BY pp.unique_name, le.geom
             """, (request.user.id, [n.lower() for n in attach_names]))
-            far = [(nm, d) for nm, d in cur.fetchall() if (d or 0) > _PROV_DISPERSED_M]
+            _dists = cur.fetchall()
+            attach_dist = {nm.lower(): (d or 0.0) for nm, d in _dists}
+            far = [(nm, d) for nm, d in _dists if (d or 0) > _PROV_DISPERSED_M]
         conn.rollback()
     finally:
         _put_conn(conn)
@@ -3194,6 +3291,35 @@ def manage_draw_commit(request):
 
     create_rows = [r for r in rows if r['unique_name'].lower() not in existing]
     attach_rows = [r for r in rows if r['unique_name'].lower() in existing]
+
+    # Attaching to an existing landslide is a real workflow (drawing a source
+    # for a committed deposit) but it is ALSO what an accidental name reuse
+    # looks like, and the merged polygon is tedious to unpick afterwards. The
+    # preview screen said so in passing; that was too quiet to stop anyone.
+    # Require an explicit opt-in naming the landslides that would absorb these
+    # polygons. The distance block above still catches the far case outright.
+    if attach_rows:
+        try:
+            body = json.loads(request.body.decode('utf-8')) if request.body else {}
+        except (ValueError, UnicodeDecodeError):
+            body = {}
+        confirmed = {str(n).lower() for n in (body.get('confirm_attach') or [])}
+        pending = sorted({r['unique_name'] for r in attach_rows
+                          if r['unique_name'].lower() not in confirmed})
+        if pending:
+            return JsonResponse({
+                'ok': False,
+                'needs_confirm': 'attach',
+                'attach': [{
+                    'unique_name': nm,
+                    'landslide_id': existing[nm.lower()][0],
+                    'landslide_type': existing[nm.lower()][1],
+                    'distance_km': round((attach_dist.get(nm.lower()) or 0) / 1000, 1),
+                    'n_polygons': sum(1 for r in attach_rows if r['unique_name'] == nm),
+                } for nm in pending],
+                'error': ('These names already exist — committing will ADD the drawn '
+                          'polygons to those landslides, not create new ones.'),
+            }, status=409)
     created_names = sorted({r['unique_name'] for r in create_rows})
 
     affected_ids = set()

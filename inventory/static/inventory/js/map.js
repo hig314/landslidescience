@@ -908,17 +908,92 @@
         if (!names.length) { if (commitBtn) commitBtn.disabled = true; return; }
         fetch(DRAW_BASE + 'preview/').then(function (r) { return r.json(); }).then(function (pv) {
             if (!pv || !pv.ok) return;
+            // Names that would be ABSORBED by an existing landslide. Drop
+            // confirmations for names no longer staged/attaching, so a rename
+            // correctly re-arms the gate.
+            var stillAttaching = {};
             (pv.groups || []).forEach(function (g) {
                 var el = _drawPanel.querySelector('.idq-warn[data-name="' + (CSS && CSS.escape ? CSS.escape(g.unique_name) : g.unique_name) + '"]');
-                if (el && g.warnings && g.warnings.length) {
+                if (!el) return;
+                if (g.warnings && g.warnings.length) {
                     // "→ adds to existing" is informational, not a warning.
                     el.textContent = g.warnings.map(function (w) {
                         return w.charAt(0) === '→' ? w : '⚠ ' + w;
                     }).join('  ·  ');
+                } else {
+                    el.textContent = '';
                 }
+                if (!g.attach_to) return;
+                stillAttaching[g.unique_name] = true;
+                // Merging into an existing landslide is a legitimate move (a
+                // source drawn for a committed deposit) AND what an accidental
+                // name reuse looks like. Make it a deliberate, unchecked
+                // opt-in right where the name was typed — the alternative is
+                // the ✎ rename beside it.
+                var lab = document.createElement('label');
+                lab.className = 'idq-attach';
+                lab.style.cssText = 'display:block;margin-top:3px;font-size:11px;' +
+                    'color:#7a4b00;background:#fff6e5;border:1px solid #f0d9a8;' +
+                    'border-radius:3px;padding:3px 5px;cursor:pointer;';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = !!_attachOk[g.unique_name];
+                cb.style.cssText = 'margin-right:5px;vertical-align:middle;';
+                cb.addEventListener('change', function () {
+                    if (cb.checked) _attachOk[g.unique_name] = true;
+                    else delete _attachOk[g.unique_name];
+                    updateCommitGate(pv);
+                });
+                lab.appendChild(cb);
+                lab.appendChild(document.createTextNode(
+                    'Add to existing landslide #' + g.attach_to +
+                    (g.landslide_type ? ' (' + g.landslide_type + ')' : '') +
+                    (g.attach_distance_km ? ', ' + g.attach_distance_km + ' km away' : '') +
+                    ' — otherwise rename ✎'));
+                el.appendChild(lab);
             });
-            if (commitBtn) commitBtn.disabled = !!pv.has_block;
+            Object.keys(_attachOk).forEach(function (n) {
+                if (!stillAttaching[n]) delete _attachOk[n];
+            });
+            _attachPending = Object.keys(stillAttaching);
+            updateCommitGate(pv);
         }).catch(function () {});
+    }
+
+    // Names that would be absorbed by an existing landslide, and the ones the
+    // editor has explicitly opted in for (checkbox in the queue row).
+    var _attachPending = [], _attachOk = {};
+
+    // Commit stays disabled while any attach is unconfirmed, so the merge is
+    // never something that just happens on the way past.
+    function updateCommitGate(pv) {
+        var btn = _drawPanel && _drawPanel.querySelector('#idq-commit');
+        if (!btn) return;
+        var unconfirmed = _attachPending.filter(function (n) { return !_attachOk[n]; });
+        btn.disabled = !!(pv && pv.has_block) || unconfirmed.length > 0;
+        btn.title = unconfirmed.length
+            ? 'Tick the "add to existing landslide" box, or rename ✎, for: ' + unconfirmed.join(', ')
+            : '';
+    }
+
+    function doCommit() {
+        window.__drawFlash('Committing…');
+        // The server enforces the same opt-in independently (409 with
+        // needs_confirm) — the checkbox is the affordance, not the guard.
+        _drawPost('commit/', { confirm_attach: Object.keys(_attachOk) })
+            .then(function (res) {
+                if (res.ok && res.j.ok) { window.location.href = res.j.redirect; return; }
+                if (res.j && res.j.needs_confirm === 'attach') {
+                    window.__drawFlash('Tick the "add to existing landslide" box, or rename ✎, first.');
+                    renderQueue();
+                    return;
+                }
+                window.__drawFlash((res.j && res.j.error) || 'Commit failed.');
+                renderQueue();
+            }).catch(function (e) {
+                if (e && e.authExpired) _drawAuthFlash();
+                else window.__drawFlash('Commit failed: ' + (e && e.message ? e.message : e));
+            });
     }
 
     function openPanel() {
@@ -938,14 +1013,7 @@
         document.body.appendChild(p);
         _drawPanel = p; _drawStatus = p.querySelector('#idq-status');
         p.querySelector('#idq-commit').addEventListener('click', function () {
-            window.__drawFlash('Committing…');
-            _drawPost('commit/').then(function (res) {
-                if (res.ok && res.j.ok) { window.location.href = res.j.redirect; }
-                else { window.__drawFlash((res.j && res.j.error) || 'Commit failed.'); renderQueue(); }
-            }).catch(function (e) {
-                if (e && e.authExpired) _drawAuthFlash();
-                else window.__drawFlash('Commit failed: ' + (e && e.message ? e.message : e));
-            });
+            doCommit();
         });
         p.querySelector('#idq-discard').addEventListener('click', function () {
             if (!window.confirm('Discard all staged components?')) return;
