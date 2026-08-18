@@ -44,6 +44,21 @@
   #pv-stats { font-size: 11px; color: #777; margin-top: 8px; line-height: 1.45;
               border-top: 1px solid #eee; padding-top: 6px; }
   .pv-note { font-size: 10px; color: #999; line-height: 1.4; margin-top: 8px; }
+  /* Point inspector — the affordance the ITS_LIVE tool gets right, but
+     keeping 2-D vectors instead of collapsing to speed. */
+  #pv-inspect {
+    position: absolute; right: 10px; top: 10px; z-index: 12; width: min(560px, 46vw);
+    background: rgba(255,255,255,0.97); border: 1px solid #d8d2cc; border-radius: 5px;
+    padding: 8px 10px; font-size: 11px; box-shadow: 0 1px 8px rgba(0,0,0,0.22);
+    display: none;
+  }
+  #pv-inspect h4 { margin: 0 0 4px; font-size: 12px; color: #5D4037; }
+  #pv-inspect canvas { display: block; width: 100%; height: 190px; cursor: crosshair; }
+  #pv-ins-close { float: right; border: none; background: none; cursor: pointer;
+                  font-size: 15px; color: #888; }
+  .pv-legend { font-size: 10px; color: #777; margin-top: 3px; line-height: 1.5; }
+  .pv-sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+           margin: 0 3px 0 8px; vertical-align: middle; }
 </style>
 {% endblock %}
 
@@ -113,6 +128,13 @@
       exact chip offset). Level-2 data is unfiltered — the near-stationary
       haze at long separations is documented “skipping/locking”.
     </div>
+  </div>
+
+  <div id="pv-inspect">
+    <button id="pv-ins-close" title="Close">&times;</button>
+    <h4 id="pv-ins-title">Point history</h4>
+    <canvas id="pv-ins-canvas"></canvas>
+    <div class="pv-legend" id="pv-ins-legend"></div>
   </div>
 
   <div id="pv-timebar">

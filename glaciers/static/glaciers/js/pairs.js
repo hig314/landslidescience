@@ -432,6 +432,7 @@
             else setT(simT + dtReal * parseFloat(elSpeed.value));
         }
         if (!map.isMoving()) draw();
+        if (insCell && playing && (ts % 500) < 20) drawInspector();
         if (D && elStats.dataset.base == null) elStats.dataset.base = elStats.textContent;
         if (D) {
             elStats.textContent = (elStats.dataset.base || '') +
@@ -439,6 +440,118 @@
         }
     }
     requestAnimationFrame(frame);
+
+    // ---------------------------------------------------------------------
+    // POINT INSPECTOR — click a cell, see every measurement it ever made.
+    // Some calls in this data cannot be made statistically (blunders in fast
+    // areas look exactly like real slow motion in slow areas), so the tool
+    // exists to put a human in the loop rather than to hide the ambiguity.
+    // ---------------------------------------------------------------------
+    var insEl = document.getElementById('pv-inspect');
+    var insCv = document.getElementById('pv-ins-canvas');
+    var insCx = insCv.getContext('2d');
+    var insTitle = document.getElementById('pv-ins-title');
+    var insLegend = document.getElementById('pv-ins-legend');
+    var insCell = null;
+    document.getElementById('pv-ins-close').addEventListener('click', function () {
+        insEl.style.display = 'none'; insCell = null;
+    });
+
+    map.on('click', function (e) {
+        if (!D) return;
+        var g = D.grid;
+        var xy = window.LSProj.fromLonLat(e.lngLat.lng, e.lngLat.lat);
+        var j = Math.round((xy[0] - g.x0) / g.dx - 0.5);
+        var i = Math.round((g.y0_north - xy[1]) / g.dx - 0.5);
+        if (i < 0 || j < 0 || i >= g.ny || j >= g.nx) return;
+        insCell = [i, j];
+        drawInspector();
+        insEl.style.display = 'block';
+    });
+
+    function drawInspector() {
+        if (!insCell) return;
+        var i = insCell[0], j = insCell[1];
+        // Collect this cell's records. The bundle is strided, so snap to the
+        // nearest sampled node rather than silently showing nothing.
+        var idx = [];
+        for (var k = 0; k < D.n; k++) {
+            if (Math.abs(D.i[k] - i) <= 1 && Math.abs(D.j[k] - j) <= 1) idx.push(k);
+        }
+        var w = insCv.clientWidth, h = 190;
+        var dpr = window.devicePixelRatio || 1;
+        insCv.width = w * dpr; insCv.height = h * dpr;
+        insCx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        insCx.clearRect(0, 0, w, h);
+        if (!idx.length) {
+            insTitle.textContent = 'Point history — no measurements here';
+            insLegend.textContent = '';
+            return;
+        }
+        var spd = idx.map(function (k) { return Math.hypot(D.vx[k], D.vy[k]); });
+        var smax = Math.max(50, Math.percentileHack ? 0 : spd.slice().sort(function (a, b) { return a - b; })[Math.floor(spd.length * 0.97)]);
+        var L = 34, R = 6, T = 8, B2 = 16;
+        var t0 = tRange[0], t1 = tRange[1];
+        function px(t) { return L + (t - t0) / (t1 - t0) * (w - L - R); }
+        function py(v) { return h - B2 - Math.min(1, v / smax) * (h - T - B2); }
+        // axes
+        insCx.strokeStyle = '#ddd'; insCx.lineWidth = 1;
+        insCx.beginPath();
+        insCx.moveTo(L, T); insCx.lineTo(L, h - B2); insCx.lineTo(w - R, h - B2);
+        insCx.stroke();
+        insCx.fillStyle = '#999'; insCx.font = '9px sans-serif';
+        insCx.fillText(Math.round(smax) + ' m/yr', 2, T + 8);
+        insCx.fillText('0', 2, h - B2);
+        for (var y = Math.ceil(t0); y < t1; y += 2) {
+            insCx.fillText(String(y), px(y) - 10, h - 4);
+            insCx.strokeStyle = '#f2f2f2';
+            insCx.beginPath(); insCx.moveTo(px(y), T); insCx.lineTo(px(y), h - B2); insCx.stroke();
+        }
+        // each measurement: a horizontal bar spanning its own interval
+        var nk = 0, nr = 0;
+        idx.forEach(function (k, q) {
+            var v = spd[q];
+            var t1m = D.t1[k], t2m = D.t2[k];
+            if (t2m < t0 || t1m > tRange[1]) return;
+            var verdict = V ? V[k] : 2;
+            if (verdict === 1) { insCx.strokeStyle = 'rgba(30,120,200,0.55)'; nk++; }
+            else if (verdict === 0) { insCx.strokeStyle = 'rgba(210,70,50,0.5)'; nr++; }
+            else insCx.strokeStyle = 'rgba(150,150,150,0.4)';
+            var yy = py(v);
+            insCx.beginPath();
+            insCx.moveTo(px(Math.max(t1m, t0)), yy);
+            insCx.lineTo(px(Math.min(t2m, t1)), yy);
+            insCx.stroke();
+        });
+        // the fitted model over the same window
+        if (M) {
+            insCx.strokeStyle = '#111'; insCx.lineWidth = 1.4;
+            insCx.beginPath();
+            var started = false;
+            for (var t = t0; t <= t1; t += 1 / 48) {
+                var m = modelAt(i, j, t);
+                if (!m) { started = false; continue; }
+                var pv = Math.hypot(m.vx, m.vy);
+                if (!started) { insCx.moveTo(px(t), py(pv)); started = true; }
+                else insCx.lineTo(px(t), py(pv));
+            }
+            insCx.stroke();
+            insCx.lineWidth = 1;
+        }
+        // current time marker
+        insCx.strokeStyle = '#c9971c';
+        insCx.beginPath(); insCx.moveTo(px(simT), T); insCx.lineTo(px(simT), h - B2); insCx.stroke();
+        var ll = window.LSProj.toLonLat(D.grid.x0 + (j + 0.5) * D.grid.dx,
+                                        D.grid.y0_north - (i + 0.5) * D.grid.dx);
+        insTitle.textContent = 'Point history — ' + ll[1].toFixed(4) + ', ' + ll[0].toFixed(4);
+        insLegend.innerHTML =
+            '<span class="pv-sw" style="background:rgb(30,120,200)"></span>kept ' + nk +
+            '<span class="pv-sw" style="background:rgb(210,70,50)"></span>rejected ' + nr +
+            '<span class="pv-sw" style="background:#111"></span>fitted model' +
+            '<span class="pv-sw" style="background:#c9971c"></span>now' +
+            ' · bar length = pair separation';
+    }
+    map.on('moveend', function () { if (insCell) drawInspector(); });
 
     // ---- hash -----------------------------------------------------------
     function writeHash() {
