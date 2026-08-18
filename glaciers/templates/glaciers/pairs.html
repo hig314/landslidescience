@@ -65,6 +65,13 @@
     </div>
 
     <div class="pv-row">
+      <span class="pv-lbl">Data</span>
+      <select id="pv-source">
+        <option value="raw">Raw — every measurement</option>
+        <option value="kept">Filtered — blunders removed</option>
+        <option value="rejected">Rejected only — what the filter caught</option>
+        <option value="fitted">Fitted — the interpolated model field</option>
+      </select>
       <span class="pv-lbl">Draw</span>
       <select id="pv-mode">
         <option value="swarm">Swarm — mark moving along its own interval</option>
@@ -93,8 +100,14 @@
     </div>
     <div id="pv-stats"></div>
     <div class="pv-note">
-      Every mark is one ITS_LIVE Level-2 measurement: a displacement over its
-      own image-pair interval. Nothing is gridded, fitted, or integrated.
+      In <em>raw</em>, every mark is one ITS_LIVE Level-2 measurement: a
+      displacement over its own image-pair interval, nothing gridded or
+      fitted. <em>Filtered</em> hides what the robust fit rejected;
+      <em>rejected only</em> shows exactly that discarded population, so the
+      cleaning can be inspected rather than trusted. <em>Fitted</em> leaves
+      the measurements behind and samples the model itself — including cells
+      that exist only by extrapolation from the longer record or by spatial
+      fill, which are drawn dimmer.
       A measurement is drawn ending at its grid node and reaching back
       <em>v·dt</em> upstream (the published product does not carry the
       exact chip offset). Level-2 data is unfiltered — the near-stationary

@@ -69,6 +69,7 @@
         elMode = document.getElementById('pv-mode'),
         elColor = document.getElementById('pv-color'),
         elDecay = document.getElementById('pv-decay'),
+        elSource = document.getElementById('pv-source'),
         elTime = document.getElementById('pv-time'),
         elDate = document.getElementById('pv-date'),
         elPlay = document.getElementById('pv-play'),
@@ -126,6 +127,7 @@
                             dtMaxYr: hdr.dt_range[1] / 365.25
                         };
                         tRange = hdr.t_range;
+                        loadFitExtras(b);
                         elDtMin.max = elDtMax.max = String(Math.ceil(hdr.dt_range[1]));
                         if (_hash.extras.dtlo) elDtMin.value = _hash.extras.dtlo;
                         if (_hash.extras.dthi) elDtMax.value = _hash.extras.dthi;
@@ -136,6 +138,50 @@
                             hdr.t_range[0].toFixed(1) + '–' + hdr.t_range[1].toFixed(1);
                     });
             });
+    }
+
+    // Verdicts (per-record keep/reject from the robust fit) and the model
+    // coefficients, loaded lazily — the raw view works without them.
+    var V = null, M = null;
+    function loadFitExtras(b) {
+        fetch(CFG.dataBase + b + '_model.json?v=' + DATA_V)
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (mh) {
+                if (!mh) return;
+                return Promise.all([
+                    fetch(CFG.dataBase + mh.verdict_bin + '?v=' + DATA_V)
+                        .then(function (r) { return r.ok ? r.arrayBuffer() : null; }),
+                    fetch(CFG.dataBase + mh.bin + '?v=' + DATA_V)
+                        .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
+                ]).then(function (bufs) {
+                    if (bufs[0]) V = new Uint8Array(bufs[0]);
+                    if (bufs[1]) {
+                        M = {
+                            grid: mh.grid, tRef: mh.t_ref,
+                            coef: new Float32Array(bufs[1], 0, mh.coef_count),
+                            source: new Uint8Array(bufs[1], mh.coef_count * 4, mh.source_count)
+                        };
+                    }
+                });
+            })
+            .catch(function (e) { console.warn('fit extras unavailable', e); });
+    }
+
+    // Model velocity at time t for grid cell (i, j); null where unfitted.
+    function modelAt(i, j, t) {
+        if (!M) return null;
+        var g = M.grid;
+        if (i < 0 || j < 0 || i >= g.ny || j >= g.nx) return null;
+        var src = M.source[i * g.nx + j];
+        if (!src) return null;
+        var o = (i * g.nx + j) * 8;
+        var tp = 2 * Math.PI, dtr = t - M.tRef;
+        var co = Math.cos(tp * t), si = Math.sin(tp * t);
+        return {
+            vx: M.coef[o] + M.coef[o+1] * dtr + M.coef[o+2] * co + M.coef[o+3] * si,
+            vy: M.coef[o+4] + M.coef[o+5] * dtr + M.coef[o+6] * co + M.coef[o+7] * si,
+            src: src
+        };
     }
 
     // ---- time -----------------------------------------------------------
@@ -264,6 +310,8 @@
 
         var lo = dtLo(), hi = dtHi();
         var mode = elMode.value, cmode = elColor.value;
+        var smode = elSource.value;
+        if (smode === 'fitted') { drawFitted(w, h, cmode, accum); lastCount = fittedCount; return; }
         var drawSwarm = mode === 'swarm' || mode === 'both';
         var drawVec = mode === 'vector' || mode === 'both';
         // Candidates: intervals starting within dtMax before now.
@@ -275,6 +323,13 @@
             if (D.t2[k] < simT) continue;
             var d = D.dt[k];
             if (d < lo || d > hi) continue;
+            if (V) {
+                var vd = V[k];
+                if (smode === 'kept' && vd !== 1) continue;
+                if (smode === 'rejected' && vd !== 0) continue;
+            } else if (smode === 'kept' || smode === 'rejected') {
+                continue;   // verdicts not loaded yet
+            }
             var xy = nodeXY(k);
             var vx = D.vx[k], vy = D.vy[k];
             var yrs = d / 365.25;
@@ -305,6 +360,40 @@
         lastCount = n;
     }
 
+    // Fitted mode: sample the model on the grid and advect each sample over a
+    // nominal short window, so it reads in the same visual language as the
+    // measurements it is meant to be compared against. Cells that exist only
+    // by extrapolation or spatial fill are drawn dimmer — interpolated
+    // coverage should never look as solid as measured coverage.
+    var fittedCount = 0;
+    function drawFitted(w, h, cmode, accum) {
+        fittedCount = 0;
+        if (!M) return;
+        var g = M.grid;
+        var c = map.getCenter();
+        var mpp = 156543.03392 * Math.cos(c.lat * Math.PI / 180) / Math.pow(2, map.getZoom());
+        var step = Math.max(1, Math.round(9 * mpp / g.dx));
+        var NOM = 16 / 365.25;                     // nominal 16-day window
+        var frac = ((simT / NOM) % 1 + 1) % 1;     // phase within that window
+        for (var i = 0; i < g.ny; i += step) {
+            for (var j = 0; j < g.nx; j += step) {
+                var m = modelAt(i, j, simT);
+                if (!m) continue;
+                var x = g.x0 + (j + 0.5) * g.dx, y = g.y0_north - (i + 0.5) * g.dx;
+                var back = (1 - frac) * NOM;
+                var ll = window.LSProj.toLonLat(x - m.vx * back, y - m.vy * back);
+                var p = map.project(ll);
+                if (p.x < -20 || p.y < -20 || p.x > w + 20 || p.y > h + 20) continue;
+                fittedCount++;
+                var spd = Math.hypot(m.vx, m.vy);
+                ctx.fillStyle = cmode === 'dir' ? dirCol(m.vx, m.vy) : speedCol(spd);
+                ctx.globalAlpha = (m.src === 1 ? 0.9 : m.src === 2 ? 0.55 : 0.3) * (accum ? 0.4 : 1);
+                ctx.fillRect(p.x - 1.2, p.y - 1.2, 2.4, 2.4);
+            }
+        }
+        ctx.globalAlpha = 1;
+    }
+
     map.on('render', function () { if (D && map.isMoving()) draw(); });
     // A pan/zoom invalidates accumulated pixels (they were drawn in the old
     // screen frame), so clear and let the picture rebuild.
@@ -313,7 +402,7 @@
     });
     map.on('moveend', writeHash);
     // Changing what's drawn should also start the accumulation over.
-    [elDecay, elMode, elColor, elDtMin, elDtMax].forEach(function (el) {
+    [elDecay, elMode, elColor, elDtMin, elDtMax, elSource].forEach(function (el) {
         el.addEventListener('input', function () {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         });

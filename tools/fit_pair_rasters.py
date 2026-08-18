@@ -190,7 +190,51 @@ def fit_cell(A, vx, vy, dt_d, base_w, seed_mask):
     ry = vy - A @ cy
     rr = np.sqrt(np.average(rx[keep] ** 2 + ry[keep] ** 2,
                             weights=w[keep])) if keep.any() else np.nan
-    return cx, cy, n_eff, rr
+    return cx, cy, n_eff, rr, adm, w
+
+
+def spatial_fill(out, coef, max_dist=6, min_donors=3):
+    """Tier 3 — fill holes from fitted neighbours by inverse-distance weight.
+
+    Carries the DONOR'S RATIO to its own neighbourhood rather than a raw
+    average, so a narrow fast tongue crossing a hole keeps its magnitude
+    instead of being pulled toward the slow ground on either side. Filled
+    cells are marked source=3 and get their donors' coefficients (blended),
+    so the browser can still evaluate the model there — flagged, not hidden.
+    """
+    ny, nx = out['v0'].shape
+    have = np.isfinite(out['v0'])
+    if not have.any():
+        return 0
+    # Local background: mean of fitted cells in a wide window, for the ratio.
+    from numpy.lib.stride_tricks import sliding_window_view
+    pad = max_dist
+    vp = np.pad(np.where(have, out['v0'], np.nan), pad, constant_values=np.nan)
+    filled = 0
+    todo = np.argwhere(~have)
+    for (i, j) in todo:
+        i0, i1 = max(0, i - max_dist), min(ny, i + max_dist + 1)
+        j0, j1 = max(0, j - max_dist), min(nx, j + max_dist + 1)
+        win = have[i0:i1, j0:j1]
+        if win.sum() < min_donors:
+            continue
+        di, dj = np.nonzero(win)
+        gi, gj = di + i0, dj + j0
+        d = np.hypot(gi - i, gj - j)
+        w = 1.0 / np.maximum(d, 0.5) ** 2
+        for k in ('v0', 'amp', 'trend', 'phase'):
+            vals = out[k][gi, gj]
+            m = np.isfinite(vals)
+            if m.sum() >= min_donors:
+                out[k][i, j] = float(np.average(vals[m], weights=w[m]))
+        cvals = coef[gi, gj]
+        m = np.isfinite(cvals[:, 0])
+        if m.sum() >= min_donors:
+            coef[i, j] = np.average(cvals[m], axis=0, weights=w[m])
+        out['source'][i, j] = 3
+        out['n'][i, j] = 0
+        filled += 1
+    return filled
 
 
 def main(name, since, t_ref):
@@ -205,62 +249,89 @@ def main(name, since, t_ref):
                      for x in md])
     ddt = np.asarray(z['date_dt']).astype(np.float64)
     sel = np.nonzero(tmid >= since)[0]
-    tmid, ddt = tmid[sel], ddt[sel]
-    t1 = tmid - ddt / 2 / 365.25
-    t2 = tmid + ddt / 2 / 365.25
-    A = design(t1, t2, t_ref)
+    sel_all = np.arange(tmid.size)
+    t1_all = tmid - ddt / 2 / 365.25
+    t2_all = tmid + ddt / 2 / 365.25
+    ddt_all = ddt
     sig = np.maximum(ERR_FLOOR, ERR_BASE_M * 365.25 / np.maximum(ddt, 1.0))
-    base_w = 1.0 / sig ** 2
+    base_w_all = 1.0 / sig ** 2
+    base_w = base_w_all
     try:
-        s1 = np.asarray(z['satellite_img1'])[sel]
-        s2 = np.asarray(z['satellite_img2'])[sel]
+        s1 = np.asarray(z['satellite_img1'])
+        s2 = np.asarray(z['satellite_img2'])
         for mid, f in SENSOR_DOWNWEIGHT.items():
             hit = (np.char.startswith(s1.astype(str), mid) |
                    np.char.startswith(s2.astype(str), mid))
-            base_w[hit] *= f
-        print(f'   sensor downweighting applied to {int((base_w < 1/sig**2).sum())} pairs')
+            base_w_all[hit] *= f
+        print(f'   sensor downweighting applied to {int((base_w_all < 1/sig**2).sum())} pairs')
     except Exception as exc:
         print(f'   (no sensor info: {exc})')
-    seed = ddt <= SEED_DT
-    if seed.sum() < MIN_SEED * 3:
-        seed = ddt <= SEED_DT_FALLBACK
-    print(f'== {name}: {sel.size} pairs since {since}, seed pool {int(seed.sum())}, '
+    print(f'== {name}: {sel.size} pairs since {since} of {tmid.size} total, '
           f'grid {nx} x {ny}, t_ref {t_ref}')
 
     out = {k: np.full((ny, nx), np.nan, np.float32)
-           for k in ('v0', 'amp', 'trend', 'n', 'resid', 'phase')}
-    BAND = 10
-    for y0 in range(0, ny, BAND):
-        y1 = min(ny, y0 + BAND)
-        vx_b = np.asarray(z['vx'][:, y0:y1, :])[sel].astype(np.float64)
-        vy_b = np.asarray(z['vy'][:, y0:y1, :])[sel].astype(np.float64)
-        for r in range(y1 - y0):
-            for c in range(nx):
-                vx = vx_b[:, r, c]
-                vy = vy_b[:, r, c]
-                ok = (vx != -32767) & (vy != -32767) & (np.abs(vx) < 20000) & (np.abs(vy) < 20000)
-                if ok.sum() < MIN_TOTAL:
-                    continue
-                res = fit_cell(A[ok], vx[ok], vy[ok], ddt[ok], base_w[ok], seed[ok])
-                if res is None:
-                    continue
-                cx, cy, n_eff, rr = res
-                i = y0 + r
-                out['v0'][i, c] = np.hypot(cx[0], cy[0])
-                # Seasonal amplitude of the SPEED-aligned component: project
-                # the seasonal vector onto the mean-flow direction, which is
-                # what "does it speed up in summer" actually means.
-                sp = np.hypot(cx[0], cy[0]) + 1e-9
-                ux, uy = cx[0] / sp, cy[0] / sp
-                ac = cx[2] * ux + cy[2] * uy
-                as_ = cx[3] * ux + cy[3] * uy
-                out['amp'][i, c] = np.hypot(ac, as_)
-                out['phase'][i, c] = (np.degrees(np.arctan2(as_, ac)) % 360) / 360 * 365.25
-                out['trend'][i, c] = cx[1] * ux + cy[1] * uy
-                out['n'][i, c] = n_eff
-                out['resid'][i, c] = rr
-        print(f'   rows {y1}/{ny}', flush=True)
+           for k in ('v0', 'amp', 'trend', 'n', 'resid', 'phase', 'source')}
+    # Coefficients kept so the browser can evaluate the model at any time
+    # (the /glaciers/pairs/ "fitted" mode) instead of shipping a field per month.
+    coef = np.full((ny, nx, 8), np.nan, np.float32)
 
+    def run_pass(sel_idx, tier, only_missing):
+        """tier 1 = recent record; tier 2 = full record, extrapolated to t_ref."""
+        A_ = design(t1_all[sel_idx], t2_all[sel_idx], t_ref)
+        dd = ddt_all[sel_idx]
+        bw = base_w_all[sel_idx]
+        sd = dd <= (SEED_DT if (dd <= SEED_DT).sum() > MIN_SEED * 3 else SEED_DT_FALLBACK)
+        n_new = 0
+        for y0 in range(0, ny, 10):
+            y1 = min(ny, y0 + 10)
+            vx_b = np.asarray(z['vx'][:, y0:y1, :])[sel_idx].astype(np.float64)
+            vy_b = np.asarray(z['vy'][:, y0:y1, :])[sel_idx].astype(np.float64)
+            for r in range(y1 - y0):
+                i = y0 + r
+                for c in range(nx):
+                    if only_missing and np.isfinite(out['v0'][i, c]):
+                        continue
+                    vx = vx_b[:, r, c]; vy = vy_b[:, r, c]
+                    ok = ((vx != -32767) & (vy != -32767) &
+                          (np.abs(vx) < 20000) & (np.abs(vy) < 20000))
+                    if ok.sum() < MIN_TOTAL:
+                        continue
+                    res = fit_cell(A_[ok], vx[ok], vy[ok], dd[ok], bw[ok], sd[ok])
+                    if res is None:
+                        continue
+                    cx, cy, n_eff, rr = res[0], res[1], res[2], res[3]
+                    sp = np.hypot(cx[0], cy[0]) + 1e-9
+                    ux, uy = cx[0] / sp, cy[0] / sp
+                    ac = cx[2] * ux + cy[2] * uy
+                    as_ = cx[3] * ux + cy[3] * uy
+                    out['v0'][i, c] = sp
+                    out['amp'][i, c] = np.hypot(ac, as_)
+                    out['phase'][i, c] = (np.degrees(np.arctan2(as_, ac)) % 360) / 360 * 365.25
+                    out['trend'][i, c] = cx[1] * ux + cy[1] * uy
+                    out['n'][i, c] = n_eff
+                    out['resid'][i, c] = rr
+                    out['source'][i, c] = tier
+                    coef[i, c] = np.concatenate([cx, cy])
+                    n_new += 1
+            print(f'   tier {tier}: rows {y1}/{ny} (+{n_new})', flush=True)
+        return n_new
+
+    n1 = run_pass(sel, 1, False)
+    print(f'   tier 1 (>= {since}): {n1} cells')
+    # Tier 2: cells the recent record cannot support get the FULL record, whose
+    # fitted trend then extrapolates them to t_ref. Deep history buys coverage
+    # where recent imagery is thin; the provenance raster keeps it honest.
+    n2 = run_pass(sel_all, 2, True)
+    print(f'   tier 2 (full record, extrapolated): {n2} cells')
+
+    # Tier 3: spatial fill. Inverse-distance from fitted neighbours, and the
+    # RATIO to their own neighbourhood is what is carried — so a narrow fast
+    # tongue keeps its magnitude instead of being averaged toward the slow
+    # ground beside it.
+    n3 = spatial_fill(out, coef)
+    print(f'   tier 3 (spatial fill): {n3} cells')
+
+    np.savez(ROOT / f'{name}_coef.npz', coef=coef, grid=json.dumps(g), t_ref=t_ref)
     write_tifs(name, g, out)
     compare(name, g, out)
 
