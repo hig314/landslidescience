@@ -307,8 +307,16 @@
       flashMode('That polygon isn\'t saved yet — give it a role and Save first, or just delete it.');
       return;
     }
-    if (Object.keys(dirtyDbIds).length) {
-      flashMode('Save or Cancel your geometry edits first, then Detach.');
+    // NB: do NOT gate on dirtyDbIds. Terra Draw emits a change event when a
+    // feature is merely SELECTED, so anything you click is instantly "dirty"
+    // — gating on it deadlocked detach (select → dirty → "save first" → save
+    // deselects → nothing to detach). The db id is captured here at click
+    // time, so neither selection nor dirty state matters from this point.
+    if (dirtyDbIds[dbId] && !window.confirm(
+        'This polygon has unsaved reshaping.\n\n' +
+        'Detach moves the last SAVED shape into staging — unsaved vertex edits ' +
+        'are discarded (you can reshape it again after committing it).\n\n' +
+        'Continue?')) {
       return;
     }
     var name = window.prompt(
