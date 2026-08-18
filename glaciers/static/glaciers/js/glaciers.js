@@ -227,6 +227,25 @@
         trWrap.appendChild(row);
         return input;
     }
+    // Velocity source: the standard annual composites, or our own robust fit
+    // of the raw image pairs. Same tracer engine either way, so the two are
+    // directly comparable — which is the point.
+    var srcSel = document.createElement('select');
+    [['annual', 'Field: ITS_LIVE annual composites'],
+     ['fit', 'Field: our robust pair fit (Columbia box)']].forEach(function (o) {
+        var e = document.createElement('option');
+        e.value = o[0]; e.textContent = o[1];
+        srcSel.appendChild(e);
+    });
+    srcSel.style.cssText = 'width:100%; font-size:11px; margin-bottom:4px;';
+    srcSel.addEventListener('change', function () {
+        particles = []; _kf.clear();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (srcSel.value === 'fit' && !FITM) loadFitModel();
+        manageDensity();
+    });
+    trWrap.appendChild(srcSel);
+
     var cbTracers = ctlRow('Flow tracers', document.createElement('input'));
     cbTracers.type = 'checkbox'; cbTracers.checked = true;
     var cbTrails = ctlRow('Trails', document.createElement('input'));
@@ -320,6 +339,55 @@
             });
     }
 
+    // Robust-fit model (tools/fit_pair_rasters.py): 8 coefficients per cell
+    // plus a provenance tier. Loaded on demand — the annual-composite path
+    // never needs it.
+    var FITM = null;
+    function loadFitModel() {
+        var b = (siteSel.value || 'columbia') + '_pairs';
+        fetch(CFG.dataBase + b + '_model.json?v=' + TRACER_DATA_V)
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (mh) {
+                if (!mh) throw new Error('no model for this site');
+                return fetch(CFG.dataBase + mh.bin + '?v=' + TRACER_DATA_V)
+                    .then(function (r) { return r.arrayBuffer(); })
+                    .then(function (buf) {
+                        FITM = {
+                            grid: mh.grid, tRef: mh.t_ref,
+                            coef: new Float32Array(buf, 0, mh.coef_count),
+                            source: new Uint8Array(buf, mh.coef_count * 4, mh.source_count)
+                        };
+                        console.log('fit model loaded', mh.grid.nx + 'x' + mh.grid.ny);
+                    });
+            })
+            .catch(function (e) {
+                console.warn('fit model unavailable:', e);
+                srcSel.value = 'annual';
+            });
+    }
+
+    // Velocity from the fitted model. Tier 4 (no recent evidence) is treated
+    // as NO DATA on purpose: a decades-old trend must not put ice where the
+    // recent record shows none — that is how tracers end up swimming in the
+    // fjord beyond a retreated terminus.
+    function sampleFit(x, y, t) {
+        if (!FITM) return null;
+        var g = FITM.grid;
+        var j = Math.round((x - g.x0) / g.dx - 0.5);
+        var i = Math.round((g.y0_north - y) / g.dx - 0.5);
+        if (i < 0 || j < 0 || i >= g.ny || j >= g.nx) return null;
+        var src = FITM.source[i * g.nx + j];
+        if (!src || src === 4) return null;
+        var o = (i * g.nx + j) * 8;
+        var tp = 2 * Math.PI, dtr = t - FITM.tRef;
+        var co = Math.cos(tp * t), si = Math.sin(tp * t);
+        var vx = FITM.coef[o] + FITM.coef[o+1]*dtr + FITM.coef[o+2]*co + FITM.coef[o+3]*si;
+        var vy = FITM.coef[o+4] + FITM.coef[o+5]*dtr + FITM.coef[o+6]*co + FITM.coef[o+7]*si;
+        if (!isFinite(vx) || !isFinite(vy)) return null;
+        if (Math.abs(vx) > 25000 || Math.abs(vy) > 25000) return null;
+        return { vx: vx, vy: vy };
+    }
+
     // ---------------------------------------------------------------------
     // Field sampling — bilinear in space (NaN-corner aware), linear in time
     // between annual fields, climatological seasonal cycle superposed.
@@ -345,6 +413,7 @@
 
     function sampleVelocity(x, y, t) {
         // t in fractional years (e.g. 2017.53). Returns {vx, vy} m/yr or null.
+        if (srcSel && srcSel.value === 'fit') return sampleFit(x, y, t);
         var g = B.hdr.grid;
         var fx = (x - g.x0) / g.dx - 0.5;
         var fy = (g.y0_north - y) / g.dx - 0.5;
@@ -414,6 +483,7 @@
     }
 
     function onIce(x, y) {
+        if (srcSel && srcSel.value === 'fit') return !!sampleFit(x, y, simT);
         var g = B.hdr.grid;
         var j = Math.round((x - g.x0) / g.dx - 0.5);
         var i = Math.round((g.y0_north - y) / g.dx - 0.5);
@@ -550,6 +620,12 @@
                                // resolve instead of a pivoting head-chord
     var TRAIL_MAX = 240;       // vertex cap per particle
     var TRAIL_D0 = 2200;       // m — distance-fade scale of the tail
+    // Trails also need a SCREEN budget, not just a ground one. The distance
+    // and age fades are in metres and years, so a tail that is 15 px long at
+    // z9 becomes 475 px at z14: the view fills with overlapping ribbons and
+    // the per-frame segment count explodes. Cap the drawn length in pixels so
+    // a trail reads the same at every zoom and costs the same to draw.
+    var TRAIL_MAX_PX = 110;
     var TRAIL_T0 = 10;         // yr — age-fade scale (slow tails persist ~decade)
 
     // Trail entries are 4 floats: x, y, t, cumulative path length at record.
@@ -758,7 +834,8 @@
                 ctx.strokeStyle = speedColorQ(p.speed || 0);
                 var nv = p.trail.length / 4;
                 var prevX = pt.x, prevY = pt.y;
-                var band = -1, open = false, drawn = 0;
+                var band = -1, open = false, drawn = 0, pxLen = 0;
+                var budget = TRAIL_MAX_PX * _q;
                 for (var k = nv - 1; k >= 0; k -= stride) {
                     var d = p.pathLen - p.trail[k * 4 + 3];  // true path distance from head
                     var ageT = simT - p.trail[k * 4 + 2];
@@ -776,8 +853,10 @@
                         band = b; open = true;
                     }
                     ctx.lineTo(tp.x, tp.y);
+                    pxLen += Math.hypot(tp.x - prevX, tp.y - prevY);
                     prevX = tp.x; prevY = tp.y;
-                    if (++drawn >= 90) break;      // per-particle render cap
+                    if (pxLen > budget) break;     // screen-length budget
+                    if (++drawn >= 60) break;      // per-particle render cap
                 }
                 if (open) ctx.stroke();
             }
@@ -992,12 +1071,20 @@
         } else if (e.key === ' ') { playBtn.click(); e.preventDefault(); }
     });
 
+    // Adaptive quality: if frames get expensive, shorten trails before doing
+    // anything visible to the particles themselves — losing tail length reads
+    // as a style change, losing particles reads as data disappearing.
+    var _q = 1;
     var lastFrame = null;
     var CATCHUP_BUDGET_MS = 9;    // physics time per frame while catching up
     function frame(ts) {
         requestAnimationFrame(frame);
         if (!B) return;
         var dtReal = lastFrame == null ? 0 : Math.min(0.1, (ts - lastFrame) / 1000);
+        if (lastFrame != null) {
+            if (dtReal > 1 / 28) _q = Math.max(0.3, _q * 0.94);
+            else if (dtReal < 1 / 55) _q = Math.min(1, _q * 1.03);
+        }
         lastFrame = ts;
         if (targetT != null) {
             // A long throw with a nearer keyframe: jump the physics there

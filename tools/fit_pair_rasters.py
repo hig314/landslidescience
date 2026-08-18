@@ -70,6 +70,14 @@ N_IRLS = 4
 # The admissible separation per cell is measured, not assumed — see fit_cell.
 DT_CAP_MIN = 32.0       # never restrict below this — short pairs always allowed
 MIN_BIN = 8             # measurements needed before a dt bin gets a vote
+# A cell may only be filled by extrapolation or interpolation if it still
+# shows RECENT evidence of a trackable surface. Without this, tiers 2 and 3
+# select for exactly the cells where the ice has gone — they exist because
+# the recent record could not fit them — and then assert decades-old motion
+# over open water beyond a retreated terminus. Measured on Columbia: 72% of
+# tier-2 cells had ZERO recent observations yet claimed a median 1,880 m/yr.
+MIN_RECENT_OBS = 5
+RECENT_WINDOW = 3.5     # years back from t_ref
 SEASON_RIDGE = 4.0      # damps the seasonal pair on near-stationary ground,
                         # where 4 free parameters otherwise fit pure noise
 # Directional/robust tolerance: sigma = max(floor, frac * |v|)
@@ -193,7 +201,7 @@ def fit_cell(A, vx, vy, dt_d, base_w, seed_mask):
     return cx, cy, n_eff, rr, adm, w
 
 
-def spatial_fill(out, coef, max_dist=6, min_donors=3):
+def spatial_fill(out, coef, gate=None, max_dist=6, min_donors=3):
     """Tier 3 — fill holes from fitted neighbours by inverse-distance weight.
 
     Carries the DONOR'S RATIO to its own neighbourhood rather than a raw
@@ -213,6 +221,10 @@ def spatial_fill(out, coef, max_dist=6, min_donors=3):
     filled = 0
     todo = np.argwhere(~have)
     for (i, j) in todo:
+        if gate is not None and not gate[i, j]:
+            if out['source'][i, j] == 0:
+                out['source'][i, j] = 4
+            continue
         i0, i1 = max(0, i - max_dist), min(ny, i + max_dist + 1)
         j0, j1 = max(0, j - max_dist), min(nx, j + max_dist + 1)
         win = have[i0:i1, j0:j1]
@@ -250,6 +262,7 @@ def main(name, since, t_ref):
     ddt = np.asarray(z['date_dt']).astype(np.float64)
     sel = np.nonzero(tmid >= since)[0]
     sel_all = np.arange(tmid.size)
+    tmid_all = tmid
     t1_all = tmid - ddt / 2 / 365.25
     t2_all = tmid + ddt / 2 / 365.25
     ddt_all = ddt
@@ -270,12 +283,12 @@ def main(name, since, t_ref):
           f'grid {nx} x {ny}, t_ref {t_ref}')
 
     out = {k: np.full((ny, nx), np.nan, np.float32)
-           for k in ('v0', 'amp', 'trend', 'n', 'resid', 'phase', 'source')}
+           for k in ('v0', 'amp', 'trend', 'n', 'resid', 'phase', 'source', 'recent')}
     # Coefficients kept so the browser can evaluate the model at any time
     # (the /glaciers/pairs/ "fitted" mode) instead of shipping a field per month.
     coef = np.full((ny, nx, 8), np.nan, np.float32)
 
-    def run_pass(sel_idx, tier, only_missing):
+    def run_pass(sel_idx, tier, only_missing, gate=None):
         """tier 1 = recent record; tier 2 = full record, extrapolated to t_ref."""
         A_ = design(t1_all[sel_idx], t2_all[sel_idx], t_ref)
         dd = ddt_all[sel_idx]
@@ -290,6 +303,9 @@ def main(name, since, t_ref):
                 i = y0 + r
                 for c in range(nx):
                     if only_missing and np.isfinite(out['v0'][i, c]):
+                        continue
+                    if gate is not None and not gate[i, c]:
+                        out['source'][i, c] = 4   # no recent evidence — not filled
                         continue
                     vx = vx_b[:, r, c]; vy = vy_b[:, r, c]
                     ok = ((vx != -32767) & (vy != -32767) &
@@ -318,17 +334,29 @@ def main(name, since, t_ref):
 
     n1 = run_pass(sel, 1, False)
     print(f'   tier 1 (>= {since}): {n1} cells')
+
+    # Recent-evidence gate for everything that follows.
+    rec_idx = np.nonzero(tmid_all >= t_ref - RECENT_WINDOW)[0]
+    recent_obs = np.zeros((ny, nx), np.int32)
+    for y0 in range(0, ny, 10):
+        y1 = min(ny, y0 + 10)
+        vb = np.asarray(z['vx'][:, y0:y1, :])[rec_idx]
+        recent_obs[y0:y1, :] = (vb != -32767).sum(axis=0)
+    out['recent'] = recent_obs.astype(np.float32)
+    gate = recent_obs >= MIN_RECENT_OBS
+    print(f'   recent-evidence gate: {int(gate.sum()):,} of {gate.size:,} cells have '
+          f'>= {MIN_RECENT_OBS} observations within {RECENT_WINDOW} yr of t_ref')
     # Tier 2: cells the recent record cannot support get the FULL record, whose
     # fitted trend then extrapolates them to t_ref. Deep history buys coverage
     # where recent imagery is thin; the provenance raster keeps it honest.
-    n2 = run_pass(sel_all, 2, True)
+    n2 = run_pass(sel_all, 2, True, gate)
     print(f'   tier 2 (full record, extrapolated): {n2} cells')
 
     # Tier 3: spatial fill. Inverse-distance from fitted neighbours, and the
     # RATIO to their own neighbourhood is what is carried — so a narrow fast
     # tongue keeps its magnitude instead of being averaged toward the slow
     # ground beside it.
-    n3 = spatial_fill(out, coef)
+    n3 = spatial_fill(out, coef, gate=gate)
     print(f'   tier 3 (spatial fill): {n3} cells')
 
     np.savez(ROOT / f'{name}_coef.npz', coef=coef, grid=json.dumps(g), t_ref=t_ref)
