@@ -156,12 +156,20 @@
                 ]).then(function (bufs) {
                     if (bufs[0]) V = new Uint8Array(bufs[0]);
                     if (bufs[1]) {
+                        var supOff = mh.coef_count * 4 + mh.source_count;
                         M = {
                             grid: mh.grid, tRef: mh.t_ref,
                             tLo: mh.t_window ? mh.t_window[0] : 2015.0,
                             tHi: mh.t_window ? mh.t_window[1] : mh.t_ref + 1.0,
                             coef: new Float32Array(bufs[1], 0, mh.coef_count),
-                            source: new Uint8Array(bufs[1], mh.coef_count * 4, mh.source_count)
+                            source: new Uint8Array(bufs[1], mh.coef_count * 4, mh.source_count),
+                            tFirst: mh.support_count
+                                ? new Float32Array(bufs[1].slice(supOff, supOff + mh.support_count * 4))
+                                : null,
+                            tLast: mh.support_count
+                                ? new Float32Array(bufs[1].slice(supOff + mh.support_count * 4,
+                                                                 supOff + mh.support_count * 8))
+                                : null
                         };
                     }
                 });
@@ -175,8 +183,10 @@
         t = Math.min(M.tHi != null ? M.tHi : M.tRef + 1, Math.max(M.tLo != null ? M.tLo : 2015, t));
         var g = M.grid;
         if (i < 0 || j < 0 || i >= g.ny || j >= g.nx) return null;
-        var src = M.source[i * g.nx + j];
+        var kk = i * g.nx + j;
+        var src = M.source[kk];
         if (!src) return null;
+        if (M.tLast && (t > M.tLast[kk] + 0.5 || t < M.tFirst[kk] - 0.5)) return null;
         var o = (i * g.nx + j) * 8;
         var tp = 2 * Math.PI, dtr = t - M.tRef;
         var co = Math.cos(tp * t), si = Math.sin(tp * t);

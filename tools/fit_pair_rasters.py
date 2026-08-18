@@ -81,6 +81,13 @@ RECENT_WINDOW = 3.5     # years back from t_ref
 AMP_FLOOR = 5.0         # m/yr — seasonal amplitude below this is indistinguishable from 0
 TREND_FLOOR = 1.0       # m/yr^2
 T_REF_FOR_PARITY = 2024.5   # added back to (t - t_ref) to recover the year
+STALE_TOL = 1.0         # yr — a cell whose KEPT data ends more than this
+                        # before t_ref is 'historic only': its model is real
+                        # for its own era but must not assert a t_ref state.
+                        # This is the ice-front-retreat fix: tier 1 happily
+                        # fit fjord cells from pre-retreat measurements while
+                        # IRLS rejected the post-retreat water noise as
+                        # outliers — regime change hidden by majority voting.
 SEASON_RIDGE = 4.0      # damps the seasonal pair on near-stationary ground,
                         # where 4 free parameters otherwise fit pure noise
 # Directional/robust tolerance: sigma = max(floor, frac * |v|)
@@ -266,7 +273,13 @@ def fit_cell(A, vx, vy, dt_d, base_w, seed_mask):
     ry = vy - A @ cy
     rr = np.sqrt(np.average(rx[keep] ** 2 + ry[keep] ** 2,
                             weights=w[keep])) if keep.any() else np.nan
-    return cx, cy, n_eff, rr, adm, w
+    # Temporal support of the KEPT measurements — from A's time column, which
+    # is (t_mid - t_ref). Percentiles, not min/max: one straggler pair must
+    # not extend a cell's claimed era.
+    tms = A[keep, 1] + T_REF_FOR_PARITY
+    t_first = float(np.percentile(tms, 5))
+    t_last = float(np.percentile(tms, 95))
+    return cx, cy, n_eff, rr, t_first, t_last
 
 
 def spatial_fill(out, coef, gate=None, max_dist=6, min_donors=3):
@@ -302,7 +315,7 @@ def spatial_fill(out, coef, gate=None, max_dist=6, min_donors=3):
         gi, gj = di + i0, dj + j0
         d = np.hypot(gi - i, gj - j)
         w = 1.0 / np.maximum(d, 0.5) ** 2
-        for k in ('v0', 'amp', 'trend', 'phase'):
+        for k in ('v0', 'amp', 'trend', 'phase', 't_first', 't_last'):
             vals = out[k][gi, gj]
             m = np.isfinite(vals)
             if m.sum() >= min_donors:
@@ -351,7 +364,8 @@ def main(name, since, t_ref):
           f'grid {nx} x {ny}, t_ref {t_ref}')
 
     out = {k: np.full((ny, nx), np.nan, np.float32)
-           for k in ('v0', 'amp', 'trend', 'n', 'resid', 'phase', 'source', 'recent')}
+           for k in ('v0', 'amp', 'trend', 'n', 'resid', 'phase', 'source', 'recent',
+                     't_first', 't_last')}
     # Coefficients kept so the browser can evaluate the model at any time
     # (the /glaciers/pairs/ "fitted" mode) instead of shipping a field per month.
     coef = np.full((ny, nx, 8), np.nan, np.float32)
@@ -384,6 +398,8 @@ def main(name, since, t_ref):
                     if res is None:
                         continue
                     cx, cy, n_eff, rr = res[0], res[1], res[2], res[3]
+                    out['t_first'][i, c] = res[4]
+                    out['t_last'][i, c] = res[5]
                     sp = np.hypot(cx[0], cy[0]) + 1e-9
                     ux, uy = cx[0] / sp, cy[0] / sp
                     ac = cx[2] * ux + cy[2] * uy
@@ -419,6 +435,19 @@ def main(name, since, t_ref):
     # where recent imagery is thin; the provenance raster keeps it honest.
     n2 = run_pass(sel_all, 2, True, gate)
     print(f'   tier 2 (full record, extrapolated): {n2} cells')
+
+    # Staleness: a fitted cell whose kept data ends > STALE_TOL before t_ref
+    # is HISTORIC ONLY (source=5). Its coefficients stay (the tracer can
+    # animate its real era, and its expiry makes the retreat visible), but
+    # the t_ref rasters must not assert a present-day state there, and it
+    # must not donate to spatial fill.
+    stale = (np.isfinite(out['v0']) &
+             (out['t_last'] < t_ref - STALE_TOL))
+    for k in ('v0', 'amp', 'trend', 'phase'):
+        out[k][stale] = np.nan
+    out['source'][stale] = 5
+    print(f'   historic-only (data ends > {STALE_TOL} yr before t_ref): '
+          f'{int(stale.sum())} cells')
 
     # Tier 3: spatial fill. Inverse-distance from fitted neighbours, and the
     # RATIO to their own neighbourhood is what is carried — so a narrow fast

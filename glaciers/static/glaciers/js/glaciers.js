@@ -352,12 +352,22 @@
                 return fetch(CFG.dataBase + mh.bin + '?v=' + TRACER_DATA_V)
                     .then(function (r) { return r.arrayBuffer(); })
                     .then(function (buf) {
+                        var supOff = mh.coef_count * 4 + mh.source_count;
                         FITM = {
                             grid: mh.grid, tRef: mh.t_ref,
                             tLo: mh.t_window ? mh.t_window[0] : 2015.0,
                             tHi: mh.t_window ? mh.t_window[1] : mh.t_ref + 1.0,
                             coef: new Float32Array(buf, 0, mh.coef_count),
-                            source: new Uint8Array(buf, mh.coef_count * 4, mh.source_count)
+                            source: new Uint8Array(buf, mh.coef_count * 4, mh.source_count),
+                            // slice(): the support planes sit after a uint8
+                            // block, so their byte offset may be unaligned.
+                            tFirst: mh.support_count
+                                ? new Float32Array(buf.slice(supOff, supOff + mh.support_count * 4))
+                                : null,
+                            tLast: mh.support_count
+                                ? new Float32Array(buf.slice(supOff + mh.support_count * 4,
+                                                             supOff + mh.support_count * 8))
+                                : null
                         };
                         console.log('fit model loaded', mh.grid.nx + 'x' + mh.grid.ny);
                     });
@@ -379,8 +389,17 @@
     function _fitCellV(i, j, t) {
         var g = FITM.grid;
         if (i < 0 || j < 0 || i >= g.ny || j >= g.nx) return null;
-        var src = FITM.source[i * g.nx + j];
+        var k = i * g.nx + j;
+        var src = FITM.source[k];
         if (!src || src === 4) return null;
+        // Per-cell temporal support: beyond the era its kept measurements
+        // cover, a cell has NO state — the ice may be gone. Returning null
+        // (not a frozen value) is what makes the front's retreat visible:
+        // fjord cells expire as the timeline passes their last real data.
+        if (FITM.tLast) {
+            if (t > FITM.tLast[k] + 0.5) return null;
+            if (t < FITM.tFirst[k] - 0.5) return null;
+        }
         var o = (i * g.nx + j) * 8;
         var tp = 2 * Math.PI, dtr = t - FITM.tRef;
         var co = Math.cos(tp * t), si = Math.sin(tp * t);

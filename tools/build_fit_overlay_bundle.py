@@ -101,17 +101,23 @@ def main(name):
         f.write(verdict.tobytes())
 
     cflat = np.nan_to_num(coef, nan=0.0).astype('<f4')
+    t_first = np.nan_to_num(fit['t_first'], nan=0.0).astype('<f4')
+    t_last = np.nan_to_num(fit['t_last'], nan=0.0).astype('<f4')
     with gzip.open(ROOT / f'{name}_model.bin.gz', 'wb', compresslevel=6) as f:
         f.write(cflat.tobytes())
         f.write(source.tobytes())
+        f.write(t_first.tobytes())
+        f.write(t_last.tobytes())
     (ROOT / f'{name}_model.json').write_text(json.dumps({
         'name': name, 'grid': g, 't_ref': t_ref,
         't_window': [2015.0, t_ref + 1.0],
         'coef_count': int(cflat.size), 'source_count': int(source.size),
+        'support_count': int(t_first.size),
         'bin': f'{name}_model.bin',
         'verdict_bin': f'{name}_verdict.bin',
         'tiers': {'1': 'fit, recent record', '2': 'fit, full record extrapolated',
-                  '3': 'spatial fill', '0': 'no data'},
+                  '3': 'spatial fill', '5': 'historic only (ice gone by t_ref)',
+                  '0': 'no data'},
     }))
     sz = (ROOT / f'{name}_model.bin.gz').stat().st_size / 1e6
     vz = (ROOT / f'{name}_verdict.bin.gz').stat().st_size / 1e6
