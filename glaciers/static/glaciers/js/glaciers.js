@@ -726,11 +726,23 @@
             var xy = lonLatTo3413(p[0], p[1]);
             xs.push(xy[0]); ys.push(xy[1]);
         });
-        var vx0 = Math.max(g.x0, Math.min.apply(null, xs));
-        var vx1 = Math.min(g.x0 + g.nx * g.dx, Math.max.apply(null, xs));
-        var vy1 = Math.min(g.y0_north, Math.max.apply(null, ys));
-        var vy0 = Math.max(g.y0_north - g.ny * g.dx, Math.min.apply(null, ys));
-        if (vx1 <= vx0 || vy1 <= vy0) return;   // AOI fully off-screen
+        // Clip spawning to the DATA's extent — but in region mode the data is
+        // the whole tile set, not this site's box. Clipping to B's AOI there
+        // meant nothing could spawn outside Columbia, which is exactly how
+        // "all Alaska" appeared unwired.
+        var regionMode = srcSel && srcSel.value === 'region';
+        var ex0, ex1, ey0, ey1;
+        if (regionMode) {
+            ex0 = -Infinity; ex1 = Infinity; ey0 = -Infinity; ey1 = Infinity;
+        } else {
+            ex0 = g.x0; ex1 = g.x0 + g.nx * g.dx;
+            ey1 = g.y0_north; ey0 = g.y0_north - g.ny * g.dx;
+        }
+        var vx0 = Math.max(ex0, Math.min.apply(null, xs));
+        var vx1 = Math.min(ex1, Math.max.apply(null, xs));
+        var vy1 = Math.min(ey1, Math.max.apply(null, ys));
+        var vy0 = Math.max(ey0, Math.min.apply(null, ys));
+        if (vx1 <= vx0 || vy1 <= vy0) return;   // data fully off-screen
 
         var cx0 = Math.floor((vx0 - g.x0) / cell), cx1 = Math.floor((vx1 - g.x0) / cell);
         var cy0 = Math.floor((g.y0_north - vy1) / cell), cy1 = Math.floor((g.y0_north - vy0) / cell);
@@ -1088,8 +1100,14 @@
     function tRange() {
         // Mid-year of the first field to mid-year of the last — the span the
         // annual composites actually constrain. No steady-state coasting
-        // beyond the end of data.
+        // beyond the end of data. In region mode take the span from a loaded
+        // tile, so playback is not truncated by whichever site happens to be
+        // selected in the (camera-only) site menu.
         var ys = B.hdr.years;
+        if (srcSel && srcSel.value === 'region' && REG.loaded.size) {
+            var first = REG.loaded.values().next().value;
+            if (first && first.hdr.years) ys = first.hdr.years;
+        }
         return [ys[0] + 0.5, ys[ys.length - 1] + 0.5];
     }
     // While the pointer is DOWN the thumb belongs to the user (it sets the
@@ -1353,7 +1371,16 @@
             console.error('tracer bundle load failed:', e);
         });
     }
-    siteSel.addEventListener('change', function () { activateSite(siteSel.value); });
+    siteSel.addEventListener('change', function () {
+        if (srcSel && srcSel.value === 'region') {
+            // Region mode: the menu is a "fly there" control, not a data
+            // switch — the field already covers everywhere.
+            var e = (CFG.catalog || []).filter(function (c) { return c.slug === siteSel.value; })[0];
+            if (e && e.center) map.jumpTo({ center: e.center, zoom: e.zoom || 10 });
+            return;
+        }
+        activateSite(siteSel.value);
+    });
     var _startSite = (_hash.extras.site &&
                       (CFG.catalog || []).some(function (c) { return c.slug === _hash.extras.site; }))
         ? _hash.extras.site

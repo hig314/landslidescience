@@ -31,10 +31,15 @@ def _catalog():
         for p in sorted(DATA_DIR.glob('*.json')):
             try:
                 h = json.loads(p.read_text())
-                out.append({'slug': p.stem, 'name': h.get('name', p.stem),
-                            'center': h.get('center'), 'zoom': h.get('zoom', 10)})
             except (ValueError, OSError):
                 continue
+            # Only real site bundles. Without this test the regional manifest
+            # (and any future sidecar json) showed up as a phantom site in the
+            # pulldown, selectable and broken.
+            if not (h.get('name') and h.get('center') and h.get('bin')):
+                continue
+            out.append({'slug': p.stem, 'name': h['name'],
+                        'center': h['center'], 'zoom': h.get('zoom', 10)})
     return out
 
 
