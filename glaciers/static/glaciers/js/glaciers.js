@@ -231,7 +231,8 @@
     // of the raw image pairs. Same tracer engine either way, so the two are
     // directly comparable — which is the point.
     var srcSel = document.createElement('select');
-    [['annual', 'Field: ITS_LIVE annual composites'],
+    [['annual', 'Field: ITS_LIVE annual (this site)'],
+     ['region', 'Field: ITS_LIVE annual (all Alaska)'],
      ['fit', 'Field: our robust pair fit (Columbia box)']].forEach(function (o) {
         var e = document.createElement('option');
         e.value = o[0]; e.textContent = o[1];
@@ -242,6 +243,7 @@
         particles = []; _kf.clear();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (srcSel.value === 'fit' && !FITM) loadFitModel();
+        if (srcSel.value === 'region') { loadRegionManifest(); ensureRegionTiles(); }
         manageDensity();
     });
     trWrap.appendChild(srcSel);
@@ -337,6 +339,117 @@
                             });
                     });
             });
+    }
+
+    // ---------------------------------------------------------------------
+    // REGION TILE MANAGER — the whole Alaska record (108 tiles from
+    // tools/build_glacier_region.py), loaded by viewport with an LRU cache
+    // so a session downloads only what it looks at. Each tile is a small
+    // self-contained bundle on the same 240 m EPSG:3413 grid as the site
+    // bundles; the biggest (St Elias) are ~14 MB, most well under 1 MB.
+    // ---------------------------------------------------------------------
+    var REG = { list: null, loaded: new Map(), loading: new Set(), cap: 12 };
+
+    function loadRegionManifest() {
+        if (REG.list || REG.manifestPending) return;
+        REG.manifestPending = true;
+        fetch(CFG.dataBase + 'region_manifest.json?v=' + TRACER_DATA_V)
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (m) {
+                if (!m) throw new Error('no manifest');
+                REG.list = m.tiles;
+                console.log('region manifest:', m.tiles.length, 'tiles');
+                ensureRegionTiles();
+            })
+            .catch(function (e) {
+                console.warn('region manifest unavailable', e);
+                srcSel.value = 'annual';
+            });
+    }
+
+    function tileCovers(t, x, y) {
+        var g = t.grid;
+        return x >= g.x0 && x < g.x0 + g.nx * g.dx &&
+               y <= g.y0_north && y > g.y0_north - g.ny * g.dx;
+    }
+
+    function ensureRegionTiles() {
+        if (!REG.list || srcSel.value !== 'region') return;
+        var b = map.getBounds();
+        var xs = [], ys = [];
+        [[b.getWest(), b.getSouth()], [b.getEast(), b.getSouth()],
+         [b.getWest(), b.getNorth()], [b.getEast(), b.getNorth()]].forEach(function (p) {
+            var xy = lonLatTo3413(p[0], p[1]);
+            xs.push(xy[0]); ys.push(xy[1]);
+        });
+        var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+        var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+        var want = REG.list.filter(function (t) {
+            var g = t.grid;
+            return !(g.x0 > x1 || g.x0 + g.nx * g.dx < x0 ||
+                     g.y0_north < y0 || g.y0_north - g.ny * g.dx > y1);
+        }).slice(0, 6);   // cap concurrent interest; the rest load as you pan
+        want.forEach(function (t) {
+            if (REG.loaded.has(t.key) || REG.loading.has(t.key)) {
+                if (REG.loaded.has(t.key)) {           // refresh LRU order
+                    var v = REG.loaded.get(t.key);
+                    REG.loaded.delete(t.key); REG.loaded.set(t.key, v);
+                }
+                return;
+            }
+            REG.loading.add(t.key);
+            fetch(CFG.dataBase + t.key + '.bin?v=' + TRACER_DATA_V)
+                .then(function (r) { if (!r.ok) throw new Error('tile ' + r.status); return r.arrayBuffer(); })
+                .then(function (buf) {
+                    var nod = t.nodata != null ? t.nodata : -32768;
+                    function view(name) {
+                        var o = t.offsets[name];
+                        var raw = new Int16Array(buf, o[0] * 2, o[1]);
+                        var out = new Float32Array(o[1]);
+                        for (var i = 0; i < o[1]; i++) out[i] = raw[i] === nod ? NaN : raw[i];
+                        return out;
+                    }
+                    REG.loaded.set(t.key, {
+                        hdr: t, vx: view('vx'), vy: view('vy'),
+                        vxAmp: view('vx_amp'), vyAmp: view('vy_amp'),
+                        vxPh: view('vx_phase'), vyPh: view('vy_phase'),
+                        ice: view('landice')
+                    });
+                    while (REG.loaded.size > REG.cap) {
+                        REG.loaded.delete(REG.loaded.keys().next().value);
+                    }
+                    manageDensity();
+                })
+                .catch(function (e) { console.warn('tile ' + t.key, e); })
+                .then(function () { REG.loading.delete(t.key); });
+        });
+    }
+
+    // Sample whichever loaded tile contains the point — same annual-blend +
+    // seasonal-superposition maths as the site bundle, per tile.
+    function sampleRegion(x, y, t) {
+        if (!REG.loaded.size) return null;
+        var it = REG.loaded.values(), e;
+        while (!(e = it.next()).done) {
+            var T = e.value;
+            if (!tileCovers(T.hdr, x, y)) continue;
+            return sampleBundleLike(T, x, y, t);
+        }
+        return null;
+    }
+    function regionOnIce(x, y) {
+        if (!REG.loaded.size) return false;
+        var it = REG.loaded.values(), e;
+        while (!(e = it.next()).done) {
+            var T = e.value, g = T.hdr.grid;
+            if (!tileCovers(T.hdr, x, y)) continue;
+            var j = Math.round((x - g.x0) / g.dx - 0.5);
+            var i = Math.round((g.y0_north - y) / g.dx - 0.5);
+            if (i < 0 || j < 0 || i >= g.ny || j >= g.nx) return false;
+            var v = T.ice[i * g.nx + j];
+            return v === v && v > 0;
+        }
+        return false;
     }
 
     // Robust-fit model (tools/fit_pair_rasters.py): 8 coefficients per cell
@@ -454,9 +567,44 @@
         return wsum > 0.05 ? sum / wsum : NaN;
     }
 
+    // Shared annual-bundle sampler (site bundle or region tile — identical
+    // array layout, so one implementation serves both).
+    function sampleBundleLike(BB, x, y, t) {
+        var g = BB.hdr.grid;
+        var fx = (x - g.x0) / g.dx - 0.5;
+        var fy = (g.y0_north - y) / g.dx - 0.5;
+        if (fx < -1 || fy < -1 || fx > g.nx || fy > g.ny) return null;
+        var years = BB.hdr.years, nY = years.length;
+        var ty = t - (years[0] + 0.5);
+        var y0 = Math.floor(ty), frac = ty - y0;
+        if (y0 < 0) { y0 = 0; frac = 0; }
+        if (y0 >= nY - 1) { y0 = nY - 1; frac = 0; }
+        var plane = g.nx * g.ny;
+        var vx = sampleGrid2(BB.vx.subarray(y0 * plane, (y0 + 1) * plane), g.nx, g.ny, fx, fy);
+        var vy = sampleGrid2(BB.vy.subarray(y0 * plane, (y0 + 1) * plane), g.nx, g.ny, fx, fy);
+        if (frac > 0 && y0 < nY - 1) {
+            var vx1 = sampleGrid2(BB.vx.subarray((y0 + 1) * plane, (y0 + 2) * plane), g.nx, g.ny, fx, fy);
+            var vy1 = sampleGrid2(BB.vy.subarray((y0 + 1) * plane, (y0 + 2) * plane), g.nx, g.ny, fx, fy);
+            if (vx1 === vx1 && vy1 === vy1 && vx === vx && vy === vy) {
+                vx += frac * (vx1 - vx); vy += frac * (vy1 - vy);
+            }
+        }
+        if (vx !== vx || vy !== vy) return null;
+        var doy = (t - Math.floor(t)) * 365.25;
+        var ax = sampleGrid2(BB.vxAmp, g.nx, g.ny, fx, fy);
+        var ay = sampleGrid2(BB.vyAmp, g.nx, g.ny, fx, fy);
+        var px = sampleGrid2(BB.vxPh, g.nx, g.ny, fx, fy);
+        var py = sampleGrid2(BB.vyPh, g.nx, g.ny, fx, fy);
+        if (ax === ax && px === px) vx += ax * Math.cos(2 * Math.PI * (doy - px) / 365.25);
+        if (ay === ay && py === py) vy += ay * Math.cos(2 * Math.PI * (doy - py) / 365.25);
+        if (Math.abs(vx) > 25000 || Math.abs(vy) > 25000) return null;
+        return { vx: vx, vy: vy };
+    }
+
     function sampleVelocity(x, y, t) {
         // t in fractional years (e.g. 2017.53). Returns {vx, vy} m/yr or null.
         if (srcSel && srcSel.value === 'fit') return sampleFit(x, y, t);
+        if (srcSel && srcSel.value === 'region') return sampleRegion(x, y, t);
         var g = B.hdr.grid;
         var fx = (x - g.x0) / g.dx - 0.5;
         var fy = (g.y0_north - y) / g.dx - 0.5;
@@ -527,6 +675,7 @@
 
     function onIce(x, y) {
         if (srcSel && srcSel.value === 'fit') return !!sampleFit(x, y, simT);
+        if (srcSel && srcSel.value === 'region') return regionOnIce(x, y);
         var g = B.hdr.grid;
         var j = Math.round((x - g.x0) / g.dx - 0.5);
         var i = Math.round((g.y0_north - y) / g.dx - 0.5);
@@ -770,6 +919,7 @@
     // settles, re-manage so newly visible ice seeds and the zoom-adaptive
     // density retargets even while paused.
     map.on('moveend', function () {
+        if (srcSel && srcSel.value === 'region') ensureRegionTiles();
         if (B && simT != null) manageDensity();
         writeHash();
     });

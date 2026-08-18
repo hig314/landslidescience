@@ -65,7 +65,7 @@ def tracer_data(request, name):
     # Site bundles live in data/glaciers/; experiment bundles (raw
     # image-pair vectors) in data/glaciers/experiments/. Try both — the
     # URL regex already constrains `name` to a safe token.
-    for base in (DATA_DIR, DATA_DIR / 'experiments'):
+    for base in (DATA_DIR, DATA_DIR / 'experiments', DATA_DIR / 'region'):
         if (base / name).exists() or (base / (name + '.gz')).exists():
             DIR = base
             break
