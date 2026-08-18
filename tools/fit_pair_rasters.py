@@ -302,6 +302,12 @@ def spatial_fill(out, coef, gate=None, max_dist=6, min_donors=3):
     filled = 0
     todo = np.argwhere(~have)
     for (i, j) in todo:
+        # Never resurrect a historic-only cell. Spatial fill is for cells with
+        # NO information; a stale cell carries positive evidence that its
+        # regime ended, and filling it from still-active upstream neighbours
+        # is precisely how pre-retreat flow gets re-asserted over open water.
+        if out['source'][i, j] == 5:
+            continue
         if gate is not None and not gate[i, j]:
             if out['source'][i, j] == 0:
                 out['source'][i, j] = 4
