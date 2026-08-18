@@ -78,6 +78,9 @@ MIN_BIN = 8             # measurements needed before a dt bin gets a vote
 # tier-2 cells had ZERO recent observations yet claimed a median 1,880 m/yr.
 MIN_RECENT_OBS = 5
 RECENT_WINDOW = 3.5     # years back from t_ref
+AMP_FLOOR = 5.0         # m/yr — seasonal amplitude below this is indistinguishable from 0
+TREND_FLOOR = 1.0       # m/yr^2
+T_REF_FOR_PARITY = 2024.5   # added back to (t - t_ref) to recover the year
 SEASON_RIDGE = 4.0      # damps the seasonal pair on near-stationary ground,
                         # where 4 free parameters otherwise fit pure noise
 # Directional/robust tolerance: sigma = max(floor, frac * |v|)
@@ -95,7 +98,7 @@ def design(t1, t2, t_ref):
     return np.column_stack([np.ones_like(tm), tm - t_ref, Sc, Ss]).astype(np.float64)
 
 
-def solve_w(A, y, w):
+def solve_w(A, y, w, want_cov=False):
     """Weighted least squares, 4 unknowns; None if ill-conditioned."""
     sw = np.sqrt(w)
     Aw = A * sw[:, None]
@@ -110,7 +113,14 @@ def solve_w(A, y, w):
         # by the data, not conjured from noise on stationary rock.
         AtA[2, 2] += SEASON_RIDGE * 1e-3 * sc
         AtA[3, 3] += SEASON_RIDGE * 1e-3 * sc
-        return np.linalg.solve(AtA, Aw.T @ yw)
+        c = np.linalg.solve(AtA, Aw.T @ yw)
+        if not want_cov:
+            return c
+        r = yw - Aw @ c
+        dof = max(1, len(yw) - 4)
+        s2 = float(r @ r) / dof
+        cov = np.linalg.inv(AtA) * s2
+        return c, cov
     except np.linalg.LinAlgError:
         return None
 
@@ -150,11 +160,17 @@ def fit_cell(A, vx, vy, dt_d, base_w, seed_mask):
     ref = next((st for st in stats if st[1] is not None), None)
     dt_cap = np.inf
     if ref is not None:
-        rlo, rhi = ref[1] - ref[2], ref[1] + ref[2]
+        # ONE-SIDED: the skip/lock artifact only biases magnitudes DOWNWARD,
+        # and partial decorrelation is a continuous downward drift, not a
+        # binary blunder. The old two-sided non-overlap test admitted bins
+        # that had already decayed ~35% (e.g. 280 vs 425 m/yr), and the 1/dt
+        # precision weighting then pulled the fit toward those biased bins —
+        # the mechanism behind the medium-band underestimate (0.47x).
+        thresh = ref[1] - ref[2]
         for b, med, mad in stats:
             if b <= ref[0] or med is None:
                 continue
-            if med + mad < rlo or med - mad > rhi:   # bounds no longer overlap
+            if med < thresh:
                 dt_cap = edges[b]
                 break
     dt_cap = max(dt_cap, DT_CAP_MIN)
@@ -189,6 +205,58 @@ def fit_cell(A, vx, vy, dt_d, base_w, seed_mask):
         if ncx is None or ncy is None:
             return None
         cx, cy = ncx, ncy
+
+    # --- STABILITY GATES ----------------------------------------------------
+    # A coefficient is kept only if the data DEMANDS it. Formal standard
+    # errors are useless here (correlated residuals + n in the hundreds made
+    # 2-sigma pass 89% of seasonal terms), so the test is replication: split
+    # the measurements into two disjoint halves by YEAR PARITY, refit each,
+    # and keep a term only when both halves independently agree on it.
+    # Fitted noise does not replicate; real seasonality and real trends do.
+    tmids = 0.5 * 0  # placeholder to keep patch anchors unique
+    yr_par = (np.floor(A[:, 1] + 0.0) % 2 == 0) if False else None
+    # A[:,1] is t_mid - t_ref: recover approximate year parity from it.
+    yrs = np.floor(A[:, 1] + T_REF_FOR_PARITY)
+    hA = (yrs % 2 == 0)
+    hB = ~hA
+    def _half(mask):
+        if (w[mask] > 0).sum() < 12:
+            return None
+        rx = solve_w(A[mask], vx[mask], w[mask])
+        ry = solve_w(A[mask], vy[mask], w[mask])
+        if rx is None or ry is None:
+            return None
+        return rx, ry
+    HA, HB = _half(hA), _half(hB)
+
+    def _agree(vec_a, vec_b, floor):
+        na, nb = np.linalg.norm(vec_a), np.linalg.norm(vec_b)
+        if na < floor or nb < floor:
+            return False
+        cos = float(np.dot(vec_a, vec_b) / (na * nb))
+        ratio = max(na, nb) / max(min(na, nb), 1e-9)
+        return cos > 0.5 and ratio < 3.0
+
+    keep_season = False
+    keep_trend = False
+    if HA is not None and HB is not None:
+        sa = np.array([HA[0][2], HA[0][3], HA[1][2], HA[1][3]])
+        sb = np.array([HB[0][2], HB[0][3], HB[1][2], HB[1][3]])
+        keep_season = _agree(sa, sb, AMP_FLOOR)
+        ta = np.array([HA[0][1], HA[1][1]])
+        tb = np.array([HB[0][1], HB[1][1]])
+        keep_trend = _agree(ta, tb, TREND_FLOOR)
+    if not keep_season:
+        cx[2] = cx[3] = cy[2] = cy[3] = 0.0
+        # refit mean+trend with seasonal frozen out, so v0 doesn't absorb bias
+        A2 = A[:, :2]
+        rx2 = np.linalg.lstsq(A2 * np.sqrt(w)[:, None], vx * np.sqrt(w), rcond=None)[0]
+        ry2 = np.linalg.lstsq(A2 * np.sqrt(w)[:, None], vy * np.sqrt(w), rcond=None)[0]
+        cx[0], cx[1] = rx2[0], rx2[1]
+        cy[0], cy[1] = ry2[0], ry2[1]
+    if not keep_trend:
+        cx[1] = 0.0
+        cy[1] = 0.0
 
     keep = w > 0.05 * base_w.max()
     n_eff = int(keep.sum())

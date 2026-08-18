@@ -158,6 +158,8 @@
                     if (bufs[1]) {
                         M = {
                             grid: mh.grid, tRef: mh.t_ref,
+                            tLo: mh.t_window ? mh.t_window[0] : 2015.0,
+                            tHi: mh.t_window ? mh.t_window[1] : mh.t_ref + 1.0,
                             coef: new Float32Array(bufs[1], 0, mh.coef_count),
                             source: new Uint8Array(bufs[1], mh.coef_count * 4, mh.source_count)
                         };
@@ -170,6 +172,7 @@
     // Model velocity at time t for grid cell (i, j); null where unfitted.
     function modelAt(i, j, t) {
         if (!M) return null;
+        t = Math.min(M.tHi != null ? M.tHi : M.tRef + 1, Math.max(M.tLo != null ? M.tLo : 2015, t));
         var g = M.grid;
         if (i < 0 || j < 0 || i >= g.ny || j >= g.nx) return null;
         var src = M.source[i * g.nx + j];

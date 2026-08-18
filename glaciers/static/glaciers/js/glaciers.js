@@ -354,6 +354,8 @@
                     .then(function (buf) {
                         FITM = {
                             grid: mh.grid, tRef: mh.t_ref,
+                            tLo: mh.t_window ? mh.t_window[0] : 2015.0,
+                            tHi: mh.t_window ? mh.t_window[1] : mh.t_ref + 1.0,
                             coef: new Float32Array(buf, 0, mh.coef_count),
                             source: new Uint8Array(buf, mh.coef_count * 4, mh.source_count)
                         };
@@ -366,15 +368,16 @@
             });
     }
 
-    // Velocity from the fitted model. Tier 4 (no recent evidence) is treated
-    // as NO DATA on purpose: a decades-old trend must not put ice where the
-    // recent record shows none — that is how tracers end up swimming in the
-    // fjord beyond a retreated terminus.
-    function sampleFit(x, y, t) {
-        if (!FITM) return null;
+    // Velocity from the fitted model — with two guards the raw evaluation
+    // lacked, both diagnosed from real swirl artifacts:
+    //  * TIME CLAMP: the model is only valid inside its fit window. Evaluated
+    //    at 2016 the unclamped trend REVERSED 32% of cells (59% at 1990) —
+    //    slow cells flip sign under noise-level trends. Outside the window
+    //    the model freezes at the nearest edge rather than extrapolating.
+    //  * BILINEAR blend of the four surrounding cells' velocities — the
+    //    nearest-cell lookup made every cell boundary a velocity step.
+    function _fitCellV(i, j, t) {
         var g = FITM.grid;
-        var j = Math.round((x - g.x0) / g.dx - 0.5);
-        var i = Math.round((g.y0_north - y) / g.dx - 0.5);
         if (i < 0 || j < 0 || i >= g.ny || j >= g.nx) return null;
         var src = FITM.source[i * g.nx + j];
         if (!src || src === 4) return null;
@@ -384,8 +387,29 @@
         var vx = FITM.coef[o] + FITM.coef[o+1]*dtr + FITM.coef[o+2]*co + FITM.coef[o+3]*si;
         var vy = FITM.coef[o+4] + FITM.coef[o+5]*dtr + FITM.coef[o+6]*co + FITM.coef[o+7]*si;
         if (!isFinite(vx) || !isFinite(vy)) return null;
-        if (Math.abs(vx) > 25000 || Math.abs(vy) > 25000) return null;
-        return { vx: vx, vy: vy };
+        return [vx, vy];
+    }
+    function sampleFit(x, y, t) {
+        if (!FITM) return null;
+        var g = FITM.grid;
+        t = Math.min(FITM.tHi, Math.max(FITM.tLo, t));
+        var fx = (x - g.x0) / g.dx - 0.5;
+        var fy = (g.y0_north - y) / g.dx - 0.5;
+        var j0 = Math.floor(fx), i0 = Math.floor(fy);
+        var tx = fx - j0, ty = fy - i0;
+        var sx = 0, sy = 0, wsum = 0;
+        for (var di = 0; di <= 1; di++) {
+            for (var dj = 0; dj <= 1; dj++) {
+                var v = _fitCellV(i0 + di, j0 + dj, t);
+                if (!v) continue;
+                var w = (di ? ty : 1 - ty) * (dj ? tx : 1 - tx);
+                sx += w * v[0]; sy += w * v[1]; wsum += w;
+            }
+        }
+        if (wsum < 0.05) return null;
+        sx /= wsum; sy /= wsum;
+        if (Math.abs(sx) > 25000 || Math.abs(sy) > 25000) return null;
+        return { vx: sx, vy: sy };
     }
 
     // ---------------------------------------------------------------------

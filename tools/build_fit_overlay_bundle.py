@@ -106,6 +106,7 @@ def main(name):
         f.write(source.tobytes())
     (ROOT / f'{name}_model.json').write_text(json.dumps({
         'name': name, 'grid': g, 't_ref': t_ref,
+        't_window': [2015.0, t_ref + 1.0],
         'coef_count': int(cflat.size), 'source_count': int(source.size),
         'bin': f'{name}_model.bin',
         'verdict_bin': f'{name}_verdict.bin',
