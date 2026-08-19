@@ -786,11 +786,31 @@
         }
         insCx.fillText('m/yr', 2, T + 8);
         var span = t1 - t0;
-        var stepY = span > 20 ? 5 : span > 8 ? 2 : span > 3 ? 1 : span > 1 ? 0.5 : 0.25;
-        for (var y = Math.ceil(t0 / stepY) * stepY; y < t1; y += stepY) {
-            insCx.fillText(stepY >= 1 ? String(Math.round(y)) : y.toFixed(2), px(y) - 12, h - 5);
-            insCx.strokeStyle = '#f2f2f2';
+        // Every year boundary gets a mark, always — seasonality is only
+        // readable against the annual grid. Labels thin out when they would
+        // collide; months appear once there is room for them.
+        var labelEvery = span > 24 ? 5 : span > 10 ? 2 : 1;
+        for (var y = Math.ceil(t0); y < t1; y += 1) {
+            insCx.strokeStyle = '#dcdcdc';
             insCx.beginPath(); insCx.moveTo(px(y), T); insCx.lineTo(px(y), h - B2); insCx.stroke();
+            if (Math.round(y) % labelEvery === 0) {
+                insCx.fillStyle = '#777';
+                insCx.fillText(String(Math.round(y)), px(y) - 12, h - 5);
+            }
+        }
+        if (span < 6) {                       // month marks, unlabelled below 3 yr
+            for (var ym = Math.floor(t0); ym < t1 + 1; ym += 1) {
+                for (var mo = 1; mo < 12; mo++) {
+                    var tm2 = ym + mo / 12;
+                    if (tm2 < t0 || tm2 > t1) continue;
+                    insCx.strokeStyle = '#f4f4f4';
+                    insCx.beginPath(); insCx.moveTo(px(tm2), T); insCx.lineTo(px(tm2), h - B2); insCx.stroke();
+                    if (span < 3 && mo % 3 === 0) {
+                        insCx.fillStyle = '#bbb';
+                        insCx.fillText(MONTHS[mo], px(tm2) - 8, h - 5);
+                    }
+                }
+            }
         }
         // each measurement: a horizontal bar spanning its own interval
         var nk = 0, nr = 0;
@@ -818,7 +838,10 @@
         if (MON) {
             var ser = monthlySeries(i, j);
             if (ser) {
-                insCx.strokeStyle = 'rgba(20,150,90,0.95)'; insCx.lineWidth = 1.2;
+                // Monthly series is the reference curve: drawn PALE and THICK
+                // so it reads as a band behind everything else, rather than
+                // competing with the thin model lines drawn over it.
+                insCx.strokeStyle = 'rgba(20,150,90,0.30)'; insCx.lineWidth = 5;
                 insCx.beginPath();
                 var st = false;
                 ser.forEach(function (pt) {
@@ -830,6 +853,7 @@
                 hk = harmonicFit(ser);
                 if (hk) {
                     insCx.strokeStyle = 'rgba(150,60,190,0.95)';
+                    insCx.lineWidth = 2;
                     insCx.beginPath(); st = false;
                     for (var m2 = 0; m2 < hk.t.length; m2++) {
                         if (!hk.ok[m2]) { st = false; continue; }
@@ -844,7 +868,8 @@
         }
         // the fitted model over the same window
         if (M) {
-            insCx.strokeStyle = '#111'; insCx.lineWidth = 1.4;
+            insCx.strokeStyle = 'rgba(15,15,15,0.95)'; insCx.lineWidth = 1.3;
+            insCx.setLineDash([5, 3]);
             insCx.beginPath();
             var started = false;
             for (var t = t0; t <= t1; t += 1 / 48) {
@@ -855,6 +880,7 @@
                 else insCx.lineTo(px(t), py(pv));
             }
             insCx.stroke();
+            insCx.setLineDash([]);
             insCx.lineWidth = 1;
         }
         // current time marker
@@ -872,12 +898,16 @@
                                         D.grid.y0_north - (i + 0.5) * D.grid.dx);
         insTitle.textContent = 'Point history — ' + ll[1].toFixed(4) + ', ' + ll[0].toFixed(4);
         insLegend.innerHTML =
-            '<span class="pv-sw" style="background:rgb(30,120,200)"></span>kept ' + nk +
-            '<span class="pv-sw" style="background:rgb(210,70,50)"></span>rejected ' + nr +
-            '<span class="pv-sw" style="background:rgb(20,150,90)"></span>monthly (no cycle assumed)' +
+            (V
+                ? '<span class="pv-sw" style="background:rgb(30,120,200)"></span>kept ' + nk +
+                  '<span class="pv-sw" style="background:rgb(210,70,50)"></span>rejected ' + nr
+                : '<span class="pv-sw" style="background:#999"></span>' +
+                  idx.length + ' pairs — filter verdicts not built for this area') +
+            '<span class="pv-sw" style="background:rgba(20,150,90,0.45)"></span>monthly (no cycle assumed)' +
             '<span class="pv-sw" style="background:rgb(150,60,190)"></span>secular + harmonics' +
             (hk ? ' [' + (hk.kept.length ? 'h' + hk.kept.join(',h') : 'none kept') + ']' : '') +
-            '<span class="pv-sw" style="background:#111"></span>one sinusoid' +
+            '<span class="pv-sw" style="background:#111"></span>' +
+            (M ? 'parametric: mean+trend+1 annual term' : 'parametric: not built for this area') +
             '<span class="pv-sw" style="background:#c9971c"></span>now' +
             ' · bar length = pair separation' +
             (MON ? '' : ' · loading monthly series…');
