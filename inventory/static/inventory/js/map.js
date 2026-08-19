@@ -681,6 +681,10 @@
     // components read identically across the wiper divider.
     function _provLayerDefs() {
         return [
+            // Teal = UNCOMMITTED (staged, still yours to name/commit).
+            // Magenta #d6219e = committed but incomplete (pending review).
+            // Two different states, deliberately two different colours —
+            // don't unify them. Dashed outline = not yet in the inventory.
             { id: 'prov-fill', type: 'fill', source: 'prov-src',
               paint: { 'fill-color': '#00b3a4', 'fill-opacity': 0.25 } },
             { id: 'prov-line', type: 'line', source: 'prov-src',
@@ -702,16 +706,17 @@
         ensureProvLayers();   // guarantee the source + layers exist first
         var src = map.getSource('prov-src');
         if (!src) { console.warn('refreshProvData: prov-src missing'); return; }
-        // Staged components are drawn only while the tool is open. After Exit
-        // they'd sit on the map as unexplained "ghost" polygons — they still
-        // live server-side and come back when the tool is reopened.
-        var feats = !map.__drawActive ? [] : _prov.map(function (c) {
+        // Staged components are ALWAYS drawn for their editor, not only while
+        // the draw tool happens to be open. They are real pending work that
+        // lives server-side and survives sessions — hiding them made a
+        // detached polygon (or anything staged last week) silently invisible
+        // until you thought to click Draw, and left the map disagreeing with
+        // itself depending on how you arrived. They are visually distinct
+        // (dashed amber) and only ever visible to the editor who staged them.
+        var feats = _prov.map(function (c) {
             return { type: 'Feature', geometry: c.geometry,
                      properties: { label: c.unique_name + ' (' + c.role + ')' } };
         });
-        console.log('refreshProvData: staged=' + feats.length +
-                    ' prov-fill=' + !!map.getLayer('prov-fill') +
-                    ' geom0=' + (feats[0] && feats[0].geometry && feats[0].geometry.type));
         var fc = { type: 'FeatureCollection', features: feats };
         src.setData(fc);
         // Mirror to the wiper's comparison map — the swipe container covers
@@ -1193,7 +1198,39 @@
         map.on('style.load', ensurePendingLayers);
         if (map.isStyleLoaded()) ensurePendingLayers();
         loadPending();
-        document.addEventListener('visibilitychange', function () { if (!document.hidden) loadPending(); });
+        // Staged (uncommitted) components belong on the map from the start,
+        // not only once the draw tool is opened — otherwise work staged
+        // earlier (or a just-detached polygon) is invisible until you happen
+        // to click Draw. Same refresh-on-return treatment as pending records.
+        loadProvisional();
+        map.on('style.load', function () { ensureProvLayers(); refreshProvData(); });
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) { loadPending(); loadProvisional(); }
+        });
+
+        // Staged components are now always on the map, so they need to answer
+        // "what is this?" when clicked — otherwise they're an inert magenta
+        // blob. Identify it and point at the tool that manages it. Skipped
+        // while draw/measure own the cursor.
+        map.on('click', 'prov-fill', function (e) {
+            if (map.__measureActive || map.__drawActive) return;
+            var label = (e.features && e.features[0] && e.features[0].properties &&
+                         e.features[0].properties.label) || 'staged component';
+            new maplibregl.Popup({ closeButton: true })
+                .setLngLat(e.lngLat)
+                .setHTML('<div style="font-size:12px;line-height:1.45;">' +
+                         '<b>Staged (not committed)</b><br>' +
+                         String(label).replace(/[<>&]/g, '') +
+                         '<br><span style="color:#666;">Open <b>✏ Draw</b> to name, ' +
+                         'rename or commit it.</span></div>')
+                .addTo(map);
+        });
+        map.on('mouseenter', 'prov-fill', function () {
+            if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'prov-fill', function () {
+            if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = '';
+        });
 
         function _openPending(id) { if (!map.__measureActive && !map.__drawActive && id) window.location.href = '/inventory/manage/' + id + '/review/'; }
         map.on('click', 'pending-pt',        function (e) { _openPending(e.features[0].properties.id); });

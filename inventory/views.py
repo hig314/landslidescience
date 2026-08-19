@@ -3145,14 +3145,23 @@ def manage_draw_preview(request):
     try:
         cur = conn.cursor()
         rows = _provisional_rows(cur, request.user.id)
-        # Bounding-box diagonal (EPSG:3338, metres) per name — a dispersed
-        # same-name group is probably two sites typed with one name.
+        # How far apart are the COMPONENTS sharing a name? The question is
+        # "are these two different sites typed with one name?", so measure the
+        # greatest distance between component centroids — and only when there
+        # is more than one component. The old bounding-box diagonal measured
+        # the group's own extent, so a single large landslide reported a huge
+        # "span" and tripped the warning on its own size.
         cur.execute("""
-            SELECT unique_name,
-                   sqrt(power(ST_XMax(e) - ST_XMin(e), 2) + power(ST_YMax(e) - ST_YMin(e), 2))
-            FROM (SELECT unique_name, ST_Extent(ST_Transform(geom, 3338)) AS e
-                  FROM provisional_polygons WHERE editor_id = %s GROUP BY unique_name) s
-        """, (request.user.id,))
+            SELECT a.unique_name, MAX(ST_Distance(a.c, b.c))
+            FROM (SELECT unique_name, id,
+                         ST_Centroid(ST_Transform(geom, 3338)) AS c
+                  FROM provisional_polygons WHERE editor_id = %s) a
+            JOIN (SELECT unique_name, id,
+                         ST_Centroid(ST_Transform(geom, 3338)) AS c
+                  FROM provisional_polygons WHERE editor_id = %s) b
+              ON a.unique_name = b.unique_name AND a.id < b.id
+            GROUP BY a.unique_name
+        """, (request.user.id, request.user.id))
         spread = {n: (d or 0.0) for n, d in cur.fetchall()}
         names = sorted({r['unique_name'] for r in rows})
         existing = _draw_existing_landslides(cur, names)   # lower(name) -> (id, type)

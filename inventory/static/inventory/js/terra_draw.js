@@ -37,6 +37,11 @@
   // ---- state (reset each time edit mode is entered) ----
   var draw, editing = false, selectedId = null;
   var uuidToDbId, featureRole, originalDbIds, dirtyDbIds;
+  // Geometry as loaded from the server, keyed by db id. dirtyDbIds cannot
+  // answer "did this actually change?" — Terra Draw flags a feature as
+  // changed when it is merely SELECTED — so compare against this instead
+  // wherever a false positive would be user-visible.
+  var originalGeom;
   var _editShadow = [];   // basemap-switch-proof copy of the edited polygons
 
   function uuid() {
@@ -167,7 +172,7 @@
     }
 
     editing = true;
-    uuidToDbId = {}; featureRole = {}; dirtyDbIds = {}; originalDbIds = []; _editShadow = [];
+    uuidToDbId = {}; featureRole = {}; dirtyDbIds = {}; originalGeom = {}; originalDbIds = []; _editShadow = [];
     host.showPreview(false);
 
     makeDraw();
@@ -265,7 +270,11 @@
       var geom = { type: 'Polygon', coordinates: round9(polys[0].coordinates) };
       var id = uuid();
       feats.push({ id: id, type: 'Feature', geometry: geom, properties: { mode: 'polygon' } });
-      if (dbId != null) { uuidToDbId[id] = dbId; originalDbIds.push(dbId); }
+      if (dbId != null) {
+        uuidToDbId[id] = dbId;
+        originalDbIds.push(dbId);
+        originalGeom[dbId] = JSON.stringify(geom.coordinates);
+      }
       if (role != null) featureRole[id] = role;
     });
     if (feats.length) draw.addFeatures(feats);
@@ -312,7 +321,17 @@
     // — gating on it deadlocked detach (select → dirty → "save first" → save
     // deselects → nothing to detach). The db id is captured here at click
     // time, so neither selection nor dirty state matters from this point.
-    if (dirtyDbIds[dbId] && !window.confirm(
+    // Real change test: compare the live coordinates with what was loaded.
+    // (dirtyDbIds would fire on every selection — that false warning is
+    // exactly what this replaces.)
+    var liveGeom = null;
+    try {
+      realPolys(draw.getSnapshot()).forEach(function (f) {
+        if (f.id === selectedId) liveGeom = JSON.stringify(round9(f.geometry.coordinates));
+      });
+    } catch (e) { /* fall through to "unchanged" */ }
+    var reallyChanged = !!(liveGeom && originalGeom[dbId] && liveGeom !== originalGeom[dbId]);
+    if (reallyChanged && !window.confirm(
         'This polygon has unsaved reshaping.\n\n' +
         'Detach moves the last SAVED shape into staging — unsaved vertex edits ' +
         'are discarded (you can reshape it again after committing it).\n\n' +
@@ -418,7 +437,7 @@
     if (map.getSource('lspoly')) map.getSource('lspoly').setData(polysFC);
     if (!draw) return;
     try { draw.clear(); } catch (e) {}
-    uuidToDbId = {}; featureRole = {}; dirtyDbIds = {}; originalDbIds = [];
+    uuidToDbId = {}; featureRole = {}; dirtyDbIds = {}; originalGeom = {}; originalDbIds = [];
     loadFeatures();
     snapshotEditState();
     draw.setMode('select');
@@ -443,7 +462,7 @@
 
   function renderCreateBar() {
     bar.innerHTML = '';
-    uuidToDbId = {}; featureRole = {}; dirtyDbIds = {}; originalDbIds = [];
+    uuidToDbId = {}; featureRole = {}; dirtyDbIds = {}; originalGeom = {}; originalDbIds = [];
 
     var nameWrap = document.createElement('label'); nameWrap.className = 'ls-poly-role-row';
     nameWrap.appendChild(document.createTextNode('Name: '));

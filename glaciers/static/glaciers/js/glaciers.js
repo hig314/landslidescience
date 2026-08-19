@@ -231,9 +231,13 @@
     // of the raw image pairs. Same tracer engine either way, so the two are
     // directly comparable — which is the point.
     var srcSel = document.createElement('select');
-    [['annual', 'Field: ITS_LIVE annual (this site)'],
-     ['region', 'Field: ITS_LIVE annual (all Alaska)'],
-     ['fit', 'Field: our robust pair fit (Columbia box)']].forEach(function (o) {
+    // Field sources, in order of coverage. Region is the general case; the
+    // per-site bundles exist only because they carry work the regional tiles
+    // do not (observed quarterly composites 2024+), and the pair fit is the
+    // Columbia experiment. The site MENU is a camera jump in every mode.
+    [['region', 'Field: ITS_LIVE annual — all Alaska'],
+     ['annual', 'Field: ITS_LIVE + observed quarterly (this site only)'],
+     ['fit', 'Field: robust pair fit (Columbia box only)']].forEach(function (o) {
         var e = document.createElement('option');
         e.value = o[0]; e.textContent = o[1];
         srcSel.appendChild(e);
@@ -252,6 +256,95 @@
     cbTracers.type = 'checkbox'; cbTracers.checked = true;
     var cbTrails = ctlRow('Trails', document.createElement('input'));
     cbTrails.type = 'checkbox'; cbTrails.checked = true;
+    // ---- velocity window -------------------------------------------------
+    // Purely a runtime test — no precomputation — so it can be interactive.
+    // AUTO min is tied to on-screen legibility rather than to a fixed speed:
+    // a tracer is worth drawing when it moves at least VIS_PX_PER_SEC pixels
+    // per second of wall time, which depends on BOTH playback rate and zoom
+    //     v_min = VIS_PX_PER_SEC * metres_per_pixel / (years per second)
+    // so faster playback and deeper zoom both lower the threshold, exactly
+    // where slow motion becomes legible.
+    var VIS_PX_PER_SEC = 1.2;
+    var vminAuto = true, vminManual = 0, vmaxManual = Infinity;
+    var vwRow = document.createElement('div');
+    vwRow.className = 'gl-ov-row';
+    vwRow.innerHTML = '<span style="font-size:10px;color:#777;">speed window (m/yr)</span>';
+    var vwAuto = document.createElement('label');
+    vwAuto.style.cssText = 'display:flex;gap:5px;align-items:center;font-size:11px;';
+    var vwCb = document.createElement('input');
+    vwCb.type = 'checkbox'; vwCb.checked = true;
+    vwCb.title = 'Derive the minimum from playback speed and zoom';
+    vwAuto.appendChild(vwCb);
+    vwAuto.appendChild(document.createTextNode('auto minimum'));
+    var vwVal = document.createElement('span');
+    vwVal.style.cssText = 'font-size:10px;color:#555;margin-left:auto;font-variant-numeric:tabular-nums;';
+    vwAuto.appendChild(vwVal);
+    vwRow.appendChild(vwAuto);
+    var vwMin = document.createElement('input');
+    vwMin.type = 'range'; vwMin.min = '0'; vwMin.max = '100'; vwMin.value = '0';
+    vwMin.title = 'Minimum speed to show';
+    var vwMax = document.createElement('input');
+    vwMax.type = 'range'; vwMax.min = '0'; vwMax.max = '100'; vwMax.value = '100';
+    vwMax.title = 'Maximum speed to show';
+    [vwMin, vwMax].forEach(function (el) {
+        el.style.cssText = 'width:100%;height:12px;';
+        vwRow.appendChild(el);
+    });
+    // log scale 0.3 .. 20000 m/yr
+    function sliderToV(p) { return Math.exp(Math.log(0.3) + (p / 100) * (Math.log(20000) - Math.log(0.3))); }
+    function readWindow() {
+        vminManual = (+vwMin.value <= 0) ? 0 : sliderToV(+vwMin.value);
+        vmaxManual = (+vwMax.value >= 100) ? Infinity : sliderToV(+vwMax.value);
+    }
+    function autoVMin() {
+        var c = map.getCenter();
+        var mpp = 156543.03392 * Math.cos(c.lat * Math.PI / 180) / Math.pow(2, map.getZoom());
+        var p = Math.max(0.05, parseFloat(speedSel ? speedSel.value : 1));
+        return VIS_PX_PER_SEC * mpp / p;
+    }
+    function vWindow() {
+        var lo = vminAuto ? autoVMin() : vminManual;
+        return [lo, vmaxManual];
+    }
+    function syncVLabel() {
+        var wnd = vWindow();
+        vwVal.textContent = wnd[0].toFixed(wnd[0] < 10 ? 1 : 0) + ' – ' +
+            (wnd[1] === Infinity ? '∞' : wnd[1].toFixed(0));
+        vwMin.disabled = vminAuto;
+        vwMin.style.opacity = vminAuto ? 0.4 : 1;
+    }
+    vwCb.addEventListener('change', function () {
+        vminAuto = vwCb.checked; syncVLabel();
+        particles = []; ctx.clearRect(0, 0, canvas.width, canvas.height); manageDensity();
+    });
+    [vwMin, vwMax].forEach(function (el) {
+        el.addEventListener('input', function () { readWindow(); syncVLabel(); });
+        el.addEventListener('change', function () {
+            particles = []; ctx.clearRect(0, 0, canvas.width, canvas.height); manageDensity();
+        });
+    });
+    trWrap.appendChild(vwRow);
+
+    // Mapped-ice restriction. OFF lets tracers run wherever there is a valid
+    // velocity — which is where slow non-glacier motion lives (creeping
+    // slopes, rock glaciers, landslides), the signal the ice mask discards.
+    var iceRow = document.createElement('div');
+    iceRow.className = 'gl-ov-row';
+    var iceLab = document.createElement('label');
+    iceLab.style.cssText = 'display:flex;gap:5px;align-items:center;font-size:11px;';
+    var iceCb = document.createElement('input');
+    iceCb.type = 'checkbox'; iceCb.checked = true;
+    iceCb.title = 'Uncheck to include motion off the mapped ice — slow slopes, rock glaciers, landslides';
+    iceLab.appendChild(iceCb);
+    iceLab.appendChild(document.createTextNode('restrict to mapped ice'));
+    iceRow.appendChild(iceLab);
+    iceCb.addEventListener('change', function () {
+        particles = []; ctx.clearRect(0, 0, canvas.width, canvas.height); manageDensity();
+    });
+    trWrap.appendChild(iceRow);
+    readWindow();
+    syncVLabel();
+
     var densSel = document.createElement('select');
     ['sparse', 'normal', 'dense'].forEach(function (d) {
         var o = document.createElement('option');
@@ -780,9 +873,12 @@
                 for (var attempt = 0; attempt < 3; attempt++) {
                     var x = g.x0 + cx * cell + Math.random() * cell;
                     var y = g.y0_north - cy * cell - Math.random() * cell;
-                    if (!onIce(x, y)) continue;
+                    if (iceCb.checked && !onIce(x, y)) continue;
                     var v0 = sampleVelocity(x, y, simT);
                     if (!v0) continue;
+                    var sp0 = Math.hypot(v0.vx, v0.vy);
+                    var wnd = vWindow();
+                    if (sp0 < wnd[0] || sp0 > wnd[1]) continue;
                     // Seed speed from the sampled field — without it a fresh
                     // spawn drew at ~0 m/yr (near-black) until its first
                     // step: phantom "slow" dots amid fast flow, exactly
@@ -906,7 +1002,14 @@
                 while (L >= 4 && p.trail[L - 2] > simT) L -= 4;
                 if (L < p.trail.length) p.trail.length = L;
             }
-            if (!onIce(p.x, p.y)) p.fade = Math.min(p.fade, 1 - 1 / FADE_STEPS);
+            if (iceCb.checked && !onIce(p.x, p.y)) {
+                p.fade = Math.min(p.fade, 1 - 1 / FADE_STEPS);
+            } else {
+                var wq = vWindow();
+                if (p.speed < wq[0] * 0.5 || p.speed > wq[1] * 2) {
+                    p.fade = Math.min(p.fade, 1 - 1 / FADE_STEPS);
+                }
+            }
         }
     }
 
@@ -931,6 +1034,7 @@
     // settles, re-manage so newly visible ice seeds and the zoom-adaptive
     // density retargets even while paused.
     map.on('moveend', function () {
+        if (typeof syncVLabel === 'function') syncVLabel();
         if (srcSel && srcSel.value === 'region') ensureRegionTiles();
         if (B && simT != null) manageDensity();
         writeHash();
@@ -1094,6 +1198,7 @@
             speedSel.appendChild(el);
         });
     speedSel.title = 'Playback speed (simulated years per second)';
+    speedSel.addEventListener('change', function () { if (typeof syncVLabel === 'function') syncVLabel(); });
     speedSel.style.cssText = 'font-size:11px;';
     playBtn.parentNode.insertBefore(speedSel, playBtn.nextSibling);
 
