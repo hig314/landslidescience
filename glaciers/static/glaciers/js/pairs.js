@@ -813,24 +813,39 @@
             }
         }
         // each measurement: a horizontal bar spanning its own interval
+        // Raw pairs, graded by BASELINE. Short separations are the dense,
+        // trustworthy mat: drawn first, thick and pale, so they read as
+        // texture. Long separations are few, suspect, and the ones worth
+        // scrutinising: drawn last, thin and dark, so they sit legibly on
+        // top. The ordering means a long-baseline outlier can never be
+        // buried under the short-pair mat it disagrees with.
         var nk = 0, nr = 0;
-        idx.forEach(function (k, q) {
-            var v = spd[q];
+        var order = idx.map(function (k, q) { return { k: k, v: spd[q], dt: D.dt[k] }; })
+                       .sort(function (a, b) { return a.dt - b.dt; });
+        var DT_REF = 400;                       // separation at which the ramp saturates
+        order.forEach(function (rec) {
+            var k = rec.k;
             var t1m = D.t1[k], t2m = D.t2[k];
-            if (t2m < t0 || t1m > t1) return;
             var verdict = V ? V[k] : 2;
-            if (verdict === 1) { insCx.strokeStyle = 'rgba(30,120,200,0.55)'; nk++; }
-            else if (verdict === 0) { insCx.strokeStyle = 'rgba(210,70,50,0.5)'; nr++; }
-            else insCx.strokeStyle = 'rgba(150,150,150,0.4)';
-            var yy = py(v);
+            if (verdict === 1) nk++; else if (verdict === 0) nr++;
+            if (t2m < t0 || t1m > t1) return;
+            var yy = py(rec.v);
             if (yy < T - 40 || yy > h - B2 + 40) return;
-            insCx.lineWidth = 1.4;
+            var f = Math.min(1, rec.dt / DT_REF);        // 0 short .. 1 long
+            var lw = 3.4 - 2.7 * f;                      // thick -> thin
+            var g = Math.round(200 - 190 * f);           // pale -> near-black
+            var al = 0.30 + 0.60 * f;                    // faint -> dense
+            insCx.strokeStyle = (verdict === 0)
+                ? 'rgba(' + Math.round(190 - 60 * f) + ',' + Math.round(70 - 50 * f) +
+                  ',' + Math.round(60 - 45 * f) + ',' + al.toFixed(2) + ')'
+                : 'rgba(' + g + ',' + g + ',' + g + ',' + al.toFixed(2) + ')';
+            insCx.lineWidth = lw;
             insCx.beginPath();
             insCx.moveTo(px(Math.max(t1m, t0)), yy);
             insCx.lineTo(px(Math.min(t2m, t1)), yy);
             insCx.stroke();
-            insCx.lineWidth = 1;
         });
+        insCx.lineWidth = 1;
         // (1) assumption-free monthly series, (2) secular + retained
         // harmonics. Drawn before the parametric model so the reader sees
         // increasing assumption from bottom to top of the legend.
@@ -898,9 +913,11 @@
                                         D.grid.y0_north - (i + 0.5) * D.grid.dx);
         insTitle.textContent = 'Point history — ' + ll[1].toFixed(4) + ', ' + ll[0].toFixed(4);
         insLegend.innerHTML =
+            '<span class="pv-sw" style="background:linear-gradient(90deg,#dcdcdc,#111)"></span>' +
+            'pairs: short baseline pale/thick &rarr; long dark/thin' +
             (V
-                ? '<span class="pv-sw" style="background:rgb(30,120,200)"></span>kept ' + nk +
-                  '<span class="pv-sw" style="background:rgb(210,70,50)"></span>rejected ' + nr
+                ? '<span class="pv-sw" style="background:rgb(150,25,15)"></span>rejected ' + nr +
+                  ' of ' + (nk + nr)
                 : '<span class="pv-sw" style="background:#999"></span>' +
                   idx.length + ' pairs — filter verdicts not built for this area') +
             '<span class="pv-sw" style="background:rgba(20,150,90,0.45)"></span>monthly (no cycle assumed)' +
