@@ -264,7 +264,17 @@
     //     v_min = VIS_PX_PER_SEC * metres_per_pixel / (years per second)
     // so faster playback and deeper zoom both lower the threshold, exactly
     // where slow motion becomes legible.
-    var VIS_PX_PER_SEC = 1.2;
+    // Calibration: at 1.2 px/s uncapped this demanded 1,423 m/yr at z6 and
+    // 356 m/yr at z8 — i.e. it hid essentially the entire field whenever you
+    // zoomed out, which is the opposite of useful. Two corrections: a gentler
+    // visibility target (trails make sub-pixel-per-second motion legible), and
+    // a hard CAP so the automatic minimum can never hide the bulk of a
+    // glacier no matter how far out you are. Auto now only ever suppresses
+    // motion that is genuinely imperceptible, and relaxes toward zero as you
+    // zoom in or speed up.
+    var VIS_PX_PER_SEC = 0.35;
+    var AUTO_VMIN_CAP = 25;      // m/yr — auto never demands more than this
+    var AUTO_VMIN_FLOOR = 0.5;   // m/yr
     var vminAuto = true, vminManual = 0, vmaxManual = Infinity;
     var vwRow = document.createElement('div');
     vwRow.className = 'gl-ov-row';
@@ -299,8 +309,9 @@
     function autoVMin() {
         var c = map.getCenter();
         var mpp = 156543.03392 * Math.cos(c.lat * Math.PI / 180) / Math.pow(2, map.getZoom());
-        var p = Math.max(0.05, parseFloat(speedSel ? speedSel.value : 1));
-        return VIS_PX_PER_SEC * mpp / p;
+        var p = Math.max(0.05, parseFloat((speedSel && speedSel.value) || 1));
+        var v = VIS_PX_PER_SEC * mpp / p;
+        return Math.min(AUTO_VMIN_CAP, Math.max(AUTO_VMIN_FLOOR, v));
     }
     function vWindow() {
         var lo = vminAuto ? autoVMin() : vminManual;
