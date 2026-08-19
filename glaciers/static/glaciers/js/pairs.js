@@ -453,6 +453,108 @@
     var insTitle = document.getElementById('pv-ins-title');
     var insLegend = document.getElementById('pv-ins-legend');
     var insCell = null;
+
+    // The assumption-free monthly series (tools/fit_monthly_tv.py). 7 MB, so
+    // it loads lazily on the first inspector open rather than on page load.
+    var MON = null, monPending = false;
+    function loadMonthly(then) {
+        if (MON) { then && then(); return; }
+        if (monPending) return;
+        monPending = true;
+        fetch(CFG.dataBase + 'columbia_monthly.json?v=' + DATA_V)
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (mh) {
+                if (!mh) throw new Error('no monthly header');
+                return fetch(CFG.dataBase + mh.bin + '?v=' + DATA_V)
+                    .then(function (r) { return r.arrayBuffer(); })
+                    .then(function (buf) {
+                        var g = mh.grid, n = mh.n_months * g.ny * g.nx;
+                        MON = {
+                            hdr: mh, g: g, nm: mh.n_months, nod: mh.nodata,
+                            vx: new Int16Array(buf, 0, n),
+                            vy: new Int16Array(buf, n * 2, n)
+                        };
+                        then && then();
+                    });
+            })
+            .catch(function (e) { console.warn('monthly series unavailable', e); })
+            .then(function () { monPending = false; });
+    }
+
+    function monthlySeries(i, j) {
+        if (!MON) return null;
+        var g = MON.g, out = [], plane = g.ny * g.nx, k = i * g.nx + j;
+        for (var m = 0; m < MON.nm; m++) {
+            var a = MON.vx[m * plane + k], b = MON.vy[m * plane + k];
+            out.push((a === MON.nod || b === MON.nod) ? null
+                     : { t: MON.hdr.t0 + (m + 0.5) / 12, vx: a, vy: b });
+        }
+        return out;
+    }
+
+    // Harmonic decomposition of THIS cell, computed in the browser so the
+    // analysis is inspectable rather than baked into a file: remove the
+    // secular part (centred 13-month mean), project onto harmonics of one
+    // year, and keep each only if odd and even years agree — the same
+    // replication rule the offline tool applies.
+    function harmonicFit(series) {
+        var n = series.length;
+        var ok = series.map(function (p) { return !!p; });
+        if (ok.filter(Boolean).length < 60) return null;
+        var vx = series.map(function (p) { return p ? p.vx : 0; });
+        var vy = series.map(function (p) { return p ? p.vy : 0; });
+        var t = series.map(function (p, m) { return p ? p.t : MON.hdr.t0 + (m + 0.5) / 12; });
+        var W = 13, half = 6;
+        function smooth(a) {
+            var o = [];
+            for (var m = 0; m < n; m++) {
+                var s = 0, c = 0;
+                for (var d = -half; d <= half; d++) {
+                    var k = Math.min(n - 1, Math.max(0, m + d));
+                    if (ok[k]) { s += a[k]; c++; }
+                }
+                o.push(c ? s / c : 0);
+            }
+            return o;
+        }
+        var sx = smooth(vx), sy = smooth(vy);
+        var ax = vx.map(function (v, m) { return v - sx[m]; });
+        var ay = vy.map(function (v, m) { return v - sy[m]; });
+        var fitx = new Array(n).fill(0), fity = new Array(n).fill(0);
+        var kept = [];
+        for (var h = 1; h <= 3; h++) {
+            function proj(res, mask) {
+                var cc = 0, ss = 0, nn = 0;
+                for (var m = 0; m < n; m++) {
+                    if (!ok[m] || (mask && !mask(m))) continue;
+                    var c = Math.cos(2 * Math.PI * h * t[m]), si = Math.sin(2 * Math.PI * h * t[m]);
+                    cc += res[m] * c; ss += res[m] * si; nn += c * c;
+                }
+                return nn > 0 ? [cc / nn, ss / nn] : [0, 0];
+            }
+            var rx = ax.map(function (v, m) { return v - fitx[m]; });
+            var ry = ay.map(function (v, m) { return v - fity[m]; });
+            var px = proj(rx), py = proj(ry);
+            var even = function (m) { return Math.floor(t[m]) % 2 === 0; };
+            var odd = function (m) { return Math.floor(t[m]) % 2 !== 0; };
+            var A = proj(rx, even).concat(proj(ry, even));
+            var B = proj(rx, odd).concat(proj(ry, odd));
+            var nA = Math.hypot(A[0], A[1], A[2], A[3]), nB = Math.hypot(B[0], B[1], B[2], B[3]);
+            var dot = A[0]*B[0] + A[1]*B[1] + A[2]*B[2] + A[3]*B[3];
+            var cosv = (nA > 0 && nB > 0) ? dot / (nA * nB) : 0;
+            var ratio = Math.max(nA, nB) / Math.max(Math.min(nA, nB), 1e-9);
+            var amp = Math.hypot(px[0], px[1], py[0], py[1]);
+            if (cosv > 0.6 && ratio < 2.5 && amp > 3) {
+                kept.push(h);
+                for (var m = 0; m < n; m++) {
+                    var c = Math.cos(2 * Math.PI * h * t[m]), si = Math.sin(2 * Math.PI * h * t[m]);
+                    fitx[m] += px[0] * c + px[1] * si;
+                    fity[m] += py[0] * c + py[1] * si;
+                }
+            }
+        }
+        return { t: t, ok: ok, sx: sx, sy: sy, fx: fitx, fy: fity, kept: kept };
+    }
     document.getElementById('pv-ins-close').addEventListener('click', function () {
         insEl.style.display = 'none'; insCell = null;
     });
@@ -465,6 +567,7 @@
         var i = Math.round((g.y0_north - xy[1]) / g.dx - 0.5);
         if (i < 0 || j < 0 || i >= g.ny || j >= g.nx) return;
         insCell = [i, j];
+        loadMonthly(function () { drawInspector(); });
         drawInspector();
         insEl.style.display = 'block';
     });
@@ -523,6 +626,37 @@
             insCx.lineTo(px(Math.min(t2m, t1)), yy);
             insCx.stroke();
         });
+        // (1) assumption-free monthly series, (2) secular + retained
+        // harmonics. Drawn before the parametric model so the reader sees
+        // increasing assumption from bottom to top of the legend.
+        var hk = null;
+        if (MON) {
+            var ser = monthlySeries(i, j);
+            if (ser) {
+                insCx.strokeStyle = 'rgba(20,150,90,0.95)'; insCx.lineWidth = 1.2;
+                insCx.beginPath();
+                var st = false;
+                ser.forEach(function (pt) {
+                    if (!pt) { st = false; return; }
+                    var X = px(pt.t), Y = py(Math.hypot(pt.vx, pt.vy));
+                    if (!st) { insCx.moveTo(X, Y); st = true; } else insCx.lineTo(X, Y);
+                });
+                insCx.stroke();
+                hk = harmonicFit(ser);
+                if (hk) {
+                    insCx.strokeStyle = 'rgba(150,60,190,0.95)';
+                    insCx.beginPath(); st = false;
+                    for (var m2 = 0; m2 < hk.t.length; m2++) {
+                        if (!hk.ok[m2]) { st = false; continue; }
+                        var vX = hk.sx[m2] + hk.fx[m2], vY = hk.sy[m2] + hk.fy[m2];
+                        var X2 = px(hk.t[m2]), Y2 = py(Math.hypot(vX, vY));
+                        if (!st) { insCx.moveTo(X2, Y2); st = true; } else insCx.lineTo(X2, Y2);
+                    }
+                    insCx.stroke();
+                }
+                insCx.lineWidth = 1;
+            }
+        }
         // the fitted model over the same window
         if (M) {
             insCx.strokeStyle = '#111'; insCx.lineWidth = 1.4;
@@ -547,9 +681,13 @@
         insLegend.innerHTML =
             '<span class="pv-sw" style="background:rgb(30,120,200)"></span>kept ' + nk +
             '<span class="pv-sw" style="background:rgb(210,70,50)"></span>rejected ' + nr +
-            '<span class="pv-sw" style="background:#111"></span>fitted model' +
+            '<span class="pv-sw" style="background:rgb(20,150,90)"></span>monthly (no cycle assumed)' +
+            '<span class="pv-sw" style="background:rgb(150,60,190)"></span>secular + harmonics' +
+            (hk ? ' [' + (hk.kept.length ? 'h' + hk.kept.join(',h') : 'none kept') + ']' : '') +
+            '<span class="pv-sw" style="background:#111"></span>one sinusoid' +
             '<span class="pv-sw" style="background:#c9971c"></span>now' +
-            ' · bar length = pair separation';
+            ' · bar length = pair separation' +
+            (MON ? '' : ' · loading monthly series…');
     }
     map.on('moveend', function () { if (insCell) drawInspector(); });
 
