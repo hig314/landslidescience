@@ -118,11 +118,16 @@ SQLite — photos are landslide data.
 - Deps Pillow + pillow-heif are baked into the image → deploys that touch
   them need the rebuild (the normal deploy flow covers it).
 
-## /glaciers app (experimental, DEV-ONLY until MVP)
+## /glaciers app (experimental; tracer MVP ships, pair stack does not)
 
 Sibling map app at `/glaciers/` (`glaciers/` Django app; behind the same
-preview-password middleware as /inventory/*). **Do not deploy to prod until
-Hig declares MVP** — explicit instruction, stricter than the usual flow.
+preview-password middleware as /inventory/*). Hig declared the tracer app
+MVP on 2026-08-19, so it deploys under the normal flow. The RAW IMAGE-PAIR
+stack does NOT: `/glaciers/pairs/`, the fitted-pair overlays and the
+"robust pair fit" tracer field are all gated on `experimental_enabled()`
+in `glaciers/views.py`, which tests for `data/glaciers/experiments/` — a
+directory that is never rsynced to prod. Keep new research scaffolding
+behind that same gate rather than inventing a second switch.
 
 - **Shared-module discipline**: basemaps from `basemaps.js`, glacier
   overlays from `ls_overlays.js` (single source of truth with the inventory
@@ -140,6 +145,22 @@ Hig declares MVP** — explicit instruction, stricter than the usual flow.
   + `.json`, served at `/glaciers/data/` (Content-Encoding: gzip against
   the .bin URL). Composite-cube dir naming = TRUNCATION toward zero of
   center lon/lat (verified; script HEAD-probes candidates).
+- **Seasonality is window-bounded, and must stay that way**: ITS_LIVE's
+  `vx_amp`/`vx_phase` are *climatological over a stated window* ("[2014-
+  2024]"), while the tracer timeline runs 1984–2025. `seasonWeight()` in
+  glaciers.js fades the sinusoid to zero outside that window (one-year
+  taper) so pre-2014 playback shows annual means only — replaying the cycle
+  across the Landsat-5/7 era asserts seasonality the product never fitted.
+  The window comes from `season_window` in the bundle header; both builders
+  parse it from the cube attribute. Conventions verified against the cube
+  metadata: amp is amplitude (not peak-to-peak), phase is the day of
+  MAXIMUM (so cosine, peaking there), and the annual field is the
+  sinusoidal fit's own mean — the added term is zero-mean, nothing is
+  double-counted. Caveat worth remembering: across the pair-sweep work a
+  single annual sinusoid explained only 12–34% of temporal variance, so the
+  tracers show the climatological cycle, not the year's actual seasonality.
+  Where observed quarterly fields exist (`recent` block, 2013–2025) they
+  take precedence and no model is used at all.
 - **Dev mount**: `./glaciers` is volume-mounted in docker-compose.override
   like the other app dirs.
 - **Future**: glacier-properties tab paralleling the inventory's landslide
