@@ -796,10 +796,14 @@
     // as you zoom in and the screen reads roughly constant. Spawning is
     // restricted to the viewport (+margin); far-off-screen particles retire
     // to reclaim quota.
-    var DENSITY = {                      // 16x the original areal density
-        sparse: { px: 11, min: 1, max: 2 },
-        normal: { px: 7,  min: 1, max: 2 },
-        dense:  { px: 4,  min: 1, max: 3 }
+    // Screen-spacing targets in px. With the clamp fixed these now hold at
+    // every zoom, so the particle count is set by viewport area / spacing^2
+    // rather than by how far in you happen to be: roughly 4k / 10k / 27k
+    // particles for a 1200x800 view.
+    var DENSITY = {
+        sparse: { px: 16, min: 1, max: 2 },
+        normal: { px: 10, min: 1, max: 2 },
+        dense:  { px: 6,  min: 1, max: 3 }
     };
     var GLOBAL_CAP = 150000;
     var FADE_STEPS = 30;                 // fade-out length (steps)
@@ -816,7 +820,16 @@
         var c = map.getCenter();
         var mpp = 156543.03392 * Math.cos(c.lat * Math.PI / 180) /
                   Math.pow(2, map.getZoom());
-        var cell = Math.min(4000, Math.max(g.dx, cfg.px * mpp));
+        // Screen spacing must be constant with zoom. The old floor of g.dx
+        // (the 240 m data cell) broke that above ~z11: the cell could not
+        // shrink further, so spacing GREW from 4 px at z10 to 52 px at z14 —
+        // "dense" got sparser the closer you looked, which is backwards.
+        // The reasoning behind that floor was wrong anyway: tracers are not
+        // samples of the grid, they are particles advected through a
+        // bilinearly interpolated continuous field, so several per data cell
+        // trace genuinely different streamlines. Subdivision is still bounded
+        // (g.dx/6 = 36 particles per data cell) to keep extreme zoom sane.
+        var cell = Math.min(4000, Math.max(g.dx / 6, cfg.px * mpp));
 
         // Viewport (+40%) in 3413, clipped to the AOI.
         var b = map.getBounds();
