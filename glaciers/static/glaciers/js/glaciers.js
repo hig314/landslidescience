@@ -1247,9 +1247,35 @@
     // crawls toward the target as the physics catches up — the lag IS the
     // progress indicator (amber tint while behind).
     var scrubbing = false;
-    slider.addEventListener('pointerdown', function () { scrubbing = true; });
-    slider.addEventListener('pointerup', function () { scrubbing = false; });
-    slider.addEventListener('change', function () { scrubbing = false; });
+    function beginScrub() {
+        if (scrubbing) return;
+        scrubbing = true;
+        // Thin the working set for the duration of the gesture. Integration
+        // cost is linear in particle count, so this is what lets the flow
+        // advect continuously under a fast drag instead of lurching between
+        // cached snapshots. Keeps the OLDEST (longest-trailed) particles —
+        // they carry the most legible motion — and parks the remainder.
+        if (particles.length > SCRUB_CAP) {
+            particles.sort(function (a, b) { return b.age - a.age; });
+            _parked = particles.slice(SCRUB_CAP);
+            particles = particles.slice(0, SCRUB_CAP);
+        }
+    }
+    function endScrub() {
+        if (!scrubbing) return;
+        scrubbing = false;
+        if (_parked) {
+            // Parked particles are stale by however far time moved, so let
+            // density management repopulate instead of returning them to
+            // wrong positions.
+            _parked = null;
+            manageDensity();
+        }
+    }
+    slider.addEventListener('pointerdown', beginScrub);
+    slider.addEventListener('pointerup', endScrub);
+    slider.addEventListener('pointercancel', endScrub);
+    slider.addEventListener('change', endScrub);
 
     function setSimT(t, fromSlider) {
         var r = tRange();
@@ -1430,9 +1456,16 @@
     // needs to be rare — only non-repetitive. Thresholds back down to keep
     // scrubbing responsive (the previous 3/8 yr made the cache unusable and
     // forced every drag to integrate).
+    // Restores are the only way to scrub fast (integration manages only
+    // ~0.06 sim-yr per frame at 10k particles), but each one swaps the
+    // population and reads as a jump. Resolution: never restore DURING a
+    // drag — instead make the drag cheap by thinning the working set, so
+    // integration alone keeps up and motion stays continuous. Restores then
+    // happen only on release, where a single settle is expected anyway.
     var RESTORE_GAIN = 0.6;        // yr of integration a restore must save
-    var RESTORE_GAIN_DRAG = 1.5;   // slightly higher mid-gesture
     var RESTORE_COOLDOWN_MS = 220;
+    var SCRUB_CAP = 2200;          // particles kept while dragging
+    var _parked = null;            // the rest, returned on release
     var _lastRestore = -1e9;
     var lastFrame = null;
     var CATCHUP_BUDGET_MS = 9;    // physics time per frame while catching up
@@ -1459,18 +1492,18 @@
             //     actively reading,
             //   * and never twice in quick succession, which is what made
             //     rapid scrubbing churn.
-            var kf = _kfNearest(targetT);
+            var kf = scrubbing ? null : _kfNearest(targetT);
             var gain = kf ? Math.abs(simT - targetT) - Math.abs(kf.t - targetT) : 0;
-            var need = scrubbing ? RESTORE_GAIN_DRAG : RESTORE_GAIN;
             var nowMs = (typeof ts === 'number') ? ts : 0;
-            if (kf && gain > need && (nowMs - _lastRestore) > RESTORE_COOLDOWN_MS) {
+            if (kf && gain > RESTORE_GAIN && (nowMs - _lastRestore) > RESTORE_COOLDOWN_MS) {
                 _lastRestore = nowMs;
                 _kfRestore(kf);
                 manageDensity();   // refill for the current zoom/view
             }
             var t0 = performance.now();
+            var budgetMs = scrubbing ? CATCHUP_BUDGET_MS * 1.6 : CATCHUP_BUDGET_MS;
             while (Math.abs(targetT - simT) > 5e-4 &&
-                   performance.now() - t0 < CATCHUP_BUDGET_MS) {
+                   performance.now() - t0 < budgetMs) {
                 advanceBy(Math.max(-0.06, Math.min(0.06, targetT - simT)));
             }
             if (Math.abs(targetT - simT) <= 5e-4) {
