@@ -597,6 +597,71 @@
                  kept: kept, meanSpd: meanSpd };
     }
 
+    // ---- inspector chrome + zoom -----------------------------------------
+    var insLast = null;     // pixel->data inverses from the last draw
+    var insDrag = null;     // in-progress zoom box
+
+    document.getElementById('pv-ins-close').addEventListener('click', function () {
+        insEl.style.display = 'none'; insCell = null;
+    });
+    document.getElementById('pv-ins-reset').addEventListener('click', function () {
+        insView = null; drawInspector();
+    });
+    // Panel is CSS-resizable; keep the canvas filling whatever height is left.
+    if (window.ResizeObserver) {
+        new ResizeObserver(function () { if (insCell) drawInspector(); }).observe(insEl);
+    }
+
+    function insCoords(ev) {
+        var r = insCv.getBoundingClientRect();
+        return [ev.clientX - r.left, ev.clientY - r.top];
+    }
+    insCv.addEventListener('pointerdown', function (ev) {
+        if (!insCell) return;
+        var c = insCoords(ev);
+        insDrag = { x0: c[0], y0: c[1], x1: c[0], y1: c[1] };
+        insCv.setPointerCapture(ev.pointerId);
+        ev.preventDefault();
+    });
+    insCv.addEventListener('pointermove', function (ev) {
+        if (!insDrag) return;
+        var c = insCoords(ev);
+        insDrag.x1 = c[0]; insDrag.y1 = c[1];
+        drawInspector();
+    });
+    insCv.addEventListener('pointerup', function (ev) {
+        if (!insDrag) return;
+        var d = insDrag; insDrag = null;
+        if (Math.abs(d.x1 - d.x0) > 6 && Math.abs(d.y1 - d.y0) > 6 && insLast) {
+            var f = insLast;
+            var ta = f.invx(Math.min(d.x0, d.x1)), tb = f.invx(Math.max(d.x0, d.x1));
+            var vb = f.invy(Math.min(d.y0, d.y1)), va = f.invy(Math.max(d.y0, d.y1));
+            insView = { t0: ta, t1: tb, v0: Math.max(0, va), v1: vb };
+        }
+        drawInspector();
+    });
+    insCv.addEventListener('dblclick', function () { insView = null; drawInspector(); });
+    // Wheel zoom about the cursor (shift = time axis only). Anchoring on the
+    // pointer keeps whatever you are looking at fixed while the scale changes.
+    insCv.addEventListener('wheel', function (ev) {
+        if (!insCell || !insLast) return;
+        ev.preventDefault();
+        var c = insCoords(ev);
+        var tAt = insLast.invx(c[0]), vAt = insLast.invy(c[1]);
+        var fz = Math.exp((ev.deltaY > 0 ? 1 : -1) * -0.18);
+        var cur = insView || { t0: insLast.invx(insLast.L0), t1: insLast.invx(insLast.W0),
+                               v0: insLast.invy(insLast.H0), v1: insLast.invy(insLast.T0) };
+        var nt0 = tAt - (tAt - cur.t0) / fz, nt1 = tAt + (cur.t1 - tAt) / fz;
+        var nv0 = cur.v0, nv1 = cur.v1;
+        if (!ev.shiftKey) {
+            nv0 = vAt - (vAt - cur.v0) / fz;
+            nv1 = vAt + (cur.v1 - vAt) / fz;
+        }
+        if (nt1 - nt0 < 0.05) return;
+        insView = { t0: nt0, t1: nt1, v0: Math.max(0, nv0), v1: Math.max(nv0 + 1, nv1) };
+        drawInspector();
+    }, { passive: false });
+
     map.on('click', function (e) {
         if (!D) return;
         var g = D.grid;
