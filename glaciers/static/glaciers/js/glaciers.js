@@ -1418,6 +1418,10 @@
     // anything visible to the particles themselves — losing tail length reads
     // as a style change, losing particles reads as data disappearing.
     var _q = 1;
+    var RESTORE_GAIN = 3.0;        // yr of integration a restore must save
+    var RESTORE_GAIN_DRAG = 8.0;   // ...much more while the user is dragging
+    var RESTORE_COOLDOWN_MS = 600;
+    var _lastRestore = -1e9;
     var lastFrame = null;
     var CATCHUP_BUDGET_MS = 9;    // physics time per frame while catching up
     function frame(ts) {
@@ -1432,12 +1436,23 @@
         if (targetT != null) {
             // A long throw with a nearer keyframe: jump the physics there
             // first, then integrate only the remainder.
-            // Restore only when it saves substantial integration (>1.25 yr):
-            // a restore SWAPS the live population for the snapshot's, which
-            // reads as "points resetting" — most visible in slow areas where
-            // the honest recompute is what preserves continuity.
+            // A restore SWAPS the live population for the snapshot's, so it
+            // always reads as "the points reset". It is a shortcut, not a
+            // correctness requirement — integrating is always valid, just
+            // slower. So it must be RARE and never surprise a user who is
+            // mid-gesture:
+            //   * it has to save real work (> RESTORE_GAIN years),
+            //   * while the pointer is down the bar is much higher, because
+            //     a swap during a drag interrupts motion the user is
+            //     actively reading,
+            //   * and never twice in quick succession, which is what made
+            //     rapid scrubbing churn.
             var kf = _kfNearest(targetT);
-            if (kf && Math.abs(kf.t - targetT) + 1.25 < Math.abs(simT - targetT)) {
+            var gain = kf ? Math.abs(simT - targetT) - Math.abs(kf.t - targetT) : 0;
+            var need = scrubbing ? RESTORE_GAIN_DRAG : RESTORE_GAIN;
+            var nowMs = (typeof ts === 'number') ? ts : 0;
+            if (kf && gain > need && (nowMs - _lastRestore) > RESTORE_COOLDOWN_MS) {
+                _lastRestore = nowMs;
                 _kfRestore(kf);
                 manageDensity();   // refill for the current zoom/view
             }
