@@ -54,8 +54,15 @@ def home(request):
 def pairs(request):
     """Raw image-pair viewer — the literal counterpart to the tracer app.
     Bundle built by tools/build_pair_vectors.py from a sweep_pairs.py sweep."""
+    exp = DATA_DIR / 'experiments'
+    avail = sorted(p.stem[:-len('_vectors')] for p in exp.glob('*_vectors.json')) \
+        if exp.is_dir() else []
+    sel = request.GET.get('bundle', 'columbia_pairs')
+    if avail and sel not in avail:
+        sel = avail[0]
     return render(request, 'glaciers/pairs.html', {
-        'bundle': request.GET.get('bundle', 'columbia_pairs'),
+        'bundle': sel,
+        'bundles_json': json.dumps(avail),
     })
 
 

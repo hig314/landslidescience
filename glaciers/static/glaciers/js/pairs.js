@@ -62,6 +62,23 @@
     });
     document.getElementById('pv-basemap-row').appendChild(bmSel);
 
+    // Swept-area selector. Each area is a separate raw sweep with its own
+    // monthly series and harmonics, so switching reloads with ?bundle= —
+    // the map view travels along in the hash.
+    var siteSel = document.getElementById('pv-site');
+    (CFG.bundles || [CFG.bundle]).forEach(function (b) {
+        var o = document.createElement('option');
+        o.value = b;
+        o.textContent = b.replace('_pairs', '').replace(/(^|-)([a-z])/g,
+            function (m, a, c) { return a + c.toUpperCase(); });
+        if (b === CFG.bundle) o.selected = true;
+        siteSel.appendChild(o);
+    });
+    siteSel.addEventListener('change', function () {
+        location.href = location.pathname + '?bundle=' +
+            encodeURIComponent(siteSel.value) + location.hash;
+    });
+
     // ---- controls -------------------------------------------------------
     var elDtMin = document.getElementById('pv-dtmin'),
         elDtMax = document.getElementById('pv-dtmax'),
@@ -600,6 +617,18 @@
     // ---- inspector chrome + zoom -----------------------------------------
     var insLast = null;     // pixel->data inverses from the last draw
     var insDrag = null;     // in-progress zoom box
+    var insFull = null;     // full extent of data + fits = reset view AND
+                            // the zoom-out bound
+    function clampView(v) {
+        if (!insFull) return v;
+        var t0 = Math.max(insFull.t0, v.t0), t1 = Math.min(insFull.t1, v.t1);
+        var v0 = Math.max(insFull.v0, v.v0), v1 = Math.min(insFull.v1, v.v1);
+        if (t1 - t0 < 1e-3 || v1 - v0 < 1e-6) return null;   // degenerate -> reset
+        // Fully zoomed out on both axes is the same as no view at all.
+        if (t0 <= insFull.t0 + 1e-9 && t1 >= insFull.t1 - 1e-9 &&
+            v0 <= insFull.v0 + 1e-9 && v1 >= insFull.v1 - 1e-9) return null;
+        return { t0: t0, t1: t1, v0: v0, v1: v1 };
+    }
 
     document.getElementById('pv-ins-close').addEventListener('click', function () {
         insEl.style.display = 'none'; insCell = null;
@@ -636,7 +665,7 @@
             var f = insLast;
             var ta = f.invx(Math.min(d.x0, d.x1)), tb = f.invx(Math.max(d.x0, d.x1));
             var vb = f.invy(Math.min(d.y0, d.y1)), va = f.invy(Math.max(d.y0, d.y1));
-            insView = { t0: ta, t1: tb, v0: Math.max(0, va), v1: vb };
+            insView = clampView({ t0: ta, t1: tb, v0: Math.max(0, va), v1: vb });
         }
         drawInspector();
     });
@@ -658,7 +687,8 @@
             nv1 = vAt + (cur.v1 - vAt) / fz;
         }
         if (nt1 - nt0 < 0.05) return;
-        insView = { t0: nt0, t1: nt1, v0: Math.max(0, nv0), v1: Math.max(nv0 + 1, nv1) };
+        insView = clampView({ t0: nt0, t1: nt1, v0: Math.max(0, nv0),
+                              v1: Math.max(nv0 + 1, nv1) });
         drawInspector();
     }, { passive: false });
 
@@ -697,13 +727,42 @@
             return;
         }
         var spd = idx.map(function (k) { return Math.hypot(D.vx[k], D.vy[k]); });
-        var sorted = spd.slice().sort(function (a, b) { return a - b; });
-        var smax = Math.max(50, sorted[Math.floor(sorted.length * 0.97)]);
+        // Full extent: every measurement AND every curve we draw over them.
+        // This is both the default view and the zoom-out bound, so nothing is
+        // ever off-screen at reset and you cannot zoom past "everything".
+        var smax = 50, tlo = Infinity, thi = -Infinity;
+        idx.forEach(function (k, q) {
+            if (spd[q] > smax) smax = spd[q];
+            if (D.t1[k] < tlo) tlo = D.t1[k];
+            if (D.t2[k] > thi) thi = D.t2[k];
+        });
+        if (!isFinite(tlo)) { tlo = tRange[0]; thi = tRange[1]; }
+        var serFull = MON ? monthlySeries(i, j) : null;
+        if (serFull) {
+            serFull.forEach(function (pt) {
+                if (!pt) return;
+                var v = Math.hypot(pt.vx, pt.vy);
+                if (v > smax) smax = v;
+                if (pt.t < tlo) tlo = pt.t;
+                if (pt.t > thi) thi = pt.t;
+            });
+            var hkFull = harmonicFit(serFull);
+            if (hkFull) {
+                for (var q2 = 0; q2 < hkFull.t.length; q2++) {
+                    if (!hkFull.ok[q2]) continue;
+                    var vf = Math.hypot(hkFull.sx[q2] + hkFull.fx[q2],
+                                        hkFull.sy[q2] + hkFull.fy[q2]);
+                    if (vf > smax) smax = vf;
+                }
+            }
+        }
+        smax *= 1.04;
+        insFull = { t0: tlo - 0.05, t1: thi + 0.05, v0: 0, v1: smax };
         var L = 44, R = 8, T = 8, B2 = 18;
-        var t0 = insView ? insView.t0 : tRange[0];
-        var t1 = insView ? insView.t1 : tRange[1];
-        var v0 = insView ? insView.v0 : 0;
-        var v1 = insView ? insView.v1 : smax;
+        var t0 = insView ? insView.t0 : insFull.t0;
+        var t1 = insView ? insView.t1 : insFull.t1;
+        var v0 = insView ? insView.v0 : insFull.v0;
+        var v1 = insView ? insView.v1 : insFull.v1;
         function px(t) { return L + (t - t0) / (t1 - t0) * (w - L - R); }
         function py(v) { return h - B2 - (v - v0) / Math.max(v1 - v0, 1e-6) * (h - T - B2); }
         insLast = {

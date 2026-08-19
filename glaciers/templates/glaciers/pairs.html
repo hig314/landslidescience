@@ -73,6 +73,7 @@
   <canvas id="pv-canvas"></canvas>
   <div id="pv-panel">
     <h3>Image-pair measurements</h3>
+    <select id="pv-site" title="Swept area"></select>
     <div id="pv-basemap-row"></div>
 
     <div class="pv-row">
@@ -156,7 +157,8 @@
 <script>
   window.PV_CONFIG = {
     dataBase: '/glaciers/data/',
-    bundle: '{{ bundle }}'
+    bundle: '{{ bundle }}',
+    bundles: {{ bundles_json|safe }}
   };
 </script>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
