@@ -1505,4 +1505,8 @@
         siteSel.value = _startSite;
         activateSite(_startSite);
     }
+    // Bootstrap the SELECTED field source. Whichever option is first in the
+    // menu is the default, so this must not depend on the user touching it.
+    if (srcSel.value === 'region') loadRegionManifest();
+    else if (srcSel.value === 'fit') loadFitModel();
 })();
