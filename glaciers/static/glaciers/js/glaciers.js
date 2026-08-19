@@ -1306,14 +1306,22 @@
     // manageDensity refills for the current view after a restore.
     // -----------------------------------------------------------------
     var targetT = null;
-    var KF_DT = 0.5;              // sim-years between keyframes
-    var KF_TRAIL = 12;            // stored tail vertices (the bright part)
+    // Keyframe geometry is a memory trade, and the trails were eating it:
+    // 12 stored vertices are 48 of the 54 floats per particle, so the cache
+    // could only hold 7.5-12 yr of a 41 yr timeline and a scrub left the
+    // cached window almost immediately — which is why repeat passes were no
+    // faster. Keeping a 3-vertex stub instead (trails regrow within a second
+    // of resuming) buys ~3x the keyframes, and halving KF_DT puts one within
+    // 0.125 yr of any target, so a restore lands somewhere the population has
+    // barely changed: cheap AND visually small.
+    var KF_DT = 0.25;             // sim-years between keyframes
+    var KF_TRAIL = 3;             // stored tail vertices (stub; regrows)
     var _kf = new Map();          // key: Math.round(t / KF_DT) → {t, n, data}
     var _kfStride = 6 + KF_TRAIL * 4;   // x,y,age,fade,speed,pathLen + 4/vertex
 
     function _kfMax() {
         var bytes = Math.max(1, particles.length) * _kfStride * 4;
-        return Math.max(8, Math.min(24, Math.floor(90e6 / bytes)));
+        return Math.max(8, Math.min(160, Math.floor(90e6 / bytes)));
     }
     function _kfMaybeCapture() {
         var key = Math.round(simT / KF_DT);
@@ -1418,9 +1426,13 @@
     // anything visible to the particles themselves — losing tail length reads
     // as a style change, losing particles reads as data disappearing.
     var _q = 1;
-    var RESTORE_GAIN = 3.0;        // yr of integration a restore must save
-    var RESTORE_GAIN_DRAG = 8.0;   // ...much more while the user is dragging
-    var RESTORE_COOLDOWN_MS = 600;
+    // With dense keyframes a restore lands close in time, so it no longer
+    // needs to be rare — only non-repetitive. Thresholds back down to keep
+    // scrubbing responsive (the previous 3/8 yr made the cache unusable and
+    // forced every drag to integrate).
+    var RESTORE_GAIN = 0.6;        // yr of integration a restore must save
+    var RESTORE_GAIN_DRAG = 1.5;   // slightly higher mid-gesture
+    var RESTORE_COOLDOWN_MS = 220;
     var _lastRestore = -1e9;
     var lastFrame = null;
     var CATCHUP_BUDGET_MS = 9;    // physics time per frame while catching up
