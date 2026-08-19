@@ -1028,12 +1028,15 @@
             }
             if (iceCb.checked && !onIce(p.x, p.y)) {
                 p.fade = Math.min(p.fade, 1 - 1 / FADE_STEPS);
-            } else {
-                var wq = vWindow();
-                if (p.speed < wq[0] * 0.5 || p.speed > wq[1] * 2) {
-                    p.fade = Math.min(p.fade, 1 - 1 / FADE_STEPS);
-                }
             }
+            // NOTE: deliberately no speed-based retirement here. Retiring on
+            // INSTANTANEOUS speed sunsets exactly the particles worth
+            // watching: slow ice has a seasonal cycle that crosses any
+            // threshold twice a year, so slow tracers flickered out and
+            // respawned while fast ones — whose seasonal swing never
+            // approaches the threshold — ran on undisturbed. The speed
+            // window belongs at SPAWN time only; changing it clears the
+            // population, so the visible set still matches the control.
         }
     }
 
