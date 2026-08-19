@@ -500,6 +500,28 @@
     // secular part (centred 13-month mean), project onto harmonics of one
     // year, and keep each only if odd and even years agree — the same
     // replication rule the offline tool applies.
+    // Harmonic gate. A truncated Fourier series can describe any repeatable
+    // shape, which is the point — but on slow cells the anomaly is mostly
+    // noise, and unconstrained higher harmonics fit it as high-frequency
+    // spikes. (Measured: h3 was retained in 66% of slow cells, MORE than h2,
+    // which is backwards for a physical cycle.) Four constraints, chosen to
+    // encode what a real seasonal cycle looks like rather than to tune an
+    // outcome:
+    //   1. HIERARCHY  - h_k only if h_(k-1) survived. A third harmonic
+    //                   without a first is a shape no seasonal cycle has.
+    //   2. DECAY      - amp_k < 0.7 * amp_(k-1). Real cycles put most of
+    //                   their power in the fundamental.
+    //   3. AGREEMENT  - the odd/even-year replication bar RISES with k,
+    //                   since higher frequencies replicate by chance more
+    //                   easily against temporally-correlated residuals.
+    //   4. PLAUSIBILITY - total harmonic amplitude capped against the cell's
+    //                   own mean speed; beyond that the reconstruction
+    //                   implies part-year reversal.
+    var H_AGREE = [0.60, 0.78, 0.88];
+    var H_DECAY = 0.7;
+    var H_MIN_AMP = 3;
+    var H_TOTAL_FRAC = 0.6;
+
     function harmonicFit(series) {
         var n = series.length;
         var ok = series.map(function (p) { return !!p; });
@@ -507,6 +529,10 @@
         var vx = series.map(function (p) { return p ? p.vx : 0; });
         var vy = series.map(function (p) { return p ? p.vy : 0; });
         var t = series.map(function (p, m) { return p ? p.t : MON.hdr.t0 + (m + 0.5) / 12; });
+        var meanSpd = 0, cnt = 0;
+        for (var q = 0; q < n; q++) if (ok[q]) { meanSpd += Math.hypot(vx[q], vy[q]); cnt++; }
+        meanSpd = cnt ? meanSpd / cnt : 0;
+
         var W = 13, half = 6;
         function smooth(a) {
             var o = [];
@@ -524,7 +550,8 @@
         var ax = vx.map(function (v, m) { return v - sx[m]; });
         var ay = vy.map(function (v, m) { return v - sy[m]; });
         var fitx = new Array(n).fill(0), fity = new Array(n).fill(0);
-        var kept = [];
+        var kept = [], amps = [], prevAmp = Infinity, totalAmp = 0;
+
         for (var h = 1; h <= 3; h++) {
             function proj(res, mask) {
                 var cc = 0, ss = 0, nn = 0;
@@ -537,7 +564,7 @@
             }
             var rx = ax.map(function (v, m) { return v - fitx[m]; });
             var ry = ay.map(function (v, m) { return v - fity[m]; });
-            var px = proj(rx), py = proj(ry);
+            var px_ = proj(rx), py_ = proj(ry);
             var even = function (m) { return Math.floor(t[m]) % 2 === 0; };
             var odd = function (m) { return Math.floor(t[m]) % 2 !== 0; };
             var A = proj(rx, even).concat(proj(ry, even));
@@ -546,81 +573,29 @@
             var dot = A[0]*B[0] + A[1]*B[1] + A[2]*B[2] + A[3]*B[3];
             var cosv = (nA > 0 && nB > 0) ? dot / (nA * nB) : 0;
             var ratio = Math.max(nA, nB) / Math.max(Math.min(nA, nB), 1e-9);
-            var amp = Math.hypot(px[0], px[1], py[0], py[1]);
-            if (cosv > 0.6 && ratio < 2.5 && amp > 3) {
-                kept.push(h);
+            var amp = Math.hypot(px_[0], px_[1], py_[0], py_[1]);
+
+            // Extra constraints apply to HIGHER harmonics only — the
+            // fundamental carries most of the real signal and gating it the
+            // same way discarded the part that works.
+            var hierarchyOK = (h === 1) || (kept.indexOf(h - 1) >= 0);
+            var decayOK = (h === 1) || (amp < H_DECAY * prevAmp);
+            var plausibleOK = (h === 1) ||
+                ((totalAmp + amp) < Math.max(H_MIN_AMP * 2, H_TOTAL_FRAC * meanSpd));
+            if (hierarchyOK && decayOK && plausibleOK &&
+                cosv > H_AGREE[h - 1] && ratio < 2.5 && amp > H_MIN_AMP) {
+                kept.push(h); amps.push(amp);
+                prevAmp = amp; totalAmp += amp;
                 for (var m = 0; m < n; m++) {
-                    var c = Math.cos(2 * Math.PI * h * t[m]), si = Math.sin(2 * Math.PI * h * t[m]);
-                    fitx[m] += px[0] * c + px[1] * si;
-                    fity[m] += py[0] * c + py[1] * si;
+                    var c2 = Math.cos(2 * Math.PI * h * t[m]), s2 = Math.sin(2 * Math.PI * h * t[m]);
+                    fitx[m] += px_[0] * c2 + px_[1] * s2;
+                    fity[m] += py_[0] * c2 + py_[1] * s2;
                 }
             }
         }
-        return { t: t, ok: ok, sx: sx, sy: sy, fx: fitx, fy: fity, kept: kept };
+        return { t: t, ok: ok, sx: sx, sy: sy, fx: fitx, fy: fity,
+                 kept: kept, meanSpd: meanSpd };
     }
-    document.getElementById('pv-ins-close').addEventListener('click', function () {
-        insEl.style.display = 'none'; insCell = null;
-    });
-    document.getElementById('pv-ins-reset').addEventListener('click', function () {
-        insView = null; drawInspector();
-    });
-    // Panel is CSS-resizable; keep the canvas filling whatever height is left.
-    if (window.ResizeObserver) {
-        new ResizeObserver(function () { if (insCell) drawInspector(); }).observe(insEl);
-    }
-
-    // Box zoom over both axes — time on x, speed on y.
-    function insCoords(ev) {
-        var r = insCv.getBoundingClientRect();
-        return [ev.clientX - r.left, ev.clientY - r.top];
-    }
-    insCv.addEventListener('pointerdown', function (ev) {
-        if (!insCell) return;
-        var c = insCoords(ev);
-        insDrag = { x0: c[0], y0: c[1], x1: c[0], y1: c[1] };
-        insCv.setPointerCapture(ev.pointerId);
-        ev.preventDefault();
-    });
-    insCv.addEventListener('pointermove', function (ev) {
-        if (!insDrag) return;
-        var c = insCoords(ev);
-        insDrag.x1 = c[0]; insDrag.y1 = c[1];
-        drawInspector();
-    });
-    insCv.addEventListener('pointerup', function (ev) {
-        if (!insDrag) return;
-        var d = insDrag; insDrag = null;
-        if (Math.abs(d.x1 - d.x0) > 6 && Math.abs(d.y1 - d.y0) > 6 && insLast) {
-            var f = insLast;   // pixel->data inverses from the last draw
-            var ta = f.invx(Math.min(d.x0, d.x1)), tb = f.invx(Math.max(d.x0, d.x1));
-            var vb = f.invy(Math.min(d.y0, d.y1)), va = f.invy(Math.max(d.y0, d.y1));
-            insView = { t0: ta, t1: tb, v0: Math.max(0, va), v1: vb };
-        }
-        drawInspector();
-    });
-    insCv.addEventListener('dblclick', function () { insView = null; drawInspector(); });
-    // Wheel zoom about the cursor. Anchoring on the pointer (rather than the
-    // centre) keeps whatever you are looking at fixed while the scale changes,
-    // which is what makes wheel zoom feel like a magnifier instead of a pan.
-    insCv.addEventListener('wheel', function (ev) {
-        if (!insCell || !insLast) return;
-        ev.preventDefault();
-        var c = insCoords(ev);
-        var tAt = insLast.invx(c[0]), vAt = insLast.invy(c[1]);
-        var f = Math.exp((ev.deltaY > 0 ? 1 : -1) * -0.18);   // >1 = zoom in
-        var cur = insView || { t0: insLast.invx(insLast.L0), t1: insLast.invx(insLast.W0),
-                               v0: insLast.invy(insLast.H0), v1: insLast.invy(insLast.T0) };
-        var nt0 = tAt - (tAt - cur.t0) / f, nt1 = tAt + (cur.t1 - tAt) / f;
-        var nv0 = cur.v0, nv1 = cur.v1;
-        if (!ev.shiftKey) {
-            nv0 = vAt - (vAt - cur.v0) / f;
-            nv1 = vAt + (cur.v1 - vAt) / f;
-        }
-        if (nt1 - nt0 < 0.05) return;              // don't zoom past ~3 weeks
-        insView = { t0: nt0, t1: nt1, v0: Math.max(0, nv0), v1: Math.max(nv0 + 1, nv1) };
-        drawInspector();
-    }, { passive: false });
-    var insLast = null;
 
     map.on('click', function (e) {
         if (!D) return;

@@ -39,9 +39,18 @@ ROOT = Path(__file__).resolve().parent.parent / 'data' / 'glaciers' / 'experimen
 K_MAX = 3
 SECULAR_WIN = 13           # months; odd, centred — kills the annual band
 MIN_MONTHS = 60
-AGREE_COS = 0.6            # phase agreement between odd/even year halves
+# Gate constants — must match the browser implementation in pairs.js.
+AGREE_COS = [0.60, 0.78, 0.88]   # rises with k: higher frequencies replicate
+                                 # by chance more easily against correlated
+                                 # residuals, which is why h3 was being kept
+                                 # MORE often than h2 (66% vs 62% of slow cells)
 AGREE_RATIO = 2.5          # magnitude ratio tolerance
 MIN_AMP = 3.0              # m/yr — below the measurement floor
+DECAY = 0.7                # amp_k < DECAY * amp_(k-1): real cycles are
+                           # fundamental-dominated
+TOTAL_FRAC = 0.6           # total harmonic amplitude vs the cell's mean speed;
+                           # beyond this the reconstruction implies part-year
+                           # reversal
 
 
 def moving_average(a, win):
@@ -93,6 +102,8 @@ def main(kmax, site='columbia'):
     tot = (ax ** 2 + ay ** 2).sum(axis=0)
     tot = np.maximum(tot, 1e-9)
     fitx = np.zeros_like(ax); fity = np.zeros_like(ay)
+    prev_amp = np.full(ncell, np.inf, np.float32)
+    total_amp = np.zeros(ncell, np.float32)
 
     for k in range(1, kmax + 1):
         c = np.cos(2 * np.pi * k * t)[:, None]
@@ -115,7 +126,21 @@ def main(kmax, site='columbia'):
         cos = (a1 * a2).sum(axis=0) / np.maximum(n1 * n2, 1e-9)
         ratio = np.maximum(n1, n2) / np.maximum(np.minimum(n1, n2), 1e-9)
         amp = np.sqrt(axc ** 2 + axs ** 2 + ayc ** 2 + ays ** 2)
-        k_ok = (cos > AGREE_COS) & (ratio < AGREE_RATIO) & (amp > MIN_AMP)
+        mean_spd = np.hypot(X.mean(axis=0), Y.mean(axis=0))
+        # The extra constraints target HIGHER harmonics only. The fundamental
+        # is the part that demonstrably helps (it is most of the explained
+        # variance on fast ice), so gating it on the same plausibility cap
+        # rejected h1 everywhere below the trunk and threw away the useful
+        # signal along with the spikes.
+        hierarchy = np.ones_like(amp, bool) if k == 1 else keep[:, k - 2]
+        decay = np.ones_like(amp, bool) if k == 1 else (amp < DECAY * prev_amp)
+        plausible = (np.ones_like(amp, bool) if k == 1 else
+                     (total_amp + amp) < np.maximum(2 * MIN_AMP, TOTAL_FRAC * mean_spd))
+        k_ok = ((cos > AGREE_COS[min(k - 1, len(AGREE_COS) - 1)]) &
+                (ratio < AGREE_RATIO) & (amp > MIN_AMP) &
+                hierarchy & decay & plausible)
+        prev_amp = np.where(k_ok, amp, prev_amp)
+        total_amp = total_amp + np.where(k_ok, amp, 0)
         keep[:, k - 1] = k_ok
         coefs[:, k - 1, 0] = np.where(k_ok, axc, 0)
         coefs[:, k - 1, 1] = np.where(k_ok, axs, 0)
