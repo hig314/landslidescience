@@ -47,13 +47,18 @@
   /* Point inspector — the affordance the ITS_LIVE tool gets right, but
      keeping 2-D vectors instead of collapsing to speed. */
   #pv-inspect {
-    position: absolute; right: 10px; top: 10px; z-index: 12; width: min(560px, 46vw);
+    position: absolute; right: 10px; top: 10px; z-index: 12;
+    width: min(620px, 50vw); height: 300px;
+    min-width: 320px; min-height: 200px; max-width: 92vw; max-height: 88vh;
     background: rgba(255,255,255,0.97); border: 1px solid #d8d2cc; border-radius: 5px;
     padding: 8px 10px; font-size: 11px; box-shadow: 0 1px 8px rgba(0,0,0,0.22);
-    display: none;
+    display: none; resize: both; overflow: hidden;
   }
   #pv-inspect h4 { margin: 0 0 4px; font-size: 12px; color: #5D4037; }
-  #pv-inspect canvas { display: block; width: 100%; height: 190px; cursor: crosshair; }
+  #pv-inspect canvas { display: block; width: 100%; cursor: crosshair; }
+  #pv-ins-reset { float: right; margin-right: 6px; border: 1px solid #ccc;
+                  background: #f6f6f6; border-radius: 3px; font-size: 10px;
+                  cursor: pointer; padding: 1px 6px; }
   #pv-ins-close { float: right; border: none; background: none; cursor: pointer;
                   font-size: 15px; color: #888; }
   .pv-legend { font-size: 10px; color: #777; margin-top: 3px; line-height: 1.5; }
@@ -132,6 +137,7 @@
 
   <div id="pv-inspect">
     <button id="pv-ins-close" title="Close">&times;</button>
+    <button id="pv-ins-reset" title="Reset zoom">reset zoom</button>
     <h4 id="pv-ins-title">Point history</h4>
     <canvas id="pv-ins-canvas"></canvas>
     <div class="pv-legend" id="pv-ins-legend"></div>

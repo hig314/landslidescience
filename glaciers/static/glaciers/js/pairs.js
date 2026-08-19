@@ -453,6 +453,8 @@
     var insTitle = document.getElementById('pv-ins-title');
     var insLegend = document.getElementById('pv-ins-legend');
     var insCell = null;
+    var insView = null;     // {t0,t1,v0,v1} or null = auto-fit
+    var insDrag = null;     // in-progress zoom box
 
     // The assumption-free monthly series (tools/fit_monthly_tv.py). 7 MB, so
     // it loads lazily on the first inspector open rather than on page load.
@@ -558,6 +560,45 @@
     document.getElementById('pv-ins-close').addEventListener('click', function () {
         insEl.style.display = 'none'; insCell = null;
     });
+    document.getElementById('pv-ins-reset').addEventListener('click', function () {
+        insView = null; drawInspector();
+    });
+    // Panel is CSS-resizable; keep the canvas filling whatever height is left.
+    if (window.ResizeObserver) {
+        new ResizeObserver(function () { if (insCell) drawInspector(); }).observe(insEl);
+    }
+
+    // Box zoom over both axes — time on x, speed on y.
+    function insCoords(ev) {
+        var r = insCv.getBoundingClientRect();
+        return [ev.clientX - r.left, ev.clientY - r.top];
+    }
+    insCv.addEventListener('pointerdown', function (ev) {
+        if (!insCell) return;
+        var c = insCoords(ev);
+        insDrag = { x0: c[0], y0: c[1], x1: c[0], y1: c[1] };
+        insCv.setPointerCapture(ev.pointerId);
+        ev.preventDefault();
+    });
+    insCv.addEventListener('pointermove', function (ev) {
+        if (!insDrag) return;
+        var c = insCoords(ev);
+        insDrag.x1 = c[0]; insDrag.y1 = c[1];
+        drawInspector();
+    });
+    insCv.addEventListener('pointerup', function (ev) {
+        if (!insDrag) return;
+        var d = insDrag; insDrag = null;
+        if (Math.abs(d.x1 - d.x0) > 6 && Math.abs(d.y1 - d.y0) > 6 && insLast) {
+            var f = insLast;   // pixel->data inverses from the last draw
+            var ta = f.invx(Math.min(d.x0, d.x1)), tb = f.invx(Math.max(d.x0, d.x1));
+            var vb = f.invy(Math.min(d.y0, d.y1)), va = f.invy(Math.max(d.y0, d.y1));
+            insView = { t0: ta, t1: tb, v0: Math.max(0, va), v1: vb };
+        }
+        drawInspector();
+    });
+    insCv.addEventListener('dblclick', function () { insView = null; drawInspector(); });
+    var insLast = null;
 
     map.on('click', function (e) {
         if (!D) return;
@@ -581,7 +622,9 @@
         for (var k = 0; k < D.n; k++) {
             if (Math.abs(D.i[k] - i) <= 1 && Math.abs(D.j[k] - j) <= 1) idx.push(k);
         }
-        var w = insCv.clientWidth, h = 190;
+        var w = insCv.clientWidth;
+        var h = Math.max(120, insEl.clientHeight - 62);
+        insCv.style.height = h + 'px';
         var dpr = window.devicePixelRatio || 1;
         insCv.width = w * dpr; insCv.height = h * dpr;
         insCx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -592,21 +635,38 @@
             return;
         }
         var spd = idx.map(function (k) { return Math.hypot(D.vx[k], D.vy[k]); });
-        var smax = Math.max(50, Math.percentileHack ? 0 : spd.slice().sort(function (a, b) { return a - b; })[Math.floor(spd.length * 0.97)]);
-        var L = 34, R = 6, T = 8, B2 = 16;
-        var t0 = tRange[0], t1 = tRange[1];
+        var sorted = spd.slice().sort(function (a, b) { return a - b; });
+        var smax = Math.max(50, sorted[Math.floor(sorted.length * 0.97)]);
+        var L = 44, R = 8, T = 8, B2 = 18;
+        var t0 = insView ? insView.t0 : tRange[0];
+        var t1 = insView ? insView.t1 : tRange[1];
+        var v0 = insView ? insView.v0 : 0;
+        var v1 = insView ? insView.v1 : smax;
         function px(t) { return L + (t - t0) / (t1 - t0) * (w - L - R); }
-        function py(v) { return h - B2 - Math.min(1, v / smax) * (h - T - B2); }
+        function py(v) { return h - B2 - (v - v0) / Math.max(v1 - v0, 1e-6) * (h - T - B2); }
+        insLast = {
+            invx: function (X) { return t0 + (X - L) / (w - L - R) * (t1 - t0); },
+            invy: function (Y) { return v0 + (h - B2 - Y) / (h - T - B2) * (v1 - v0); }
+        };
+        insCx.save();
+        insCx.beginPath(); insCx.rect(L, T, w - L - R, h - T - B2); insCx.clip();
         // axes
         insCx.strokeStyle = '#ddd'; insCx.lineWidth = 1;
         insCx.beginPath();
         insCx.moveTo(L, T); insCx.lineTo(L, h - B2); insCx.lineTo(w - R, h - B2);
         insCx.stroke();
         insCx.fillStyle = '#999'; insCx.font = '9px sans-serif';
-        insCx.fillText(Math.round(smax) + ' m/yr', 2, T + 8);
-        insCx.fillText('0', 2, h - B2);
-        for (var y = Math.ceil(t0); y < t1; y += 2) {
-            insCx.fillText(String(y), px(y) - 10, h - 4);
+        for (var g = 0; g <= 4; g++) {
+            var vv = v0 + (v1 - v0) * g / 4;
+            insCx.fillText(vv >= 100 ? vv.toFixed(0) : vv.toFixed(1), 2, py(vv) + 3);
+            insCx.strokeStyle = '#f4f4f4';
+            insCx.beginPath(); insCx.moveTo(L, py(vv)); insCx.lineTo(w - R, py(vv)); insCx.stroke();
+        }
+        insCx.fillText('m/yr', 2, T + 8);
+        var span = t1 - t0;
+        var stepY = span > 20 ? 5 : span > 8 ? 2 : span > 3 ? 1 : span > 1 ? 0.5 : 0.25;
+        for (var y = Math.ceil(t0 / stepY) * stepY; y < t1; y += stepY) {
+            insCx.fillText(stepY >= 1 ? String(Math.round(y)) : y.toFixed(2), px(y) - 12, h - 5);
             insCx.strokeStyle = '#f2f2f2';
             insCx.beginPath(); insCx.moveTo(px(y), T); insCx.lineTo(px(y), h - B2); insCx.stroke();
         }
@@ -615,16 +675,19 @@
         idx.forEach(function (k, q) {
             var v = spd[q];
             var t1m = D.t1[k], t2m = D.t2[k];
-            if (t2m < t0 || t1m > tRange[1]) return;
+            if (t2m < t0 || t1m > t1) return;
             var verdict = V ? V[k] : 2;
             if (verdict === 1) { insCx.strokeStyle = 'rgba(30,120,200,0.55)'; nk++; }
             else if (verdict === 0) { insCx.strokeStyle = 'rgba(210,70,50,0.5)'; nr++; }
             else insCx.strokeStyle = 'rgba(150,150,150,0.4)';
             var yy = py(v);
+            if (yy < T - 40 || yy > h - B2 + 40) return;
+            insCx.lineWidth = 1.4;
             insCx.beginPath();
             insCx.moveTo(px(Math.max(t1m, t0)), yy);
             insCx.lineTo(px(Math.min(t2m, t1)), yy);
             insCx.stroke();
+            insCx.lineWidth = 1;
         });
         // (1) assumption-free monthly series, (2) secular + retained
         // harmonics. Drawn before the parametric model so the reader sees
@@ -675,6 +738,14 @@
         // current time marker
         insCx.strokeStyle = '#c9971c';
         insCx.beginPath(); insCx.moveTo(px(simT), T); insCx.lineTo(px(simT), h - B2); insCx.stroke();
+        insCx.restore();
+        if (insDrag) {
+            insCx.strokeStyle = 'rgba(60,60,60,0.9)';
+            insCx.setLineDash([4, 3]);
+            insCx.strokeRect(Math.min(insDrag.x0, insDrag.x1), Math.min(insDrag.y0, insDrag.y1),
+                             Math.abs(insDrag.x1 - insDrag.x0), Math.abs(insDrag.y1 - insDrag.y0));
+            insCx.setLineDash([]);
+        }
         var ll = window.LSProj.toLonLat(D.grid.x0 + (j + 0.5) * D.grid.dx,
                                         D.grid.y0_north - (i + 0.5) * D.grid.dx);
         insTitle.textContent = 'Point history — ' + ll[1].toFixed(4) + ', ' + ll[0].toFixed(4);
