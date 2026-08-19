@@ -75,6 +75,7 @@
     // difference is a data difference. Defined here rather than in the
     // shared module because it is glaciers-only and experimental — the
     // inventory map has no business carrying it.
+    var EXPERIMENTAL = !!CFG.experimental;
     var FIT_TILE_V = '1';
     function _fitSourceDef(key) {
         return {
@@ -96,7 +97,10 @@
           sourceDef: function () { return _fitSourceDef('trend'); }, defOpacity: 0.9 },
     ];
 
-    var OVERLAYS = window.LSOverlays.glacierOverlays({}).concat(FIT_OVERLAYS);
+    // The fitted-pair overlays are part of the /pairs/ experimental stack and
+    // ship only where that data exists.
+    var OVERLAYS = window.LSOverlays.glacierOverlays({})
+        .concat(EXPERIMENTAL ? FIT_OVERLAYS : []);
     var _ovState = {};
     OVERLAYS.forEach(function (ov) {
         var s = _hash.ov && _hash.ov[ov.id];
@@ -235,9 +239,10 @@
     // per-site bundles exist only because they carry work the regional tiles
     // do not (observed quarterly composites 2024+), and the pair fit is the
     // Columbia experiment. The site MENU is a camera jump in every mode.
-    [['region', 'Field: ITS_LIVE annual — all Alaska'],
-     ['annual', 'Field: ITS_LIVE + observed quarterly (this site only)'],
-     ['fit', 'Field: robust pair fit (Columbia box only)']].forEach(function (o) {
+    ([['region', 'Field: ITS_LIVE annual — all Alaska'],
+      ['annual', 'Field: ITS_LIVE + observed quarterly (this site only)']]
+     .concat(EXPERIMENTAL ? [['fit', 'Field: robust pair fit (Columbia box only)']] : []))
+     .forEach(function (o) {
         var e = document.createElement('option');
         e.value = o[0]; e.textContent = o[1];
         srcSel.appendChild(e);
@@ -462,7 +467,6 @@
             .then(function (m) {
                 if (!m) throw new Error('no manifest');
                 REG.list = m.tiles;
-                console.log('region manifest:', m.tiles.length, 'tiles');
                 ensureRegionTiles();
             })
             .catch(function (e) {
@@ -561,7 +565,8 @@
     // never needs it.
     var FITM = null;
     function loadFitModel() {
-        var b = (siteSel.value || 'columbia') + '_pairs';
+        if (!siteSel.value) { srcSel.value = 'annual'; return; }
+        var b = siteSel.value + '_pairs';
         fetch(CFG.dataBase + b + '_model.json?v=' + TRACER_DATA_V)
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (mh) {
@@ -586,7 +591,6 @@
                                                              supOff + mh.support_count * 8))
                                 : null
                         };
-                        console.log('fit model loaded', mh.grid.nx + 'x' + mh.grid.ny);
                     });
             })
             .catch(function (e) {
@@ -671,6 +675,20 @@
         return wsum > 0.05 ? sum / wsum : NaN;
     }
 
+    // ITS_LIVE's seasonal fit is climatological over the window stated in the
+    // product metadata ("climatological [2014-2024] ..."). Outside it we taper
+    // to zero over one year rather than cutting hard, so playback does not
+    // show a discontinuity at the window edge.
+    // Bundles built after 2026-08 carry season_window parsed from the cube
+    // attribute; the constant is the window the current product states.
+    var SEASON_WINDOW_DEFAULT = [2014, 2025];
+    function seasonWeight(hdr, t) {
+        var w = (hdr && hdr.season_window) || SEASON_WINDOW_DEFAULT;
+        if (t >= w[0] && t <= w[1]) return 1;
+        var d = (t < w[0]) ? w[0] - t : t - w[1];
+        return Math.max(0, 1 - d);
+    }
+
     // Shared annual-bundle sampler (site bundle or region tile — identical
     // array layout, so one implementation serves both).
     function sampleBundleLike(BB, x, y, t) {
@@ -694,13 +712,29 @@
             }
         }
         if (vx !== vx || vy !== vy) return null;
-        var doy = (t - Math.floor(t)) * 365.25;
-        var ax = sampleGrid2(BB.vxAmp, g.nx, g.ny, fx, fy);
-        var ay = sampleGrid2(BB.vyAmp, g.nx, g.ny, fx, fy);
-        var px = sampleGrid2(BB.vxPh, g.nx, g.ny, fx, fy);
-        var py = sampleGrid2(BB.vyPh, g.nx, g.ny, fx, fy);
-        if (ax === ax && px === px) vx += ax * Math.cos(2 * Math.PI * (doy - px) / 365.25);
-        if (ay === ay && py === py) vy += ay * Math.cos(2 * Math.PI * (doy - py) / 365.25);
+        // Seasonal superposition, faithful to the published convention:
+        // vx_amp is "climatological mean seasonal AMPLITUDE of sinusoidal fit
+        // to vx" and vx_phase is "day of seasonal MAXIMUM", so A*cos(2pi(doy
+        // - phase)/365.25) peaks on the stated day with the stated amplitude,
+        // and the annual vx is itself "mean annual velocity OF the sinusoidal
+        // fit" — a zero-mean term added to it double-counts nothing.
+        //
+        // But the fit is climatological over a STATED WINDOW (2014-2024 in
+        // this product), and the tracer timeline runs back to 1984. Replaying
+        // that one cycle across the 1980s-2000s would assert seasonality
+        // ITS_LIVE never fitted there, so the term is faded out beyond the
+        // window rather than extrapolated: pre-window years show annual means
+        // only, which is what the published analysis actually supports.
+        var seas = seasonWeight(BB.hdr, t);
+        if (seas > 0) {
+            var doy = (t - Math.floor(t)) * 365.25;
+            var ax = sampleGrid2(BB.vxAmp, g.nx, g.ny, fx, fy);
+            var ay = sampleGrid2(BB.vyAmp, g.nx, g.ny, fx, fy);
+            var px = sampleGrid2(BB.vxPh, g.nx, g.ny, fx, fy);
+            var py = sampleGrid2(BB.vyPh, g.nx, g.ny, fx, fy);
+            if (ax === ax && px === px) vx += seas * ax * Math.cos(2 * Math.PI * (doy - px) / 365.25);
+            if (ay === ay && py === py) vy += seas * ay * Math.cos(2 * Math.PI * (doy - py) / 365.25);
+        }
         if (Math.abs(vx) > 25000 || Math.abs(vy) > 25000) return null;
         return { vx: vx, vy: vy };
     }
@@ -766,14 +800,18 @@
         // Sanity clamp: nothing on Earth flows 25 km/yr — a value like this
         // is an unmasked fill or corrupt cell; treat as no-data.
         if (Math.abs(vx) > 25000 || Math.abs(vy) > 25000) return null;
-        // Seasonal superposition (climatological amp + day-of-peak phase).
-        var doy = (t - Math.floor(t)) * 365.25;
-        var ax = sampleGrid2(B.vxAmp, g.nx, g.ny, fx, fy);
-        var ay = sampleGrid2(B.vyAmp, g.nx, g.ny, fx, fy);
-        var px = sampleGrid2(B.vxPh, g.nx, g.ny, fx, fy);
-        var py = sampleGrid2(B.vyPh, g.nx, g.ny, fx, fy);
-        if (ax === ax && px === px) vx += ax * Math.cos(2 * Math.PI * (doy - px) / 365.25);
-        if (ay === ay && py === py) vy += ay * Math.cos(2 * Math.PI * (doy - py) / 365.25);
+        // Seasonal superposition (climatological amp + day-of-peak phase),
+        // faded outside the fit's climatology window — see seasonWeight.
+        var seas = seasonWeight(B.hdr, t);
+        if (seas > 0) {
+            var doy = (t - Math.floor(t)) * 365.25;
+            var ax = sampleGrid2(B.vxAmp, g.nx, g.ny, fx, fy);
+            var ay = sampleGrid2(B.vyAmp, g.nx, g.ny, fx, fy);
+            var px = sampleGrid2(B.vxPh, g.nx, g.ny, fx, fy);
+            var py = sampleGrid2(B.vyPh, g.nx, g.ny, fx, fy);
+            if (ax === ax && px === px) vx += seas * ax * Math.cos(2 * Math.PI * (doy - px) / 365.25);
+            if (ay === ay && py === py) vy += seas * ay * Math.cos(2 * Math.PI * (doy - py) / 365.25);
+        }
         return { vx: vx, vy: vy };
     }
 

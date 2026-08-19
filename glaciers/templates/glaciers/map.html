@@ -56,12 +56,14 @@
     <div id="gl-basemap-row"></div>
     <div id="gl-overlays"></div>
     <div id="gl-tracer-controls"></div>
-    <div style="margin-top:8px; font-size:11px;">
+{% if experimental %}    <div style="margin-top:8px; font-size:11px;">
       <a href="/glaciers/pairs/">→ Raw image-pair measurements</a>
     </div>
-    <div class="gl-sub" style="margin-top:8px;">
-      Tracers: NASA MEaSUREs ITS_LIVE annual velocity + seasonal fit ·
-      experimental Lagrangian visualization — particle paths integrate the
+{% endif %}    <div class="gl-sub" style="margin-top:8px;">
+      Tracers: NASA MEaSUREs ITS_LIVE annual velocity, with the product's
+      climatological seasonal sinusoid superposed over the years it was
+      fitted (2014–2024); earlier years show annual means only.
+      Experimental Lagrangian visualization — particle paths integrate the
       time-varying velocity field and inherit its artifacts.
     </div>
   </div>
@@ -80,7 +82,8 @@
 <script>
   window.GL_CONFIG = {
     catalog: {{ catalog_json|safe }},
-    dataBase: '/glaciers/data/'
+    dataBase: '/glaciers/data/',
+    experimental: {{ experimental|yesno:"true,false" }}
   };
 </script>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>

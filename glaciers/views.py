@@ -23,6 +23,14 @@ from django.views.decorators.http import require_safe
 
 DATA_DIR = Path(settings.BASE_DIR) / 'data' / 'glaciers'
 
+# The raw image-pair stack (/glaciers/pairs/, the fitted-pair overlays and the
+# "robust pair fit" tracer field) is research scaffolding: it depends on
+# multi-hundred-MB sweeps that are not deployed, and it is still changing. It
+# is exposed only where those sweeps exist, so production serves the finished
+# tracer app and nothing half-built.
+def experimental_enabled():
+    return (DATA_DIR / 'experiments').is_dir()
+
 
 def _catalog():
     """[{slug, name, center, zoom}, …] from the bundle headers on disk."""
@@ -47,6 +55,7 @@ def _catalog():
 def home(request):
     return render(request, 'glaciers/map.html', {
         'catalog_json': json.dumps(_catalog()),
+        'experimental': experimental_enabled(),
     })
 
 
@@ -54,6 +63,8 @@ def home(request):
 def pairs(request):
     """Raw image-pair viewer — the literal counterpart to the tracer app.
     Bundle built by tools/build_pair_vectors.py from a sweep_pairs.py sweep."""
+    if not experimental_enabled():
+        raise Http404
     exp = DATA_DIR / 'experiments'
     avail = sorted(p.stem[:-len('_vectors')] for p in exp.glob('*_vectors.json')) \
         if exp.is_dir() else []

@@ -80,6 +80,23 @@ def alaska_cubes():
     return sorted(set(cubes), key=lambda c: (c[1], c[2]))
 
 
+def season_window(g):
+    """ITS_LIVE states the seasonal fit's climatology window in the amp/phase
+    attributes ("climatological [2014-2024] mean seasonal amplitude ..."). The
+    viewer needs it: replaying that one cycle across the 1980s-2000s would
+    assert seasonality the product never fitted there. Returns [lo, hi+1] in
+    decimal years, or None if the attribute is not in the expected form."""
+    for v in ('vx_amp', 'vx_phase'):
+        try:
+            txt = str(g[v].attrs.get('description', ''))
+        except Exception:
+            continue
+        m = re.search(r'\[(\d{4})\s*-\s*(\d{4})\]', txt)
+        if m:
+            return [int(m.group(1)), int(m.group(2)) + 1]
+    return None
+
+
 def block2(a, reduce):
     py = (-a.shape[-2]) % 2
     px = (-a.shape[-1]) % 2
@@ -131,6 +148,7 @@ def build_cube(url, cx, cy):
     if any(years[i] != years[0] + i for i in range(len(years))):
         raise RuntimeError(f'{key}: non-consecutive year axis {years[0]}..{years[-1]}')
 
+    SEASON_WIN = season_window(g)
     acc = {}
     for v in ('vx', 'vy'):
         a = masked(g[v], (slice(None), slice(None), slice(None)))
@@ -165,6 +183,7 @@ def build_cube(url, cx, cy):
                  'y0_north': float(gy[0] + GRID / 2),
                  'dx': GRID * 2, 'nx': nx, 'ny': ny},
         'years': years,
+        'season_window': SEASON_WIN,
         'dtype': 'int16', 'nodata': NODATA, 'scale': 1,
         'offsets': offsets,
         'bin': f'{key}.bin',

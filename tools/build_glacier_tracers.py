@@ -101,6 +101,23 @@ _to3413 = Transformer.from_crs(4326, 3413, always_xy=True)
 _to4326 = Transformer.from_crs(3413, 4326, always_xy=True)
 
 
+def season_window(g):
+    """ITS_LIVE states the seasonal fit's climatology window in the amp/phase
+    attributes ("climatological [2014-2024] mean seasonal amplitude ..."). The
+    viewer needs it: replaying that one cycle across the 1980s-2000s would
+    assert seasonality the product never fitted there. Returns [lo, hi+1] in
+    decimal years, or None if the attribute is not in the expected form."""
+    for v in ('vx_amp', 'vx_phase'):
+        try:
+            txt = str(g[v].attrs.get('description', ''))
+        except Exception:
+            continue
+        m = re.search(r'\[(\d{4})\s*-\s*(\d{4})\]', txt)
+        if m:
+            return [int(m.group(1)), int(m.group(2)) + 1]
+    return None
+
+
 def tile_center_for(x, y):
     return (math.floor(x / TILE) * TILE + TILE / 2,
             math.floor(y / TILE) * TILE + TILE / 2)
@@ -178,6 +195,7 @@ def build(slug):
 
     years = None
     phase_units = None
+    season_win = None
     VARS_T = ('vx', 'vy')                                 # [time, y, x]
     VARS_S = ('vx_amp', 'vy_amp', 'vx_phase', 'vy_phase', 'landice')  # [y, x]
     acc = {}
@@ -223,6 +241,9 @@ def build(slug):
                 print(f'    vx_phase units: "{phase_units}"')
             except Exception:
                 phase_units = ''
+        if season_win is None:
+            season_win = season_window(g)
+            print(f'    seasonal fit climatology window: {season_win}')
 
         # Overlap between this cube's grid and the AOI grid. AOI cell centers:
         # x0 + (i+0.5)*GRID; cube arrays are cell-centered on gx/gy. The
@@ -341,6 +362,7 @@ def build(slug):
         'grid': {'epsg': 3413, 'x0': x0, 'y0_north': y0 + ny * GRID,
                  'dx': GRID_OUT, 'nx': nx_out, 'ny': ny_out},
         'years': years,
+        'season_window': season_win,
         'phase_units': phase_units or 'day of year',
         'dtype': 'int16', 'nodata': NODATA_I16, 'scale': 1,
         'offsets': offsets,   # int16 element counts into the decoded .bin
