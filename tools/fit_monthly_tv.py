@@ -211,8 +211,9 @@ def fit_cell(A, n_m, vx, vy, base_w, dt_d, ctx_ok, ctx_fast):
     return mx, my, used, resid
 
 
-def main(test_only):
-    z = zarr.open(str(ROOT / 'columbia_pairs.zarr'), mode='r')
+def main(test_only, name='columbia_pairs'):
+    site = name.replace('_pairs', '')
+    z = zarr.open(str(ROOT / (name + '.zarr')), mode='r')
     g = z.attrs['grid']
     ny, nx = g['ny'], g['nx']
     base = dt.date(1970, 1, 1)
@@ -327,18 +328,22 @@ def main(test_only):
     NOD = -32768
     def pack(a):
         return np.where(np.isfinite(a), np.clip(np.round(a), -32000, 32000), NOD).astype('<i2')
-    with gzip.open(ROOT / 'columbia_monthly.bin.gz', 'wb', compresslevel=6) as f:
+    with gzip.open(ROOT / f'{site}_monthly.bin.gz', 'wb', compresslevel=6) as f:
         f.write(pack(out_mx).tobytes())
         f.write(pack(out_my).tobytes())
-    (ROOT / 'columbia_monthly.json').write_text(json.dumps({
+    (ROOT / f'{site}_monthly.json').write_text(json.dumps({
         'grid': g, 't0': T0, 'dt': DT_MONTH, 'n_months': n_m,
-        'nodata': NOD, 'bin': 'columbia_monthly.bin',
+        'nodata': NOD, 'bin': f'{site}_monthly.bin',
         'fitted_cells': int(done),
     }))
-    np.savez(ROOT / 'columbia_monthly_diag.npz', n=out_n, ctx=ctx, years=yrs)
-    sz = (ROOT / 'columbia_monthly.bin.gz').stat().st_size / 1e6
+    np.savez(ROOT / f'{site}_monthly_diag.npz', n=out_n, ctx=ctx, years=yrs)
+    sz = (ROOT / f'{site}_monthly.bin.gz').stat().st_size / 1e6
     print(f'   fitted {done} cells, wrote {sz:.1f} MB gz')
 
 
 if __name__ == '__main__':
-    main('--test' in sys.argv)
+    nm = 'columbia_pairs'
+    for a in sys.argv[1:]:
+        if a.startswith('--name='):
+            nm = a.split('=', 1)[1]
+    main('--test' in sys.argv, nm)

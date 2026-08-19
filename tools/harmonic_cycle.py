@@ -63,10 +63,10 @@ def harmonic_design(t, k):
     return np.column_stack(cols)
 
 
-def main(kmax):
-    h = json.load(open(ROOT / 'columbia_monthly.json'))
+def main(kmax, site='columbia'):
+    h = json.load(open(ROOT / f'{site}_monthly.json'))
     g = h['grid']; ny, nx, nm = g['ny'], g['nx'], h['n_months']; nod = h['nodata']
-    raw = gzip.open(ROOT / 'columbia_monthly.bin.gz', 'rb').read()
+    raw = gzip.open(ROOT / f'{site}_monthly.bin.gz', 'rb').read()
     n = nm * ny * nx
     vx = np.frombuffer(raw, '<i2', count=n, offset=0).astype('f4').reshape(nm, ny, nx)
     vy = np.frombuffer(raw, '<i2', count=n, offset=n * 2).astype('f4').reshape(nm, ny, nx)
@@ -142,14 +142,16 @@ def main(kmax):
               f'{100 * keep[m, min(1, kmax-1)].mean():>10.0f}%'
               f'{100 * keep[m, kmax-1].mean():>10.0f}%')
 
-    np.savez(ROOT / 'columbia_harm.npz', coefs=coefs, keep=keep, var_exp=var_exp,
+    np.savez(ROOT / f'{site}_harm.npz', coefs=coefs, keep=keep, var_exp=var_exp,
              idx=idx, grid=json.dumps(g), t0=h['t0'], kmax=kmax)
-    print(f'\n   wrote columbia_harm.npz')
+    print(f'\n   wrote {site}_harm.npz')
 
 
 if __name__ == '__main__':
-    k = K_MAX
+    k = K_MAX; site = 'columbia'
     for a in sys.argv[1:]:
         if a.startswith('--k='):
             k = int(a.split('=', 1)[1])
-    main(k)
+        elif a.startswith('--site='):
+            site = a.split('=', 1)[1]
+    main(k, site)

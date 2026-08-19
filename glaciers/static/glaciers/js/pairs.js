@@ -463,7 +463,8 @@
         if (MON) { then && then(); return; }
         if (monPending) return;
         monPending = true;
-        fetch(CFG.dataBase + 'columbia_monthly.json?v=' + DATA_V)
+        var site = (CFG.bundle || 'columbia_pairs').replace('_pairs', '');
+        fetch(CFG.dataBase + site + '_monthly.json?v=' + DATA_V)
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (mh) {
                 if (!mh) throw new Error('no monthly header');
@@ -598,6 +599,27 @@
         drawInspector();
     });
     insCv.addEventListener('dblclick', function () { insView = null; drawInspector(); });
+    // Wheel zoom about the cursor. Anchoring on the pointer (rather than the
+    // centre) keeps whatever you are looking at fixed while the scale changes,
+    // which is what makes wheel zoom feel like a magnifier instead of a pan.
+    insCv.addEventListener('wheel', function (ev) {
+        if (!insCell || !insLast) return;
+        ev.preventDefault();
+        var c = insCoords(ev);
+        var tAt = insLast.invx(c[0]), vAt = insLast.invy(c[1]);
+        var f = Math.exp((ev.deltaY > 0 ? 1 : -1) * -0.18);   // >1 = zoom in
+        var cur = insView || { t0: insLast.invx(insLast.L0), t1: insLast.invx(insLast.W0),
+                               v0: insLast.invy(insLast.H0), v1: insLast.invy(insLast.T0) };
+        var nt0 = tAt - (tAt - cur.t0) / f, nt1 = tAt + (cur.t1 - tAt) / f;
+        var nv0 = cur.v0, nv1 = cur.v1;
+        if (!ev.shiftKey) {
+            nv0 = vAt - (vAt - cur.v0) / f;
+            nv1 = vAt + (cur.v1 - vAt) / f;
+        }
+        if (nt1 - nt0 < 0.05) return;              // don't zoom past ~3 weeks
+        insView = { t0: nt0, t1: nt1, v0: Math.max(0, nv0), v1: Math.max(nv0 + 1, nv1) };
+        drawInspector();
+    }, { passive: false });
     var insLast = null;
 
     map.on('click', function (e) {
@@ -646,7 +668,8 @@
         function py(v) { return h - B2 - (v - v0) / Math.max(v1 - v0, 1e-6) * (h - T - B2); }
         insLast = {
             invx: function (X) { return t0 + (X - L) / (w - L - R) * (t1 - t0); },
-            invy: function (Y) { return v0 + (h - B2 - Y) / (h - T - B2) * (v1 - v0); }
+            invy: function (Y) { return v0 + (h - B2 - Y) / (h - T - B2) * (v1 - v0); },
+            L0: L, W0: w - R, T0: T, H0: h - B2
         };
         insCx.save();
         insCx.beginPath(); insCx.rect(L, T, w - L - R, h - T - B2); insCx.clip();
