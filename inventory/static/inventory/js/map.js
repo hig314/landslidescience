@@ -3748,6 +3748,45 @@
         if (countEl) _originalCounts[cb.value] = countEl.textContent;
     });
 
+    // One implementation of "is this coordinate in the current map view".
+    // Three call sites (sidebar counts, seasonal histogram, timeline) each
+    // carried their own copy; the two chart copies compared raw longitudes
+    // (ev.lon < west) with no antimeridian handling. No record currently sits
+    // at positive longitude (the westernmost is the Adak area, -176.6), but
+    // the failure needs only a VIEW panned across 180: once the center
+    // normalizes to positive longitude — one pan west of the date line over
+    // the Aleutians — getBounds() reports e.g. [174, 184] and the naive
+    // comparison drops every record in the state at once. Factory form so the
+    // bounds are read and wrapped once per recompute, not once per point.
+    //
+    // Longitude wrapping: getBounds() may report west < -180 or east > 180
+    // when the view crosses the antimeridian, so all three values are wrapped
+    // onto [-180, 180) and a wrapped-around interval (w > e) is tested as the
+    // union of the two arcs. If the reported span reaches 360 degrees the
+    // longitude test is skipped entirely — at that point the interval no
+    // longer excludes anything meaningful.
+    //
+    // Deliberate approximation, documented rather than hidden: getBounds() is
+    // the axis-aligned lng/lat ENVELOPE of the view, so under rotation, pitch
+    // or the globe's curved limb this admits some points just outside the
+    // visible edge. That errs toward counting — the failure mode that
+    // motivated this rewrite was queryRenderedFeatures collapsing to near
+    // zero — and it never drops a point that is actually on screen.
+    function makeViewportTest() {
+        var b = map.getBounds();
+        var west = b.getWest(), east = b.getEast();
+        var south = b.getSouth(), north = b.getNorth();
+        var allLng = !isFinite(west) || !isFinite(east) || (east - west) >= 360;
+        function wrap(x) { return ((x + 180) % 360 + 360) % 360 - 180; }
+        var w = wrap(west), e = wrap(east);
+        return function (lon, lat) {
+            if (!(lat >= south && lat <= north)) return false;
+            if (allLng) return true;
+            var v = wrap(lon);
+            return (w <= e) ? (v >= w && v <= e) : (v >= w || v <= e);
+        };
+    }
+
     function updateSidebarCounts() {
         if (!cbLimitView || !cbLimitView.checked) {
             // Restore original counts
@@ -3768,30 +3807,12 @@
         // z4 collapsing to 28 at z3, with the dots plainly still on screen.
         // Geometry math has no such cliff and needs no render to have
         // happened first.
-        var b = map.getBounds();
-        var west = b.getWest(), east = b.getEast();
-        var south = b.getSouth(), north = b.getNorth();
-        // Zoomed far enough out that the view wraps the globe: everything is
-        // in view, so skip the longitude test rather than compare against a
-        // range that has stopped meaning anything.
-        var allLng = !isFinite(west) || !isFinite(east) || (east - west) >= 360;
-        function lngIn(x) {
-            if (allLng) return true;
-            // getBounds may report west < -180 / east > 180 when panned across
-            // the antimeridian; compare on the wrapped circle instead.
-            var w = ((west + 180) % 360 + 360) % 360 - 180;
-            var e = ((east + 180) % 360 + 360) % 360 - 180;
-            var v = ((x + 180) % 360 + 360) % 360 - 180;
-            return (w <= e) ? (v >= w && v <= e) : (v >= w || v <= e);
-        }
-
+        var inView = makeViewportTest();
         var counts = {};
         _featuresData.features.forEach(function (f) {
             var g = f.geometry;
             if (!g || g.type !== 'Point' || !g.coordinates) return;
-            var lat = g.coordinates[1];
-            if (!(lat >= south && lat <= north)) return;
-            if (!lngIn(g.coordinates[0])) return;
+            if (!inView(g.coordinates[0], g.coordinates[1])) return;
             var cls = f.properties.landslide_class || '__unclassified__';
             counts[cls] = (counts[cls] || 0) + 1;
         });
@@ -3802,7 +3823,9 @@
         });
     }
 
-    // Schedule update after filter changes (needs render to complete first)
+    // Debounce for bursts of filter changes. (The 60 ms delay predates the
+    // source-data counting above, when the count had to wait for a render;
+    // it is retained purely as a debounce.)
     function scheduleSidebarCountUpdate() {
         if (!cbLimitView || !cbLimitView.checked) return;
         if (_sidebarCountTimer) clearTimeout(_sidebarCountTimer);
@@ -4924,8 +4947,7 @@
 
     function computeHistogram() {
         if (!_timedEvents) return null;
-        var b = map.getBounds();
-        var w = b.getWest(), e = b.getEast(), s = b.getSouth(), n = b.getNorth();
+        var inView = makeViewportTest();
         var fs = currentFilterState();
         var maxDays = histDaysSlider ? parseInt(histDaysSlider.value) : 30;
         var bins      = new Array(37).fill(0);   // count per bin
@@ -4936,8 +4958,7 @@
 
         _timedEvents.forEach(function (ev) {
             // Map-view clip only when the pinned "Limit to map view" toggle is on.
-            if (cbLimitView && cbLimitView.checked &&
-                (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e)) return;
+            if (cbLimitView && cbLimitView.checked && !inView(ev.lon, ev.lat)) return;
             if (fs.types.indexOf(ev.ls_type) < 0) return;
             if (fs.classes.length && fs.classes.indexOf(ev.cls || '__unclassified__') < 0) return;
             // Dual-handle range filters. Each side only applies when the
@@ -5300,8 +5321,7 @@
 
     function computeTimeline() {
         if (!_timelineEvents) return null;
-        var b = map.getBounds();
-        var w = b.getWest(), e = b.getEast(), s = b.getSouth(), n = b.getNorth();
+        var inView = makeViewportTest();
         var fs = currentFilterState();
 
         // Pre-populate all expected bins with 0
@@ -5318,8 +5338,7 @@
         var unknownVolCount = 0;
         _timelineEvents.forEach(function (ev) {
             // Map-view clip only when the pinned "Limit to map view" toggle is on.
-            if (cbLimitView && cbLimitView.checked &&
-                (ev.lat < s || ev.lat > n || ev.lon < w || ev.lon > e)) return;
+            if (cbLimitView && cbLimitView.checked && !inView(ev.lon, ev.lat)) return;
             if (fs.types.indexOf(ev.ls_type) < 0) return;
             if (fs.classes.length && fs.classes.indexOf(ev.cls || '__unclassified__') < 0) return;
             // See histogram filter above — dual-handle ranges with NULL exclusion.
