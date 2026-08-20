@@ -4,11 +4,19 @@
  *
  * HOW THE RESOLUTION IS GAINED. Not by upscaling a screenshot. We build a
  * throwaway map offscreen at the same CSS size and camera but a higher
- * `pixelRatio`, so MapLibre allocates a canvas of container × ratio AND
- * requests deeper tiles for it. Vector work (polygons, points, labels, draw
- * shapes) is resolution-independent and comes out genuinely sharper; raster
- * basemaps fetch a deeper zoom. Enlarging the *container* instead would show
- * more map area at the same detail, which is not what "high-res" means here.
+ * `pixelRatio`, so MapLibre allocates a canvas of container × ratio.
+ * Everything vector — polygons, points, labels, draw shapes — is
+ * resolution-independent and comes out genuinely sharper for free.
+ *
+ * RASTER TILES NEED A SECOND MOVE. `pixelRatio` does NOT deepen raster tile
+ * requests: MapLibre picks the tile zoom from `transform.zoom` and the
+ * source's `tileSize` only, so a 4x export was measured requesting exactly
+ * the same z10 tiles as the screen and simply stretching them — sharp labels
+ * over a soft basemap. Tile zoom is floor(zoom + log2(512 / tileSize)), so
+ * dividing the DECLARED tileSize by 2^k asks for k levels deeper and packs
+ * the (unchanged, full-size) tile images into proportionally smaller
+ * footprints — which is exactly the extra texture density the bigger canvas
+ * needs. See deepenRasters().
  *
  * WHY A CLONE RATHER THAN THE LIVE MAP. `map.getStyle()` returns the fully
  * resolved live style — every source, layer, filter and paint property the
@@ -141,6 +149,29 @@
         return out;
     }
 
+    /* Ask raster sources for deeper tiles, since pixelRatio alone will not.
+     *
+     * Sources already at their `maxzoom` (the self-hosted science pyramids
+     * stop at z10, OPERA z12) simply overzoom as before — no gain, but no
+     * loss either. The basemap, which runs to z19+, is where this shows.
+     *
+     * k is rounded, so a 3x export asks for 2 extra levels rather than 1.58:
+     * slightly more tiles than strictly needed, which errs toward sharp. */
+    function deepenRasters(style, scale) {
+        var k = Math.round(Math.log(scale) / Math.LN2);
+        if (k <= 0) return style;
+        var f = Math.pow(2, k);
+        Object.keys(style.sources || {}).forEach(function (id) {
+            var src = style.sources[id];
+            if (!src || (src.type !== 'raster' && src.type !== 'raster-dem')) return;
+            var ts = src.tileSize || 512;
+            // Floor of 32 keeps a pathological scale from asking for an
+            // absurd zoom that every source would just overzoom back from.
+            src.tileSize = Math.max(32, Math.round(ts / f));
+        });
+        return style;
+    }
+
     // -----------------------------------------------------------------------
     // Offscreen clone
     // -----------------------------------------------------------------------
@@ -155,7 +186,7 @@
 
         var m = new maplibregl.Map({
             container: host,
-            style: src.getStyle(),
+            style: deepenRasters(src.getStyle(), scale),
             center: src.getCenter(),
             zoom: src.getZoom(),
             bearing: src.getBearing(),

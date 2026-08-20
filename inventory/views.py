@@ -1245,7 +1245,8 @@ def _qms_resolve(qms_id):
         'id': d['id'], 'name': d['name'], 'url': tile, 'epsg': epsg,
         'z_min': d.get('z_min') or 0, 'z_max': d.get('z_max') or 19, 'scheme': scheme,
         'reproject': reproject,
-        'copyright_text': d.get('copyright_text') or '', 'license_url': d.get('license_url'),
+        'copyright_text': (d.get('copyright_text') or d.get('license_name') or ''),
+        'license_url': d.get('license_url') or d.get('copyright_url'),
         'compatible': (epsg in _QMS_COMPAT_EPSG or bool(reproject)) and not unsupported,
         'unsupported': unsupported,
     }
@@ -1259,7 +1260,12 @@ def _qms_layer_descriptor(layer):
         'tiles': layer.tile_url, 'scheme': layer.scheme,
         'minzoom': layer.z_min, 'maxzoom': layer.z_max,
         'reproject': 'epsg3395' if layer.epsg == 3395 else None,
-        'attr': layer.attribution or f'QMS #{layer.qms_id}',
+        # Many QMS records carry no copyright_text at all (id 678, "Google
+        # Satellite", has every attribution field empty upstream), so the
+        # fallback is what actually gets printed under exported figures.
+        # The layer NAME is the one piece of provenance we always have and
+        # usually names the imagery owner; "QMS #678" credits nobody.
+        'attr': layer.attribution or f'{layer.name} (via NextGIS QMS)',
         'epsg': layer.epsg, 'public': layer.public,
     }
 

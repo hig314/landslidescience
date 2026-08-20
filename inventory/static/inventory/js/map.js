@@ -3759,17 +3759,39 @@
             });
             return;
         }
-        if (!map.getLayer('points')) return;
+        if (!_featuresData || !_featuresData.features) return;
 
-        // Count visible features per class using queryRenderedFeatures
+        // Count from the SOURCE data against the viewport bounds, not with
+        // queryRenderedFeatures. The latter only reports what the renderer
+        // actually drew, and under the globe projection a whole-viewport
+        // query degrades as you zoom out — measured 1143 records in view at
+        // z4 collapsing to 28 at z3, with the dots plainly still on screen.
+        // Geometry math has no such cliff and needs no render to have
+        // happened first.
+        var b = map.getBounds();
+        var west = b.getWest(), east = b.getEast();
+        var south = b.getSouth(), north = b.getNorth();
+        // Zoomed far enough out that the view wraps the globe: everything is
+        // in view, so skip the longitude test rather than compare against a
+        // range that has stopped meaning anything.
+        var allLng = !isFinite(west) || !isFinite(east) || (east - west) >= 360;
+        function lngIn(x) {
+            if (allLng) return true;
+            // getBounds may report west < -180 / east > 180 when panned across
+            // the antimeridian; compare on the wrapped circle instead.
+            var w = ((west + 180) % 360 + 360) % 360 - 180;
+            var e = ((east + 180) % 360 + 360) % 360 - 180;
+            var v = ((x + 180) % 360 + 360) % 360 - 180;
+            return (w <= e) ? (v >= w && v <= e) : (v >= w || v <= e);
+        }
+
         var counts = {};
-        var features = map.queryRenderedFeatures({ layers: ['points'] });
-        // Deduplicate by id (tiles can duplicate features at boundaries)
-        var seen = {};
-        features.forEach(function (f) {
-            var id = f.properties.id;
-            if (seen[id]) return;
-            seen[id] = true;
+        _featuresData.features.forEach(function (f) {
+            var g = f.geometry;
+            if (!g || g.type !== 'Point' || !g.coordinates) return;
+            var lat = g.coordinates[1];
+            if (!(lat >= south && lat <= north)) return;
+            if (!lngIn(g.coordinates[0])) return;
             var cls = f.properties.landslide_class || '__unclassified__';
             counts[cls] = (counts[cls] || 0) + 1;
         });
@@ -6373,7 +6395,7 @@
             var b = map.getContainer().getBoundingClientRect();
             var max = LSExport.maxScaleFor(map);
             scaleSel.innerHTML = '';
-            [2, 3, 4, 6, 8].forEach(function (n) {
+            [1, 2, 3, 4, 6, 8].forEach(function (n) {
                 if (n > max) return;
                 var o = document.createElement('option');
                 o.value = n;
@@ -6386,8 +6408,9 @@
                 o1.value = 1; o1.textContent = '1\u00d7 (window too large to scale)';
                 scaleSel.appendChild(o1);
             }
-            // 3x is the sweet spot for slides without a huge file.
-            scaleSel.value = scaleSel.querySelector('option[value="3"]') ? '3'
+            // 2x by default: a clear step up from the screen without the
+            // tile-fetch cost of the higher multiples.
+            scaleSel.value = scaleSel.querySelector('option[value="2"]') ? '2'
                            : scaleSel.options[scaleSel.options.length - 1].value;
         }
         fillScales();
