@@ -39,6 +39,11 @@
   </style>
 {% endblock %}
 
+{% block download_extra %}
+  <button type="button" id="dl-map-image"
+          title="Render the current map view at high resolution">Map image (PNG)&hellip;</button>
+{% endblock %}
+
 {% block body %}
 <aside class="inv-sidebar">
   {# ---- Pinned strip: always visible regardless of active tab ---- #}
@@ -51,12 +56,6 @@
         <input type="checkbox" class="filter-type" value="catastrophic" checked> Catastrophic
       </label>
     </div>
-    <div class="inv-pinned-row">
-      <label class="nav-filter-label small" style="display:inline-flex; color:#555;">
-        <input type="checkbox" id="cb-limit-view"> Limit to map view
-      </label>
-    </div>
-    <select id="pinned-basemap" class="inv-pinned-basemap" title="Basemap"></select>
   </div>
 
   {# ---- Tabs ---- #}
@@ -69,6 +68,16 @@
   {# ---- Inventory panel: existing filters ---- #}
   <section class="inv-panel" data-panel="inventory">
   <ul class="inv-nav">
+    {% comment %}
+    Scopes the counts and the Analysis charts to the viewport. It lived in the
+    pinned strip, which implies it applies everywhere; it does not — outside
+    the Inventory tab there are no counts for it to limit.
+    {% endcomment %}
+    <li class="nav-item filter-control" style="padding-bottom:2px;">
+      <label class="nav-filter-label small" style="color:#555;">
+        <input type="checkbox" id="cb-limit-view"> Limit counts to map view
+      </label>
+    </li>
     <li class="nav-item title">
       Class
       <span class="class-toggle-all">

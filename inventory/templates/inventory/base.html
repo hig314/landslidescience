@@ -23,7 +23,21 @@
         <a href="{% url 'inventory:home' %}">Map</a>
         <a href="{% url 'inventory:methods' %}">Methods</a>
         <a href="{% url 'glaciers:home' %}" title="Experimental Lagrangian visualization of ITS_LIVE glacier velocity">Glaciers</a>
-        <a href="{% url 'inventory:export' %}" title="Download inventory as GeoJSON + QGIS styles">⬇ Download</a>
+        {% comment %}
+        Download is a menu, not a link: the data zip and the high-resolution
+        map image are both "download this" and belong in one obvious place.
+        Pages that can offer more (the map offers its image export) fill the
+        download_extra block; everywhere else the menu just holds the zip.
+        {% endcomment %}
+        <span class="inv-dl-wrap">
+          <button type="button" class="inv-dl-btn" id="dl-menu-btn"
+                  aria-haspopup="true" aria-expanded="false">⬇ Download ▾</button>
+          <span class="inv-dl-menu hidden" id="dl-menu" role="menu">
+            <a href="{% url 'inventory:export' %}" role="menuitem"
+               title="GeoJSON + QGIS styles, zipped">Zip of data files</a>
+            {% block download_extra %}{% endblock %}
+          </span>
+        </span>
         {% if is_inventory_editor %}
           <a href="{% url 'inventory:manage_list' %}" style="color:#5D4037; font-weight:600;">⚙ Manage</a>
         {% endif %}
@@ -40,6 +54,29 @@
     </nav>
   </header>
   {% block body %}{% endblock %}
+  <script>
+    // Download menu open/close. Plain inline script: it is three lines of
+    // behaviour on every page, and the map bundle is not loaded outside /map.
+    (function () {
+      var btn = document.getElementById('dl-menu-btn');
+      var menu = document.getElementById('dl-menu');
+      if (!btn || !menu) return;
+      function close() { menu.classList.add('hidden'); btn.setAttribute('aria-expanded', 'false'); }
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var open = menu.classList.toggle('hidden') === false;
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      document.addEventListener('click', function (e) {
+        if (!menu.contains(e.target)) close();
+      });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+      // Choosing an item is a completed action — don't leave the menu hanging.
+      menu.addEventListener('click', function (e) {
+        if (e.target.closest('a, button')) close();
+      });
+    })();
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

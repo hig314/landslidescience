@@ -1804,12 +1804,12 @@
             return;
         }
         _currentBasemap = id;
-        // Visual selection across the three places it appears.
+        // Visual selection across the places it appears (the redundant
+        // pinned quick-select was removed; the Reference maps tab owns
+        // basemap choice).
         document.querySelectorAll('.refmap-option').forEach(function (b) {
             b.classList.toggle('active', b.dataset.id === id);
         });
-        var pinned = document.getElementById('pinned-basemap');
-        if (pinned && pinned.value !== id) pinned.value = id;
         map.once('idle', function () {
             if (!map.getSource('landslides')) initDataLayers();
         });
@@ -1917,16 +1917,6 @@
             rm.appendChild(_buildSwipeUI());   // swipe/compare controls
             rm.appendChild(_buildOverlaysUI()); // susceptibility + OPERA raster overlays
             if (window._isInventoryEditor) rm.appendChild(_buildTraceUI());   // GeoTIFF trace overlays
-        }
-        var pinned = document.getElementById('pinned-basemap');
-        if (pinned) {
-            pinned.innerHTML = '';
-            BASEMAPS.forEach(function (bm) {
-                var opt = document.createElement('option');
-                opt.value = bm.id; opt.textContent = bm.label;
-                if (bm.id === _currentBasemap) opt.selected = true;
-                pinned.appendChild(opt);
-            });
         }
         // The wiper's right-pane panel lists the same basemaps — refresh it so
         // newly merged QMS/shared layers appear there too.
@@ -3115,9 +3105,6 @@
         _loadPromotedQms();   // merge admin-curated shared layers (public set for everyone)
         _traceLoad();         // editor GeoTIFF overlays (no-op for the public)
 
-        // Pinned basemap quick-select change handler (options (re)built by rebuildBasemapUI).
-        var pinned = document.getElementById('pinned-basemap');
-        if (pinned) pinned.addEventListener('change', function () { setBasemap(pinned.value); });
     }());
 
     // ---------------------------------------------------------------------------
@@ -6355,32 +6342,6 @@
     });
 
     // -----------------------------------------------------------------------
-    // "PNG" export control — opens the export panel. A map control rather
-    // than a sidebar section: parked at the foot of the Reference maps tab it
-    // sat ~2000px below the fold, under the whole basemap hierarchy, and was
-    // effectively undiscoverable. Text label over a glyph for the same reason
-    // "+data" is text — an icon is ambiguous against a busy basemap.
-    // -----------------------------------------------------------------------
-    function ExportControl() {}
-    ExportControl.prototype.onAdd = function () {
-        var el = document.createElement('div');
-        el.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-export-ctrl';
-        var b = document.createElement('button');
-        b.type = 'button';
-        b.title = 'Export this view as a high-resolution PNG';
-        b.setAttribute('aria-label', 'Export PNG');
-        b.textContent = 'PNG';
-        b.addEventListener('click', function () {
-            var p = document.getElementById('export-panel');
-            if (p) p.classList.toggle('hidden');
-        });
-        el.appendChild(b);
-        return el;
-    };
-    ExportControl.prototype.onRemove = function () {};
-    map.addControl(new ExportControl(), 'top-left');
-
-    // -----------------------------------------------------------------------
     // High-resolution PNG export (engine in ls_export.js)
     //
     // Only the app-specific parts live here: which scales are offered (bounded
@@ -6391,9 +6352,18 @@
     (function () {
         var goBtn = document.getElementById('exp-go');
         if (!goBtn || !window.LSExport) return;
+        var panel = document.getElementById('export-panel');
         var closeBtn = document.getElementById('export-close');
         if (closeBtn) closeBtn.addEventListener('click', function () {
-            document.getElementById('export-panel').classList.add('hidden');
+            panel.classList.add('hidden');
+        });
+        // Opened from the header Download menu (base.html). A map control was
+        // tried first and proved undiscoverable; "Download" is where someone
+        // looking for an image export actually looks.
+        var dlItem = document.getElementById('dl-map-image');
+        if (dlItem) dlItem.addEventListener('click', function () {
+            panel.classList.remove('hidden');
+            fillScales();
         });
         var scaleSel = document.getElementById('exp-scale');
         var statusEl = document.getElementById('exp-status');
