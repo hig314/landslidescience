@@ -6498,7 +6498,12 @@
                 var url = URL.createObjectURL(res.blob);
                 var a = document.createElement('a');
                 a.href = url;
-                a.download = 'landslidescience-' + stamp() + '.png';
+                // Title names the file too (slugified); the timestamp stays as
+                // a suffix so repeated exports of the same view never collide.
+                var t = (document.getElementById('exp-title').value || '').trim()
+                    .toLowerCase().replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '').slice(0, 60);
+                a.download = (t || 'landslidescience') + '-' + stamp() + '.png';
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);

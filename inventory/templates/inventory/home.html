@@ -87,9 +87,15 @@
     </li>
 
     {# ---- Slow: active (obvious/patchy) ---- #}
-    <li class="nav-item nav-class-header">Slow &mdash; active</li>
+    <li class="nav-item nav-class-header">
+      Slow &mdash; active
+      <span class="subgroup-toggle">
+        <a href="#" class="sg-all" data-sg="slow-active">all</a> /
+        <a href="#" class="sg-none" data-sg="slow-active">none</a>
+      </span>
+    </li>
     {% for cls, cnt, color, halo in slow_active %}
-    <li class="nav-item">
+    <li class="nav-item sg-item" data-sg="slow-active">
       <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked
                {% if cnt == 0 %}disabled{% endif %}>
@@ -121,9 +127,15 @@
     {% endfor %}
 
     {# ---- Large catastrophic landslides since 2012 (precursory + plain) ---- #}
-    <li class="nav-item nav-class-header">Large catastrophic landslides since 2012</li>
+    <li class="nav-item nav-class-header">
+      Large catastrophic landslides since 2012
+      <span class="subgroup-toggle">
+        <a href="#" class="sg-all" data-sg="cat-recent">all</a> /
+        <a href="#" class="sg-none" data-sg="cat-recent">none</a>
+      </span>
+    </li>
     {% for cls, cnt, color, halo in cat_recent %}
-    <li class="nav-item">
+    <li class="nav-item sg-item" data-sg="cat-recent">
       <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked
                {% if cnt == 0 %}disabled{% endif %}>
