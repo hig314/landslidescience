@@ -6355,6 +6355,32 @@
     });
 
     // -----------------------------------------------------------------------
+    // "PNG" export control — opens the export panel. A map control rather
+    // than a sidebar section: parked at the foot of the Reference maps tab it
+    // sat ~2000px below the fold, under the whole basemap hierarchy, and was
+    // effectively undiscoverable. Text label over a glyph for the same reason
+    // "+data" is text — an icon is ambiguous against a busy basemap.
+    // -----------------------------------------------------------------------
+    function ExportControl() {}
+    ExportControl.prototype.onAdd = function () {
+        var el = document.createElement('div');
+        el.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-export-ctrl';
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.title = 'Export this view as a high-resolution PNG';
+        b.setAttribute('aria-label', 'Export PNG');
+        b.textContent = 'PNG';
+        b.addEventListener('click', function () {
+            var p = document.getElementById('export-panel');
+            if (p) p.classList.toggle('hidden');
+        });
+        el.appendChild(b);
+        return el;
+    };
+    ExportControl.prototype.onRemove = function () {};
+    map.addControl(new ExportControl(), 'top-left');
+
+    // -----------------------------------------------------------------------
     // High-resolution PNG export (engine in ls_export.js)
     //
     // Only the app-specific parts live here: which scales are offered (bounded
@@ -6365,6 +6391,10 @@
     (function () {
         var goBtn = document.getElementById('exp-go');
         if (!goBtn || !window.LSExport) return;
+        var closeBtn = document.getElementById('export-close');
+        if (closeBtn) closeBtn.addEventListener('click', function () {
+            document.getElementById('export-panel').classList.add('hidden');
+        });
         var scaleSel = document.getElementById('exp-scale');
         var statusEl = document.getElementById('exp-status');
         var _ramps = null;

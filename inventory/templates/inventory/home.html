@@ -301,37 +301,6 @@
       </div>
     </div>
 
-    {# ---- High-resolution PNG export (ls_export.js) ---- #}
-    <hr style="border:none; border-top:1px solid #e0d8ca; margin:10px 14px;">
-    <div style="padding:0 14px 14px;">
-      <div style="font-size:11px; color:#666; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">
-        Export image
-      </div>
-      <p style="font-size:11px; color:#888; margin:0 0 7px;">
-        Renders the current view &mdash; same layers, same framing &mdash; at
-        higher pixel density for slides and figures.
-      </p>
-      <label class="nav-filter-label small" style="display:block; margin-bottom:6px;">
-        Resolution
-        <select id="exp-scale" style="width:100%; font-size:12px; padding:3px; margin-top:3px;"></select>
-      </label>
-      <label class="nav-filter-label small"><input type="checkbox" id="exp-scalebar" checked> Scale bar</label>
-      <label class="nav-filter-label small"><input type="checkbox" id="exp-north" checked> North arrow</label>
-      <label class="nav-filter-label small"><input type="checkbox" id="exp-legend" checked> Overlay legend</label>
-      <label class="nav-filter-label small"
-             title="ESRI / Google / QMS basemap terms require credit on published figures.">
-        <input type="checkbox" id="exp-attrib" checked> Attribution
-      </label>
-      <label class="nav-filter-label small" style="display:block; margin-top:6px;">
-        Title <span style="color:#888; font-size:10px;">(optional)</span>
-        <input type="text" id="exp-title" placeholder="e.g. Barry Arm, 2024"
-               style="width:100%; font-size:12px; padding:4px; margin-top:3px;">
-      </label>
-      <button id="exp-go" class="inv-analysis-btn" style="width:100%; margin-top:9px;">
-        &#11015; Download PNG
-      </button>
-      <p id="exp-status" style="font-size:11px; color:#888; margin:7px 0 0; min-height:15px;"></p>
-    </div>
   </section>
 
   {# ---- Analysis panel: chart toggles + limit-counts ---- #}
@@ -357,6 +326,48 @@
     <button id="close-panel" title="Close">&times;</button>
     <div id="detail-content"></div>
   </div>
+
+    {% comment %}
+    High-resolution PNG export (ls_export.js). Floating panel toggled by the
+    "PNG" map control, NOT a sidebar section: parked at the foot of the
+    Reference maps tab it rendered ~2000px below the fold, under the whole
+    basemap hierarchy, and was effectively undiscoverable.
+    {% endcomment %}
+    <div id="export-panel" class="float-panel hidden"
+         style="top:14px; left:60px; width:270px; padding:0;">
+      <div class="float-header" style="padding:8px 12px;">
+        <strong style="font-size:13px; color:#5D4037;">Export image</strong>
+        <button id="export-close" title="Close"
+                style="margin-left:auto; border:none; background:none; font-size:17px;
+                       line-height:1; cursor:pointer; color:#888;">&times;</button>
+      </div>
+      <div style="padding:10px 12px 12px;">
+        <p style="font-size:11px; color:#888; margin:0 0 8px;">
+          Renders the current view &mdash; same layers, same framing &mdash; at
+          higher pixel density for slides and figures.
+        </p>
+        <label class="nav-filter-label small" style="display:block; margin-bottom:6px;">
+          Resolution
+          <select id="exp-scale" style="width:100%; font-size:12px; padding:3px; margin-top:3px;"></select>
+        </label>
+        <label class="nav-filter-label small"><input type="checkbox" id="exp-scalebar" checked> Scale bar</label>
+        <label class="nav-filter-label small"><input type="checkbox" id="exp-north" checked> North arrow</label>
+        <label class="nav-filter-label small"><input type="checkbox" id="exp-legend" checked> Overlay legend</label>
+        <label class="nav-filter-label small"
+               title="ESRI / Google / QMS basemap terms require credit on published figures.">
+          <input type="checkbox" id="exp-attrib" checked> Attribution
+        </label>
+        <label class="nav-filter-label small" style="display:block; margin-top:6px;">
+          Title <span style="color:#888; font-size:10px;">(optional)</span>
+          <input type="text" id="exp-title" placeholder="e.g. Barry Arm, 2024"
+                 style="width:100%; font-size:12px; padding:4px; margin-top:3px;">
+        </label>
+        <button id="exp-go" class="inv-analysis-btn" style="width:100%; margin-top:9px;">
+          &#11015; Download PNG
+        </button>
+        <p id="exp-status" style="font-size:11px; color:#888; margin:7px 0 0; min-height:15px;"></p>
+      </div>
+    </div>
 
     <div id="hist-panel" class="float-panel hist-panel hidden">
       <div class="hist-header float-header">
