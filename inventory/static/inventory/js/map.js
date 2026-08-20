@@ -6354,4 +6354,122 @@
         if (s.id != null) showDetail(s.id);
     });
 
+    // -----------------------------------------------------------------------
+    // High-resolution PNG export (engine in ls_export.js)
+    //
+    // Only the app-specific parts live here: which scales are offered (bounded
+    // by the GPU), which overlays are currently painted (so the legend matches
+    // the picture), and handing over the wiper's second map. The rendering,
+    // compositing and decoration drawing are shared.
+    // -----------------------------------------------------------------------
+    (function () {
+        var goBtn = document.getElementById('exp-go');
+        if (!goBtn || !window.LSExport) return;
+        var scaleSel = document.getElementById('exp-scale');
+        var statusEl = document.getElementById('exp-status');
+        var _ramps = null;
+
+        function fillScales() {
+            var b = map.getContainer().getBoundingClientRect();
+            var max = LSExport.maxScaleFor(map);
+            scaleSel.innerHTML = '';
+            [2, 3, 4, 6, 8].forEach(function (n) {
+                if (n > max) return;
+                var o = document.createElement('option');
+                o.value = n;
+                o.textContent = n + '\u00d7  \u2014  ' + Math.round(b.width * n) + ' \u00d7 ' +
+                                Math.round(b.height * n) + ' px';
+                scaleSel.appendChild(o);
+            });
+            if (!scaleSel.options.length) {
+                var o1 = document.createElement('option');
+                o1.value = 1; o1.textContent = '1\u00d7 (window too large to scale)';
+                scaleSel.appendChild(o1);
+            }
+            // 3x is the sweet spot for slides without a huge file.
+            scaleSel.value = scaleSel.querySelector('option[value="3"]') ? '3'
+                           : scaleSel.options[scaleSel.options.length - 1].value;
+        }
+        fillScales();
+        window.addEventListener('resize', fillScales);
+
+        /* Legend entries for the overlays actually painted on the LEFT pane
+         * (the base image); wiper-right-only overlays would describe pixels
+         * that only occupy part of the frame. */
+        function legendEntries() {
+            if (!_ramps) return [];
+            var out = [];
+            OVERLAYS.forEach(function (ov) {
+                if (!_ovVisible(ov, false)) return;
+                // The thinning layer's smoothed build has its own ramp; the
+                // hash encodes that variant as a `~s` suffix, and so does the
+                // ramp registry.
+                var key = ov.id;
+                if (ov.variant && ov.variant.get() && _ramps[ov.id + '~s']) key = ov.id + '~s';
+                var r = _ramps[key];
+                if (r) out.push(r);
+            });
+            return out;
+        }
+
+        function setStatus(msg, kind) {
+            statusEl.textContent = msg || '';
+            statusEl.style.color = kind === 'error' ? '#b00020'
+                                 : kind === 'ok' ? '#2a7' : '#888';
+        }
+
+        function stamp() {
+            var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
+            return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' +
+                   p(d.getHours()) + p(d.getMinutes());
+        }
+
+        goBtn.addEventListener('click', function () {
+            goBtn.disabled = true;
+            setStatus('Loading tiles at full resolution\u2026');
+            var scale = parseInt(scaleSel.value, 10) || 2;
+
+            // Ramps are small and rarely change — fetch once per session.
+            var pre = _ramps ? Promise.resolve(_ramps)
+                             : fetch('/inventory/api/ramps/')
+                                 .then(function (r) { return r.ok ? r.json() : {}; })
+                                 .catch(function () { return {}; });
+
+            pre.then(function (r) {
+                _ramps = r;
+                return LSExport.render({
+                    map: map,
+                    scale: scale,
+                    swipe: (_swipe.on && _swipe.map) ? { map: _swipe.map, xPct: _swipe.x } : null,
+                    globe: true,
+                    transformRequest: LSBasemaps.transformRequest,
+                    legendEntries: legendEntries(),
+                    deco: {
+                        scaleBar:    document.getElementById('exp-scalebar').checked,
+                        north:       document.getElementById('exp-north').checked,
+                        legend:      document.getElementById('exp-legend').checked,
+                        attribution: document.getElementById('exp-attrib').checked,
+                        title:       (document.getElementById('exp-title').value || '').trim()
+                    }
+                });
+            }).then(function (res) {
+                var url = URL.createObjectURL(res.blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = 'landslidescience-' + stamp() + '.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                // Revoke late: Safari cancels an in-flight download otherwise.
+                setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+                setStatus((res.note ? res.note + ' ' : '') +
+                          'Saved ' + res.width + ' \u00d7 ' + res.height + ' px.', 'ok');
+            }).catch(function (e) {
+                setStatus('Export failed: ' + (e && e.message ? e.message : e), 'error');
+            }).finally(function () {
+                goBtn.disabled = false;
+            });
+        });
+    })();
+
 })();

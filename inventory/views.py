@@ -1072,6 +1072,81 @@ def api_timeline_events(request):
     return resp
 
 
+# Legend ramps for the PNG export. The COLOURS are read from the same
+# tools/*color*.txt files that `gdaldem color-relief` bakes into the tiles —
+# a hand-copied ramp in JS would silently drift from the pixels it claims to
+# describe the first time a ramp is retuned. Only the labelling (units, and
+# the class names the numeric breaks stand for) lives here, because the .txt
+# files carry it in comments the parser can't rely on.
+_RAMP_SPECS = {
+    'susc-lw':   {'file': 'susc_color_lw.txt',  'label': 'Landslide susceptibility (lw)',
+                  'units': 'frequency-ratio class', 'kind': 'classes',
+                  'classes': [('Low', 1), ('High', 75), ('Very high', 81)]},
+    'susc-n10':  {'file': 'susc_color_n10.txt', 'label': 'Landslide susceptibility (n10)',
+                  'units': 'frequency-ratio class', 'kind': 'classes',
+                  'classes': [('Low', 1), ('High', 63), ('Very high', 81)]},
+    'ice-v':     {'file': 'itslive_color_v.txt',    'label': 'Glacier speed', 'units': 'm/yr'},
+    'ice-amp':   {'file': 'itslive_color_vamp.txt', 'label': 'Seasonal amplitude', 'units': 'm/yr'},
+    'ice-dvdt':  {'file': 'itslive_color_dvdt.txt', 'label': 'Speed trend', 'units': 'm/yr per yr'},
+    'ice-dhdt':  {'file': 'hugonnet_color_dhdt.txt', 'label': 'Glacier thinning', 'units': 'm/yr'},
+    'ice-dhdt~s': {'file': 'hugonnet_color_dhdt_smooth.txt',
+                   'label': 'Glacier thinning (smoothed)', 'units': 'm/yr'},
+}
+
+
+def _parse_ramp(path):
+    """gdaldem color-relief table -> [{'v': float, 'rgba': [r,g,b,a]}, …].
+
+    Skips comments and the `nv` (no-data) row — no-data is transparent and
+    has no place on a legend. Fully transparent interior stops ARE kept:
+    the diverging ramps use them as a dead-band, and dropping them would
+    draw a gradient straight through a band the tiles leave empty."""
+    stops = []
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split()
+            if len(parts) < 4 or parts[0] == 'nv':
+                continue
+            try:
+                v = float(parts[0])
+                rgba = [int(x) for x in parts[1:5]] if len(parts) >= 5 else \
+                       [int(x) for x in parts[1:4]] + [255]
+            except ValueError:
+                continue
+            stops.append({'v': v, 'rgba': rgba})
+    return stops
+
+
+@require_safe
+def api_ramps(request):
+    """Colour ramps for the export legend, keyed by overlay id."""
+    if 'ramps' not in _cache:
+        tools = Path(settings.BASE_DIR) / 'tools'
+        out = {}
+        for oid, spec in _RAMP_SPECS.items():
+            p = tools / spec['file']
+            if not p.is_file():
+                continue
+            stops = _parse_ramp(p)
+            if not stops:
+                continue
+            entry = {'label': spec['label'], 'units': spec['units'],
+                     'kind': spec.get('kind', 'ramp'), 'stops': stops}
+            if entry['kind'] == 'classes':
+                by_v = {s['v']: s['rgba'] for s in stops}
+                entry['classes'] = [
+                    {'label': name, 'rgba': by_v.get(float(v), [0, 0, 0, 0])}
+                    for name, v in spec['classes']]
+            out[oid] = entry
+        _cache['ramps'] = out
+    resp = JsonResponse(_cache['ramps'])
+    resp['Cache-Control'] = 'public, max-age=3600'
+    return resp
+
+
 def api_settings(request):
     """Return all map_settings as a flat JSON object."""
     if 'settings' not in _cache:
@@ -1505,9 +1580,14 @@ _EDIT_FIELD_GROUPS = [
         # Failure/deposit character: what the deposit itself records about
         # how the failure moved. super_elevated_deposits and tsunamigenic are
         # both velocity/energy indicators, molards a thaw indicator.
+        # stream_damming is a categorical STRING, not a flag, but it belongs
+        # with these as deposit character rather than off in site history.
+        # A non-checkbox inside a block spans the full grid width and sits
+        # after the checkboxes (see _field_groups.html).
         {'block': 'Failure & deposit character', 'fields': [
             'precursory_headscarp', 'exclusively_supraglacial',
-            'molards', 'super_elevated_deposits', 'tsunamigenic']},
+            'molards', 'super_elevated_deposits', 'tsunamigenic',
+            'stream_damming']},
         'seismic_datetime', 'seismic_note', 'seismic_credit']},
     {'key': 'creep', 'title': 'Creep / slow-movement detection', 'fields': [
         'creep_evaluated',
@@ -1524,10 +1604,7 @@ _EDIT_FIELD_GROUPS = [
         'volume_site_specific',
         # a slow landslide's history of catastrophic failures — relevant to both
         # types, so it stays visible in the slow form (not hidden with 'event').
-        'catastrophic_failure_years',
-        # text, not a flag, despite reading like one — it describes the
-        # damming rather than asserting it, so no checkbox block here.
-        'stream_damming']},
+        'catastrophic_failure_years']},
     {'key': 'imagery', 'title': 'Imagery & external links', 'fields': [
         'planet_story_link', 'esri_wayback_link', 'google_images_link',
         'sentinel2_link', 'sentinel1_link',

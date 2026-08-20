@@ -24,6 +24,11 @@ group comes back empty and simply doesn't render.
              gap: 1px 16px; }
   @media (max-width: 560px) { .cb-grid { grid-template-columns: 1fr; } }
   .cb-grid .ls-check { margin-bottom: 0; }
+  /* A non-checkbox placed in a block (e.g. stream_damming, a categorical
+     string that belongs with the deposit-character flags) keeps the
+     full-width renderer and spans both columns, landing under the boxes. */
+  .cb-grid > .ls-field:not(.ls-check) { grid-column: 1 / -1; margin: 8px 0 2px; }
+  .cb-grid > .ls-field:not(.ls-check) > label { font-size: 12px; }
   .cb-grid .ls-check > label { display:flex; align-items:baseline; gap:2px;
                                font-size:13px; color:#444; cursor:pointer;
                                padding: 3px 0; margin: 0; }

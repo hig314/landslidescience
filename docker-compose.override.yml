@@ -9,6 +9,7 @@ services:
       - ./glaciers:/app/glaciers
       - ./landslidescience:/app/landslidescience
       - ./manage.py:/app/manage.py
+      - ./tools:/app/tools
     networks:
       - default
       - tethys_internal
