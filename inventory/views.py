@@ -488,6 +488,7 @@ _FILTER_PROPS_SQL = """
                         END,
                         'molards',                     l.molards,
                         'tsunamigenic',                l.tsunamigenic,
+                        'super_elevated_deposits',     l.super_elevated_deposits,
                         'glacier_contact',             l.glacier_contact,
                         'stream_damming',              l.stream_damming,
                         'precursory_headscarp',        l.precursory_headscarp,
@@ -924,7 +925,8 @@ def api_timed_events(request):
             l.precursory_headscarp,
             (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume,
             l.tsunamigenic,
-            l.glacier_contact
+            l.glacier_contact,
+            l.super_elevated_deposits
         FROM landslides l
         WHERE (l.seismic_datetime IS NOT NULL
                OR (l.date_min IS NOT NULL AND l.date_max IS NOT NULL
@@ -965,6 +967,7 @@ def api_timed_events(request):
             'has_site_volume': bool(r[19]) if r[19] is not None else False,
             'tsunamigenic':    bool(r[20]) if r[20] is not None else False,
             'glacier_contact': bool(r[21]) if r[21] is not None else False,
+            'super_elevated_deposits': bool(r[22]) if r[22] is not None else False,
         })
     _cache['timed_events'] = events
     resp = JsonResponse({'events': events})
@@ -1016,7 +1019,8 @@ def api_timeline_events(request):
             l.precursory_headscarp,
             (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume,
             l.tsunamigenic,
-            l.glacier_contact
+            l.glacier_contact,
+            l.super_elevated_deposits
         FROM landslides l
         WHERE l.centroid_lat IS NOT NULL
           -- public-only (keep in sync with public_landslide_filter('l')):
@@ -1060,6 +1064,7 @@ def api_timeline_events(request):
             'has_site_volume': bool(r[19]) if r[19] is not None else False,
             'tsunamigenic':    bool(r[20]) if r[20] is not None else False,
             'glacier_contact': bool(r[21]) if r[21] is not None else False,
+            'super_elevated_deposits': bool(r[22]) if r[22] is not None else False,
         })
     _cache['timeline_events'] = events
     resp = JsonResponse({'events': events})
@@ -1483,28 +1488,52 @@ def manage_review(request, landslide_id):
 # Rule-derived columns live in 'computed' (rendered collapsed). Per-type
 # visibility is applied client-side by manage_edit.html using the `vis` class
 # computed in _group_edit_fields().
+#
+# A group's 'fields' list may contain either a plain column name or a
+# CHECKBOX BLOCK — {'block': 'Title', 'fields': [...]} — which renders its
+# fields as a titled two-column grid instead of a stack of full-width rows.
+# Blocks exist because the boolean flags dominate this form by count while
+# being the least individually important, so stacking them buried the text
+# fields that actually need reading. The grid fills ROW-major (left to right,
+# then down), so consecutive pairs share a row — keep related flags adjacent.
 _EDIT_FIELD_GROUPS = [
     {'key': 'core', 'title': '', 'fields': [
         'unique_name', 'landslide_type', 'description', 'notes',
-        'noted_by', 'owner', 'ongoing_work', 'stream_damming',
-        # a slow landslide's history of catastrophic failures — relevant to both
-        # types, so it stays visible in the slow form (not hidden with 'event').
-        'catastrophic_failure_years', 'volume_site_specific']},
-    {'key': 'creep', 'title': 'Creep / slow-movement detection', 'fields': [
-        'creep_evaluated',
-        'planet_labs_creep', 'planet_labs_patchy_creep',
-        'insar_schaefer', 'insar_kim', 'insar_opera', 'insar_other',
-        'other_subtle_creep', 'geomorph_creep',
-        'post_2012_activity_increase', 'creeping_permafrost_mass',
-        'glacier_contact']},
+        'noted_by', 'owner', 'country', 'ongoing_work']},
     {'key': 'event', 'title': 'Catastrophic event & timing', 'fields': [
         'year_text', 'date_min', 'date_max',
-        'precursory_headscarp', 'exclusively_supraglacial', 'molards',
-        'tsunamigenic',
+        # Failure/deposit character: what the deposit itself records about
+        # how the failure moved. super_elevated_deposits and tsunamigenic are
+        # both velocity/energy indicators, molards a thaw indicator.
+        {'block': 'Failure & deposit character', 'fields': [
+            'precursory_headscarp', 'exclusively_supraglacial',
+            'molards', 'super_elevated_deposits', 'tsunamigenic']},
         'seismic_datetime', 'seismic_note', 'seismic_credit']},
+    {'key': 'creep', 'title': 'Creep / slow-movement detection', 'fields': [
+        'creep_evaluated',
+        {'block': 'InSAR evidence', 'fields': [
+            'insar_schaefer', 'insar_kim', 'insar_opera', 'insar_other']},
+        {'block': 'Optical & geomorphic evidence', 'fields': [
+            'planet_labs_creep', 'planet_labs_patchy_creep',
+            'geomorph_creep']},
+        {'block': 'Slow-mass attributes', 'fields': [
+            'post_2012_activity_increase', 'creeping_permafrost_mass',
+            'glacier_contact']},
+        'other_subtle_creep']},
+    {'key': 'extent', 'title': 'Volume & site history', 'fields': [
+        'volume_site_specific',
+        # a slow landslide's history of catastrophic failures — relevant to both
+        # types, so it stays visible in the slow form (not hidden with 'event').
+        'catastrophic_failure_years',
+        # text, not a flag, despite reading like one — it describes the
+        # damming rather than asserting it, so no checkbox block here.
+        'stream_damming']},
     {'key': 'imagery', 'title': 'Imagery & external links', 'fields': [
         'planet_story_link', 'esri_wayback_link', 'google_images_link',
-        'sentinel2_link', 'sentinel1_link']},
+        'sentinel2_link', 'sentinel1_link',
+        # Normally set from the map's "set default view" control rather than
+        # typed here, but listed so it isn't stranded in the 'Other' catchall.
+        'default_map_view']},
     # Collapsed by default: the flag is mainly a scan/filter triage tool and is
     # cleared from the map info-box, not normally edited here — but kept reachable.
     {'key': 'review', 'title': 'Review flag', 'collapsed': True,
@@ -1530,28 +1559,45 @@ _CREEP_SLOW_ONLY = {'post_2012_activity_increase', 'creeping_permafrost_mass',
 def _group_edit_fields(form):
     """Bucket a LandslideEditForm's bound fields into _EDIT_FIELD_GROUPS, tagging
     each with a `vis` class the template/JS use for per-type visibility. Returns
-    a list of {'meta', 'items':[{'field', 'vis'}]}; unlisted columns trail in an
-    'Other' group so the form never silently drops a field."""
+    a list of {'meta', 'items': [...]}; unlisted columns trail in an 'Other'
+    group so the form never silently drops a field.
+
+    An item is either a field — {'field', 'vis'} — or a checkbox block —
+    {'block': title, 'items': [{'field','vis'}, ...]}. The template renders a
+    block as a two-column grid; the `vis` classes stay on the individual
+    fields so the per-type show/hide keeps working inside a block (a hidden
+    grid item just leaves the grid, which is what we want)."""
     seen = set()
     grouped = []
+
+    def vis_for(g, name):
+        if g['key'] == 'event':
+            return 'grp-event'
+        if g['key'] == 'creep':
+            if name == 'creep_evaluated':
+                return 'creep-gate'
+            if name in _CREEP_SLOW_ONLY:
+                return 'creep-slow-only'
+            return 'creep-detail'
+        return ''
+
     for g in _EDIT_FIELD_GROUPS:
         items = []
-        for name in g['fields']:
-            if name not in form.fields:
+        for entry in g['fields']:
+            if isinstance(entry, dict):          # checkbox block
+                sub = []
+                for name in entry['fields']:
+                    if name not in form.fields:
+                        continue
+                    seen.add(name)
+                    sub.append({'field': form[name], 'vis': vis_for(g, name)})
+                if sub:
+                    items.append({'block': entry.get('block', ''), 'items': sub})
                 continue
-            seen.add(name)
-            if g['key'] == 'event':
-                vis = 'grp-event'
-            elif g['key'] == 'creep':
-                if name == 'creep_evaluated':
-                    vis = 'creep-gate'
-                elif name in _CREEP_SLOW_ONLY:
-                    vis = 'creep-slow-only'
-                else:
-                    vis = 'creep-detail'
-            else:
-                vis = ''
-            items.append({'field': form[name], 'vis': vis})
+            if entry not in form.fields:
+                continue
+            seen.add(entry)
+            items.append({'field': form[entry], 'vis': vis_for(g, entry)})
         if items:
             grouped.append({'meta': g, 'items': items})
     rest = [{'field': form[n], 'vis': ''} for n in form.fields if n not in seen]

@@ -1,0 +1,20 @@
+{% comment %}
+One entry in a field group: either a single full-width field or a titled
+two-column checkbox block. Context: `item` from views._group_edit_fields().
+
+`item.field` is the discriminator — a block carries `items` instead. A block
+title is optional; a titleless block still gets the compact inline checkbox
+treatment, which is how a lone boolean avoids a full-width label row.
+{% endcomment %}
+{% if item.field %}
+  {% include 'inventory/_edit_field.html' with field=item.field vis=item.vis %}
+{% else %}
+  <fieldset class="cb-block">
+    {% if item.block %}<legend>{{ item.block }}</legend>{% endif %}
+    <div class="cb-grid">
+      {% for sub in item.items %}
+        {% include 'inventory/_edit_check.html' with field=sub.field vis=sub.vis %}
+      {% endfor %}
+    </div>
+  </fieldset>
+{% endif %}

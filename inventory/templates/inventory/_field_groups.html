@@ -1,0 +1,55 @@
+{% comment %}
+Sectioned, type-aware field layout — SHARED by manage_edit.html and
+manage_review.html. Both render the same `field_groups` built by
+views._group_edit_fields(), so this is the single copy; the two templates
+previously held byte-identical duplicates of it and could drift.
+
+Each item is either a field ({'field','vis'}) or a checkbox block
+({'block': title, 'items': [...]}) rendered as a two-column grid. Per-type
+visibility classes stay on the individual fields — see _type_visibility.html,
+which also hides a block whose checkboxes have all been hidden.
+
+In review mode the form excludes rule-target columns, so the 'computed'
+group comes back empty and simply doesn't render.
+{% endcomment %}
+<style>
+  .cb-block { border:1px solid #e8e4de; border-radius:4px; background:#fbfaf8;
+              margin: 4px 0 16px; padding: 8px 12px 10px; min-width: 0; }
+  .cb-block > legend { font-size:11px; color:#8a7a68; text-transform:uppercase;
+                       letter-spacing:0.04em; padding:0 5px; }
+  /* Two columns that collapse to one on narrow screens. minmax(0,1fr) (not
+     1fr) so a long label wraps instead of forcing the grid wider than the
+     form — grid items default to min-width:auto. */
+  .cb-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+             gap: 1px 16px; }
+  @media (max-width: 560px) { .cb-grid { grid-template-columns: 1fr; } }
+  .cb-grid .ls-check { margin-bottom: 0; }
+  .cb-grid .ls-check > label { display:flex; align-items:baseline; gap:2px;
+                               font-size:13px; color:#444; cursor:pointer;
+                               padding: 3px 0; margin: 0; }
+  /* The checkbox is a flex item: stop it stretching and keep it aligned with
+     the first line of a label that wraps to two lines. */
+  .cb-grid .ls-check input[type="checkbox"] { flex: none; position: relative; top: 1px; }
+  /* autosave.js inserts its "saving… / ✓ saved" span immediately after the
+     input, which inside an inline label puts it between the box and its text.
+     Reorder rather than fight the insertion point — this is the one place the
+     status marker isn't already last in its container. */
+  .cb-grid .ls-check > label > .ls-save-status { order: 9; margin-left: 6px; }
+</style>
+{% for g in field_groups %}
+  <div class="field-group group-{{ g.meta.key }}{% if g.meta.key == 'event' %} grp-event{% endif %}">
+    {% if g.meta.collapsed %}
+      <details class="computed-fields" style="margin:18px 0 4px;">
+        <summary style="cursor:pointer; font-size:13px; color:#666; font-weight:600;">{{ g.meta.title }}</summary>
+        <div style="margin-top:10px;">
+          {% for item in g.items %}{% include 'inventory/_field_group_item.html' %}{% endfor %}
+        </div>
+      </details>
+    {% else %}
+      {% if g.meta.title %}
+        <h3 class="field-group-title" style="font-size:14px; color:#5D4037; margin:22px 0 8px; padding-bottom:4px; border-bottom:1px solid #eee;">{{ g.meta.title }}</h3>
+      {% endif %}
+      {% for item in g.items %}{% include 'inventory/_field_group_item.html' %}{% endfor %}
+    {% endif %}
+  </div>
+{% endfor %}

@@ -33,6 +33,28 @@ COMMON_CLASS_VALUES = [
 _TEXTAREA_COLS = {'description', 'notes', 'seismic_note', 'seismic_credit',
                   'other_subtle_creep', 'ongoing_work'}
 
+# Label overrides. Django derives a label from the column name
+# (super_elevated_deposits -> "Super elevated deposits"), which is fine for
+# most columns but loses hyphenation and domain capitalization. Only list
+# columns whose derived label is actually wrong — the default is good.
+_FIELD_LABELS = {
+    'super_elevated_deposits': 'Super-elevated deposits',
+    'post_2012_activity_increase': 'Post-2012 activity increase',
+    'insar_schaefer': 'InSAR (Schaefer)',
+    'insar_kim': 'InSAR (Kim)',
+    'insar_opera': 'InSAR (OPERA)',
+    'insar_other': 'InSAR (other)',
+    'planet_labs_creep': 'Planet Labs creep',
+    'planet_labs_patchy_creep': 'Planet Labs patchy creep',
+}
+
+# Short hints shown under a field. Kept for flags whose meaning is not
+# self-evident from the label alone.
+_FIELD_HELP = {
+    'super_elevated_deposits': 'Deposit runs up the outer bank of a bend — '
+                               'evidence of high flow velocity.',
+}
+
 
 class _LandslideEditFormBase(forms.Form):
     """Base form: shared validation (date ordering) for the dynamically-built subclass."""
@@ -110,4 +132,8 @@ def build_landslide_form_class(cols_meta, all_optional=False, exclude=None):
         else:
             # Unknown type — fall back to text so the editor isn't blocked.
             fields[name] = forms.CharField(required=required)
+        if name in _FIELD_LABELS:
+            fields[name].label = _FIELD_LABELS[name]
+        if name in _FIELD_HELP:
+            fields[name].help_text = _FIELD_HELP[name]
     return type('LandslideEditForm', (_LandslideEditFormBase,), fields)

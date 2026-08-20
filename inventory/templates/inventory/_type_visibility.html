@@ -1,0 +1,66 @@
+{% comment %}
+Type-aware field visibility — SHARED by manage_edit.html and
+manage_review.html (previously duplicated near-identically in both).
+
+Streamlines data entry:
+  • Catastrophic event & timing  → catastrophic records only
+  • post-2012 / permafrost creep → slow records only
+  • the creep-detection fields   → slow always; catastrophic only once
+                                   "creep evaluated" is checked
+Hidden fields stay in the form (display:none) so their values still POST.
+{% endcomment %}
+<script>
+  (function () {
+    var form = document.getElementById('ls-edit-form');
+    if (!form) return;
+    var typeSel   = document.getElementById('id_landslide_type');
+    var creepEval = document.getElementById('id_creep_evaluated');
+    function show(sel, on) {
+      form.querySelectorAll(sel).forEach(function (el) { el.style.display = on ? '' : 'none'; });
+    }
+    // Gate indicator by creep_evaluated: says what checking the box does in
+    // the current state (on catastrophic the detail fields are hidden until
+    // it's checked; on slow they're always visible, so the hint hides).
+    function gateHint(cat, checked) {
+      var h = document.getElementById('creep-gate-hint');
+      if (!h) return;
+      if (!cat) { h.style.display = 'none'; return; }
+      h.style.display = '';
+      h.textContent = checked
+        ? '⤵ Creep-evidence fields are shown below.'
+        : '⤵ Check to reveal the creep-evidence fields (OPERA / other InSAR, Planet creep flags, geomorphic creep …).';
+    }
+    // A checkbox block whose every checkbox is hidden would otherwise sit
+    // there as an empty titled box — e.g. "Slow-mass attributes" on a
+    // catastrophic record. Derive the block's visibility from its contents
+    // rather than tagging blocks by hand, so it stays correct as fields move
+    // between blocks.
+    function pruneEmptyBlocks() {
+      form.querySelectorAll('.cb-block').forEach(function (b) {
+        var anyVisible = Array.prototype.some.call(
+          b.querySelectorAll('.ls-field'),
+          function (f) { return f.style.display !== 'none'; });
+        b.style.display = anyVisible ? '' : 'none';
+      });
+    }
+    function apply() {
+      var type = typeSel ? typeSel.value : '';
+      var cat  = type === 'catastrophic';
+      var slow = type === 'slow';
+      if (!cat && !slow) {   // unknown — show everything
+        show('.grp-event', true); show('.creep-slow-only', true); show('.creep-detail', true);
+        gateHint(false, false);
+        pruneEmptyBlocks();
+        return;
+      }
+      show('.grp-event', cat);
+      show('.creep-slow-only', slow);
+      show('.creep-detail', slow || (cat && creepEval && creepEval.checked));
+      gateHint(cat, !!(creepEval && creepEval.checked));
+      pruneEmptyBlocks();
+    }
+    if (typeSel)   typeSel.addEventListener('change', apply);
+    if (creepEval) creepEval.addEventListener('change', apply);
+    apply();
+  })();
+</script>

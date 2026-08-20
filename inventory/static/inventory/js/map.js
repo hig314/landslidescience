@@ -3328,9 +3328,10 @@
     var cbPost2012     = document.getElementById('cb-post2012');
     var cbTsunamigenic = document.getElementById('cb-tsunamigenic');
     var cbGlacierContact = document.getElementById('cb-glacier-contact');
+    var cbSuperElevated = document.getElementById('cb-super-elevated');
     var cbFlagged      = document.getElementById('cb-flagged');   // editor-only
     var cbLimitView    = document.getElementById('cb-limit-view');
-    [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012, cbTsunamigenic, cbGlacierContact, cbFlagged].forEach(function (cb) {
+    [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012, cbTsunamigenic, cbGlacierContact, cbSuperElevated, cbFlagged].forEach(function (cb) {
         if (cb) cb.addEventListener('change', buildFilter);
     });
 
@@ -3435,7 +3436,9 @@
         });
         if (anyClassOff) params.set('c', c); else params.delete('c');
 
-        // Flags bitmask: molards=1 stream=2 supraglacial=4 permafrost=8 timed=16 seismic=32 post2012=64 headscarp=128 site_volume=256 tsunamigenic=512 glacier_contact=1024
+        // Flags bitmask: molards=1 stream=2 supraglacial=4 permafrost=8 timed=16 seismic=32 post2012=64 headscarp=128 site_volume=256 tsunamigenic=512 glacier_contact=1024 super_elevated=2048
+        // Bits are permanent: a saved/shared URL decodes by position, so
+        // append new flags at the top and never renumber an existing one.
         var f = 0;
         if (cbMolards      && cbMolards.checked)      f |= 1;
         if (cbStream       && cbStream.checked)        f |= 2;
@@ -3448,6 +3451,7 @@
         if (cbSiteVolume   && cbSiteVolume.checked)    f |= 256;
         if (cbTsunamigenic && cbTsunamigenic.checked)  f |= 512;
         if (cbGlacierContact && cbGlacierContact.checked) f |= 1024;
+        if (cbSuperElevated && cbSuperElevated.checked) f |= 2048;
         if (f !== 0) params.set('f', f); else params.delete('f');
 
         // Dual-handle sliders: encode "lo,hi" only when off-default.
@@ -3526,6 +3530,7 @@
         if (cbSiteVolume)   cbSiteVolume.checked    = !!(f & 256);
         if (cbTsunamigenic) cbTsunamigenic.checked  = !!(f & 512);
         if (cbGlacierContact) cbGlacierContact.checked = !!(f & 1024);
+        if (cbSuperElevated) cbSuperElevated.checked = !!(f & 2048);
 
         // Sliders
         // Hydrate dual sliders from "lo,hi" param. Backwards compat with the
@@ -3665,6 +3670,7 @@
         if (cbPost2012     && cbPost2012.checked)      f.push(['==', ['get', 'post_2012_activity_increase'], true]);
         if (cbTsunamigenic && cbTsunamigenic.checked)  f.push(['==', ['get', 'tsunamigenic'], true]);
         if (cbGlacierContact && cbGlacierContact.checked) f.push(['==', ['get', 'glacier_contact'], true]);
+        if (cbSuperElevated && cbSuperElevated.checked) f.push(['==', ['get', 'super_elevated_deposits'], true]);
         if (cbFlagged      && cbFlagged.checked)       f.push(['==', ['get', 'flagged'], true]);
 
         _applyLandslideFilter(map, f);
@@ -4192,6 +4198,7 @@
             flag(d.post_2012_activity_increase,'Post-2012 increase'),
             flag(d.creeping_permafrost_mass,'Creeping permafrost'),
             flag(d.tsunamigenic,'Tsunamigenic'),
+            flag(d.super_elevated_deposits,'Super-elevated deposits'),
             flag(d.glacier_contact,'Glacier contact')
         ].filter(Boolean);
 
@@ -4902,6 +4909,7 @@
             post2012:     cbPost2012     && cbPost2012.checked,
             tsunamigenic: cbTsunamigenic && cbTsunamigenic.checked,
             glacierContact: cbGlacierContact && cbGlacierContact.checked,
+            superElevated: cbSuperElevated && cbSuperElevated.checked,
         };
     }
 
@@ -4947,6 +4955,7 @@
             if (fs.permafrost   && !ev.permafrost)   return;
             if (fs.tsunamigenic && !ev.tsunamigenic) return;
             if (fs.glacierContact && !ev.glacier_contact) return;
+            if (fs.superElevated && !ev.super_elevated_deposits) return;
             if (fs.seismic && ev.timing !== 'point')  return;
             if (fs.timed   && ev.timing === 'point')  return;
 
@@ -5325,6 +5334,7 @@
             if (fs.permafrost   && !ev.permafrost)   return;
             if (fs.tsunamigenic && !ev.tsunamigenic) return;
             if (fs.glacierContact && !ev.glacier_contact) return;
+            if (fs.superElevated && !ev.super_elevated_deposits) return;
             if (fs.seismic      && !ev.has_seismic)  return;
             if (fs.post2012     && !ev.post_2012)    return;
 

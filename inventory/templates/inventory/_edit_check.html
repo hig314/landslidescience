@@ -1,0 +1,28 @@
+{% comment %}
+Compact inline checkbox — box first, label beside it — for the two-column
+blocks built by _field_groups.html. The full-width renderer puts the label
+on its own line above the input, which is right for text fields and wasteful
+for a boolean.
+
+Context: field (bound field), vis (per-type visibility class).
+
+Non-checkbox fields fall through to the full-width renderer, so putting a
+text column in a block degrades gracefully instead of rendering a mangled
+row. Keeps the `.ls-field` class and data-field attribute the visibility JS
+and autosave rely on.
+{% endcomment %}
+{% if field.field.widget.input_type == 'checkbox' %}
+  <div class="ls-field ls-check {{ vis }}" data-field="{{ field.name }}">
+    <label for="{{ field.id_for_label }}">
+      {{ field }}<span>{{ field.label }}</span>
+    </label>
+    {% if field.help_text %}
+      <p class="helptext" style="margin:2px 0 0 22px;">{{ field.help_text }}</p>
+    {% endif %}
+    {% if field.errors %}
+      <p style="font-size:12px; color:#b00020; margin:2px 0 0 22px;">{{ field.errors|join:", " }}</p>
+    {% endif %}
+  </div>
+{% else %}
+  {% include 'inventory/_edit_field.html' with field=field vis=vis %}
+{% endif %}
