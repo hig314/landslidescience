@@ -1,0 +1,17 @@
+# IceBoost v2.0 ice thickness (m) — sequential cold-blues ramp, log-ish
+# spacing (values 0..~1500; median ~100-150 on big complexes). Distinct
+# family from the ITS_LIVE speed jet and vamp purples so layers aren't
+# confusable in the wiper. Thin ice pale but opaque (thin is signal);
+# NoData transparent (bare ground / ocean).
+# Columns: VALUE R G B A
+nv     0   0   0   0
+0    239 249 255 220
+25   222 235 247 235
+50   198 219 239 245
+100  158 202 225 255
+200  107 174 214 255
+350   66 146 198 255
+500   33 113 181 255
+700    8  81 156 255
+1000   8  48 107 255
+1600   5  24  60 255

@@ -1,0 +1,15 @@
+# IceBoost-derived overdeepening depth (m): fillsinks(bed) - bed, per glacier
+# complex, sub-10 m dropped at source (prep_iceboost_derived.py). Depth of the
+# closed basin a retreating terminus would expose as a lake / fjord arm.
+# Warm escalating ramp over a transparent floor; deliberately loud — this is
+# a hazard-relevant anomaly layer, not a background field.
+# Columns: VALUE R G B A
+nv     0   0   0   0
+0      0   0   0   0
+9.99   0   0   0   0
+10   255 237 130 200
+30   254 204  92 230
+75   253 141  60 250
+150  240  59  32 255
+300  189   0  38 255
+600  110   0  60 255

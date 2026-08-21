@@ -991,3 +991,9 @@ body.inv-article-body {
     color: #333; padding: 8px 14px; text-decoration: none; white-space: nowrap;
 }
 .inv-dl-menu > a:hover, .inv-dl-menu > button:hover { background: #f2ede6; }
+
+/* --- Collapsible overlay categories (sidebar + wiper panel) --- */
+.ov-cat-summary { cursor: pointer; list-style: none; user-select: none; }
+.ov-cat-summary::-webkit-details-marker { display: none; }
+.ov-cat-summary::before { content: '▸ '; font-size: 9px; color: #999; }
+details[open] > .ov-cat-summary::before { content: '▾ '; }

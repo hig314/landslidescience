@@ -1091,6 +1091,12 @@ _RAMP_SPECS = {
     'ice-dhdt':  {'file': 'hugonnet_color_dhdt.txt', 'label': 'Glacier thinning', 'units': 'm/yr'},
     'ice-dhdt~s': {'file': 'hugonnet_color_dhdt_smooth.txt',
                    'label': 'Glacier thinning (smoothed)', 'units': 'm/yr'},
+    'ice-thick': {'file': 'iceboost_color_thickness.txt',
+                  'label': 'Ice thickness (IceBoost)', 'units': 'm'},
+    'ice-bed':   {'file': 'iceboost_color_bed.txt',
+                  'label': 'Bed elevation', 'units': 'm a.s.l.'},
+    'ice-over':  {'file': 'iceboost_color_overdeep.txt',
+                  'label': 'Bed overdeepening depth', 'units': 'm'},
 }
 
 

@@ -1520,7 +1520,36 @@
     ].concat(window.LSOverlays.glacierOverlays({
         itsliveBase: CFG.itsliveTileBase,
         hugonnetBase: CFG.hugonnetTileBase
-    }));
+    })).concat([
+        // IceBoost v2.0 ice thickness + derived products (Maffezzoli et al.
+        // 2025, GMD, doi:10.5194/gmd-18-2545-2025; CC-BY 4.0). Inventory-map
+        // only for now — deliberately NOT in ls_overlays.glacierOverlays(),
+        // which /glaciers also consumes (colleague's in-flight work). Bed =
+        // (surface - geoid) - thickness, self-consistent within IceBoost;
+        // overdeepenings = per-complex sink-fill depth of the derived bed.
+        { id: 'ice-thick', layerId: 'ov-ice-thick', sourceId: 'ov-ice-thick-src',
+          label: 'Ice thickness', sub: 'IceBoost v2.0, 100 m · Maffezzoli et al. 2025',
+          sourceDef: function () { return _iceboostSourceDef('thickness'); },
+          defOpacity: 0.85 },
+        { id: 'ice-bed', layerId: 'ov-ice-bed', sourceId: 'ov-ice-bed-src',
+          label: 'Bed elevation (under ice)', sub: 'IceBoost surface − thickness · blue = below sea level',
+          sourceDef: function () { return _iceboostSourceDef('bed'); },
+          defOpacity: 0.9 },
+        { id: 'ice-over', layerId: 'ov-ice-over', sourceId: 'ov-ice-over-src',
+          label: 'Bed overdeepenings', sub: 'closed-basin depth >10 m — future lakes / fjord arms',
+          sourceDef: function () { return _iceboostSourceDef('overdeep'); },
+          defOpacity: 0.9 },
+    ]);
+    var ICEBOOST_TILE_V = '1';
+    var ICEBOOST_ATTR = 'Ice thickness: IceBoost v2.0 (Maffezzoli et al. 2025, CC-BY 4.0)';
+    function _iceboostSourceDef(product) {
+        return {
+            type: 'raster',
+            tiles: ['/tiles/iceboost/' + product + '/{z}/{x}/{y}.png?v=' + ICEBOOST_TILE_V],
+            tileSize: 256, minzoom: 3, maxzoom: 10,
+            attribution: ICEBOOST_ATTR
+        };
+    }
     // Per-overlay state: shown on the left (main) pane, shown on the right
     // (wiper) pane, and a per-pane opacity. Each pane has its own control
     // panel — the sidebar's Overlays section drives the left pane, the
@@ -2514,6 +2543,61 @@
         return row;
     }
 
+    // -----------------------------------------------------------------------
+    // Overlay categories — collapsible <details> groups shared by the sidebar
+    // (left pane) and the wiper panel (right pane). Eleven flat rows became
+    // unscannable once the IceBoost products landed. Membership is assigned
+    // HERE by id (not as a field on the descriptors) so the shared
+    // ls_overlays.js objects /glaciers consumes are untouched. A category
+    // defaults open when any of its overlays is visible on either pane —
+    // hiding an ACTIVE layer's controls would be worse than clutter — and an
+    // explicit user toggle overrides that, persisted per browser.
+    // -----------------------------------------------------------------------
+    var _OV_CATS = [
+        { key: 'susc',  label: 'Landslide susceptibility', ids: ['susc-lw', 'susc-n10'] },
+        { key: 'insar', label: 'InSAR ground motion',      ids: ['opera-asc', 'opera-desc'] },
+        { key: 'gsurf', label: 'Glacier surface',          ids: ['ice-v', 'ice-amp', 'ice-dvdt', 'ice-dhdt'] },
+        { key: 'gbed',  label: 'Ice thickness & bed',      ids: ['ice-thick', 'ice-bed', 'ice-over'] },
+    ];
+    var _ovCatPrefs = (function () {
+        try { return JSON.parse(localStorage.getItem('ls_ov_cats') || '{}') || {}; }
+        catch (e) { return {}; }
+    })();
+    function _ovRenderGrouped(container, side) {
+        var byId = {};
+        OVERLAYS.forEach(function (ov) { byId[ov.id] = ov; });
+        var placed = {};
+        var cats = _OV_CATS.map(function (c) {
+            var ovs = c.ids.map(function (id) { placed[id] = 1; return byId[id]; })
+                           .filter(Boolean);
+            return { key: c.key, label: c.label, ovs: ovs };
+        });
+        // Anything unlisted still renders (a new overlay must never silently
+        // vanish from the panel because nobody categorized it).
+        var rest = OVERLAYS.filter(function (ov) { return !placed[ov.id]; });
+        if (rest.length) cats.push({ key: 'other', label: 'Other', ovs: rest });
+
+        cats.forEach(function (c) {
+            if (!c.ovs.length) return;
+            var active = c.ovs.filter(function (ov) {
+                var st = _ovState[ov.id];
+                return st && (st.left || st.right);
+            }).length;
+            var det = document.createElement('details');
+            det.open = (c.key in _ovCatPrefs) ? !!_ovCatPrefs[c.key] : active > 0;
+            var sum = document.createElement('summary');
+            sum.className = 'refmaps-category ov-cat-summary';
+            sum.textContent = c.label + (active ? ' · ' + active + ' on' : '');
+            det.appendChild(sum);
+            c.ovs.forEach(function (ov) { det.appendChild(_overlayRow(ov, side)); });
+            det.addEventListener('toggle', function () {
+                _ovCatPrefs[c.key] = det.open;
+                try { localStorage.setItem('ls_ov_cats', JSON.stringify(_ovCatPrefs)); } catch (e) {}
+            });
+            container.appendChild(det);
+        });
+    }
+
     // Sidebar Overlays section — controls the LEFT (main) pane; the wiper's
     // right pane gets an identical section in its own floating panel.
     function _buildOverlaysUI() {
@@ -2527,7 +2611,7 @@
         hint.textContent = 'Semi-transparent rasters over the basemap. With a wiper added, these ' +
                            'control the LEFT side; the wiper’s own panel controls the right.';
         wrap.appendChild(hint);
-        OVERLAYS.forEach(function (ov) { wrap.appendChild(_overlayRow(ov, 'left')); });
+        _ovRenderGrouped(wrap, 'left');
         return wrap;
     }
 
@@ -2644,7 +2728,7 @@
         var ovHdr = document.createElement('div');
         ovHdr.className = 'refmaps-category'; ovHdr.textContent = 'Overlays';
         p.appendChild(ovHdr);
-        OVERLAYS.forEach(function (ov) { p.appendChild(_overlayRow(ov, 'right')); });
+        _ovRenderGrouped(p, 'right');
     }
     function _wiperPanelShow() {
         _wiperPanelEnsure().style.display = '';

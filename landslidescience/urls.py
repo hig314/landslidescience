@@ -67,6 +67,20 @@ def hugonnet_tile(request, var, z, x, y):
 # -> tools/build_fit_tiles.sh), coloured with the SAME ramps as the standard
 # ITS_LIVE overlays so a visual difference is a data difference. Experimental,
 # and currently only covers the Columbia test box.
+# IceBoost v2.0 ice thickness + derived bed / overdeepenings (Maffezzoli et
+# al. 2025, doi:10.5194/gmd-18-2545-2025; CC-BY 4.0). Built by
+# tools/prep_iceboost_derived.py + build_iceboost_tiles.sh into
+# data/iceboost_tiles/<product>/; same contract as the other pyramids.
+_ICEBOOST_TILES_DIR = settings.BASE_DIR / 'data' / 'iceboost_tiles'
+
+
+def iceboost_tile(request, product, z, x, y):
+    resp = static_serve(request, f'{product}/{z}/{x}/{y}.png',
+                        document_root=str(_ICEBOOST_TILES_DIR))
+    resp['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return resp
+
+
 _FIT_TILES_DIR = settings.BASE_DIR / 'data' / 'glaciers' / 'fit_tiles'
 
 
@@ -83,6 +97,8 @@ urlpatterns = [
             susc_tile),
     re_path(r'^tiles/itslive/(?P<var>v|vamp|dvdt)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             itslive_tile),
+    re_path(r'^tiles/iceboost/(?P<product>thickness|bed|overdeep)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
+            iceboost_tile),
     re_path(r'^tiles/hugonnet/(?P<var>dhdt|dhdt_smooth)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             hugonnet_tile),
     re_path(r'^tiles/glacierfit/(?P<var>v0|amp|trend)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
