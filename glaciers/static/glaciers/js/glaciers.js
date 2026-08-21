@@ -157,12 +157,23 @@
             ticks: [-450, 0, 450, 900], unit: ' m'
         },
         ice_thickness_m: {
-            expr: ['interpolate', ['linear'], ['get', 'ice_thickness_m'],
+            // Some rows carry bed_height_m but a null ice_thickness_m (the
+            // build script writes None when the CSV field is empty). Feeding
+            // null into interpolate fails per-feature and those points render
+            // MapLibre's DEFAULT BLACK, plus a console warning per frame.
+            // Guard on typeof: non-numbers render neutral gray — visibly
+            // "no data" while keeping the flight line's spatial continuity
+            // (hiding them would make point counts change with the color-by
+            // selector).
+            expr: ['case',
+                ['!=', ['typeof', ['get', 'ice_thickness_m']], 'number'],
+                '#9e9e9e',
+                ['interpolate', ['linear'], ['get', 'ice_thickness_m'],
                   0, '#cde2fb',
                 100, '#6da7ec',
                 250, '#2a78d6',
                 450, '#184f95',
-                700, '#0d366b'],
+                700, '#0d366b']],
             stops: [[0, '#cde2fb'], [100, '#6da7ec'], [250, '#2a78d6'], [450, '#184f95'], [700, '#0d366b']],
             ticks: [0, 350, 700], unit: ' m'
         }
