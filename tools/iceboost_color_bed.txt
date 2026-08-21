@@ -1,19 +1,32 @@
-# IceBoost-derived bed elevation (m, orthometric; bed = surface-geoid-thickness)
-# Hypsometric tint with a hard semantic break at sea level: below 0 = blues
-# (the tidewater/fjord basins that drive catastrophic retreat), above 0 =
-# green -> tan -> brown -> white. Gets multiplied by a multidirectional
-# hillshade before tiling (tools/build_iceboost_tiles.sh) so troughs read.
+# IceBoost-derived bed elevation (m, orthometric) — BANDED hypsometric tints
+# (v2; v1 was a continuous gradient). Distinct bands make absolute elevation
+# readable off the color; the multidirectional hillshade multiplied in by
+# build_iceboost_tiles.sh keeps the trough/overdeepening relief legible.
+# Banding technique = the susc ramps': duplicate the color at band edges
+# (1 cm apart) so color-relief's interpolation collapses to a hard step.
+# Bands are tight near sea level — the zone that governs tidewater retreat
+# and flotation — and coarsen with altitude. Sea level stays a hard hue
+# break: blues below, greens/tans above.
 # Columns: VALUE R G B A
-nv      0   0   0   0
--800    8  29  88 255
--400   34  94 168 255
--200   65 145 200 255
--50   145 200 230 255
--0.01 205 230 245 255
-0      70 130  60 255
-250   120 160  70 255
-600   190 190 100 255
-1200  210 180 130 255
-2000  190 150 110 255
-2800  225 220 210 255
-3600  255 255 255 255
+nv        0   0   0   0
+-800      8  29  88 255
+-400.01   8  29  88 255
+-400     34  98 168 255
+-200.01  34  98 168 255
+-200     65 145 200 255
+-100.01  65 145 200 255
+-100    145 200 230 255
+-0.01   145 200 230 255
+0        70 140  60 255
+249.99   70 140  60 255
+250     120 160  70 255
+499.99  120 160  70 255
+500     190 190 100 255
+999.99  190 190 100 255
+1000    210 180 130 255
+1499.99 210 180 130 255
+1500    190 150 110 255
+1999.99 190 150 110 255
+2000    225 220 210 255
+2999.99 225 220 210 255
+3000    255 255 255 255

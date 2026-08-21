@@ -1540,7 +1540,7 @@
           sourceDef: function () { return _iceboostSourceDef('overdeep'); },
           defOpacity: 0.9 },
     ]);
-    var ICEBOOST_TILE_V = '1';
+    var ICEBOOST_TILE_V = '2';   // v2: banded bed hypsometry (v1 continuous)
     var ICEBOOST_ATTR = 'Ice thickness: IceBoost v2.0 (Maffezzoli et al. 2025, CC-BY 4.0)';
     function _iceboostSourceDef(product) {
         return {
