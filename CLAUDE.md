@@ -255,6 +255,35 @@ After a deploy that adds new migrations or new groups: run `python manage.py mig
 
 Production `.env` lives at `/opt/landslidescience/.env`, mode 600, never committed. DB credentials in there mirror the monitoring stack's `.env`.
 
+### Collaborator data drop (write-only staging)
+
+Collaborators ship built data products (e.g. the IceBridge point layers) to
+prod without SSH root: the `datadrop` account is key-restricted to
+`command="/usr/bin/rrsync -wo /opt/landslidescience/data/incoming",restrict`
+in its `authorized_keys` — it can rsync INTO the staging dir and do nothing
+else (no shell, no reads, no other paths; `-wo` is write-only). The staging
+dir sits under the mounted `data/` but NO serving route references it, so
+staged files are inert until promoted.
+
+1. Collaborator (after their public key is installed):
+   `rsync -avP icebridge_uaf_hf.json icebridge_ares.json datadrop@143.198.140.54:/`
+   (the rrsync jail makes `/` mean the staging dir). Raw staging data
+   (`icebridge_raw/`, multi-GB) stays on their machine — only built display
+   products ship.
+2. Promotion is a deliberate, reviewed root step — the safety boundary. An
+   explicit allowlist, never a bare `mv *`:
+   `rsync -av --include='icebridge_*.json' --exclude='*' /opt/landslidescience/data/incoming/ /opt/landslidescience/data/glaciers/`
+   then clear the staged copies. Serving needs no restart (files are read
+   per-request), but new FILENAMES only go live when the code that
+   references them deploys — so data can land ahead of the code deploy and
+   wait there, exactly like pre-adding a DB column.
+3. Pull to dev for testing:
+   `rsync root@143.198.140.54:/opt/landslidescience/data/glaciers/icebridge_\*.json data/glaciers/`
+
+To onboard a new collaborator key: append their `ssh-ed25519 …` pubkey to
+`/home/datadrop/.ssh/authorized_keys` ON THE SAME LINE as the
+`command=…,restrict` options prefix.
+
 ## Local dev
 
 ```bash
