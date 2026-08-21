@@ -97,7 +97,11 @@ def tracer_data(request, name):
     gz = DIR / (name + '.gz')
     path = DIR / name
     encoding = None
-    if name.endswith('.bin') and gz.exists():
+    # Pre-gzipped variants served against the plain URL: originally .bin only
+    # (tracer bundles); .json joined when the 26.7 MB IceBridge ARES layer
+    # took 17-40 s to fetch uncompressed and read as "not plotting" — the
+    # data was fine, the wait was silent. ~5x smaller on the wire.
+    if (name.endswith('.bin') or name.endswith('.json')) and gz.exists():
         path, encoding = gz, 'gzip'
     try:
         fh = open(path, 'rb')
