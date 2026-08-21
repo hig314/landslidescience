@@ -97,10 +97,30 @@
           sourceDef: function () { return _fitSourceDef('trend'); }, defOpacity: 0.9 },
     ];
 
+    // IceBridge UAF HF / ARES radar bed-elevation picks (tools/build_icebridge_points.py
+    // -> data/glaciers/icebridge_<slug>.json, point GeoJSON, NOT raster). General
+    // reference data, not experimental scaffolding — ships regardless of EXPERIMENTAL.
+    // Color-by is shared across both instrument layers (see the "IceBridge color"
+    // select built below) rather than per-row, so UAF HF and ARES stay visually
+    // comparable; instrument identity is already carried by which toggle is on.
+    var ICEBRIDGE_DATA_V = '1';
+    function _icebridgeSourceDef(slug) {
+        return { type: 'geojson', data: CFG.dataBase + 'icebridge_' + slug + '.json?v=' + ICEBRIDGE_DATA_V };
+    }
+    var ICEBRIDGE_OVERLAYS = [
+        { id: 'ib-uaf-hf', layerId: 'ov-ib-uaf-hf', sourceId: 'ov-ib-uaf-hf-src', type: 'circle',
+          label: 'IceBridge UAF HF radar', sub: 'bed elevation picks, 2013–2016',
+          sourceDef: function () { return _icebridgeSourceDef('uaf_hf'); }, defOpacity: 0.9 },
+        { id: 'ib-ares', layerId: 'ov-ib-ares', sourceId: 'ov-ib-ares-src', type: 'circle',
+          label: 'IceBridge ARES radar', sub: 'bed elevation picks, 2016–2021',
+          sourceDef: function () { return _icebridgeSourceDef('ares'); }, defOpacity: 0.9 },
+    ];
+
     // The fitted-pair overlays are part of the /pairs/ experimental stack and
     // ship only where that data exists.
     var OVERLAYS = window.LSOverlays.glacierOverlays({})
-        .concat(EXPERIMENTAL ? FIT_OVERLAYS : []);
+        .concat(EXPERIMENTAL ? FIT_OVERLAYS : [])
+        .concat(ICEBRIDGE_OVERLAYS);
     var _ovState = {};
     OVERLAYS.forEach(function (ov) {
         var s = _hash.ov && _hash.ov[ov.id];
@@ -109,15 +129,68 @@
         if (ov.variant && s) ov.variant.set(!!s.smooth);
     });
 
+    // Color-by ramps for the IceBridge points. Thickness is a pure magnitude (no
+    // zero-crossing) -> one hue, light->dark. Bed height is a hard threshold, not
+    // a smooth diverging scale: below 0 m (flotation-relevant) vs. above 0 m is a
+    // real physical boundary (sea/lake level), so it renders as an ABRUPT seam at
+    // 0 — blue below, green above — each arm still gradated by magnitude via its
+    // own interpolate. `stops` double as the legend gradient definition (a value
+    // repeated back-to-back is the hard seam); `ticks` label the legend bar.
+    // Bounds come from the real pulled data (tools/build_icebridge_points.py
+    // printed min/p10/median/p90/max across both instruments): bed_height_m spans
+    // roughly -454..2681 with p90 ~900-1100, so -450..900 covers the bulk without
+    // letting rare high-elevation outliers wash out the near-zero gradation;
+    // ice_thickness_m p90 ~570-880, so 0..700 likewise.
+    var ICEBRIDGE_RAMPS = {
+        bed_height_m: {
+            // Still medium (not pale/near-white) right at the seam, so the
+            // blue/green hue swap itself reads clearly at 0 — but lighter than
+            // the first cut, which put low- and high-magnitude points too close
+            // in lightness to tell apart. Widening light-near-0 -> dark-at-extreme
+            // gives each arm its own full lightness range to differentiate by.
+            expr: ['case',
+                ['<', ['get', 'bed_height_m'], 0],
+                ['interpolate', ['linear'], ['get', 'bed_height_m'], -450, '#082542', 0, '#6da7ec'],
+                ['interpolate', ['linear'], ['get', 'bed_height_m'], 0, '#5cb873', 900, '#0a3016']
+            ],
+            stops: [[-450, '#082542'], [0, '#6da7ec'], [0, '#5cb873'], [900, '#0a3016']],
+            ticks: [-450, 0, 450, 900], unit: ' m'
+        },
+        ice_thickness_m: {
+            expr: ['interpolate', ['linear'], ['get', 'ice_thickness_m'],
+                  0, '#cde2fb',
+                100, '#6da7ec',
+                250, '#2a78d6',
+                450, '#184f95',
+                700, '#0d366b'],
+            stops: [[0, '#cde2fb'], [100, '#6da7ec'], [250, '#2a78d6'], [450, '#184f95'], [700, '#0d366b']],
+            ticks: [0, 350, 700], unit: ' m'
+        }
+    };
+    var _icebridgeColorBy = 'bed_height_m';
+    function _icebridgeColorExpr() { return ICEBRIDGE_RAMPS[_icebridgeColorBy].expr; }
     function ensureOverlays() {
         OVERLAYS.forEach(function (ov) {
             if (!map.getSource(ov.sourceId)) map.addSource(ov.sourceId, ov.sourceDef());
             if (!map.getLayer(ov.layerId)) {
-                map.addLayer({
-                    id: ov.layerId, type: 'raster', source: ov.sourceId,
-                    layout: { 'visibility': 'none' },
-                    paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
-                });
+                if (ov.type === 'circle') {
+                    map.addLayer({
+                        id: ov.layerId, type: 'circle', source: ov.sourceId,
+                        layout: { 'visibility': 'none' },
+                        paint: {
+                            'circle-radius': 3,
+                            'circle-color': _icebridgeColorExpr(),
+                            'circle-opacity': 1,
+                            'circle-stroke-width': 0
+                        }
+                    });
+                } else {
+                    map.addLayer({
+                        id: ov.layerId, type: 'raster', source: ov.sourceId,
+                        layout: { 'visibility': 'none' },
+                        paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
+                    });
+                }
             }
         });
         applyOverlays();
@@ -127,7 +200,8 @@
             if (!map.getLayer(ov.layerId)) return;
             var st = _ovState[ov.id];
             map.setLayoutProperty(ov.layerId, 'visibility', st.on ? 'visible' : 'none');
-            map.setPaintProperty(ov.layerId, 'raster-opacity', st.op);
+            var opProp = ov.type === 'circle' ? 'circle-opacity' : 'raster-opacity';
+            map.setPaintProperty(ov.layerId, opProp, st.op);
         });
     }
     function swapOverlaySource(ov) {
@@ -217,6 +291,66 @@
         });
         ovWrap.appendChild(row);
     });
+
+    // Shared color-by select for the two IceBridge layers (bed height vs.
+    // thickness) — one control drives both, so they stay comparable.
+    var ibColorRow = document.createElement('div');
+    ibColorRow.className = 'gl-ov-row';
+    var ibColorLabel = document.createElement('span');
+    ibColorLabel.className = 'gl-sub';
+    ibColorLabel.textContent = 'IceBridge color: ';
+    ibColorRow.appendChild(ibColorLabel);
+    var ibColorSel = document.createElement('select');
+    ibColorSel.style.cssText = 'width:auto; font-size:11px; padding:1px; margin:0;';
+    [['bed_height_m', 'Bed height'], ['ice_thickness_m', 'Ice thickness']].forEach(function (o) {
+        var e = document.createElement('option');
+        e.value = o[0]; e.textContent = o[1];
+        ibColorSel.appendChild(e);
+    });
+    ibColorSel.value = _icebridgeColorBy;
+    ibColorSel.addEventListener('change', function () {
+        _icebridgeColorBy = ibColorSel.value;
+        ICEBRIDGE_OVERLAYS.forEach(function (ov) {
+            if (map.getLayer(ov.layerId)) map.setPaintProperty(ov.layerId, 'circle-color', _icebridgeColorExpr());
+        });
+        updateIcebridgeLegend();
+    });
+    ibColorRow.appendChild(ibColorSel);
+    ovWrap.appendChild(ibColorRow);
+
+    // Color bar legend for whichever IceBridge property is active — stops
+    // double as the CSS gradient definition (a repeated value = the hard seam
+    // at 0 for bed height), ticks label a few values along it.
+    var ibLegendBar = document.createElement('div');
+    ibLegendBar.style.cssText = 'height:10px; border-radius:2px; border:1px solid rgba(0,0,0,0.15); margin-top:3px;';
+    var ibLegendTicks = document.createElement('div');
+    // position:relative + absolute-positioned children, NOT flex space-between —
+    // space-between spaces labels evenly regardless of value, which is why "0m"
+    // previously sat at the visual center instead of over the actual color seam.
+    ibLegendTicks.style.cssText = 'position:relative; height:11px; font-size:9px; color:#777; margin-top:1px;';
+    ovWrap.appendChild(ibLegendBar);
+    ovWrap.appendChild(ibLegendTicks);
+    function updateIcebridgeLegend() {
+        var ramp = ICEBRIDGE_RAMPS[_icebridgeColorBy];
+        var vmin = ramp.stops[0][0], vmax = ramp.stops[ramp.stops.length - 1][0];
+        var span = (vmax - vmin) || 1;
+        function pct(v) { return ((v - vmin) / span) * 100; }
+        var grad = ramp.stops.map(function (s) {
+            return s[1] + ' ' + pct(s[0]).toFixed(1) + '%';
+        }).join(', ');
+        ibLegendBar.style.background = 'linear-gradient(to right, ' + grad + ')';
+        ibLegendTicks.innerHTML = '';
+        ramp.ticks.forEach(function (v) {
+            var p = pct(v);
+            var s = document.createElement('span');
+            s.textContent = (v > 0 ? '+' : '') + v + ramp.unit;
+            // Keep edge labels from overflowing the bar; interior ones center on their tick.
+            var shift = p <= 0.5 ? '0%' : (p >= 99.5 ? '-100%' : '-50%');
+            s.style.cssText = 'position:absolute; left:' + p.toFixed(1) + '%; transform:translateX(' + shift + '); white-space:nowrap;';
+            ibLegendTicks.appendChild(s);
+        });
+    }
+    updateIcebridgeLegend();
 
     // Tracer controls
     var trWrap = document.getElementById('gl-tracer-controls');

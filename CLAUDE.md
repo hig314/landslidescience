@@ -168,6 +168,52 @@ behind that same gate rather than inventing a second switch.
   take precedence and no model is used at all.
 - **Dev mount**: `./glaciers` is volume-mounted in docker-compose.override
   like the other app dirs.
+- **IceBridge radar bed elevation / ice thickness (UAF HF + ARES)**: two
+  point-data overlay toggles, statewide AK — a precursor layer toward a
+  planned ice-dam flotation analysis (that analysis itself is a separate,
+  still-evolving raster-stack workflow, tracked outside this app for now).
+  Pipeline: `tools/fetch_icebridge_data.py` (workstation venv w/
+  `earthaccess`; NASA CMR short_names **IRUAFHF2** 2013–2016 and **IRARES2**
+  2016–2021, both Alaska + NW Canada, both the identical field layout —
+  `lon_deg_e`/`lat_deg_n`/`bed_height_m`/`ice_thickness_m`; bed/thickness are
+  left EMPTY, not a sentinel, on traces with no bed interpretation) → raw
+  CSVs into `data/glaciers/icebridge_raw/<short_name>/` (2+ GB, gitignored,
+  never rsynced to prod — the record of truth stays local) →
+  `tools/build_icebridge_points.py` filters to rows with a `bed_height_m`,
+  keeps lon/lat/bed_height_m/ice_thickness_m, and writes
+  `data/glaciers/icebridge_{uaf_hf,ares}.json`. **Each NSIDC CSV opens with a
+  block of `#`-prefixed metadata lines before the real header row** — skip
+  them or every column comes back empty. **ARES alone is 2.88M qualifying
+  rows** (a 545 MB GeoJSON, unfetchable client-side), so the build script
+  grid-decimates to one point per `GRID_DEG` cell (~55 m) — a display
+  simplification, not a science product; the raw CSVs remain authoritative.
+  Named `.json` not `.geojson` so the existing `glaciers:tracer_data`
+  route/regex serves them with zero backend changes (`_catalog()` already
+  skips any `data/glaciers/*.json` without `name`/`center`/`bin` keys, so
+  these don't get mistaken for a tracer bundle). **Not gated behind
+  `experimental_enabled()`** — unlike the pair-fit stack, this is general,
+  statewide reference data rather than a one-glacier research probe, so it
+  ships through the normal dev→test→approve→push flow. Rendering is local to
+  `glaciers.js`, not `ls_overlays.js` — that shared module is raster-tile-
+  only (`sourceDef()` → `rasterDef()`), and this is sparse vector/point data;
+  `ensureOverlays()`/`applyOverlays()` branch on `ov.type === 'circle'` to
+  add a MapLibre `geojson` source + data-driven `circle-color` layer instead
+  of a raster one. **Color-by is a shared toggle** (`ICEBRIDGE_RAMPS`, one
+  control drives both instrument layers so they stay comparable): ice
+  thickness is a plain magnitude (sequential, one hue light→dark); bed
+  height renders as an ABRUPT seam at 0 m — blue below (flotation-relevant),
+  green above — each arm still gradated by magnitude, medium-toned at the
+  seam (not pale) so the hue swap itself reads clearly, fading darker toward
+  each extreme. Domain bounds (-450..900 m bed height, 0..700 m thickness)
+  come from the real pulled data's printed percentiles, not guessed. The
+  legend bar's `stops` array doubles as its CSS gradient definition (a
+  repeated value = the hard seam); tick labels are positioned by actual
+  value percentage, NOT CSS flex `space-between` — space-between spaces
+  labels evenly regardless of value, which silently put the "0 m" label at
+  the visual center instead of over the real color seam. Deploy note: the
+  two built JSON files are gitignored like all of `data/` — they need their
+  own rsync to the droplet's `data/glaciers/`, independent of the code push
+  (same pattern as the susceptibility/OPERA tiles).
 - **Future**: glacier-properties tab paralleling the inventory's landslide
   tab — eventual input to Bayesian failure-likelihood analysis surfaced in
   the landslides app. Keep sidebar/tab chrome and per-glacier identity
