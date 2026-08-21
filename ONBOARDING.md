@@ -53,6 +53,7 @@ Details in CLAUDE.md §Development workflow.
 | `tools/` | Offline data pipeline. `*color*.txt` files are the gdaldem color ramps — also parsed at runtime by `api_ramps` for export legends, so they are load-bearing in two places. |
 | `data/` | **Gitignored, volume-mounted, environment-specific.** Tiles, media, snapshots, tracer bundles. Never in the image; ships by rsync. |
 | `CLAUDE.md` | Deep reference (auto-loaded by Claude Code). |
+| `DATA_DROP.md` | How collaborators ship data products to prod (write-only staging → promote → dev test → deploy). |
 | `HAZARDS.md` | Footgun list. |
 
 ## Environments
