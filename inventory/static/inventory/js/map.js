@@ -1411,12 +1411,20 @@
     // for a refreshed mosaic.
     // ---------------------------------------------------------------------------
     var OPERA_TILE_V = '1';
-    // ASF's ramp stops (value 1–255 → RGB), extracted from their app bundle.
+    // ColorBrewer PRGn diverging (5-class), replacing ASF's blue-red (which
+    // is what their portal shows, kept in git history at b1ec96d^ if a
+    // match-the-portal mode is ever wanted). Red is semantically ambiguous
+    // on a velocity scale — it reads as both "high/hot" and "in the red /
+    // loss" — per Hig 2026-08-22. Purple = negative LOS (value 1 = -30
+    // mm/yr, motion away from the satellite), neutral #f7f7f7 pinned at
+    // value 128 = 0, green = positive (toward the satellite). Flip the stop
+    // order if the sign convention should read the other way.
     var OPERA_RAMP = [
-        [1, [0, 18, 97]], [29, [3, 62, 125]], [58, [30, 111, 157]],
-        [86, [113, 168, 196]], [114, [201, 221, 231]], [143, [234, 206, 189]],
-        [171, [211, 151, 116]], [199, [190, 101, 51]], [228, [139, 39, 6]],
-        [255, [89, 0, 8]]
+        [1,   [123,  50, 148]],   // #7b3294
+        [64,  [194, 165, 207]],   // #c2a5cf
+        [128, [247, 247, 247]],   // #f7f7f7
+        [192, [166, 219, 160]],   // #a6dba0
+        [255, [  0, 136,  55]]    // #008837
     ];
     var _operaLut = (function () {
         var lut = new Uint8Array(256 * 3);
