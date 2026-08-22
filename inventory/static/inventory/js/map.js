@@ -1213,7 +1213,7 @@
         // blob. Identify it and point at the tool that manages it. Skipped
         // while draw/measure own the cursor.
         map.on('click', 'prov-fill', function (e) {
-            if (map.__measureActive || map.__drawActive) return;
+            if (map.__measureActive || map.__drawActive || map.__insarActive) return;
             var label = (e.features && e.features[0] && e.features[0].properties &&
                          e.features[0].properties.label) || 'staged component';
             new maplibregl.Popup({ closeButton: true })
@@ -1226,18 +1226,18 @@
                 .addTo(map);
         });
         map.on('mouseenter', 'prov-fill', function () {
-            if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = 'pointer';
+            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer';
         });
         map.on('mouseleave', 'prov-fill', function () {
-            if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = '';
+            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = '';
         });
 
-        function _openPending(id) { if (!map.__measureActive && !map.__drawActive && id) window.location.href = '/inventory/manage/' + id + '/review/'; }
+        function _openPending(id) { if (!map.__measureActive && !map.__drawActive && !map.__insarActive && id) window.location.href = '/inventory/manage/' + id + '/review/'; }
         map.on('click', 'pending-pt',        function (e) { _openPending(e.features[0].properties.id); });
         map.on('click', 'pending-poly-fill', function (e) { _openPending(e.features[0].properties.landslide_id); });
         ['pending-pt', 'pending-poly-fill'].forEach(function (lyr) {
-            map.on('mouseenter', lyr, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = 'pointer'; });
-            map.on('mouseleave', lyr, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = ''; });
+            map.on('mouseenter', lyr, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer'; });
+            map.on('mouseleave', lyr, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = ''; });
         });
 
         // Pin-field dropdown: restore the saved choice, relabel on change.
@@ -2305,6 +2305,12 @@
             _swipeDrawSync();                          // and the live draft, if any
         }
         if (_swipeFilter) _swipeSetFilter(_swipeFilter);
+        // InSAR sample markers mirror to the pane — a deliberate EXCEPTION to
+        // the interaction-tools-stay-main-pane rule: this tool's core use is
+        // asc/desc wiper comparison, and un-mirrored markers vanish under the
+        // right pane (bug found by Hig doing exactly that). Hook set by the
+        // tool's IIFE below; guarded because that runs later in this file.
+        if (window.__insarSwipeSync) window.__insarSwipeSync(cmap);
     }
     function _swipeSetPending() {
         if (!_swipe.map) return;
@@ -4581,7 +4587,7 @@
     // the clipboard for pasting into Planet etc. Skipped while a draw/measure
     // session is active (there, right-click deletes a vertex).
     map.on('contextmenu', function (e) {
-        if (map.__measureActive || map.__drawActive) return;
+        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
         e.preventDefault();
         var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
         var done = function () { _coordToast(txt + ' copied'); };
@@ -4605,11 +4611,11 @@
         t._h = setTimeout(function () { t.style.opacity = '0'; }, 1600);
     }
 
-    map.on('click', 'points',       function (e) { if (map.__measureActive || map.__drawActive) return; showDetail(e.features[0].properties.id); });
-    map.on('click', 'polygon-fill', function (e) { if (map.__measureActive || map.__drawActive) return; showDetail(e.features[0].properties.landslide_id); });
+    map.on('click', 'points',       function (e) { if (map.__measureActive || map.__drawActive || map.__insarActive) return; showDetail(e.features[0].properties.id); });
+    map.on('click', 'polygon-fill', function (e) { if (map.__measureActive || map.__drawActive || map.__insarActive) return; showDetail(e.features[0].properties.landslide_id); });
     ['points', 'polygon-fill'].forEach(function (layer) {
-        map.on('mouseenter', layer, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', layer, function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = ''; });
+        map.on('mouseenter', layer, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', layer, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = ''; });
     });
     // Hover highlight is filter-driven, so mirror it to the comparison map —
     // otherwise the white outline cuts off at the wiper divider.
@@ -4619,7 +4625,7 @@
         _swipeAlso(function (m) { if (m.getLayer('polygon-hover')) m.setFilter('polygon-hover', f); });
     }
     map.on('mousemove',  'polygon-fill', function (e) {
-        if (map.__measureActive || map.__drawActive) return;
+        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
         _setPolygonHover(e.features[0].properties.landslide_id);
     });
     map.on('mouseleave', 'polygon-fill', function () {
@@ -4633,7 +4639,7 @@
     // map's own double-click zoom; the pair of single clicks has already
     // opened the detail panel, so this just re-renders it with fresh data.
     function _dblclickDefaultView(e) {
-        if (map.__measureActive || map.__drawActive) return;
+        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
         // A dot over its own polygon matches both layers — handle once.
         if (e.originalEvent) {
             if (e.originalEvent._lsDefView) return;
@@ -4660,7 +4666,7 @@
 
     // Quaternary fault trace → popup with name/age/slip attributes (DGGS QFF).
     map.on('click', 'faults-line', function (e) {
-        if (map.__measureActive || map.__drawActive) return;
+        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
         var p = e.features[0].properties || {};
         function row(lbl, val) {
             if (val === undefined || val === null || val === '' || val === 'Unknown') return '';
@@ -4677,8 +4683,8 @@
         new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
             .setLngLat(e.lngLat).setHTML(html).addTo(map);
     });
-    map.on('mouseenter', 'faults-line', function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'faults-line', function () { if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = ''; });
+    map.on('mouseenter', 'faults-line', function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'faults-line', function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = ''; });
 
     // ---------------------------------------------------------------------------
     // Detail panel
@@ -5451,12 +5457,12 @@
     });
 
     map.on('click', 'photo-pt', function (e) {
-        if (map.__measureActive || map.__drawActive) return;
+        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
         var f = e.features && e.features[0];
         if (f) _photoLightbox.open(_detailPhotos, f.properties.idx);
     });
     map.on('click', 'photo-pt-cluster', function (e) {
-        if (map.__measureActive || map.__drawActive) return;
+        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
         var f = e.features && e.features[0];
         if (!f) return;
         // Open the lightbox at the cluster's first photo — the viewer arrows
@@ -5470,10 +5476,10 @@
     });
     ['photo-pt', 'photo-pt-cluster'].forEach(function (layer) {
         map.on('mouseenter', layer, function () {
-            if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = 'pointer';
+            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer';
         });
         map.on('mouseleave', layer, function () {
-            if (!map.__measureActive && !map.__drawActive) map.getCanvas().style.cursor = '';
+            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = '';
         });
     });
 
@@ -7249,6 +7255,349 @@
                 goBtn.disabled = false;
             });
         });
+    })();
+
+
+    // -----------------------------------------------------------------------
+    // InSAR point time-series tool ("InSAR" button, top-left stack).
+    //
+    // Click anywhere -> OPERA DISP-S1 short-wavelength displacement history,
+    // asc + desc, charted in a floating panel. MULTI-POINT: each click adds a
+    // sample (cap 6, oldest evicted); clicking an existing marker removes it —
+    // the tool exists for comparison (landslide vs the stable slope beside
+    // it), so several series overlay in one chart, color = sample, filled
+    // dots = ascending, open rings = descending. Scatter only, no connecting
+    // lines: acquisition gaps and stack boundaries drew as false trends.
+    // Each reference stack remains relative to its OWN reference date.
+    // Data flows through inventory/insar.py (7-day cache over ASF).
+    // -----------------------------------------------------------------------
+    (function () {
+        var panel = document.getElementById('insar-panel');
+        var canvas = document.getElementById('insar-canvas');
+        var subEl = document.getElementById('insar-subtitle');
+        if (!panel || !canvas) return;
+
+        var MAX_SAMPLES = 6;
+        var PALETTE = ['#1f77b4', '#e6772e', '#2ca02c', '#9467bd', '#8c564b', '#17becf'];
+        var _samples = [];        // {id, letter, color, lat, lon, asc, desc, state:'loading'|'ok'|'err', err}
+        var _nextId = 1;
+        var _active = false;
+        var _btn = null;
+
+        function InsarControl() {}
+        InsarControl.prototype.onAdd = function () {
+            var el = document.createElement('div');
+            el.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-insar-ctrl';
+            _btn = document.createElement('button');
+            _btn.type = 'button';
+            _btn.title = 'InSAR time series — click points to chart + compare OPERA displacement (Esc to exit)';
+            _btn.setAttribute('aria-label', 'InSAR time series');
+            _btn.textContent = 'InSAR';
+            _btn.addEventListener('click', function () { setActive(!_active); });
+            el.appendChild(_btn);
+            return el;
+        };
+        InsarControl.prototype.onRemove = function () {};
+        map.addControl(new InsarControl(), 'top-left');
+
+        var fp = makeFloatingPanel(panel, {
+            handle: panel.querySelector('.insar-header'),
+            close: document.getElementById('insar-close'),
+            onResize: draw
+        });
+        var clearBtn = document.getElementById('insar-clear');
+        if (clearBtn) clearBtn.addEventListener('click', function () {
+            _samples = [];
+            syncMarkers(); syncSubtitle(); draw();
+        });
+        // Track toggles: chart-level filter (asc = filled, desc = rings).
+        // Chart only — the fetches always get both tracks (cached anyway),
+        // so re-enabling a track is instant.
+        var showAsc = document.getElementById('insar-show-asc');
+        var showDesc = document.getElementById('insar-show-desc');
+        [showAsc, showDesc].forEach(function (cb) {
+            if (cb) cb.addEventListener('change', draw);
+        });
+        function trackOn(k) {
+            if (k === 'asc') return !showAsc || showAsc.checked;
+            return !showDesc || showDesc.checked;
+        }
+
+        function setActive(on) {
+            if (on && (map.__measureActive || map.__drawActive)) {
+                alert('Exit the measure/draw tool first.');
+                return;
+            }
+            _active = on;
+            map.__insarActive = on;
+            if (_btn) _btn.classList.toggle('active', on);
+            map.getCanvas().style.cursor = on ? 'crosshair' : '';
+            if (on) { fp.open(); draw(); }
+        }
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && _active) setActive(false);
+        });
+
+        // Markers: one source for all samples; sample-colored dot + letter.
+        // Mirrored to the wiper pane (exception to the interaction-tool rule:
+        // asc/desc wiper comparison IS this tool's core use, and un-mirrored
+        // markers hide under the right pane).
+        function _markerFC() {
+            return { type: 'FeatureCollection', features: _samples.map(function (s) {
+                return { type: 'Feature',
+                         geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+                         properties: { color: s.color, letter: s.letter, sid: s.id,
+                                       muted: !!s.muted } };
+            }) };
+        }
+        function _ensureMarkerLayers(m, fc) {
+            if (!m.getSource('insar-click-src')) {
+                m.addSource('insar-click-src', { type: 'geojson', data: fc });
+                // Sample color fills the dot (chart parity); a legend-muted
+                // sample stays on the map but FADES — parked, not lost.
+                m.addLayer({ id: 'insar-click-pt', type: 'circle', source: 'insar-click-src',
+                    paint: { 'circle-radius': 7,
+                             'circle-color': ['get', 'color'],
+                             'circle-opacity': ['case', ['get', 'muted'], 0.12, 0.45],
+                             'circle-stroke-width': 2.5,
+                             'circle-stroke-color': ['get', 'color'],
+                             'circle-stroke-opacity': ['case', ['get', 'muted'], 0.25, 1] } });
+                m.addLayer({ id: 'insar-click-label', type: 'symbol', source: 'insar-click-src',
+                    layout: { 'text-field': ['get', 'letter'],
+                              'text-font': ['Noto Sans Regular'],
+                              'text-size': 11, 'text-offset': [0, -1.4],
+                              'text-allow-overlap': true },
+                    paint: { 'text-color': ['get', 'color'],
+                             'text-opacity': ['case', ['get', 'muted'], 0.35, 1],
+                             'text-halo-color': '#fff', 'text-halo-width': 1.4 } });
+            } else {
+                m.getSource('insar-click-src').setData(fc);
+            }
+        }
+        function syncMarkers() {
+            var fc = _markerFC();
+            _ensureMarkerLayers(map, fc);
+            if (_swipe.map && _swipe.map.__lsStyleReady) _ensureMarkerLayers(_swipe.map, fc);
+        }
+        // Called by _swipeAddData when a wiper pane is (re)built, so a wiper
+        // opened AFTER points were sampled still shows them.
+        window.__insarSwipeSync = function (cmap) {
+            _ensureMarkerLayers(cmap, _markerFC());
+        };
+
+        function syncSubtitle() {
+            if (!_samples.length) {
+                subEl.textContent = 'Click the map to sample (up to ' + MAX_SAMPLES + ' points)';
+                return;
+            }
+            var parts = _samples.map(function (s) {
+                if (s.state === 'loading') return s.letter + ': \u2026';
+                if (s.state === 'err') return s.letter + ': failed';
+                return s.letter + ': ' + (s.asc.n + s.desc.n);
+            });
+            subEl.textContent = _samples.length + ' point' + (_samples.length > 1 ? 's' : '') +
+                ' \u00b7 epochs ' + parts.join('  ');
+        }
+
+        function nextLetter() {
+            var used = {};
+            _samples.forEach(function (s) { used[s.letter] = 1; });
+            for (var i = 0; i < 26; i++) {
+                var L = String.fromCharCode(65 + i);
+                if (!used[L]) return L;
+            }
+            return '?';
+        }
+        function nextColor() {
+            var used = {};
+            _samples.forEach(function (s) { used[s.color] = 1; });
+            for (var i = 0; i < PALETTE.length; i++) {
+                if (!used[PALETTE[i]]) return PALETTE[i];
+            }
+            return PALETTE[0];
+        }
+
+        map.on('click', function (e) {
+            if (!_active) return;
+            // Click on an existing marker = remove that sample.
+            var hits = map.queryRenderedFeatures(e.point, { layers: map.getLayer('insar-click-pt') ? ['insar-click-pt'] : [] });
+            if (hits.length) {
+                var sid = hits[0].properties.sid;
+                _samples = _samples.filter(function (s) { return s.id !== sid; });
+                syncMarkers(); syncSubtitle(); draw();
+                return;
+            }
+            if (_samples.length >= MAX_SAMPLES) _samples.shift();   // evict oldest
+            var sample = { id: _nextId++, letter: nextLetter(), color: nextColor(),
+                           lat: e.lngLat.lat, lon: e.lngLat.lng,
+                           asc: null, desc: null, state: 'loading' };
+            _samples.push(sample);
+            syncMarkers(); syncSubtitle(); draw();
+            fp.open();
+            function get(dir) {
+                return fetch('/inventory/api/insar_timeseries/?lat=' + sample.lat.toFixed(4) +
+                             '&lon=' + sample.lon.toFixed(4) + '&dir=' + dir)
+                    .then(function (r) {
+                        return r.json().then(function (j) {
+                            if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+                            return j;
+                        });
+                    });
+            }
+            Promise.all([get('ascending'), get('descending')]).then(function (res) {
+                sample.asc = res[0]; sample.desc = res[1]; sample.state = 'ok';
+                syncSubtitle(); draw();
+            }).catch(function (err) {
+                sample.state = 'err'; sample.err = err.message;
+                syncSubtitle(); draw();
+            });
+        });
+
+        function draw() {
+            var r = canvas.getBoundingClientRect();
+            if (!r.width || !r.height) return;
+            var dpr = window.devicePixelRatio || 1;
+            canvas.width = r.width * dpr; canvas.height = r.height * dpr;
+            var ctx = canvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+            var W = r.width, H = r.height;
+            var ml = 44, mr = 10, mt = 8, mb = 22;
+            ctx.clearRect(0, 0, W, H);
+            ctx.font = '10px system-ui, sans-serif';
+
+            // flatten: [{color, track, t, v}] — muted samples stay off the
+            // chart (and out of the axis extent) but remain on the map.
+            var pts = [];
+            _samples.forEach(function (s) {
+                if (s.state !== 'ok' || s.muted) return;
+                ['asc', 'desc'].forEach(function (k) {
+                    if (!trackOn(k)) return;
+                    (s[k].series || []).forEach(function (st) {
+                        st.points.forEach(function (p) {
+                            pts.push({ c: s.color, k: k, t: Date.parse(p[0]), v: p[1] });
+                        });
+                    });
+                });
+            });
+            if (!pts.length) {
+                ctx.fillStyle = '#999'; ctx.textAlign = 'center';
+                var anyLoading = _samples.some(function (s) { return s.state === 'loading'; });
+                var allMuted = _samples.length &&
+                    _samples.every(function (s) { return s.state !== 'ok' || s.muted; }) &&
+                    _samples.some(function (s) { return s.muted; });
+                ctx.fillText(anyLoading ? 'Fetching\u2026'
+                             : allMuted ? 'All samples toggled off \u2014 click a legend chip to restore.'
+                             : (_samples.length ? 'No DISP-S1 coverage at the sampled point(s).'
+                                                : (_active ? 'Click the map to sample a point.' : 'Tool inactive.')),
+                             W / 2, H / 2);
+                drawLegend(ctx, ml, mt);
+                return;
+            }
+            var t0 = Infinity, t1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+            pts.forEach(function (p) {
+                if (p.t < t0) t0 = p.t; if (p.t > t1) t1 = p.t;
+                if (p.v < v0) v0 = p.v; if (p.v > v1) v1 = p.v;
+            });
+            var pad = Math.max(2, (v1 - v0) * 0.08);
+            v0 -= pad; v1 += pad;
+            if (v0 > 0) v0 = 0;
+            if (v1 < 0) v1 = 0;
+            var cw = W - ml - mr, ch = H - mt - mb;
+            function X(t) { return ml + (t - t0) / (t1 - t0 || 1) * cw; }
+            function Y(v) { return mt + (v1 - v) / (v1 - v0 || 1) * ch; }
+            ctx.fillStyle = '#777';
+            ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            var step = niceStep((v1 - v0) / 5);
+            for (var v = Math.ceil(v0 / step) * step; v <= v1; v += step) {
+                var y = Y(v);
+                ctx.strokeStyle = Math.abs(v) < step / 2 ? '#999' : '#eee';
+                ctx.beginPath(); ctx.moveTo(ml, y); ctx.lineTo(W - mr, y); ctx.stroke();
+                ctx.fillText(Math.round(v) + '', ml - 5, y);
+            }
+            ctx.save();
+            ctx.translate(11, mt + ch / 2); ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'center'; ctx.fillText('LOS displacement (mm)', 0, 0);
+            ctx.restore();
+            ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+            var yr0 = new Date(t0).getUTCFullYear(), yr1 = new Date(t1).getUTCFullYear();
+            for (var yr = yr0; yr <= yr1 + 1; yr++) {
+                var t = Date.UTC(yr, 0, 1);
+                if (t < t0 || t > t1) continue;
+                var x = X(t);
+                ctx.strokeStyle = '#eee';
+                ctx.beginPath(); ctx.moveTo(x, mt); ctx.lineTo(x, mt + ch); ctx.stroke();
+                ctx.fillStyle = '#777';
+                ctx.fillText(String(yr), x, mt + ch + 4);
+            }
+            // scatter: filled = asc, ring = desc; color = sample
+            pts.forEach(function (p) {
+                var x = X(p.t), y = Y(p.v);
+                ctx.beginPath();
+                if (p.k === 'asc') {
+                    ctx.fillStyle = p.c;
+                    ctx.arc(x, y, 2.0, 0, Math.PI * 2); ctx.fill();
+                } else {
+                    ctx.strokeStyle = p.c; ctx.lineWidth = 1.1;
+                    ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.stroke();
+                }
+            });
+            drawLegend(ctx, ml, mt);
+        }
+
+        // Legend chips double as per-sample toggles: click hides that sample
+        // from the CHART only (the map marker fades but stays — the sample is
+        // parked, not lost). Hit rects recorded each draw for the click test.
+        var _legendHits = [];
+        function drawLegend(ctx, ml, mt) {
+            _legendHits = [];
+            ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+            ctx.font = '10px system-ui, sans-serif';
+            var lx = ml + 6;
+            _samples.forEach(function (s) {
+                if (s.state !== 'ok') return;
+                var w = 26;
+                if (s.muted) {
+                    ctx.strokeStyle = s.color; ctx.lineWidth = 1;
+                    ctx.globalAlpha = 0.45;
+                    ctx.strokeRect(lx + 0.5, mt + 4.5, 8, 8);
+                    ctx.fillStyle = '#999';
+                    ctx.fillText(s.letter, lx + 11, mt + 12);
+                    ctx.globalAlpha = 1;
+                } else {
+                    ctx.fillStyle = s.color;
+                    ctx.fillRect(lx, mt + 4, 8, 8);
+                    ctx.fillStyle = '#444';
+                    ctx.fillText(s.letter, lx + 11, mt + 12);
+                }
+                _legendHits.push({ x: lx - 3, y: mt, w: w, h: 16, id: s.id });
+                lx += w;
+            });
+        }
+        canvas.addEventListener('click', function (e) {
+            var r = canvas.getBoundingClientRect();
+            var x = e.clientX - r.left, y = e.clientY - r.top;
+            for (var i = 0; i < _legendHits.length; i++) {
+                var h = _legendHits[i];
+                if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) {
+                    var smp = _samples.filter(function (s) { return s.id === h.id; })[0];
+                    if (smp) { smp.muted = !smp.muted; syncMarkers(); draw(); }
+                    return;
+                }
+            }
+        });
+        canvas.addEventListener('mousemove', function (e) {
+            var r = canvas.getBoundingClientRect();
+            var x = e.clientX - r.left, y = e.clientY - r.top;
+            var over = _legendHits.some(function (h) {
+                return x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h;
+            });
+            canvas.style.cursor = over ? 'pointer' : '';
+        });
+        function niceStep(t) {
+            var p = Math.pow(10, Math.floor(Math.log10(Math.max(1e-9, t))));
+            var f = t / p;
+            return (f >= 5 ? 10 : f >= 2 ? 5 : f >= 1 ? 2 : 1) * p;
+        }
     })();
 
 })();

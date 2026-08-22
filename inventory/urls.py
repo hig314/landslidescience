@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import opera, photos, trace_views, views
+from . import insar, opera, photos, trace_views, views
 
 app_name = 'inventory'
 
@@ -21,6 +21,9 @@ urlpatterns = [
     path('api/settings/', views.api_settings, name='api_settings'),
     # Colour ramps for the high-res PNG export legend (inventory/views.py).
     path('api/ramps/', views.api_ramps, name='api_ramps'),
+    # OPERA DISP-S1 point time-series proxy (inventory/insar.py) — backs the
+    # map's "InSAR" click tool.
+    path('api/insar_timeseries/', insar.timeseries, name='insar_timeseries'),
     path('api/qms/', views.api_qms_search, name='api_qms_search'),
     path('api/qms/promoted/', views.api_qms_promoted, name='api_qms_promoted'),
     path('api/qms/promote/', views.api_qms_promote, name='api_qms_promote'),
