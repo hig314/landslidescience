@@ -393,12 +393,12 @@ def figures(rec, dom, blocks, Xd, rates, geo, fit, ser, core, rg, site, lat0, lo
                     c=[v for _, _, v in vals if v is not None], cmap='PRGn',
                     vmin=-lim, vmax=lim, s=42, edgecolors='#555', linewidths=0.3, zorder=2)
     plt.colorbar(sc, ax=ax, shrink=0.85, label='block LOS rate (mm/yr)')
-    hull = rec['domains'][dom['k'] - 1]['polygon']
+    hull = [dd for dd in rec['domains'] if dd['k'] == dom['k']][0]['polygon']
     ax.plot([p[0] for p in hull] + [hull[0][0]], [p[1] for p in hull] + [hull[0][1]],
-            color='#D55E00', lw=2, zorder=3, label=f'kinematic element {dom["k"]}')
+            color='#D55E00', lw=2, zorder=3, label=dom['label'])
     ax.legend(fontsize=8, loc='best')
     ax.set_aspect(1 / math.cos(math.radians(lat0)))
-    ax.set_title(f'{site} — distilled blocks and element {dom["k"]}', fontsize=10)
+    ax.set_title(f'{site} — distilled blocks: {dom["label"]}', fontsize=10)
     ax.tick_params(labelsize=7)
 
     ax = axes[1]
@@ -468,7 +468,7 @@ def figures(rec, dom, blocks, Xd, rates, geo, fit, ser, core, rg, site, lat0, lo
                                                  lambda v: v / DEG_PER_KYR))
     sec.set_ylabel('deg/kyr')
     ax.legend(fontsize=7.5, ncol=2, loc='best', framealpha=0.9)
-    ax.set_title(f'{site} element {dom["k"]}: rotational velocity, fixed geometry '
+    ax.set_title(f'{site} — {dom["label"]}: rotational velocity, fixed geometry '
                  f'({WIN_YR:.0f}-yr windows, {STEP_YR:.1f}-yr step)\n'
                  f'+Ω lowers the centre of mass; windows overlap so adjacent points '
                  f'are correlated', fontsize=10)
@@ -589,7 +589,25 @@ def main():
                 for d in ('ascending', 'descending') if b['rate'][d] is not None]
         tol = 1.8 * float(np.std(halo)) if len(halo) >= 5 else 5.0
         v2.tol_len = lc
-        doms = v2.grow_domains(X, brows, tol)
+        # DOMAIN SET. Growth alone is not enough, and Hig's Matanuska review
+        # showed why: growth minimises RESIDUAL, so it prefers short, tightly
+        # rigid fragments — but a rotation is expressed AS a downslope gradient,
+        # so a fragment that does not span head-to-toe cannot express it. At
+        # Matanuska the grown pieces (833 m downslope) returned Omega ~ 0 while
+        # the mapped extent (1101 m, and NOT rigid: rms 5.5 vs 3.1) returns
+        # +7.9 +/- 2.6 urad/yr mass-lowering at 3 sigma. Optimising rigidity
+        # destroyed the signal it was meant to find.
+        #
+        # So the mapped extent is ALWAYS evaluated as its own domain. It is a
+        # legitimate physical hypothesis — the geologist's polygon — and Omega
+        # about a SPECIFIED axis stays well posed even where the body deforms
+        # and the free axis does not.
+        grown = v2.grow_domains(X, brows, tol)
+        mapped = [i for i, b in enumerate(blocks) if b['in']]
+        doms = ([{'idx': mapped, 'label': 'mapped extent'}] if len(mapped) >= 6 else [])
+        for j, dm in enumerate(grown, 1):
+            dm['label'] = f'grown element {j}'
+            doms.append(dm)
         print(f'  halo std {np.std(halo) if halo else float("nan"):.1f} -> tol {tol:.1f}; '
               f'{len(doms)} element(s)')
 
@@ -600,7 +618,7 @@ def main():
                'overlap': ([round(ov_lo, 2), round(ov_hi, 2)] if ov_lo is not None else None),
                'window_yr': WIN_YR, 'step_yr': STEP_YR, 'domains': []}
 
-        for k, dm in enumerate(doms, 1):
+        for k, dm in enumerate(doms):
             idx = dm['idx']
             Xd = X[idx]
             sub = [blocks[i] for i in idx]
@@ -674,7 +692,14 @@ def main():
             hull = hull.buffer(lc / 2 / 111000.0, 2)
             poly = [[round(x, 6), round(y, 6)] for x, y in hull.exterior.coords]
 
-            d = {'k': k, 'n_blocks': len(idx),
+            # downslope extent governs whether a rotation is expressible at
+            # all, so it is recorded per domain.
+            dh = np.array([math.sin(math.radians(geo['drop_az'])),
+                           math.cos(math.radians(geo['drop_az']))])
+            sd = Xd[:, :2] @ dh
+            d = {'k': k, 'label': dm.get('label', f'element {k}'),
+                 'downslope_extent_m': float(sd.max() - sd.min()),
+                 'n_blocks': len(idx),
                  'n_in_polygon': sum(1 for b in sub if b['in']),
                  'rms': fit['rms'], 'r2': fit['r2'], 'rank': fit['rank'],
                  'slope_deg': geo['slope_deg'], 'dropline_az': geo['drop_az'],
@@ -694,7 +719,8 @@ def main():
                                            ('t_mid', 'omega', 'se', 'n_blocks')}
                                           for q in v] for dn, v in per_track.items()}}
             rec['domains'].append(d)
-            print(f'  element {k}: {len(idx)} blocks ({d["n_in_polygon"]} in-polygon), '
+            print(f'  [{d["label"]}] {len(idx)} blocks ({d["n_in_polygon"]} in-polygon), '
+                  f'downslope extent {d["downslope_extent_m"]:.0f} m, '
                   f'rms {fit["rms"]:.1f}, R² {fit["r2"]:.2f}, rank {fit["rank"]}/6')
             print(f'    Ω = {d["omega_urad_yr"]:+.1f} ± {d["omega_se_urad_yr"]:.1f} µrad/yr '
                   f'({d["omega_deg_per_kyr"]:+.2f}°/kyr, {t_om:.1f}σ) — {sense}')

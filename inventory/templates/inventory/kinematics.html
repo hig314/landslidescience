@@ -84,12 +84,13 @@
 
   {% for d in rec.domains %}
   <div class="kin-el">
-    <h3>Kinematic element {{ d.k }}
+    <h3>{{ d.label|default:"Kinematic element" }}
       {% if d.sigma >= 2 %}<span class="kin-flag ok">Ω resolved, {{ d.sigma|floatformat:1 }}σ</span>
       {% else %}<span class="kin-flag">Ω not resolved period-average ({{ d.sigma|floatformat:1 }}σ)</span>{% endif %}
     </h3>
     <table class="kin-tab"><tbody>
-      <tr><td>Blocks</td><td class="kin-num">{{ d.n_blocks }} ({{ d.n_in_polygon }} inside the mapped polygon)</td></tr>
+      <tr><td>Blocks</td><td class="kin-num">{{ d.n_blocks }} ({{ d.n_in_polygon }} inside the mapped polygon)
+        · downslope extent {{ d.downslope_extent_m|floatformat:0 }} m</td></tr>
       <tr><td>Rigid fit</td><td class="kin-num">rms {{ d.rms|floatformat:1 }} mm/yr · R² {{ d.r2|floatformat:2 }} · rank {{ d.rank }}/6</td></tr>
       <tr><td>Slope / dropline</td><td class="kin-num">{{ d.slope_deg|floatformat:0 }}° · azimuth {{ d.dropline_az|floatformat:0 }}°</td></tr>
       <tr><td>Ω (period average)</td><td class="kin-num">{{ d.omega_urad_yr|floatformat:1 }} ± {{ d.omega_se_urad_yr|floatformat:1 }} µrad/yr
@@ -124,6 +125,13 @@
 
   <h2 style="font-size:16px; margin-top:30px;">How to read these</h2>
   <ul style="font-size:13.5px; line-height:1.55;">
+    <li><b>The mapped extent is always evaluated, and often beats the grown
+      fragments.</b> Growth minimises residual, so it prefers short, tightly
+      rigid pieces — but a rotation is expressed <i>as</i> a downslope gradient,
+      so a fragment that does not span head to toe cannot express one. At
+      Matanuska the grown pieces return Ω ≈ 0 while the mapped extent, which is
+      demonstrably less rigid, returns +7.9 ± 2.6 µrad/yr mass-lowering. Compare
+      the downslope extents before trusting any Ω.</li>
     <li><b>Element boundaries are grown, not assumed.</b> Growth starts from the
       strongest-signal block and adds neighbours only while each candidate's own
       residual stays inside the noise tolerance measured on the halo outside the
