@@ -98,8 +98,18 @@
       <tr><td>Ω (common window)</td><td class="kin-num">{{ d.common_window.omega_urad_yr|floatformat:1 }} ±
         {{ d.common_window.se|floatformat:1 }} µrad/yr · rms {{ d.common_window.rms|floatformat:1 }} mm/yr</td></tr>
       {% endif %}
-      <tr><td>Fitted vs expected pole</td><td class="kin-num">{{ d.ang_pole_deg|floatformat:0 }}° apart ·
-        ΔBIC(constrained − free) {{ d.dbic_constrained_minus_free|floatformat:1 }}</td></tr>
+      {% if d.identifiability %}
+      <tr><td>Rotation axis</td><td class="kin-num">
+        {% if d.identifiability.axis_identified %}
+          identified · {{ d.ang_pole_deg|floatformat:0 }}° from the expected pole
+        {% else %}
+          <b>not identified</b> — rigid model puts it {{ d.identifiability.ang_rigid|floatformat:0 }}°
+          from expected, a strain-bearing model that fits as well puts it
+          {{ d.identifiability.ang_linear|floatformat:0 }}° ({{ d.identifiability.axis_shift_deg|floatformat:0 }}°
+          apart); strain/rotation {{ d.identifiability.strain_to_rotation|floatformat:2 }},
+          gradient rank {{ d.identifiability.rank12 }}/12
+        {% endif %}</td></tr>
+      {% endif %}
       <tr><td>Mean vertical rate</td><td class="kin-num">{{ d.uz_mean_mm_yr|floatformat:1 }} mm/yr
         [null-space range {{ d.uz_lo|floatformat:1 }}, {{ d.uz_hi|floatformat:1 }}] — {{ d.verdict }}</td></tr>
     </tbody></table>
@@ -124,6 +134,21 @@
       push part of itself up — a toe rising is the rotational signature, not a
       data problem. Gravitational consistency is judged by whether the centre of
       mass lowers, which in the small-motion limit is the mean vertical rate.</li>
+    <li><b>The rotation axis is usually not identifiable, and that is not a
+      fit-quality problem.</b> Each look direction constrains only four numbers
+      about a linear velocity field — the vector <i>l</i>·A and the scalar
+      <i>l</i>·<b>b</b> — so two tracks constrain eight of twelve. Strain and
+      rotation are entangled in what remains. A rigid fit resolves this by
+      assuming the strain away, which reprojects real deformation as rotation
+      and then reports a <i>tight</i> confidence cone around an axis that is an
+      artefact of the assumption. Where the table says "not identified", read
+      the fitted axis as undetermined, not as disagreeing with gravity.</li>
+    <li><b>Ask about a specified axis, not for the axis.</b> "How fast is it
+      rotating about the gravitationally expected pole?" is a well-posed
+      one-parameter question and is what Ω and Ω(t) report. "What is the
+      rotation axis?" is not answerable from two look directions on a deforming
+      slope. Mass-lowering (mean vertical rate) is likewise robust, and stays
+      the usable gravitational test.</li>
     <li><b>The period average can be meaningless.</b> Where Ω changes sign inside
       the record, averaging it produces a number near zero that describes no
       actual state of the slope. Read the time series first.</li>

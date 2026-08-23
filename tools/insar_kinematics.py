@@ -145,6 +145,68 @@ def fit_omega(Xd, rates, pole, drop):
             'r2': 1 - float(resid @ resid) / max(float(((R - R.mean()) ** 2).sum()), 1e-9)}
 
 
+def gradient_identifiability(Xd, rates, pole):
+    """Is the rotation AXIS identifiable, or is the rigid fit inventing it?
+
+    A general linear velocity field is u = A x + b (12 parameters). Each look
+    direction observes only the 3-vector l.A and the scalar l.b — four numbers
+    per track, so two tracks constrain exactly EIGHT of the twelve. Six
+    combinations of A's nine components are observable and three are not, and
+    the split does not respect the symmetric/antisymmetric decomposition: the
+    strain rate and the rotation are entangled in what we can see.
+
+    The rigid 6-parameter fit resolves this by fiat, forcing the whole observed
+    gradient into an antisymmetric tensor. When the slope really is deforming,
+    that reprojects strain as rotation and the fitted axis is an artefact of the
+    assumption rather than a measurement. The fit can be excellent and the axis
+    still meaningless — which is exactly the trap, because the within-model
+    covariance then reports a tight, confident, wrong cone.
+
+    So: fit the full linear field too, and compare the axis each model gives.
+    If they disagree, the axis is NOT identified and must not be reported as a
+    gravitational-consistency verdict. |Omega| about a SPECIFIED axis stays a
+    well-posed one-parameter question either way — 'how fast about this axis?'
+    is answerable where 'what is the axis?' is not.
+    """
+    Xc = Xd - Xd.mean(axis=0)
+    G6, G12, R = [], [], []
+    for i, r in enumerate(rates):
+        for dn in ('ascending', 'descending'):
+            if r.get(dn) is None:
+                continue
+            l = L[dn]
+            G6.append(np.concatenate([np.cross(Xc[i], l), l]))
+            G12.append(np.concatenate([np.outer(l, Xc[i]).ravel(), l]))
+            R.append(r[dn])
+    if len(R) < 14:
+        return None
+    G6, G12, R = np.array(G6), np.array(G12), np.array(R)
+    c6, *_ = np.linalg.lstsq(G6, R, rcond=None)
+    c12, _, rank12, _ = np.linalg.lstsq(G12, R, rcond=None)
+    rms6 = float(np.sqrt(np.mean((R - G6 @ c6) ** 2)))
+    rms12 = float(np.sqrt(np.mean((R - G12 @ c12) ** 2)))
+    A = c12[:9].reshape(3, 3)
+    W, S = 0.5 * (A - A.T), 0.5 * (A + A.T)
+    om12 = np.array([W[2, 1], W[0, 2], W[1, 0]])
+
+    def ang(w):
+        n = np.linalg.norm(w)
+        return (math.degrees(math.acos(np.clip(abs((w / n) @ pole), 0, 1)))
+                if n > 1e-15 else float('nan'))
+
+    def axis_sep(u, v):
+        nu, nv = np.linalg.norm(u), np.linalg.norm(v)
+        if nu < 1e-15 or nv < 1e-15:
+            return float('nan')
+        return math.degrees(math.acos(np.clip(abs((u / nu) @ (v / nv)), 0, 1)))
+    sep = axis_sep(c6[:3], om12)
+    return {'rank12': int(rank12), 'rms_rigid': rms6, 'rms_linear': rms12,
+            'strain_to_rotation': float(np.linalg.norm(S) / max(np.linalg.norm(W), 1e-15)),
+            'ang_rigid': ang(c6[:3]), 'ang_linear': ang(om12),
+            'axis_shift_deg': sep,
+            'axis_identified': bool(sep == sep and sep < 20)}
+
+
 def free_fit(Xd, rates):
     """Unconstrained 6-parameter rigid fit."""
     G, R, tags = [], [], []
@@ -238,7 +300,7 @@ def core_series(ser, blocks, Xd, pole, drop, v2):
     return sorted(out, key=lambda r: r['t_mid'])
 
 
-def stereonet(ax, rg, Xd, rates, fit, geo, U):
+def stereonet(ax, rg, Xd, rates, fit, geo, U, ident=None, suspect=()):
     th = np.linspace(0, 2 * np.pi, 200)
     ax.plot(np.sin(th), np.cos(th), 'k-', lw=1)
     for rr in (0.33, 0.66):
@@ -257,14 +319,25 @@ def stereonet(ax, rg, Xd, rates, fit, geo, U):
         x, y, up = rg.stereo_xy(az, pl)
         ax.scatter(x, y, marker='o', s=50, c='none' if up else C_ASC,
                    edgecolors=C_ASC, linewidths=1.3, zorder=3)
+    # The fitted axis is drawn ONLY when the full-gradient test says it is
+    # identified. Where strain and rotation are entangled (rank 8/12 from two
+    # look directions) the rigid fit still returns a tight, confident axis that
+    # is an artefact of assuming rigidity — drawing it invites exactly the
+    # misreading that it disagrees with gravity. Marked hollow-grey and named
+    # as unidentified instead.
     om = fit['omega']
+    identified = bool(ident and ident.get('axis_identified'))
     if np.linalg.norm(om) > 1e-12:
         a = om / np.linalg.norm(om)
         for v in (a, -a):
             az, pl = rg.az_plunge(v)
             x, y, up = rg.stereo_xy(az, pl)
-            ax.scatter(x, y, marker='s', s=80, c='none' if up else C_AXIS,
-                       edgecolors=C_AXIS, linewidths=1.5, zorder=4)
+            if identified:
+                ax.scatter(x, y, marker='s', s=80, c='none' if up else C_AXIS,
+                           edgecolors=C_AXIS, linewidths=1.5, zorder=4)
+            else:
+                ax.scatter(x, y, marker='s', s=70, c='none', edgecolors='#9aa3a0',
+                           linewidths=1.2, linestyle=':', zorder=4)
     az, pl = rg.az_plunge(geo['drop'])
     x, y, _ = rg.stereo_xy(az, pl)
     ax.scatter(x, y, marker='v', s=150, c='#000000', zorder=5)
@@ -273,6 +346,24 @@ def stereonet(ax, rg, Xd, rates, fit, geo, U):
         x, y, _ = rg.stereo_xy(az, max(pl, 0.0))
         ax.scatter(x, y, marker='*', s=230, c='#E69F00', edgecolors='k',
                    linewidths=0.8, zorder=5)
+    # LEGEND — restored. The circle is data space, so it sits below the net.
+    ax.scatter([], [], marker='v', s=110, c='#000000', label='avg dropline (plane fit)')
+    ax.scatter([], [], marker='*', s=150, c='#E69F00', edgecolors='k',
+               label='expected gravitational pole')
+    ax.scatter([], [], marker='o', s=50, c=C_ASC, edgecolors=C_ASC,
+               label='motion, downward component')
+    ax.scatter([], [], marker='o', s=50, c='none', edgecolors=C_ASC, linewidths=1.3,
+               label="motion upward — real at a rotator's toe")
+    ax.scatter([], [], marker='v', s=36, c=C_SLOPE, edgecolors=C_SLOPE,
+               label='3DEP downslope')
+    if identified:
+        ax.scatter([], [], marker='s', s=80, c=C_AXIS, edgecolors=C_AXIS,
+                   label='fitted rotation axis')
+    else:
+        ax.scatter([], [], marker='s', s=70, c='none', edgecolors='#9aa3a0',
+                   linewidths=1.2, label='fitted axis — NOT identified (see caption)')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.02), fontsize=7.5,
+              framealpha=0.95, ncol=2)
     ax.set_xlim(-1.15, 1.15); ax.set_ylim(-1.15, 1.15)
     ax.set_aspect('equal'); ax.axis('off')
 
@@ -324,9 +415,14 @@ def figures(rec, dom, blocks, Xd, rates, geo, fit, ser, core, rg, site, lat0, lo
                  fontsize=10)
     ax.legend(fontsize=8)
 
-    stereonet(axes[2], rg, Xd, rates, fit, geo, U)
-    axes[2].set_title(f'gravitational consistency\nfitted pole {dom["ang_pole_deg"]:.0f}° '
-                      f'from expected', fontsize=10)
+    ident = dom.get('identifiability')
+    stereonet(axes[2], rg, Xd, rates, fit, geo, U, ident)
+    if ident and ident.get('axis_identified'):
+        sub = f'axis identified; {dom["ang_pole_deg"]:.0f}° from expected pole'
+    else:
+        sub = ('rotation axis not identified from 2 look directions\n'
+               'mass-lowering is the usable test')
+    axes[2].set_title(f'gravitational consistency\n{sub}', fontsize=10)
     plt.tight_layout()
     p1 = KIN / f'{tag}_fit.png'
     plt.savefig(p1, dpi=110, bbox_inches='tight'); plt.close()
@@ -515,6 +611,7 @@ def main():
             fit = free_fit(Xd, rates)
             if fit is None:
                 continue
+            ident = gradient_identifiability(Xd, rates, geo['pole'])
             con = fit_omega(Xd, rates, geo['pole'], geo['drop'])
             a = fit['omega'] / max(np.linalg.norm(fit['omega']), 1e-12)
             ang = math.degrees(math.acos(np.clip(abs(float(a @ geo['pole'])), 0, 1)))
@@ -582,6 +679,7 @@ def main():
                  'rms': fit['rms'], 'r2': fit['r2'], 'rank': fit['rank'],
                  'slope_deg': geo['slope_deg'], 'dropline_az': geo['drop_az'],
                  'ang_pole_deg': ang, 'dbic_constrained_minus_free': dbic,
+                 'identifiability': ident,
                  'omega_urad_yr': con['omega'] * URAD if con else None,
                  'omega_se_urad_yr': con['se'] * URAD if con else None,
                  'omega_deg_per_kyr': (con['omega'] * URAD * DEG_PER_KYR) if con else None,
@@ -600,6 +698,11 @@ def main():
                   f'rms {fit["rms"]:.1f}, R² {fit["r2"]:.2f}, rank {fit["rank"]}/6')
             print(f'    Ω = {d["omega_urad_yr"]:+.1f} ± {d["omega_se_urad_yr"]:.1f} µrad/yr '
                   f'({d["omega_deg_per_kyr"]:+.2f}°/kyr, {t_om:.1f}σ) — {sense}')
+            if ident:
+                print(f'    axis: rigid {ident["ang_rigid"]:.0f}° vs full-gradient '
+                      f'{ident["ang_linear"]:.0f}° from expected (shift {ident["axis_shift_deg"]:.0f}°); '
+                      f'|S|/|W| {ident["strain_to_rotation"]:.2f}; rank {ident["rank12"]}/12 -> '
+                      f'{"axis identified" if ident["axis_identified"] else "AXIS NOT IDENTIFIED"}')
             print(f'    pole {ang:.0f}° from expected; ΔBIC {dbic:+.1f}; '
                   f'mean uz {mu:+.1f} [{mu - shift:+.1f}, {mu + shift:+.1f}] — {verdict}')
             if com:
