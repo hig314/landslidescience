@@ -304,14 +304,65 @@ def analyze(name, site, rows, X, domain_idx, suspect):
         hollow = i in suspect
         ax.scatter(x, y, marker='v', s=42, c='none' if hollow else C_SLOPE,
                    edgecolors=C_SLOPE, linewidths=1.0, zorder=2)
-    # fitted motion directions
+    # fitted motion directions. Upward-plunging motion is NOT flagged as
+    # suspect: at a rotator's toe, upward motion is real, well-measured, and
+    # exactly what net-mass-lowering rotation produces (Hig). Open symbol =
+    # upper hemisphere, that is all. Suspect-DEM (stale glacier surface)
+    # is a different statement and gets its own marker.
     for j in range(len(dom_X)):
         az, pl = az_plunge(U[j])
         x, y, up = stereo_xy(az, pl)
-        hollow = (domain_idx[j] in suspect) or up
-        ax.scatter(x, y, marker='o', s=60,
-                   c='none' if hollow else C_ASC,
-                   edgecolors=C_ASC, linewidths=1.4, zorder=3)
+        if domain_idx[j] in suspect:
+            ax.scatter(x, y, marker='x', s=55, c='#8b9793', linewidths=1.6, zorder=3)
+        else:
+            ax.scatter(x, y, marker='o', s=60,
+                       c='none' if up else C_ASC,
+                       edgecolors=C_ASC, linewidths=1.4, zorder=3)
+    # UNCERTAINTY, sampled honestly from the fit covariance: 400 draws of
+    # omega -> faint pole cloud (it elongates toward the LOS-blind axis,
+    # which is the point); expected-pole uncertainty from the plane-fit
+    # gradient covariance -> faint arc on the rim.
+    Gd, Rd = [], []
+    for i, rr in enumerate(dom_rows):
+        for dirn, l in (('ascending', L_ASC), ('descending', L_DESC)):
+            if rr.get(dirn) is not None:
+                Gd.append(np.concatenate([np.cross(dom_X[i], l), l]))
+                Rd.append(rr[dirn])
+    Gd = np.array(Gd)
+    dof = max(len(Rd) - 6, 1)
+    s2 = fit['rms'] ** 2 * len(Rd) / dof
+    cov6 = s2 * np.linalg.pinv(Gd.T @ Gd)
+    rngu = np.random.default_rng(11)
+    try:
+        draws = rngu.multivariate_normal(np.concatenate([om, b]), cov6, 400)[:, :3]
+        for w in draws:
+            nw = np.linalg.norm(w)
+            if nw < 1e-12:
+                continue
+            azw, plw = az_plunge(w / nw)
+            xw, yw, _ = stereo_xy(azw, plw)  # antipode fold handled inside
+            ax.scatter(xw, yw, marker='.', s=5, c='#000000', alpha=0.10, zorder=3)
+    except np.linalg.LinAlgError:
+        pass
+    # expected-pole arc from plane-fit gradient uncertainty
+    resid_z = dom_X[:, 2] - A @ plane_coef if 'plane_coef' in dir() else None
+    Az = np.c_[dom_X[:, 0], dom_X[:, 1], np.ones(len(dom_X))]
+    pcoef = np.linalg.lstsq(Az, dom_X[:, 2], rcond=None)[0]
+    rz = dom_X[:, 2] - Az @ pcoef
+    s2z = float(rz @ rz) / max(len(rz) - 3, 1)
+    covg = s2z * np.linalg.pinv(Az.T @ Az)[:2, :2]
+    gd = rngu.multivariate_normal(pcoef[:2], covg, 400)
+    for ga_, gb_ in gd:
+        dhz = -np.array([ga_, gb_])
+        nn = np.linalg.norm(dhz)
+        if nn < 1e-12:
+            continue
+        dhz /= nn
+        azp = (math.degrees(math.atan2(-dhz[1], dhz[0]))) % 360
+        for azq in (azp, (azp + 180) % 360):
+            xq, yq, _ = stereo_xy(azq, 0.0)
+            ax.scatter(xq, yq, marker='.', s=5, c='#E69F00', alpha=0.12, zorder=4)
+
     # rotation axis (plot both trends)
     if np.linalg.norm(om) > 1e-9:
         a = om / np.linalg.norm(om)
@@ -332,16 +383,22 @@ def analyze(name, site, rows, X, domain_idx, suspect):
                    linewidths=0.8, zorder=5)
     ax.scatter([], [], marker='v', s=120, c='#000000', label='avg dropline (plane fit)')
     ax.scatter([], [], marker='*', s=160, c='#E69F00', edgecolors='k',
-               label=f'expected pole (perimeter); fitted pole {geo["ang_pole"]:.0f}° away')
-    ax.scatter([], [], marker='o', s=60, c=C_ASC, edgecolors=C_ASC, label='motion (filled = downward)')
-    ax.scatter([], [], marker='o', s=60, c='none', edgecolors=C_ASC, label='motion upward / suspect DEM')
+               label=f'expected pole ± arc; fitted pole {geo["ang_pole"]:.0f}° away')
+    ax.scatter([], [], marker='o', s=60, c=C_ASC, edgecolors=C_ASC, label='motion, downward component')
+    ax.scatter([], [], marker='o', s=60, c='none', edgecolors=C_ASC,
+               label='motion upward — real; expected at a rotator\'s toe')
+    if suspect:
+        ax.scatter([], [], marker='x', s=55, c='#8b9793', label='suspect DEM (stale glacier surface)')
     ax.scatter([], [], marker='v', s=42, c=C_SLOPE, edgecolors=C_SLOPE, label='3DEP downslope')
-    ax.scatter([], [], marker='s', s=90, c=C_AXIS, edgecolors=C_AXIS, label='rotation axis')
-    ax.legend(loc='lower left', fontsize=8.5, framealpha=0.9)
+    ax.scatter([], [], marker='s', s=90, c=C_AXIS, edgecolors=C_AXIS,
+               label='rotation axis ± sample cloud')
+    # Outside the net: the circle is data space (legend was covering it).
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.04), fontsize=8.5,
+              framealpha=0.95, ncol=2)
     ax.set_title(f'{name}: gravitational consistency (equal-area, lower hemisphere)\n'
                  f'mean vertical rate {fit["uz_mu"]:+.1f} mm/yr '
                  f'[null-space range {fit["uz_lo"]:+.1f}, {fit["uz_hi"]:+.1f}]')
-    ax.set_xlim(-1.18, 1.18); ax.set_ylim(-1.18, 1.18)
+    ax.set_xlim(-1.15, 1.15); ax.set_ylim(-1.15, 1.15)
     ax.set_aspect('equal'); ax.axis('off')
 
     plt.tight_layout()
