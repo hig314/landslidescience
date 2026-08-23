@@ -1,0 +1,620 @@
+#!/usr/bin/env python3
+"""Per-landslide kinematic records: rotational-velocity time series + GIS-ready
+domain polygons. (Hig, 2026-08-22.)
+
+Builds on insar_domain_rotation_v2.py (distilled blocks, robust rates,
+anomaly-seeded domain growth) and insar_rotation_gravity.py (dropline /
+expected-pole geometry). What is new here:
+
+1. OMEGA(t) — rotational velocity as a time series with an uncertainty
+   envelope, not a single period-average number. The geometry (domain, pole,
+   dropline) is held FIXED and only the rate is allowed to vary: Hig's
+   "constant geometry, varying rate" model, resolved continuously instead of
+   as a single early/late pair.
+
+2. SINGLE-TRACK OMEGA IS IDENTIFIABLE. A rigid rotation writes a spatial
+   GRADIENT into the LOS field; a translation writes a CONSTANT offset:
+       LOS_i = Omega * l.(p x x_i)  +  (l.b)      <- second term constant in i
+   Two unknowns, n blocks. The translation is NOT recoverable from one track
+   (its three components collapse into that constant), but Omega is. This
+   matters because of (3).
+
+3. THE TRACKS DO NOT SPAN THE SAME EPOCHS. Measured from the cache:
+       ascending   2016-08 .. 2020-08
+       descending  2018-08 .. 2025-05
+   They overlap for only ~2 years. Any two-track fit over "the full record"
+   combines an ascending rate averaged over 2016-2020 with a descending rate
+   averaged over 2018-2025 — fine if the rate is stationary, biased if it is
+   not, and v2 already showed it is not (late/early k = 3.5 at Matanuska D2).
+   So every record carries BOTH the naive full-period 3-D fit and a
+   COMMON-WINDOW fit with both tracks restricted to the overlap; the
+   difference between them is a stated diagnostic, not a hidden assumption.
+
+UNITS: X in metres, rates in mm/yr, so a fit coefficient is mm/(yr*m) =
+mrad/yr; everything is REPORTED in microrad/yr (x1000) and deg/kyr.
+
+Outputs, one record per landslide id, into data/kinematics/:
+    <id>.json            domain properties, fits, omega(t), hull polygon
+    <id>_d<k>_fit.png    block map / observed-vs-predicted / stereonet
+    <id>_d<k>_omega.png  Omega(t) with uncertainty envelope
+The JSON is the format the Eklutna-style area search will emit per candidate
+element, so it is deliberately GIS-shaped: a polygon plus scalar properties.
+
+data/kinematics/ is gitignored and NOT rsynced to production — the Django
+page gates on the directory's existence, so this stays a dev surface until
+the method is settled.
+"""
+import json
+import math
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+from shapely.geometry import shape, Point, MultiPoint
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / 'data' / 'insar_power'
+KIN = ROOT / 'data' / 'kinematics'
+L = {'ascending': np.array([-0.613, -0.142, 0.777]),
+     'descending': np.array([0.613, -0.142, 0.777])}
+LC = {'matanuska': 150.0, 'columbia_a': 330.0}
+GRID_M, HALO_M, CAP = 60, 300, 360
+WIN_YR, STEP_YR = 2.0, 0.5      # sliding window width / step for Omega(t)
+MIN_EP_WIN = 10                 # epochs per point per window to accept a rate
+MIN_BLK_WIN = 4                 # blocks per window to attempt a fit
+URAD = 1000.0                   # coefficient (mrad/yr) -> microrad/yr
+DEG_PER_KYR = 0.0573            # microrad/yr -> deg/kyr
+C_ASC, C_DESC, C_SLOPE, C_AXIS = '#0072B2', '#E69F00', '#7f8a86', '#000000'
+
+
+def point_series(ts, v2):
+    """Unwrap-corrected series with ABSOLUTE decimal-year timestamps."""
+    t, d, sid = [], [], []
+    for i, st in enumerate(ts.get('series', [])):
+        for sec, mm in st['points']:
+            y = np.datetime64(sec[:10]).astype('datetime64[D]').astype(float) / 365.25 + 1970.0
+            t.append(y); d.append(mm); sid.append(i)
+    if len(t) < 15:
+        return None
+    t, d, sid = np.array(t), np.array(d), np.array(sid)
+    o = np.argsort(t)
+    t, d, sid = t[o], d[o], sid[o]
+    d2, ncorr = v2.unwrap_correct(t - t.min(), d, sid)
+    return {'t': t, 'd': d2, 'sid': sid, 'ncorr': int(ncorr)}
+
+
+def window_rate(ps, v2, t0, t1):
+    """Huber rate over [t0, t1), or None if too few epochs in the window."""
+    m = (ps['t'] >= t0) & (ps['t'] < t1)
+    if int(m.sum()) < MIN_EP_WIN:
+        return None
+    return v2.huber_rate(ps['t'][m] - ps['t'][m].min(), ps['d'][m], ps['sid'][m])
+
+
+def domain_geometry(Xd):
+    """Average dropline + expected gravitational pole from a plane fit."""
+    A = np.c_[Xd[:, 0], Xd[:, 1], np.ones(len(Xd))]
+    coef = np.linalg.lstsq(A, Xd[:, 2], rcond=None)[0]
+    grad = coef[:2]
+    slope = math.degrees(math.atan(np.linalg.norm(grad)))
+    d_h = -grad / max(np.linalg.norm(grad), 1e-12)
+    drop = np.array([d_h[0], d_h[1], -math.tan(math.radians(slope))])
+    drop /= np.linalg.norm(drop)
+    pole = np.array([-d_h[1], d_h[0], 0.0])
+    c = Xd.mean(axis=0)
+    up = c + 100 * np.array([-d_h[0], -d_h[1], math.tan(math.radians(slope))])
+    if np.cross(pole, up - c)[2] > 0:
+        pole = -pole                      # sign convention: +Omega lowers mass
+    return {'drop': drop, 'pole': pole, 'slope_deg': slope,
+            'drop_az': (math.degrees(math.atan2(d_h[0], d_h[1])) + 360) % 360}
+
+
+def fit_omega(Xd, rates, pole, drop):
+    """Omega about the FIXED expected pole, from whatever tracks are present.
+
+    Both tracks -> 3 params (Omega, dropline translation, vertical).
+    One track   -> 2 params (Omega, one lumped constant).
+    """
+    dirs = sorted({dn for r in rates for dn in ('ascending', 'descending')
+                   if r.get(dn) is not None})
+    if not dirs:
+        return None
+    both = len(dirs) > 1
+    zhat = np.array([0, 0, 1.0])
+    G, R = [], []
+    for i, r in enumerate(rates):
+        for dn in dirs:
+            v = r.get(dn)
+            if v is None:
+                continue
+            l = L[dn]
+            row = [float(l @ np.cross(pole, Xd[i]))]
+            row += [float(l @ drop), float(l @ zhat)] if both else [1.0]
+            G.append(row); R.append(v)
+    G, R = np.array(G), np.array(R)
+    npar = G.shape[1]
+    if len(R) < npar + 2 or np.std(G[:, 0]) < 1e-9:
+        return None                        # no spatial leverage on Omega
+    coef, *_ = np.linalg.lstsq(G, R, rcond=None)
+    resid = R - G @ coef
+    dof = max(len(R) - npar, 1)
+    cov = (float(resid @ resid) / dof) * np.linalg.pinv(G.T @ G)
+    return {'omega': float(coef[0]), 'se': float(math.sqrt(max(cov[0, 0], 0.0))),
+            'n_obs': int(len(R)), 'tracks': '+'.join(d[:3] for d in dirs),
+            'rms': float(np.sqrt(np.mean(resid ** 2))),
+            'r2': 1 - float(resid @ resid) / max(float(((R - R.mean()) ** 2).sum()), 1e-9)}
+
+
+def free_fit(Xd, rates):
+    """Unconstrained 6-parameter rigid fit."""
+    G, R, tags = [], [], []
+    for i, r in enumerate(rates):
+        for dn in ('ascending', 'descending'):
+            v = r.get(dn)
+            if v is None:
+                continue
+            G.append(np.concatenate([np.cross(Xd[i], L[dn]), L[dn]]))
+            R.append(v); tags.append((i, dn))
+    if len(R) < 8:
+        return None
+    G, R = np.array(G), np.array(R)
+    coef, _, rank, _ = np.linalg.lstsq(G, R, rcond=None)
+    pred = G @ coef
+    resid = R - pred
+    return {'omega': coef[:3], 'b': coef[3:], 'obs': R, 'pred': pred, 'tags': tags,
+            'rank': int(rank), 'rms': float(np.sqrt(np.mean(resid ** 2))),
+            'r2': 1 - float(resid @ resid) / max(float(((R - R.mean()) ** 2).sum()), 1e-9)}
+
+
+def omega_series(blocks, Xd, pole, drop, v2, t_lo, t_hi, only=None):
+    """Sliding-window Omega(t). Geometry fixed; only the rate varies.
+
+    Each window re-derives per-block rates from the raw epochs inside it, so
+    the series is not a smoothing of the period-average — it is an
+    independent fit per window (windows overlap, so adjacent points are
+    correlated; the envelope is per-window, not simultaneous).
+    """
+    ser = []
+    t0 = t_lo
+    while t0 + WIN_YR <= t_hi + 1e-9:
+        t1 = t0 + WIN_YR
+        rates = []
+        for b in blocks:
+            rr = {}
+            for dn in ('ascending', 'descending'):
+                if only and dn != only:
+                    rr[dn] = None
+                    continue
+                vals = [window_rate(ps, v2, t0, t1) for ps in b['series'][dn]]
+                vals = [v for v in vals if v is not None]
+                rr[dn] = float(np.median(vals)) if vals else None
+            rates.append(rr)
+        nb = sum(1 for r in rates if r['ascending'] is not None or r['descending'] is not None)
+        if nb >= MIN_BLK_WIN:
+            f = fit_omega(Xd, rates, pole, drop)
+            if f:
+                f.update({'t_mid': round((t0 + t1) / 2, 3), 't0': round(t0, 3),
+                          't1': round(t1, 3), 'n_blocks': int(nb),
+                          'block_key': tuple(sorted(
+                              i for i, r in enumerate(rates)
+                              if r['ascending'] is not None or r['descending'] is not None))})
+                ser.append(f)
+        t0 += STEP_YR
+    return ser
+
+
+def core_series(ser, blocks, Xd, pole, drop, v2):
+    """Recompute Omega(t) on a FIXED block set per track-composition era.
+
+    Guards the failure mode where a drifting sample footprint masquerades as
+    a rate change: within each group of windows sharing the same track
+    composition, keep only blocks present in EVERY window of that group.
+    """
+    out = []
+    groups = {}
+    for s in ser:
+        groups.setdefault(s['tracks'], []).append(s)
+    for tracks, gs in groups.items():
+        common = set(gs[0]['block_key'])
+        for s in gs[1:]:
+            common &= set(s['block_key'])
+        if len(common) < MIN_BLK_WIN:
+            continue
+        idx = sorted(common)
+        sub = [blocks[i] for i in idx]
+        for s in gs:
+            rates = []
+            for b in sub:
+                rr = {}
+                for dn in ('ascending', 'descending'):
+                    vals = [window_rate(ps, v2, s['t0'], s['t1']) for ps in b['series'][dn]]
+                    vals = [v for v in vals if v is not None]
+                    rr[dn] = float(np.median(vals)) if vals else None
+                rates.append(rr)
+            f = fit_omega(Xd[idx], rates, pole, drop)
+            if f:
+                out.append({'t_mid': s['t_mid'], 'omega': f['omega'], 'se': f['se'],
+                            'tracks': tracks, 'n_blocks': len(idx)})
+    return sorted(out, key=lambda r: r['t_mid'])
+
+
+def stereonet(ax, rg, Xd, rates, fit, geo, U):
+    th = np.linspace(0, 2 * np.pi, 200)
+    ax.plot(np.sin(th), np.cos(th), 'k-', lw=1)
+    for rr in (0.33, 0.66):
+        ax.plot(rr * np.sin(th), rr * np.cos(th), color='#ccc', lw=0.5, zorder=0)
+    for az_ in range(0, 360, 90):
+        ax.text(1.09 * math.sin(math.radians(az_)), 1.09 * math.cos(math.radians(az_)),
+                'NESW'[az_ // 90], ha='center', va='center', fontsize=10)
+    for r in rates:
+        t = r.get('terrain')
+        if not t:
+            continue
+        x, y, _ = rg.stereo_xy(t['aspect'], t['slope'])
+        ax.scatter(x, y, marker='v', s=36, c=C_SLOPE, edgecolors=C_SLOPE, zorder=2)
+    for j in range(len(Xd)):
+        az, pl = rg.az_plunge(U[j])
+        x, y, up = rg.stereo_xy(az, pl)
+        ax.scatter(x, y, marker='o', s=50, c='none' if up else C_ASC,
+                   edgecolors=C_ASC, linewidths=1.3, zorder=3)
+    om = fit['omega']
+    if np.linalg.norm(om) > 1e-12:
+        a = om / np.linalg.norm(om)
+        for v in (a, -a):
+            az, pl = rg.az_plunge(v)
+            x, y, up = rg.stereo_xy(az, pl)
+            ax.scatter(x, y, marker='s', s=80, c='none' if up else C_AXIS,
+                       edgecolors=C_AXIS, linewidths=1.5, zorder=4)
+    az, pl = rg.az_plunge(geo['drop'])
+    x, y, _ = rg.stereo_xy(az, pl)
+    ax.scatter(x, y, marker='v', s=150, c='#000000', zorder=5)
+    for v in (geo['pole'], -geo['pole']):
+        az, pl = rg.az_plunge(v)
+        x, y, _ = rg.stereo_xy(az, max(pl, 0.0))
+        ax.scatter(x, y, marker='*', s=230, c='#E69F00', edgecolors='k',
+                   linewidths=0.8, zorder=5)
+    ax.set_xlim(-1.15, 1.15); ax.set_ylim(-1.15, 1.15)
+    ax.set_aspect('equal'); ax.axis('off')
+
+
+def figures(rec, dom, blocks, Xd, rates, geo, fit, ser, core, rg, site, lat0, lon0,
+            per_track=None):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    tag = f"{rec['landslide_id']}_d{dom['k']}"
+    U = np.cross(np.tile(fit['omega'], (len(Xd), 1)), Xd) + fit['b']
+
+    # ---- fit figure: block map | observed vs predicted | stereonet --------
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5.6))
+    ax = axes[0]
+    g = shape(rec['geom'])
+    for part in (g.geoms if g.geom_type == 'MultiPolygon' else [g]):
+        ax.plot(*part.exterior.xy, color='k', lw=1, zorder=1)
+    allx = [b['lon'] for b in blocks]; ally = [b['lat'] for b in blocks]
+    vals = [(b['lon'], b['lat'], (b['rate'].get('ascending') or b['rate'].get('descending')))
+            for b in blocks]
+    vv = [v for _, _, v in vals if v is not None]
+    lim = max(5.0, np.percentile(np.abs(vv), 95)) if vv else 10.0
+    sc = ax.scatter([x for x, _, v in vals if v is not None],
+                    [y for _, y, v in vals if v is not None],
+                    c=[v for _, _, v in vals if v is not None], cmap='PRGn',
+                    vmin=-lim, vmax=lim, s=42, edgecolors='#555', linewidths=0.3, zorder=2)
+    plt.colorbar(sc, ax=ax, shrink=0.85, label='block LOS rate (mm/yr)')
+    hull = rec['domains'][dom['k'] - 1]['polygon']
+    ax.plot([p[0] for p in hull] + [hull[0][0]], [p[1] for p in hull] + [hull[0][1]],
+            color='#D55E00', lw=2, zorder=3, label=f'kinematic element {dom["k"]}')
+    ax.legend(fontsize=8, loc='best')
+    ax.set_aspect(1 / math.cos(math.radians(lat0)))
+    ax.set_title(f'{site} — distilled blocks and element {dom["k"]}', fontsize=10)
+    ax.tick_params(labelsize=7)
+
+    ax = axes[1]
+    for dn, c, mk in (('ascending', C_ASC, 'o'), ('descending', C_DESC, 's')):
+        m = [k for k, (i, d_) in enumerate(fit['tags']) if d_ == dn]
+        if m:
+            ax.scatter(fit['pred'][m], fit['obs'][m], c=c, marker=mk, s=44,
+                       edgecolors='k', linewidths=0.4, label=f'{dn} (n={len(m)})')
+    lim2 = max(8, float(np.abs(np.concatenate([fit['obs'], fit['pred']])).max()) * 1.15)
+    ax.plot([-lim2, lim2], [-lim2, lim2], 'k:', lw=1)
+    ax.set_xlim(-lim2, lim2); ax.set_ylim(-lim2, lim2); ax.set_aspect('equal')
+    ax.set_xlabel('predicted LOS rate (mm/yr)'); ax.set_ylabel('observed (mm/yr)')
+    ax.set_title(f'rigid fit: rms {fit["rms"]:.1f}, R² {fit["r2"]:.2f}, rank {fit["rank"]}/6',
+                 fontsize=10)
+    ax.legend(fontsize=8)
+
+    stereonet(axes[2], rg, Xd, rates, fit, geo, U)
+    axes[2].set_title(f'gravitational consistency\nfitted pole {dom["ang_pole_deg"]:.0f}° '
+                      f'from expected', fontsize=10)
+    plt.tight_layout()
+    p1 = KIN / f'{tag}_fit.png'
+    plt.savefig(p1, dpi=110, bbox_inches='tight'); plt.close()
+
+    # ---- Omega(t) --------------------------------------------------------
+    fig, (ax, axn) = plt.subplots(2, 1, figsize=(10, 6.4), sharex=True,
+                                  gridspec_kw={'height_ratios': [3, 1]})
+    if ser:
+        t = np.array([s['t_mid'] for s in ser])
+        om = np.array([s['omega'] for s in ser]) * URAD
+        se = np.array([s['se'] for s in ser]) * URAD
+        ax.fill_between(t, om - 2 * se, om + 2 * se, color=C_ASC, alpha=0.13, lw=0,
+                        label='±2σ')
+        ax.fill_between(t, om - se, om + se, color=C_ASC, alpha=0.28, lw=0, label='±1σ')
+        ax.plot(t, om, color=C_ASC, lw=1.6, zorder=3)
+        for s, tt, oo in zip(ser, t, om):
+            both = '+' in s['tracks']
+            ax.scatter([tt], [oo], s=54, zorder=4, color=C_ASC if both else 'none',
+                       edgecolors=C_ASC, linewidths=1.4,
+                       marker='o' if both else 'D')
+    for dn, cc_, mk in (('ascending', C_ASC, '^'), ('descending', C_DESC, 'v')):
+        q = (per_track or {}).get(dn) or []
+        if len(q) < 2:
+            continue
+        ax.plot([r['t_mid'] for r in q], [r['omega'] * URAD for r in q],
+                color=cc_, lw=1.0, alpha=0.85, marker=mk, ms=4, mfc='none', ls='-',
+                zorder=6, label=f'{dn} alone')
+    if core:
+        tc = [s['t_mid'] for s in core]
+        oc = [s['omega'] * URAD for s in core]
+        ax.plot(tc, oc, color='#000000', lw=1.0, ls='--', zorder=5,
+                label='fixed block set (composition control)')
+    ax.axhline(0, color='#888', lw=0.8, zorder=1)
+    full = dom['omega_urad_yr']
+    ax.axhline(full, color='#D55E00', lw=1.2, ls=':', zorder=2,
+               label=f'period average {full:+.1f} µrad/yr')
+    ax.scatter([], [], s=54, color=C_ASC, edgecolors=C_ASC, marker='o',
+               label='both tracks (3-param)')
+    ax.scatter([], [], s=54, color='none', edgecolors=C_ASC, linewidths=1.4, marker='D',
+               label='single track (Ω still identifiable)')
+    ax.set_ylabel('Ω about expected pole (µrad/yr)')
+    sec = ax.secondary_yaxis('right', functions=(lambda v: v * DEG_PER_KYR,
+                                                 lambda v: v / DEG_PER_KYR))
+    sec.set_ylabel('deg/kyr')
+    ax.legend(fontsize=7.5, ncol=2, loc='best', framealpha=0.9)
+    ax.set_title(f'{site} element {dom["k"]}: rotational velocity, fixed geometry '
+                 f'({WIN_YR:.0f}-yr windows, {STEP_YR:.1f}-yr step)\n'
+                 f'+Ω lowers the centre of mass; windows overlap so adjacent points '
+                 f'are correlated', fontsize=10)
+    if ser:
+        axn.bar([s['t_mid'] for s in ser], [s['n_blocks'] for s in ser],
+                width=STEP_YR * 0.8, color='#bbb', edgecolor='#888', lw=0.4)
+    axn.set_ylabel('blocks'); axn.set_xlabel('year')
+    axn.tick_params(labelsize=8)
+    plt.tight_layout()
+    p2 = KIN / f'{tag}_omega.png'
+    plt.savefig(p2, dpi=110, bbox_inches='tight'); plt.close()
+    return [p1.name, p2.name]
+
+
+def build_blocks(site, geom, sc, v2, rg):
+    """Dense grid -> unwrap-corrected point series -> L_c block medians."""
+    g = shape(geom)
+    lat0, lon0 = g.centroid.y, g.centroid.x
+    gh = g.buffer(HALO_M / 111000.0)
+    minx, miny, maxx, maxy = gh.bounds
+    dlat = GRID_M / 111000.0
+    dlon = GRID_M / (111000.0 * math.cos(math.radians(lat0)))
+    pts, lat = [], miny
+    while lat <= maxy:
+        lon = minx
+        while lon <= maxx:
+            if gh.contains(Point(lon, lat)):
+                pts.append((lat, lon))
+            lon += dlon
+        lat += dlat
+    if len(pts) > CAP:
+        rng = np.random.default_rng(3)
+        pts = [pts[i] for i in rng.choice(len(pts), CAP, replace=False)]
+
+    P = []
+    for lat, lon in pts:
+        rec = {'lat': lat, 'lon': lon, 'in': g.contains(Point(lon, lat)), 'ps': {}, 'rate': {}}
+        ok = False
+        for dn in ('ascending', 'descending'):
+            ps = point_series(sc.fetch_ts(lat, lon, dn), v2)
+            rec['ps'][dn] = ps
+            rec['rate'][dn] = (v2.huber_rate(ps['t'] - ps['t'].min(), ps['d'], ps['sid'])
+                               if ps else None)
+            ok = ok or ps is not None
+        if ok:
+            P.append(rec)
+
+    lc = LC.get(site, 150.0)
+    XY = np.array([[(r['lon'] - lon0) * 111000 * math.cos(math.radians(lat0)),
+                    (r['lat'] - lat0) * 111000] for r in P])
+    cells = {}
+    for i in range(len(P)):
+        cells.setdefault((int(XY[i][0] // lc), int(XY[i][1] // lc)), []).append(i)
+    blocks = []
+    for members in cells.values():
+        b = {'series': {}, 'rate': {}, 'n_pts': len(members),
+             'in': any(P[i]['in'] for i in members),
+             'lat': float(np.median([P[i]['lat'] for i in members])),
+             'lon': float(np.median([P[i]['lon'] for i in members])),
+             'xy': np.median([XY[i] for i in members], axis=0),
+             'ncorr': sum((P[i]['ps'][d] or {}).get('ncorr', 0)
+                          for i in members for d in ('ascending', 'descending'))}
+        for dn in ('ascending', 'descending'):
+            b['series'][dn] = [P[i]['ps'][dn] for i in members if P[i]['ps'][dn]]
+            vals = [P[i]['rate'][dn] for i in members if P[i]['rate'][dn] is not None]
+            b['rate'][dn] = float(np.median(vals)) if vals else None
+        if b['series']['ascending'] or b['series']['descending']:
+            blocks.append(b)
+    terr = rg.terrain_at([(b['lat'], b['lon']) for b in blocks])
+    X = []
+    for b, t in zip(blocks, terr):
+        b['terrain'] = t
+        X.append([b['xy'][0], b['xy'][1], (t or {}).get('z', 0.0) or 0.0])
+    return blocks, np.array(X), lat0, lon0, lc
+
+
+def track_spans(blocks):
+    sp = {}
+    for dn in ('ascending', 'descending'):
+        tt = [ps['t'] for b in blocks for ps in b['series'][dn]]
+        if tt:
+            sp[dn] = (float(min(t.min() for t in tt)), float(max(t.max() for t in tt)))
+    return sp
+
+
+def main():
+    import importlib.util as iu
+
+    def load(nm, fn):
+        s = iu.spec_from_file_location(nm, ROOT / 'tools' / fn)
+        m = iu.module_from_spec(s); s.loader.exec_module(m); return m
+    sc = load('sc', 'insar_site_characterization.py')
+    v2 = load('v2', 'insar_domain_rotation_v2.py')
+    rg = load('rg', 'insar_rotation_gravity.py')
+
+    KIN.mkdir(parents=True, exist_ok=True)
+    sites = json.load(open(OUT / 'sites.json'))
+    for site, meta in sites.items():
+        print(f'\n===== {site} (landslide {meta["id"]}) =====', flush=True)
+        blocks, X, lat0, lon0, lc = build_blocks(site, meta['geom'], sc, v2, rg)
+        print(f'  {len(blocks)} blocks at {lc:.0f} m; '
+              f'{sum(b["ncorr"] for b in blocks)} unwrap-slip corrections')
+        spans = track_spans(blocks)
+        for dn, (a, b_) in spans.items():
+            print(f'  {dn:11}: {a:.2f} .. {b_:.2f}')
+        ov_lo = max(s[0] for s in spans.values()) if len(spans) > 1 else None
+        ov_hi = min(s[1] for s in spans.values()) if len(spans) > 1 else None
+        if ov_lo is not None:
+            print(f'  two-track overlap: {ov_lo:.2f} .. {ov_hi:.2f} '
+                  f'({ov_hi - ov_lo:.1f} yr)')
+
+        brows = [{'ascending': ({'rate': b['rate']['ascending']}
+                                if b['rate']['ascending'] is not None else None),
+                  'descending': ({'rate': b['rate']['descending']}
+                                 if b['rate']['descending'] is not None else None),
+                  'in': b['in']} for b in blocks]
+        halo = [b['rate'][d] for b in blocks if not b['in']
+                for d in ('ascending', 'descending') if b['rate'][d] is not None]
+        tol = 1.8 * float(np.std(halo)) if len(halo) >= 5 else 5.0
+        v2.tol_len = lc
+        doms = v2.grow_domains(X, brows, tol)
+        print(f'  halo std {np.std(halo) if halo else float("nan"):.1f} -> tol {tol:.1f}; '
+              f'{len(doms)} element(s)')
+
+        rec = {'landslide_id': meta['id'], 'site': site, 'geom': meta['geom'],
+               'generated': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
+               'block_size_m': lc, 'n_blocks': len(blocks),
+               'track_spans': {k: [round(a, 2), round(b_, 2)] for k, (a, b_) in spans.items()},
+               'overlap': ([round(ov_lo, 2), round(ov_hi, 2)] if ov_lo is not None else None),
+               'window_yr': WIN_YR, 'step_yr': STEP_YR, 'domains': []}
+
+        for k, dm in enumerate(doms, 1):
+            idx = dm['idx']
+            Xd = X[idx]
+            sub = [blocks[i] for i in idx]
+            rates = [{'ascending': b['rate']['ascending'],
+                      'descending': b['rate']['descending'],
+                      'terrain': b['terrain']} for b in sub]
+            geo = domain_geometry(Xd)
+            fit = free_fit(Xd, rates)
+            if fit is None:
+                continue
+            con = fit_omega(Xd, rates, geo['pole'], geo['drop'])
+            a = fit['omega'] / max(np.linalg.norm(fit['omega']), 1e-12)
+            ang = math.degrees(math.acos(np.clip(abs(float(a @ geo['pole'])), 0, 1)))
+            n_obs = len(fit['obs'])
+            dbic = (n_obs * math.log(max(con['rms'] ** 2, 1e-12)) + 3 * math.log(n_obs)
+                    - n_obs * math.log(max(fit['rms'] ** 2, 1e-12)) - 6 * math.log(n_obs))
+
+            # epoch-consistent refit: both tracks restricted to the overlap
+            com = None
+            if ov_lo is not None and ov_hi - ov_lo > 0.75:
+                crates = []
+                for b in sub:
+                    rr = {'terrain': b['terrain']}
+                    for dn in ('ascending', 'descending'):
+                        vals = [window_rate(ps, v2, ov_lo, ov_hi) for ps in b['series'][dn]]
+                        vals = [v for v in vals if v is not None]
+                        rr[dn] = float(np.median(vals)) if vals else None
+                    crates.append(rr)
+                cf = fit_omega(Xd, crates, geo['pole'], geo['drop'])
+                ff = free_fit(Xd, crates)
+                if cf:
+                    com = {'omega_urad_yr': cf['omega'] * URAD, 'se': cf['se'] * URAD,
+                           'rms': cf['rms'], 'r2': cf['r2'], 'n_obs': cf['n_obs'],
+                           'tracks': cf['tracks'],
+                           'free_rms': ff['rms'] if ff else None,
+                           'free_r2': ff['r2'] if ff else None}
+
+            # mean vertical rate + null-space bracket (rank-deficiency honesty)
+            U = np.cross(np.tile(fit['omega'], (len(Xd), 1)), Xd) + fit['b']
+            G = np.array([np.concatenate([np.cross(Xd[i], L[dn]), L[dn]])
+                          for i, r in enumerate(rates)
+                          for dn in ('ascending', 'descending') if r[dn] is not None])
+            nullv = np.linalg.svd(G)[2][-1]
+            Un = np.cross(np.tile(nullv[:3], (len(Xd), 1)), Xd) + nullv[3:]
+            scale = float(np.sqrt(np.mean(fit['obs'] ** 2))) / max(float(np.abs(Un).max()), 1e-12)
+            shift = abs(float(np.mean(Un[:, 2])) * scale)
+            mu = float(np.mean(U[:, 2]))
+            verdict = ('mass-lowering (robust to null space)' if mu + shift < 0 else
+                       'NOT lowering (robust to null space)' if mu - shift > 0 else
+                       'indeterminate — sign flips within the N-S null space')
+
+            t_lo = min(s[0] for s in spans.values())
+            t_hi = max(s[1] for s in spans.values())
+            ser = omega_series(sub, Xd, geo['pole'], geo['drop'], v2, t_lo, t_hi)
+            core = core_series(ser, sub, Xd, geo['pole'], geo['drop'], v2)
+            # PER-TRACK CONTROL. The combined series changes track composition
+            # partway through (asc-only -> both -> desc-only), so an apparent
+            # excursion could be a handover artefact. Each track fitted alone,
+            # across its own full span, is the test: if asc-only and desc-only
+            # agree where they overlap, the excursion is in the ground, not in
+            # the geometry mix. Omega alone is identifiable single-track.
+            per_track = {dn: omega_series(sub, Xd, geo['pole'], geo['drop'], v2,
+                                          spans[dn][0], spans[dn][1], only=dn)
+                         for dn in spans}
+            t_om = abs(con['omega'] / con['se']) if con and con['se'] > 0 else 0.0
+            sense = ('indeterminate (translation limit)' if t_om < 2 else
+                     'mass-LOWERING' if con['omega'] > 0 else 'mass-RAISING')
+
+            hull = MultiPoint([(b['lon'], b['lat']) for b in sub]).convex_hull
+            hull = hull.buffer(lc / 2 / 111000.0, 2)
+            poly = [[round(x, 6), round(y, 6)] for x, y in hull.exterior.coords]
+
+            d = {'k': k, 'n_blocks': len(idx),
+                 'n_in_polygon': sum(1 for b in sub if b['in']),
+                 'rms': fit['rms'], 'r2': fit['r2'], 'rank': fit['rank'],
+                 'slope_deg': geo['slope_deg'], 'dropline_az': geo['drop_az'],
+                 'ang_pole_deg': ang, 'dbic_constrained_minus_free': dbic,
+                 'omega_urad_yr': con['omega'] * URAD if con else None,
+                 'omega_se_urad_yr': con['se'] * URAD if con else None,
+                 'omega_deg_per_kyr': (con['omega'] * URAD * DEG_PER_KYR) if con else None,
+                 'sigma': t_om, 'sense': sense,
+                 'uz_mean_mm_yr': mu, 'uz_lo': mu - shift, 'uz_hi': mu + shift,
+                 'verdict': verdict, 'common_window': com,
+                 'omega_series': [{k2: s[k2] for k2 in
+                                   ('t_mid', 't0', 't1', 'omega', 'se', 'n_obs',
+                                    'n_blocks', 'tracks', 'rms', 'r2')} for s in ser],
+                 'omega_core': core, 'polygon': poly,
+                 'omega_per_track': {dn: [{k2: q[k2] for k2 in
+                                           ('t_mid', 'omega', 'se', 'n_blocks')}
+                                          for q in v] for dn, v in per_track.items()}}
+            rec['domains'].append(d)
+            print(f'  element {k}: {len(idx)} blocks ({d["n_in_polygon"]} in-polygon), '
+                  f'rms {fit["rms"]:.1f}, R² {fit["r2"]:.2f}, rank {fit["rank"]}/6')
+            print(f'    Ω = {d["omega_urad_yr"]:+.1f} ± {d["omega_se_urad_yr"]:.1f} µrad/yr '
+                  f'({d["omega_deg_per_kyr"]:+.2f}°/kyr, {t_om:.1f}σ) — {sense}')
+            print(f'    pole {ang:.0f}° from expected; ΔBIC {dbic:+.1f}; '
+                  f'mean uz {mu:+.1f} [{mu - shift:+.1f}, {mu + shift:+.1f}] — {verdict}')
+            if com:
+                print(f'    common-window ({ov_lo:.1f}–{ov_hi:.1f}) Ω = '
+                      f'{com["omega_urad_yr"]:+.1f} ± {com["se"]:.1f} µrad/yr '
+                      f'(vs {d["omega_urad_yr"]:+.1f} full-period)')
+            print(f'    Ω(t): {len(ser)} windows, '
+                  f'{sum(1 for s in ser if "+" in s["tracks"])} with both tracks')
+            d['figs'] = figures(rec, d, blocks, Xd, rates, geo, fit, ser, core,
+                                rg, site, lat0, lon0, per_track)
+
+        (KIN / f'{meta["id"]}.json').write_text(json.dumps(rec, indent=1, default=float))
+        print(f'  wrote {KIN / f"{meta['id']}.json"}')
+    print('\nKINEMATICS-COMPLETE')
+
+
+if __name__ == '__main__':
+    main()

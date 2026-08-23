@@ -1,0 +1,136 @@
+{% extends "inventory/base.html" %}
+{% block title %}Kinematics — {{ name|default:"Landslide" }}{% endblock %}
+{% block page_title %}InSAR kinematics{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block extra_styles %}
+<style>
+  .kin-wrap { max-width: 1100px; margin: 0 auto; padding: 0 18px 60px; }
+  .kin-dev { background:#fff5e6; border:1px solid #e0b070; border-radius:4px;
+             padding:10px 14px; margin:14px 0; font-size:13px; color:#6b4a10; }
+  .kin-caveat { background:#f4f2f0; border-left:3px solid #8d7b6f; padding:10px 14px;
+                margin:14px 0; font-size:13.5px; }
+  .kin-el { border:1px solid #ddd; border-radius:5px; padding:16px 18px; margin:22px 0; }
+  .kin-el h3 { margin:0 0 4px; font-size:17px; }
+  .kin-el img { max-width:100%; height:auto; display:block; margin:12px 0; }
+  table.kin-tab { border-collapse:collapse; font-size:13px; margin:8px 0 4px; }
+  table.kin-tab td { padding:3px 12px 3px 0; vertical-align:top; }
+  table.kin-tab td:first-child { color:#666; white-space:nowrap; }
+  .kin-num { font-variant-numeric: tabular-nums; }
+  .kin-flag { display:inline-block; font-size:11px; padding:1px 7px; border-radius:3px;
+              background:#eee; color:#444; margin-left:6px; }
+  .kin-flag.ok { background:#e3f0e3; color:#2c5c2c; }
+  .kin-flag.warn { background:#fdeaea; color:#7a2b2b; }
+  .kin-actions a { display:inline-block; margin-right:12px; font-size:13px; }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="kin-wrap">
+  <h1 style="margin-bottom:2px;">{{ name|default:"Landslide" }}</h1>
+  <p style="margin-top:2px; color:#666; font-size:13px;">
+    Landslide {{ landslide_id }}{% if slug %} · <code>{{ slug }}</code>{% endif %} ·
+    rigid kinematic elements from OPERA DISP-S1 point time series ·
+    generated {{ rec.generated }}
+  </p>
+
+  <div class="kin-dev">
+    <b>Development surface.</b> This analysis is method-development, not a published
+    result. Element boundaries are grown from the data and are deliberately
+    <i>not</i> tied to the mapped landslide polygon; overlap and disagreement with
+    the mapped extent are expected outputs, not errors.
+  </div>
+
+  {% comment %}
+  The track-span mismatch is the single most consequential caveat on this page,
+  so it is stated before any number is shown rather than buried in a footnote.
+  {% endcomment %}
+  <div class="kin-caveat">
+    <b>Look-direction epochs do not coincide.</b>
+    Ascending covers {{ rec.track_spans.ascending.0 }}–{{ rec.track_spans.ascending.1 }};
+    descending covers {{ rec.track_spans.descending.0 }}–{{ rec.track_spans.descending.1 }}.
+    {% if rec.overlap %}
+      They overlap only over {{ rec.overlap.0 }}–{{ rec.overlap.1 }}.
+    {% endif %}
+    A three-dimensional fit that uses each track's full-record rate is therefore
+    combining <i>different epochs</i>, which is safe only if the rate is steady —
+    and the Ω(t) series below show it is not. Each element carries a
+    <b>common-window</b> refit with both tracks restricted to the overlap; where
+    that differs from the full-period value, trust the common-window number for
+    three-dimensional claims and the time series for rate behaviour.
+  </div>
+
+  <p style="font-size:13.5px;">
+    Ω is the rotation rate about the <b>expected gravitational pole</b> — the
+    horizontal axis perpendicular to the element's average dropline. Positive Ω
+    lowers the centre of mass. Because a rotation writes a spatial <i>gradient</i>
+    into the line-of-sight field while a translation writes a constant
+    <i>offset</i>, Ω remains identifiable from a single look direction even where
+    the full three-dimensional motion is not — which is what lets the series span
+    the whole record rather than just the two-track overlap.
+  </p>
+
+  <div class="kin-actions">
+    <a href="{% url 'inventory:kinematics_geojson' landslide_id %}">⬇ Elements as GeoJSON</a>
+    {% if slug %}<a href="/inventory/{{ slug }}/">← Back to the map</a>{% endif %}
+  </div>
+
+  <p style="font-size:13px; color:#666;">
+    {{ rec.n_blocks }} distilled blocks at {{ rec.block_size_m|floatformat:0 }} m
+    (the measured spatial correlation length) ·
+    {{ rec.window_yr|floatformat:0 }}-year windows stepped
+    {{ rec.step_yr }} yr · {{ rec.domains|length }} element(s) resolved.
+  </p>
+
+  {% for d in rec.domains %}
+  <div class="kin-el">
+    <h3>Kinematic element {{ d.k }}
+      {% if d.sigma >= 2 %}<span class="kin-flag ok">Ω resolved, {{ d.sigma|floatformat:1 }}σ</span>
+      {% else %}<span class="kin-flag">Ω not resolved period-average ({{ d.sigma|floatformat:1 }}σ)</span>{% endif %}
+    </h3>
+    <table class="kin-tab"><tbody>
+      <tr><td>Blocks</td><td class="kin-num">{{ d.n_blocks }} ({{ d.n_in_polygon }} inside the mapped polygon)</td></tr>
+      <tr><td>Rigid fit</td><td class="kin-num">rms {{ d.rms|floatformat:1 }} mm/yr · R² {{ d.r2|floatformat:2 }} · rank {{ d.rank }}/6</td></tr>
+      <tr><td>Slope / dropline</td><td class="kin-num">{{ d.slope_deg|floatformat:0 }}° · azimuth {{ d.dropline_az|floatformat:0 }}°</td></tr>
+      <tr><td>Ω (period average)</td><td class="kin-num">{{ d.omega_urad_yr|floatformat:1 }} ± {{ d.omega_se_urad_yr|floatformat:1 }} µrad/yr
+        ({{ d.omega_deg_per_kyr|floatformat:2 }}°/kyr) — {{ d.sense }}</td></tr>
+      {% if d.common_window %}
+      <tr><td>Ω (common window)</td><td class="kin-num">{{ d.common_window.omega_urad_yr|floatformat:1 }} ±
+        {{ d.common_window.se|floatformat:1 }} µrad/yr · rms {{ d.common_window.rms|floatformat:1 }} mm/yr</td></tr>
+      {% endif %}
+      <tr><td>Fitted vs expected pole</td><td class="kin-num">{{ d.ang_pole_deg|floatformat:0 }}° apart ·
+        ΔBIC(constrained − free) {{ d.dbic_constrained_minus_free|floatformat:1 }}</td></tr>
+      <tr><td>Mean vertical rate</td><td class="kin-num">{{ d.uz_mean_mm_yr|floatformat:1 }} mm/yr
+        [null-space range {{ d.uz_lo|floatformat:1 }}, {{ d.uz_hi|floatformat:1 }}] — {{ d.verdict }}</td></tr>
+    </tbody></table>
+
+    {% for f in d.figs %}
+      <img src="{% url 'inventory:kinematics_fig' landslide_id f %}" alt="element {{ d.k }} figure">
+    {% endfor %}
+  </div>
+  {% empty %}
+  <p>No kinematic elements were resolved for this landslide.</p>
+  {% endfor %}
+
+  <h2 style="font-size:16px; margin-top:30px;">How to read these</h2>
+  <ul style="font-size:13.5px; line-height:1.55;">
+    <li><b>Element boundaries are grown, not assumed.</b> Growth starts from the
+      strongest-signal block and adds neighbours only while each candidate's own
+      residual stays inside the noise tolerance measured on the halo outside the
+      mapped polygon. Blocks outside the polygon joining an element is evidence
+      about the boundary, which may be gradational.</li>
+    <li><b>Open symbols on the stereonet mean upward motion, and upward motion can
+      be real.</b> A block rotating so that its centre of mass falls will still
+      push part of itself up — a toe rising is the rotational signature, not a
+      data problem. Gravitational consistency is judged by whether the centre of
+      mass lowers, which in the small-motion limit is the mean vertical rate.</li>
+    <li><b>The period average can be meaningless.</b> Where Ω changes sign inside
+      the record, averaging it produces a number near zero that describes no
+      actual state of the slope. Read the time series first.</li>
+    <li><b>Single-track points are a control, not a compromise.</b> Where the two
+      tracks overlap, the ascending-alone and descending-alone series are
+      independent estimates of the same quantity; agreement between them is what
+      rules out a look-geometry artefact.</li>
+  </ul>
+</div>
+{% endblock %}

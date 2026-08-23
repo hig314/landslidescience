@@ -870,6 +870,12 @@ def api_detail(request, landslide_id):
         return JsonResponse({"error": "not found"}, status=404)
     data = row[0]
     data['slug'] = _slug_for_id(data['id'])
+    # Kinematics page link, only where an analysis record actually exists on
+    # disk (dev). Production has no data/kinematics/, so this stays null and
+    # the detail panel renders no link.
+    from . import kinematics as _kin
+    if _kin.has_record(data['id']):
+        data['kinematics_url'] = reverse('inventory:kinematics', args=[data['id']])
     return HttpResponse(json.dumps(data, default=str), content_type="application/json")
 
 

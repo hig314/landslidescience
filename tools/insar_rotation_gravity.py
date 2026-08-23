@@ -157,7 +157,7 @@ def analyze(name, site, rows, X, domain_idx, suspect):
     fit = rigid_fit(dom_X, dom_rows)
     om, b = fit['omega'], fit['b']
     print(f'  rigid fit: rms {fit["rms"]:.1f} mm/yr  R2 {fit["r2"]:.2f}  '
-          f'|omega| {np.linalg.norm(om)*1000:.2f} mrad/yr  rank {fit["rank"]}/6')
+          f'|omega| {np.linalg.norm(om)*1000:.2f} urad/yr  rank {fit["rank"]}/6')
 
     # ---- Hig's geometric framing (2026-08-22) --------------------------
     # AVERAGE dropline from a plane fit over the domain's DEM samples (one
@@ -224,7 +224,12 @@ def analyze(name, site, rows, X, domain_idx, suspect):
         sense_txt = f'indeterminate (|Omega|/se = {abs(t_om):.1f} < 2 — translation limit)'
     else:
         sense_txt = ('mass-LOWERING' if cc[0] > 0 else 'mass-RAISING') +                     f' (|Omega|/se = {abs(t_om):.1f})'
-    print(f'  constrained Omega: {cc[0]*1000:+.3f} ± {se_om*1000:.3f} mrad/yr -> sense {sense_txt}; '
+    # UNITS: X is in metres and rates in mm/yr, so the lstsq coefficient is
+    # mm/(yr*m) = mrad/yr; *1000 therefore gives MICROrad/yr. (This was
+    # labelled mrad/yr — digits right, unit 1000x off. 26.3 urad/yr = 1.5 deg/kyr,
+    # which is the physically sensible magnitude for deep-seated creep.)
+    print(f'  constrained Omega: {cc[0]*1000:+.3f} ± {se_om*1000:.3f} urad/yr '
+          f'({cc[0]*1000*0.0573:+.2f} deg/kyr) -> sense {sense_txt}; '
           f'translation (dropline, vertical): ({cc[1]:+.1f}, {cc[2]:+.1f}) mm/yr')
     fit.setdefault('geo', {})
     fit['geo_sense'] = sense_txt

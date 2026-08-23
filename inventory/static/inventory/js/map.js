@@ -4683,6 +4683,16 @@
 
         if (pics.length) html += photoStripHtml(pics);
 
+        // In-house analysis pages: these are OURS, not external resources, so
+        // they get their own section above the outbound links. api_detail only
+        // sets kinematics_url where an analysis record exists on disk.
+        if (d.kinematics_url) {
+            html += '<div class="imagery-links"><div class="detail-section-title" style="margin-bottom:5px;">Analysis</div>' +
+                    '<a class="imagery-btn" href="' + esc(d.kinematics_url) + '" ' +
+                    'title="Rigid kinematic elements and rotational velocity from OPERA DISP-S1 point time series">' +
+                    '<span class="imagery-icon" style="background:#5D4037">\u21bb</span>InSAR kinematics</a></div>';
+        }
+
         var imgLinks = [
             { label:'ESRI Wayback',  icon:'W',      url:normUrl(d.esri_wayback_link),  title:'ESRI Wayback historical imagery' },
             { label:'Google Images', icon:'G',      url:normUrl(d.google_images_link), title:'Google Images search' },

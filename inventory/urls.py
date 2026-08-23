@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import insar, opera, photos, trace_views, views
+from . import insar, kinematics, opera, photos, trace_views, views
 
 app_name = 'inventory'
 
@@ -20,6 +20,13 @@ urlpatterns = [
     # OPERA DISP-S1 point time-series proxy (inventory/insar.py) — backs the
     # map's "InSAR" click tool.
     path('api/insar_timeseries/', insar.timeseries, name='insar_timeseries'),
+    # Per-landslide InSAR kinematic-element pages (inventory/kinematics.py).
+    # Dev-only: every view 404s unless data/kinematics/ exists on disk.
+    path('kinematics/<int:landslide_id>/', kinematics.page, name='kinematics'),
+    path('kinematics/<int:landslide_id>/elements.geojson',
+         kinematics.elements_geojson, name='kinematics_geojson'),
+    re_path(r'^kinematics/(?P<landslide_id>\d+)/(?P<name>[0-9]+_d[0-9]+_(?:fit|omega)\.png)$',
+            kinematics.figure, name='kinematics_fig'),
     path('api/qms/', views.api_qms_search, name='api_qms_search'),
     path('api/qms/promoted/', views.api_qms_promoted, name='api_qms_promoted'),
     path('api/qms/promote/', views.api_qms_promote, name='api_qms_promote'),
