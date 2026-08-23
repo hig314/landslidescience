@@ -1,0 +1,379 @@
+{% extends "inventory/base.html" %}
+{% load static %}
+{% block title %}How we read landslide motion from radar — Methods{% endblock %}
+{% block page_title %}InSAR kinematics — methods{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block extra_styles %}
+<style>
+  .km { max-width: 940px; margin: 0 auto; padding: 0 20px 80px; }
+  .km h2 { font-size: 21px; margin: 40px 0 6px; line-height: 1.25; }
+  .km h2 .step { display:inline-block; font-size: 12px; letter-spacing:.09em;
+                 text-transform:uppercase; color:#8a7a6d; font-weight:700;
+                 margin-right:9px; vertical-align:2px; }
+  .km h3 { font-size: 16px; margin: 26px 0 4px; }
+  .km p, .km li { font-size: 15px; line-height: 1.62; }
+  .km .lede { font-size: 16.5px; line-height: 1.6; color:#3f3a36; }
+  .fig { margin: 20px 0 8px; border:1px solid #e2e0dd; border-radius:6px;
+         background:#fbfaf9; overflow:hidden; }
+  .fig canvas { display:block; width:100%; height:380px; background:
+      linear-gradient(#ffffff,#f6f5f3); }
+  .fig .cap { padding:10px 14px; font-size:13px; color:#5a534d;
+              border-top:1px solid #eeecea; background:#fff; }
+  .ctl { display:flex; flex-wrap:wrap; gap:16px; align-items:center;
+         padding:10px 14px; border-top:1px solid #eeecea; background:#fff; }
+  .ctl label { font-size:12.5px; color:#4a443f; display:flex; align-items:center; gap:7px; }
+  .ctl input[type=range] { width:118px; }
+  .ctl .val { font-variant-numeric: tabular-nums; font-weight:600; min-width:34px;
+              display:inline-block; }
+  .seg button { font: inherit; font-size:12.5px; padding:4px 11px; border:1px solid #cfc9c3;
+                background:#fff; cursor:pointer; }
+  .seg button:first-child { border-radius:4px 0 0 4px; }
+  .seg button:last-child { border-radius:0 4px 4px 0; }
+  .seg button.on { background:#5D4037; color:#fff; border-color:#5D4037; }
+  .ro { padding:10px 14px; font-size:13.5px; line-height:1.55; background:#fff;
+        border-top:1px solid #eeecea; }
+  .math { background:#f6f5f3; border-left:3px solid #b9b0a6; padding:11px 15px;
+          margin:14px 0; font-size:15px; line-height:1.75; overflow-x:auto; }
+  .math i { font-family: Georgia, serif; }
+  .key { background:#eef4f7; border:1px solid #cfe0ea; border-radius:5px;
+         padding:12px 16px; margin:18px 0; font-size:14.5px; }
+  .warn { background:#fdf3ee; border:1px solid #e8cdbc; border-radius:5px;
+          padding:12px 16px; margin:18px 0; font-size:14.5px; }
+  .km table.t { border-collapse:collapse; font-size:13.5px; margin:14px 0; width:100%; }
+  .km table.t th, .km table.t td { text-align:left; padding:6px 10px; border-bottom:1px solid #eae7e4; }
+  .km table.t th { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:#77706a; }
+  .km table.t td.n { font-variant-numeric: tabular-nums; }
+  .hint { font-size:11.5px; color:#948c85; padding:0 14px 9px; background:#fff; }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="km">
+
+<h1 style="margin-bottom:4px;">How we read landslide motion from radar</h1>
+<p class="lede" style="margin-top:2px;">
+  Satellite radar can measure ground movement of a few millimetres per year from
+  700 km up. What it cannot do is tell you which <i>direction</i> the ground moved.
+  This page walks through how we get from that limited measurement to a statement
+  like "this slope is rotating downhill at half a degree per thousand years" —
+  and, just as importantly, where that reasoning runs out.
+</p>
+<p style="font-size:13px;color:#7a736d;">
+  Every 3-D figure below can be dragged to rotate. The physics is in the pictures;
+  the algebra is there for anyone who wants it, but nothing depends on reading it.
+</p>
+
+{% comment %}
+Step 1. The single most important thing for a reader to internalise is that
+InSAR returns a projection, not a vector. Everything downstream is a consequence.
+{% endcomment %}
+
+<h2><span class="step">Step 1</span>What the radar actually measures</h2>
+<p>
+  A radar satellite measures one thing: whether a patch of ground got <b>closer to
+  it</b> or <b>farther from it</b>. Not north, not up — just nearer or farther along
+  the line joining ground to satellite, the <b>line of sight</b>.
+</p>
+<p>
+  If the ground moves by some 3-D velocity <b>u</b>, the satellite records the
+  shadow that <b>u</b> casts on its line of sight:
+</p>
+<div class="math">
+  LOS rate = <b>u</b> · <b>l</b> &nbsp;=&nbsp; <i>u</i><sub>E</sub><i>l</i><sub>E</sub>
+  + <i>u</i><sub>N</sub><i>l</i><sub>N</sub> + <i>u</i><sub>U</sub><i>l</i><sub>U</sub>
+</div>
+<p>
+  where <b>l</b> is a unit vector pointing from the ground up to the satellite.
+  Sentinel-1 passes over twice with different geometry — once heading north
+  (<b style="color:#0072B2">ascending</b>, looking east, so the satellite sits to
+  the west) and once heading south (<b style="color:#E69F00">descending</b>, looking
+  west, satellite to the east). Both look down at about 39° from vertical:
+</p>
+<div class="math">
+  <b>l</b><sub>asc</sub> = (&minus;0.613, &minus;0.142, 0.777) &nbsp;&nbsp;&nbsp;
+  <b>l</b><sub>desc</sub> = (+0.613, &minus;0.142, 0.777)
+</div>
+<p>
+  So we get <b>two numbers</b> describing a motion that has <b>three</b> components.
+  Drag the figure to look around; use the sliders to change how the ground is really
+  moving and watch what the two satellites report.
+</p>
+
+<div class="fig">
+  <canvas id="scA"></canvas>
+  <div class="hint">drag to rotate</div>
+  <div class="ctl">
+    <label>East <input type="range" id="scA_e" min="-10" max="10" step="0.5" value="0">
+      <span class="val" id="scA_e_v">+0.0</span></label>
+    <label>North <input type="range" id="scA_n" min="-10" max="10" step="0.5" value="-6">
+      <span class="val" id="scA_n_v">-6.0</span></label>
+    <label>Up <input type="range" id="scA_u" min="-10" max="10" step="0.5" value="-4">
+      <span class="val" id="scA_u_v">-4.0</span></label>
+    <label style="color:#009E73;font-weight:600;">add invisible motion
+      <input type="range" id="scA_blind" min="-8" max="8" step="0.5" value="0">
+      <span class="val" id="scA_blind_v">+0.0</span></label>
+  </div>
+  <div class="ro" id="roA"></div>
+  <div class="cap">
+    <b>Two shadows of one arrow.</b> The pink arrow is the true ground motion; the
+    coloured dots are its projections onto each satellite's line of sight. Now push
+    the last slider: you are adding motion along the one direction both satellites
+    are blind to — and <i>neither reading changes</i>.
+  </div>
+</div>
+
+<div class="key">
+  <b>The blind direction.</b> Because both orbits are near-polar and both look
+  sideways (east or west), neither is sensitive to motion along roughly
+  <b>north–south</b> — precisely, the direction
+  <b>l</b><sub>asc</sub> × <b>l</b><sub>desc</sub>, which is north tilted 10° up.
+  Any amount of motion along that line is invisible. Two measurements, three
+  unknowns: one whole direction of movement is unmeasured, and no amount of
+  processing recovers it from these two passes alone.
+</div>
+
+<h2><span class="step">Step 2</span>One point is hopeless. A whole hillside is not.</h2>
+<p>
+  The usual escape is to <i>assume</i> something — most commonly that the ground
+  slides parallel to the slope surface. That works, but it quietly assumes the
+  answer: you have decided the motion is downslope before measuring, so you can
+  never afterwards use the data to <i>test</i> whether it is.
+</p>
+<p>
+  We take a different route. Instead of adding an assumption about one point, we use
+  many points at once and assume they belong to the <b>same moving body</b>. Any
+  rigid motion — however complicated — is a rotation plus a shift:
+</p>
+<div class="math">
+  <b>u</b>(<b>r</b>) = <b>&omega;</b> × <b>r</b> + <b>b</b>
+</div>
+<p>
+  <b>&omega;</b> is the rotation (its direction is the axis, its length the rate)
+  and <b>b</b> the overall drift. Six numbers describe the motion of the entire
+  hillside, no matter how many points we measure. So the bookkeeping changes
+  completely:
+</p>
+<table class="t">
+  <tr><th></th><th>Unknowns</th><th>Measurements</th><th>Unmeasured directions</th></tr>
+  <tr><td>Each point on its own</td><td class="n">3 <i>n</i></td><td class="n">2 <i>n</i></td>
+      <td class="n"><i>n</i> — one per point</td></tr>
+  <tr><td>Points sharing one rigid motion</td><td class="n">6</td><td class="n">2 <i>n</i></td>
+      <td class="n"><b>1</b> — no matter how large <i>n</i> is</td></tr>
+</table>
+<p>
+  That is the whole idea. We buy the third dimension with <b>spatial coherence</b>
+  rather than with an assumption about what drives the landslide — which leaves
+  gravity available afterwards as something to <i>check</i>, instead of something we
+  built in. One unmeasured direction still remains, so we always report how far our
+  conclusions could move along it.
+</p>
+
+<h2><span class="step">Step 3</span>Why rotation survives when everything else fails</h2>
+<p>
+  There is a second, less obvious gain, and it does a lot of work later. Compare
+  what the two ingredients of rigid motion look like across a hillside:
+</p>
+<ul>
+  <li>A <b>drift</b> moves every point identically — it writes a constant
+    <b>offset</b> into the measurements.</li>
+  <li>A <b>rotation</b> moves distant points faster than near ones — it writes a
+    <b>gradient</b>, a systematic change from one end of the slope to the other.</li>
+</ul>
+<p>
+  Because those two signatures are different <i>shapes</i>, a single satellite pass
+  can tell them apart, even though a single pass can never recover the full 3-D
+  motion. Switch between the modes and watch the plot beneath the slope:
+</p>
+
+<div class="fig">
+  <canvas id="scB"></canvas>
+  <div class="hint">drag to rotate</div>
+  <div class="ctl">
+    <span class="seg" role="group">
+      <button data-scb-mode="rot" class="on">Rotation only</button><button data-scb-mode="trans">Drift only</button><button data-scb-mode="both">Both</button>
+    </span>
+    <label>rotation rate <input type="range" id="scB_omega" min="0" max="60" step="2" value="30">
+      <span class="val" id="scB_omega_v">30</span></label>
+    <label>drift <input type="range" id="scB_trans" min="0" max="20" step="1" value="8">
+      <span class="val" id="scB_trans_v">8</span></label>
+  </div>
+  <canvas id="scB_plot" style="width:100%;height:180px;display:block;background:#fff;
+          border-top:1px solid #eeecea;"></canvas>
+  <div class="ro" id="roB"></div>
+  <div class="cap">
+    <b>Flat line versus tilted line.</b> Each coloured line is what one satellite
+    would record walking from the head of the slide to its toe. Drift raises or
+    lowers the line; rotation tilts it. Because the <i>tilt</i> is what carries the
+    rotation, we can follow a slope's rotation rate through years when only one of
+    the two satellites was observing.
+  </div>
+</div>
+
+<h2><span class="step">Step 4</span>Bringing gravity in — as a test, not an assumption</h2>
+<p>
+  A landslide is driven by gravity, so its motion should have a particular geometry.
+  We make that expectation concrete before looking at the answer:
+</p>
+<ul>
+  <li>Fit a plane to the hillside and find its <b>dropline</b> — the direction water
+    would run.</li>
+  <li>A block slumping under gravity rotates about a <b>horizontal axis lying across
+    the slope</b>, perpendicular to that dropline. Call it the <b>expected pole</b>.</li>
+  <li>The physical requirement is simply that the block's <b>centre of mass gets
+    lower</b>.</li>
+</ul>
+<p>
+  That last point is worth dwelling on, because it is where intuition often
+  misfires. Rotate the block below and watch the head, the toe, and the centre of
+  mass separately:
+</p>
+
+<div class="fig">
+  <canvas id="scC"></canvas>
+  <div class="hint">drag to rotate</div>
+  <div class="ctl">
+    <label>rotate the block <input type="range" id="scC_ang" min="0" max="30" step="1" value="14">
+      <span class="val" id="scC_ang_v">14</span>°</label>
+  </div>
+  <div class="ro" id="roC"></div>
+  <div class="cap">
+    <b>Falling downhill while part of you goes up.</b> As the block rotates, the head
+    drops and the toe <i>rises</i> — and the centre of mass falls the whole time. So
+    measured uplift at the toe of a landslide is not a contradiction and not a data
+    error; it is what a slump looks like. We test gravitational consistency by asking
+    whether the average vertical motion is downward, never by requiring every point
+    to descend.
+  </div>
+</div>
+
+<h2><span class="step">Step 5</span>Reading the pictures — and one trap in them</h2>
+<p>
+  Geologists conventionally plot directions on a <b>stereonet</b>: imagine every
+  direction as an arrow from the centre of a sphere, keep only the lower half, and
+  flatten it to a disc. A steeply plunging direction lands near the middle; a
+  horizontal one lands on the rim.
+</p>
+<p>
+  The convention has a catch that cost us a genuine misreading of our own results.
+  Only the lower hemisphere is drawn, so an upward direction is flipped through the
+  centre and plotted at its opposite. Under a rotation, the head and the toe move in
+  <i>exactly opposite</i> directions — so they land on the same spot:
+</p>
+
+<div class="fig">
+  <canvas id="scD"></canvas>
+  <div class="hint">drag to rotate</div>
+  <div class="ro" id="roD"></div>
+  <div class="cap">
+    <b>Why the stereonet cannot show a slump.</b> The head arrow and the toe arrow
+    are equal and opposite. The upward one is folded through the origin (dashed) and
+    lands on top of the other, distinguishable only by being drawn hollow. The
+    up-and-down structure — the actual evidence of rotation — is invisible.
+  </div>
+</div>
+<p>
+  So on the results pages we plot the rotation two further ways: as a
+  <b>downslope profile</b> of vertical rate, which shows head-down/toe-up directly,
+  and with the overall drift removed, because the drift is often as large as the
+  rotation and swamps it in any direction plot.
+</p>
+
+<h2><span class="step">Step 6</span>What this can and cannot determine</h2>
+<p>
+  Real hillsides are not rigid — they stretch, compress and shear internally. A more
+  honest description of the velocity field allows all of that:
+</p>
+<div class="math">
+  <b>u</b>(<b>r</b>) = A<b>r</b> + <b>b</b>&nbsp;&nbsp;&nbsp;&nbsp; A = (rotation) + (stretching &amp; shearing)
+</div>
+<p>
+  That is twelve numbers. But each satellite pass only ever reveals four of them
+  (the combination <b>l</b>·A, which is three numbers, plus <b>l</b>·<b>b</b>). Two
+  passes therefore pin down <b>eight of twelve</b> — and the missing four straddle
+  the boundary between rotation and internal deformation. The two are entangled in
+  what we can see.
+</p>
+<div class="warn">
+  <b>The consequence, stated plainly.</b> If we assume a hillside is rigid, the fit
+  will hand back a rotation axis with a tight-looking uncertainty — even when the
+  real motion was mostly internal stretching that got mathematically reclassified as
+  rotation. In our own Matanuska data, allowing internal deformation swings the
+  recovered axis by 20–60° while barely changing how well the model fits. <b>The
+  direction of the rotation axis is therefore not something two satellites can
+  determine on a deforming slope, and we do not report it as one.</b>
+</div>
+<p>
+  What survives is more modest, and well posed. <i>"How fast is this slope rotating
+  about the axis gravity predicts?"</i> is a one-number question with a real answer
+  and a real uncertainty. <i>"What is this slope's rotation axis?"</i> is not
+  answerable. So we ask the first question, and we report the second as undetermined
+  whenever the test above says it is.
+</p>
+
+<h2><span class="step">Step 7</span>Rotation changes over time</h2>
+<p>
+  A single rate averaged over nine years can describe a state the slope was never
+  in. We therefore re-fit the rotation in overlapping two-year windows, holding the
+  geometry fixed and letting only the rate vary, which produces a rotation-rate
+  history rather than a number.
+</p>
+<p>
+  This is also where Step 3 earns its keep. The two satellites did not observe the
+  same years — at our sites ascending runs 2016–2020 and descending 2018–2025, with
+  only about two years of overlap. Because rotation shows up as a gradient, a single
+  track can still track it, so the history spans the whole record. Where both exist,
+  we fit each alone as a cross-check: two independent viewing geometries agreeing is
+  the strongest statement this data can make.
+</p>
+<div class="key">
+  <b>A caution that applies to every number on the results pages.</b> Any 3-D fit
+  that uses each satellite's full-record average is mixing different years together.
+  Every element therefore also carries a <b>common-window</b> refit using only the
+  overlap, and where the two disagree, the overlap version is the one to trust for
+  anything three-dimensional.
+</div>
+
+<h2><span class="step">Step 8</span>Choosing what counts as one moving body</h2>
+<p>
+  Everything above assumes we know which points belong together. We grow candidate
+  domains outward from the strongest signal, adding neighbours while each one stays
+  consistent with a single rigid motion — deliberately ignoring the mapped landslide
+  outline, so that agreement or disagreement with the map is a result rather than an
+  input.
+</p>
+<div class="warn">
+  <b>A failure we walked into.</b> Growing a domain by minimising misfit prefers
+  small, tidy patches. But a rotation only reveals itself as a change from one end of
+  the slide to the other — so a patch too short to span head-to-toe <i>cannot express
+  rotation at all</i>. At Matanuska the neatly-grown pieces returned "no rotation,"
+  while the full mapped extent — a visibly worse rigid fit — returned a clear
+  rotation, lowering mass, at three times its uncertainty. Optimising for tidiness
+  destroyed the signal. We now always analyse the mapped extent alongside the grown
+  ones and report each domain's downslope length, so this is visible rather than
+  hidden.
+</div>
+
+<h2><span class="step">Step 9</span>What we still owe</h2>
+<ul>
+  <li><b>Calibration against noise.</b> A procedure that searches for well-fitting
+    regions will find them in pure noise too. Until we run the identical search on
+    randomised fields and learn what it turns up there, significance values from the
+    search should be read as provisional.</li>
+  <li><b>The unmeasured direction.</b> One direction of motion is never observed. We
+    quote how far each conclusion could shift along it; where a conclusion flips
+    inside that range, we say so instead of choosing.</li>
+  <li><b>Point sampling only.</b> These results come from sampled points rather than
+    the full-resolution radar imagery, and spatial correlation between nearby points
+    is measured and accounted for, not assumed.</li>
+</ul>
+
+<p style="font-size:13px;color:#7a736d;margin-top:34px;">
+  Data: OPERA DISP-S1 surface displacement from Sentinel-1, via the Alaska Satellite
+  Facility. Terrain: USGS 3DEP. This is method development, not published results.
+</p>
+
+</div>
+<script src="{% static 'inventory/js/kin3d.js' %}"></script>
+<script src="{% static 'inventory/js/kin_methods.js' %}"></script>
+{% endblock %}

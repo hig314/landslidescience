@@ -108,6 +108,19 @@ def page(request, landslide_id):
 
 
 @require_safe
+def methods(request):
+    """Step-by-step explanation of the kinematics method, with 3-D figures.
+
+    Gated with the rest of this surface: the page documents an analysis that is
+    still moving, and shipping the explanation ahead of the results would put
+    method claims in front of readers before the calibration behind them exists.
+    """
+    if not enabled():
+        raise Http404
+    return render(request, 'inventory/kinematics_methods.html', {})
+
+
+@require_safe
 def figure(request, landslide_id, name):
     if not enabled() or not _FIG_RE.match(name):
         raise Http404

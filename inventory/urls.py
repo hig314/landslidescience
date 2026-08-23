@@ -22,6 +22,7 @@ urlpatterns = [
     path('api/insar_timeseries/', insar.timeseries, name='insar_timeseries'),
     # Per-landslide InSAR kinematic-element pages (inventory/kinematics.py).
     # Dev-only: every view 404s unless data/kinematics/ exists on disk.
+    path('kinematics/methods/', kinematics.methods, name='kinematics_methods'),
     path('kinematics/<int:landslide_id>/', kinematics.page, name='kinematics'),
     path('kinematics/<int:landslide_id>/elements.geojson',
          kinematics.elements_geojson, name='kinematics_geojson'),

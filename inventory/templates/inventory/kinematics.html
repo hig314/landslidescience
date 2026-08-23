@@ -71,6 +71,7 @@
   </p>
 
   <div class="kin-actions">
+    <a href="{% url 'inventory:kinematics_methods' %}">📖 How this works — methods</a>
     <a href="{% url 'inventory:kinematics_geojson' landslide_id %}">⬇ Elements as GeoJSON</a>
     {% if slug %}<a href="/inventory/{{ slug }}/">← Back to the map</a>{% endif %}
   </div>
