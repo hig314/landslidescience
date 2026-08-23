@@ -314,11 +314,43 @@ def stereonet(ax, rg, Xd, rates, fit, geo, U, ident=None, suspect=()):
             continue
         x, y, _ = rg.stereo_xy(t['aspect'], t['slope'])
         ax.scatter(x, y, marker='v', s=36, c=C_SLOPE, edgecolors=C_SLOPE, zorder=2)
+    # WHAT GETS PLOTTED. Total motion is the sum of a bulk translation and the
+    # rotational part, and at Matanuska those are the same size (ratio ~1.05).
+    # Plotting the TOTAL therefore scatters the points a median 49 deg from the
+    # axis instead of the 90 deg a rotation demands, which makes the axis look
+    # like it sits among its own motion vectors — the misreading Hig hit.
+    #
+    # So plot the ROTATIONAL PART, w x (x - x_bar). It is perpendicular to the
+    # axis by construction, so it must lie on the great circle drawn below, and
+    # the head-down / toe-up split reads directly off it. Bulk translation is a
+    # separate statement and gets its own single marker.
+    rot = np.cross(np.tile(fit['omega'], (len(Xd), 1)), Xd - Xd.mean(axis=0))
     for j in range(len(Xd)):
-        az, pl = rg.az_plunge(U[j])
+        if np.linalg.norm(rot[j]) < 1e-12:
+            continue
+        az, pl = rg.az_plunge(rot[j])
         x, y, up = rg.stereo_xy(az, pl)
         ax.scatter(x, y, marker='o', s=50, c='none' if up else C_ASC,
                    edgecolors=C_ASC, linewidths=1.3, zorder=3)
+    # the plane of rotational motion: every point above must fall on it
+    om_u = fit['omega'] / max(np.linalg.norm(fit['omega']), 1e-12)
+    e1 = np.cross(om_u, np.array([0., 0., 1.]))
+    if np.linalg.norm(e1) < 1e-9:
+        e1 = np.array([1., 0., 0.])
+    e1 = e1 / np.linalg.norm(e1)
+    e2 = np.cross(om_u, e1)
+    for t in np.linspace(0, 2 * np.pi, 361):
+        v = math.cos(t) * e1 + math.sin(t) * e2
+        azg, plg = rg.az_plunge(v)
+        xg, yg, _ = rg.stereo_xy(azg, plg)
+        ax.scatter(xg, yg, marker='.', s=2, c='#b9c2bf', zorder=1)
+    # bulk translation of the whole domain, plotted apart from the rotation
+    bulk = U.mean(axis=0)
+    if np.linalg.norm(bulk) > 1e-12:
+        azb, plb = rg.az_plunge(bulk)
+        xb, yb, upb = rg.stereo_xy(azb, plb)
+        ax.scatter(xb, yb, marker='D', s=95, c='none' if upb else '#CC79A7',
+                   edgecolors='#CC79A7', linewidths=1.8, zorder=5)
     # The fitted axis is drawn ONLY when the full-gradient test says it is
     # identified. Where strain and rotation are entangled (rank 8/12 from two
     # look directions) the rigid fit still returns a tight, confident axis that
@@ -351,9 +383,13 @@ def stereonet(ax, rg, Xd, rates, fit, geo, U, ident=None, suspect=()):
     ax.scatter([], [], marker='*', s=150, c='#E69F00', edgecolors='k',
                label='expected gravitational pole')
     ax.scatter([], [], marker='o', s=50, c=C_ASC, edgecolors=C_ASC,
-               label='motion, downward component')
+               label='rotational motion, downward (head)')
     ax.scatter([], [], marker='o', s=50, c='none', edgecolors=C_ASC, linewidths=1.3,
-               label="motion upward — real at a rotator's toe")
+               label='rotational motion, upward (toe) — real')
+    ax.scatter([], [], marker='D', s=80, c='#CC79A7', edgecolors='#CC79A7',
+               label='bulk translation of the domain')
+    ax.scatter([], [], marker='.', s=20, c='#b9c2bf',
+               label='plane of rotation (⊥ axis)')
     ax.scatter([], [], marker='v', s=36, c=C_SLOPE, edgecolors=C_SLOPE,
                label='3DEP downslope')
     if identified:
@@ -378,7 +414,8 @@ def figures(rec, dom, blocks, Xd, rates, geo, fit, ser, core, rg, site, lat0, lo
     U = np.cross(np.tile(fit['omega'], (len(Xd), 1)), Xd) + fit['b']
 
     # ---- fit figure: block map | observed vs predicted | stereonet --------
-    fig, axes = plt.subplots(1, 3, figsize=(17, 5.6))
+    fig, axg = plt.subplots(2, 2, figsize=(13.6, 10.6))
+    axes = axg.ravel()
     ax = axes[0]
     g = shape(rec['geom'])
     for part in (g.geoms if g.geom_type == 'MultiPolygon' else [g]):
@@ -415,14 +452,42 @@ def figures(rec, dom, blocks, Xd, rates, geo, fit, ser, core, rg, site, lat0, lo
                  fontsize=10)
     ax.legend(fontsize=8)
 
+    # ---- panel 3: the slump profile -------------------------------------
+    # The stereonet shows DIRECTIONS, and lower-hemisphere folding puts a head
+    # vector and a toe vector (which are antipodal under a rotation) at the same
+    # spot, separable only by fill. So the head-down / toe-up signature — the
+    # thing that actually says "gravitational slump" — is invisible there. Plot
+    # it directly instead: rotational vertical rate against downslope position.
+    ax = axes[2]
+    dh = np.array([math.sin(math.radians(geo['drop_az'])),
+                   math.cos(math.radians(geo['drop_az']))])
+    sd = Xd[:, :2] @ dh
+    sd = sd - sd.mean()
+    rot = np.cross(np.tile(fit['omega'], (len(Xd), 1)), Xd - Xd.mean(axis=0))
+    ax.axhline(0, color='#888', lw=0.8)
+    ax.axvline(0, color='#ddd', lw=0.8)
+    ax.scatter(sd, U[:, 2], marker='s', s=26, c='none', edgecolors='#b9c2bf',
+               linewidths=1.0, label='total vertical rate', zorder=2)
+    ax.scatter(sd, rot[:, 2], marker='o', s=46, c=C_ASC, edgecolors='k',
+               linewidths=0.3, label='rotational part', zorder=3)
+    if len(sd) > 2:
+        cf = np.polyfit(sd, rot[:, 2], 1)
+        xs = np.linspace(sd.min(), sd.max(), 2)
+        ax.plot(xs, np.polyval(cf, xs), color='#D55E00', lw=1.6, zorder=4,
+                label=f'{cf[0]*1000:+.1f} mm/yr per km')
+    ax.set_xlabel('downslope position (m)  ← head    toe →')
+    ax.set_ylabel('vertical rate (mm/yr)')
+    ax.set_title('slump profile: head down, toe up?', fontsize=10)
+    ax.legend(fontsize=8, loc='best')
+
     ident = dom.get('identifiability')
-    stereonet(axes[2], rg, Xd, rates, fit, geo, U, ident)
+    stereonet(axes[3], rg, Xd, rates, fit, geo, U, ident)
     if ident and ident.get('axis_identified'):
         sub = f'axis identified; {dom["ang_pole_deg"]:.0f}° from expected pole'
     else:
         sub = ('rotation axis not identified from 2 look directions\n'
                'mass-lowering is the usable test')
-    axes[2].set_title(f'gravitational consistency\n{sub}', fontsize=10)
+    axes[3].set_title(f'gravitational consistency\n{sub}', fontsize=10)
     plt.tight_layout()
     p1 = KIN / f'{tag}_fit.png'
     plt.savefig(p1, dpi=110, bbox_inches='tight'); plt.close()
