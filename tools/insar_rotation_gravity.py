@@ -139,7 +139,11 @@ def stereo_xy(az, pl):
     upper = pl < 0
     if upper:
         az, pl = (az + 180) % 360, -pl
-    r = math.sqrt(2) * math.sin(math.radians(90 - pl) / 2) / math.sqrt(2)
+    # Equal-area: r = sqrt(2) sin((90-pl)/2), which is exactly 1 at pl=0 —
+    # a horizontal line plots ON the rim. (The first version divided by
+    # sqrt(2) twice and compressed the whole net to r<=0.707; Hig's
+    # expected-pole-on-perimeter framing exposed it.)
+    r = math.sqrt(2) * math.sin(math.radians(90 - pl) / 2)
     return r * math.sin(math.radians(az)), r * math.cos(math.radians(az)), upper
 
 
@@ -154,6 +158,78 @@ def analyze(name, site, rows, X, domain_idx, suspect):
     om, b = fit['omega'], fit['b']
     print(f'  rigid fit: rms {fit["rms"]:.1f} mm/yr  R2 {fit["r2"]:.2f}  '
           f'|omega| {np.linalg.norm(om)*1000:.2f} mrad/yr  rank {fit["rank"]}/6')
+
+    # ---- Hig's geometric framing (2026-08-22) --------------------------
+    # AVERAGE dropline from a plane fit over the domain's DEM samples (one
+    # smooth surface, not a cloud of 30 m point gradients); expected
+    # gravitational pole = HORIZONTAL axis ⊥ dropline -> sits on the
+    # stereonet perimeter. Consistency = angle(fitted pole, expected pole)
+    # + the SENSE of rotation about it (mass-lowering or not).
+    A = np.c_[dom_X[:, 0], dom_X[:, 1], np.ones(len(dom_X))]
+    plane_coef = np.linalg.lstsq(A, dom_X[:, 2], rcond=None)[0]
+    grad = plane_coef[:2]
+    slope_avg = math.degrees(math.atan(np.linalg.norm(grad)))
+    d_h = -grad / max(np.linalg.norm(grad), 1e-12)          # horizontal downhill
+    drop = np.array([d_h[0], d_h[1], -math.tan(math.radians(slope_avg))])
+    drop /= np.linalg.norm(drop)                             # unit dropline
+    pole = np.array([-d_h[1], d_h[0], 0.0])                  # horizontal ⊥ dropline
+    # Mass-lowering sign convention: rotation about +pole must lower a point
+    # UPSLOPE of the centroid. Test empirically; flip if needed.
+    up_pt = dom_X.mean(axis=0) + 100 * np.array([-d_h[0], -d_h[1], math.tan(math.radians(slope_avg)) * 1])
+    if np.cross(pole, up_pt - dom_X.mean(axis=0))[2] > 0:
+        pole = -pole
+    ang_pole = math.degrees(math.acos(np.clip(abs(np.dot(
+        om / max(np.linalg.norm(om), 1e-12), pole)), 0, 1)))
+    sense = float(np.dot(om, pole))
+    print(f'  avg slope {slope_avg:.1f} deg, dropline az {(math.degrees(math.atan2(d_h[0], d_h[1]))+360)%360:.0f}')
+    print(f'  fitted pole vs expected (horiz ⊥ dropline): {ang_pole:.0f} deg apart; '
+          f'sense about expected pole: {"mass-LOWERING" if sense > 0 else "mass-RAISING"}')
+
+    # ---- constrained fit: rotation forced about the expected pole ------
+    # u = Omega (pole × x) + t_d dropline + t_z zhat   (3 params). The cost
+    # of the constraint vs the free 6-param fit is the honest measure of
+    # gravitational consistency — and if it is small, a steep FREE pole was
+    # ill-conditioning, not physics.
+    zhat = np.array([0, 0, 1.0])
+    Gc, Rc = [], []
+    for i, r in enumerate(dom_rows):
+        for dirn, l in (('ascending', L_ASC), ('descending', L_DESC)):
+            v = r.get(dirn)
+            if v is None:
+                continue
+            Gc.append([float(l @ np.cross(pole, dom_X[i])),
+                       float(l @ drop), float(l @ zhat)])
+            Rc.append(v)
+    Gc, Rc = np.array(Gc), np.array(Rc)
+    cc, *_ = np.linalg.lstsq(Gc, Rc, rcond=None)
+    predc = Gc @ cc
+    rmsc = float(np.sqrt(np.mean((Rc - predc) ** 2)))
+    nobs = len(Rc)
+    bic_free = nobs * math.log(max(fit['rms'] ** 2, 1e-12)) + 6 * math.log(nobs)
+    bic_con = nobs * math.log(max(rmsc ** 2, 1e-12)) + 3 * math.log(nobs)
+    print(f'  constrained (horiz-axis) fit: rms {rmsc:.1f} vs free {fit["rms"]:.1f} mm/yr; '
+          f'dBIC(con-free) {bic_con - bic_free:+.1f} '
+          f'({"constraint acceptable — gravity family fits" if bic_con - bic_free < 6 else "constraint costly — free pole is doing real work"})')
+    # SENSE is only claimable when Omega is resolved. Per Hig: in the pure-
+    # translation limit the pole DIRECTION stays well-defined (⊥ motion) but
+    # the sense becomes indeterminate — rotating one way about an axis
+    # infinitely far above is the same field as the other way about one
+    # infinitely far below. So test |Omega| against its standard error and
+    # say "indeterminate (translation limit)" when it doesn't clear.
+    dofc = max(nobs - 3, 1)
+    covc = (rmsc ** 2 * nobs / dofc) * np.linalg.pinv(Gc.T @ Gc)
+    se_om = math.sqrt(max(covc[0, 0], 1e-18))
+    t_om = cc[0] / se_om
+    if abs(t_om) < 2:
+        sense_txt = f'indeterminate (|Omega|/se = {abs(t_om):.1f} < 2 — translation limit)'
+    else:
+        sense_txt = ('mass-LOWERING' if cc[0] > 0 else 'mass-RAISING') +                     f' (|Omega|/se = {abs(t_om):.1f})'
+    print(f'  constrained Omega: {cc[0]*1000:+.3f} ± {se_om*1000:.3f} mrad/yr -> sense {sense_txt}; '
+          f'translation (dropline, vertical): ({cc[1]:+.1f}, {cc[2]:+.1f}) mm/yr')
+    fit.setdefault('geo', {})
+    fit['geo_sense'] = sense_txt
+    fit['geo'] = {'drop': drop, 'pole': pole, 'ang_pole': ang_pole,
+                  'rms_con': rmsc, 'dbic': bic_con - bic_free, 'omega_con': cc[0]}
 
     U = np.cross(np.tile(om, (len(dom_X), 1)), dom_X) + b     # mm/yr, 3D
     uz = U[:, 2]
@@ -244,6 +320,19 @@ def analyze(name, site, rows, X, domain_idx, suspect):
             x, y, up = stereo_xy(az, pl)
             ax.scatter(x, y, marker='s', s=90, c='none' if up else C_AXIS,
                        edgecolors=C_AXIS, linewidths=1.6, zorder=4)
+    # Hig's reference geometry: the average dropline and the EXPECTED pole
+    geo = fit['geo']
+    az, pl = az_plunge(geo['drop'])
+    x, y, _ = stereo_xy(az, pl)
+    ax.scatter(x, y, marker='v', s=170, c='#000000', edgecolors='k', zorder=5)
+    for v in (geo['pole'], -geo['pole']):
+        az, pl = az_plunge(v)
+        x, y, _ = stereo_xy(az, max(pl, 0.0))
+        ax.scatter(x, y, marker='*', s=260, c='#E69F00', edgecolors='k',
+                   linewidths=0.8, zorder=5)
+    ax.scatter([], [], marker='v', s=120, c='#000000', label='avg dropline (plane fit)')
+    ax.scatter([], [], marker='*', s=160, c='#E69F00', edgecolors='k',
+               label=f'expected pole (perimeter); fitted pole {geo["ang_pole"]:.0f}° away')
     ax.scatter([], [], marker='o', s=60, c=C_ASC, edgecolors=C_ASC, label='motion (filled = downward)')
     ax.scatter([], [], marker='o', s=60, c='none', edgecolors=C_ASC, label='motion upward / suspect DEM')
     ax.scatter([], [], marker='v', s=42, c=C_SLOPE, edgecolors=C_SLOPE, label='3DEP downslope')
