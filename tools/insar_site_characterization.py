@@ -232,14 +232,20 @@ def characterize(name, site):
             if best is None or abs(r['ascending']['rate']) > abs(best['ascending']['rate']):
                 best = r
     ctrl = next((r for r in rows if r['group'] == 'ring' and r['ascending']), None)
-    for r, lbl, col in ((best, 'fastest in-polygon', '#c22'), (ctrl, 'ring control', '#888')):
+    # Colorblind-safe: series differ by SHAPE and FILL, not hue alone
+    # (Okabe-Ito blue + open black triangles; Hig is colorblind).
+    for r, lbl, kw in ((best, 'fastest in-polygon',
+                        dict(marker='o', ms=5, color='#0072B2', ls='none')),
+                       (ctrl, 'ring control',
+                        dict(marker='^', ms=6, mfc='none', color='#000000',
+                             mew=1.1, ls='none'))):
         if not r:
             continue
         f = r['ascending']
         for s_ in np.unique(f['sid']):
             m = f['sid'] == s_
-            ax.plot(f['t'][m] + 2016.5, f['d'][m], '.', ms=4, color=col,
-                    label=lbl if s_ == f['sid'].min() else None)
+            ax.plot(f['t'][m] + 2016.5, f['d'][m],
+                    label=lbl if s_ == f['sid'].min() else None, **kw)
     ax.set_xlabel('year'); ax.set_ylabel('LOS displacement (mm)')
     ax.legend(); ax.set_title('ascending time series (dots only; stacks have own datums)')
     plt.tight_layout()
