@@ -100,6 +100,15 @@
       <tr><td>Ω (common window)</td><td class="kin-num">{{ d.common_window.omega_urad_yr|floatformat:1 }} ±
         {{ d.common_window.se|floatformat:1 }} µrad/yr · rms {{ d.common_window.rms|floatformat:1 }} mm/yr</td></tr>
       {% endif %}
+      {% if d.reference_field %}
+      <tr><td>Reference-field check</td><td class="kin-num">
+        surrounding stable ground carries a trend of
+        {{ d.reference_field.trend.ascending.grad_mm_yr_km|floatformat:1 }} /
+        {{ d.reference_field.trend.descending.grad_mm_yr_km|floatformat:1 }} mm/yr/km (asc/desc) ·
+        that trend alone would produce Ω = {{ d.reference_field.omega_from_trend_alone|floatformat:1 }} ·
+        removing it gives Ω = {{ d.reference_field.omega_detrended|floatformat:1 }} µrad/yr
+        <span style="color:#777">(sensitivity, not a correction we apply)</span></td></tr>
+      {% endif %}
       {% if d.identifiability %}
       <tr><td>Rotation axis</td><td class="kin-num">
         {% if d.identifiability.axis_identified %}
@@ -126,6 +135,15 @@
 
   <h2 style="font-size:16px; margin-top:30px;">How to read these</h2>
   <ul style="font-size:13.5px; line-height:1.55;">
+    <li><b>The correlated part of the noise probably comes from far away.</b> The
+      product's time series are referenced to ground inferred to be stable, so
+      spatially correlated error is largely <i>baseline</i> error rather than a
+      local property of the slope. That splits into two effects that need keeping
+      apart. Broadly correlated error is nearly uniform across a domain and is
+      absorbed by the drift terms, so it barely touches Ω — a gradient estimator
+      is close to orthogonal to a uniform offset. A residual <i>trend</i> across
+      the domain is the part that maps onto Ω, and the row above measures it
+      directly against the surrounding ground.</li>
     <li><b>The mapped extent is always evaluated, and often beats the grown
       fragments.</b> Growth minimises residual, so it prefers short, tightly
       rigid pieces — but a rotation is expressed <i>as</i> a downslope gradient,

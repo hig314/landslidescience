@@ -449,7 +449,52 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   hidden.
 </div>
 
-<h2><span class="step">Step 10</span>What we still owe</h2>
+<h2><span class="step">Step 10</span>Where the noise comes from</h2>
+<p>
+  Displacement is only ever <i>relative</i>: the processing measures each point
+  against a reference built from ground it infers to be stable. So a good deal of
+  what looks like noise in our data did not originate on our hillside at all — it is
+  error in that faraway reference, arriving here as a broad, smoothly varying field.
+</p>
+<p>
+  We measured it on the ground surrounding each landslide, which should be still.
+  It is not quite still: it carries a gentle tilt of roughly 2–3 mm/yr per kilometre,
+  and neighbouring points stay correlated out to nearly a kilometre. That has two
+  quite different consequences, and conflating them is easy.
+</p>
+<ul>
+  <li><b>It barely affects the uncertainty.</b> Error correlated over distances
+    larger than a landslide is nearly the same everywhere on it — and a uniform shift
+    is exactly what the drift term absorbs. Because rotation is measured as a
+    <i>difference</i> between the ends of a slide, it is almost blind to it.
+    Rebuilding the calculation with the measured correlation instead of assuming
+    independent noise changes the uncertainty by under 15%, and in the reassuring
+    direction.</li>
+  <li><b>It can bias the answer.</b> A residual <i>tilt</i> across the slide is a
+    different matter, because a tilt is precisely what rotation looks like. This one
+    we can measure rather than argue about: fit the tilt on the surrounding ground and
+    push it through the identical calculation. At Matanuska it accounts for
+    &minus;2.7 µrad/yr — it was <i>masking</i> the rotation, not manufacturing it, and
+    removing it raises the measured rotation from 7.9 to 10.6 µrad/yr.</li>
+</ul>
+<div class="key">
+  <b>Why we report that as a sensitivity and do not apply it.</b> The surrounding
+  ground is only a few hundred metres wide, and we have already watched blocks
+  outside the mapped outline join a moving element — the boundary of a landslide is
+  often gradational. Subtracting a tilt fitted on ground that is itself creeping would
+  quietly delete real deformation. So both numbers are published, and where they
+  disagree that disagreement is the honest uncertainty.
+</div>
+<p>
+  One consequence for how we sample: because this correlation is largely inherited
+  from elsewhere, the distance at which two of our measurements become independent is
+  not a property of the hillside, and treating a locally-measured correlation length
+  as an independence scale over-reads it. Uncertainties should be — and increasingly
+  are — checked against the surrounding ground directly rather than derived from an
+  assumed sampling density.
+</p>
+
+<h2><span class="step">Step 11</span>What we still owe</h2>
 <ul>
   <li><b>Calibration against noise.</b> A procedure that searches for well-fitting
     regions will find them in pure noise too. Until we run the identical search on

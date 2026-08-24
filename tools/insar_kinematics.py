@@ -207,6 +207,78 @@ def gradient_identifiability(Xd, rates, pole):
             'axis_identified': bool(sep == sep and sep < 20)}
 
 
+def reference_field_check(Xd, rates, halo, pole, drop, meas_omega):
+    """Does the surrounding 'stable' ground carry a trend that fakes rotation?
+
+    Hig's point (2026-08-23): DISP-S1 builds its displacement time series
+    against a reference derived from ground inferred to be stable, so the
+    spatially correlated part of what we call noise probably originates far
+    outside our domain — it is baseline error, not a local property of the
+    slope. Measuring a correlation length from local residuals and calling the
+    result an independence scale therefore over-reads it.
+
+    Two distinct consequences, and they need separating:
+
+    VARIANCE. Broadly correlated error is nearly uniform across a domain, and a
+    near-uniform offset is absorbed by the translation terms — Omega is a
+    GRADIENT estimator and is close to orthogonal to it. Rebuilding the
+    covariance from the measured halo correlation instead of assuming white
+    noise changes sigma(Omega) by less than 15% at Matanuska, and downward.
+
+    BIAS. A residual TREND across the domain is a different matter: it maps
+    straight onto Omega. That is measurable — fit a plane to the halo rates and
+    push it through the identical estimator. At Matanuska it accounts for
+    -2.7 urad/yr, i.e. it was suppressing the signal rather than creating it.
+
+    Reported as a sensitivity, never applied as a default correction: the halo
+    is only 300 m wide, blocks outside the mapped polygon have already been seen
+    joining kinematic elements, and subtracting a trend fitted on ground that is
+    itself moving would delete real deformation.
+    """
+    zhat = np.array([0, 0, 1.0])
+    trend = {}
+    for dn in ('ascending', 'descending'):
+        P = [(b['xy'][0], b['xy'][1], b['rate'][dn]) for b in halo
+             if b['rate'][dn] is not None]
+        if len(P) < 6:
+            return None
+        A = np.array([[p[0], p[1], 1.0] for p in P])
+        y = np.array([p[2] for p in P])
+        c, *_ = np.linalg.lstsq(A, y, rcond=None)
+        trend[dn] = {'coef': c, 'grad_mm_yr_km': float(math.hypot(c[0], c[1]) * 1000),
+                     'az': float((math.degrees(math.atan2(c[0], c[1])) + 360) % 360),
+                     'scatter': float(np.std(y - A @ c)), 'n': len(P)}
+
+    def solve(get):
+        G, R = [], []
+        for i in range(len(Xd)):
+            for dn in ('ascending', 'descending'):
+                v = get(i, dn)
+                if v is None:
+                    continue
+                l = L[dn]
+                G.append([float(l @ np.cross(pole, Xd[i])), float(l @ drop), float(l @ zhat)])
+                R.append(v)
+        if len(R) < 6:
+            return None
+        G, R = np.array(G), np.array(R)
+        c, *_ = np.linalg.lstsq(G, R, rcond=None)
+        return float(c[0]) * URAD
+
+    def plane(i, dn):
+        c = trend[dn]['coef']
+        return float(c[0] * Xd[i][0] + c[1] * Xd[i][1] + c[2])
+    spurious = solve(plane)
+    detrended = solve(lambda i, dn: (None if rates[i].get(dn) is None
+                                     else rates[i][dn] - plane(i, dn)))
+    return {'trend': {k: {kk: vv for kk, vv in v.items() if kk != 'coef'}
+                      for k, v in trend.items()},
+            'omega_from_trend_alone': spurious,
+            'omega_detrended': detrended,
+            'trend_share': (abs(spurious) / abs(meas_omega)
+                            if meas_omega and abs(meas_omega) > 1e-9 else None)}
+
+
 def free_fit(Xd, rates):
     """Unconstrained 6-parameter rigid fit."""
     G, R, tags = [], [], []
@@ -695,6 +767,7 @@ def main():
             if fit is None:
                 continue
             ident = gradient_identifiability(Xd, rates, geo['pole'])
+            halo_blocks = [b for b in blocks if not b['in']]
             con = fit_omega(Xd, rates, geo['pole'], geo['drop'])
             a = fit['omega'] / max(np.linalg.norm(fit['omega']), 1e-12)
             ang = math.degrees(math.acos(np.clip(abs(float(a @ geo['pole'])), 0, 1)))
@@ -781,6 +854,7 @@ def main():
                  'slope_deg': geo['slope_deg'], 'dropline_az': geo['drop_az'],
                  'ang_pole_deg': ang, 'dbic_constrained_minus_free': dbic,
                  'identifiability': ident,
+                 'reference_field': None,
                  'omega_urad_yr': con['omega'] * URAD if con else None,
                  'omega_se_urad_yr': con['se'] * URAD if con else None,
                  'omega_deg_per_kyr': (con['omega'] * URAD * DEG_PER_KYR) if con else None,
@@ -795,6 +869,17 @@ def main():
                  'omega_per_track': {dn: [{k2: q[k2] for k2 in
                                            ('t_mid', 'omega', 'se', 'n_blocks')}
                                           for q in v] for dn, v in per_track.items()}}
+            d['reference_field'] = reference_field_check(
+                Xd, rates, halo_blocks, geo['pole'], geo['drop'],
+                d['omega_urad_yr'])
+            rf = d['reference_field']
+            if rf:
+                print(f'    reference field: halo trend '
+                      f'{rf["trend"]["ascending"]["grad_mm_yr_km"]:.1f}/'
+                      f'{rf["trend"]["descending"]["grad_mm_yr_km"]:.1f} mm/yr/km '
+                      f'(asc/desc); it alone would fake Ω = '
+                      f'{rf["omega_from_trend_alone"]:+.1f}; detrended Ω = '
+                      f'{rf["omega_detrended"]:+.1f} µrad/yr')
             rec['domains'].append(d)
             print(f'  [{d["label"]}] {len(idx)} blocks ({d["n_in_polygon"]} in-polygon), '
                   f'downslope extent {d["downslope_extent_m"]:.0f} m, '
