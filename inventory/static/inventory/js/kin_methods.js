@@ -342,7 +342,70 @@
     window.addEventListener('resize', function () { scene.draw(); });
   }
 
-  function init() { sceneA(); sceneB(); sceneC(); sceneD(); }
+  /* ===================================================================== */
+  /* Scene E — the radar follows the rocks, not the landscape               */
+  /* ===================================================================== */
+  function sceneE() {
+    var cv = $('scE'); if (!cv) return;
+    var st = { speed: 6, t: 0.55 };
+    var SL = K.slope(25, 165, 4.6, 3.0);
+    var marks = [-3.2, -1.1, 1.1, 3.2];
+
+    var scene = new K.Scene(cv, { scale: 30, yaw: -1.25, pitch: 0.16, build: build });
+
+    function build() {
+      var it = [];
+      it.push({ t: 'poly', pts: SL.quad, fill: 'rgba(140,150,148,0.18)', c: '#9aa3a0', w: 1.2 });
+      // A fixed spot on the ground: the surface there is unchanged, so a
+      // measurement tied to the LOCATION would report nothing at all.
+      var fixed = SL.at(0.4, -2.2);
+      it.push({ t: 'line', a: fixed, b: V.add(fixed, [0, 0, 2.4]), c: '#b3bab8',
+                w: 1.2, dash: [3, 3] });
+      it.push({ t: 'dot', a: fixed, r: 5, c: '#fff', hollow: true, edge: true,
+                label: 'fixed spot: no change' , lc: '#6f7a77' });
+      // Marked rocks, which DO move — down the surface, hence downward.
+      marks.forEach(function (s0) {
+        var p0 = SL.at(s0, 1.0);
+        var p1 = SL.at(s0 + st.speed * st.t * 0.16, 1.0);
+        it.push({ t: 'dot', a: p0, r: 3.2, c: '#b3bab8' });
+        it.push({ t: 'arrow', a: p0, b: p1, c: C.motion, w: 2.4, head: 8 });
+      });
+      it.push({ t: 'text', a: SL.at(3.9, 1.0), s: 'marked rocks move', c: C.motion,
+                font: '600 12px system-ui, sans-serif', dx: 10 });
+      // the vertical drop of a moving rock, drawn against the unchanged surface
+      var a0 = SL.at(-1.1, 1.0), a1 = SL.at(-1.1 + st.speed * st.t * 0.16, 1.0);
+      it.push({ t: 'line', a: a1, b: [a1[0], a1[1], a0[2]], c: '#D55E00', w: 2 });
+      it.push({ t: 'text', a: [a1[0], a1[1], (a0[2] + a1[2]) / 2], s: 'it descends',
+                c: '#D55E00', dx: 8, font: '600 11.5px system-ui, sans-serif' });
+      return it;
+    }
+
+    function readout() {
+      var dip = 25 * Math.PI / 180;
+      var uh = st.speed, uz = -uh * Math.tan(dip);
+      var u = V.add(V.mul([SL.drop[0], SL.drop[1], 0], 0), V.mul(SL.drop, uh / Math.cos(dip)));
+      var a = V.dot(u, K.LOS.asc), d = V.dot(u, K.LOS.desc);
+      $('roE').innerHTML =
+        'Material slides <b>' + uh.toFixed(1) + ' mm/yr</b> along a 25° surface whose shape never changes.<br>' +
+        'Elevation change at any fixed spot: <b>0.00 mm/yr</b> &mdash; a survey that re-measured the ' +
+        'landscape would find nothing.<br>' +
+        'Vertical motion of the rocks themselves: <b style="color:#D55E00">' + uz.toFixed(2) +
+        ' mm/yr</b>, and the radar reads <span style="color:' + C.asc + '"><b>' + fmt(a, 2) +
+        '</b></span> / <span style="color:' + C.desc + '"><b>' + fmt(d, 2) +
+        '</b></span> mm/yr. The signal is real, and it is not elevation change.';
+    }
+    function upd() { scene.refresh(); readout(); }
+    var el = $('scE_speed');
+    if (el) el.addEventListener('input', function () {
+      st.speed = +el.value;
+      var lab = $('scE_speed_v'); if (lab) lab.textContent = el.value;
+      upd();
+    });
+    upd();
+    window.addEventListener('resize', function () { scene.draw(); });
+  }
+
+  function init() { sceneA(); sceneB(); sceneC(); sceneD(); sceneE(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();

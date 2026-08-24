@@ -112,8 +112,8 @@
           gradient rank {{ d.identifiability.rank12 }}/12
         {% endif %}</td></tr>
       {% endif %}
-      <tr><td>Mean vertical rate</td><td class="kin-num">{{ d.uz_mean_mm_yr|floatformat:1 }} mm/yr
-        [null-space range {{ d.uz_lo|floatformat:1 }}, {{ d.uz_hi|floatformat:1 }}] — {{ d.verdict }}</td></tr>
+      <tr><td>Mean vertical rate</td><td class="kin-num">{{ d.uz_mean_mm_yr|floatformat:1 }} mm/yr —
+        <b>{{ d.verdict }}</b></td></tr>
     </tbody></table>
 
     {% for f in d.figs %}
@@ -156,8 +156,15 @@
       rotating about the gravitationally expected pole?" is a well-posed
       one-parameter question and is what Ω and Ω(t) report. "What is the
       rotation axis?" is not answerable from two look directions on a deforming
-      slope. Mass-lowering (mean vertical rate) is likewise robust, and stays
-      the usable gravitational test.</li>
+      slope.</li>
+    <li><b>Trust Ω, not the mean vertical rate.</b> The direction the satellites
+      cannot see is pure sideways drift — no rotation in it at all — pointing
+      north–south and tilted about 10° above horizontal. Invisible drift therefore
+      carries invisible <i>vertical</i> motion, and the domain-average vertical
+      rate slides with it (0.18 mm/yr for every 1 mm/yr of drift), so
+      "is the mass falling?" has no answer from this data alone. Ω about a
+      specified axis is completely unaffected by the same shift, because a pure
+      drift contributes no rotation. It is the quantity to read.</li>
     <li><b>The period average can be meaningless.</b> Where Ω changes sign inside
       the record, averaging it produces a number near zero that describes no
       actual state of the slope. Read the time series first.</li>

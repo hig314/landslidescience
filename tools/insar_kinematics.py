@@ -486,7 +486,7 @@ def figures(rec, dom, blocks, Xd, rates, geo, fit, ser, core, rg, site, lat0, lo
         sub = f'axis identified; {dom["ang_pole_deg"]:.0f}° from expected pole'
     else:
         sub = ('rotation axis not identified from 2 look directions\n'
-               'mass-lowering is the usable test')
+               'Ω about the expected pole is the invariant quantity')
     axes[3].set_title(f'gravitational consistency\n{sub}', fontsize=10)
     plt.tight_layout()
     p1 = KIN / f'{tag}_fit.png'
@@ -732,9 +732,20 @@ def main():
             scale = float(np.sqrt(np.mean(fit['obs'] ** 2))) / max(float(np.abs(Un).max()), 1e-12)
             shift = abs(float(np.mean(Un[:, 2])) * scale)
             mu = float(np.mean(U[:, 2]))
-            verdict = ('mass-lowering (robust to null space)' if mu + shift < 0 else
-                       'NOT lowering (robust to null space)' if mu - shift > 0 else
-                       'indeterminate — sign flips within the N-S null space')
+            # HONESTY ABOUT WHAT THE MEAN VERTICAL RATE IS WORTH.
+            # The unobservable direction is 100% translation (verified: the null
+            # vector's rotation part is ~1e-18), pointing north-south and tilted
+            # ~10 deg above horizontal. So undetectable drift carries an
+            # undetectable VERTICAL component, and the domain-mean uz slides
+            # with it: at Matanuska it runs +0.8 to -6.4 mm/yr across a
+            # plausible range of invisible drift, changing 0.18 mm/yr for every
+            # 1 mm/yr of drift. Mass-lowering is therefore NOT determined by the
+            # data alone. Omega about a specified axis is exactly invariant
+            # under the same shift, because a pure translation has no rotational
+            # part to contribute. Omega is the usable test; mean uz is not.
+            duz_per_drift = abs(float(nullv[3:][2]) / max(np.linalg.norm(nullv[3:]), 1e-12))
+            verdict = ('not determined by the data alone — the invisible drift '
+                       f'moves it {duz_per_drift:.2f} mm/yr per mm/yr')
 
             t_lo = min(s[0] for s in spans.values())
             t_hi = max(s[1] for s in spans.values())
@@ -775,6 +786,7 @@ def main():
                  'omega_deg_per_kyr': (con['omega'] * URAD * DEG_PER_KYR) if con else None,
                  'sigma': t_om, 'sense': sense,
                  'uz_mean_mm_yr': mu, 'uz_lo': mu - shift, 'uz_hi': mu + shift,
+                 'uz_sensitivity_per_drift': duz_per_drift,
                  'verdict': verdict, 'common_window': com,
                  'omega_series': [{k2: s[k2] for k2 in
                                    ('t_mid', 't0', 't1', 'omega', 'se', 'n_obs',
@@ -795,7 +807,7 @@ def main():
                       f'|S|/|W| {ident["strain_to_rotation"]:.2f}; rank {ident["rank12"]}/12 -> '
                       f'{"axis identified" if ident["axis_identified"] else "AXIS NOT IDENTIFIED"}')
             print(f'    pole {ang:.0f}° from expected; ΔBIC {dbic:+.1f}; '
-                  f'mean uz {mu:+.1f} [{mu - shift:+.1f}, {mu + shift:+.1f}] — {verdict}')
+                  f'mean uz {mu:+.1f} mm/yr — {verdict}')
             if com:
                 print(f'    common-window ({ov_lo:.1f}–{ov_hi:.1f}) Ω = '
                       f'{com["omega_urad_yr"]:+.1f} ± {com["se"]:.1f} µrad/yr '

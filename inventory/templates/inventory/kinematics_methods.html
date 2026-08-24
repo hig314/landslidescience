@@ -133,7 +133,75 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   processing recovers it from these two passes alone.
 </div>
 
-<h2><span class="step">Step 2</span>One point is hopeless. A whole hillside is not.</h2>
+<h2><span class="step">Step 2</span>The radar follows the rocks, not the landscape</h2>
+<p>
+  There is a second property of the measurement that matters as much as the first,
+  and it is easy to get backwards. The radar echo from a patch of ground is not an
+  even average over that patch. It is dominated by whatever within it reflects
+  brightly — boulders, rock faces, angular blocks. The interferometer compares the
+  travel time to <i>those reflectors</i> between two passes, so what it measures is
+  <b>the displacement of material</b>, not the change in the shape of the landscape.
+</p>
+<p>
+  Physically: it is a <b>Lagrangian</b> measurement, following the rocks, rather than
+  an <b>Eulerian</b> one, watching a fixed location. The distinction is invisible in
+  most settings and decisive on a slope.
+</p>
+<p>
+  Consider material creeping downslope along a surface whose <i>shape</i> stays the
+  same — a landslide in steady motion. Survey the topography twice and nothing has
+  changed anywhere. But every rock has slid down the incline, so every rock is lower
+  than it was, and the radar sees it:
+</p>
+
+<div class="fig">
+  <canvas id="scE"></canvas>
+  <div class="hint">drag to rotate</div>
+  <div class="ctl">
+    <label>downslope speed <input type="range" id="scE_speed" min="0" max="20" step="1" value="6">
+      <span class="val" id="scE_speed_v">6</span> mm/yr</label>
+  </div>
+  <div class="ro" id="roE"></div>
+  <div class="cap">
+    <b>Nothing changes, and yet something moves.</b> The hillside's shape is fixed, so
+    the elevation at the hollow marker never changes. The marked rocks slide along the
+    surface — and because the surface tilts, sliding along it means going <i>down</i>.
+    The radar reports that descent, correctly.
+  </div>
+</div>
+
+<div class="math">
+  vertical motion of the material &nbsp;=&nbsp; (elevation change of the landscape)
+  &nbsp;&minus;&nbsp; (downslope speed) × tan(slope angle)
+</div>
+<p>
+  On a 25° slope, material creeping 6 mm/yr downhill descends 2.8 mm/yr even where the
+  topography is perfectly steady. This is the same relation glaciologists call
+  emergence and submergence velocity, and it has two consequences we rely on:
+</p>
+<ul>
+  <li><b>Our model is already the right kind.</b> We describe the motion of a body of
+    material, and the radar measures the motion of material. Slope-parallel sliding
+    enters our equations with exactly the downward component above — no correction is
+    needed, and none is applied.</li>
+  <li><b>These rates cannot be compared with elevation-change maps.</b> Differencing
+    two elevation models measures how the landscape changed; radar measures how the
+    rock moved. On a slope the two differ by the downslope term above, and a
+    disagreement between them is not necessarily an error in either.</li>
+</ul>
+<div class="warn">
+  <b>Where this gets fragile.</b> The reasoning holds while the same reflectors keep
+  dominating the echo. If bright reflectors tumble, weather, get buried, or move far
+  enough to leave the patch, the comparison is no longer between the same objects and
+  the measurement degrades — usually into noise, but not neutrally. Processing keeps
+  the ground that stays <i>consistent</i> between passes, and ground that is
+  deforming hard is exactly the ground that tends not to. So the parts of a landslide
+  we can measure are biased toward its better-behaved parts, and rates from this
+  method should be read as <b>likely conservative</b>. This is one reason the
+  fast-moving core of a slide can appear as a hole in the data rather than as a peak.
+</div>
+
+<h2><span class="step">Step 3</span>One point is hopeless. A whole hillside is not.</h2>
 <p>
   The usual escape is to <i>assume</i> something — most commonly that the ground
   slides parallel to the slope surface. That works, but it quietly assumes the
@@ -169,7 +237,7 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   conclusions could move along it.
 </p>
 
-<h2><span class="step">Step 3</span>Why rotation survives when everything else fails</h2>
+<h2><span class="step">Step 4</span>Why rotation survives when everything else fails</h2>
 <p>
   There is a second, less obvious gain, and it does a lot of work later. Compare
   what the two ingredients of rigid motion look like across a hillside:
@@ -210,7 +278,7 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   </div>
 </div>
 
-<h2><span class="step">Step 4</span>Bringing gravity in — as a test, not an assumption</h2>
+<h2><span class="step">Step 5</span>Bringing gravity in — as a test, not an assumption</h2>
 <p>
   A landslide is driven by gravity, so its motion should have a particular geometry.
   We make that expectation concrete before looking at the answer:
@@ -241,13 +309,13 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
     <b>Falling downhill while part of you goes up.</b> As the block rotates, the head
     drops and the toe <i>rises</i> — and the centre of mass falls the whole time. So
     measured uplift at the toe of a landslide is not a contradiction and not a data
-    error; it is what a slump looks like. We test gravitational consistency by asking
-    whether the average vertical motion is downward, never by requiring every point
-    to descend.
+    error; it is what a slump looks like. Note that we do <i>not</i> test this by
+    averaging the vertical motion &mdash; Step 7 explains why that average is not
+    something this data can pin down. We test it through the rotation rate itself.
   </div>
 </div>
 
-<h2><span class="step">Step 5</span>Reading the pictures — and one trap in them</h2>
+<h2><span class="step">Step 6</span>Reading the pictures — and one trap in them</h2>
 <p>
   Geologists conventionally plot directions on a <b>stereonet</b>: imagine every
   direction as an arrow from the centre of a sphere, keep only the lower half, and
@@ -279,7 +347,7 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   rotation and swamps it in any direction plot.
 </p>
 
-<h2><span class="step">Step 6</span>What this can and cannot determine</h2>
+<h2><span class="step">Step 7</span>What this can and cannot determine</h2>
 <p>
   Real hillsides are not rigid — they stretch, compress and shear internally. A more
   honest description of the velocity field allows all of that:
@@ -310,8 +378,35 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   answerable. So we ask the first question, and we report the second as undetermined
   whenever the test above says it is.
 </p>
+<h3>Why we do not report whether the mass is falling</h3>
+<p>
+  The unmeasured direction from Step 1 turns out to be <b>pure sideways drift</b> —
+  it contains no rotation whatsoever. That single fact sorts our quantities into
+  trustworthy and untrustworthy, and not the way we first assumed.
+</p>
+<p>
+  Because that invisible direction is tilted about 10° above horizontal, drift we
+  cannot detect carries vertical motion we cannot detect. The domain-average vertical
+  rate therefore slides along with it — at Matanuska it ranges from +0.8 to
+  &minus;6.4 mm/yr across a plausible range of invisible drift, moving 0.18 mm/yr for
+  every 1 mm/yr of drift. <b>"Is the mass falling?" has no answer from two look
+  directions.</b>
+</p>
+<p>
+  The rotation rate about a specified axis is, by contrast, <b>exactly unchanged</b>
+  by the same shift — a uniform drift has no rotation in it to contribute, so it
+  cannot alter a rotation rate. That invariance, not the vertical average, is what
+  makes &Omega; the quantity we report.
+</p>
+<div class="key">
+  <b>The short version of Steps 1, 2 and 7.</b> Two satellites give two numbers about
+  a three-dimensional motion of material. Averages over the missing direction are not
+  recoverable; <i>gradients across a hillside</i> are. So we build every conclusion on
+  how motion changes from one end of a landslide to the other, and treat any quantity
+  that depends on the overall drift as undetermined.
+</div>
 
-<h2><span class="step">Step 7</span>Rotation changes over time</h2>
+<h2><span class="step">Step 8</span>Rotation changes over time</h2>
 <p>
   A single rate averaged over nine years can describe a state the slope was never
   in. We therefore re-fit the rotation in overlapping two-year windows, holding the
@@ -334,7 +429,7 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   anything three-dimensional.
 </div>
 
-<h2><span class="step">Step 8</span>Choosing what counts as one moving body</h2>
+<h2><span class="step">Step 9</span>Choosing what counts as one moving body</h2>
 <p>
   Everything above assumes we know which points belong together. We grow candidate
   domains outward from the strongest signal, adding neighbours while each one stays
@@ -354,7 +449,7 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   hidden.
 </div>
 
-<h2><span class="step">Step 9</span>What we still owe</h2>
+<h2><span class="step">Step 10</span>What we still owe</h2>
 <ul>
   <li><b>Calibration against noise.</b> A procedure that searches for well-fitting
     regions will find them in pure noise too. Until we run the identical search on
