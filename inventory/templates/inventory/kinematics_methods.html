@@ -373,28 +373,46 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   horizontal one lands on the rim.
 </p>
 <p>
-  The convention has a catch that cost us a genuine misreading of our own results.
-  Only the lower hemisphere is drawn, so an upward direction is flipped through the
-  centre and plotted at its opposite. Under a rotation, the head and the toe move in
-  <i>exactly opposite</i> directions — so they land on the same spot:
+  Rotation puts a strong constraint on where those points can fall. Every velocity
+  from a rotation is perpendicular to the axis, so if the axis is horizontal — as
+  gravity requires — <b>every motion direction lies in one vertical plane</b>, and a
+  vertical plane draws as a <b>straight line through the centre</b> of the net.
+</p>
+<p>
+  How much of that line gets used is the informative part, and it is not 180°. The
+  motion directions fan by the angle the block subtends <i>at the rotation axis</i>.
+  A body wrapped halfway around its axis would have its head and toe moving oppositely
+  — but that is a hemisphere, not a hillside. Push the axis further away and the fan
+  narrows; in the limit it vanishes and every point moves in parallel, which is
+  translation. Drag the slider from a tightly curved failure surface out to the
+  translation limit:
 </p>
 
 <div class="fig">
   <canvas id="scD"></canvas>
   <div class="hint">drag to rotate</div>
+  <div class="ctl">
+    <label>how far away is the axis
+      <input type="range" id="scD_h" min="0.25" max="6" step="0.05" value="1">
+      <span class="val" id="scD_h_v">1.0</span></label>
+  </div>
   <div class="ro" id="roD"></div>
   <div class="cap">
-    <b>Why the stereonet cannot show a slump.</b> The head arrow and the toe arrow
-    are equal and opposite. The upward one is folded through the origin (dashed) and
-    lands on top of the other, distinguishable only by being drawn hollow. The
-    up-and-down structure — the actual evidence of rotation — is invisible.
+    <b>The fan measures the failure surface.</b> Bring the axis close and the arrows
+    swing through a wide range; push it away and they line up. Because the fan is
+    the block's length divided by its distance to the axis, measuring the fan
+    measures how tightly the failure surface is curved &mdash; and therefore roughly
+    how deep it is. At Matanuska the fitted axis sits about 690 m above the block
+    centre for a 1100 m slide, a fan near 90°: classic circular-slump geometry.
   </div>
 </div>
 <p>
-  So on the results pages we plot the rotation two further ways: as a
-  <b>downslope profile</b> of vertical rate, which shows head-down/toe-up directly,
-  and with the overall drift removed, because the drift is often as large as the
-  rotation and swamps it in any direction plot.
+  One catch remains in the convention. Only the lower half of the sphere is drawn, so
+  an upward direction is folded through the centre and re-plotted at its opposite,
+  hollow. A slump's toe moves upward, so part of the fan reappears at the far end of
+  the line rather than continuing along it — worth knowing before reading one of
+  these. Because of that, the results pages also carry a <b>downslope profile</b> of
+  vertical rate, which shows head-down/toe-up without any folding to decode.
 </p>
 
 <h2><span class="step">Step 7</span>What this can and cannot determine</h2>

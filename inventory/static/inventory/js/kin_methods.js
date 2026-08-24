@@ -277,67 +277,62 @@
   }
 
   /* ===================================================================== */
-  /* Scene D — how a stereonet folds directions, and what it hides          */
+  /* Scene D — how wide do the motion vectors fan?                          */
   /* ===================================================================== */
   function sceneD() {
     var cv = $('scD'); if (!cv) return;
-    var SL = K.slope(25, 165, 1, 1);
+    // Axis height above the block, in block-lengths. Hig, 2026-08-23: the fan is
+    // the angle the block subtends AT THE AXIS, so it is set by this ratio and
+    // collapses to zero as the axis recedes. An earlier version of this page
+    // claimed head and toe always move oppositely, which is only true for a body
+    // wrapping halfway round the axis.
+    var st = { h: 1.0 };
+    var SL = K.slope(25, 165, 4.0, 2.4);
+    var marks = [-3.6, -1.8, 0, 1.8, 3.6];
 
-    function vecs() {
-      // head and toe motion under a rotation about the pole: exactly opposite
-      var head = V.cross(SL.pole, V.mul(SL.drop, -3));
-      var toe = V.cross(SL.pole, V.mul(SL.drop, 3));
-      return [{ v: V.unit(head), n: 'head' }, { v: V.unit(toe), n: 'toe' }];
-    }
+    function centre() { return V.mul(SL.normal, st.h * 8.0); }
 
-    var scene = new K.Scene(cv, { scale: 62, yaw: -0.7, pitch: 0.3, build: build });
+    var scene = new K.Scene(cv, { scale: 26, yaw: -1.2, pitch: 0.2, build: build });
 
     function build() {
-      var it = [];
-      // equator + lower hemisphere meridians
-      var N = 64, i;
-      for (i = 0; i < N; i++) {
-        var a0 = i / N * 6.2832, a1 = (i + 1) / N * 6.2832;
-        it.push({ t: 'line', a: [Math.cos(a0), Math.sin(a0), 0],
-                  b: [Math.cos(a1), Math.sin(a1), 0], c: '#c9d0ce', w: 1 });
-      }
-      function meridian(az, t) {
-        return [Math.cos(az) * Math.sin(t), Math.sin(az) * Math.sin(t),
-                -Math.abs(Math.cos(t))];
-      }
-      for (var m = 0; m < 4; m++) {
-        var az = m / 4 * Math.PI;
-        for (i = 0; i < N / 2; i++) {
-          var t0 = i / (N / 2) * Math.PI, t1 = (i + 1) / (N / 2) * Math.PI;
-          it.push({ t: 'line', a: meridian(az, t0), b: meridian(az, t1), c: '#e8ecea', w: 0.8 });
-        }
-      }
-      vecs().forEach(function (r) {
-        var up = r.v[2] > 0;
-        var plotted = up ? V.mul(r.v, -1) : r.v;   // antipodal fold
-        it.push({ t: 'arrow', a: [0, 0, 0], b: r.v, c: up ? '#009E73' : C.asc, w: 2.4,
-                  head: 9, label: r.n + (up ? ' (up)' : ' (down)') });
-        if (up) {
-          it.push({ t: 'line', a: r.v, b: plotted, c: '#009E73', w: 1, dash: [3, 3], alpha: 0.7 });
-        }
-        it.push({ t: 'dot', a: plotted, r: 6, c: up ? '#fff' : C.asc,
-                  hollow: up, edge: true });
-        // where it lands on the horizontal disc
-        it.push({ t: 'line', a: plotted, b: [plotted[0], plotted[1], 0], c: '#b9c2bf',
-                  w: 0.9, dash: [2, 3] });
+      var it = [], O = centre();
+      it.push({ t: 'poly', pts: SL.quad, fill: 'rgba(140,150,148,0.18)', c: '#9aa3a0', w: 1.2 });
+      it.push({ t: 'line', a: V.add(O, V.mul(SL.pole, -3.2)), b: V.add(O, V.mul(SL.pole, 3.2)),
+                c: C.axis, w: 2.2, dash: [7, 4] });
+      it.push({ t: 'dot', a: O, r: 4, c: C.axis, label: 'rotation axis' });
+      marks.forEach(function (s0) {
+        var r = SL.at(s0, 0);
+        var u = V.cross(SL.pole, V.sub(r, O));
+        var n = V.norm(u); if (n < 1e-9) return;
+        it.push({ t: 'line', a: O, b: r, c: '#d5dad8', w: 0.8 });
+        it.push({ t: 'dot', a: r, r: 3, c: '#5c6664' });
+        it.push({ t: 'arrow', a: r, b: V.add(r, V.mul(u, 2.6 / n)), c: C.motion, w: 2.2, head: 8 });
       });
       return it;
     }
 
     function readout() {
+      var O = centre();
+      var a = V.cross(SL.pole, V.sub(SL.at(-3.6, 0), O));
+      var b = V.cross(SL.pole, V.sub(SL.at(3.6, 0), O));
+      var fan = Math.acos(Math.max(-1, Math.min(1,
+        V.dot(V.unit(a), V.unit(b))))) * 180 / Math.PI;
+      var R = V.norm(V.sub(O, SL.at(0, 0)));
       $('roD').innerHTML =
-        'Both vectors are the same rotation seen at opposite ends of the block, so they point ' +
-        '<b>exactly opposite ways</b>. The stereonet only plots the lower half of the sphere, so ' +
-        'the upward one is folded through the centre &mdash; and lands <b>on top of</b> its partner, ' +
-        'told apart only by being drawn hollow. That is why the head-down/toe-up signature is ' +
-        'invisible on a stereonet, and why the methods below plot it as a downslope profile instead.';
+        'Axis sits <b>' + R.toFixed(1) + '</b> block-half-lengths away · head and toe motion differ in ' +
+        'direction by <b>' + fan.toFixed(0) + '°</b><br>' +
+        '<span style="color:#555">On a stereonet all of these plot along one straight line through ' +
+        'the centre &mdash; but they occupy only <b>' + fan.toFixed(0) + '°</b> of it. Push the axis ' +
+        'away and the fan closes toward zero: that is the translation limit, where every point moves ' +
+        'the same way.</span>';
     }
     function upd() { scene.refresh(); readout(); }
+    var el = $('scD_h');
+    if (el) el.addEventListener('input', function () {
+      st.h = +el.value;
+      var lab = $('scD_h_v'); if (lab) lab.textContent = (+el.value).toFixed(1);
+      upd();
+    });
     upd();
     window.addEventListener('resize', function () { scene.draw(); });
   }

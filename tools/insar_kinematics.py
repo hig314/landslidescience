@@ -317,6 +317,69 @@ def weighted_omega(Xd, sub, pole, drop):
             'sigma_min': float(sig.min()), 'sigma_max': float(sig.max())}
 
 
+def rotation_axis(Xd, rates, geo):
+    """Where is the rotation axis, and how tightly is the failure surface curved?
+
+    Hig, 2026-08-23: a rotating block's motion vectors fan by the angle the block
+    subtends AT THE AXIS, not by 180 degrees. Only a body wrapping halfway round
+    the axis — a hemisphere — has its head and toe moving oppositely; a real slump
+    subtends far less, and in the translation limit the fan collapses to a point.
+    So the fan width is a measurement of the failure surface's curvature.
+
+    Solve for the axis line of the gravity-constrained model: the locus where the
+    rotational velocity cancels the cross-axis translation,
+        x_axis = (w x b_perp) / |w|^2 .
+    The distance from the block centre to that line is the radius of curvature R,
+    the fan is L/R, and for a circular arc the depth below the chord follows as
+    R(1 - cos(L/2R)) — an order-of-magnitude failure depth, no more.
+    """
+    zhat = np.array([0, 0, 1.0])
+    pole, drop = geo['pole'], geo['drop']
+    G, R = [], []
+    for i in range(len(Xd)):
+        for dn in ('ascending', 'descending'):
+            v = rates[i].get(dn)
+            if v is None:
+                continue
+            l = L[dn]
+            G.append([float(l @ np.cross(pole, Xd[i])), float(l @ drop), float(l @ zhat)])
+            R.append(v)
+    if len(R) < 6:
+        return None
+    c, *_ = np.linalg.lstsq(np.array(G), np.array(R), rcond=None)
+    w = pole * c[0]
+    wn = np.linalg.norm(w)
+    if wn < 1e-12:
+        return None
+    b = c[1] * drop + c[2] * zhat
+    # NOTE: for this constrained family b is perpendicular to the pole by
+    # construction (drop and z both lie in the vertical plane containing the
+    # dropline), so there is no screw component to remove. Kept explicit so the
+    # step is not mistaken for a result.
+    b_perp = b - float(b @ (w / wn)) * (w / wn)
+    x_axis = np.cross(w, b_perp) / wn ** 2
+    cen = Xd.mean(axis=0)
+    d = x_axis - cen
+    d_perp = d - float(d @ (w / wn)) * (w / wn)
+    Rr = float(np.linalg.norm(d_perp))
+    dh = np.array([math.sin(math.radians(geo['drop_az'])),
+                   math.cos(math.radians(geo['drop_az']))])
+    sd = Xd[:, :2] @ dh
+    Lb = float(sd.max() - sd.min())
+    fan = Lb / Rr if Rr > 1e-9 else 0.0
+    depth = Rr * (1 - math.cos(min(fan, math.pi) / 2)) if Rr > 1e-9 else None
+    return {'radius_m': Rr, 'height_above_centre_m': float(d_perp[2]),
+            'block_length_m': Lb, 'fan_deg': math.degrees(fan),
+            'implied_depth_m': depth,
+            # Classify on the FAN, not on R vs L: the fan is what is actually
+            # observable on a stereonet and what distinguishes the regimes.
+            'regime': ('translation-like — motion vectors nearly parallel'
+                       if math.degrees(fan) < 20 else
+                       'tightly curved — vectors fan widely'
+                       if math.degrees(fan) > 90 else
+                       'circular-slump geometry — radius near block length')}
+
+
 def free_fit(Xd, rates):
     """Unconstrained 6-parameter rigid fit."""
     G, R, tags = [], [], []
@@ -410,7 +473,7 @@ def core_series(ser, blocks, Xd, pole, drop, v2):
     return sorted(out, key=lambda r: r['t_mid'])
 
 
-def stereonet(ax, rg, Xd, rates, fit, geo, U, ident=None, suspect=()):
+def stereonet(ax, rg, Xd, rates, fit, geo, U, ident=None, suspect=(), Ucon=None):
     th = np.linspace(0, 2 * np.pi, 200)
     ax.plot(np.sin(th), np.cos(th), 'k-', lw=1)
     for rr in (0.33, 0.66):
@@ -434,7 +497,14 @@ def stereonet(ax, rg, Xd, rates, fit, geo, U, ident=None, suspect=()):
     # axis by construction, so it must lie on the great circle drawn below, and
     # the head-down / toe-up split reads directly off it. Bulk translation is a
     # separate statement and gets its own single marker.
-    rot = np.cross(np.tile(fit['omega'], (len(Xd), 1)), Xd - Xd.mean(axis=0))
+    # Plot the GRAVITY-MODEL velocity, not "rotation about the centroid". The
+    # latter is origin-dependent and forces the vectors to fan a full 180 deg,
+    # which is the artefact behind the earlier claim that head and toe land on
+    # the same spot. The constrained model's velocity is a genuine rotation about
+    # the fitted axis, so it lies on the great circle below and fans only by the
+    # angle the block subtends there.
+    rot = Ucon if Ucon is not None else np.cross(
+        np.tile(fit['omega'], (len(Xd), 1)), Xd - Xd.mean(axis=0))
     for j in range(len(Xd)):
         if np.linalg.norm(rot[j]) < 1e-12:
             continue
@@ -443,7 +513,8 @@ def stereonet(ax, rg, Xd, rates, fit, geo, U, ident=None, suspect=()):
         ax.scatter(x, y, marker='o', s=50, c='none' if up else C_ASC,
                    edgecolors=C_ASC, linewidths=1.3, zorder=3)
     # the plane of rotational motion: every point above must fall on it
-    om_u = fit['omega'] / max(np.linalg.norm(fit['omega']), 1e-12)
+    om_u = (geo['pole'] if Ucon is not None
+            else fit['omega'] / max(np.linalg.norm(fit['omega']), 1e-12))
     e1 = np.cross(om_u, np.array([0., 0., 1.]))
     if np.linalg.norm(e1) < 1e-9:
         e1 = np.array([1., 0., 0.])
@@ -493,9 +564,9 @@ def stereonet(ax, rg, Xd, rates, fit, geo, U, ident=None, suspect=()):
     ax.scatter([], [], marker='*', s=150, c='#E69F00', edgecolors='k',
                label='expected gravitational pole')
     ax.scatter([], [], marker='o', s=50, c=C_ASC, edgecolors=C_ASC,
-               label='rotational motion, downward (head)')
+               label='gravity-model motion, downward')
     ax.scatter([], [], marker='o', s=50, c='none', edgecolors=C_ASC, linewidths=1.3,
-               label='rotational motion, upward (toe) — real')
+               label='gravity-model motion, upward — real')
     ax.scatter([], [], marker='D', s=80, c='#CC79A7', edgecolors='#CC79A7',
                label='bulk translation of the domain')
     ax.scatter([], [], marker='.', s=20, c='#b9c2bf',
@@ -591,7 +662,26 @@ def figures(rec, dom, blocks, Xd, rates, geo, fit, ser, core, rg, site, lat0, lo
     ax.legend(fontsize=8, loc='best')
 
     ident = dom.get('identifiability')
-    stereonet(axes[3], rg, Xd, rates, fit, geo, U, ident)
+    Ucon = None
+    zh = np.array([0, 0, 1.0])
+    Gc, Rc = [], []
+    for i in range(len(Xd)):
+        for dn in ('ascending', 'descending'):
+            if rates[i].get(dn) is None:
+                continue
+            l = L[dn]
+            Gc.append([float(l @ np.cross(geo['pole'], Xd[i])),
+                       float(l @ geo['drop']), float(l @ zh)])
+            Rc.append(rates[i][dn])
+    if len(Rc) >= 6:
+        cc, *_ = np.linalg.lstsq(np.array(Gc), np.array(Rc), rcond=None)
+        # Every term here is perpendicular to the expected pole -- the cross
+        # product by construction, and both drop and z lie in the vertical plane
+        # containing the dropline. So the whole field lands on the great circle,
+        # fanning only by the block's angular subtense at the axis.
+        Ucon = (np.cross(np.tile(geo['pole'] * cc[0], (len(Xd), 1)), Xd)
+                + cc[1] * geo['drop'] + cc[2] * zh)
+    stereonet(axes[3], rg, Xd, rates, fit, geo, U, ident, Ucon=Ucon)
     if ident and ident.get('axis_identified'):
         sub = f'axis identified; {dom["ang_pole_deg"]:.0f}° from expected pole'
     else:
@@ -909,7 +999,7 @@ def main():
                  'slope_deg': geo['slope_deg'], 'dropline_az': geo['drop_az'],
                  'ang_pole_deg': ang, 'dbic_constrained_minus_free': dbic,
                  'identifiability': ident,
-                 'reference_field': None, 'weighted': None,
+                 'reference_field': None, 'weighted': None, 'rotation_axis': None,
                  'omega_urad_yr': con['omega'] * URAD if con else None,
                  'omega_se_urad_yr': con['se'] * URAD if con else None,
                  'omega_deg_per_kyr': (con['omega'] * URAD * DEG_PER_KYR) if con else None,
@@ -924,6 +1014,12 @@ def main():
                  'omega_per_track': {dn: [{k2: q[k2] for k2 in
                                            ('t_mid', 'omega', 'se', 'n_blocks')}
                                           for q in v] for dn, v in per_track.items()}}
+            d['rotation_axis'] = rotation_axis(Xd, rates, geo)
+            ra = d['rotation_axis']
+            if ra:
+                print(f'    rotation axis {ra["radius_m"]:.0f} m from the block centre '
+                      f'({ra["height_above_centre_m"]:+.0f} m vertically); fan L/R = '
+                      f'{ra["fan_deg"]:.0f}°; {ra["regime"]}')
             d['weighted'] = weighted_omega(Xd, sub, geo['pole'], geo['drop'])
             if d['weighted']:
                 w = d['weighted']
