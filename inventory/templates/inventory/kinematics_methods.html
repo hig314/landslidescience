@@ -200,6 +200,25 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   method should be read as <b>likely conservative</b>. This is one reason the
   fast-moving core of a slide can appear as a hole in the data rather than as a peak.
 </div>
+<p>
+  There is an interesting limiting case worth stating, because it marks the boundary
+  of the whole idea. Imagine a surface reflecting <i>uniformly</i> everywhere rather
+  than from scattered bright blocks. Now sliding gains reflectors along one edge of
+  the patch at exactly the rate it loses them along the other, so the patch really is
+  unchanged — there is no longer anything identifiable to follow. In the extreme of a
+  perfectly featureless surface sliding within itself, nothing is observable at all,
+  and the measurement collapses toward reporting the landscape rather than the
+  material. Between the extremes the loss shows up not as a wrong answer but as lost
+  <b>coherence</b>: the echoes stop resembling each other and the pixel drops out.
+</p>
+<p>
+  For our purposes this stays a footnote, for two reasons. Boulder rubble is about as
+  far from a featureless surface as terrain gets, and the geometry is not close:
+  Sentinel-1 resolves roughly 5 × 20 m and the product is posted at 30 m, while the
+  motions here are centimetres per year. Even over the full nine-year record the
+  fraction of reflectors crossing the edge of a patch is on the order of one percent,
+  and between any two passes it is a few hundredths of a percent.
+</p>
 
 <h2><span class="step">Step 3</span>One point is hopeless. A whole hillside is not.</h2>
 <p>
