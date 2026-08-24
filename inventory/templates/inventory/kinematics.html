@@ -100,6 +100,12 @@
       <tr><td>Ω (common window)</td><td class="kin-num">{{ d.common_window.omega_urad_yr|floatformat:1 }} ±
         {{ d.common_window.se|floatformat:1 }} µrad/yr · rms {{ d.common_window.rms|floatformat:1 }} mm/yr</td></tr>
       {% endif %}
+      {% if d.weighted %}
+      <tr><td>Weighting sensitivity</td><td class="kin-num">
+        equal weights {{ d.omega_urad_yr|floatformat:1 }} ± {{ d.omega_se_urad_yr|floatformat:1 }} ·
+        inverse-variance {{ d.weighted.omega_urad_yr|floatformat:1 }} ± {{ d.weighted.se|floatformat:1 }} µrad/yr
+        <span style="color:#777">(per-block σ {{ d.weighted.sigma_min|floatformat:2 }}–{{ d.weighted.sigma_max|floatformat:2 }} mm/yr)</span></td></tr>
+      {% endif %}
       {% if d.reference_field %}
       <tr><td>Reference-field check</td><td class="kin-num">
         surrounding stable ground carries a trend of
@@ -135,6 +141,13 @@
 
   <h2 style="font-size:16px; margin-top:30px;">How to read these</h2>
   <ul style="font-size:13.5px; line-height:1.55;">
+    <li><b>Read the sensitivities, not just the σ.</b> Two defensible choices —
+      whether to remove the surrounding ground's trend, and whether to weight
+      blocks by their own noise — move Ω by more than its quoted uncertainty. At
+      Matanuska's mapped extent the three treatments give +7.9, +10.6 and +14.9
+      µrad/yr. All are positive and mass-lowering, so the <i>direction</i> is
+      solid while the <i>magnitude</i> is uncertain by roughly a factor of two.
+      Quote the range, not one number.</li>
     <li><b>The correlated part of the noise probably comes from far away.</b> The
       product's time series are referenced to ground inferred to be stable, so
       spatially correlated error is largely <i>baseline</i> error rather than a

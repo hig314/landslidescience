@@ -279,6 +279,44 @@ def reference_field_check(Xd, rates, halo, pole, drop, meas_omega):
                             if meas_omega and abs(meas_omega) > 1e-9 else None)}
 
 
+def weighted_omega(Xd, sub, pole, drop):
+    """Omega with blocks weighted by 1/sigma^2 instead of equally.
+
+    Equal weighting assumes every block is equally trustworthy. It is not: at
+    Matanuska per-block rate uncertainty spans 14.5x, and re-fitting with
+    inverse-variance weights moves Omega from +7.9 to +14.9 urad/yr — a change
+    almost twice the quoted uncertainty. That is a genuine sensitivity of the
+    estimator, not of the data, and it is reported rather than silently adopted:
+    weights estimated from short series carry their own bias, and down-weighting
+    could in principle discard the deforming blocks that carry the signal (here
+    it does the opposite, which is reassuring but not a proof).
+    """
+    zhat = np.array([0, 0, 1.0])
+    G, R, W = [], [], []
+    for i, b in enumerate(sub):
+        for dn in ('ascending', 'descending'):
+            v = b['rate'][dn]
+            sg = (b.get('sig') or {}).get(dn)
+            if v is None or not sg:
+                continue
+            l = L[dn]
+            G.append([float(l @ np.cross(pole, Xd[i])), float(l @ drop), float(l @ zhat)])
+            R.append(v); W.append(1.0 / max(sg, 1e-3) ** 2)
+    if len(R) < 6:
+        return None
+    G, R, W = np.array(G), np.array(R), np.array(W)
+    Aw = G * W[:, None]
+    c, *_ = np.linalg.lstsq(Aw.T @ G, Aw.T @ R, rcond=None)
+    res = R - G @ c
+    dof = max(len(R) - 3, 1)
+    s2 = float((W * res * res).sum()) / dof / max(W.mean(), 1e-12)
+    cov = s2 * np.linalg.pinv(G.T @ (G * W[:, None])) * W.mean()
+    sig = np.array([1.0 / math.sqrt(w) for w in W])
+    return {'omega_urad_yr': float(c[0]) * URAD,
+            'se': float(math.sqrt(max(cov[0, 0], 0.0))) * URAD,
+            'sigma_min': float(sig.min()), 'sigma_max': float(sig.max())}
+
+
 def free_fit(Xd, rates):
     """Unconstrained 6-parameter rigid fit."""
     G, R, tags = [], [], []
@@ -672,6 +710,23 @@ def build_blocks(site, geom, sc, v2, rg):
             b['series'][dn] = [P[i]['ps'][dn] for i in members if P[i]['ps'][dn]]
             vals = [P[i]['rate'][dn] for i in members if P[i]['rate'][dn] is not None]
             b['rate'][dn] = float(np.median(vals)) if vals else None
+            # Per-block rate uncertainty from its own time-series scatter. Needed
+            # because the noise is NOT uniform: a resolution cell that is
+            # internally deforming has its scatterers moving relative to ONE
+            # ANOTHER, which scrambles the speckle far faster than bulk motion
+            # does. Measured at Columbia, where |rate| and series scatter
+            # correlate at +0.85; absent at Matanuska (+0.05).
+            sd = []
+            for ps in b['series'][dn]:
+                t = ps['t'] - ps['t'].min()
+                span = max(float(t.max() - t.min()), 1e-6)
+                A = np.zeros((len(t), 1 + len(np.unique(ps['sid'])))); A[:, 0] = t
+                for j, s_ in enumerate(np.unique(ps['sid'])):
+                    A[ps['sid'] == s_, 1 + j] = 1
+                co, *_ = np.linalg.lstsq(A, ps['d'], rcond=None)
+                sd.append(float(np.std(ps['d'] - A @ co)) /
+                          max(math.sqrt(len(t)) * span / 2, 1e-6))
+            b.setdefault('sig', {})[dn] = float(np.median(sd)) if sd else None
         if b['series']['ascending'] or b['series']['descending']:
             blocks.append(b)
     terr = rg.terrain_at([(b['lat'], b['lon']) for b in blocks])
@@ -854,7 +909,7 @@ def main():
                  'slope_deg': geo['slope_deg'], 'dropline_az': geo['drop_az'],
                  'ang_pole_deg': ang, 'dbic_constrained_minus_free': dbic,
                  'identifiability': ident,
-                 'reference_field': None,
+                 'reference_field': None, 'weighted': None,
                  'omega_urad_yr': con['omega'] * URAD if con else None,
                  'omega_se_urad_yr': con['se'] * URAD if con else None,
                  'omega_deg_per_kyr': (con['omega'] * URAD * DEG_PER_KYR) if con else None,
@@ -869,6 +924,13 @@ def main():
                  'omega_per_track': {dn: [{k2: q[k2] for k2 in
                                            ('t_mid', 'omega', 'se', 'n_blocks')}
                                           for q in v] for dn, v in per_track.items()}}
+            d['weighted'] = weighted_omega(Xd, sub, geo['pole'], geo['drop'])
+            if d['weighted']:
+                w = d['weighted']
+                print(f'    weighting sensitivity: equal-weight Ω '
+                      f'{d["omega_urad_yr"]:+.1f}±{d["omega_se_urad_yr"]:.1f} vs '
+                      f'inverse-variance {w["omega_urad_yr"]:+.1f}±{w["se"]:.1f} µrad/yr '
+                      f'(block σ spans {w["sigma_min"]:.2f}–{w["sigma_max"]:.2f} mm/yr)')
             d['reference_field'] = reference_field_check(
                 Xd, rates, halo_blocks, geo['pole'], geo['drop'],
                 d['omega_urad_yr'])

@@ -212,7 +212,38 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   <b>coherence</b>: the echoes stop resembling each other and the pixel drops out.
 </p>
 <p>
-  For our purposes this stays a footnote, for two reasons. Boulder rubble is about as
+  There is a sharper version of the problem than lost coherence, and it is the one
+  that actually costs us. The radar records a <i>single</i> phase for a patch, but
+  that phase is the sum of many returns of the same wavelength arriving with
+  different phases. If one bright reflector starts drifting out of the patch — or
+  simply moves <i>relative to its neighbours</i>, which is what internal deformation
+  means — its contribution to the sum changes, and the summed phase rotates. Only one
+  contributor changed, so the echoes still resemble each other; the pair does not
+  look bad. It just reports a displacement that the ground did not undergo.
+</p>
+<p>
+  We simulated it. Removing 30% of one reflector's contribution out of ten leaves the
+  pair looking almost perfect — correlation 0.99 — while already producing
+  <b>0.8–1.4 mm of false displacement</b>. Sustained over a record it fits as a false
+  <i>velocity</i> of a few tenths of a mm/yr per patch, and up to about ±1.2 mm/yr
+  where one reflector dominates. Coherence, the usual quality flag, barely reacts at
+  the levels that matter.
+</p>
+<div class="key">
+  <b>Why this does not wreck the result, and where it does bite.</b> The error depends
+  on each patch's own accidental arrangement of reflectors, so its sign is random from
+  patch to patch: averaged across the hundreds of measurements behind one landslide it
+  cancels, and rotation — a <i>difference</i> between the ends of a slide — is
+  insensitive to it. What it does do is make the noise <b>uneven</b>: patches that are
+  deforming internally are noisier, because their reflectors are moving with respect
+  to each other. We see exactly that at Columbia, where a patch's scatter and its
+  speed correlate at +0.85, and not at Matanuska, where they do not correlate at all.
+  Treating every patch as equally reliable is therefore wrong in principle, and at
+  Matanuska re-weighting by measured noise moves the answer by more than its stated
+  uncertainty. Both versions are reported for every element.
+</div>
+<p>
+  For our purposes the pixel-edge part of this stays a footnote, for two reasons. Boulder rubble is about as
   far from a featureless surface as terrain gets, and the geometry is not close:
   Sentinel-1 resolves roughly 5 × 20 m and the product is posted at 30 m, while the
   motions here are centimetres per year. Even over the full nine-year record the
