@@ -380,6 +380,71 @@ def rotation_axis(Xd, rates, geo):
                        'circular-slump geometry — radius near block length')}
 
 
+def topple_test(Xd, rates, geo):
+    """Flexural toppling as a rival to rotation — Hig's alternative, 2026-08-23.
+
+    A flexurally toppling slope is a stack of steeply-dipping slabs each tilting
+    outward about its base. The surface expression moves PERPENDICULAR TO THE
+    SLABS, which for steep slabs is roughly horizontal and directed out of the
+    hillside, with magnitude set by slab height. That gives a velocity field of
+    fixed DIRECTION and varying MAGNITUDE — and a magnitude that grows along the
+    slope is a gradient, which a rigid fit happily reports as rotation. Worse,
+    the apparent axis lands BELOW the surface, which is exactly the geometry we
+    were reading as a translation-limit signature.
+
+    It is not a nuisance hypothesis. Deep-seated failures classically begin as
+    flexural topples and evolve into rotational slides once damage links up into
+    a through-going shear surface, so both may be present, and toppling is not
+    rigid-body motion at all.
+
+    Model: u = (f0 + g*s) * n, with n fixed outward and horizontal (2 free
+    parameters), against the gravity-rotation family's three. Compared by BIC.
+
+    The catch this exposes: whether the two can be told apart is a property of
+    the LOOK GEOMETRY, not of the analysis. At Matanuska outward-horizontal
+    motion projects -0.022 on ascending and +0.297 on descending — 13:1 — so one
+    track carries almost no information about it and the models are nearly
+    indistinguishable. Breaking that needs a third geometry (azimuth offsets, a
+    different heading) or independent geomorphic evidence such as antislope
+    scarps and ridge-top trenches.
+    """
+    zhat = np.array([0, 0, 1.0])
+    pole, drop = geo['pole'], geo['drop']
+    az0 = geo['drop_az']
+    dh = np.array([math.sin(math.radians(az0)), math.cos(math.radians(az0))])
+    sd = Xd[:, :2] @ dh
+    sd = sd - sd.mean()
+    nh = np.array([dh[0], dh[1], 0.0])                 # outward, horizontal
+    obs, rows = [], []
+    for i in range(len(Xd)):
+        for dn in ('ascending', 'descending'):
+            if rates[i].get(dn) is None:
+                continue
+            obs.append(rates[i][dn]); rows.append((i, dn))
+    if len(obs) < 8:
+        return None
+    obs = np.array(obs); n = len(obs)
+
+    def bic(rms, p):
+        return n * math.log(max(rms ** 2, 1e-12)) + p * math.log(n)
+    G3 = np.array([[float(L[dn] @ np.cross(pole, Xd[i])), float(L[dn] @ drop),
+                    float(L[dn] @ zhat)] for i, dn in rows])
+    c3, *_ = np.linalg.lstsq(G3, obs, rcond=None)
+    r3 = float(np.sqrt(np.mean((obs - G3 @ c3) ** 2)))
+    A2 = np.array([[float(nh @ L[dn]), float(nh @ L[dn]) * sd[i]] for i, dn in rows])
+    c2, *_ = np.linalg.lstsq(A2, obs, rcond=None)
+    r2 = float(np.sqrt(np.mean((obs - A2 @ c2) ** 2)))
+    db = bic(r2, 2) - bic(r3, 3)
+    sa, sdd = float(nh @ L['ascending']), float(nh @ L['descending'])
+    ratio = abs(sdd) / max(abs(sa), 1e-9)
+    return {'rms_topple': r2, 'rms_rotation': r3, 'dbic_topple_minus_rotation': db,
+            'outward_mm_yr': float(c2[0]), 'outward_gradient_mm_yr_km': float(c2[1]) * 1000,
+            'sens_asc': sa, 'sens_desc': sdd, 'visibility_ratio': ratio,
+            'verdict': ('toppling preferred' if db < -6 else
+                        'rotation preferred' if db > 6 else
+                        'indistinguishable from rotation')}
+
+
 def free_fit(Xd, rates):
     """Unconstrained 6-parameter rigid fit."""
     G, R, tags = [], [], []
@@ -1000,6 +1065,7 @@ def main():
                  'ang_pole_deg': ang, 'dbic_constrained_minus_free': dbic,
                  'identifiability': ident,
                  'reference_field': None, 'weighted': None, 'rotation_axis': None,
+                 'topple': None,
                  'omega_urad_yr': con['omega'] * URAD if con else None,
                  'omega_se_urad_yr': con['se'] * URAD if con else None,
                  'omega_deg_per_kyr': (con['omega'] * URAD * DEG_PER_KYR) if con else None,
@@ -1014,6 +1080,13 @@ def main():
                  'omega_per_track': {dn: [{k2: q[k2] for k2 in
                                            ('t_mid', 'omega', 'se', 'n_blocks')}
                                           for q in v] for dn, v in per_track.items()}}
+            d['topple'] = topple_test(Xd, rates, geo)
+            tp = d['topple']
+            if tp:
+                print(f'    TOPPLE TEST: rms {tp["rms_topple"]:.2f} (2 par) vs rotation '
+                      f'{tp["rms_rotation"]:.2f} (3 par), ΔBIC {tp["dbic_topple_minus_rotation"]:+.1f} '
+                      f'-> {tp["verdict"]}; outward motion visible '
+                      f'{tp["visibility_ratio"]:.0f}:1 desc:asc')
             d['rotation_axis'] = rotation_axis(Xd, rates, geo)
             ra = d['rotation_axis']
             if ra:

@@ -517,7 +517,55 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   hidden.
 </div>
 
-<h2><span class="step">Step 10</span>Where the noise comes from</h2>
+<h2><span class="step">Step 10</span>A rival explanation we cannot yet rule out</h2>
+<p>
+  Rotation is not the only motion that produces a gradient along a slope, and one
+  rival matters enough to state plainly. A hillside can fail by <b>flexural
+  toppling</b>: instead of sliding as a block, it behaves as a stack of steeply
+  dipping slabs, each tilting outward about its own base like a row of books leaning
+  over.
+</p>
+<p>
+  The surface of such a slope moves <i>perpendicular to the slabs</i>. Because the
+  slabs are steep, that direction is close to <b>horizontal and outward</b> — the
+  hillside bulges out rather than sliding down — and the amount depends on how tall
+  each slab is. Where slab height grows along the slope, the motion grows with it,
+  and a growing motion along a slope is exactly the gradient we have been reading as
+  rotation. It even reproduces the odd detail: the apparent rotation axis lands
+  <i>below</i> the ground surface.
+</p>
+<div class="warn">
+  <b>At Matanuska this rival currently fits better than rotation.</b> The toppling
+  description uses two numbers where the rotation description uses three, and it
+  matches the measurements slightly more closely (ΔBIC &minus;12.8). We cannot
+  presently say which is happening.
+  <br><br>
+  The reason is geometric bad luck rather than sloppy analysis. Horizontal outward
+  motion at this slope projects &minus;0.022 onto the ascending line of sight and
+  +0.297 onto the descending one — <b>13 to 1</b>. One of our two viewpoints is
+  nearly blind to precisely the motion that would settle the question, so both
+  stories explain the same measurements.
+</div>
+<p>
+  This matters for interpretation as well as bookkeeping. Toppling is not rigid-body
+  motion at all, so the whole framework above describes it only approximately. And
+  the two are not exclusive: deep-seated failures classically <i>begin</i> as flexural
+  topples, which lock up as they progress, until accumulated damage links into a
+  through-going shear surface and the slope converts to a rotational slide. A slope
+  part-way through that transition would show both.
+</p>
+<p>
+  Three things would settle it, none of which we have yet: a <b>third viewing
+  geometry</b> (a differently-headed orbit, or along-track measurements) to see the
+  motion the current pair misses; <b>geomorphic evidence</b>, since toppling leaves a
+  distinctive signature of uphill-facing scarps and ridge-top trenches that sliding
+  does not; and <b>subsurface information</b> about whether a continuous shear
+  surface exists. Every element on the results pages now carries this test, and where
+  it returns "indistinguishable" the rotation figure should be read as one of two
+  live possibilities.
+</p>
+
+<h2><span class="step">Step 11</span>Where the noise comes from</h2>
 <p>
   Displacement is only ever <i>relative</i>: the processing measures each point
   against a reference built from ground it infers to be stable. So a good deal of
@@ -562,7 +610,7 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   assumed sampling density.
 </p>
 
-<h2><span class="step">Step 11</span>What we still owe</h2>
+<h2><span class="step">Step 12</span>What we still owe</h2>
 <ul>
   <li><b>Calibration against noise.</b> A procedure that searches for well-fitting
     regions will find them in pure noise too. Until we run the identical search on

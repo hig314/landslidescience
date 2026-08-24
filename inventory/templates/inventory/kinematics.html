@@ -100,6 +100,16 @@
       <tr><td>Ω (common window)</td><td class="kin-num">{{ d.common_window.omega_urad_yr|floatformat:1 }} ±
         {{ d.common_window.se|floatformat:1 }} µrad/yr · rms {{ d.common_window.rms|floatformat:1 }} mm/yr</td></tr>
       {% endif %}
+      {% if d.topple %}
+      <tr><td>Flexural topple?</td><td class="kin-num">
+        topple (2 par) rms {{ d.topple.rms_topple|floatformat:2 }} vs rotation (3 par)
+        rms {{ d.topple.rms_rotation|floatformat:2 }} · ΔBIC
+        {{ d.topple.dbic_topple_minus_rotation|floatformat:1 }} —
+        <b>{{ d.topple.verdict }}</b><br>
+        <span style="color:#777">outward motion is
+        {{ d.topple.visibility_ratio|floatformat:0 }}:1 more visible to descending than
+        ascending, which is why the two are hard to separate here</span></td></tr>
+      {% endif %}
       {% if d.rotation_axis %}
       <tr><td>Failure-surface geometry</td><td class="kin-num">
         rotation axis {{ d.rotation_axis.radius_m|floatformat:0 }} m from the block centre
@@ -150,6 +160,16 @@
 
   <h2 style="font-size:16px; margin-top:30px;">How to read these</h2>
   <ul style="font-size:13.5px; line-height:1.55;">
+    <li><b>Rotation is not the only thing that makes a gradient.</b> A flexurally
+      toppling slope — a stack of steep slabs each tilting outward about its base —
+      moves its surface <i>perpendicular to the slabs</i>, so roughly horizontally
+      outward, by an amount set by slab height. Where slab height grows along the
+      slope that is a gradient, and a rigid fit reports it as rotation, with an
+      apparent axis <i>below</i> the ground. Toppling is not rigid-body motion at
+      all, and deep-seated failures classically begin as topples before a
+      through-going shear surface turns them into rotational slides. The row above
+      tests it; where it says "indistinguishable", the rotation number should not be
+      read as established.</li>
     <li><b>How widely the motion fans tells you about the failure surface.</b> A
       rotation makes every velocity perpendicular to its axis, so on a stereonet the
       motion directions fall on a single straight line through the centre. They
