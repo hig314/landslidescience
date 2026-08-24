@@ -534,17 +534,33 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   rotation. It even reproduces the odd detail: the apparent rotation axis lands
   <i>below</i> the ground surface.
 </p>
+<p>
+  Taken naively, this rival appeared to <i>beat</i> rotation at Matanuska. It does
+  not, and the reason is a physical constraint that has to be written into the model:
+  <b>a topple can open tension cracks, but it cannot compress rock</b>. The surface
+  can move outward and it can move outward by different amounts in different places,
+  but it can never move <i>into</i> the hillside. Left unconstrained, the fit
+  exploited exactly that loophole — it pulled the head of the slide 20 mm/yr into
+  the mountain to buy itself a better match. Forbid that, and the apparent advantage
+  evaporates (ΔBIC from &minus;12.8 to &minus;1.5).
+</p>
+<div class="key">
+  <b>And then the head settles it.</b> Outward motion at this slope registers as
+  <i>positive</i> on the descending pass, so an admissible topple can only ever
+  predict positive values — the best it can manage at the head is +0.6 mm/yr. The
+  measurements there are <b>&minus;5.5 mm/yr</b>: the head is moving away from that
+  satellite, which is to say downward. A topple has no way to do that. A slump does
+  it by definition, because its head drops. The upper part of Matanuska is falling,
+  not bulging outward.
+</div>
 <div class="warn">
-  <b>At Matanuska this rival currently fits better than rotation.</b> The toppling
-  description uses two numbers where the rotation description uses three, and it
-  matches the measurements slightly more closely (ΔBIC &minus;12.8). We cannot
-  presently say which is happening.
-  <br><br>
-  The reason is geometric bad luck rather than sloppy analysis. Horizontal outward
-  motion at this slope projects &minus;0.022 onto the ascending line of sight and
-  +0.297 onto the descending one — <b>13 to 1</b>. One of our two viewpoints is
-  nearly blind to precisely the motion that would settle the question, so both
-  stories explain the same measurements.
+  <b>Still worth watching, and a warning for the wider search.</b> The margin is
+  physical rather than statistical — by fit quality alone the two remain close
+  (ΔBIC &minus;1.5), and the discrimination rests on the sign of the head motion at
+  about 1.5&sigma;. It also depended on luck: horizontal outward motion here projects
+  13 times more strongly onto one pass than the other, so had the slope faced a
+  different way we might have had no leverage at all. Whether these two can be told
+  apart is a property of the <i>viewing geometry at each site</i>, not of the method.
 </div>
 <p>
   This matters for interpretation as well as bookkeeping. Toppling is not rigid-body
@@ -560,9 +576,9 @@ InSAR returns a projection, not a vector. Everything downstream is a consequence
   motion the current pair misses; <b>geomorphic evidence</b>, since toppling leaves a
   distinctive signature of uphill-facing scarps and ridge-top trenches that sliding
   does not; and <b>subsurface information</b> about whether a continuous shear
-  surface exists. Every element on the results pages now carries this test, and where
-  it returns "indistinguishable" the rotation figure should be read as one of two
-  live possibilities.
+  surface exists. Every element on the results pages carries this test, constrained to
+  admissible toppling, together with what the head is doing — which is usually the
+  part that decides it.
 </p>
 
 <h2><span class="step">Step 11</span>Where the noise comes from</h2>

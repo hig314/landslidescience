@@ -431,18 +431,56 @@ def topple_test(Xd, rates, geo):
                     float(L[dn] @ zhat)] for i, dn in rows])
     c3, *_ = np.linalg.lstsq(G3, obs, rcond=None)
     r3 = float(np.sqrt(np.mean((obs - G3 @ c3) ** 2)))
-    A2 = np.array([[float(nh @ L[dn]), float(nh @ L[dn]) * sd[i]] for i, dn in rows])
-    c2, *_ = np.linalg.lstsq(A2, obs, rcond=None)
+    # KINEMATIC ADMISSIBILITY (Hig, 2026-08-23). A topple can open tension cracks
+    # but cannot compress the rock surface, so the outward displacement must be
+    # >= 0 everywhere and must not decrease downslope. Without that constraint
+    # the "topple" fit is free to move the head INTO the hillside, which is what
+    # it did at Matanuska (-20.3 mm/yr inward) and why it appeared to beat
+    # rotation by dBIC -12.8. Constrained, the advantage collapses to -1.5.
+    # Solved by exact non-negative least squares over the four active sets --
+    # only two coefficients, so no scipy dependency.
+    ds = sd - sd.min()                                  # 0 at the head
+    A2 = np.array([[float(nh @ L[dn]), float(nh @ L[dn]) * ds[i]] for i, dn in rows])
+    c_free, *_ = np.linalg.lstsq(A2, obs, rcond=None)
+    f_head, f_toe = float(c_free[0]), float(c_free[0] + c_free[1] * ds.max())
+    best = None
+    for mask in ((True, True), (True, False), (False, True), (False, False)):
+        cols = [k for k in (0, 1) if mask[k]]
+        c = np.zeros(2)
+        if cols:
+            sub = A2[:, cols]
+            cc, *_ = np.linalg.lstsq(sub, obs, rcond=None)
+            for k, v in zip(cols, cc):
+                c[k] = v
+        if c[0] < -1e-9 or c[1] < -1e-9:
+            continue
+        e = float(np.sum((obs - A2 @ c) ** 2))
+        if best is None or e < best[0]:
+            best = (e, c)
+    c2 = best[1]
     r2 = float(np.sqrt(np.mean((obs - A2 @ c2) ** 2)))
     db = bic(r2, 2) - bic(r3, 3)
+    # Sharper than BIC: an admissible topple cannot produce LOS of the sign
+    # opposite to (outward . l). Does the head defy it?
+    head_k = [k for k, (i, dn) in enumerate(rows)
+              if dn == 'descending' and sd[i] < np.percentile(sd, 25)]
+    head_obs = float(np.mean([obs[k] for k in head_k])) if head_k else None
+    head_floor = float(np.mean([A2[k] @ c2 for k in head_k])) if head_k else None
     sa, sdd = float(nh @ L['ascending']), float(nh @ L['descending'])
     ratio = abs(sdd) / max(abs(sa), 1e-9)
+    verdict = ('toppling preferred' if db < -6 else
+               'rotation preferred' if db > 6 else 'indistinguishable from rotation')
+    if (head_obs is not None and head_floor is not None
+            and sdd > 0 and head_obs < -1.0 and head_obs < head_floor - 1.0):
+        verdict += ' — but the head moves the way toppling cannot'
     return {'rms_topple': r2, 'rms_rotation': r3, 'dbic_topple_minus_rotation': db,
-            'outward_mm_yr': float(c2[0]), 'outward_gradient_mm_yr_km': float(c2[1]) * 1000,
+            'outward_head_mm_yr': float(c2[0]),
+            'outward_toe_mm_yr': float(c2[0] + c2[1] * ds.max()),
+            'unconstrained_head_mm_yr': f_head, 'unconstrained_toe_mm_yr': f_toe,
+            'unconstrained_inadmissible': bool(min(f_head, f_toe) < -0.5),
+            'head_observed_desc': head_obs, 'head_topple_floor': head_floor,
             'sens_asc': sa, 'sens_desc': sdd, 'visibility_ratio': ratio,
-            'verdict': ('toppling preferred' if db < -6 else
-                        'rotation preferred' if db > 6 else
-                        'indistinguishable from rotation')}
+            'verdict': verdict}
 
 
 def free_fit(Xd, rates):
@@ -1085,8 +1123,16 @@ def main():
             if tp:
                 print(f'    TOPPLE TEST: rms {tp["rms_topple"]:.2f} (2 par) vs rotation '
                       f'{tp["rms_rotation"]:.2f} (3 par), ΔBIC {tp["dbic_topple_minus_rotation"]:+.1f} '
-                      f'-> {tp["verdict"]}; outward motion visible '
-                      f'{tp["visibility_ratio"]:.0f}:1 desc:asc')
+                      f'-> {tp["verdict"]}')
+                if tp['unconstrained_inadmissible']:
+                    worst = min(tp['unconstrained_head_mm_yr'], tp['unconstrained_toe_mm_yr'])
+                    where = ('head' if tp['unconstrained_head_mm_yr'] <=
+                             tp['unconstrained_toe_mm_yr'] else 'toe')
+                    print(f'      (unconstrained fit wanted the {where} moving '
+                          f'{worst:+.1f} mm/yr INTO the slope — rejected as inadmissible)')
+                if tp['head_observed_desc'] is not None:
+                    print(f'      head band descending: observed {tp["head_observed_desc"]:+.2f}, '
+                          f'topple can only reach {tp["head_topple_floor"]:+.2f} mm/yr')
             d['rotation_axis'] = rotation_axis(Xd, rates, geo)
             ra = d['rotation_axis']
             if ra:
