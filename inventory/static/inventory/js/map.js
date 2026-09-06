@@ -1339,6 +1339,10 @@
             .catch(function (e) { console.error('Feature load failed:', e); });
 
         map.on('moveend', onMoveEnd);
+        // Raster-overlay section describes what covers the *current* view, so it
+        // re-renders on move. _rasterPanelRefresh no-ops unless the zoom band or
+        // the in-view set actually changed, so this is cheap.
+        map.on('moveend', _rasterPanelRefresh);
     }
 
     // Landslide data layers (points + the two polygon layers), shared by the
@@ -1493,6 +1497,10 @@
     }
     if (typeof maplibregl !== 'undefined' && maplibregl.addProtocol) {
         maplibregl.addProtocol('operacolor', _operaLoader);
+        // demshade:// — lidar DEM tiles shaded in the browser. Guarded because
+        // dem_shade.js/pmtiles are only loaded on the pages that need them; the
+        // raster panel degrades to "no lidar" rather than throwing if absent.
+        if (window.DemShade) DemShade.register(maplibregl);
     }
 
     function _operaSourceDef(track) {
@@ -1799,6 +1807,7 @@
         // susceptibility, below faults and all landslide data. Re-added after
         // every basemap switch, like everything else in this function.
         if (window._isInventoryEditor) _traceReplayLayers();
+        _lidarReplayLayers();
 
         map.addSource('landslides', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addSource('polygons',   { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -1953,7 +1962,10 @@
             });
             rm.appendChild(_buildSwipeUI());   // swipe/compare controls
             rm.appendChild(_buildOverlaysUI()); // susceptibility + OPERA raster overlays
-            if (window._isInventoryEditor) rm.appendChild(_buildTraceUI());   // GeoTIFF trace overlays
+            // Lidar DEMs + editor GeoTIFF uploads share one zoom-gated section;
+            // _buildRasterUI nests the (editor-only) upload UI inside itself.
+            rm.appendChild(_buildRasterUI());
+            _lidarFetch();
         }
         // The wiper's right-pane panel lists the same basemaps — refresh it so
         // newly merged QMS/shared layers appear there too.
@@ -2737,6 +2749,7 @@
         ovHdr.className = 'refmaps-category'; ovHdr.textContent = 'Overlays';
         p.appendChild(ovHdr);
         _ovRenderGrouped(p, 'right');
+        p.appendChild(_buildRasterUIRight());
     }
     function _wiperPanelShow() {
         _wiperPanelEnsure().style.display = '';
@@ -3061,6 +3074,420 @@
 
             box.appendChild(row);
         });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Georeferenced raster overlays — self-hosted lidar DEMs + editor uploads.
+    //
+    // Both are "a raster pinned to the ground that you trace landslides on", so
+    // they share one panel section. They differ in two ways that the UI has to
+    // respect: lidar is public and uploads are editor-only, and lidar arrives as
+    // one PMTiles archive per survey shaded client-side (see dem_shade.js) while
+    // uploads are pre-baked PNG pyramids.
+    //
+    // Zoom gating: below RASTER_UI_ZOOM a DEM overlay is useless — a 0.5 m survey
+    // at z8 is a smudge, and listing every survey in Alaska is noise. So far out,
+    // the panel offers only footprints (where does coverage exist?); zoomed in, it
+    // lists the rasters that actually cover the view.
+    // ---------------------------------------------------------------------------
+    var RASTER_UI_ZOOM = 10;
+    var _lidarCatalog = null;      // FeatureCollection from /lidar/catalog.geojson
+    var _lidarActive = {};         // id -> {preset, opacity}   (main map)
+    var _lidarActiveR = {};        // id -> {preset, opacity}   (wiper right pane)
+    var _lidarBbox = {};           // id -> [w, s, e, n]
+    var _rasterUiKey = '';         // last-rendered signature, to avoid churn
+
+    // No sliders here by design — tracing wants a stable, repeatable render, not
+    // a lighting studio. Values mirror the /lidar/ preview's presets.
+    var LIDAR_PRESETS = {
+        hillshade: { label: 'Hillshade',
+                     opts: { hs: 1, sl: 0, md: 0, as: 0, az: 315, alt: 45, ve: 1, bl: 0 } },
+        kbsp:      { label: 'KBSP (mod5+slope)',
+                     opts: { hs: 1, sl: 0.6, md: 1, as: 0, az: 315, alt: 45, ve: 1, bl: 0 } }
+    };
+
+    function _lidarFetch() {
+        if (_lidarCatalog || !window.DemShade) return;
+        fetch('/lidar/catalog.geojson')
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (fc) {
+                if (!fc) return;
+                _lidarCatalog = fc;
+                fc.features.forEach(function (f) {
+                    var p = f.properties, b = _geomBounds(f.geometry);
+                    _lidarBbox[p.id] = b;
+                    DemShade.addDataset(p.id, p.pmtiles_url);
+                });
+                _rasterUiKey = '';
+                _rasterPanelRefresh();
+            })
+            .catch(function () { /* lidar simply absent — panel still works */ });
+    }
+
+    function _geomBounds(geom) {
+        var w = 180, s = 90, e = -180, n = -90;
+        var polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+        polys.forEach(function (poly) {
+            poly.forEach(function (ring) {
+                ring.forEach(function (pt) {
+                    if (pt[0] < w) w = pt[0];
+                    if (pt[0] > e) e = pt[0];
+                    if (pt[1] < s) s = pt[1];
+                    if (pt[1] > n) n = pt[1];
+                });
+            });
+        });
+        return [w, s, e, n];
+    }
+
+    function _bboxInView(b) {
+        if (!b) return false;
+        var m = map.getBounds();
+        return !(b[2] < m.getWest() || b[0] > m.getEast() ||
+                 b[3] < m.getSouth() || b[1] > m.getNorth());
+    }
+
+    // Where raster overlays sit in the stack: below every data layer, same
+    // insertion chain the trace overlays use, so a traced polygon always draws
+    // on top of the image it came from.
+    function _rasterBeforeId(m) {
+        var beforeId;
+        ['pending-poly-fill']
+            .concat(SUSC_LAYERS.map(function (s) { return 'susc-' + s.key + '-layer'; }))
+            .concat(['faults-line', 'points'])
+            .some(function (cand) {
+                if (m.getLayer(cand)) { beforeId = cand; return true; }
+                return false;
+            });
+        return beforeId;
+    }
+
+    function _lidarLayerId(id) { return 'lidar-' + id; }
+
+    // Target map is a parameter so the wiper's right pane gets the same
+    // overlays: comparing two surveys of the same slope across the divider is
+    // the whole reason to have several DEMs of one place.
+    function _lidarAddLayer(id, m, state) {
+        m = m || map; state = state || _lidarActive;
+        if (!window.DemShade || !_lidarCatalog || !m) return;
+        var f = _lidarCatalog.features.filter(function (x) {
+            return x.properties.id === id;
+        })[0];
+        if (!f) return;
+        var p = f.properties;
+        var st = state[id] || (state[id] = { preset: 'hillshade', opacity: 1 });
+        var srcId = 'lidar-src-' + id, lyrId = _lidarLayerId(id);
+        var url = DemShade.url(id, LIDAR_PRESETS[st.preset].opts);
+        if (!m.getSource(srcId)) {
+            m.addSource(srcId, {
+                type: 'raster', tiles: [url], tileSize: 256,
+                minzoom: p.min_zoom, maxzoom: p.max_zoom,
+                bounds: _lidarBbox[id], attribution: p.title
+            });
+        } else {
+            m.getSource(srcId).setTiles([url]);
+        }
+        if (!m.getLayer(lyrId)) {
+            m.addLayer({
+                id: lyrId, type: 'raster', source: srcId,
+                paint: {
+                    'raster-opacity': st.opacity,
+                    // Zero both, or switching between two surveys cross-fades
+                    // through the basemap. Same fix as the /lidar/ preview.
+                    'raster-opacity-transition': { duration: 0, delay: 0 },
+                    'raster-fade-duration': 0
+                }
+            }, _rasterBeforeId(m));
+        } else {
+            m.setPaintProperty(lyrId, 'raster-opacity', st.opacity);
+        }
+    }
+
+    function _lidarRemoveLayer(id, m) {
+        m = m || map;
+        if (!m) return;
+        if (m.getLayer(_lidarLayerId(id))) m.removeLayer(_lidarLayerId(id));
+        if (m.getSource('lidar-src-' + id)) m.removeSource('lidar-src-' + id);
+    }
+
+    function _lidarReplayLayers() {
+        Object.keys(_lidarActive).forEach(function (id) { _lidarAddLayer(id, map, _lidarActive); });
+        if (_swipe.map && _swipe.map.__lsStyleReady) {
+            Object.keys(_lidarActiveR).forEach(function (id) {
+                _lidarAddLayer(id, _swipe.map, _lidarActiveR);
+            });
+        }
+    }
+
+    // ---- footprints (the zoomed-out view of "where is there data?") ----------
+    function _footprintFC(kind) {
+        if (kind === 'lidar') {
+            return _lidarCatalog || { type: 'FeatureCollection', features: [] };
+        }
+        return {
+            type: 'FeatureCollection',
+            features: _traceRasters.filter(function (r) {
+                return r.status === 'ready' && r.bounds_w != null;
+            }).map(function (r) {
+                return {
+                    type: 'Feature',
+                    properties: { id: r.id, title: r.title },
+                    geometry: { type: 'Polygon', coordinates: [[
+                        [r.bounds_w, r.bounds_s], [r.bounds_e, r.bounds_s],
+                        [r.bounds_e, r.bounds_n], [r.bounds_w, r.bounds_n],
+                        [r.bounds_w, r.bounds_s]]] }
+                };
+            })
+        };
+    }
+
+    var FOOTPRINT_STYLE = {
+        lidar: { color: '#0a7', id: 'fp-lidar' },
+        trace: { color: '#b5651d', id: 'fp-trace' }
+    };
+
+    // Footprints stay on at every zoom once enabled. Zoomed out they answer
+    // "where is there data?"; zoomed in they answer the different but equally
+    // useful "am I about to trace off the edge of the survey?" — so rather than
+    // dropping them, the fill fades away and the outline thins to a quiet edge
+    // line that never competes with the imagery underneath it.
+    function _footprintsSet(kind, on, m) {
+        m = m || map;
+        if (!m) return;
+        var st = FOOTPRINT_STYLE[kind], srcId = st.id + '-src';
+        if (!on) {
+            if (m.getLayer(st.id + '-line')) m.removeLayer(st.id + '-line');
+            if (m.getLayer(st.id + '-fill')) m.removeLayer(st.id + '-fill');
+            if (m.getSource(srcId)) m.removeSource(srcId);
+            return;
+        }
+        var fc = _footprintFC(kind);
+        if (m.getSource(srcId)) { m.getSource(srcId).setData(fc); return; }
+        m.addSource(srcId, { type: 'geojson', data: fc });
+        m.addLayer({ id: st.id + '-fill', type: 'fill', source: srcId,
+                     paint: {
+                         'fill-color': st.color,
+                         'fill-opacity': ['interpolate', ['linear'], ['zoom'],
+                                          6, 0.12, 10, 0.05, 12, 0]
+                     } },
+                   _rasterBeforeId(m));
+        m.addLayer({ id: st.id + '-line', type: 'line', source: srcId,
+                     paint: {
+                         'line-color': st.color,
+                         'line-dasharray': [2, 1],
+                         'line-width': ['interpolate', ['linear'], ['zoom'],
+                                        6, 1.5, 12, 1, 16, 0.8],
+                         'line-opacity': ['interpolate', ['linear'], ['zoom'],
+                                          6, 1, 12, 0.7, 16, 0.45]
+                     } },
+                   _rasterBeforeId(m));
+    }
+
+    // The merged section. Rebuilt in place (stable id) whenever the zoom band or
+    // the set of in-view rasters changes, so it always describes what is actually
+    // reachable from here rather than a static catalogue.
+    function _buildRasterUI() {
+        var wrap = document.createElement('div');
+        wrap.id = 'raster-overlays-ui';
+        wrap.style.cssText = 'margin-top:12px;';
+        _fillRasterUI(wrap);
+        return wrap;
+    }
+
+    function _rasterUiSignature() {
+        var z = map.getZoom();
+        if (z < RASTER_UI_ZOOM) return 'far';
+        var ids = [];
+        Object.keys(_lidarBbox).forEach(function (id) {
+            if (_bboxInView(_lidarBbox[id])) ids.push('L' + id);
+        });
+        if (window._isInventoryEditor) {
+            _traceRasters.forEach(function (r) {
+                if (r.status === 'ready' && _bboxInView(
+                        [r.bounds_w, r.bounds_s, r.bounds_e, r.bounds_n]))
+                    ids.push('T' + r.id);
+            });
+        }
+        return 'near:' + ids.sort().join(',');
+    }
+
+    function _rasterPanelRefresh() {
+        var wrap = document.getElementById('raster-overlays-ui');
+        if (!wrap) return;
+        var key = _rasterUiSignature();
+        if (key === _rasterUiKey) return;      // nothing changed — don't churn the DOM
+        _rasterUiKey = key;
+        wrap.innerHTML = '';
+        _fillRasterUI(wrap);
+        // The right pane lists the same in-view surveys, so it has to follow.
+        if (_swipe.on) _wiperPanelRefresh();
+    }
+
+    function _fillRasterUI(wrap) {
+        var hdr = document.createElement('div');
+        hdr.className = 'refmaps-category';
+        hdr.textContent = 'Elevation & imagery overlays';
+        wrap.appendChild(hdr);
+
+        var far = map.getZoom() < RASTER_UI_ZOOM;
+        var hint = document.createElement('div');
+        hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:6px;line-height:1.35;';
+
+        // Footprint toggles live at EVERY zoom — zoomed in they mark the survey
+        // edge, which matters while tracing near it.
+        wrap.appendChild(_fpCheckbox('lidar', 'Lidar footprints'));
+        if (window._isInventoryEditor) {
+            wrap.appendChild(_fpCheckbox('trace', 'Uploaded GeoTIFF footprints'));
+        }
+
+        if (far) {
+            // Too far out for the rasters themselves to mean anything.
+            hint.textContent = 'Zoom to z' + RASTER_UI_ZOOM +
+                ' to load lidar or uploaded imagery.';
+            wrap.appendChild(hint);
+            return;
+        }
+
+        var lidarIn = Object.keys(_lidarBbox).filter(function (id) {
+            return _bboxInView(_lidarBbox[id]);
+        });
+        if (!_lidarCatalog) {
+            hint.textContent = 'Loading lidar catalog…';
+        } else if (!lidarIn.length) {
+            hint.textContent = 'No lidar coverage in this view.';
+        } else {
+            hint.textContent = 'Lidar DEMs covering this view. Overlays draw beneath all landslide data.';
+        }
+        wrap.appendChild(hint);
+
+        lidarIn.forEach(function (id) {
+            var f = _lidarCatalog.features.filter(function (x) {
+                return x.properties.id === id;
+            })[0];
+            if (f) wrap.appendChild(_lidarRow(f.properties, map, _lidarActive));
+        });
+
+        if (window._isInventoryEditor) wrap.appendChild(_buildTraceUI());
+    }
+
+    // Same section for the wiper's right pane. Lidar only: the upload overlays
+    // remain main-pane-only, which is a deliberate existing choice (see the
+    // trace-raster header comment) rather than an oversight here.
+    function _buildRasterUIRight() {
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'margin-top:12px;';
+        var cmap = _swipe.map;
+        if (!cmap) return wrap;
+
+        var hdr = document.createElement('div');
+        hdr.className = 'refmaps-category';
+        hdr.textContent = 'Elevation overlays';
+        wrap.appendChild(hdr);
+
+        wrap.appendChild(_fpCheckbox('lidar', 'Lidar footprints', cmap));
+
+        var hint = document.createElement('div');
+        hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:6px;line-height:1.35;';
+        if (map.getZoom() < RASTER_UI_ZOOM) {
+            hint.textContent = 'Zoom to z' + RASTER_UI_ZOOM + ' to load lidar here.';
+            wrap.appendChild(hint);
+            return wrap;
+        }
+        var ids = Object.keys(_lidarBbox).filter(function (id) {
+            return _bboxInView(_lidarBbox[id]);
+        });
+        hint.textContent = ids.length
+            ? 'Put a different survey on this side to compare across the divider.'
+            : 'No lidar coverage in this view.';
+        wrap.appendChild(hint);
+        ids.forEach(function (id) {
+            var f = _lidarCatalog && _lidarCatalog.features.filter(function (x) {
+                return x.properties.id === id;
+            })[0];
+            if (f) wrap.appendChild(_lidarRow(f.properties, cmap, _lidarActiveR));
+        });
+        return wrap;
+    }
+
+    function _fpCheckbox(kind, label, m) {
+        m = m || map;
+        var lab = document.createElement('label');
+        lab.style.cssText = 'display:block;font-size:12px;margin:3px 0;cursor:pointer;';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!m.getSource(FOOTPRINT_STYLE[kind].id + '-src');
+        cb.addEventListener('change', function () { _footprintsSet(kind, cb.checked, m); });
+        lab.appendChild(cb);
+        lab.appendChild(document.createTextNode(' ' + label));
+        return lab;
+    }
+
+    function _lidarRow(p, m, state) {
+        m = m || map; state = state || _lidarActive;
+        var st = state[p.id];
+        var row = document.createElement('div');
+        row.style.cssText = 'border-top:1px solid #e6e6e6;padding:5px 0;';
+
+        var lab = document.createElement('label');
+        lab.style.cssText = 'display:block;font-size:12px;cursor:pointer;';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!st;
+        lab.appendChild(cb);
+        lab.appendChild(document.createTextNode(' ' + p.title));
+        row.appendChild(lab);
+
+        var meta = document.createElement('div');
+        meta.style.cssText = 'font-size:11px;color:#777;margin:1px 0 3px 18px;';
+        meta.textContent = (p.year || 'year n/a') + ' · ' + p.native_res_m + ' m · ' +
+                           p.coverage_km2 + ' km²';
+        row.appendChild(meta);
+
+        var ctl = document.createElement('div');
+        ctl.style.cssText = 'margin-left:18px;display:' + (st ? 'block' : 'none') + ';';
+
+        var sel = document.createElement('select');
+        sel.style.cssText = 'font-size:11px;width:100%;margin-bottom:3px;';
+        Object.keys(LIDAR_PRESETS).forEach(function (k) {
+            var o = document.createElement('option');
+            o.value = k; o.textContent = LIDAR_PRESETS[k].label;
+            if (st && st.preset === k) o.selected = true;
+            sel.appendChild(o);
+        });
+        sel.addEventListener('change', function () {
+            if (state[p.id]) {
+                state[p.id].preset = sel.value;
+                _lidarAddLayer(p.id, m, state);
+            }
+        });
+        ctl.appendChild(sel);
+
+        var op = document.createElement('input');
+        op.type = 'range'; op.min = 0; op.max = 100;
+        op.value = st ? Math.round(st.opacity * 100) : 100;
+        op.style.cssText = 'width:100%;';
+        op.addEventListener('input', function () {
+            if (state[p.id]) {
+                state[p.id].opacity = op.value / 100;
+                if (m.getLayer(_lidarLayerId(p.id)))
+                    m.setPaintProperty(_lidarLayerId(p.id), 'raster-opacity', op.value / 100);
+            }
+        });
+        ctl.appendChild(op);
+        row.appendChild(ctl);
+
+        cb.addEventListener('change', function () {
+            if (cb.checked) {
+                state[p.id] = { preset: sel.value, opacity: op.value / 100 };
+                _lidarAddLayer(p.id, m, state);
+                ctl.style.display = 'block';
+            } else {
+                _lidarRemoveLayer(p.id, m);
+                delete state[p.id];
+                ctl.style.display = 'none';
+            }
+        });
+        return row;
     }
 
     function _buildTraceUI() {

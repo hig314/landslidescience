@@ -504,6 +504,11 @@
 <script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
 <script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>
 {% endif %}
+{# Self-hosted lidar DEMs: PMTiles archives read over range requests, shaded #}
+{# client-side by dem_shade.js. Public (the /lidar/ routes are unauthenticated), #}
+{# so these load for every visitor, not just editors. #}
+<script src="https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.js"></script>
+<script src="{% static 'inventory/js/dem_shade.js' %}"></script>
 <script src="{% static 'inventory/js/ls_colors.js' %}"></script>
 <script src="{% static 'inventory/js/basemaps.js' %}"></script>
 <script src="{% static 'inventory/js/ls_overlays.js' %}"></script>

@@ -91,8 +91,22 @@ def glacierfit_tile(request, var, z, x, y):
     return resp
 
 
+# Self-hosted Alaska lidar DEMs. Unlike the pyramids above these are NOT
+# loose-file XYZ routes: each dataset is one PMTiles archive read by MapLibre
+# over HTTP range requests, so they need the range-capable views in
+# lidar_serve.py rather than django.views.static.serve (which, as of Django
+# 5.2, ignores Range entirely). Built by tools/lidar/build_lidar.py.
+from landslidescience import lidar_serve  # noqa: E402
+
+
 urlpatterns = [
     path('robots.txt', robots_txt),
+    path('lidar/', lidar_serve.preview),
+    path('lidar/catalog.geojson', lidar_serve.catalog),
+    re_path(r'^lidar/pmtiles/(?P<dataset_id>[a-z0-9_]+)\.pmtiles$',
+            lidar_serve.pmtiles),
+    re_path(r'^lidar/cog/(?P<dataset_id>[a-z0-9_]+)\.tif$',
+            lidar_serve.cog),
     re_path(r'^tiles/susc/(?P<model>lw|n10)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             susc_tile),
     re_path(r'^tiles/itslive/(?P<var>v|vamp|dvdt)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',

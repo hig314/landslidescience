@@ -1,0 +1,86 @@
+{
+  "_comment": [
+    "Manifest for the self-hosted Alaska lidar DEM collection.",
+    "",
+    "target_epsg: the *appropriate local UTM zone*, NAD83(2011) realization.",
+    "  6334 = NAD83(2011) / UTM zone 5N  (156W - 150W)",
+    "  6335 = NAD83(2011) / UTM zone 6N  (150W - 144W)",
+    "MatSu is delivered tagged UTM 5N but spans 150.5W - 147.0W, i.e. almost",
+    "entirely zone 6 and up to 3 degrees past the zone 5 edge. It is the one",
+    "dataset that gets a genuine zone change.",
+    "",
+    "Source datum tags are honored literally (user decision, 2026-09-05):",
+    "Lower_KP and MatSu declare WGS 84, so a real WGS84 -> NAD83(2011) datum",
+    "transform is applied to them. Homer (NAD83) and KBay (NAD83(2011)) stay",
+    "in the NAD83 family. If the WGS84 tags turn out to be a vendor mislabel,",
+    "those two will sit ~1-2 m off Homer/KBay and must be rebuilt with an",
+    "-s_srs override.",
+    "",
+    "max_zoom: chosen so one web-mercator pixel ~= one source pixel at that",
+    "latitude. res(z) = 156543.034 * cos(lat) / 2^z."
+  ],
+
+  "datasets": [
+    {
+      "id": "homer_2019",
+      "title": "Homer 2019 bare-earth DTM",
+      "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/Homer/homer_2019/dtm/homer_dtm.tif",
+      "target_epsg": 6334,
+      "native_res_m": 0.5,
+      "center_lat": 59.65,
+      "min_zoom": 8,
+      "max_zoom": 17,
+      "year": 2019,
+      "product": "DTM (bare earth)",
+      "archive_mode": "warp",
+      "vertical_datum": null,
+      "notes": "Source NAD83 / UTM 5N (EPSG:26905), LZW, 128x128 blocks. No vertical CRS declared."
+    },
+    {
+      "id": "lower_kenai",
+      "title": "Lower Kenai Peninsula lidar DEM",
+      "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/Lower_Kenai/Lower_KP_lidar_UTM5.tif",
+      "target_epsg": 6334,
+      "native_res_m": 1.218858702382865,
+      "center_lat": 59.75,
+      "min_zoom": 8,
+      "max_zoom": 16,
+      "year": null,
+      "product": "DEM",
+      "archive_mode": "warp",
+      "vertical_datum": null,
+      "notes": "Source tagged WGS 84 / UTM 5N (EPSG:32605). Uncompressed and stripe-blocked (43603x1) - must be converted to a tiled COG before any windowed read. No vertical CRS declared."
+    },
+    {
+      "id": "kbay_2023",
+      "title": "Kachemak Bay 2023 lidar DEM",
+      "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/KBay_2023/Final_KBay_2023/tiles/kbay_2024_cog_final.tif",
+      "target_epsg": 6334,
+      "native_res_m": 0.5,
+      "center_lat": 59.4,
+      "min_zoom": 8,
+      "max_zoom": 17,
+      "year": 2023,
+      "product": "DEM",
+      "archive_mode": "copy",
+      "vertical_datum": "NAVD88",
+      "notes": "Arrives as a valid COG (ZSTD, 512 blocks) in a COMPOUND CRS: NAD83(2011) / UTM 5N + NAVD88 height. Already the target horizontal zone, so the archive stage copies rather than warps - warping to a 2D EPSG:6334 would be an identity resample that also silently drops the declared NAVD88 vertical datum. It is the only one of the four that declares its vertical reference."
+    },
+    {
+      "id": "matsu_2019",
+      "title": "Mat-Su Valley 2019 bare-earth DEM",
+      "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/Matsu_2019/Bare_earth_DEM/2019_MatSu_UTM5.sdat",
+      "target_epsg": 6335,
+      "native_res_m": 0.9146509603,
+      "center_lat": 61.6,
+      "min_zoom": 8,
+      "max_zoom": 16,
+      "year": 2019,
+      "product": "DEM (bare earth)",
+      "archive_mode": "warp",
+      "vertical_datum": null,
+      "vertical_scale": 0.3048,
+      "notes": "82 GB SAGA .sdat, stripe-blocked. No vertical CRS declared. ELEVATIONS ARE IN FEET and are converted to metres on ingest (vertical_scale): the raw grid reads 246.1 at Palmer and 341.5 at Wasilla, whose published elevations are 240 ft and 344 ft - a metres reading would put downtown Palmer at 807 ft. Homer and Lower Kenai agree with each other in metres at an overlap point (19.84 vs 20.06), so the foot units are MatSu's alone. International foot assumed; the US survey foot differs by 2 ppm (3 mm at 1500 m), which is far below the data's own accuracy. Zone-5-tagged but lies in zone 6 - this is the one real reprojection. max_zoom 16 (1.14 m) rather than 17 (0.57 m): 17 would oversample 0.91 m source 1.6x for 4x the bytes."
+    }
+  ]
+}

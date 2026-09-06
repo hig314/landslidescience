@@ -1,0 +1,526 @@
+{% comment %}
+Dev preview for the self-hosted lidar DEM collection.
+
+Deliberately standalone rather than bolted onto the inventory map: it exercises
+the whole hosting path end to end (catalog -> PMTiles over range requests ->
+raster-dem -> hillshade -> 3D terrain) without touching map.js, so the backend
+can be reviewed and signed off before any surgery on the main map.
+
+The point of shipping terrain-RGB rather than a baked hillshade is the sun
+controls below. Re-lighting a slope from a different azimuth is a mapping
+technique, not a cosmetic setting -- scarps and old failure scars appear and
+vanish depending on which way you light them.
+{% endcomment %}
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>Lidar DEM preview — landslidescience.org</title>
+<link href="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; font: 13px/1.45 system-ui, sans-serif; }
+  #map { position: absolute; inset: 0; }
+  #panel {
+    position: absolute; top: 10px; left: 10px; width: 290px; z-index: 2;
+    background: rgba(255,255,255,.95); border: 1px solid #bbb; border-radius: 6px;
+    padding: 10px 12px; box-shadow: 0 2px 10px rgba(0,0,0,.25);
+    max-height: calc(100% - 20px); overflow-y: auto;
+  }
+  #panel h1 { font-size: 14px; margin: 0 0 8px; }
+  #panel h2 { font-size: 12px; margin: 12px 0 4px; text-transform: uppercase;
+              letter-spacing: .04em; color: #555; }
+  label { display: block; margin: 7px 0 2px; color: #333; }
+  input[type=range] { width: 100%; }
+  .ds { border-top: 1px solid #e2e2e2; padding: 6px 0; }
+  .ds:first-of-type { border-top: 0; }
+  .ds b { font-size: 12px; }
+  .ds .meta { color: #666; font-size: 11px; }
+  .ds a { color: #06c; font-size: 11px; }
+  .val { float: right; color: #666; font-variant-numeric: tabular-nums; }
+  #status { margin-top: 10px; color: #666; font-size: 11px; }
+  .stackhint { color: #777; font-size: 11px; margin-bottom: 2px; }
+  #panel button { margin: 8px 4px 0 0; font-size: 11px; padding: 3px 7px; }
+  #panel select { font-size: 11px; margin-left: 4px; }
+  label.disabled { color: #aaa; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <h1>Lidar DEM preview</h1>
+
+  <h2>Datasets</h2>
+  <div id="datasets">loading catalog…</div>
+
+  <h2>Illumination</h2>
+  <label>Sun azimuth <span class="val" id="azv">315°</span></label>
+  <input type="range" id="az" min="0" max="359" value="315">
+  <label>Sun altitude <span class="val" id="altv">45°</span></label>
+  <input type="range" id="alt" min="1" max="89" value="45">
+  <label>Layer opacity <span class="val" id="opv">1.00</span></label>
+  <input type="range" id="op" min="0" max="100" value="100">
+  <label>Shading exaggeration <span class="val" id="vev">1.0</span></label>
+  <input type="range" id="ve" min="1" max="60" value="10">
+
+  <h2>Layer stack</h2>
+  <div class="stackhint">hillshade (Overlay) · slope · mod&nbsp;5&nbsp;m</div>
+  <label>Hillshade <span class="val" id="hsv">1.00</span></label>
+  <input type="range" id="hs" min="0" max="100" value="100">
+  <label>Blend
+    <select id="bl">
+      <option value="0">Overlay</option>
+      <option value="1">Transparency</option>
+    </select>
+  </label>
+  <label>Slope ramp <span class="val" id="slv">0.00</span></label>
+  <input type="range" id="sl" min="0" max="100" value="0">
+  <label>Mod 5 m <span class="val" id="mdv">0.00</span></label>
+  <input type="range" id="md" min="0" max="100" value="0">
+  <label>Aspect tint <span class="val" id="asv">0.00</span></label>
+  <input type="range" id="as" min="0" max="100" value="0">
+  <button type="button" id="preset">KBSP preset</button>
+  <button type="button" id="plain">Hillshade only</button>
+
+  <h2>View</h2>
+  <label id="nuplabel"><input type="checkbox" id="nup"> North up (lock bearing)</label>
+  <label><input type="checkbox" id="warm" checked> Keep overlapping DEMs warm</label>
+  <div class="stackhint">Preloads every survey covering the view so switching
+    between them is instant. <span id="cachestat"></span></div>
+
+  <h2>3D</h2>
+  <label><input type="checkbox" id="t3d"> Terrain</label>
+  <label>Terrain exaggeration <span class="val" id="exv">1.5</span></label>
+  <input type="range" id="ex" min="0" max="40" value="15">
+
+  <div id="status"></div>
+  <button type="button" id="copyurl">Copy link to this view</button>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.js"></script>
+<script src="{% static 'inventory/js/dem_shade.js' %}"></script>
+<script>
+(function () {
+  'use strict';
+
+  // PMTiles archives are read with HTTP range requests; Django's default
+  // static serving ignores Range, hence landslidescience/lidar_serve.py.
+  var protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol('pmtiles', protocol.tile);
+  DemShade.register(maplibregl);
+
+  // ---- shareable state --------------------------------------------------
+  // MapLibre's built-in `hash` only carries the camera. The whole point here is
+  // that a link reproduces what the sender was looking at, which means the
+  // shading stack and the 3D camera too — so the URL is managed by hand.
+  // Written with replaceState so panning doesn't fill up the back button.
+  var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex'];
+  var CHECKS = ['t3d', 'nup', 'warm'];
+  var Q = new URLSearchParams(location.search);
+  var qnum = function (k, d) { var v = Q.get(k); return v === null || v === '' ? d : +v; };
+  var qbool = function (k, d) { var v = Q.get(k); return v === null ? d : (v === '1' || v === 'true'); };
+
+  // Controls are restored BEFORE the map exists, so the first tile request
+  // already carries the right shading rather than rendering once and requerying.
+  CONTROLS.forEach(function (id) {
+    var v = Q.get(id);
+    if (v !== null && v !== '') document.getElementById(id).value = v;
+  });
+  CHECKS.forEach(function (id) {
+    document.getElementById(id).checked = qbool(id, id === 'warm');
+  });
+
+  var map = new maplibregl.Map({
+    container: 'map',
+    center: [qnum('lon', -151.5), qnum('lat', 59.65)],
+    zoom: qnum('z', 10),
+    bearing: qnum('b', 0),
+    pitch: qnum('p', 0),
+    maxPitch: 85,
+    style: {
+      version: 8,
+      sources: {
+        osm: {
+          type: 'raster',
+          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+          tileSize: 256, maxzoom: 19,
+          attribution: '© OpenStreetMap contributors'
+        }
+      },
+      layers: [
+        { id: 'osm', type: 'raster', source: 'osm',
+          paint: { 'raster-opacity': 0.55 } }
+      ]
+    }
+  });
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
+  map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }));
+
+  var status = document.getElementById('status');
+  var active = null;          // dataset id whose DEM is currently loaded
+  var catalog = null;
+
+  function fmtBytes(n) {
+    if (!n) return '—';
+    return n > 1073741824 ? (n / 1073741824).toFixed(2) + ' GB'
+                          : (n / 1048576).toFixed(0) + ' MB';
+  }
+
+  // ---- footprints -------------------------------------------------------
+  function addFootprints(fc) {
+    map.addSource('footprints', { type: 'geojson', data: fc });
+    map.addLayer({
+      id: 'fp-fill', type: 'fill', source: 'footprints',
+      paint: { 'fill-color': '#0a7', 'fill-opacity': 0.10 }
+    });
+    map.addLayer({
+      id: 'fp-line', type: 'line', source: 'footprints',
+      paint: { 'line-color': '#0a7', 'line-width': 1.5 }
+    });
+  }
+
+  // ---- the DEM itself ---------------------------------------------------
+  // Two sources per dataset, doing different jobs:
+  //   'shade' (raster, via the demshade:// protocol) is what you actually see.
+  //           A raster layer has real raster-opacity, and the protocol can do
+  //           slope/aspect/banding, neither of which MapLibre's hillshade
+  //           layer can manage.
+  //   'dem'   (raster-dem, straight from pmtiles) exists only to drive 3D
+  //           terrain, which requires a raster-dem source.
+  // Every dataset that overlaps the view gets its OWN persistent layer, and
+  // switching just moves opacity between them. The obvious implementation —
+  // remove the old source, add the new one — throws away MapLibre's tile store
+  // and its uploaded GPU textures every time, so flipping back and forth
+  // repaints from scratch. Keeping the layers alive means the second flip and
+  // every one after it is a paint, not a fetch.
+  //
+  // Inactive layers sit at opacity 0 rather than visibility:'none'. A layer
+  // that is not visible marks its source unused, and MapLibre then stops
+  // loading and may evict its tiles — which is exactly what we are trying to
+  // avoid. At zero opacity the source stays used and stays warm.
+  var props4 = {};        // id -> catalog properties
+  var bboxOf = {};        // id -> [w, s, e, n]
+
+  function ensureLayer(p) {
+    if (map.getLayer('shade-' + p.id)) return;
+    DemShade.addDataset(p.id, p.pmtiles_url);
+    map.addSource('shade-' + p.id, {
+      type: 'raster',
+      tiles: [DemShade.url(p.id, readOpts())],
+      tileSize: 256,
+      minzoom: p.min_zoom,
+      maxzoom: p.max_zoom,
+      attribution: p.title
+    });
+    map.addLayer({
+      id: 'shade-' + p.id, type: 'raster', source: 'shade-' + p.id,
+      paint: {
+        'raster-opacity': 0,
+        // Both of these must be zero or switching DEMs cross-fades.
+        // raster-opacity-transition kills the 300 ms default paint animation
+        // (otherwise the outgoing layer fades down through the basemap before
+        // the incoming one fades up — the flicker between two surveys);
+        // raster-fade-duration kills the separate tile-level fade.
+        'raster-opacity-transition': { duration: 0, delay: 0 },
+        'raster-fade-duration': 0
+      }
+    }, 'fp-fill');
+  }
+
+  function overlapsView(id) {
+    var b = bboxOf[id];
+    if (!b) return false;
+    var m = map.getBounds();
+    return !(b[2] < m.getWest() || b[0] > m.getEast() ||
+             b[3] < m.getSouth() || b[1] > m.getNorth());
+  }
+
+  // Bring up (and keep warm) every dataset covering the current view, so the
+  // first flip is instant too — not just the ones after it.
+  function syncLayers() {
+    var warm = document.getElementById('warm').checked;
+    Object.keys(props4).forEach(function (id) {
+      var want = (id === active) || (warm && overlapsView(id));
+      if (want) {
+        ensureLayer(props4[id]);
+      } else if (map.getLayer('shade-' + id)) {
+        map.removeLayer('shade-' + id);
+        map.removeSource('shade-' + id);
+      }
+    });
+    applyOpacity();
+  }
+
+  function applyOpacity() {
+    var op = +document.getElementById('op').value / 100;
+    Object.keys(props4).forEach(function (id) {
+      if (map.getLayer('shade-' + id)) {
+        map.setPaintProperty('shade-' + id, 'raster-opacity',
+                             id === active ? op : 0);
+      }
+    });
+  }
+
+  function showDataset(p) {
+    if (active === p.id) return;
+    active = p.id;
+
+    // The raster-dem source only feeds 3D terrain, and only one can be active,
+    // so this one does get swapped.
+    if (map.getSource('dem')) { setTerrain(false); map.removeSource('dem'); }
+    map.addSource('dem', {
+      type: 'raster-dem',
+      tiles: ['pmtiles://' + location.origin + p.pmtiles_url + '/{z}/{x}/{y}'],
+      encoding: 'mapbox',          // must match build_lidar.py's encoder
+      tileSize: 256,
+      minzoom: p.min_zoom,
+      maxzoom: p.max_zoom
+    });
+
+    syncLayers();
+    if (document.getElementById('t3d').checked) setTerrain(true);
+    status.textContent = p.title + ' · z' + p.min_zoom + '–' +
+                         p.max_zoom + ' · ' + p.coverage_km2 + ' km²';
+    render();
+  }
+
+  function setTerrain(on) {
+    if (on && map.getSource('dem')) {
+      map.setTerrain({ source: 'dem',
+                       exaggeration: +document.getElementById('ex').value / 10 });
+    } else {
+      map.setTerrain(null);
+    }
+  }
+
+  // ---- controls ---------------------------------------------------------
+  var V = function (id) { return +document.getElementById(id).value; };
+
+  function readOpts() {
+    return {
+      az: V('az'), alt: V('alt'), ve: V('ve') / 10,
+      hs: V('hs') / 100, bl: V('bl'), sl: V('sl') / 100,
+      md: V('md') / 100, as: V('as') / 100
+    };
+  }
+
+  // ---- URL sync ---------------------------------------------------------
+  var urlTimer = null;
+  function syncUrl() {
+    clearTimeout(urlTimer);
+    urlTimer = setTimeout(function () {
+      var c = map.getCenter();
+      var p = new URLSearchParams();
+      if (active) p.set('ds', active);
+      p.set('z', map.getZoom().toFixed(3));
+      p.set('lat', c.lat.toFixed(6));
+      p.set('lon', c.lng.toFixed(6));
+      p.set('b', map.getBearing().toFixed(1));
+      p.set('p', map.getPitch().toFixed(1));
+      CONTROLS.forEach(function (id) { p.set(id, document.getElementById(id).value); });
+      CHECKS.forEach(function (id) { p.set(id, document.getElementById(id).checked ? '1' : '0'); });
+      history.replaceState(null, '', location.pathname + '?' + p.toString());
+    }, 250);
+  }
+  map.on('moveend', syncUrl);      // covers pan, zoom, rotate and pitch
+  map.on('moveend', function () { if (catalog) syncLayers(); });
+
+  document.getElementById('warm').addEventListener('change', function () {
+    syncLayers(); syncUrl();
+  });
+
+  // Cache counters, so "is this actually warm?" is visible rather than assumed.
+  setInterval(function () {
+    var s = DemShade.stats();
+    var tot = s.tileHit + s.tileMiss;
+    document.getElementById('cachestat').textContent = tot
+      ? s.tilesCached + ' tiles cached · ' +
+        Math.round(100 * s.tileHit / tot) + '% hits'
+      : '';
+  }, 700);
+
+  document.getElementById('copyurl').addEventListener('click', function () {
+    var btn = this;
+    (navigator.clipboard
+      ? navigator.clipboard.writeText(location.href)
+      : Promise.reject()
+    ).then(function () { btn.textContent = 'Copied'; },
+           function () { btn.textContent = 'Copy failed — select the URL bar'; })
+     .then(function () {
+       setTimeout(function () { btn.textContent = 'Copy link to this view'; }, 1800);
+     });
+  });
+
+  // ---- north-up lock ----------------------------------------------------
+  // Disabled in 3D: a terrain view you cannot rotate is close to useless, and a
+  // shared 3D link needs its bearing preserved rather than forced to zero.
+  function applyNorthUp() {
+    var is3d = document.getElementById('t3d').checked;
+    var nup = document.getElementById('nup');
+    if (is3d) nup.checked = false;
+    nup.disabled = is3d;
+    document.getElementById('nuplabel').classList.toggle('disabled', is3d);
+    if (nup.checked) {
+      if (Math.abs(map.getBearing()) > 0.01) map.easeTo({ bearing: 0 });
+      map.dragRotate.disable();
+      map.touchZoomRotate.disableRotation();
+    } else {
+      map.dragRotate.enable();
+      map.touchZoomRotate.enableRotation();
+    }
+  }
+  document.getElementById('nup').addEventListener('change', function () {
+    applyNorthUp(); syncUrl();
+  });
+
+  // Run once at startup rather than only from the catalog callback: the panel's
+  // enabled/greyed state describes the controls, not the tiles, and must be
+  // right even if the style or catalog never finishes loading.
+  applyNorthUp();
+  render();
+
+  // The stack Hig uses in QGIS: opaque mod-5 base, slope ramp at 60%,
+  // hillshade over the top as an Overlay.
+  function applyPreset(p) {
+    Object.keys(p).forEach(function (k) {
+      document.getElementById(k).value = p[k];
+    });
+    render();
+    syncUrl();
+  }
+  document.getElementById('preset').addEventListener('click', function () {
+    applyPreset({ md: 100, sl: 60, hs: 100, bl: 0, as: 0, az: 315, alt: 45, op: 100 });
+  });
+  document.getElementById('plain').addEventListener('click', function () {
+    applyPreset({ md: 0, sl: 0, hs: 100, bl: 0, as: 0, op: 100 });
+  });
+
+  var retileTimer = null;
+  function render() {
+    var o = readOpts();
+    document.getElementById('azv').textContent = o.az + '°';
+    document.getElementById('altv').textContent = o.alt + '°';
+    document.getElementById('opv').textContent = (V('op') / 100).toFixed(2);
+    document.getElementById('vev').textContent = o.ve.toFixed(1);
+    document.getElementById('hsv').textContent = o.hs.toFixed(2);
+    document.getElementById('slv').textContent = o.sl.toFixed(2);
+    document.getElementById('mdv').textContent = o.md.toFixed(2);
+    document.getElementById('asv').textContent = o.as.toFixed(2);
+    document.getElementById('exv').textContent = (V('ex') / 10).toFixed(1);
+
+    // Opacity is a paint property — instant, no refetch.
+    applyOpacity();
+    if (map.getTerrain()) setTerrain(true);
+
+    // Everything else is baked into the tile, so it changes the tile URL.
+    // Debounced: dragging a slider would otherwise re-request on every pixel.
+    // Refetches hit the decoded-elevation cache, so this is compute, not
+    // network — and reverting to a previous setting hits the finished-tile
+    // cache, so it costs nothing at all.
+    clearTimeout(retileTimer);
+    retileTimer = setTimeout(function () {
+      var o = readOpts();
+      Object.keys(props4).forEach(function (id) {
+        var src = map.getSource('shade-' + id);
+        if (src) src.setTiles([DemShade.url(id, o)]);
+      });
+    }, 160);
+  }
+
+  CONTROLS.forEach(function (id) {
+    var el = document.getElementById(id);
+    el.addEventListener('input', function () { render(); syncUrl(); });
+    el.addEventListener('change', function () { render(); syncUrl(); });
+  });
+  document.getElementById('t3d').addEventListener('change', function () {
+    setTerrain(this.checked);
+    if (this.checked && map.getPitch() < 30) map.easeTo({ pitch: 60 });
+    applyNorthUp();
+    syncUrl();
+  });
+
+  // ---- boot -------------------------------------------------------------
+  map.on('load', function () {
+    fetch('/lidar/catalog.geojson')
+      .then(function (r) { return r.json(); })
+      .then(function (fc) {
+        catalog = fc;
+        addFootprints(fc);
+        var host = document.getElementById('datasets');
+        host.innerHTML = '';
+        fc.features.forEach(function (f) {
+          var p = f.properties;
+          props4[p.id] = p;
+          var bb = turfBounds(f.geometry);
+          bboxOf[p.id] = [bb[0][0], bb[0][1], bb[1][0], bb[1][1]];
+          var div = document.createElement('div');
+          div.className = 'ds';
+          div.innerHTML =
+            '<label><input type="radio" name="ds" value="' + p.id + '"> ' +
+            '<b>' + p.title + '</b></label>' +
+            '<div class="meta">' + (p.year || 'year n/a') + ' · ' +
+            p.native_res_m + ' m · ' + p.coverage_km2 + ' km² · ' +
+            p.horizontal_crs +
+            (p.vertical_datum ? ' + ' + p.vertical_datum : '') + '<br>' +
+            'tiles ' + fmtBytes(p.pmtiles_bytes) +
+            ' · <a href="' + p.cog_url + '">COG ' + fmtBytes(p.cog_bytes) +
+            '</a> · <a href="#" class="zoomto">zoom to</a></div>';
+          // Selecting a dataset deliberately does NOT move the camera: holding
+          // the view still is what lets you flip between overlapping surveys
+          // and see the change between them. "zoom to" is the explicit opt-in.
+          div.querySelector('input').addEventListener('change', function () {
+            showDataset(p);
+          });
+          div.querySelector('.zoomto').addEventListener('click', function (ev) {
+            ev.preventDefault();
+            map.fitBounds(turfBounds(f.geometry), { padding: 40 });
+          });
+          host.appendChild(div);
+        });
+        if (!fc.features.length) host.textContent = 'no datasets built yet';
+
+        // Restore the shared dataset. Deliberately does not touch the camera —
+        // the URL already carries it, and re-fitting would discard the very
+        // view the link was made to preserve.
+        var want = Q.get('ds');
+        var f = want && fc.features.filter(function (x) {
+          return x.properties.id === want;
+        })[0];
+        if (f) {
+          var radio = host.querySelector('input[value="' + want + '"]');
+          if (radio) radio.checked = true;
+          showDataset(f.properties);
+        }
+        applyNorthUp();
+        syncUrl();
+      })
+      .catch(function (e) { status.textContent = 'catalog failed: ' + e; });
+  });
+
+  // minimal bbox walker (avoids pulling turf in for one function)
+  function turfBounds(geom) {
+    var minX = 180, minY = 90, maxX = -180, maxY = -90;
+    var polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+    polys.forEach(function (poly) {
+      poly.forEach(function (ring) {
+        ring.forEach(function (pt) {
+          if (pt[0] < minX) minX = pt[0];
+          if (pt[0] > maxX) maxX = pt[0];
+          if (pt[1] < minY) minY = pt[1];
+          if (pt[1] > maxY) maxY = pt[1];
+        });
+      });
+    });
+    return [[minX, minY], [maxX, maxY]];
+  }
+
+  map.on('error', function (e) {
+    if (e && e.error) status.textContent = 'map error: ' + e.error.message;
+  });
+})();
+</script>
+</body>
+</html>

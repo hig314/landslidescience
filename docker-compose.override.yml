@@ -10,6 +10,13 @@ services:
       - ./landslidescience:/app/landslidescience
       - ./manage.py:/app/manage.py
       - ./tools:/app/tools
+      # NOTE: to serve the lidar archive COGs in dev (/lidar/cog/<id>.tif),
+      # add this line locally — it is deliberately NOT committed, because the
+      # external volume is not always attached and a missing bind-mount source
+      # makes `docker compose up` fail outright:
+      #   - /Volumes/Nunatak/lidar_build/cog:/app/data/lidar/cog:ro
+      # Without it the route 404s, which is also what prod does until the COGs
+      # are moved to object storage.
     networks:
       - default
       - tethys_internal
