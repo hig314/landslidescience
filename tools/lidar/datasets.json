@@ -19,7 +19,6 @@
     "max_zoom: chosen so one web-mercator pixel ~= one source pixel at that",
     "latitude. res(z) = 156543.034 * cos(lat) / 2^z."
   ],
-
   "datasets": [
     {
       "id": "homer_2019",
@@ -81,6 +80,37 @@
       "vertical_datum": null,
       "vertical_scale": 0.3048,
       "notes": "82 GB SAGA .sdat, stripe-blocked. No vertical CRS declared. ELEVATIONS ARE IN FEET and are converted to metres on ingest (vertical_scale): the raw grid reads 246.1 at Palmer and 341.5 at Wasilla, whose published elevations are 240 ft and 344 ft - a metres reading would put downtown Palmer at 807 ft. Homer and Lower Kenai agree with each other in metres at an overlap point (19.84 vs 20.06), so the foot units are MatSu's alone. International foot assumed; the US survey foot differs by 2 ppm (3 mm at 1500 m), which is far below the data's own accuracy. Zone-5-tagged but lies in zone 6 - this is the one real reprojection. max_zoom 16 (1.14 m) rather than 17 (0.57 m): 17 would oversample 0.91 m source 1.6x for 4x the bytes."
+    },
+    {
+      "id": "matanuska_2011",
+      "title": "Matanuska Valley 2011 bare-earth DTM (9 ft)",
+      "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/Matsu_Matanuska_dtm_9ft_c/Matsu_Matanuska_dtm_9ft_c.tif",
+      "target_epsg": 6335,
+      "native_res_m": 2.7432,
+      "center_lat": 61.63,
+      "min_zoom": 8,
+      "max_zoom": 15,
+      "year": 2011,
+      "product": "DTM (bare earth)",
+      "archive_mode": "warp",
+      "vertical_datum": "NAVD88",
+      "vertical_scale": 0.3048,
+      "notes": "Mat-Su Borough 2011 lidar (flown 2011-05-10..12), Matanuska River corridor from Palmer east to ~147.2W. Source is NAD83 / Alaska State Plane zone 4 in US survey feet (FIPS 5004), 9 ft posts, uncompressed, 128x128 blocks. ELEVATIONS ARE IN FEET (metadata: altunits feet, NAVD88 via GEOID09) and are converted to metres on ingest; max 5873 in the raw grid is 1790 m, which is right for the Chugach/Talkeetna summits here and impossible in metres. Verified against matsu_2019 at Palmer airport, Sutton and Chickaloon: 70.78/137.04/414.87 m vs 70.94/137.17/415.10 m. Lies in UTM zone 6. max_zoom 15 (2.27 m) for 2.74 m source."
+    },
+    {
+      "id": "seward_2023",
+      "title": "Seward 2023 bare-earth DTM",
+      "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/Seward_2023/AGO_Seward_2023_dtm.tif",
+      "target_epsg": 6335,
+      "native_res_m": 0.5,
+      "center_lat": 60.1,
+      "min_zoom": 8,
+      "max_zoom": 17,
+      "year": 2023,
+      "product": "DTM (bare earth)",
+      "archive_mode": "copy",
+      "vertical_datum": "NAVD88",
+      "notes": "Arrives as a valid COG (LZW, 512 blocks, overviews) in a COMPOUND CRS: NAD83(2011) / UTM 6N + NAVD88 height (GEOID12B), unit metre. Already the target zone, so the archive stage copies (same reasoning as kbay_2023). 75000x84000 grid, 38.8% valid: Resurrection Bay from Seward north up the Resurrection River valley. Source directory also holds _shade and _mod5 derivatives, which the viewer renders client-side instead."
     }
   ]
 }
