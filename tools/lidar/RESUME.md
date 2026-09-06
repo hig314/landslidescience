@@ -1,75 +1,69 @@
-# Lidar hosting — where this stopped (2026-09-06)
+# Lidar hosting — state of play (2026-09-06)
 
-Everything below is **done and verified on dev**. Production is **untouched**.
+Six surveys built, verified on dev, and deployed to production from `main`.
 
 ## State
 
 | Thing | Where | Status |
 |---|---|---|
-| Code | branch `lidar-hosting`, commit `618207d` | pushed to GitHub, **not merged to `main`** |
-| Same work on `main` | commit `e54efd2` | local only — do not push `main`, it carries 19 unrelated InSAR kinematics commits |
-| PMTiles (3.2 GB) | `data/lidar/pmtiles/` | local only — **upload not started** |
-| Catalog | `data/lidar/catalog.geojson` | local only |
-| Archive COGs (~28 GB) | `/Volumes/Nunatak/lidar_build/cog/` | local only, not intended for the droplet |
-| Droplet | `root@143.198.140.54` | **nothing deployed**, 14 GB free of 78 GB |
+| Code | `main` (lidar + IceBridge guard + manifest) | pushed to GitHub, deployed to the droplet |
+| PMTiles (~4.3 GB, six files) | `data/lidar/pmtiles/` local and `/opt/landslidescience/data/lidar/pmtiles/` on the droplet | uploaded |
+| Catalog | `data/lidar/catalog.geojson` (6 features) | uploaded |
+| Archive COGs (~38 GB) | `/Volumes/Nunatak/lidar_build/cog/` | local only, not intended for the droplet |
+| Paused InSAR kinematics | branch `insar-kinematics` (19 commits, rebased onto `main`, pushed) | dev-only; check it out to resume |
 
-`main` was deliberately left unpushed: it is 19 commits ahead with paused InSAR
-kinematics work that was never signed off for production.
+Tag `archive/main-2026-09-06-kinematics-plus-lidar` marks what `main` looked
+like before it was rebuilt from `origin/main` (kinematics + a duplicate lidar
+commit). The rebased `insar-kinematics` tree differs from it only by the
+IceBridge guard, the manifest additions, and docs.
 
-## To finish the deploy
+## Datasets added 2026-09-06
 
-1. **Upload the tiles** (~3.2 GB; the long part). Resumable — rerun it and rsync
-   skips finished files and continues partial ones:
-
-   ```bash
-   cd ~/Claude_projects/landslidescience
-   rsync -av --partial --progress --exclude 'cog/' \
-     data/lidar/ root@143.198.140.54:/opt/landslidescience/data/lidar/
-   ```
-
-   Run it detached so a laptop restart doesn't kill it:
-   `nohup rsync ... > /tmp/lidar_rsync.log 2>&1 &`
-
-   Droplet has 14 GB free; 3.2 GB fits, leaving ~11 GB. Check `df -h /` after.
-
-2. **Deploy the code.** Prod tracks `main`, so either merge `lidar-hosting` into
-   `main` first, or check the branch out on the droplet:
-
-   ```bash
-   ssh root@143.198.140.54 'cd /opt/landslidescience && \
-     git fetch origin && git checkout -B lidar-hosting origin/lidar-hosting && \
-     docker compose -f docker-compose.yml -f docker-compose.prod.yml build && \
-     docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate'
-   ```
-
-   No migrations, no new groups — this adds routes and static files only.
-
-3. **Verify on prod**:
-
-   ```bash
-   curl -sI https://landslidescience.org/lidar/catalog.geojson
-   curl -sI -H 'Range: bytes=0-999' \
-     https://landslidescience.org/lidar/pmtiles/homer_2019.pmtiles   # expect 206
-   ```
+- **matanuska_2011** — Mat-Su Borough 2011, 9 ft posts, State Plane zone 4 in
+  US survey feet, elevations in feet → metres on ingest. Checked against
+  `matsu_2019` at Palmer airport / Sutton / Chickaloon: 70.78/137.04/414.87 m
+  vs 70.94/137.17/415.10 m. Tiles decode to within 0.25 m of the COG at z15.
+- **seward_2023** — compound CRS NAD83(2011)/UTM 6N + NAVD88, 0.5 m, arrives as
+  a COG so the archive stage copies. Tiles decode to within 0.1 m of the COG at
+  z17, ~1 m at z14 (average-resampled 9.5 m cells, expected).
 
 ## Known gaps
 
-- **`/lidar/cog/<id>.tif` will 404 in prod.** The archives are 28 GB and stay
-  local, but `catalog.geojson` still advertises `cog_url`, so the preview page's
-  "COG" download links are dead until the archives move to object storage.
-  Either ship them somewhere, or drop the link when the file is absent.
+- **`/lidar/cog/<id>.tif` 404s in prod.** The archives stay local, but
+  `catalog.geojson` still advertises `cog_url`, so the preview page's "COG"
+  links are dead until the archives move to object storage. Either ship them
+  somewhere, or drop the link when the file is absent.
 - **Cloudflare R2 is the intended home** for both products (~$0–0.30/month; the
   free tier is 10 GB and zero egress). Radiant Earth's **Source Cooperative** is
   a free alternative for open geospatial data that Hig wanted looked at more
-  closely. Neither is set up.
-- **Not visually verified**: the wiper right-pane section, and the z10 footprint
-  branch. Both were built after the browser-automation tab stopped rendering
-  (hidden tab pauses `requestAnimationFrame`, so MapLibre's `load` never fires —
-  see the note in `dem_shade.js`). Server-side checks all pass.
-- The `lidar-hosting` branch is `origin/main` + lidar, i.e. **without** the
-  kinematics commits. `map.js` there was syntax-checked and all integration
-  hooks confirmed present, but that exact combination was never opened in a
-  browser.
+  closely. Neither is set up. Droplet has ~12 GB free after this upload, so the
+  web tiles fit there for now but the archives never will.
+- **Never visually verified by automation**: the wiper right-pane section and
+  the z10 footprint branch. The browser-automation tab pauses
+  `requestAnimationFrame`, so MapLibre's `load` never fires there, and headless
+  Chrome hangs on the WebGL page (see the note in `dem_shade.js`). Everything
+  server-side and the tile data path is verified; the visual pass is manual.
+
+## Re-deploying data
+
+The upload is resumable — rerun it and rsync skips finished files and continues
+partial ones. Run it detached so a laptop restart doesn't kill it:
+
+```bash
+cd ~/Claude_projects/landslidescience
+nohup rsync -av --partial --exclude 'cog/' \
+  data/lidar/ root@143.198.140.54:/opt/landslidescience/data/lidar/ \
+  > /tmp/lidar_rsync.log 2>&1 &
+```
+
+Code deploys the usual way (`git push`, then on the droplet `git pull` +
+compose `build` + `up -d --force-recreate`). Verify:
+
+```bash
+curl -sI https://landslidescience.org/lidar/catalog.geojson
+curl -sI -H 'Range: bytes=0-999' \
+  https://landslidescience.org/lidar/pmtiles/homer_2019.pmtiles   # expect 206
+```
 
 ## Rebuilding
 
@@ -84,3 +78,8 @@ env -u PROJ_LIB -u PROJ_DATA python tools/lidar/make_catalog.py
 Always strip `PROJ_LIB`: a QGIS-bundled PROJ leaking into another GDAL makes it
 write an `ENGCRS` with an empty datum, which then fails much later with an
 unrelated-looking "cannot find coordinate operations" error.
+
+`build_lidar.py` reads `datasets.json` once at startup, but only when the
+dataset is looked up — do not `git checkout`/`reset` the manifest out from
+under a queued build (that is how the first Seward attempt died with
+"unknown dataset").
