@@ -293,6 +293,21 @@
       "archive_mode": "translate",
       "vertical_datum": "NAVD88",
       "notes": "DGGS RDF 2025-8, flown 2023-09-19: the Barry Arm landslide. Compound CRS NAD83(2011)/UTM 6N + NAVD88 (GEOID12B), metres, 0.2 m posts, 7.3 GB uncompressed with external overviews. The folder also holds *_dtm_old.tif on the same grid (superseded: the corrected file masks out ~28% of the old footprint and sits 0.57 m lower in median, differing by >1 m on 16% of pixels); the corrected file is used. max_zoom 18 (0.29 m)."
+    },
+    {
+      "id": "glacier_bay_2019",
+      "title": "Glacier Bay 2019 bare-earth DEM (USGS 3DEP)",
+      "src": "/Volumes/Nunatak/lidar_build/vrt/glacier_bay_2019.vrt",
+      "target_epsg": 6337,
+      "native_res_m": 0.5,
+      "center_lat": 58.63,
+      "min_zoom": 8,
+      "max_zoom": 17,
+      "year": 2019,
+      "product": "DEM (bare earth)",
+      "archive_mode": "translate",
+      "vertical_datum": "NAVD88",
+      "notes": "USGS 3DEP OPR AK_GlacierBay_2019_B19 bare-earth tiles: 575 x 1 km LZW GeoTIFFs (2000x2000 px, 0.5 m, Float32, nodata -999999) in /Volumes/Powder/Alaska GIS/Raster/AK_lidar/Glacier_Bay_2019/, all NAD83(2011)/UTM 8N, no overlaps. Built from the ORIGINAL tiles through a gdalbuildvrt mosaic (tools: vrt/glacier_bay_2019.vrt, tile list alongside) rather than the earlier hand-merged Reprocessed/Merged.tif. ~526 km2 of data in strips (Alsek, Lituya, Crillon; QL1 and QL2 blocks) inside a 120 x 43 km box, so most of the grid is nodata. No metadata file in the folder: NAVD88 is the 3DEP standard for this project and is assumed. max_zoom 17 (0.62 m at 58.6N)."
     }
   ]
 }
