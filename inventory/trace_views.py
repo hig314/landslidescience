@@ -18,7 +18,7 @@ import json
 import shutil
 import threading
 
-from django.http import HttpResponseForbidden, JsonResponse
+from django.http import Http404, HttpResponseForbidden, JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_POST, require_safe
 from django.views.static import serve as static_serve
@@ -36,14 +36,14 @@ def _spawn_bake(raster_id):
                      daemon=True, name=f'trace-bake-{raster_id}').start()
 
 
-def _baked_at(raster_id):
+def _baked_at(raster_id, render):
     """Mtime of the tile directory, as an integer: the tile URLs carry it as
     ?v= so a re-bake (new render mode) defeats the year-long immutable cache
     on tiles that are otherwise addressed identically."""
     import os
     from . import raster_tiles
     try:
-        return int(os.stat(raster_tiles.tiles_dir(raster_id)).st_mtime)
+        return int(os.stat(raster_tiles.mode_dir(raster_id, render)).st_mtime)
     except OSError:
         return None
 
@@ -60,7 +60,7 @@ def _row_json(r):
         'image_date': r.image_date.isoformat() if r.image_date else None,
         'source_note': r.source_note or None,
         'render': r.render,
-        'baked_at': _baked_at(r.pk),
+        'baked_at': _baked_at(r.pk, r.render),
         'bounds_w': r.bounds_w, 'bounds_s': r.bounds_s,
         'bounds_e': r.bounds_e, 'bounds_n': r.bounds_n,
         'min_zoom': r.min_zoom, 'max_zoom': r.max_zoom,
@@ -77,6 +77,17 @@ def _row_json(r):
 @inventory_editor_required
 @require_safe
 def trace_list(request):
+    # Rows from before render modes existed carry 'auto' and a pyramid sitting
+    # directly under their directory. Resolve the mode from the file once and
+    # file the pyramid under it, so tile serving and mode reuse are exact.
+    from . import raster_tiles
+    for r in TraceRaster.objects.filter(render='auto'):
+        try:
+            render = raster_tiles.resolve_render(r.original.path, 'auto')
+        except Exception:
+            continue
+        raster_tiles.adopt_legacy(r.pk, render)
+        TraceRaster.objects.filter(pk=r.pk).update(render=render)
     return JsonResponse({'rasters': [_row_json(r) for r in TraceRaster.objects.all()]})
 
 
@@ -158,15 +169,23 @@ def trace_rebuild(request, raster_id):
         return JsonResponse({'ok': False, 'error':
                              'Original file is missing — delete this row and re-upload.'},
                             status=409)
-    fields = dict(status=TraceRaster.STATUS_PROCESSING, error_message='')
-    render = request.POST.get('render')
-    if render:
-        if render not in dict(TraceRaster.RENDER_CHOICES):
-            return JsonResponse({'ok': False, 'error': 'Unknown render mode.'}, status=400)
-        fields['render'] = render
-    TraceRaster.objects.filter(pk=raster_id).update(**fields)
+    render = request.POST.get('render') or r.render
+    if render not in dict(TraceRaster.RENDER_CHOICES):
+        return JsonResponse({'ok': False, 'error': 'Unknown render mode.'}, status=400)
+    try:
+        render = raster_tiles.resolve_render(r.original.path, render)
+    except Exception:
+        return JsonResponse({'ok': False, 'error': 'Could not read the original.'}, status=500)
+    # Already baked in that mode and not a recovery from an error? Just switch.
+    if (r.status == TraceRaster.STATUS_READY
+            and raster_tiles.mode_complete(raster_id, render)):
+        TraceRaster.objects.filter(pk=raster_id).update(render=render)
+        r.refresh_from_db()
+        return JsonResponse({'ok': True, 'reused': True, 'raster': _row_json(r)})
+    TraceRaster.objects.filter(pk=raster_id).update(
+        status=TraceRaster.STATUS_PROCESSING, error_message='', render=render)
     _spawn_bake(raster_id)
-    return JsonResponse({'ok': True})
+    return JsonResponse({'ok': True, 'reused': False})
 
 
 @inventory_editor_required
@@ -211,8 +230,13 @@ def trace_tile(request, raster_id, z, x, y):
     in shared caches."""
     if not is_inventory_editor(request.user):
         return HttpResponseForbidden()
-    from .raster_tiles import tiles_dir
+    from . import raster_tiles
+    try:
+        render = TraceRaster.objects.values_list('render', flat=True).get(pk=raster_id)
+    except TraceRaster.DoesNotExist:
+        raise Http404
+    raster_tiles.adopt_legacy(raster_id, render)   # no-op once moved
     resp = static_serve(request, f'{z}/{x}/{y}.png',
-                        document_root=str(tiles_dir(raster_id)))
+                        document_root=str(raster_tiles.mode_dir(raster_id, render)))
     resp['Cache-Control'] = 'private, max-age=31536000, immutable'
     return resp

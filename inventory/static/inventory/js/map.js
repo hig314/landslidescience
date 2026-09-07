@@ -3036,7 +3036,13 @@
                 _tracePostForm(API_BASE + 'api/trace_rasters/' + r.id + '/rebuild/',
                                { render: render || r.render || 'auto' })
                     .then(function (res) {
-                        if (res.ok && res.j.ok) {
+                        if (res.ok && res.j.ok && res.j.reused) {
+                            // That mode was baked earlier: swap pyramids, no wait.
+                            _traceReplaceRow(res.j.raster);
+                            if (_traceActive[r.id] != null) { _traceRemoveLayer(r.id); _traceAddLayer(r.id); }
+                            _traceLastUploaded = null;
+                            _renderTraceRows(); _traceShowCue();
+                        } else if (res.ok && res.j.ok) {
                             r.status = 'processing'; r.stalled = false; r.error = null;
                             if (render) r.render = render;
                             _traceLastUploaded = { id: r.id, title: r.title };

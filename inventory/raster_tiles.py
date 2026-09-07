@@ -43,6 +43,56 @@ def tiles_dir(raster_id):
     return TRACE_TILES_DIR / str(int(raster_id))
 
 
+# One pyramid per RENDER MODE, side by side under the raster's directory, so
+# switching a scene between false colour and natural is a directory swap once
+# both have been baked, not a five-minute re-bake. `.complete` marks a
+# finished bake; a directory without it is a bake in progress or a crash.
+RENDER_MODES = ('nrg', 'rgb', 'gray')
+
+
+def mode_dir(raster_id, render):
+    return tiles_dir(raster_id) / (render if render in RENDER_MODES else 'rgb')
+
+
+def mode_complete(raster_id, render):
+    return (mode_dir(raster_id, render) / '.complete').exists()
+
+
+def adopt_legacy(raster_id, render):
+    """Pyramids baked before render modes existed sit directly under the
+    raster directory (<id>/<z>/...). Move them under the mode they were baked
+    as, which for a pre-existing row is whatever `render` now says."""
+    root = tiles_dir(raster_id)
+    if not root.is_dir():
+        return
+    zdirs = [d for d in root.iterdir() if d.is_dir() and d.name.isdigit()]
+    if not zdirs:
+        return
+    dest = mode_dir(raster_id, render)
+    dest.mkdir(parents=True, exist_ok=True)
+    for d in zdirs:
+        shutil.move(str(d), str(dest / d.name))
+    (dest / '.complete').touch()
+
+
+def resolve_render(path, render):
+    """'auto' -> a concrete mode from the file's bands (NIR-R-G when a 4th
+    band exists, natural for 3, grey otherwise); concrete modes pass through
+    unless the file cannot honour them."""
+    import rasterio
+    from rasterio.enums import ColorInterp
+
+    with rasterio.open(path) as src:
+        n = sum(1 for c in src.colorinterp if c != ColorInterp.alpha)
+    if render == 'nrg' and n < 4:
+        render = 'rgb'
+    if render == 'rgb' and n < 3:
+        render = 'gray'
+    if render == 'auto':
+        render = 'nrg' if n >= 4 else ('rgb' if n >= 3 else 'gray')
+    return render
+
+
 # --- slippy-map math (same formulas as basemaps.js, in metres) -------------
 
 def _tile_span(z):
@@ -122,9 +172,14 @@ def process(raster_id):
 
     try:
         row = TraceRaster.objects.get(pk=raster_id)
-        out_dir = tiles_dir(raster_id)
-        shutil.rmtree(out_dir, ignore_errors=True)   # re-bake starts clean
-        meta = _bake(row.original.path, out_dir, render=row.render)
+        render = resolve_render(row.original.path, row.render)
+        if render != row.render:
+            TraceRaster.objects.filter(pk=raster_id).update(render=render)
+        adopt_legacy(raster_id, render)
+        out_dir = mode_dir(raster_id, render)
+        shutil.rmtree(out_dir, ignore_errors=True)   # re-bake of THIS mode starts clean
+        meta = _bake(row.original.path, out_dir, render=render)
+        (out_dir / '.complete').touch()
         TraceRaster.objects.filter(pk=raster_id).update(
             status=TraceRaster.STATUS_READY, error_message='', **meta)
         log.info('trace raster %s baked: %s tiles, z%s-%s',
