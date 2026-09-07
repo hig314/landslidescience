@@ -63,7 +63,7 @@
       "product": "DEM",
       "archive_mode": "translate",
       "vertical_datum": "NAVD88",
-      "notes": "Arrives as a valid COG (ZSTD, 512 blocks) in a COMPOUND CRS: NAD83(2011) / UTM 5N + NAVD88 height. Already the target horizontal zone, so the archive stage copies rather than warps - warping to a 2D EPSG:6334 would be an identity resample that also silently drops the declared NAVD88 vertical datum. It is the only one of the four that declares its vertical reference. Rebuilt 2026-09-06 as translate so its overviews are GDAL-computed from the shipped pixels (the vendor's were fine; a misaligned test said otherwise -- see CLAUDE.md)."
+      "notes": "Arrives as a valid COG (ZSTD, 512 blocks) in a COMPOUND CRS: NAD83(2011) / UTM 5N + NAVD88 height. Already the target horizontal zone, so the archive stage copies rather than warps - warping to a 2D EPSG:6334 would be an identity resample that also silently drops the declared NAVD88 vertical datum. It is the only one of the four that declares its vertical reference. Web tiles rebuilt 2026-09-06: the compound NAVD88 CRS made gdalwarp geoid-shift full-res reads but not overview reads (see CLAUDE.md); the archive now has GDAL-computed overviews (translate mode)."
     },
     {
       "id": "matsu_2019",
@@ -110,7 +110,7 @@
       "product": "DTM (bare earth)",
       "archive_mode": "translate",
       "vertical_datum": "NAVD88",
-      "notes": "Arrives as a valid COG (LZW, 512 blocks, overviews) in a COMPOUND CRS: NAD83(2011) / UTM 6N + NAVD88 height (GEOID12B), unit metre. Already the target zone, so the archive stage copies (same reasoning as kbay_2023). 75000x84000 grid, 38.8% valid: Resurrection Bay from Seward north up the Resurrection River valley. Source directory also holds _shade and _mod5 derivatives, which the viewer renders client-side instead. Rebuilt 2026-09-06 as translate so its overviews are GDAL-computed from the shipped pixels (the vendor's were fine; a misaligned test said otherwise -- see CLAUDE.md)."
+      "notes": "Arrives as a valid COG (LZW, 512 blocks, overviews) in a COMPOUND CRS: NAD83(2011) / UTM 6N + NAVD88 height (GEOID12B), unit metre. Already the target zone, so the archive stage copies (same reasoning as kbay_2023). 75000x84000 grid, 38.8% valid: Resurrection Bay from Seward north up the Resurrection River valley. Source directory also holds _shade and _mod5 derivatives, which the viewer renders client-side instead. Web tiles rebuilt 2026-09-06: the compound NAVD88 CRS made gdalwarp geoid-shift full-res reads but not overview reads (see CLAUDE.md); the archive now has GDAL-computed overviews (translate mode)."
     },
     {
       "id": "glen_alps_2024",
@@ -125,7 +125,7 @@
       "product": "DTM (bare earth)",
       "archive_mode": "translate",
       "vertical_datum": "NAVD88",
-      "notes": "Municipality of Anchorage lidar, flown 2024-03-25..08-17 (DGGS RDF 2025-19). Compound CRS NAD83(2011)/UTM 6N + NAVD88 (GEOID12B), metres, 1 m posts, LZW with 128x128 blocks and external overviews -- not a COG, so the archive stage translates in place, keeping the vertical CRS. Chugach front range above Anchorage. max_zoom 16 (1.15 m) for 1 m source."
+      "notes": "Municipality of Anchorage lidar, flown 2024-03-25..08-17 (DGGS RDF 2025-19). Compound CRS NAD83(2011)/UTM 6N + NAVD88 (GEOID12B), metres, 1 m posts, LZW with 128x128 blocks and external overviews -- not a COG, so the archive stage translates in place, keeping the vertical CRS. Chugach front range above Anchorage. max_zoom 16 (1.15 m) for 1 m source. Web tiles rebuilt 2026-09-06 after the compound-CRS geoid-shift band bug (see CLAUDE.md)."
     },
     {
       "id": "eagle_river_2024",
@@ -140,7 +140,7 @@
       "product": "DTM (bare earth)",
       "archive_mode": "translate",
       "vertical_datum": "NAVD88",
-      "notes": "Municipality of Anchorage lidar, flown 2024-03-24..08-17 (DGGS RDF 2025-20). Compound CRS NAD83(2011)/UTM 6N + NAVD88 (GEOID12B), metres, 1 m posts, LZW, not a COG -- translated in place. max_zoom 16 (1.15 m) for 1 m source."
+      "notes": "Municipality of Anchorage lidar, flown 2024-03-24..08-17 (DGGS RDF 2025-20). Compound CRS NAD83(2011)/UTM 6N + NAVD88 (GEOID12B), metres, 1 m posts, LZW, not a COG -- translated in place. max_zoom 16 (1.15 m) for 1 m source. Web tiles rebuilt 2026-09-06 after the compound-CRS geoid-shift band bug (see CLAUDE.md)."
     },
     {
       "id": "columbia_2022",
