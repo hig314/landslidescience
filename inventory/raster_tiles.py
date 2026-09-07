@@ -251,6 +251,38 @@ def process(raster_id):
 
 # --- the bake ---------------------------------------------------------------
 
+EQUALISE_CLIP = 4.0       # contrast limit: no histogram bin may hold more than this x its fair share
+
+
+def _equalise_edges(vals, clip=EQUALISE_CLIP, nbins=1024):
+    """Contrast-LIMITED histogram equalisation, as 256 input-value edges.
+
+    Plain equalisation spends the output levels in proportion to pixel count,
+    so a scene that is mostly dark sea hands nearly all 256 levels to the sea's
+    sensor noise and crushes the island into a few -- the August 2025 Jan
+    Mayen scene rendered as confetti for exactly that reason. Clipping each
+    bin at `clip` x the mean count (CLAHE's idea, applied globally) and
+    redistributing the excess caps how much any one flat expanse can claim,
+    so glacier and rubble keep their contrast whatever surrounds them.
+    """
+    import numpy as np
+    lo, hi = np.percentile(vals, (0.5, 99.5))
+    if hi <= lo:
+        return np.linspace(lo, lo + 1.0, 256)
+    hist, bins = np.histogram(np.clip(vals, lo, hi), bins=nbins, range=(lo, hi))
+    hist = hist.astype(np.float64)
+    limit = clip * hist.mean()
+    excess = np.clip(hist - limit, 0, None).sum()
+    hist = np.minimum(hist, limit) + excess / nbins
+    cdf = np.cumsum(hist); cdf /= cdf[-1]
+    # invert: the input value at which the CDF reaches each of 256 levels
+    edges = np.interp(np.linspace(0, 1, 256), np.concatenate([[0.0], cdf]), bins)
+    edges = np.maximum.accumulate(edges)
+    if edges[-1] <= edges[0]:
+        edges = np.linspace(lo, hi, 256)
+    return edges
+
+
 def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=None):
     """fmt: 'png' (lossless, what the server bakes) or 'webp' (lossy, for the
     local pre-bake path -- imagery tolerates it, terrain-RGB would not).
@@ -374,14 +406,7 @@ def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=
                     vals = ov[b][valid].astype(np.float64)
                     if vals.size == 0:
                         raise ValueError('Raster contains no valid (unmasked) pixels.')
-                    # Equal-count bin edges: 256 output levels, each holding
-                    # ~1/256 of the sampled pixels, clipped at the 0.5/99.5 %
-                    # tails so a few hot pixels cannot own the top of the ramp.
-                    edges = np.percentile(vals, np.linspace(0.5, 99.5, 256))
-                    edges = np.maximum.accumulate(edges)
-                    if edges[-1] <= edges[0]:
-                        edges = np.linspace(edges[0], edges[0] + 1.0, 256)
-                    stretch.append(edges)
+                    stretch.append(_equalise_edges(vals))
 
             levels = np.arange(256, dtype=np.float64)
 
