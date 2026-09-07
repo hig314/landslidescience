@@ -63,7 +63,7 @@
       "product": "DEM",
       "archive_mode": "translate",
       "vertical_datum": "NAVD88",
-      "notes": "Arrives as a valid COG (ZSTD, 512 blocks) in a COMPOUND CRS: NAD83(2011) / UTM 5N + NAVD88 height. Already the target horizontal zone, so the archive stage copies rather than warps - warping to a 2D EPSG:6334 would be an identity resample that also silently drops the declared NAVD88 vertical datum. It is the only one of the four that declares its vertical reference. REBUILT 2026-09-06 as translate: the vendor COG's own overviews are misregistered against its full-res grid (1-2 px, varying by window -> seams), so they are discarded and recomputed (OVERVIEWS=IGNORE_EXISTING)."
+      "notes": "Arrives as a valid COG (ZSTD, 512 blocks) in a COMPOUND CRS: NAD83(2011) / UTM 5N + NAVD88 height. Already the target horizontal zone, so the archive stage copies rather than warps - warping to a 2D EPSG:6334 would be an identity resample that also silently drops the declared NAVD88 vertical datum. It is the only one of the four that declares its vertical reference. Rebuilt 2026-09-06 as translate so its overviews are GDAL-computed from the shipped pixels (the vendor's were fine; a misaligned test said otherwise -- see CLAUDE.md)."
     },
     {
       "id": "matsu_2019",
@@ -110,7 +110,7 @@
       "product": "DTM (bare earth)",
       "archive_mode": "translate",
       "vertical_datum": "NAVD88",
-      "notes": "Arrives as a valid COG (LZW, 512 blocks, overviews) in a COMPOUND CRS: NAD83(2011) / UTM 6N + NAVD88 height (GEOID12B), unit metre. Already the target zone, so the archive stage copies (same reasoning as kbay_2023). 75000x84000 grid, 38.8% valid: Resurrection Bay from Seward north up the Resurrection River valley. Source directory also holds _shade and _mod5 derivatives, which the viewer renders client-side instead. REBUILT 2026-09-06 as translate: the vendor COG's own overviews are misregistered against its full-res grid (1-2 px, varying by window -> seams), so they are discarded and recomputed (OVERVIEWS=IGNORE_EXISTING)."
+      "notes": "Arrives as a valid COG (LZW, 512 blocks, overviews) in a COMPOUND CRS: NAD83(2011) / UTM 6N + NAVD88 height (GEOID12B), unit metre. Already the target zone, so the archive stage copies (same reasoning as kbay_2023). 75000x84000 grid, 38.8% valid: Resurrection Bay from Seward north up the Resurrection River valley. Source directory also holds _shade and _mod5 derivatives, which the viewer renders client-side instead. Rebuilt 2026-09-06 as translate so its overviews are GDAL-computed from the shipped pixels (the vendor's were fine; a misaligned test said otherwise -- see CLAUDE.md)."
     },
     {
       "id": "glen_alps_2024",
