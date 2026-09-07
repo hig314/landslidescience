@@ -1,15 +1,15 @@
 # Lidar hosting — state of play (2026-09-06)
 
-Eighteen surveys built and verified on dev (every one checked at max zoom against its source and at z13 against a shift-free warp); six deployed to production, twelve on the droplet awaiting the next code deploy. Archive COGs are moving to Cloudflare R2 (`tools/lidar/r2_sync.sh`); the catalog already links there.
+Nineteen surveys built and verified on dev (every one checked at max zoom against its source and at z13 against a shift-free warp); six deployed to production, thirteen on the droplet awaiting the next code deploy. Archive COGs are moving to Cloudflare R2 (`tools/lidar/r2_sync.sh`); the catalog already links there.
 
 ## State
 
 | Thing | Where | Status |
 |---|---|---|
 | Code | `main` (lidar + IceBridge guard + manifest) | pushed to GitHub, deployed to the droplet |
-| PMTiles (~5.0 GB, eighteen files) | `data/lidar/pmtiles/` local and `/opt/landslidescience/data/lidar/pmtiles/` on the droplet | uploaded |
+| PMTiles (~5.7 GB, nineteen files) | `data/lidar/pmtiles/` local and `/opt/landslidescience/data/lidar/pmtiles/` on the droplet | uploaded |
 | Catalog | `data/lidar/catalog.geojson` (6 features) | uploaded |
-| Archive COGs (~41 GB, predictor-compressed) | `/Volumes/Nunatak/lidar_build/cog/` + R2 bucket `landslidescience-lidar` under `cog/` | first 38 GB uploading overnight 2026-09-06; rerun `r2_sync.sh` for the four new ones |
+| Archive COGs (~46 GB, predictor-compressed) | `/Volumes/Nunatak/lidar_build/cog/` + R2 bucket `landslidescience-lidar` under `cog/` | first 38 GB uploading overnight 2026-09-06; rerun `r2_sync.sh` for the four new ones |
 | Paused InSAR kinematics | branch `insar-kinematics` (19 commits, rebased onto `main`, pushed) | dev-only; check it out to resume |
 
 Tag `archive/main-2026-09-06-kinematics-plus-lidar` marks what `main` looked
@@ -80,3 +80,14 @@ unrelated-looking "cannot find coordinate operations" error.
 dataset is looked up — do not `git checkout`/`reset` the manifest out from
 under a queued build (that is how the first Seward attempt died with
 "unknown dataset").
+
+## Tiled deliveries (USGS 3DEP style)
+
+A survey that arrives as hundreds of 1 km tiles is built from the ORIGINAL
+tiles, never from a hand-merged copy: `gdalbuildvrt` them into a VRT under
+`/Volumes/Nunatak/lidar_build/vrt/` (with `-srcnodata/-vrtnodata` set to the
+tiles' nodata and an absolute `-input_file_list` beside it) and point the
+manifest `src` at the VRT with `archive_mode: translate`. Glacier Bay 2019
+(575 tiles, 526 km² inside a 120 × 43 km box) built in well under an hour that
+way: the archive stage streams the mosaic to one COG, and empty regions cost
+almost nothing at every stage.
