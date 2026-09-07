@@ -247,7 +247,7 @@
       "archive_mode": "translate",
       "src_srs": "EPSG:6334",
       "vertical_datum": "NAVD88",
-      "notes": "DGGS RDF 2023-2, flown 2021-10-12: Grewingk Glacier 1967 landslide scar and Halibut Cove Lagoon. Original DGGS 1 m DTM, whose embedded CRS is named NAD83(2011)/UTM 5N with every Transverse Mercator parameter zeroed (corners print at 10 deg E, same defect as Sitka) -- src_srs re-tags it as EPSG:6334 without touching pixels. NAVD88 (GEOID12B) per metadata, no vertical CRS in the file. The same folder holds Grewingk2021_v4_WGS84_UTM5.tif, a re-tagged copy on the identical grid with slightly different values (min -4.99 vs -5.36) and stripe blocking; NOT used -- provenance unknown. Uncompressed with external overviews. max_zoom 16 (1.21 m)."
+      "notes": "DGGS RDF 2023-2, flown 2021-10-12: Grewingk Glacier 1967 landslide scar and Halibut Cove Lagoon. Original DGGS 1 m DTM, whose embedded CRS is named NAD83(2011)/UTM 5N with every Transverse Mercator parameter zeroed (corners print at 10 deg E, same defect as Sitka) -- src_srs re-tags it as EPSG:6334 without touching pixels. NAVD88 (GEOID12B) per metadata, no vertical CRS in the file. The same folder holds Grewingk2021_v4_WGS84_UTM5.tif, a copy on the identical grid with pixel-identical values (checked over 9 Mpx), tagged WGS 84 / UTM 5N instead and stripe-blocked; not needed once the original is re-tagged. Uncompressed with external overviews. max_zoom 16 (1.21 m)."
     },
     {
       "id": "portage_2020",
@@ -292,7 +292,7 @@
       "product": "DTM (bare earth)",
       "archive_mode": "translate",
       "vertical_datum": "NAVD88",
-      "notes": "DGGS RDF 2025-8, flown 2023-09-19: the Barry Arm landslide. Compound CRS NAD83(2011)/UTM 6N + NAVD88 (GEOID12B), metres, 0.2 m posts, 7.3 GB uncompressed with external overviews. The folder also holds *_dtm_old.tif on the same grid (max 1666 m vs 1546 m -- the superseded version); the corrected file is used. max_zoom 18 (0.29 m)."
+      "notes": "DGGS RDF 2025-8, flown 2023-09-19: the Barry Arm landslide. Compound CRS NAD83(2011)/UTM 6N + NAVD88 (GEOID12B), metres, 0.2 m posts, 7.3 GB uncompressed with external overviews. The folder also holds *_dtm_old.tif on the same grid (superseded: the corrected file masks out ~28% of the old footprint and sits 0.57 m lower in median, differing by >1 m on 16% of pixels); the corrected file is used. max_zoom 18 (0.29 m)."
     }
   ]
 }
