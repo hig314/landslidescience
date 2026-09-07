@@ -163,8 +163,14 @@ def build_archive(ds, env):
         args = []
         if ds.get("src_srs"):
             args += ["-a_srs", ds["src_srs"]]
+        # IGNORE_EXISTING: the COG driver otherwise adopts the vendor's
+        # external .ovr verbatim. Glen Alps' was misregistered against its
+        # own full-res grid, with a different shift either side of a vertical
+        # seam -- a step in the terrain at every zoom warped from overviews,
+        # gone at full res. Always recompute from the pixels we ship.
         run([GDAL_BIN / "gdal_translate", "-of", "COG", *args,
              "-co", "COMPRESS=ZSTD", "-co", "LEVEL=9",
+             "-co", "OVERVIEWS=IGNORE_EXISTING",
              "-co", "OVERVIEW_RESAMPLING=AVERAGE",
              "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
              src, dst], env=env)
