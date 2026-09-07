@@ -1,15 +1,15 @@
 # Lidar hosting — state of play (2026-09-06)
 
-Ten surveys built and verified on dev; six deployed to production, four (Glen Alps, Eagle River, Columbia, Sitka — added 2026-09-06 evening) on the droplet awaiting the next code deploy. Archive COGs are moving to Cloudflare R2 (`tools/lidar/r2_sync.sh`); the catalog already links there.
+Eighteen surveys built and verified on dev (every one checked at max zoom against its source and at z13 against a shift-free warp); six deployed to production, twelve on the droplet awaiting the next code deploy. Archive COGs are moving to Cloudflare R2 (`tools/lidar/r2_sync.sh`); the catalog already links there.
 
 ## State
 
 | Thing | Where | Status |
 |---|---|---|
 | Code | `main` (lidar + IceBridge guard + manifest) | pushed to GitHub, deployed to the droplet |
-| PMTiles (~4.7 GB, ten files) | `data/lidar/pmtiles/` local and `/opt/landslidescience/data/lidar/pmtiles/` on the droplet | uploaded |
+| PMTiles (~5.0 GB, eighteen files) | `data/lidar/pmtiles/` local and `/opt/landslidescience/data/lidar/pmtiles/` on the droplet | uploaded |
 | Catalog | `data/lidar/catalog.geojson` (6 features) | uploaded |
-| Archive COGs (~42 GB) | `/Volumes/Nunatak/lidar_build/cog/` + R2 bucket `landslidescience-lidar` under `cog/` | first 38 GB uploading overnight 2026-09-06; rerun `r2_sync.sh` for the four new ones |
+| Archive COGs (~41 GB, predictor-compressed) | `/Volumes/Nunatak/lidar_build/cog/` + R2 bucket `landslidescience-lidar` under `cog/` | first 38 GB uploading overnight 2026-09-06; rerun `r2_sync.sh` for the four new ones |
 | Paused InSAR kinematics | branch `insar-kinematics` (19 commits, rebased onto `main`, pushed) | dev-only; check it out to resume |
 
 Tag `archive/main-2026-09-06-kinematics-plus-lidar` marks what `main` looked
