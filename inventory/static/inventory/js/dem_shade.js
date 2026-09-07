@@ -160,7 +160,10 @@ window.DemShade = (function () {
     stats.elevMiss++;
     var pm = datasets[id];
     if (!pm) return Promise.resolve(null);
-    var job = pm.getZxy(z, x, y).then(function (t) {
+    var fetchOnce = function () { return pm.getZxy(z, x, y).then(function (t) {
+      // undefined means the archive has no such tile: outside the footprint
+      // (--skip-blank). That is a real, cacheable "empty". A rejection is a
+      // failed request and must never be mistaken for it.
       if (!t) return null;
       return createImageBitmap(new Blob([t.data])).then(function (bmp) {
         var c = document.createElement('canvas');
@@ -177,7 +180,16 @@ window.DemShade = (function () {
         }
         return out;
       });
-    }).catch(function () { return null; });
+    }); };
+    // One retry absorbs the single dropped request a jittery link produces.
+    // Anything worse REJECTS: MapLibre then marks the tile errored and asks
+    // again on the next view change. The old `.catch(() => null)` turned a
+    // network failure into a permanent blank -- the null was cached here and
+    // as EMPTY in tileCache, so a hiccup blanked tiles for the whole session.
+    var job = fetchOnce().catch(function () {
+      return new Promise(function (r) { setTimeout(r, 400); }).then(fetchOnce);
+    });
+    job.catch(function () { elevCache.delete(key); });
     lruSet(elevCache, key, job, ELEV_MAX);
     return job;
   }
