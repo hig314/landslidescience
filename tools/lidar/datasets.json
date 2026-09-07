@@ -111,6 +111,67 @@
       "archive_mode": "copy",
       "vertical_datum": "NAVD88",
       "notes": "Arrives as a valid COG (LZW, 512 blocks, overviews) in a COMPOUND CRS: NAD83(2011) / UTM 6N + NAVD88 height (GEOID12B), unit metre. Already the target zone, so the archive stage copies (same reasoning as kbay_2023). 75000x84000 grid, 38.8% valid: Resurrection Bay from Seward north up the Resurrection River valley. Source directory also holds _shade and _mod5 derivatives, which the viewer renders client-side instead."
+    },
+    {
+      "id": "glen_alps_2024",
+      "title": "Glen Alps 2024 bare-earth DTM",
+      "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/2024_Glenn_Alps/data/dtm/moa_glenalps_08_2024_dtm.tif",
+      "target_epsg": 6335,
+      "native_res_m": 1.0,
+      "center_lat": 61.08,
+      "min_zoom": 8,
+      "max_zoom": 16,
+      "year": 2024,
+      "product": "DTM (bare earth)",
+      "archive_mode": "translate",
+      "vertical_datum": "NAVD88",
+      "notes": "Municipality of Anchorage lidar, flown 2024-03-25..08-17 (DGGS RDF 2025-19). Compound CRS NAD83(2011)/UTM 6N + NAVD88 (GEOID12B), metres, 1 m posts, LZW with 128x128 blocks and external overviews -- not a COG, so the archive stage translates in place, keeping the vertical CRS. Chugach front range above Anchorage. max_zoom 16 (1.15 m) for 1 m source."
+    },
+    {
+      "id": "eagle_river_2024",
+      "title": "South Fork Eagle River 2024 bare-earth DTM",
+      "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/2024_South_Eagle_River/data/dtm/moa_southforkeagleriver_lidar_08_2024_dtm.tif",
+      "target_epsg": 6335,
+      "native_res_m": 1.0,
+      "center_lat": 61.22,
+      "min_zoom": 8,
+      "max_zoom": 16,
+      "year": 2024,
+      "product": "DTM (bare earth)",
+      "archive_mode": "translate",
+      "vertical_datum": "NAVD88",
+      "notes": "Municipality of Anchorage lidar, flown 2024-03-24..08-17 (DGGS RDF 2025-20). Compound CRS NAD83(2011)/UTM 6N + NAVD88 (GEOID12B), metres, 1 m posts, LZW, not a COG -- translated in place. max_zoom 16 (1.15 m) for 1 m source."
+    },
+    {
+      "id": "columbia_2022",
+      "title": "Columbia Glacier 2022 DTM (20 cm)",
+      "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/Columbia/rdf2023_016_columbia-glacier-dtm/data/dtm/ColumbiaGlacier_091822_DTM_20cm.tif",
+      "target_epsg": 6335,
+      "native_res_m": 0.2,
+      "center_lat": 61.2,
+      "min_zoom": 8,
+      "max_zoom": 18,
+      "year": 2022,
+      "product": "DTM (glacier surface + bare earth)",
+      "archive_mode": "translate",
+      "vertical_datum": "NAVD88",
+      "notes": "DGGS RDF 2023-16, flown 2022-09-18 (metadata caldate 2022-09-22). NAD83(2011)/UTM 6N, NAVD88 (GEOID12B) per metadata though the file carries no vertical CRS; metres; 0.2 m posts, LZW, not a COG -- translated in place. Terminus area of Columbia Glacier, ~35 km2 bbox. A glacier surface, so it dates fast: the ice here has been retreating and thinning since 1980. max_zoom 18 (0.29 m) for 0.2 m source; 19 would be 4x the bytes for 1.4x oversampling."
+    },
+    {
+      "id": "sitka_2019",
+      "title": "Sitka 2018-2019 bare-earth DTM",
+      "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/rdf2026_019_lidar-sitka-2018-2019-dtm/data/dtm/sitka_2018_2019_dtm.tif",
+      "target_epsg": 6337,
+      "native_res_m": 0.5,
+      "center_lat": 56.8,
+      "min_zoom": 8,
+      "max_zoom": 17,
+      "year": 2019,
+      "product": "DTM (bare earth)",
+      "archive_mode": "translate",
+      "src_srs": "EPSG:6337",
+      "vertical_datum": "NAVD88",
+      "notes": "DGGS RDF 2026-19, flown 2018-04-27..29 and 2019-09-27..28. Named NAD83(2011)/UTM 8N in the file but the embedded Transverse Mercator has every parameter zeroed (lon origin 0, false easting 0), so GDAL puts the corners at 7 deg E; src_srs re-tags it as EPSG:6337 without touching pixels. World file agrees with the tag to a half pixel. NAVD88 (GEOID12B) per metadata, metres, 0.5 m posts, uncompressed 9.1 GB with external overviews. First zone-8 dataset in the collection. max_zoom 17 (0.65 m) for 0.5 m source at 56.8N."
     }
   ]
 }

@@ -152,6 +152,24 @@ def build_archive(ds, env):
         shutil.copyfile(src, dst)
         return dst
 
+    # "translate": already in the target zone but not a COG (plain/LZW GeoTIFF,
+    # 128x128 blocks, external .ovr). gdal_translate -of COG keeps the CRS --
+    # including a compound vertical datum -- and the pixel values bit-for-bit;
+    # a gdalwarp onto its own grid would be an identity resample that still
+    # drops the vertical CRS. Optional src_srs tags a file whose embedded CRS
+    # is broken (Sitka's resolves to 7 deg E) without touching the pixels.
+    if ds.get("archive_mode") == "translate":
+        print("  archive: same zone, rewriting as COG (no resample)")
+        args = []
+        if ds.get("src_srs"):
+            args += ["-a_srs", ds["src_srs"]]
+        run([GDAL_BIN / "gdal_translate", "-of", "COG", *args,
+             "-co", "COMPRESS=ZSTD", "-co", "LEVEL=9",
+             "-co", "OVERVIEW_RESAMPLING=AVERAGE",
+             "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
+             src, dst], env=env)
+        return dst
+
     print(f"  archive: -> EPSG:{target}")
     tmp = BUILD / ds["id"] / "archive_tmp.tif"
     tmp.parent.mkdir(parents=True, exist_ok=True)
