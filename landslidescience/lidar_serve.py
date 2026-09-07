@@ -28,7 +28,8 @@ import re
 
 from django.conf import settings
 from django.http import (FileResponse, Http404, HttpResponse,
-                         HttpResponseNotModified, StreamingHttpResponse)
+                         HttpResponseNotModified, HttpResponseRedirect,
+                         StreamingHttpResponse)
 from django.utils.http import http_date
 
 # Dataset ids come from tools/lidar/datasets.json and are always plain slugs.
@@ -44,6 +45,11 @@ LIDAR_DIR = settings.BASE_DIR / 'data' / 'lidar'
 # in prod they are expected to live in object storage and this route is
 # unused. Falls back to data/lidar/cog so a small local set also works.
 COG_DIR = getattr(settings, 'LIDAR_COG_DIR', None) or (LIDAR_DIR / 'cog')
+# Where the archives actually live: Cloudflare R2 behind the bucket's custom
+# domain. The catalog links there directly; this route only survives so old
+# links keep working, and so dev can serve a locally mounted copy.
+COG_PUBLIC_BASE = getattr(settings, 'LIDAR_COG_PUBLIC_BASE',
+                          'https://lidar.landslidescience.org/cog')
 
 
 def _parse_range(header, size):
@@ -136,10 +142,15 @@ def pmtiles(request, dataset_id):
 
 
 def cog(request, dataset_id):
-    return serve_ranged(
-        request, _checked(COG_DIR, dataset_id, '.tif'),
-        'image/tiff; application=geotiff; profile=cloud-optimized',
-        'public, max-age=3600')
+    """Archive COG. Served locally only where a copy is mounted (dev);
+    otherwise a redirect to R2, so a 12 GB download never ties up a worker."""
+    path = _checked(COG_DIR, dataset_id, '.tif')
+    if path.is_file():
+        return serve_ranged(
+            request, path,
+            'image/tiff; application=geotiff; profile=cloud-optimized',
+            'public, max-age=3600')
+    return HttpResponseRedirect(f'{COG_PUBLIC_BASE}/{dataset_id}.tif')
 
 
 def catalog(request):

@@ -37,6 +37,12 @@ GDAL_BIN = Path(os.environ.get("GDAL_BIN", "/opt/homebrew/bin"))
 BUILD = Path(os.environ.get("LIDAR_BUILD", "/Volumes/Nunatak/lidar_build"))
 COG_DIR = Path(os.environ.get("LIDAR_COG_OUT", BUILD / "cog"))
 PM_DIR = Path(os.environ.get("LIDAR_PM_OUT", ROOT / "data" / "lidar" / "pmtiles"))
+# Where the archive COGs are served from. They live in Cloudflare R2 behind the
+# bucket's custom domain (CDN-cached, CORS for Range/ETag), not on the droplet:
+# 38 GB does not fit there and a 12 GB download must never pass through the two
+# gunicorn workers. Pushed by tools/lidar/r2_sync.sh into <bucket>/cog/.
+COG_PUBLIC_BASE = os.environ.get("LIDAR_COG_PUBLIC_BASE",
+                                 "https://lidar.landslidescience.org/cog")
 
 # Footprint detail. 0.0001 deg is ~11 m of latitude -- finer than anyone needs
 # for "does this survey cover my slope?", and keeps the whole catalog small
@@ -145,7 +151,7 @@ def main():
                 "coverage_km2": round(area, 1),
                 "pmtiles_url": f"/lidar/pmtiles/{did}.pmtiles",
                 "pmtiles_bytes": pm_bytes,
-                "cog_url": f"/lidar/cog/{did}.tif",
+                "cog_url": f"{COG_PUBLIC_BASE}/{did}.tif",
                 "cog_bytes": cog.stat().st_size,
                 "notes": ds.get("notes", ""),
             },
