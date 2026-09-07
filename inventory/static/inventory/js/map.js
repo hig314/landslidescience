@@ -3028,25 +3028,25 @@
             if (r.status === 'ready') {
                 btn('⌖', 'Zoom to this image', function () { _traceZoomTo(r); });
             }
-            if (r.status !== 'processing' || r.stalled) {
-                // Re-bake: recovers a failed/stalled bake, and also re-renders a
-                // finished one with a different composition (see the select on
-                // the second line).
-                btn('⟳', 'Re-bake from the uploaded original with the render mode shown below',
-                    function () {
-                        var sel = row.querySelector('select');
-                        _tracePostForm(API_BASE + 'api/trace_rasters/' + r.id + '/rebuild/',
-                                       { render: sel ? sel.value : (r.render || 'auto') })
-                            .then(function (res) {
-                                if (res.ok && res.j.ok) {
-                                    r.status = 'processing'; r.stalled = false; r.error = null;
-                                    if (sel) r.render = sel.value;
-                                    _traceLastUploaded = { id: r.id, title: r.title };
-                                    _renderTraceRows(); _traceShowCue();
-                                    _tracePoll(r.id);
-                                } else alert((res.j && res.j.error) || 'rebuild failed');
-                            });
+            // Re-bake from the uploaded original. Used by the ⟳ button (recover a
+            // failed/stalled bake) and by the render selector on the second line,
+            // which re-bakes the moment it is changed — there is nothing else a
+            // changed composition could mean.
+            function rebake(render) {
+                _tracePostForm(API_BASE + 'api/trace_rasters/' + r.id + '/rebuild/',
+                               { render: render || r.render || 'auto' })
+                    .then(function (res) {
+                        if (res.ok && res.j.ok) {
+                            r.status = 'processing'; r.stalled = false; r.error = null;
+                            if (render) r.render = render;
+                            _traceLastUploaded = { id: r.id, title: r.title };
+                            _renderTraceRows(); _traceShowCue();
+                            _tracePoll(r.id);
+                        } else alert((res.j && res.j.error) || 'rebuild failed');
                     });
+            }
+            if (r.status !== 'processing' || r.stalled) {
+                btn('⟳', 'Re-bake from the uploaded original', function () { rebake(null); });
             }
             btn('×', 'Delete this upload (tiles + original)', function () {
                 if (!confirm('Delete "' + r.title + '" — tiles and the uploaded original?')) return;
@@ -3085,7 +3085,8 @@
                 line2.appendChild(op);
                 var rsel = _traceRenderSelect(r.render || 'auto');
                 rsel.style.cssText = 'font-size:10px;max-width:120px;';
-                rsel.title = 'Composition — change it and press ⟳ to re-bake';
+                rsel.title = 'Composition — changing it re-bakes the image (a few minutes)';
+                rsel.addEventListener('change', function () { rebake(rsel.value); });
                 line2.appendChild(rsel);
 
                 // Provenance link: which landslide this image was traced into.
@@ -3749,8 +3750,9 @@
         cue.style.display = 'block';
         if (!r || r.status === 'processing') {
             cue.style.color = '#1b7a3d';
-            cue.textContent = '✓ Uploaded “' + u.title + '” — its footprint is outlined in blue on the map ' +
-                              'while the tiles bake (a few minutes for a Planet scene). The image appears there when ready.';
+            cue.textContent = '✓ “' + u.title + '” is baking' + (r && r.render ? ' as ' + r.render : '') +
+                              ' — footprint outlined in blue on the map meanwhile (a few minutes for a Planet scene). ' +
+                              'The image appears there when ready.';
         } else if (r.status === 'ready') {
             cue.style.color = '#1b7a3d';
             cue.textContent = '✓ “' + u.title + '” is ready and shown on the map.';
