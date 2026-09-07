@@ -92,8 +92,13 @@ vanish depending on which way you light them.
 
   <h2>3D</h2>
   <label><input type="checkbox" id="t3d"> Terrain</label>
-  <label>Terrain exaggeration <span class="val" id="exv">1.5</span></label>
-  <input type="range" id="ex" min="0" max="40" value="15">
+  <label>Terrain exaggeration <span class="val" id="exv">1.0</span></label>
+  <input type="range" id="ex" min="0" max="40" value="10">
+  <label><input type="checkbox" id="ctx" checked> Statewide DEM outside the survey</label>
+  <label><input type="checkbox" id="fog" checked> Fade into the distance</label>
+  <div class="stackhint">Without context a survey stands on a flat plane as a
+    block of towers. Context is the USGS 2-arc-second NED via AWS Terrain Tiles,
+    clamped at sea level; the fog also spares the renderer the far field.</div>
 
   <div id="status"></div>
   <button type="button" id="copyurl">Copy link to this view</button>
@@ -102,6 +107,7 @@ vanish depending on which way you light them.
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.js"></script>
 <script src="{% static 'inventory/js/dem_shade.js' %}"></script>
+<script src="{% static 'inventory/js/dem_fill.js' %}"></script>
 <script>
 (function () {
   'use strict';
@@ -111,6 +117,7 @@ vanish depending on which way you light them.
   var protocol = new pmtiles.Protocol();
   maplibregl.addProtocol('pmtiles', protocol.tile);
   DemShade.register(maplibregl);
+  DemFill.register(maplibregl);
 
   // ---- shareable state --------------------------------------------------
   // MapLibre's built-in `hash` only carries the camera. The whole point here is
@@ -118,7 +125,7 @@ vanish depending on which way you light them.
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
   var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex'];
-  var CHECKS = ['t3d', 'nup', 'warm'];
+  var CHECKS = ['t3d', 'nup', 'warm', 'ctx', 'fog'];
   var Q = new URLSearchParams(location.search);
   var qnum = function (k, d) { var v = Q.get(k); return v === null || v === '' ? d : +v; };
   var qbool = function (k, d) { var v = Q.get(k); return v === null ? d : (v === '1' || v === 'true'); };
@@ -130,7 +137,7 @@ vanish depending on which way you light them.
     if (v !== null && v !== '') document.getElementById(id).value = v;
   });
   CHECKS.forEach(function (id) {
-    document.getElementById(id).checked = qbool(id, id === 'warm');
+    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'fog');
   });
 
   var map = new maplibregl.Map({
@@ -270,15 +277,8 @@ vanish depending on which way you light them.
 
     // The raster-dem source only feeds 3D terrain, and only one can be active,
     // so this one does get swapped.
-    if (map.getSource('dem')) { setTerrain(false); map.removeSource('dem'); }
-    map.addSource('dem', {
-      type: 'raster-dem',
-      tiles: ['pmtiles://' + location.origin + p.pmtiles_url + '/{z}/{x}/{y}'],
-      encoding: 'mapbox',          // must match build_lidar.py's encoder
-      tileSize: 256,
-      minzoom: p.min_zoom,
-      maxzoom: p.max_zoom
-    });
+    DemFill.addDataset(p.id, p.pmtiles_url);
+    rebuildDem(p);
 
     syncLayers();
     if (document.getElementById('t3d').checked) setTerrain(true);
@@ -287,12 +287,43 @@ vanish depending on which way you light them.
     render();
   }
 
+  // With context on, the terrain source is the demfill:// composite: lidar
+  // where the survey has data, the statewide DEM everywhere else, so the
+  // survey sits on real ground instead of a 0 m plane. minzoom drops to 0
+  // because the context exists at every zoom even where the archive does not.
+  function rebuildDem(p) {
+    var ctx = document.getElementById('ctx').checked;
+    var was = !!map.getTerrain();
+    if (map.getSource('dem')) { map.setTerrain(null); map.removeSource('dem'); }
+    map.addSource('dem', {
+      type: 'raster-dem',
+      tiles: [ctx ? DemFill.url(p.id)
+                  : 'pmtiles://' + location.origin + p.pmtiles_url + '/{z}/{x}/{y}'],
+      encoding: 'mapbox',          // must match build_lidar.py's encoder
+      tileSize: 256,
+      minzoom: ctx ? 0 : p.min_zoom,
+      maxzoom: p.max_zoom
+    });
+    if (was) setTerrain(true);
+  }
+
+  // Distance fade: MapLibre's sky/fog. Fog is a function of distance from the
+  // camera, so the far field dissolves into the horizon colour and the eye
+  // stops asking for detail there. Off with terrain, since it only renders
+  // meaningfully on a pitched 3D view.
+  var FOG = { 'sky-color': '#cfe0ee', 'horizon-color': '#e9eef3',
+              'fog-color': '#e9eef3', 'fog-ground-blend': 0.55,
+              'horizon-fog-blend': 0.9, 'sky-horizon-blend': 0.6,
+              'atmosphere-blend': 0 };
+
   function setTerrain(on) {
     if (on && map.getSource('dem')) {
       map.setTerrain({ source: 'dem',
                        exaggeration: +document.getElementById('ex').value / 10 });
+      map.setSky(document.getElementById('fog').checked ? FOG : null);
     } else {
       map.setTerrain(null);
+      map.setSky(null);
     }
   }
 
@@ -439,6 +470,14 @@ vanish depending on which way you light them.
     setTerrain(this.checked);
     if (this.checked && map.getPitch() < 30) map.easeTo({ pitch: 60 });
     applyNorthUp();
+    syncUrl();
+  });
+  document.getElementById('ctx').addEventListener('change', function () {
+    if (active && props4[active]) rebuildDem(props4[active]);
+    syncUrl();
+  });
+  document.getElementById('fog').addEventListener('change', function () {
+    if (map.getTerrain()) setTerrain(true);
     syncUrl();
   });
 
