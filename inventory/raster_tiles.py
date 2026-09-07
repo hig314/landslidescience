@@ -170,7 +170,15 @@ def _bake(src_path, out_dir):
         # band, WarpedVRT adds one tracking the valid warp region — otherwise
         # nodata edges from rotation/reprojection render as black borders.
         src_alpha = ColorInterp.alpha in src.colorinterp
-        rgb_idx = (1, 2, 3) if src.count >= 3 else (1,)
+        # Honour the file's own band roles when it declares them: PlanetScope
+        # AnalyticMS ships B,G,R,NIR, so bands 1-2-3 taken as R-G-B come out
+        # with sea and vegetation swapped. Fall back to positional 1-2-3.
+        ci = list(src.colorinterp)
+        if all(c in ci for c in (ColorInterp.red, ColorInterp.green, ColorInterp.blue)):
+            rgb_idx = (ci.index(ColorInterp.red) + 1, ci.index(ColorInterp.green) + 1,
+                       ci.index(ColorInterp.blue) + 1)
+        else:
+            rgb_idx = (1, 2, 3) if src.count >= 3 else (1,)
         alpha_idx = src.colorinterp.index(ColorInterp.alpha) + 1 if src_alpha else None
 
         # Bake grid: a VRT snapped to the max-zoom tile grid but covering the

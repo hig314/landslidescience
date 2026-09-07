@@ -2874,6 +2874,7 @@
                             _traceZoomTo(row);
                         }
                         _renderTraceRows();
+                        _traceShowCue();
                     }
                 }).catch(function () {});
         }, 2500);
@@ -3341,10 +3342,13 @@
         }
 
         if (far) {
-            // Too far out for the rasters themselves to mean anything.
+            // Too far out for the rasters themselves to mean anything — but
+            // uploading one is not a display act, so the form stays available;
+            // only the overlay list is withheld until the view is close enough.
             hint.textContent = 'Zoom to z' + RASTER_UI_ZOOM +
                 ' to load lidar or uploaded imagery.';
             wrap.appendChild(hint);
+            if (window._isInventoryEditor) wrap.appendChild(_buildTraceUI({ far: true }));
             return;
         }
 
@@ -3490,7 +3494,22 @@
         return row;
     }
 
-    function _buildTraceUI() {
+    // Planet scene ids lead with the capture timestamp: 20240712_115100_43_2459_3B_...
+    // Most other providers' exports (Maxar, Sentinel via EO Browser) also carry a
+    // YYYYMMDD or YYYY-MM-DD somewhere in the name. Only a plausible date wins.
+    function _traceDateFromName(name) {
+        var m = /(^|[^\d])((19|20)\d{2})[-_]?(0[1-9]|1[0-2])[-_]?(0[1-9]|[12]\d|3[01])(?![\d])/.exec(name || '');
+        return m ? m[2] + '-' + m[4] + '-' + m[5] : '';
+    }
+    function _traceSceneIdFromName(name) {
+        // Planet: the first four underscore fields are the scene id.
+        var m = /^(\d{8}_\d{6}_\d{2}_[0-9a-f]{4})/i.exec(name || '');
+        return m ? 'PlanetScope ' + m[1] : '';
+    }
+    var _traceLastUploaded = null;   // {id, title} — drives the success cue across re-renders
+
+    function _buildTraceUI(opts) {
+        opts = opts || {};
         var wrap = document.createElement('div');
         wrap.style.cssText = 'margin-top:12px;';
         var hdr = document.createElement('div');
@@ -3517,7 +3536,16 @@
         var rows = document.createElement('div');
         rows.id = 'trace-imagery-rows';
         listDet.appendChild(rows);
-        wrap.appendChild(listDet);
+        if (!opts.far) wrap.appendChild(listDet);
+
+        // Success cue. The form collapses after a good upload, which used to
+        // take its status line with it, so the only sign anything happened was
+        // a new row in a list that is collapsed by default. This line lives
+        // outside both and follows the bake through to "ready".
+        var cue = document.createElement('div');
+        cue.id = 'trace-upload-cue';
+        cue.style.cssText = 'font-size:11px;color:#1b7a3d;margin:4px 0;line-height:1.35;display:none;';
+        wrap.appendChild(cue);
 
         var det = document.createElement('details');
         var sum = document.createElement('summary');
@@ -3540,6 +3568,34 @@
         var fileInp = document.createElement('input');
         fileInp.type = 'file'; fileInp.accept = '.tif,.tiff,image/tiff';
         fileInp.style.cssText = 'font-size:11px;';
+        // Fill what the filename already says, without overwriting what the
+        // user typed: Planet encodes the capture date and scene id in the name.
+        function fromFilename() {
+            var f = fileInp.files && fileInp.files[0];
+            if (!f) return;
+            if (!dateInp.value) dateInp.value = _traceDateFromName(f.name);
+            if (!srcInp.value) srcInp.value = _traceSceneIdFromName(f.name);
+            if (!titleInp.value) titleInp.placeholder = f.name.replace(/\.tiff?$/i, '');
+        }
+        fileInp.addEventListener('change', fromFilename);
+        // The whole form is a drop target, not just the 30 px file control.
+        form.addEventListener('dragover', function (e) {
+            e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+            form.style.outline = '2px dashed #1a5fb4';
+        });
+        form.addEventListener('dragleave', function () { form.style.outline = ''; });
+        form.addEventListener('drop', function (e) {
+            e.preventDefault(); form.style.outline = '';
+            var files = e.dataTransfer && e.dataTransfer.files;
+            if (!files || !files.length) return;
+            if (!/\.tiff?$/i.test(files[0].name)) {
+                stat.style.color = '#c00'; stat.textContent = 'Drop a .tif / .tiff GeoTIFF.'; return;
+            }
+            fileInp.files = files;       // DataTransfer.files is assignable to a file input
+            stat.textContent = '';
+            fromFilename();
+            det.open = true;
+        });
         var goBtn = document.createElement('button');
         goBtn.type = 'button'; goBtn.textContent = 'Upload';
         goBtn.style.cssText = _TRACE_BTN_CSS + 'align-self:flex-start;padding:3px 12px;';
@@ -3571,6 +3627,8 @@
                     titleInp.value = ''; srcInp.value = ''; dateInp.value = ''; fileInp.value = '';
                     det.open = false;
                     _traceReplaceRow(res.j.raster);
+                    _traceLastUploaded = { id: res.j.id, title: res.j.raster.title };
+                    _traceShowCue();
                     _traceSetListOpen(true);   // show the new row's processing status
                     _renderTraceRows();
                     _tracePoll(res.j.id);
@@ -3585,7 +3643,29 @@
         });
 
         _renderTraceRows();   // populate the freshly-created container
+        _traceShowCue();      // survives a panel rebuild mid-bake
         return wrap;
+    }
+
+    function _traceShowCue() {
+        var cue = document.getElementById('trace-upload-cue');
+        if (!cue) return;
+        var u = _traceLastUploaded;
+        if (!u) { cue.style.display = 'none'; return; }
+        var r = _traceRow(u.id);
+        cue.style.display = 'block';
+        if (!r || r.status === 'processing') {
+            cue.style.color = '#1b7a3d';
+            cue.textContent = '✓ Uploaded “' + u.title + '” — baking tiles, usually a minute or two. ' +
+                              'It will appear on the map and the view will jump to it when ready.';
+        } else if (r.status === 'ready') {
+            cue.style.color = '#1b7a3d';
+            cue.textContent = '✓ “' + u.title + '” is ready and shown on the map.';
+            setTimeout(function () { if (_traceLastUploaded === u) { _traceLastUploaded = null; _traceShowCue(); } }, 12000);
+        } else {
+            cue.style.color = '#c00';
+            cue.textContent = '✖ “' + u.title + '” failed to bake: ' + (r.error || 'see the row for details.');
+        }
     }
 
     // Sidebar tab switching: one panel visible at a time. Shared by the tab
