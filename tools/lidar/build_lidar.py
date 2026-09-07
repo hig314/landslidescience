@@ -312,7 +312,17 @@ def build_web(ds, archive, env, webp=False):
         # scale change is near unity and averaging would just blur the lidar.
         resamp = "bilinear" if z == maxz else "average"
         print(f"  z{z}: warp -> {res:.4f} m/px ({resamp})")
+        # -s_srs <2-D horizontal> and -novshift: the archive may carry a
+        # COMPOUND CRS (UTM + NAVD88 height). Given that and a 2-D EPSG:3857
+        # target, gdalwarp applies the NAVD88 -> ellipsoid geoid shift (+8.4 m
+        # at Anchorage) when it reads the source at full resolution, but NOT
+        # when it reads an overview. With -multi some chunks took each path,
+        # so every build had a random ~800 m band of rows 8.4 m high: the
+        # "two parallel lines with the mod-5 bands jumping between them" seen
+        # in Glen Alps, 2026-09-06. Heights must pass through untouched, as
+        # NAVD88 orthometric, like every other survey in the collection.
         run([GDAL_BIN / "gdalwarp", "-overwrite",
+             "-s_srs", f"EPSG:{ds['target_epsg']}", "-novshift",
              "-t_srs", "EPSG:3857",
              "-te", *[f"{v:.10f}" for v in te],
              "-tr", f"{res:.12f}", f"{res:.12f}",
