@@ -2787,7 +2787,9 @@
         if (!map.getSource(srcId)) {
             map.addSource(srcId, {
                 type: 'raster',
-                tiles: [API_BASE + 'tiles/trace/' + id + '/{z}/{x}/{y}.png'],
+                // ?v= is the bake time: tiles are served immutable for a year,
+                // so without it a re-bake in a new render mode never shows.
+                tiles: [API_BASE + 'tiles/trace/' + id + '/{z}/{x}/{y}.png?v=' + (r.baked_at || 0)],
                 tileSize: 256, minzoom: r.min_zoom, maxzoom: r.max_zoom,
                 bounds: [r.bounds_w, r.bounds_s, r.bounds_e, r.bounds_n]
             });
@@ -2870,6 +2872,7 @@
                         delete _tracePolls[id];
                         if (row.status === 'ready') {
                             _traceActive[id] = 1;   // fresh bake → show it and go there
+                            _traceRemoveLayer(id);  // a re-bake changes the tile URL (?v=)
                             _traceAddLayer(id);
                             _traceZoomTo(row);
                         }
@@ -2924,12 +2927,21 @@
 
     // Summary line on the collapsed uploads list — kept current from every
     // state change (enable/disable, upload, poll completion, delete).
+    // Same standard as the lidar list: only uploads that touch the current
+    // view are offered. Everything else is reachable by turning the footprints
+    // on and going there.
+    function _traceInView(r) {
+        return r.bounds_w != null &&
+               _bboxInView([r.bounds_w, r.bounds_s, r.bounds_e, r.bounds_n]);
+    }
     function _traceUpdateSummary() {
         var sum = document.getElementById('trace-list-summary');
         if (!sum) return;
         if (!_traceRasters.length) { sum.textContent = 'No uploads yet'; return; }
+        var inView = _traceRasters.filter(_traceInView).length;
         var shown = Object.keys(_traceActive).length;
-        var txt = _traceRasters.length + ' upload' + (_traceRasters.length === 1 ? '' : 's');
+        var txt = _traceRasters.length + ' upload' + (_traceRasters.length === 1 ? '' : 's') +
+                  ' · ' + inView + ' in view';
         if (shown) txt += ' · ' + shown + ' on map';
         if (_traceRasters.some(function (r) { return r.status === 'processing' && !r.stalled; }))
             txt += ' · processing…';
@@ -2951,7 +2963,13 @@
             box.innerHTML = '<div style="font-size:11px;color:#999;">No uploads yet.</div>';
             return;
         }
-        _traceRasters.forEach(function (r) {
+        var rowsInView = _traceRasters.filter(_traceInView);
+        if (!rowsInView.length) {
+            box.innerHTML = '<div style="font-size:11px;color:#999;">No uploads in this view — ' +
+                            'turn on the footprints to see where they are.</div>';
+            return;
+        }
+        rowsInView.forEach(function (r) {
             var row = document.createElement('div');
             row.style.cssText = 'padding:5px 6px;border:1px solid #e0dcd8;border-radius:4px;' +
                                 'margin-bottom:5px;font-size:12px;background:#fff;';
@@ -3297,30 +3315,40 @@
         if (!m) return;
         var st = FOOTPRINT_STYLE[kind], srcId = st.id + '-src';
         if (!on) {
-            if (m.getLayer(st.id + '-line')) m.removeLayer(st.id + '-line');
-            if (m.getLayer(st.id + '-fill')) m.removeLayer(st.id + '-fill');
+            ['-line', '-fill', '-line-baking', '-fill-baking'].forEach(function (sfx) {
+                if (m.getLayer(st.id + sfx)) m.removeLayer(st.id + sfx);
+            });
             if (m.getSource(srcId)) m.removeSource(srcId);
             return;
         }
         var fc = _footprintFC(kind);
         if (m.getSource(srcId)) { m.getSource(srcId).setData(fc); return; }
         m.addSource(srcId, { type: 'geojson', data: fc });
-        // A still-baking upload is outlined in blue with a tight dash and a
-        // visible fill even zoomed in: it is the "your image is coming" cue.
-        var color = ['match', ['get', 'status'], 'processing', '#1a73e8', 'error', '#c00', st.color];
-        m.addLayer({ id: st.id + '-fill', type: 'fill', source: srcId,
+        // A still-baking upload gets its own two layers (blue, tight dash, a
+        // fill that stays visible zoomed in): the "your image is coming" cue.
+        // Separate layers because zoom interpolation must be the outermost
+        // expression and line-dasharray cannot be data-driven at all — a
+        // 'case' around either is rejected and the whole add fails silently.
+        var notBaking = ['!=', ['get', 'status'], 'processing'];
+        var baking = ['==', ['get', 'status'], 'processing'];
+        m.addLayer({ id: st.id + '-fill-baking', type: 'fill', source: srcId, filter: baking,
+                     paint: { 'fill-color': '#1a73e8', 'fill-opacity': 0.15 } },
+                   _rasterBeforeId(m));
+        m.addLayer({ id: st.id + '-line-baking', type: 'line', source: srcId, filter: baking,
+                     paint: { 'line-color': '#1a73e8', 'line-width': 2, 'line-dasharray': [1, 1] } },
+                   _rasterBeforeId(m));
+        var color = ['match', ['get', 'status'], 'error', '#c00', st.color];
+        m.addLayer({ id: st.id + '-fill', type: 'fill', source: srcId, filter: notBaking,
                      paint: {
                          'fill-color': color,
-                         'fill-opacity': ['case', ['==', ['get', 'status'], 'processing'], 0.15,
-                                          ['interpolate', ['linear'], ['zoom'],
-                                           6, 0.12, 10, 0.05, 12, 0]]
+                         'fill-opacity': ['interpolate', ['linear'], ['zoom'],
+                                          6, 0.12, 10, 0.05, 12, 0]
                      } },
                    _rasterBeforeId(m));
-        m.addLayer({ id: st.id + '-line', type: 'line', source: srcId,
+        m.addLayer({ id: st.id + '-line', type: 'line', source: srcId, filter: notBaking,
                      paint: {
                          'line-color': color,
-                         'line-dasharray': ['case', ['==', ['get', 'status'], 'processing'],
-                                            ['literal', [1, 1]], ['literal', [2, 1]]],
+                         'line-dasharray': [2, 1],
                          'line-width': ['interpolate', ['linear'], ['zoom'],
                                         6, 1.5, 12, 1, 16, 0.8],
                          'line-opacity': ['interpolate', ['linear'], ['zoom'],
@@ -3349,9 +3377,9 @@
         });
         if (window._isInventoryEditor) {
             _traceRasters.forEach(function (r) {
-                if (r.status === 'ready' && _bboxInView(
+                if (r.bounds_w != null && _bboxInView(
                         [r.bounds_w, r.bounds_s, r.bounds_e, r.bounds_n]))
-                    ids.push('T' + r.id);
+                    ids.push('T' + r.id + r.status.charAt(0));
             });
         }
         return 'near:' + ids.sort().join(',');

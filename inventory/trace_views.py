@@ -36,6 +36,18 @@ def _spawn_bake(raster_id):
                      daemon=True, name=f'trace-bake-{raster_id}').start()
 
 
+def _baked_at(raster_id):
+    """Mtime of the tile directory, as an integer: the tile URLs carry it as
+    ?v= so a re-bake (new render mode) defeats the year-long immutable cache
+    on tiles that are otherwise addressed identically."""
+    import os
+    from . import raster_tiles
+    try:
+        return int(os.stat(raster_tiles.tiles_dir(raster_id)).st_mtime)
+    except OSError:
+        return None
+
+
 def _row_json(r):
     stalled = (r.status == TraceRaster.STATUS_PROCESSING
                and r.created_at < timezone.now() - datetime.timedelta(minutes=STALL_MINUTES))
@@ -48,6 +60,7 @@ def _row_json(r):
         'image_date': r.image_date.isoformat() if r.image_date else None,
         'source_note': r.source_note or None,
         'render': r.render,
+        'baked_at': _baked_at(r.pk),
         'bounds_w': r.bounds_w, 'bounds_s': r.bounds_s,
         'bounds_e': r.bounds_e, 'bounds_n': r.bounds_n,
         'min_zoom': r.min_zoom, 'max_zoom': r.max_zoom,
