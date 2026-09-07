@@ -98,6 +98,37 @@ def adopt_legacy(raster_id, render):
         lock.rmdir()
 
 
+def pmtiles_path(raster_id, render):
+    """A locally pre-baked pyramid for this mode (tools/imagery/bake_trace.py)."""
+    return tiles_dir(raster_id) / f"{render}.pmtiles"
+
+
+def mode_available(raster_id, render):
+    return mode_complete(raster_id, render) or pmtiles_path(raster_id, render).exists()
+
+
+def read_pmtiles_header(path):
+    """Bounds, zooms and tile type straight from the 127-byte PMTiles v3
+    header -- no sidecar needed to register a pre-baked upload."""
+    import struct
+    with open(path, 'rb') as fh:
+        h = fh.read(127)
+    if len(h) < 127 or h[:7] != b'PMTiles' or h[7] != 3:
+        raise ValueError('Not a PMTiles v3 archive.')
+    (addressed,) = struct.unpack_from('<Q', h, 72)
+    tile_type, min_zoom, max_zoom = h[99], h[100], h[101]
+    min_lon, min_lat, max_lon, max_lat = struct.unpack_from('<iiii', h, 102)
+    kind = {1: 'mvt', 2: 'png', 3: 'jpeg', 4: 'webp', 5: 'avif'}.get(tile_type, 'unknown')
+    if kind not in ('png', 'jpeg', 'webp'):
+        raise ValueError(f'PMTiles holds {kind} tiles, not imagery.')
+    return {
+        'bounds_w': min_lon / 1e7, 'bounds_s': min_lat / 1e7,
+        'bounds_e': max_lon / 1e7, 'bounds_n': max_lat / 1e7,
+        'min_zoom': min_zoom, 'max_zoom': max_zoom,
+        'tile_count': addressed, 'tile_bytes': path.stat().st_size,
+    }
+
+
 def resolve_render(path, render):
     """'auto' -> a concrete mode from the file's bands (NIR-R-G when a 4th
     band exists, natural for 3, grey otherwise); concrete modes pass through
@@ -220,7 +251,11 @@ def process(raster_id):
 
 # --- the bake ---------------------------------------------------------------
 
-def _bake(src_path, out_dir, render='auto'):
+def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=None):
+    """fmt: 'png' (lossless, what the server bakes) or 'webp' (lossy, for the
+    local pre-bake path -- imagery tolerates it, terrain-RGB would not).
+    max_zoom_cap: hold the finest zoom below what the native GSD would give,
+    i.e. deliberately downsample (Planet at native 3 m is soft anyway)."""
     import numpy as np
     import rasterio
     from rasterio.enums import ColorInterp, Resampling
@@ -248,6 +283,9 @@ def _bake(src_path, out_dir, render='auto'):
         while (_count_tiles(min_zoom, max_zoom, bounds) > MAX_TILES
                and max_zoom > min_zoom + 1):
             max_zoom -= 1
+            min_zoom = max(MIN_ZOOM_FLOOR, max_zoom - ZOOM_SPAN)
+        if max_zoom_cap is not None and max_zoom_cap < max_zoom:
+            max_zoom = max(MIN_ZOOM_FLOOR + 1, int(max_zoom_cap))
             min_zoom = max(MIN_ZOOM_FLOOR, max_zoom - ZOOM_SPAN)
 
         # Bands: RGB (or replicated gray) + alpha. If the source has no alpha
@@ -354,8 +392,14 @@ def _bake(src_path, out_dir, render='auto'):
 
             tile_count = 0
             tile_bytes = 0
-            png_profile = dict(driver='PNG', width=TILE_SIZE, height=TILE_SIZE,
-                               count=4, dtype='uint8')
+            if fmt == 'webp':
+                png_profile = dict(driver='WEBP', width=TILE_SIZE, height=TILE_SIZE,
+                                   count=4, dtype='uint8', quality=int(quality))
+                ext = '.webp'
+            else:
+                png_profile = dict(driver='PNG', width=TILE_SIZE, height=TILE_SIZE,
+                                   count=4, dtype='uint8')
+                ext = '.png'
             for z in range(min_zoom, max_zoom + 1):
                 tx0, tx1, ty0, ty1 = _tile_range(z, *bounds)
                 scale = 1 << (max_zoom - z)   # grid pixels per output pixel
@@ -385,13 +429,13 @@ def _bake(src_path, out_dir, render='auto'):
                                 out[b] = to_uint8(rgb[b], b)
                         out[3] = np.where(a > 0, 255, 0).astype(np.uint8)
 
-                        tile_path = out_dir / str(z) / str(x) / f'{y}.png'
+                        tile_path = out_dir / str(z) / str(x) / f'{y}{ext}'
                         tile_path.parent.mkdir(parents=True, exist_ok=True)
                         with rasterio.open(tile_path, 'w', **png_profile) as dst:
                             dst.write(out)
                         # GDAL's PNG driver may drop a .aux.xml sidecar; we
                         # serve raw pixels only.
-                        aux = tile_path.with_suffix('.png.aux.xml')
+                        aux = tile_path.with_suffix(ext + '.aux.xml')
                         if aux.exists():
                             aux.unlink()
                         tile_count += 1

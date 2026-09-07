@@ -48,6 +48,15 @@ def _baked_at(raster_id, render):
         return None
 
 
+def _tiles_for(r):
+    """Where the map gets this row's tiles for its current mode: a pre-baked
+    PMTiles archive (one ranged route) or the server-baked XYZ pyramid."""
+    from . import raster_tiles
+    if raster_tiles.pmtiles_path(r.pk, r.render).exists():
+        return {'kind': 'pmtiles', 'url': f'/inventory/tiles/trace/{r.pk}/{r.render}.pmtiles'}
+    return {'kind': 'xyz', 'url': f'/inventory/tiles/trace/{r.pk}/{{z}}/{{x}}/{{y}}.png'}
+
+
 def _row_json(r):
     # Stall = still 'processing' STALL_MINUTES after the bake BEGAN. The bake
     # writes a .started marker; without one (a bake that never got going,
@@ -68,6 +77,7 @@ def _row_json(r):
         'source_note': r.source_note or None,
         'render': r.render,
         'baked_at': _baked_at(r.pk, r.render),
+        'tiles': _tiles_for(r),
         'bounds_w': r.bounds_w, 'bounds_s': r.bounds_s,
         'bounds_e': r.bounds_e, 'bounds_n': r.bounds_n,
         'min_zoom': r.min_zoom, 'max_zoom': r.max_zoom,
@@ -135,6 +145,34 @@ def trace_upload(request):
     if render not in dict(TraceRaster.RENDER_CHOICES):
         return JsonResponse({'ok': False, 'error': 'Unknown render mode.'}, status=400)
 
+    # Pre-baked locally (tools/imagery/bake_trace.py): a PMTiles archive whose
+    # header carries bounds and zooms, named <stem>.<mode>.pmtiles. Register
+    # it ready; nothing to bake, nothing for the droplet's CPU to do.
+    if f.name.lower().endswith('.pmtiles'):
+        from . import raster_tiles
+        import re as _re
+        m = _re.search(r'\.(nrg|rgb|gray)\.pmtiles$', f.name, _re.I)
+        mode = m.group(1).lower() if m else (render if render != 'auto' else 'nrg')
+        row = TraceRaster.objects.create(
+            title=(title or _re.sub(r'\.(nrg|rgb|gray)\.pmtiles$', '', f.name, flags=_re.I))[:200],
+            original='', image_date=image_date, source_note=source_note[:300],
+            render=mode, uploaded_by=request.user, status=TraceRaster.STATUS_PROCESSING)
+        dest = raster_tiles.pmtiles_path(row.pk, mode)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(dest, 'wb') as out:
+                for chunk in f.chunks():
+                    out.write(chunk)
+            meta = raster_tiles.read_pmtiles_header(dest)
+        except ValueError as exc:
+            shutil.rmtree(raster_tiles.tiles_dir(row.pk), ignore_errors=True)
+            row.delete()
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        TraceRaster.objects.filter(pk=row.pk).update(
+            status=TraceRaster.STATUS_READY, error_message='', **meta)
+        row.refresh_from_db()
+        return JsonResponse({'ok': True, 'id': row.pk, 'raster': _row_json(row)})
+
     row = TraceRaster.objects.create(
         title=title[:200], original=f, image_date=image_date,
         source_note=source_note[:300], render=render, uploaded_by=request.user)
@@ -172,25 +210,30 @@ def trace_rebuild(request, raster_id):
         r = TraceRaster.objects.get(pk=raster_id)
     except TraceRaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'not found'}, status=404)
-    if not (r.original and r.original.storage.exists(r.original.name)):
-        return JsonResponse({'ok': False, 'error':
-                             'Original file is missing — delete this row and re-upload.'},
-                            status=409)
     render = request.POST.get('render') or r.render
     if render not in dict(TraceRaster.RENDER_CHOICES):
         return JsonResponse({'ok': False, 'error': 'Unknown render mode.'}, status=400)
-    try:
-        render = raster_tiles.resolve_render(r.original.path, render)
-    except Exception:
-        return JsonResponse({'ok': False, 'error': 'Could not read the original.'}, status=500)
-    # Already baked in that mode? Just switch — this also rescues a row
-    # wrongly left 'processing' (a bake thread killed by a server restart)
-    # when a finished pyramid exists for the mode asked for.
-    if raster_tiles.mode_complete(raster_id, render):
+    has_original = bool(r.original) and r.original.storage.exists(r.original.name)
+    if has_original:
+        try:
+            render = raster_tiles.resolve_render(r.original.path, render)
+        except Exception:
+            return JsonResponse({'ok': False, 'error': 'Could not read the original.'}, status=500)
+    elif render == 'auto':
+        render = r.render
+    # Already baked in that mode (server pyramid or a pre-baked archive)?
+    # Just switch — this also rescues a row wrongly left 'processing' (a bake
+    # thread killed by a server restart) when a finished pyramid exists.
+    if raster_tiles.mode_available(raster_id, render):
         TraceRaster.objects.filter(pk=raster_id).update(
             render=render, status=TraceRaster.STATUS_READY, error_message='')
         r.refresh_from_db()
         return JsonResponse({'ok': True, 'reused': True, 'raster': _row_json(r)})
+    if not has_original:
+        return JsonResponse({'ok': False, 'error':
+                             f'No {render} version of this pre-baked image yet — bake it '
+                             'locally (tools/imagery/bake_trace.py --render ' + render +
+                             ') and upload that file.'}, status=409)
     # One bake at a time per row: a second request while one is running
     # would rmtree the directory the first is writing into.
     if r.status == TraceRaster.STATUS_PROCESSING and not _row_json(r)['stalled']:
@@ -234,6 +277,21 @@ def trace_link(request, raster_id):
     if not updated:
         return JsonResponse({'ok': False, 'error': 'not found'}, status=404)
     return JsonResponse({'ok': True, 'landslide_id': lid})
+
+
+@require_safe
+def trace_pmtiles(request, raster_id, render):
+    """A pre-baked archive for one mode. Range requests, editor-only, immutable
+    per (id, mode). Same range machinery as the lidar pyramids."""
+    if not is_inventory_editor(request.user):
+        return HttpResponseForbidden()
+    from landslidescience.lidar_serve import serve_ranged
+    from . import raster_tiles
+    path = raster_tiles.pmtiles_path(raster_id, render)
+    if not path.is_file():
+        raise Http404
+    return serve_ranged(request, path, 'application/vnd.pmtiles',
+                        'private, max-age=31536000, immutable')
 
 
 @require_safe

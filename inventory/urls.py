@@ -36,6 +36,8 @@ urlpatterns = [
          name='trace_link'),
     re_path(r'^tiles/trace/(?P<raster_id>\d+)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             trace_views.trace_tile, name='trace_tile'),
+    re_path(r'^tiles/trace/(?P<raster_id>\d+)/(?P<render>nrg|rgb|gray)\.pmtiles$',
+            trace_views.trace_pmtiles, name='trace_pmtiles'),
     # OPERA velocity value-tile proxy (public; see inventory/opera.py).
     re_path(r'^tiles/opera/(?P<track>asc|desc)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             opera.opera_tile, name='opera_tile'),

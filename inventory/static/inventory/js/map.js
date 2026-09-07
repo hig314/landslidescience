@@ -1497,6 +1497,11 @@
     }
     if (typeof maplibregl !== 'undefined' && maplibregl.addProtocol) {
         maplibregl.addProtocol('operacolor', _operaLoader);
+        // Pre-baked trace imagery arrives as one PMTiles archive per render
+        // mode (tools/imagery/bake_trace.py) and is read by range requests.
+        if (typeof pmtiles !== 'undefined') {
+            maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile);
+        }
         // demshade:// — lidar DEM tiles shaded in the browser. Guarded because
         // dem_shade.js/pmtiles are only loaded on the pages that need them; the
         // raster panel degrades to "no lidar" rather than throwing if absent.
@@ -2785,11 +2790,16 @@
         if (!r || r.status !== 'ready' || r.bounds_w == null) return;
         var srcId = 'trace-src-' + id, lyrId = 'trace-' + id;
         if (!map.getSource(srcId)) {
+            // The server says where this mode's tiles live: a pre-baked
+            // PMTiles archive (one ranged URL) or the baked XYZ pyramid.
+            // ?v= is the bake time: tiles are served immutable for a year,
+            // so without it a re-bake in a new render mode never shows.
+            var t = r.tiles || { kind: 'xyz', url: API_BASE + 'tiles/trace/' + id + '/{z}/{x}/{y}.png' };
+            var url = t.kind === 'pmtiles'
+                ? 'pmtiles://' + location.origin + t.url + '/{z}/{x}/{y}'
+                : t.url + '?v=' + (r.baked_at || 0);
             map.addSource(srcId, {
-                type: 'raster',
-                // ?v= is the bake time: tiles are served immutable for a year,
-                // so without it a re-bake in a new render mode never shows.
-                tiles: [API_BASE + 'tiles/trace/' + id + '/{z}/{x}/{y}.png?v=' + (r.baked_at || 0)],
+                type: 'raster', tiles: [url],
                 tileSize: 256, minzoom: r.min_zoom, maxzoom: r.max_zoom,
                 bounds: [r.bounds_w, r.bounds_s, r.bounds_e, r.bounds_n]
             });
@@ -3649,13 +3659,18 @@
         var renderSel = _traceRenderSelect('auto');
         renderSel.style.cssText = inpCss;
         var fileInp = document.createElement('input');
-        fileInp.type = 'file'; fileInp.accept = '.tif,.tiff,image/tiff';
+        fileInp.type = 'file'; fileInp.accept = '.tif,.tiff,image/tiff,.pmtiles';
         fileInp.style.cssText = 'font-size:11px;';
         // Fill what the filename already says, without overwriting what the
         // user typed: Planet encodes the capture date and scene id in the name.
         function fromFilename() {
             var f = fileInp.files && fileInp.files[0];
             if (!f) return;
+            // A pre-baked archive carries its mode in the name (<stem>.nrg.pmtiles)
+            // and needs no bake: the render selector does not apply.
+            var pre = /\.(nrg|rgb|gray)\.pmtiles$/i.exec(f.name);
+            renderSel.disabled = !!pre;
+            if (pre) renderSel.value = pre[1].toLowerCase();
             if (!dateInp.value) dateInp.value = _traceDateFromName(f.name);
             if (!srcInp.value) srcInp.value = _traceSceneIdFromName(f.name);
             if (!titleInp.value) titleInp.placeholder = f.name.replace(/\.tiff?$/i, '');
@@ -3671,8 +3686,8 @@
             e.preventDefault(); form.style.outline = '';
             var files = e.dataTransfer && e.dataTransfer.files;
             if (!files || !files.length) return;
-            if (!/\.tiff?$/i.test(files[0].name)) {
-                stat.style.color = '#c00'; stat.textContent = 'Drop a .tif / .tiff GeoTIFF.'; return;
+            if (!/\.(tiff?|pmtiles)$/i.test(files[0].name)) {
+                stat.style.color = '#c00'; stat.textContent = 'Drop a GeoTIFF (.tif) or a pre-baked .pmtiles.'; return;
             }
             fileInp.files = files;       // DataTransfer.files is assignable to a file input
             stat.textContent = '';
@@ -3714,9 +3729,17 @@
                     _traceLastUploaded = { id: res.j.id, title: res.j.raster.title };
                     _traceGoTo(res.j.raster);
                     _traceShowCue();
-                    _traceSetListOpen(true);   // show the new row's processing status
+                    _traceSetListOpen(true);   // show the new row's status
                     _renderTraceRows();
-                    _tracePoll(res.j.id);
+                    if (res.j.raster.status === 'ready') {
+                        // Pre-baked: nothing to wait for — show it now.
+                        _traceActive[res.j.id] = 1;
+                        _traceAddLayer(res.j.id);
+                        _traceZoomTo(res.j.raster);
+                        _renderTraceRows(); _traceShowCue();
+                    } else {
+                        _tracePoll(res.j.id);
+                    }
                 } else {
                     stat.style.color = '#c00';
                     stat.textContent = (res.j && res.j.error) || 'upload failed';
