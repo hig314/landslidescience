@@ -76,11 +76,26 @@ def adopt_legacy(raster_id, render):
     zdirs = [d for d in root.iterdir() if d.is_dir() and d.name.isdigit()]
     if not zdirs:
         return
-    dest = mode_dir(raster_id, render)
-    dest.mkdir(parents=True, exist_ok=True)
-    for d in zdirs:
-        shutil.move(str(d), str(dest / d.name))
-    (dest / '.complete').touch()
+    # Several tile requests arrive together on first load; only one may move.
+    # mkdir is atomic, so it doubles as the lock (2026-09-07: without it,
+    # concurrent moves nested one zoom folder inside another and lost others).
+    lock = root / '.adopt-lock'
+    try:
+        lock.mkdir()
+    except FileExistsError:
+        return
+    try:
+        dest = mode_dir(raster_id, render)
+        dest.mkdir(parents=True, exist_ok=True)
+        for d in zdirs:
+            target = dest / d.name
+            if target.exists():
+                shutil.rmtree(d, ignore_errors=True)   # already there: drop the duplicate
+            else:
+                shutil.move(str(d), str(target))
+        (dest / '.complete').touch()
+    finally:
+        lock.rmdir()
 
 
 def resolve_render(path, render):
