@@ -81,9 +81,9 @@ def dir_to_mbtiles(tiles, mb_path, title, min_zoom, max_zoom, fmt, bounds=None):
     if bounds:
         # Without these `pmtiles convert` stamps the world into the header,
         # and the server registers the upload from that header.
-        w, s_, e, n = bounds
-        meta += [("bounds", f"{w},{s_},{e},{n}"),
-                 ("center", f"{(w + e) / 2},{(s_ + n) / 2},{min_zoom}")]
+        bw, bs, be, bn = bounds
+        meta += [("bounds", f"{bw},{bs},{be},{bn}"),
+                 ("center", f"{(bw + be) / 2},{(bs + bn) / 2},{min_zoom}")]
     for k, v in meta:
         con.execute("INSERT INTO metadata VALUES (?,?)", (k, str(v)))
     con.commit(); con.close()
