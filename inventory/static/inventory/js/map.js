@@ -2895,6 +2895,33 @@
     var _TRACE_BTN_CSS = 'font-size:11px;padding:1px 6px;border:1px solid #bbb;' +
                          'border-radius:3px;background:#fff;cursor:pointer;';
 
+    // How the server composes the PNG. 'auto' picks false colour when the file
+    // has a 4th (NIR) band — on a Planet scene that turns ice bright cyan and
+    // rubble dark, with the equalised stretch keeping detail at both ends.
+    var _TRACE_RENDERS = [
+        ['auto', 'Render: auto (false colour if NIR)'],
+        ['nrg',  'False colour NIR–R–G'],
+        ['rgb',  'Natural colour'],
+        ['gray', 'Greyscale (first band)']
+    ];
+    function _traceRenderSelect(value) {
+        var sel = document.createElement('select');
+        sel.title = 'How the image is composed into a picture';
+        _TRACE_RENDERS.forEach(function (o) {
+            var op = document.createElement('option');
+            op.value = o[0]; op.textContent = o[1];
+            sel.appendChild(op);
+        });
+        sel.value = value || 'auto';
+        return sel;
+    }
+    function _tracePostForm(url, fields) {
+        var fd = new FormData();
+        Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
+        return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': window.CSRF_TOKEN }, body: fd })
+            .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); });
+    }
+
     // Summary line on the collapsed uploads list — kept current from every
     // state change (enable/disable, upload, poll completion, delete).
     function _traceUpdateSummary() {
@@ -2916,6 +2943,7 @@
 
     function _renderTraceRows() {
         _traceUpdateSummary();
+        if (map && map.getSource('fp-trace-src')) _footprintsSet('trace', true);
         var box = document.getElementById('trace-imagery-rows');
         if (!box) return;
         box.innerHTML = '';
@@ -2982,17 +3010,25 @@
             if (r.status === 'ready') {
                 btn('⌖', 'Zoom to this image', function () { _traceZoomTo(r); });
             }
-            if (r.status === 'error' || r.stalled) {
-                btn('⟳', 'Re-bake from the uploaded original', function () {
-                    _tracePost(API_BASE + 'api/trace_rasters/' + r.id + '/rebuild/')
-                        .then(function (res) {
-                            if (res.ok && res.j.ok) {
-                                r.status = 'processing'; r.stalled = false; r.error = null;
-                                _renderTraceRows();
-                                _tracePoll(r.id);
-                            } else alert((res.j && res.j.error) || 'rebuild failed');
-                        });
-                });
+            if (r.status !== 'processing' || r.stalled) {
+                // Re-bake: recovers a failed/stalled bake, and also re-renders a
+                // finished one with a different composition (see the select on
+                // the second line).
+                btn('⟳', 'Re-bake from the uploaded original with the render mode shown below',
+                    function () {
+                        var sel = row.querySelector('select');
+                        _tracePostForm(API_BASE + 'api/trace_rasters/' + r.id + '/rebuild/',
+                                       { render: sel ? sel.value : (r.render || 'auto') })
+                            .then(function (res) {
+                                if (res.ok && res.j.ok) {
+                                    r.status = 'processing'; r.stalled = false; r.error = null;
+                                    if (sel) r.render = sel.value;
+                                    _traceLastUploaded = { id: r.id, title: r.title };
+                                    _renderTraceRows(); _traceShowCue();
+                                    _tracePoll(r.id);
+                                } else alert((res.j && res.j.error) || 'rebuild failed');
+                            });
+                    });
             }
             btn('×', 'Delete this upload (tiles + original)', function () {
                 if (!confirm('Delete "' + r.title + '" — tiles and the uploaded original?')) return;
@@ -3029,6 +3065,10 @@
                 });
                 line2.appendChild(opLbl);
                 line2.appendChild(op);
+                var rsel = _traceRenderSelect(r.render || 'auto');
+                rsel.style.cssText = 'font-size:10px;max-width:120px;';
+                rsel.title = 'Composition — change it and press ⟳ to re-bake';
+                line2.appendChild(rsel);
 
                 // Provenance link: which landslide this image was traced into.
                 var link = document.createElement('span');
@@ -3228,11 +3268,11 @@
         return {
             type: 'FeatureCollection',
             features: _traceRasters.filter(function (r) {
-                return r.status === 'ready' && r.bounds_w != null;
+                return r.bounds_w != null;     // bounds are known from upload, before the bake
             }).map(function (r) {
                 return {
                     type: 'Feature',
-                    properties: { id: r.id, title: r.title },
+                    properties: { id: r.id, title: r.title, status: r.status },
                     geometry: { type: 'Polygon', coordinates: [[
                         [r.bounds_w, r.bounds_s], [r.bounds_e, r.bounds_s],
                         [r.bounds_e, r.bounds_n], [r.bounds_w, r.bounds_n],
@@ -3265,17 +3305,22 @@
         var fc = _footprintFC(kind);
         if (m.getSource(srcId)) { m.getSource(srcId).setData(fc); return; }
         m.addSource(srcId, { type: 'geojson', data: fc });
+        // A still-baking upload is outlined in blue with a tight dash and a
+        // visible fill even zoomed in: it is the "your image is coming" cue.
+        var color = ['match', ['get', 'status'], 'processing', '#1a73e8', 'error', '#c00', st.color];
         m.addLayer({ id: st.id + '-fill', type: 'fill', source: srcId,
                      paint: {
-                         'fill-color': st.color,
-                         'fill-opacity': ['interpolate', ['linear'], ['zoom'],
-                                          6, 0.12, 10, 0.05, 12, 0]
+                         'fill-color': color,
+                         'fill-opacity': ['case', ['==', ['get', 'status'], 'processing'], 0.15,
+                                          ['interpolate', ['linear'], ['zoom'],
+                                           6, 0.12, 10, 0.05, 12, 0]]
                      } },
                    _rasterBeforeId(m));
         m.addLayer({ id: st.id + '-line', type: 'line', source: srcId,
                      paint: {
-                         'line-color': st.color,
-                         'line-dasharray': [2, 1],
+                         'line-color': color,
+                         'line-dasharray': ['case', ['==', ['get', 'status'], 'processing'],
+                                            ['literal', [1, 1]], ['literal', [2, 1]]],
                          'line-width': ['interpolate', ['linear'], ['zoom'],
                                         6, 1.5, 12, 1, 16, 0.8],
                          'line-opacity': ['interpolate', ['linear'], ['zoom'],
@@ -3419,6 +3464,7 @@
         lab.style.cssText = 'display:block;font-size:12px;margin:3px 0;cursor:pointer;';
         var cb = document.createElement('input');
         cb.type = 'checkbox';
+        cb.id = 'fp-cb-' + kind + (m === map ? '' : '-r');
         cb.checked = !!m.getSource(FOOTPRINT_STYLE[kind].id + '-src');
         cb.addEventListener('change', function () { _footprintsSet(kind, cb.checked, m); });
         lab.appendChild(cb);
@@ -3565,6 +3611,8 @@
         var srcInp = document.createElement('input');
         srcInp.type = 'text'; srcInp.placeholder = 'Source note (e.g. PlanetScope scene id)';
         srcInp.style.cssText = inpCss;
+        var renderSel = _traceRenderSelect('auto');
+        renderSel.style.cssText = inpCss;
         var fileInp = document.createElement('input');
         fileInp.type = 'file'; fileInp.accept = '.tif,.tiff,image/tiff';
         fileInp.style.cssText = 'font-size:11px;';
@@ -3602,7 +3650,7 @@
         var stat = document.createElement('span');
         stat.style.cssText = 'font-size:11px;';
         form.appendChild(titleInp); form.appendChild(dateInp);
-        form.appendChild(srcInp); form.appendChild(fileInp);
+        form.appendChild(srcInp); form.appendChild(renderSel); form.appendChild(fileInp);
         form.appendChild(goBtn); form.appendChild(stat);
         det.appendChild(form);
         wrap.appendChild(det);
@@ -3615,6 +3663,7 @@
             fd.append('title', titleInp.value.trim());
             fd.append('image_date', dateInp.value);
             fd.append('source_note', srcInp.value.trim());
+            fd.append('render', renderSel.value);
             goBtn.disabled = true;
             stat.style.color = '#1a73e8'; stat.textContent = 'uploading…';
             fetch(API_BASE + 'api/trace_rasters/upload/', {
@@ -3628,6 +3677,7 @@
                     det.open = false;
                     _traceReplaceRow(res.j.raster);
                     _traceLastUploaded = { id: res.j.id, title: res.j.raster.title };
+                    _traceGoTo(res.j.raster);
                     _traceShowCue();
                     _traceSetListOpen(true);   // show the new row's processing status
                     _renderTraceRows();
@@ -3642,9 +3692,24 @@
             });
         });
 
-        _renderTraceRows();   // populate the freshly-created container
-        _traceShowCue();      // survives a panel rebuild mid-bake
+        // Populate AFTER the caller has attached this subtree: both fills find
+        // their targets by id, and before attachment getElementById returns
+        // nothing (or the previous section's copy), which left the summary on
+        // its "No uploads yet" placeholder with an image plainly on the map.
+        setTimeout(function () { _renderTraceRows(); _traceShowCue(); }, 0);
         return wrap;
+    }
+
+    // Straight after an upload: centre on the image at z10 and switch the
+    // upload footprints on, so the blue dashed outline shows where the image
+    // is and that it is still baking, before a single tile exists.
+    function _traceGoTo(r) {
+        if (r.bounds_w == null) return;
+        map.easeTo({ center: [(r.bounds_w + r.bounds_e) / 2, (r.bounds_s + r.bounds_n) / 2],
+                     zoom: Math.max(map.getZoom(), RASTER_UI_ZOOM), duration: 900 });
+        _footprintsSet('trace', true);
+        var cb = document.getElementById('fp-cb-trace');
+        if (cb) cb.checked = true;
     }
 
     function _traceShowCue() {
@@ -3656,8 +3721,8 @@
         cue.style.display = 'block';
         if (!r || r.status === 'processing') {
             cue.style.color = '#1b7a3d';
-            cue.textContent = '✓ Uploaded “' + u.title + '” — baking tiles, usually a minute or two. ' +
-                              'It will appear on the map and the view will jump to it when ready.';
+            cue.textContent = '✓ Uploaded “' + u.title + '” — its footprint is outlined in blue on the map ' +
+                              'while the tiles bake (a few minutes for a Planet scene). The image appears there when ready.';
         } else if (r.status === 'ready') {
             cue.style.color = '#1b7a3d';
             cue.textContent = '✓ “' + u.title + '” is ready and shown on the map.';

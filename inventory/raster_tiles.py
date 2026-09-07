@@ -102,12 +102,16 @@ def probe(path):
     user gets instant feedback before the background bake starts."""
     import rasterio
 
+    from rasterio.warp import transform_bounds
+
     try:
         with rasterio.open(path) as src:
-            crs, transform = src.crs, src.transform
+            crs, transform, bounds = src.crs, src.transform, src.bounds
     except Exception:
         raise ValueError('Could not read this file as a raster — is it a GeoTIFF?')
     _check_georef(crs, transform)
+    w, s, e, n = transform_bounds(crs, 'EPSG:4326', *bounds, densify_pts=21)
+    return {'bounds_w': w, 'bounds_s': s, 'bounds_e': e, 'bounds_n': n}
 
 
 def process(raster_id):
@@ -120,7 +124,7 @@ def process(raster_id):
         row = TraceRaster.objects.get(pk=raster_id)
         out_dir = tiles_dir(raster_id)
         shutil.rmtree(out_dir, ignore_errors=True)   # re-bake starts clean
-        meta = _bake(row.original.path, out_dir)
+        meta = _bake(row.original.path, out_dir, render=row.render)
         TraceRaster.objects.filter(pk=raster_id).update(
             status=TraceRaster.STATUS_READY, error_message='', **meta)
         log.info('trace raster %s baked: %s tiles, z%s-%s',
@@ -136,7 +140,7 @@ def process(raster_id):
 
 # --- the bake ---------------------------------------------------------------
 
-def _bake(src_path, out_dir):
+def _bake(src_path, out_dir, render='auto'):
     import numpy as np
     import rasterio
     from rasterio.enums import ColorInterp, Resampling
@@ -174,11 +178,31 @@ def _bake(src_path, out_dir):
         # AnalyticMS ships B,G,R,NIR, so bands 1-2-3 taken as R-G-B come out
         # with sea and vegetation swapped. Fall back to positional 1-2-3.
         ci = list(src.colorinterp)
+        data_bands = [i + 1 for i, c in enumerate(ci) if c != ColorInterp.alpha]
         if all(c in ci for c in (ColorInterp.red, ColorInterp.green, ColorInterp.blue)):
             rgb_idx = (ci.index(ColorInterp.red) + 1, ci.index(ColorInterp.green) + 1,
                        ci.index(ColorInterp.blue) + 1)
         else:
-            rgb_idx = (1, 2, 3) if src.count >= 3 else (1,)
+            rgb_idx = tuple(data_bands[:3]) if len(data_bands) >= 3 else (data_bands[0],)
+        # NIR: the last non-alpha band of a 4+-band file. True for PlanetScope
+        # 4-band (B,G,R,NIR) and 8-band (…,NIR last), Sentinel-2/Landsat
+        # stacks exported in wavelength order, and NAIP 4-band.
+        nir_idx = data_bands[-1] if len(data_bands) >= 4 else None
+        mode = render
+        if mode == 'auto':
+            mode = 'nrg' if nir_idx else ('rgb' if len(rgb_idx) == 3 else 'gray')
+        if mode == 'nrg' and nir_idx:
+            rgb_idx = (nir_idx, rgb_idx[0], rgb_idx[1] if len(rgb_idx) > 1 else rgb_idx[0])
+        elif mode == 'gray':
+            rgb_idx = (rgb_idx[0],)
+        elif mode == 'nrg':
+            mode = 'rgb'            # asked for false colour, no 4th band: natural
+        # Histogram-equalise per band unless this is plain 8-bit natural
+        # colour (a Maxar/NAIP RGB export already looks like a photo). A
+        # linear 2–98 % stretch leaves a scene of bright glacier and dark
+        # rubble with all its variation crushed into the two ends; equal-count
+        # bins spend the 256 levels where the pixels actually are.
+        equalise = (src.dtypes[0] != 'uint8') or mode != 'rgb'
         alpha_idx = src.colorinterp.index(ColorInterp.alpha) + 1 if src_alpha else None
 
         # Bake grid: a VRT snapped to the max-zoom tile grid but covering the
@@ -219,7 +243,7 @@ def _bake(src_path, out_dir):
                 max(1, math.ceil((bounds[2] - bounds[0]) / res)),
                 max(1, math.ceil((bounds[3] - bounds[1]) / res)))
             stretch = None
-            if src.dtypes[0] != 'uint8':
+            if equalise:
                 ov_shape = (max(1, min(OVERVIEW_PX, int(data_win.height))),
                             max(1, min(OVERVIEW_PX, int(data_win.width))))
                 ov = vrt.read(indexes=rgb_idx, window=data_win,
@@ -229,18 +253,24 @@ def _bake(src_path, out_dir):
                 valid = ov_a > 0
                 stretch = []
                 for b in range(len(rgb_idx)):
-                    vals = ov[b][valid]
+                    vals = ov[b][valid].astype(np.float64)
                     if vals.size == 0:
                         raise ValueError('Raster contains no valid (unmasked) pixels.')
-                    lo, hi = np.percentile(vals, STRETCH_PCT)
-                    stretch.append((float(lo), max(float(hi), float(lo) + 1.0)))
+                    # Equal-count bin edges: 256 output levels, each holding
+                    # ~1/256 of the sampled pixels, clipped at the 0.5/99.5 %
+                    # tails so a few hot pixels cannot own the top of the ramp.
+                    edges = np.percentile(vals, np.linspace(0.5, 99.5, 256))
+                    edges = np.maximum.accumulate(edges)
+                    if edges[-1] <= edges[0]:
+                        edges = np.linspace(edges[0], edges[0] + 1.0, 256)
+                    stretch.append(edges)
+
+            levels = np.arange(256, dtype=np.float64)
 
             def to_uint8(band_data, b):
                 if stretch is None:
                     return band_data.astype(np.uint8)
-                lo, hi = stretch[b]
-                return (np.clip((band_data.astype(np.float64) - lo) / (hi - lo), 0, 1)
-                        * 255).astype(np.uint8)
+                return np.interp(band_data.astype(np.float64), stretch[b], levels).astype(np.uint8)
 
             tile_count = 0
             tile_bytes = 0

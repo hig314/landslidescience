@@ -85,6 +85,12 @@ class TraceRaster(models.Model):
         null=True, blank=True,
         help_text='When the imagery was captured — evidence for date bracketing.')
     source_note = models.CharField(max_length=300, blank=True, default='')
+    # How the bake composes the PNG: 'auto' = false colour NIR-R-G when a 4th
+    # band exists (Planet/Sentinel/Landsat), else natural RGB; 'nrg', 'rgb',
+    # 'gray' force it. Non-8-bit sources are histogram-equalised per band so a
+    # scene of bright glacier and dark rubble keeps detail at both ends.
+    RENDER_CHOICES = [('auto', 'auto'), ('nrg', 'nrg'), ('rgb', 'rgb'), ('gray', 'gray')]
+    render = models.CharField(max_length=8, choices=RENDER_CHOICES, default='auto')
     status = models.CharField(max_length=12, choices=STATUS_CHOICES,
                               default=STATUS_PROCESSING)
     error_message = models.TextField(blank=True, default='')

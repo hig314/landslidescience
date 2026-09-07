@@ -47,6 +47,7 @@ def _row_json(r):
         'error': r.error_message or None,
         'image_date': r.image_date.isoformat() if r.image_date else None,
         'source_note': r.source_note or None,
+        'render': r.render,
         'bounds_w': r.bounds_w, 'bounds_s': r.bounds_s,
         'bounds_e': r.bounds_e, 'bounds_n': r.bounds_n,
         'min_zoom': r.min_zoom, 'max_zoom': r.max_zoom,
@@ -99,16 +100,24 @@ def trace_upload(request):
             return JsonResponse({'ok': False, 'error': 'Image date must be YYYY-MM-DD.'},
                                 status=400)
 
+    render = request.POST.get('render', 'auto')
+    if render not in dict(TraceRaster.RENDER_CHOICES):
+        return JsonResponse({'ok': False, 'error': 'Unknown render mode.'}, status=400)
+
     row = TraceRaster.objects.create(
         title=title[:200], original=f, image_date=image_date,
-        source_note=source_note[:300], uploaded_by=request.user)
+        source_note=source_note[:300], render=render, uploaded_by=request.user)
 
     # Fast synchronous pre-flight so a bad file fails NOW with a clear message
     # instead of after a background bake. Anything unopenable/ungeoreferenced
     # is rolled back entirely.
     try:
         from . import raster_tiles
-        raster_tiles.probe(row.original.path)
+        info = raster_tiles.probe(row.original.path)
+        # Bounds now, not after the bake: the client zooms to the image and
+        # draws its footprint while the tiles are still cooking.
+        TraceRaster.objects.filter(pk=row.pk).update(**info)
+        row.refresh_from_db()
     except ValueError as exc:
         row.original.delete(save=False)
         row.delete()
@@ -136,8 +145,13 @@ def trace_rebuild(request, raster_id):
         return JsonResponse({'ok': False, 'error':
                              'Original file is missing — delete this row and re-upload.'},
                             status=409)
-    TraceRaster.objects.filter(pk=raster_id).update(
-        status=TraceRaster.STATUS_PROCESSING, error_message='')
+    fields = dict(status=TraceRaster.STATUS_PROCESSING, error_message='')
+    render = request.POST.get('render')
+    if render:
+        if render not in dict(TraceRaster.RENDER_CHOICES):
+            return JsonResponse({'ok': False, 'error': 'Unknown render mode.'}, status=400)
+        fields['render'] = render
+    TraceRaster.objects.filter(pk=raster_id).update(**fields)
     _spawn_bake(raster_id)
     return JsonResponse({'ok': True})
 
