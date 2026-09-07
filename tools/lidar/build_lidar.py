@@ -169,7 +169,7 @@ def build_archive(ds, env):
         # seam -- a step in the terrain at every zoom warped from overviews,
         # gone at full res. Always recompute from the pixels we ship.
         run([GDAL_BIN / "gdal_translate", "-of", "COG", *args,
-             "-co", "COMPRESS=ZSTD", "-co", "LEVEL=9",
+             "-co", "COMPRESS=ZSTD", "-co", "LEVEL=9", "-co", "PREDICTOR=YES",
              "-co", "OVERVIEWS=IGNORE_EXISTING",
              "-co", "OVERVIEW_RESAMPLING=AVERAGE",
              "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
@@ -220,9 +220,11 @@ def build_archive(ds, env):
         tmp.unlink()
         tmp = scaled
 
+    # PREDICTOR=YES -> floating-point predictor (TIFF 3) for Float32: the KBay
+    # vendor COG used it and was 11.3 GB where ours without it was 19.4 GB.
     print("  archive: rewriting as COG with overviews")
     run([GDAL_BIN / "gdal_translate", "-of", "COG",
-         "-co", "COMPRESS=ZSTD", "-co", "LEVEL=9",
+         "-co", "COMPRESS=ZSTD", "-co", "LEVEL=9", "-co", "PREDICTOR=YES",
          "-co", "OVERVIEW_RESAMPLING=AVERAGE",
          "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
          tmp, dst], env=env)
