@@ -58,6 +58,14 @@ def mode_complete(raster_id, render):
     return (mode_dir(raster_id, render) / '.complete').exists()
 
 
+def bake_started_at(raster_id, render):
+    """When the current bake of this mode began (None if no marker)."""
+    try:
+        return (mode_dir(raster_id, render) / '.started').stat().st_mtime
+    except OSError:
+        return None
+
+
 def adopt_legacy(raster_id, render):
     """Pyramids baked before render modes existed sit directly under the
     raster directory (<id>/<z>/...). Move them under the mode they were baked
@@ -178,6 +186,8 @@ def process(raster_id):
         adopt_legacy(raster_id, render)
         out_dir = mode_dir(raster_id, render)
         shutil.rmtree(out_dir, ignore_errors=True)   # re-bake of THIS mode starts clean
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / '.started').touch()               # stall detection clocks from here
         meta = _bake(row.original.path, out_dir, render=render)
         (out_dir / '.complete').touch()
         TraceRaster.objects.filter(pk=raster_id).update(

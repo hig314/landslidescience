@@ -49,8 +49,15 @@ def _baked_at(raster_id, render):
 
 
 def _row_json(r):
+    # Stall = still 'processing' STALL_MINUTES after the bake BEGAN. The bake
+    # writes a .started marker; without one (a bake that never got going,
+    # or a row from before markers) fall back to the upload time.
+    from . import raster_tiles
+    started = raster_tiles.bake_started_at(r.pk, r.render)
+    since = (datetime.datetime.fromtimestamp(started, tz=datetime.timezone.utc)
+             if started else r.created_at)
     stalled = (r.status == TraceRaster.STATUS_PROCESSING
-               and r.created_at < timezone.now() - datetime.timedelta(minutes=STALL_MINUTES))
+               and since < timezone.now() - datetime.timedelta(minutes=STALL_MINUTES))
     return {
         'id': r.pk,
         'title': r.title,
@@ -176,12 +183,19 @@ def trace_rebuild(request, raster_id):
         render = raster_tiles.resolve_render(r.original.path, render)
     except Exception:
         return JsonResponse({'ok': False, 'error': 'Could not read the original.'}, status=500)
-    # Already baked in that mode and not a recovery from an error? Just switch.
-    if (r.status == TraceRaster.STATUS_READY
-            and raster_tiles.mode_complete(raster_id, render)):
-        TraceRaster.objects.filter(pk=raster_id).update(render=render)
+    # Already baked in that mode? Just switch — this also rescues a row
+    # wrongly left 'processing' (a bake thread killed by a server restart)
+    # when a finished pyramid exists for the mode asked for.
+    if raster_tiles.mode_complete(raster_id, render):
+        TraceRaster.objects.filter(pk=raster_id).update(
+            render=render, status=TraceRaster.STATUS_READY, error_message='')
         r.refresh_from_db()
         return JsonResponse({'ok': True, 'reused': True, 'raster': _row_json(r)})
+    # One bake at a time per row: a second request while one is running
+    # would rmtree the directory the first is writing into.
+    if r.status == TraceRaster.STATUS_PROCESSING and not _row_json(r)['stalled']:
+        return JsonResponse({'ok': False, 'error': 'Still baking — wait for it to finish.'},
+                            status=409)
     TraceRaster.objects.filter(pk=raster_id).update(
         status=TraceRaster.STATUS_PROCESSING, error_message='', render=render)
     _spawn_bake(raster_id)
