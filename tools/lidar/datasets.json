@@ -296,18 +296,18 @@
     },
     {
       "id": "glacier_bay_2019",
-      "title": "Glacier Bay 2019 bare-earth DEM (USGS 3DEP)",
+      "title": "Glacier Bay 2019-20 bare-earth DEM (USGS 3DEP, 1 m)",
       "src": "/Volumes/Nunatak/lidar_build/vrt/glacier_bay_2019.vrt",
       "target_epsg": 6337,
-      "native_res_m": 0.5,
+      "native_res_m": 1.0,
       "center_lat": 58.63,
       "min_zoom": 8,
-      "max_zoom": 17,
+      "max_zoom": 16,
       "year": 2019,
       "product": "DEM (bare earth)",
       "archive_mode": "translate",
       "vertical_datum": "NAVD88",
-      "notes": "USGS 3DEP OPR AK_GlacierBay_2019_B19 bare-earth tiles: 575 x 1 km LZW GeoTIFFs (2000x2000 px, 0.5 m, Float32, nodata -999999) in /Volumes/Powder/Alaska GIS/Raster/AK_lidar/Glacier_Bay_2019/, all NAD83(2011)/UTM 8N, no overlaps. Built from the ORIGINAL tiles through a gdalbuildvrt mosaic (tools: vrt/glacier_bay_2019.vrt, tile list alongside) rather than the earlier hand-merged Reprocessed/Merged.tif. ~526 km2 of data in strips (Alsek, Lituya, Crillon; QL1 and QL2 blocks) inside a 120 x 43 km box, so most of the grid is nodata. No metadata file in the folder; the NOAA InPort records for the project (items 64330 QL1 and 64299 QL2, '2019-2020 USGS Lidar: Glacier Bay, AK') give NAD83(2011) horizontal and NAVD88 (GEOID12B) vertical, QL1 at 0.31 m nominal pulse spacing, collection spanning 2019-2020. max_zoom 17 (0.62 m at 58.6N)."
+      "notes": "USGS 3DEP AK_GlacierBay_2019_B19, the COMPLETE delivery: 6,728 bare-earth 1 km tiles in four work units (4 and B2 at 1 m QL2, 5 and B3 at 0.5 m QL1), downloaded from rockyweb.usgs.gov to /Volumes/Nunatak/lidar_src/glacier_bay_2019/<unit>/ on 2026-09-07 (26.4 GB, all size-verified). Published at 1 m throughout (Hig's call 2026-09-08: 1 m is enough for this purpose; a 0.5 m mosaic came to a 48 GB archive and 6.4 GB of tiles): gdalbuildvrt -resolution user -tr 1 1 -r average, so the 0.5 m units are 2x2-averaged and the 1 m units pass through unchanged; then translate mode. 185 x 145 km box, ~5,500 km2 of data; all NAD83(2011)/UTM 8N; NAVD88 (GEOID12B) per the NOAA InPort records for the project (items 64330/64299); collection spans 2019-2020. Three tile names occur in two units (identical data). max_zoom 16 (1.25 m at 58.6N)."
     }
   ]
 }
