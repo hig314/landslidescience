@@ -98,7 +98,7 @@ def main():
     ap.add_argument("--quality", type=int, default=80)
     ap.add_argument("--max-zoom", type=int, default=None, help="cap the finest zoom (downsample)")
     ap.add_argument("--water-mask", action="store_true", help="exclude water (NDWI) from the stretch sample")
-    ap.add_argument("--gamma", type=float, default=1.0, help="<1 lifts shadows (e.g. 0.8)")
+    ap.add_argument("--gamma", type=float, default=0.8, help="<1 lifts shadows; 0.8 is the default, 1.0 is linear")
     ap.add_argument("--title", default=None)
     ap.add_argument("--date", default=None)
     ap.add_argument("--source", default=None)

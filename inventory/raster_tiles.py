@@ -253,6 +253,7 @@ def process(raster_id):
 
 EQUALISE_CLIP = 4.0       # contrast limit: no histogram bin may hold more than this x its fair share
 WATER_NDWI = 0.2          # (G - NIR) / (G + NIR) above this is water: excluded from the stretch sample
+DEFAULT_GAMMA = 0.8       # lifts shadows a little: dark rubble keeps its texture (Hig's call, 2026-09-07)
 
 
 def _equalise_edges(vals, clip=EQUALISE_CLIP, nbins=1024):
@@ -285,7 +286,7 @@ def _equalise_edges(vals, clip=EQUALISE_CLIP, nbins=1024):
 
 
 def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=None,
-          water_mask=False, gamma=1.0):
+          water_mask=False, gamma=DEFAULT_GAMMA):
     """fmt: 'png' (lossless, what the server bakes) or 'webp' (lossy, for the
     local pre-bake path -- imagery tolerates it, terrain-RGB would not).
     max_zoom_cap: hold the finest zoom below what the native GSD would give,
