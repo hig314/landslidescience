@@ -252,6 +252,7 @@ def process(raster_id):
 # --- the bake ---------------------------------------------------------------
 
 EQUALISE_CLIP = 4.0       # contrast limit: no histogram bin may hold more than this x its fair share
+WATER_NDWI = 0.2          # (G - NIR) / (G + NIR) above this is water: excluded from the stretch sample
 
 
 def _equalise_edges(vals, clip=EQUALISE_CLIP, nbins=1024):
@@ -283,7 +284,8 @@ def _equalise_edges(vals, clip=EQUALISE_CLIP, nbins=1024):
     return edges
 
 
-def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=None):
+def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=None,
+          water_mask=False, gamma=1.0):
     """fmt: 'png' (lossless, what the server bakes) or 'webp' (lossy, for the
     local pre-bake path -- imagery tolerates it, terrain-RGB would not).
     max_zoom_cap: hold the finest zoom below what the native GSD would give,
@@ -401,6 +403,22 @@ def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=
                 ov_a = vrt.read(indexes=alpha_idx, window=data_win,
                                 out_shape=ov_shape)
                 valid = ov_a > 0
+                # In false colour the sample carries NIR (band 0) and green
+                # (band 2), so water can be recognised by the usual index and
+                # left OUT of the stretch sample: otherwise the sea, the
+                # largest dark population in a coastal scene, owns the dark
+                # end of the ramp and dark rubble on land gets no levels.
+                # Water still renders (near black); it just no longer votes.
+                # OFF by default: on the Jan Mayen scenes it changed the colour
+                # balance (pink ice) without opening up the dark end, which
+                # turned out to be cast shadow at a 30 deg sun, not compression.
+                if water_mask and mode == 'nrg' and len(rgb_idx) == 3:
+                    nir = ov[0].astype(np.float64); grn = ov[2].astype(np.float64)
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        ndwi = (grn - nir) / (grn + nir)
+                    land = valid & ~(ndwi > WATER_NDWI)
+                    if land.sum() > 0.02 * valid.sum():    # keep the mask only if land remains
+                        valid = land
                 stretch = []
                 for b in range(len(rgb_idx)):
                     vals = ov[b][valid].astype(np.float64)
@@ -409,6 +427,9 @@ def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=
                     stretch.append(_equalise_edges(vals))
 
             levels = np.arange(256, dtype=np.float64)
+            if gamma and gamma != 1.0:
+                # gamma < 1 lifts the shadows: output = 255 * (level/255) ** gamma
+                levels = 255.0 * (levels / 255.0) ** float(gamma)
 
             def to_uint8(band_data, b):
                 if stretch is None:
