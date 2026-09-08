@@ -2828,6 +2828,21 @@
         if (map.getLayer('trace-' + id)) map.removeLayer('trace-' + id);
         if (map.getSource('trace-src-' + id)) map.removeSource('trace-src-' + id);
     }
+    // Show/hide WITHOUT removing: a removed source drops its tiles and a
+    // quick off-on refetches every one. Parked at opacity 0 the source stays
+    // in use and its tiles stay warm — the same rule the lidar overlays use.
+    // _traceRemoveLayer is for delete and re-bake, where the tiles must go.
+    function _traceSetVisible(id, on) {
+        var lyr = 'trace-' + id;
+        if (on) {
+            if (_traceActive[id] == null) _traceActive[id] = 1;
+            if (!map.getLayer(lyr)) { _traceAddLayer(id); return; }
+            map.setPaintProperty(lyr, 'raster-opacity', _traceActive[id]);
+        } else {
+            delete _traceActive[id];
+            if (map.getLayer(lyr)) map.setPaintProperty(lyr, 'raster-opacity', 0);
+        }
+    }
     // Re-add enabled overlays after a basemap switch (called by initDataLayers,
     // right after faults-line exists so the insertion point is stable).
     function _traceReplayLayers() {
@@ -2992,13 +3007,7 @@
             cb.disabled = r.status !== 'ready';
             cb.title = 'Show on map';
             cb.addEventListener('change', function () {
-                if (cb.checked) {
-                    if (_traceActive[r.id] == null) _traceActive[r.id] = 1;
-                    _traceAddLayer(r.id);
-                } else {
-                    delete _traceActive[r.id];
-                    _traceRemoveLayer(r.id);
-                }
+                _traceSetVisible(r.id, cb.checked);
                 _traceUpdateSummary();
             });
             top.appendChild(cb);
