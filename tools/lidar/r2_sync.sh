@@ -25,8 +25,11 @@ export RCLONE_CONFIG_R2_TYPE=s3 \
        RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
        RCLONE_CONFIG_R2_ENDPOINT="$R2_ENDPOINT" \
        RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
+# Caller flags go FIRST: rclone applies filter rules in command-line order and
+# the first match wins, so an --exclude passed after our --include '*.tif'
+# would never fire (2026-09-08: that re-queued a 48 GB archive we had set aside).
 exec rclone copy "$SRC" "r2:$R2_BUCKET/cog/" \
+     "$@" \
      --include '*.tif' \
      --s3-chunk-size 64M --s3-upload-concurrency 4 --transfers 2 \
-     --progress --stats 60s --stats-one-line \
-     "$@"
+     --progress --stats 60s --stats-one-line
