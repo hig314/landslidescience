@@ -7,9 +7,9 @@ Nineteen surveys built and verified on dev (every one checked at max zoom agains
 | Thing | Where | Status |
 |---|---|---|
 | Code | `main` (lidar + IceBridge guard + manifest) | pushed to GitHub, deployed to the droplet |
-| PMTiles (~5.7 GB, nineteen files) | `data/lidar/pmtiles/` local and `/opt/landslidescience/data/lidar/pmtiles/` on the droplet | uploaded |
+| PMTiles (~7.2 GB, nineteen files) | `data/lidar/pmtiles/` local and `/opt/landslidescience/data/lidar/pmtiles/` on the droplet | uploaded |
 | Catalog | `data/lidar/catalog.geojson` (6 features) | uploaded |
-| Archive COGs (~46 GB, predictor-compressed) | `/Volumes/Nunatak/lidar_build/cog/` + R2 bucket `landslidescience-lidar` under `cog/` | first 38 GB uploading overnight 2026-09-06; rerun `r2_sync.sh` for the four new ones |
+| Archive COGs (~54 GB, predictor-compressed) | `/Volumes/Nunatak/lidar_build/cog/` + R2 bucket `landslidescience-lidar` under `cog/` | first 38 GB uploading overnight 2026-09-06; rerun `r2_sync.sh` for the four new ones |
 | Paused InSAR kinematics | branch `insar-kinematics` (19 commits, rebased onto `main`, pushed) | dev-only; check it out to resume |
 
 Tag `archive/main-2026-09-06-kinematics-plus-lidar` marks what `main` looked
@@ -87,7 +87,11 @@ A survey that arrives as hundreds of 1 km tiles is built from the ORIGINAL
 tiles, never from a hand-merged copy: `gdalbuildvrt` them into a VRT under
 `/Volumes/Nunatak/lidar_build/vrt/` (with `-srcnodata/-vrtnodata` set to the
 tiles' nodata and an absolute `-input_file_list` beside it) and point the
-manifest `src` at the VRT with `archive_mode: translate`. Glacier Bay 2019
-(575 tiles, 526 km² inside a 120 × 43 km box) built in well under an hour that
-way: the archive stage streams the mosaic to one COG, and empty regions cost
-almost nothing at every stage.
+manifest `src` at the VRT with `archive_mode: translate`. Glacier Bay 2019–20 (the full USGS delivery: 6,728 tiles in four work units,
+two at 0.5 m and two at 1 m, 5,490 km² inside a 185 × 145 km box) built in
+~40 min that way. It is published at **1 m** (`-resolution user -tr 1 1
+-r average`): the 0.5 m mosaic came to a 48 GB archive and 6.4 GB of tiles,
+the 1 m one to 13 GB and 2.3 GB, and Hig judged 1 m enough for the purpose.
+The full tile set is kept in `/Volumes/Nunatak/lidar_src/glacier_bay_2019/`;
+the download was `scratchpad/gb_download.py`-style (pooled, size-checked,
+resumable) from rockyweb.usgs.gov's OPR staging index.
