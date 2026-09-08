@@ -286,7 +286,7 @@ def _equalise_edges(vals, clip=EQUALISE_CLIP, nbins=1024):
 
 
 def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=None,
-          water_mask=False, gamma=DEFAULT_GAMMA):
+          water_mask=False, gamma=DEFAULT_GAMMA, max_tiles=None):
     """fmt: 'png' (lossless, what the server bakes) or 'webp' (lossy, for the
     local pre-bake path -- imagery tolerates it, terrain-RGB would not).
     max_zoom_cap: hold the finest zoom below what the native GSD would give,
@@ -315,7 +315,8 @@ def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=
         max_zoom = math.ceil(math.log2(2 * _MERC_MAX / (TILE_SIZE * native_res))) + 1
         max_zoom = max(MIN_ZOOM_FLOOR + 1, min(MAX_ZOOM_HARD, max_zoom))
         min_zoom = max(MIN_ZOOM_FLOOR, max_zoom - ZOOM_SPAN)
-        while (_count_tiles(min_zoom, max_zoom, bounds) > MAX_TILES
+        budget = max_tiles or MAX_TILES
+        while (_count_tiles(min_zoom, max_zoom, bounds) > budget
                and max_zoom > min_zoom + 1):
             max_zoom -= 1
             min_zoom = max(MIN_ZOOM_FLOOR, max_zoom - ZOOM_SPAN)

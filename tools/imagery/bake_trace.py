@@ -96,6 +96,7 @@ def main():
     ap.add_argument("--render", default="auto", choices=["auto", "nrg", "rgb", "gray"])
     ap.add_argument("--fmt", default="webp", choices=["webp", "png"])
     ap.add_argument("--quality", type=int, default=80)
+    ap.add_argument("--max-tiles", type=int, default=40000, help="tile budget (server uses 6000; here size is cheap)")
     ap.add_argument("--max-zoom", type=int, default=None, help="cap the finest zoom (downsample)")
     ap.add_argument("--water-mask", action="store_true", help="exclude water (NDWI) from the stretch sample")
     ap.add_argument("--gamma", type=float, default=0.8, help="<1 lifts shadows; 0.8 is the default, 1.0 is linear")
@@ -120,7 +121,8 @@ def main():
         print(f"baking {src.name} as {render} ({a.fmt} q{a.quality}"
               f"{', max zoom ' + str(a.max_zoom) if a.max_zoom else ''}) ...", flush=True)
         meta = rt._bake(src, tiles, render=render, fmt=a.fmt, quality=a.quality,
-                        max_zoom_cap=a.max_zoom, water_mask=a.water_mask, gamma=a.gamma)
+                        max_zoom_cap=a.max_zoom, water_mask=a.water_mask, gamma=a.gamma,
+                        max_tiles=a.max_tiles)
         mb = Path(td) / "t.mbtiles"
         n = dir_to_mbtiles(tiles, mb, title, meta["min_zoom"], meta["max_zoom"], a.fmt,
                            bounds=(meta["bounds_w"], meta["bounds_s"], meta["bounds_e"], meta["bounds_n"]))
