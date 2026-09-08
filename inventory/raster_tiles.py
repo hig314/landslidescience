@@ -286,7 +286,8 @@ def _equalise_edges(vals, clip=EQUALISE_CLIP, nbins=1024):
 
 
 def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=None,
-          water_mask=False, gamma=DEFAULT_GAMMA, max_tiles=None):
+          water_mask=False, gamma=DEFAULT_GAMMA, max_tiles=None, lossless=False,
+          resampling='bilinear'):
     """fmt: 'png' (lossless, what the server bakes) or 'webp' (lossy, for the
     local pre-bake path -- imagery tolerates it, terrain-RGB would not).
     max_zoom_cap: hold the finest zoom below what the native GSD would give,
@@ -379,7 +380,7 @@ def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=
 
         vrt_kwargs = dict(crs='EPSG:3857', transform=grid_transform,
                           width=grid_w, height=grid_h,
-                          resampling=Resampling.bilinear)
+                          resampling=getattr(Resampling, resampling, Resampling.bilinear))
         if not src_alpha:
             vrt_kwargs['add_alpha'] = True
 
@@ -443,6 +444,8 @@ def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=
             if fmt == 'webp':
                 png_profile = dict(driver='WEBP', width=TILE_SIZE, height=TILE_SIZE,
                                    count=4, dtype='uint8', quality=int(quality))
+                if lossless:
+                    png_profile['lossless'] = True
                 ext = '.webp'
             else:
                 png_profile = dict(driver='PNG', width=TILE_SIZE, height=TILE_SIZE,

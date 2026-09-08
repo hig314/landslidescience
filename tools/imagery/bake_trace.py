@@ -95,11 +95,13 @@ def main():
     ap.add_argument("tif")
     ap.add_argument("--render", default="auto", choices=["auto", "nrg", "rgb", "gray"])
     ap.add_argument("--fmt", default="webp", choices=["webp", "png"])
-    ap.add_argument("--quality", type=int, default=80)
+    ap.add_argument("--quality", type=int, default=95, help="WebP quality; 95 keeps the native grain, 80 smoothed it")
     ap.add_argument("--max-tiles", type=int, default=40000, help="tile budget (server uses 6000; here size is cheap)")
     ap.add_argument("--max-zoom", type=int, default=None, help="cap the finest zoom (downsample)")
     ap.add_argument("--water-mask", action="store_true", help="exclude water (NDWI) from the stretch sample")
     ap.add_argument("--gamma", type=float, default=0.8, help="<1 lifts shadows; 0.8 is the default, 1.0 is linear")
+    ap.add_argument("--lossless", action="store_true", help="lossless WebP (no chroma subsampling)")
+    ap.add_argument("--resampling", default="cubic", choices=["nearest", "bilinear", "cubic", "lanczos"])
     ap.add_argument("--title", default=None)
     ap.add_argument("--date", default=None)
     ap.add_argument("--source", default=None)
@@ -122,7 +124,7 @@ def main():
               f"{', max zoom ' + str(a.max_zoom) if a.max_zoom else ''}) ...", flush=True)
         meta = rt._bake(src, tiles, render=render, fmt=a.fmt, quality=a.quality,
                         max_zoom_cap=a.max_zoom, water_mask=a.water_mask, gamma=a.gamma,
-                        max_tiles=a.max_tiles)
+                        max_tiles=a.max_tiles, lossless=a.lossless, resampling=a.resampling)
         mb = Path(td) / "t.mbtiles"
         n = dir_to_mbtiles(tiles, mb, title, meta["min_zoom"], meta["max_zoom"], a.fmt,
                            bounds=(meta["bounds_w"], meta["bounds_s"], meta["bounds_e"], meta["bounds_n"]))
@@ -132,7 +134,7 @@ def main():
     side = {
         "title": title, "image_date": date, "source_note": source, "render": render,
         "format": a.fmt, "quality": a.quality if a.fmt == "webp" else None,
-        "water_mask": a.water_mask, "gamma": a.gamma,
+        "water_mask": a.water_mask, "gamma": a.gamma, "lossless": a.lossless, "resampling": a.resampling,
         "bounds_w": meta["bounds_w"], "bounds_s": meta["bounds_s"],
         "bounds_e": meta["bounds_e"], "bounds_n": meta["bounds_n"],
         "min_zoom": meta["min_zoom"], "max_zoom": meta["max_zoom"],
