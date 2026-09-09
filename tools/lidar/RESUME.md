@@ -1,15 +1,28 @@
-# Lidar hosting — state of play (2026-09-06)
+# Lidar hosting — state of play (2026-09-08, paused here)
 
-Nineteen surveys built and verified on dev (every one checked at max zoom against its source and at z13 against a shift-free warp); six deployed to production, thirteen on the droplet awaiting the next code deploy. Archive COGs are moving to Cloudflare R2 (`tools/lidar/r2_sync.sh`); the catalog already links there.
+Nineteen surveys built, verified, and **all on production**; all nineteen archive
+COGs in Cloudflare R2 behind `lidar.landslidescience.org/cog/<id>.tif` (54 GB).
+Glacier Bay is the complete 6,728-tile USGS delivery published at 1 m.
+Paused 2026-09-08 with nothing pending on the lidar side; Hig switched topics.
+
+**Imagery overlays** ("trace rasters") are now pre-baked locally with
+`tools/imagery/bake_trace.py` (WebP q95, cubic, one zoom finer than native,
+false colour NIR-R-G with contrast-limited equalisation and gamma 0.8, one
+PMTiles per render mode) and uploaded as a file through the editor form. Planet
+files stay on the droplet behind the editor gate. See CLAUDE.md "Trace rasters".
+
+**If resuming:** the next data are more lidar, multibeam DEMs, and a topobathy
+compositing facility. Design the vertical-datum reconciliation (NAVD88 vs tidal
+MLLW) before adding multibeam; the manifest's `vertical_datum` is the hook.
 
 ## State
 
 | Thing | Where | Status |
 |---|---|---|
-| Code | `main` (lidar + IceBridge guard + manifest) | pushed to GitHub, deployed to the droplet |
-| PMTiles (~7.2 GB, nineteen files) | `data/lidar/pmtiles/` local and `/opt/landslidescience/data/lidar/pmtiles/` on the droplet | uploaded |
-| Catalog | `data/lidar/catalog.geojson` (6 features) | uploaded |
-| Archive COGs (~54 GB, predictor-compressed) | `/Volumes/Nunatak/lidar_build/cog/` + R2 bucket `landslidescience-lidar` under `cog/` | first 38 GB uploading overnight 2026-09-06; rerun `r2_sync.sh` for the four new ones |
+| Code | `main` | GitHub, droplet, and local all in sync (2026-09-08) |
+| PMTiles (~7.2 GB, nineteen files) | `data/lidar/pmtiles/` local and `/opt/landslidescience/data/lidar/pmtiles/` on the droplet | synced; droplet 8.3 GB free |
+| Catalog | `data/lidar/catalog.geojson` (19 features) | synced |
+| Archive COGs (~54 GB, predictor-compressed) | `/Volumes/Nunatak/lidar_build/cog/` + R2 bucket `landslidescience-lidar` under `cog/` | all 19 uploaded 2026-09-08; Cache Rule 'bypass cache' on /cog/ added by Hig |
 | Paused InSAR kinematics | branch `insar-kinematics` (19 commits, rebased onto `main`, pushed) | dev-only; check it out to resume |
 
 Tag `archive/main-2026-09-06-kinematics-plus-lidar` marks what `main` looked
