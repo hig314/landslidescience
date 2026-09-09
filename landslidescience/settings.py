@@ -57,6 +57,12 @@ MIDDLEWARE = [
     'inventory.middleware.InventoryPreviewMiddleware',
 ]
 
+# Where @login_required and friends send anonymous users. Points at the
+# collaborator sign-in, NOT Django's /admin/login/ (which admits staff only).
+LOGIN_URL = '/inventory/login/'
+LOGIN_REDIRECT_URL = '/inventory/'
+LOGOUT_REDIRECT_URL = '/inventory/'
+
 ROOT_URLCONF = 'landslidescience.urls'
 
 TEMPLATES = [

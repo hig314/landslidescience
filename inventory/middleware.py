@@ -36,8 +36,14 @@ class InventoryPreviewMiddleware:
         if not (request.path.startswith('/inventory/')
                 or request.path.startswith('/glaciers/')):
             return False
-        # Don't gate the preview-login page itself (would loop).
-        if request.path == reverse('inventory:preview_login'):
+        # Don't gate the preview-login page itself (would loop), nor the
+        # collaborator sign-in. Without the login exemption the barrier is
+        # inescapable for an account holder who has not been given the preview
+        # password: the gate would bounce them off the very page that would
+        # authenticate them, and authenticating is what lifts the gate.
+        if request.path in (reverse('inventory:preview_login'),
+                            reverse('inventory:login'),
+                            reverse('inventory:logout')):
             return False
         # Authenticated users skip the barrier.
         if request.user.is_authenticated:

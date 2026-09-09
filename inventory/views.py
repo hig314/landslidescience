@@ -1290,11 +1290,11 @@ def api_qms_detail(request, qms_id):
 @require_safe
 def api_qms_promoted(request):
     """Admin-curated QMS layers visible to the requester: everyone sees the
-    `public` ones; inventory editors also see the editors-only ones. Public
+    `public` ones; viewers and editors also see the restricted ones. Public
     endpoint (no auth required) — the public set is intentionally world-visible."""
     from .models import QmsLayer
-    from .auth import is_inventory_editor
-    qs = QmsLayer.objects.all() if is_inventory_editor(request.user) \
+    from .auth import can_view_restricted
+    qs = QmsLayer.objects.all() if can_view_restricted(request.user) \
         else QmsLayer.objects.filter(public=True)
     return JsonResponse({'layers': [_qms_layer_descriptor(l) for l in qs]})
 
@@ -3851,6 +3851,45 @@ def manage_rule_apply(request, name):
 # Pre-launch preview password (paired with InventoryPreviewMiddleware).
 # Unset INVENTORY_PREVIEW_PASSWORD to disable the barrier entirely.
 # ---------------------------------------------------------------------------
+
+def site_login(request):
+    """Sign-in for collaborator accounts (viewers and editors).
+
+    The inventory had no login page at all until 2026-09-08: the only form was
+    Django's /admin/login/, which rejects any account without is_staff, so an
+    ordinary active user could not sign in anywhere. Editors happened to work
+    because they were also staff. This view is the ordinary way in; /admin/ is
+    for site administrators only.
+
+    Deliberately minimal: no signup, no password reset, no email. Accounts are
+    issued by hand.
+    """
+    from django.contrib.auth import authenticate, login as auth_login
+    next_url = request.GET.get('next') or request.POST.get('next') or ''
+    if not next_url.startswith('/') or next_url.startswith('//'):
+        next_url = reverse('inventory:home')          # no open redirects
+    if request.user.is_authenticated:
+        return redirect(next_url)
+    error = None
+    if request.method == 'POST':
+        user = authenticate(request,
+                            username=(request.POST.get('username') or '').strip(),
+                            password=request.POST.get('password') or '')
+        if user is not None:
+            auth_login(request, user)
+            return redirect(next_url)
+        error = 'That username and password do not match an account.'
+    return render(request, 'inventory/login.html',
+                  {'next': next_url, 'error': error})
+
+
+@require_POST
+def site_logout(request):
+    """Sign out and return to the public map. POST only, like Django's own."""
+    from django.contrib.auth import logout as auth_logout
+    auth_logout(request)
+    return redirect(reverse('inventory:home'))
+
 
 def preview_login(request):
     expected = settings.INVENTORY_PREVIEW_PASSWORD

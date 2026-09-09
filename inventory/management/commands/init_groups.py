@@ -1,4 +1,5 @@
-"""Idempotently provision the inventory_editors and site_admins Groups.
+"""Idempotently provision the inventory_viewers, inventory_editors and
+site_admins Groups.
 
 Usage:
     python manage.py init_groups
@@ -10,14 +11,25 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 
 from files.models import HostedFile
-from inventory.auth import GROUP_INVENTORY_EDITORS, GROUP_SITE_ADMINS
+from inventory.auth import (GROUP_INVENTORY_EDITORS, GROUP_INVENTORY_VIEWERS,
+                            GROUP_SITE_ADMINS)
 from pages.models import Page
 
 
 class Command(BaseCommand):
-    help = 'Create inventory_editors and site_admins Groups (idempotent).'
+    help = 'Create the inventory_viewers, inventory_editors and site_admins Groups (idempotent).'
 
     def handle(self, *args, **options):
+        # inventory_viewers: read-only access to the restricted surfaces (the
+        # non-public QMS layers and the baked imagery tiles). No Django built-in
+        # permissions and no is_staff: membership is checked directly by
+        # can_view_restricted(). Editors satisfy that check implicitly, so a
+        # user never needs to be in both.
+        viewers, vc = Group.objects.get_or_create(name=GROUP_INVENTORY_VIEWERS)
+        self.stdout.write(
+            f"  {GROUP_INVENTORY_VIEWERS}: {'created' if vc else 'already exists'}"
+        )
+
         # inventory_editors: no Django built-in permissions; the custom
         # @inventory_editor_required decorator checks group membership directly.
         editors, ec = Group.objects.get_or_create(name=GROUP_INVENTORY_EDITORS)
@@ -50,11 +62,11 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS('Done.'))
         self.stdout.write(
-            '\nTo add a user to a group, use the Django admin (/admin/auth/group/) '
-            'or the shell.\n'
-            '\nNOTE: All users — both inventory_editors and site_admins — currently '
-            'need is_staff=True so they can log in at /admin/login/. Editors will '
-            'see an empty admin landing page (no model permissions); they go to '
-            '/inventory/manage/ for their actual work. We can wire up a dedicated '
-            '/accounts/login/ later if this becomes friction.'
+            '\nTo add a user to a group, use the Django admin (/admin/auth/group/), '
+            'the shell, or `manage.py add_viewer` for the view-only case.\n'
+            '\nLOGIN: collaborators sign in at /inventory/login/ and do NOT need '
+            'is_staff. Only site_admins need is_staff=True, because only they use '
+            '/admin/. (Before the /inventory/login/ view existed, /admin/login/ was '
+            'the only form on the site and it rejects non-staff accounts, which is '
+            'why a view-only user appeared unable to log in at all.)'
         )

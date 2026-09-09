@@ -43,12 +43,17 @@
         {% endif %}
         {% if user.is_authenticated %}
           <span class="inv-user-name" title="Signed in">{{ user.username }}</span>
-          <form action="{% url 'admin:logout' %}" method="post" class="inv-logout-form">
+          <form action="{% url 'inventory:logout' %}" method="post" class="inv-logout-form">
             {% csrf_token %}
             <button type="submit" class="inv-logout-btn">Log out</button>
           </form>
         {% else %}
-          <a href="{% url 'admin:login' %}?next={{ request.path }}" class="inv-login-link">Log in</a>
+          {% comment %}
+          Points at the site sign-in, NOT admin:login. The admin form rejects any
+          account without is_staff, so this link used to send view-only
+          collaborators to a page that could never accept them.
+          {% endcomment %}
+          <a href="{% url 'inventory:login' %}?next={{ request.path }}" class="inv-login-link">Log in</a>
         {% endif %}
       {% endblock %}
     </nav>

@@ -23,7 +23,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST, require_safe
 from django.views.static import serve as static_serve
 
-from .auth import inventory_editor_required, is_inventory_editor
+from .auth import can_view_restricted, inventory_editor_required, is_inventory_editor
 from .models import TraceRaster
 
 MAX_UPLOAD_BYTES = 250 * 1024 * 1024
@@ -296,11 +296,11 @@ def trace_pmtiles(request, raster_id, render):
 
 @require_safe
 def trace_tile(request, raster_id, z, x, y):
-    """Serve one baked tile. Editor-only (403, not a login redirect — this is
-    an <img>-style fetch from MapLibre, not a navigable page). Cache is
-    `private`: tiles are immutable for a given raster id, but must not land
-    in shared caches."""
-    if not is_inventory_editor(request.user):
+    """Serve one baked tile. Viewers and editors only (403, not a login
+    redirect — this is an <img>-style fetch from MapLibre, not a navigable
+    page). Cache is `private`: tiles are immutable for a given raster id, but
+    must not land in shared caches."""
+    if not can_view_restricted(request.user):
         return HttpResponseForbidden()
     from . import raster_tiles
     try:
