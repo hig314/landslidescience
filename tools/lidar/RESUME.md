@@ -46,13 +46,19 @@ IceBridge guard, the manifest additions, and docs.
   (bucket custom domain, Cloudflare CDN, CORS on the bucket). `/lidar/cog/` in
   Django 302s there unless a local copy is mounted. No login gate: the droplet
   never touches the bytes. Credentials in `~/.r2.env`, never in the repo.
-- Droplet has ~11 GB free; the web tiles fit there for now. Moving them to the
-  same bucket is one rclone command plus a catalog URL change.
-- **Never visually verified by automation**: the wiper right-pane section and
-  the z10 footprint branch. The browser-automation tab pauses
-  `requestAnimationFrame`, so MapLibre's `load` never fires there, and headless
-  Chrome hangs on the WebGL page (see the note in `dem_shade.js`). Everything
-  server-side and the tile data path is verified; the visual pass is manual.
+  **Cloudflare edge, >512 MB objects:** the first ranged request at an edge
+  triggers a cache-fill attempt that fails and returns a **200 full body**;
+  later requests get 206. Hig added a Cache Rule (host
+  `lidar.landslidescience.org`, path `/cog/` → Bypass cache) on 2026-09-08 to
+  stop that. Re-verify with a *fresh* ≥600 MB object if the rule is ever
+  changed — an object already requested will not reproduce it.
+- **Droplet disk is the next constraint: 8.3 GB free** with ~7.2 GB of tiles on
+  it. The next big survey either needs the tiles moved to R2 (one rclone
+  command plus a catalog URL change) or a bigger droplet.
+- Automation cannot see a rendered MapLibre page (hidden tab pauses
+  `requestAnimationFrame`; headless Chrome hangs on WebGL — see the note in
+  `dem_shade.js`), so every visual check is Hig's. Hig confirmed the wiper
+  right pane and the 3D context on 2026-09-07.
 
 ## Re-deploying data
 
