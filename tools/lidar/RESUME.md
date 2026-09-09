@@ -46,12 +46,14 @@ IceBridge guard, the manifest additions, and docs.
   (bucket custom domain, Cloudflare CDN, CORS on the bucket). `/lidar/cog/` in
   Django 302s there unless a local copy is mounted. No login gate: the droplet
   never touches the bytes. Credentials in `~/.r2.env`, never in the repo.
-  **Cloudflare edge, >512 MB objects:** the first ranged request at an edge
-  triggers a cache-fill attempt that fails and returns a **200 full body**;
-  later requests get 206. Hig added a Cache Rule (host
-  `lidar.landslidescience.org`, path `/cog/` → Bypass cache) on 2026-09-08 to
-  stop that. Re-verify with a *fresh* ≥600 MB object if the rule is ever
-  changed — an object already requested will not reproduce it.
+  **Cloudflare edge, >512 MB objects:** without a cache rule, the first ranged
+  request at an edge triggers a cache-fill attempt that fails and returns a
+  **200 full body** (a `/vsicurl` open would pull the whole file); later
+  requests get 206. Hig's Cache Rule (host `lidar.landslidescience.org`, path
+  `/cog/` → Bypass cache, 2026-09-08) fixes it — verified against a fresh
+  700 MB object, first request 206 / `cf-cache-status: DYNAMIC`. Re-verify the
+  same way if the rule changes; an already-requested object will not reproduce
+  the fault.
 - **Droplet disk is the next constraint: 8.3 GB free** with ~7.2 GB of tiles on
   it. The next big survey either needs the tiles moved to R2 (one rclone
   command plus a catalog URL change) or a bigger droplet.
