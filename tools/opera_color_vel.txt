@@ -1,0 +1,27 @@
+# OPERA DISP-S1 InSAR line-of-sight velocity ramp — ColorBrewer PRGn, 5-class.
+#
+# UNLIKE every other file in this directory, gdaldem never reads this one: the
+# OPERA tiles are VALUE tiles fetched live from ASF (8-bit gray, 1-255) and
+# recoloured in the browser by the `operacolor` protocol in map.js. This file
+# exists so the colour key and the PNG-export legend have something to read,
+# and so the ramp is written down ONCE in a form that states its real units.
+#
+# The VALUE column is therefore mm/yr, not the 1-255 tile code. The mapping is
+# ASF's: gray 1..255 spans +/-0.03 m/yr linearly, i.e.
+#     mm_per_yr = -30 + (gray - 1) / 254 * 60
+# so the five JS stops (gray 1, 64, 128, 192, 255) land on the values below.
+# map.js holds the same five RGB triples in gray space as OPERA_RAMP — change
+# both together or the key stops describing the pixels.
+#
+# Purple = negative LOS (motion away from the satellite), neutral pinned at
+# zero, green = positive (toward). Replaces ASF's own blue-red, which Hig
+# retired on 2026-08-22: red is ambiguous on a velocity scale, reading as both
+# "high" and "in the red / loss". Flip the stop order if the sign convention
+# should ever read the other way.
+#
+# Columns: VALUE R G B A
+-30.00 123  50 148 255
+-15.12 194 165 207 255
+  0.00 247 247 247 255
+ 15.12 166 219 160 255
+ 30.00   0 136  55 255

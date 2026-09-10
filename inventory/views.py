@@ -1110,6 +1110,13 @@ _RAMP_SPECS = {
     'susc-n10':  {'file': 'susc_color_n10.txt', 'label': 'Landslide susceptibility (n10)',
                   'units': 'frequency-ratio class', 'kind': 'classes',
                   'classes': [('Low', 1), ('High', 63), ('Very high', 81)]},
+    # OPERA velocity: the only ramp whose tiles are coloured in the browser
+    # rather than baked, so its .txt is written in real units (mm/yr) instead
+    # of the 1-255 tile code. See the header of the file.
+    'opera-asc':  {'file': 'opera_color_vel.txt',
+                   'label': 'InSAR velocity — ascending', 'units': 'mm/yr, line of sight'},
+    'opera-desc': {'file': 'opera_color_vel.txt',
+                   'label': 'InSAR velocity — descending', 'units': 'mm/yr, line of sight'},
     'ice-v':     {'file': 'itslive_color_v.txt',    'label': 'Glacier speed', 'units': 'm/yr'},
     'ice-amp':   {'file': 'itslive_color_vamp.txt', 'label': 'Seasonal amplitude', 'units': 'm/yr'},
     'ice-dvdt':  {'file': 'itslive_color_dvdt.txt', 'label': 'Speed trend', 'units': 'm/yr per yr'},

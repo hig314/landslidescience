@@ -1558,30 +1558,37 @@
     // LP DAAC COGs, not this route.
     //
     // Tiles arrive already coloured by GIBS as an 8-bit palette PNG, so unlike
-    // the OPERA velocity tiles there is no value to decode. `distcolor` still
-    // canvas-decodes them for one reason: GIBS paints class 0 "no disturbance"
-    // as opaque #121212, which blacks out the basemap over ~97% of a typical
-    // tile. The loader maps GIBS's nine RGB triples back to class codes and
-    // repaints from DIST_CLASSES, where 0 is transparent.
+    // the OPERA velocity tiles there is no value to decode. `distcolor` maps
+    // GIBS's nine RGB triples back to class codes and repaints from
+    // DIST_CLASSES — the palette below is the DECODE key, not a design choice,
+    // and must track GIBS's colormap exactly or classes stop resolving.
     //
-    // Colours are GIBS's own, kept byte-identical to their colormap so this
-    // matches NASA Worldview pixel-for-pixel. tools/dist_color_status.txt is
-    // the shared source of truth (it also feeds the export legend via
-    // /inventory/api/ramps/) — change both together or they drift.
+    // The colours we PAINT are ours, and deliberately not GIBS's: theirs makes
+    // "no disturbance" opaque near-black, and encodes both axes by hue alone,
+    // which lets the huge and mostly meaningless "first detection <50%" class
+    // dominate any view of Alaska. Ours puts MATURITY on hue (saturated red
+    // when fresh -> dull brown when finished, so emerging activity is loudest)
+    // and MAGNITUDE on lightness+saturation, with the widest gap at first
+    // detection so the speculative class recedes without needing a filter.
+    // The full rationale, the CVD check and its one known weak pair live in
+    // tools/dist_color_status.txt, which is the source of truth and also feeds
+    // the colour key + export legend via /inventory/api/ramps/. Change both
+    // together or the key stops describing the pixels.
     // ---------------------------------------------------------------------------
     var DIST_TILE_V = '1';
     // [class code, GIBS rgb, our rgba]. GIBS rgb is what arrives; our rgba is
     // what we paint. Only class 0 differs: opaque near-black -> transparent.
     var DIST_CLASSES = [
-        [0, [ 18,  18,  18], [  0,   0,   0,   0]],
-        [1, [  0,  85,  85], [  0,  85,  85, 255]],
-        [2, [137, 127,  78], [137, 127,  78, 255]],
-        [3, [222, 224,  67], [222, 224,  67, 255]],
-        [4, [  0, 136, 136], [  0, 136, 136, 255]],
-        [5, [228, 135,  39], [228, 135,  39, 255]],
-        [6, [224,  27,   7], [224,  27,   7, 255]],
-        [7, [119, 119, 119], [119, 119, 119, 255]],
-        [8, [221, 221, 221], [221, 221, 221, 255]]
+        //  code  GIBS rgb (what arrives)   ours (what we paint)
+        [0, [ 18,  18,  18], [  0,   0,   0,   0]],   // no disturbance -> clear
+        [1, [  0,  85,  85], [237, 212, 215, 255]],   // first detection  <50%
+        [2, [137, 127,  78], [229, 183, 169, 255]],   // provisional      <50%
+        [3, [222, 224,  67], [212, 160, 119, 255]],   // confirmed        <50%
+        [4, [  0, 136, 136], [240,  51,  73, 255]],   // first detection >=50%
+        [5, [228, 135,  39], [207,  66,  23, 255]],   // provisional     >=50%
+        [6, [224,  27,   7], [140,  80,  33, 255]],   // confirmed       >=50%
+        [7, [119, 119, 119], [155, 136, 111, 255]],   // confirmed  <50% finished
+        [8, [221, 221, 221], [ 77,  63,  45, 255]]    // confirmed >=50% finished
     ];
     // Exact-match lookup keyed by packed GIBS rgb, holding the PAINTED classes
     // (1-8) only. GIBS serves these as an 8-bit COLORMAP PNG carrying no gAMA
