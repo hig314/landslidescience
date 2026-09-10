@@ -2,7 +2,7 @@
 """Animate OPERA DIST over an area, from the same GIBS tiles the map uses.
 
   python3 tools/imagery/dist_animate.py 61.19698,-146.96439 --km 8 \
-      --from 2026-05-01 --to 2026-09-08 --out /tmp/valdez.gif
+      --from 2026-05-01 --to 2026-09-08 --out data/dist_animations/valdez.gif
 
 WHY ACCUMULATION IS THE DEFAULT. The daily layer holds only the granules
 acquired that day, and about half of Alaska goes unobserved on any given date.
@@ -27,6 +27,8 @@ import urllib.request
 
 import numpy as np
 from PIL import Image, ImageDraw
+
+DEFAULT_OUT_DIR = pathlib.Path(__file__).resolve().parents[2] / 'data' / 'dist_animations'
 
 GIBS = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best'
 LAYERS = {'alert': 'OPERA_L3_DIST-ALERT-HLS_Color_Index',
@@ -128,7 +130,10 @@ def main():
     ap.add_argument('--raw', action='store_true',
                     help='show each date alone (strobes); default accumulates')
     ap.add_argument('--ms', type=int, default=140, help='frame duration')
-    ap.add_argument('--out', default='/tmp/dist.gif')
+    # data/ is gitignored and volume-mounted, and is where every other
+    # generated artefact in this repo lives. NOT /tmp: macOS cleans it, and
+    # an animation worth looking at twice should not evaporate.
+    ap.add_argument('--out', default=str(DEFAULT_OUT_DIR / 'dist.gif'))
     args = ap.parse_args()
 
     lat, lon = (float(v) for v in args.centre.split(','))
@@ -181,6 +186,7 @@ def main():
             print('  %s  observed %5.1f%%' % (date, 100 * n_obs[-1]), flush=True)
 
     out = pathlib.Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
     frames[0].save(out, save_all=True, append_images=frames[1:],
                    duration=args.ms, loop=0, optimize=True)
     print('\nwrote %s  (%d frames, %.1f MB)' % (out, len(frames), out.stat().st_size / 1e6))
