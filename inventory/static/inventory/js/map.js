@@ -7278,7 +7278,11 @@
         if (!panel || !canvas) return;
 
         var MAX_SAMPLES = 6;
-        var PALETTE = ['#1f77b4', '#e6772e', '#2ca02c', '#9467bd', '#8c564b', '#17becf'];
+        // Okabe-Ito colorblind-safe palette (the earlier set paired green
+        // and brown — indistinguishable under red-green CVD; Hig is
+        // colorblind). Track identity is already shape-coded (filled vs
+        // ring), so sample hue is the only color channel that must survive.
+        var PALETTE = ['#0072B2', '#E69F00', '#009E73', '#CC79A7', '#56B4E9', '#D55E00'];
         var _samples = [];        // {id, letter, color, lat, lon, asc, desc, state:'loading'|'ok'|'err', err}
         var _nextId = 1;
         var _active = false;
@@ -7465,39 +7469,38 @@
             ctx.clearRect(0, 0, W, H);
             ctx.font = '10px system-ui, sans-serif';
 
-            // flatten: [{color, track, t, v}] — muted samples stay off the
-            // chart (and out of the axis extent) but remain on the map.
+            // Two passes: axis extents come from ALL loaded data (muted
+            // samples and toggled-off tracks included) so switching layers
+            // never rescales the frame — points appear/disappear in place,
+            // which is what makes visual comparison trustworthy. Only the
+            // visible subset is drawn.
             var pts = [];
+            var t0 = Infinity, t1 = -Infinity, v0 = Infinity, v1 = -Infinity;
             _samples.forEach(function (s) {
-                if (s.state !== 'ok' || s.muted) return;
+                if (s.state !== 'ok') return;
                 ['asc', 'desc'].forEach(function (k) {
-                    if (!trackOn(k)) return;
+                    var visible = !s.muted && trackOn(k);
                     (s[k].series || []).forEach(function (st) {
                         st.points.forEach(function (p) {
-                            pts.push({ c: s.color, k: k, t: Date.parse(p[0]), v: p[1] });
+                            var t = Date.parse(p[0]);
+                            if (t < t0) t0 = t; if (t > t1) t1 = t;
+                            if (p[1] < v0) v0 = p[1]; if (p[1] > v1) v1 = p[1];
+                            if (visible) pts.push({ c: s.color, k: k, t: t, v: p[1] });
                         });
                     });
                 });
             });
-            if (!pts.length) {
+            var haveAny = isFinite(t0);
+            if (!haveAny) {
                 ctx.fillStyle = '#999'; ctx.textAlign = 'center';
                 var anyLoading = _samples.some(function (s) { return s.state === 'loading'; });
-                var allMuted = _samples.length &&
-                    _samples.every(function (s) { return s.state !== 'ok' || s.muted; }) &&
-                    _samples.some(function (s) { return s.muted; });
                 ctx.fillText(anyLoading ? 'Fetching\u2026'
-                             : allMuted ? 'All samples toggled off \u2014 click a legend chip to restore.'
                              : (_samples.length ? 'No DISP-S1 coverage at the sampled point(s).'
                                                 : (_active ? 'Click the map to sample a point.' : 'Tool inactive.')),
                              W / 2, H / 2);
                 drawLegend(ctx, ml, mt);
                 return;
             }
-            var t0 = Infinity, t1 = -Infinity, v0 = Infinity, v1 = -Infinity;
-            pts.forEach(function (p) {
-                if (p.t < t0) t0 = p.t; if (p.t > t1) t1 = p.t;
-                if (p.v < v0) v0 = p.v; if (p.v > v1) v1 = p.v;
-            });
             var pad = Math.max(2, (v1 - v0) * 0.08);
             v0 -= pad; v1 += pad;
             if (v0 > 0) v0 = 0;
