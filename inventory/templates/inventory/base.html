@@ -4,8 +4,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  {# Pre-release: discourage search-engine indexing while the inventory is in review. #}
-  <meta name="robots" content="noindex, nofollow, noarchive">
+  {% comment %}
+  Indexable since launch. Pages that should stay out of search override the
+  `robots` block with "noindex, nofollow" — the experimental /glaciers/ app and
+  the auth/preview pages do. robots.txt allowing a path is NOT enough on its
+  own: a crawler that fetches a page still obeys that page's own noindex.
+  {% endcomment %}
+  {% block robots %}{% endblock %}
   <title>{% block title %}Landslide Inventory{% endblock %}</title>
   <link rel="icon" type="image/x-icon" href="{% static 'inventory/img/favicon.ico' %}">
   <link rel="stylesheet" href="{% static 'inventory/css/main.css' %}">

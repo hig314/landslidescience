@@ -58,6 +58,7 @@ pushing untested code to GH.
 | `/inventory/manage/import/` | inventory_editors + Hig | Upload zip/.geojson; preview diff; confirm to apply |
 | `/s/t.js`, `/s/api/send` | public | First-party analytics beacon, forwarded to Umami (`landslidescience/analytics.py`) |
 | `/traffic/` | superusers + site_admins | Signs the current Django user into the Umami dashboard (Umami's own login is disabled) |
+| `/traffic/optout/` | public | Per-browser analytics opt-out (signed-in browsing is excluded automatically) |
 | `/files/<name>` | public *(unlisted)* | Serves an admin-uploaded `HostedFile` by its URL token (no auth, no preview barrier). |
 | `/admin/` | site_admins (Page + HostedFile perms) + Hig | Django admin — Page + HostedFile models + User/Group management |
 
@@ -88,7 +89,7 @@ The `files` app hosts arbitrary admin-uploaded files at stable, human-readable p
 
 - **Model `HostedFile`** (SQLite): `file` (FileField), `name` (the public URL token), plus `title`/`description` (admin-only notes), `inline` (bool), `content_type` (MIME override). On save, blank `name` auto-fills from the uploaded filename.
 - **Public URL = `/files/<name>`**, served by `files.views.serve` (a `FileResponse`). The URL token is **decoupled from disk storage**: `name` is the URL, `file.name` is wherever Django's storage wrote the bytes (it may suffix on collision — fine). `name` is unique and regex-constrained to `[A-Za-z0-9._-]` (matches `files/urls.py`), so no path traversal. MIME is `content_type` if set, else guessed — with an `_EXTRA_TYPES` table in `views.py` for geo types Python misses (`.kml`/`.kmz`/`.geojson`/`.gpkg`). `inline` toggles `Content-Disposition: inline` vs `attachment`.
-- **Fully public, unlisted.** No auth and no preview-password barrier (that middleware only guards `/inventory/*`). Nothing links to the files, so they're reachable only by someone who knows the URL. `robots.txt` disallows all during pre-release anyway.
+- **Fully public, unlisted.** No auth and no preview-password barrier (that middleware only guards `/inventory/*`). Nothing links to the files, so they're reachable only by someone who knows the URL, and `robots.txt` keeps `/files/` disallowed so indexing can't undo that.
 - **Storage: `MEDIA_ROOT = data/media/`** (`upload_to='hosted_files/'`). `data/` is volume-mounted in dev and prod and gitignored, so uploads **persist across deploys** and are never committed or baked into the image. There is **no `/media/` static route** — the only way out is the `/files/<name>` view.
 - **Permissions** are granted in `init_groups` (HostedFile CRUD → `site_admins`), so **re-run `init_groups` after deploying** if the group needs the perms (as with any group change).
 
@@ -603,6 +604,27 @@ slugs added through the edit form, classifies them by HEAD-probing GCS, and
 stamps disk-archive metadata. `--no-probe` skips the GCS check (useful when
 offline). `--dry-run` rolls back at the end.
 
+## Indexing & robots.txt
+
+Public and indexable since 2026-09-10. Two things had to change together, and
+this is the trap worth remembering: **`robots.txt` allowing a path is not
+enough** — a crawler that is permitted to fetch a page still obeys that page's
+own `<meta name="robots">`. The pre-release setup had both, so relaxing only
+one would have left the site invisible with no obvious symptom.
+
+- `landslidescience/urls.py` → `_ROBOTS` is the policy, with a comment giving
+  the reason for every `Disallow` (auth-gated / machine-only / expensive /
+  unlisted / provisional / duplicate).
+- The base templates now carry an empty `{% block robots %}`; pages that must
+  stay out of search **override it** — `/glaciers/` (still experimental), the
+  preview gate, and the sign-in page do.
+
+Deliberately still closed: `/inventory/api/` and `/inventory/export/` (a ~1 MB
+payload and a 4 MB zip per fetch), `/tiles/` + `/lidar/` (tile pyramids are
+effectively unbounded URL space), `/files/` (unlisted by design),
+`/glaciers/` (experimental), and `/inventory/archive/` (frozen snapshots of
+the same records as the live inventory — indexing them competes with it).
+
 ## Traffic analytics — self-hosted Umami
 
 Who visits, what they read, and which of the site's tools actually get used.
@@ -720,8 +742,22 @@ it: **collection works without any Caddy change**, because the beacon rides
 the existing landslidescience.org route. Only reading the dashboard needs it,
 and `UMAMI_PUBLIC_URL` is what points `/traffic/` at it.
 
-**Note on expectations**: `robots.txt` still disallows everything while the
-site is pre-release, so traffic will be near-zero until that is lifted.
+**Excluding ourselves** (`analytics.is_excluded`) — two layers, because they
+cover different situations, and both work by omitting the tracker tag rather
+than filtering data afterwards, so an excluded visit makes no analytics
+request at all:
+
+1. **Anyone signed in is never counted.** There is no public sign-up, so every
+   account is an editor, a site admin, or Hig — none of them the audience being
+   measured. Needs no action and can't be forgotten.
+2. **A per-browser opt-out cookie** (`ls_no_track`, two years), toggled at
+   **`/traffic/optout/`** — for browsing signed out, which is the usual way of
+   checking how the public site actually looks. The page is deliberately
+   public: an opt-out only the owner can reach is a worse thing to have built,
+   and it doubles as the site's do-not-measure control for visitors.
+
+Umami's own `IGNORE_IP` is the third option and is *not* used — it needs a
+stable address, which a field-based Alaska connection is not.
 
 ## Inventory explorer — `/inventory/table/`
 

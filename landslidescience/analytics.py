@@ -159,12 +159,94 @@ def health(request):
     return HttpResponse(json.dumps({'ok': ok}), content_type='application/json')
 
 
+# ---------------------------------------------------------------------------
+# Excluding ourselves from the numbers
+#
+# Two layers, because they cover different situations:
+#
+#  1. Anyone logged in is never counted. There is no public sign-up on this
+#     site, so every account is an editor, a site admin, or Hig — none of whom
+#     are the audience being measured. This needs no action from anyone and
+#     cannot be forgotten.
+#  2. A per-browser opt-out cookie, for browsing logged out (the common case
+#     when checking how the public site actually looks). Set at
+#     /traffic/optout/, lasts two years, and is offered to visitors too — an
+#     opt-out that only the owner can use is a worse thing to have built.
+#
+# Both work by omitting the tracker tag entirely rather than by discarding data
+# afterwards: nothing is sent, so there is nothing to filter, and the page
+# makes no analytics request at all.
+#
+# A third option not used here: Umami's own IGNORE_IP. It needs a stable
+# address, which a field-based Alaska connection is not.
+# ---------------------------------------------------------------------------
+OPTOUT_COOKIE = 'ls_no_track'
+_OPTOUT_MAX_AGE = 60 * 60 * 24 * 730          # two years
+
+
+def is_excluded(request):
+    if getattr(request, 'user', None) is not None and request.user.is_authenticated:
+        return True
+    return request.COOKIES.get(OPTOUT_COOKIE) == '1'
+
+
 def website_id(request):
     """Template context: the Umami site id + dashboard URL, '' when unset."""
     return {
         'UMAMI_WEBSITE_ID': getattr(settings, 'UMAMI_WEBSITE_ID', ''),
         'UMAMI_PUBLIC_URL': getattr(settings, 'UMAMI_PUBLIC_URL', ''),
+        'ANALYTICS_EXCLUDED': is_excluded(request),
     }
+
+
+@csrf_exempt
+def optout(request):
+    """Show, set, or clear this browser's analytics opt-out.
+
+    Deliberately open to everyone, not just admins: this is the site's
+    do-not-measure control, and gating it behind a login would mean the only
+    people who could use it are the ones already excluded.
+    """
+    if request.method == 'POST':
+        turn_on = request.POST.get('optout') == '1'
+        resp = redirect('/traffic/optout/')
+        if turn_on:
+            resp.set_cookie(OPTOUT_COOKIE, '1', max_age=_OPTOUT_MAX_AGE,
+                            samesite='Lax', secure=not settings.DEBUG)
+        else:
+            resp.delete_cookie(OPTOUT_COOKIE)
+        return resp
+
+    on = request.COOKIES.get(OPTOUT_COOKIE) == '1'
+    signed_in = getattr(request, 'user', None) is not None and request.user.is_authenticated
+    if signed_in:
+        state = ('You are signed in, so this browsing is already excluded from '
+                 'the analytics regardless of the setting below.')
+    elif on:
+        state = 'This browser is <strong>excluded</strong> from the analytics.'
+    else:
+        state = 'This browser is <strong>counted</strong> in the analytics.'
+
+    return HttpResponse(
+        '<!doctype html><meta charset="utf-8"><title>Analytics opt-out</title>'
+        '<meta name="robots" content="noindex, nofollow">'
+        '<div style="font:14px/1.55 system-ui;margin:3rem auto;max-width:34rem;color:#333">'
+        '<h1 style="font-size:18px;font-weight:600">Analytics opt-out</h1>'
+        '<p>landslidescience.org counts visits with a self-hosted, cookieless '
+        'analytics tool. No personal data is stored and nothing is shared with '
+        'anyone else.</p>'
+        '<p>' + state + '</p>'
+        '<form method="post" style="margin-top:1.2rem">'
+        '<input type="hidden" name="optout" value="' + ('0' if on else '1') + '">'
+        '<button type="submit" style="font:inherit;padding:7px 14px;border-radius:4px;'
+        'border:1px solid #5D4037;background:' + ('#fff' if on else '#5D4037') + ';'
+        'color:' + ('#5D4037' if on else '#fff') + ';cursor:pointer">'
+        + ('Start counting this browser' if on else "Don't count this browser") +
+        '</button></form>'
+        '<p style="margin-top:1.4rem;font-size:12.5px;color:#777">Stored as a single '
+        'cookie on this device, kept for two years. Clearing your cookies resets it.</p>'
+        '<p><a href="/" style="color:#5D4037">← landslidescience.org</a></p></div>',
+        content_type='text/html')
 
 
 # ---------------------------------------------------------------------------

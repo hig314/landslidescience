@@ -5,18 +5,50 @@ from django.urls import include, path, re_path
 from django.views.static import serve as static_serve
 
 
+# Public since the 2026-09 launch. The companion `<meta name="robots">` tag in
+# the base templates was relaxed at the same time — leaving it on `noindex`
+# while this file says Allow is the classic way to stay invisible and not
+# notice, because a crawler that is allowed to fetch a page still obeys the
+# page's own noindex.
+#
+# What stays closed, and why:
+#   auth-gated   /admin/, /inventory/manage/, /traffic/ — a crawler only ever
+#                sees the login redirect
+#   machine-only /inventory/api/, /s/ — JSON and the analytics beacon; nothing
+#                to index and the table payload is ~1 MB a fetch
+#   expensive    /inventory/export/ (a 4 MB zip), /tiles/, /lidar/,
+#                /inventory/planet/ — pyramids are effectively unbounded URL
+#                space and would burn crawl budget and bandwidth for nothing
+#   unlisted     /files/ — hosted files are reachable only by someone given
+#                the link; indexing them would undo that
+#   provisional  /glaciers/ — still experimental; not something to surface in
+#                search yet
+#   duplicate    /inventory/archive/ — frozen snapshots of the same records as
+#                the live inventory; indexing them competes with it
+_ROBOTS = """# landslidescience.org
+User-agent: *
+Allow: /
+
+Disallow: /admin/
+Disallow: /inventory/manage/
+Disallow: /traffic/
+Disallow: /inventory/api/
+Disallow: /s/
+Disallow: /inventory/export/
+Disallow: /inventory/preview/
+Disallow: /inventory/login/
+Disallow: /inventory/logout/
+Disallow: /tiles/
+Disallow: /lidar/
+Disallow: /inventory/planet/
+Disallow: /files/
+Disallow: /glaciers/
+Disallow: /inventory/archive/
+"""
+
+
 def robots_txt(_request):
-    """Pre-release: discourage crawling. Belt-and-suspenders with the
-    `<meta name="robots" content="noindex, nofollow, noarchive">` tag in
-    the inventory + pages base templates. Drop this view once the site is
-    ready for indexing.
-    """
-    body = (
-        "# landslidescience.org — pre-release review\n"
-        "User-agent: *\n"
-        "Disallow: /\n"
-    )
-    return HttpResponse(body, content_type='text/plain')
+    return HttpResponse(_ROBOTS, content_type='text/plain')
 
 
 # Self-hosted USGS susceptibility value-tiles (Belair et al. 2024, Alaska).
@@ -111,6 +143,8 @@ urlpatterns = [
     # Django-authenticated door to the Umami dashboard. Umami's own
     # login is disabled, so this is the only way in.
     path('traffic/', analytics.dashboard, name='traffic'),
+    # Public on purpose — see analytics.optout.
+    path('traffic/optout/', analytics.optout, name='traffic_optout'),
     path('lidar/', lidar_serve.preview),
     path('lidar/catalog.geojson', lidar_serve.catalog),
     re_path(r'^lidar/pmtiles/(?P<dataset_id>[a-z0-9_]+)\.pmtiles$',
