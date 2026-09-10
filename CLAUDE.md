@@ -642,7 +642,7 @@ the app. Code: `landslidescience/analytics.py` (the forwarder),
 | Umami container | `umami` service; image pinned `ghcr.io/umami-software/umami:3.3.1` (~170 MB resident) |
 | Its database | `umami` DB **in the existing `tethys_db`**, own `umami` role — a second Postgres is not worth 200 MB on a 4 GB box |
 | Beacon | `/s/t.js` + `/s/api/send` on landslidescience.org, forwarded by Django |
-| Dashboard | Umami's own UI, entered **only** through `/traffic/` (Django-authenticated) |
+| Dashboard | `https://stats.landslidescience.org`, entered **only** through `/traffic/` (Django-authenticated; Umami's own `/login` 403s) |
 | Secrets | `.env`: `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET`, `UMAMI_WEBSITE_ID`, `UMAMI_TEAM_WEBSITE_ID`, `UMAMI_PUBLIC_URL`, `UMAMI_BRIDGE_USER`, `UMAMI_BRIDGE_PASSWORD` |
 
 **One login, not two.** Umami's own login form is switched **off**
@@ -727,12 +727,18 @@ and no filter *values* are ever recorded — only which column was used.
 5. Create a team (`POST /api/teams`, returns a **list**), then create **both** websites **with that `teamId`** (`POST /api/websites`) — a website cannot be moved into a team later, and the bridge user only sees team-owned sites. Public → `UMAMI_WEBSITE_ID`, collaborators → `UMAMI_TEAM_WEBSITE_ID`.
 6. Create the bridge user (`POST /api/users` with `role: "view-only"`) and add it to the team (`POST /api/teams/<id>/users` with `role: "team-view-only"`). Put its credentials in `UMAMI_BRIDGE_USER` / `UMAMI_BRIDGE_PASSWORD`.
 7. **`docker compose up -d web`, not `restart`** — `restart` reuses the old environment and will silently serve stale `UMAMI_*` values.
-8. Caddy site block for the dashboard subdomain + the DNS A record — see below.
+8. Caddy site block for the dashboard subdomain + the DNS A record — **done for the current prod, see below**; only needed again for a new environment.
 
-**The Caddy step lives in the other repo.** `/opt/monitoring` is a clone of
-`tethys-timescale-grafana`, and its `Caddyfile` is untracked (hand-maintained
-on the droplet). Do not edit it from this repo's work — coordinate. The block
-needed is:
+**The dashboard is live at `https://stats.landslidescience.org`** (2026-09-10).
+DNS is a Cloudflare **A record, DNS-only / grey cloud** → the droplet, matching
+`monitoring.` — an orange-cloud proxy would put Cloudflare's TLS in front of
+Caddy's and can break the ACME HTTP-01 challenge. Caddy issued the Let's
+Encrypt certificate on the first attempt.
+
+The site block lives in **`/opt/monitoring/Caddyfile`**, which belongs to the
+`tethys-timescale-grafana` stack (see [[project_window_split]] in memory) and
+is **untracked on purpose** — it is production-only config. Backup of the
+pre-change file: `Caddyfile.bak.20260910-194230` (54 lines). What was appended:
 
 ```
 stats.landslidescience.org {
@@ -741,10 +747,15 @@ stats.landslidescience.org {
 }
 ```
 
-plus a DNS A record for `stats` → the droplet. Nothing else here depends on
-it: **collection works without any Caddy change**, because the beacon rides
-the existing landslidescience.org route. Only reading the dashboard needs it,
-and `UMAMI_PUBLIC_URL` is what points `/traffic/` at it.
+`Caddyfile.template` in that repo is **not** a generator for the live file —
+it is a stale 27-line starter example (`http://YOUR.SERVER.IP`) that says so
+itself, so a hand-added block is not at risk of being regenerated away. The
+only real hazard is two people editing the file at once.
+
+Nothing on the public site depends on this hostname: **collection works
+without any Caddy change**, because the beacon rides the existing
+landslidescience.org route. Only *reading* the dashboards needs it, and
+`UMAMI_PUBLIC_URL` is what points `/traffic/` at it.
 
 **Two audiences, two site records** (`analytics.site_for`). Signed-in traffic
 reports to `UMAMI_TEAM_WEBSITE_ID`, everyone else to `UMAMI_WEBSITE_ID`, so
