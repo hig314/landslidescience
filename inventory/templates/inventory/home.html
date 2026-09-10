@@ -56,6 +56,19 @@
         <input type="checkbox" class="filter-type" value="catastrophic" checked> Catastrophic
       </label>
     </div>
+    {% comment %}
+    Selection handed over from the explorer (/inventory/table/) as #ids=…
+    Hidden unless that param is present; map.js fills in the count and the
+    Clear button drops the constraint. Without a visible notice a shared link
+    looks like a map that has lost most of its records.
+    {% endcomment %}
+    <div class="inv-pinned-row hidden" id="ids-notice">
+      <span id="ids-notice-text" style="font-size:11.5px; color:#7a5c1e;"></span>
+      <button type="button" id="ids-notice-clear"
+              style="margin-left:6px; font-size:11px; font-family:inherit; padding:1px 7px;
+                     border:1px solid #e0d2bb; background:#fff; border-radius:9px;
+                     cursor:pointer; color:#7a5c1e;">Show all</button>
+    </div>
   </div>
 
   {# ---- Tabs ---- #}

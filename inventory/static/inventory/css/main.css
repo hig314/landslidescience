@@ -106,6 +106,18 @@ body.inv-map-body {
     flex: 0 0 auto;
 }
 .inv-pinned-row { margin-bottom: 6px; }
+/* Explorer hand-off notice (#ids= selection). `.hidden` is scoped per
+   component in this file rather than global, so it needs its own rule. */
+.inv-pinned-row:last-child { margin-bottom: 0; }
+#ids-notice.hidden { display: none; }
+#ids-notice {
+    display: flex;
+    align-items: center;
+    padding: 4px 7px;
+    background: #fdf6e3;
+    border: 1px solid #e6d9b8;
+    border-radius: 3px;
+}
 .inv-pinned-basemap {
     width: 100%;
     padding: 3px 6px;

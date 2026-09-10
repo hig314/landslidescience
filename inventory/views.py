@@ -39,9 +39,18 @@ _cache = {}
 _data_version = str(int(time.time()))
 
 
+# The explorer's columnar payloads (table_data.py) are a projection of the
+# whole landslides table, so *any* invalidation implies they are stale too.
+# Dropped unconditionally rather than added to each caller's key list: there
+# are a dozen call sites and one forgetting the key would serve an editor a
+# silently out-of-date table. Rebuilding them after a settings-only
+# invalidation costs one query.
+_ALWAYS_INVALIDATE = ('table_public', 'table_editor')
+
+
 def _invalidate(*keys):
     global _data_version
-    for k in keys:
+    for k in keys + _ALWAYS_INVALIDATE:
         _cache.pop(k, None)
     _data_version = str(int(time.time()))
 
@@ -146,7 +155,9 @@ _SLUG_NON_ALNUM_RE = re.compile(r'[^A-Za-z0-9]+')
 
 # Reserved tokens that resolve to existing routes — slugs collapsing to these
 # never resolve as deep-links even if a future name happens to slugify to one.
-_RESERVED_SLUGS = {'api', 'admin', 'methods', 'static', 'accounts', ''}
+_RESERVED_SLUGS = {'api', 'admin', 'methods', 'static', 'accounts',
+                   'table', 'archive', 'rules', 'manage', 'export',
+                   'howto', 'naming', 'preview', 'login', 'logout', ''}
 
 # Constant target zoom for slug deep-links — at AK latitudes, ~10 km wide.
 # Overridden per-landslide by a stored default_map_view (see below).

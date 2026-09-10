@@ -1,0 +1,433 @@
+/* ============================================================================
+ * Inventory explorer (/inventory/table/) — spreadsheet-style filter/sort/pivot.
+ *
+ * Loaded on top of main.css, which owns the shared header chrome. Everything
+ * here is namespaced `xp-` so it cannot reach the map or the article pages.
+ * Palette matches main.css: brand #5D4037, rules #e0e0e0/#ddd, ground #fafafa.
+ * ==========================================================================*/
+
+/* The UA stylesheet's `[hidden] { display: none }` LOSES to any author
+ * `display:` declaration, so every el.hidden toggle in explore.js needs this
+ * to actually hide anything. */
+[hidden] { display: none !important; }
+
+body.inv-explore-body {
+    padding-top: 44px;          /* clear the absolutely-positioned header */
+    background: #fafafa;
+    overflow: hidden;           /* the table scrolls, not the page */
+}
+
+.xp-wrap {
+    position: absolute;
+    top: 44px; left: 0; right: 0; bottom: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;              /* let the scroll pane actually shrink */
+}
+
+/* ---- Toolbar ------------------------------------------------------------ */
+.xp-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 12px;
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+}
+.xp-tb-gap { flex: 1 1 auto; }
+
+.xp-search {
+    width: 210px;
+    padding: 5px 9px;
+    font-size: 13px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    font-family: inherit;
+}
+.xp-search:focus { outline: 2px solid #cbb8b0; outline-offset: -1px; border-color: #a1887f; }
+
+.xp-btn {
+    padding: 5px 11px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #3a2a25;
+    background: #f4efed;
+    border: 1px solid #ddd0cb;
+    border-radius: 3px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.xp-btn:hover { background: #ebe3e0; }
+.xp-btn.xp-on { background: #5D4037; border-color: #5D4037; color: #fff; }
+.xp-btn.xp-btn-quiet { background: #fff; border-color: #e0e0e0; color: #777; }
+.xp-btn.xp-btn-quiet:hover { background: #f5f5f5; color: #333; }
+.xp-btn:disabled { opacity: .45; cursor: default; }
+.xp-caret { font-size: 10px; opacity: .65; }
+
+/* ---- Active-filter chips ------------------------------------------------ */
+.xp-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 7px 12px;
+    background: #fffdf7;
+    border-bottom: 1px solid #ece4d8;
+    flex: 0 0 auto;
+    max-height: 92px;
+    overflow-y: auto;
+}
+.xp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px 2px 9px;
+    font-size: 12px;
+    background: #fff;
+    border: 1px solid #e0d2bb;
+    border-radius: 11px;
+    color: #4a3b25;
+    max-width: 420px;
+}
+.xp-chip b { font-weight: 600; }
+.xp-chip-val {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.xp-chip-x {
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: #9a8a72;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 4px;
+    border-radius: 50%;
+}
+.xp-chip-x:hover { background: #f0e6d6; color: #5a4a32; }
+
+/* ---- Summary bar -------------------------------------------------------- */
+.xp-summary {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    color: #555;
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+    flex: 0 0 auto;
+}
+.xp-summary .xp-count { color: #1a1a1a; }
+.xp-summary .xp-count b { font-size: 14px; }
+.xp-summary .xp-stat b { color: #1a1a1a; font-weight: 600; }
+.xp-loading { color: #999; font-style: italic; }
+
+/* ---- Chart panel -------------------------------------------------------- */
+.xp-chartbox {
+    flex: 0 0 auto;
+    padding: 8px 12px 10px;
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+}
+.xp-chart-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    color: #555;
+    margin-bottom: 4px;
+}
+.xp-chart-head strong { color: #1a1a1a; font-size: 13px; }
+.xp-chart-svg { display: block; width: 100%; height: 180px; overflow: visible; }
+.xp-chart-svg .xp-bar { fill: #7d5a4f; }
+.xp-chart-svg .xp-bar:hover { fill: #5D4037; }
+.xp-chart-svg .xp-ax { stroke: #ddd; stroke-width: 1; }
+.xp-chart-svg text { font-size: 10px; fill: #777; }
+
+/* ---- Table -------------------------------------------------------------- */
+.xp-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    background: #fff;
+    position: relative;
+}
+.xp-table {
+    border-collapse: separate;   /* separate keeps sticky cell borders painted */
+    border-spacing: 0;
+    table-layout: fixed;
+    font-size: 12.5px;
+    /* width is set inline by the renderer from the column widths */
+}
+
+.xp-table th, .xp-table td {
+    border-right: 1px solid #ececec;
+    border-bottom: 1px solid #f0f0f0;
+    padding: 4px 8px;
+    text-align: left;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    height: 27px;               /* must match ROW_H in explore.js */
+    line-height: 18px;          /* 18 + 4 + 4 + 1px border = ROW_H exactly */
+    box-sizing: border-box;
+}
+.xp-table tbody tr { height: 27px; }
+.xp-table td.xp-num { text-align: right; font-variant-numeric: tabular-nums; }
+.xp-table td.xp-null { color: #c4c4c4; }
+
+.xp-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #f5f2f1;
+    border-bottom: 1px solid #d8cfcb;
+    font-weight: 600;
+    font-size: 11.5px;
+    color: #4a3a34;
+    padding: 0;
+    user-select: none;
+}
+.xp-th-inner {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 6px 5px 8px;
+    cursor: pointer;
+    height: 100%;
+}
+.xp-th-inner:hover { background: #ede7e5; }
+.xp-th-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xp-th-sort { font-size: 10px; color: #5D4037; }
+.xp-th-btn {
+    margin-left: auto;
+    font-size: 9px;
+    color: #8a7a74;
+    padding: 0 1px;
+}
+.xp-table thead th.xp-filtered { background: #f3ead9; }
+.xp-table thead th.xp-filtered .xp-th-btn { color: #a3792b; }
+.xp-resize {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    z-index: 4;
+}
+.xp-resize:hover { background: #cbb8b0; }
+
+/* First column (the name) pins so a wide table stays readable. */
+.xp-table th.xp-sticky, .xp-table td.xp-sticky {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #fff;
+    border-right: 1px solid #ddd;
+}
+.xp-table thead th.xp-sticky { z-index: 5; background: #f5f2f1; }
+.xp-table tbody tr:hover td { background: #fbf8f6; }
+.xp-table tbody tr:hover td.xp-sticky { background: #f6efec; }
+
+.xp-table td a { color: #5D4037; text-decoration: none; }
+.xp-table td a:hover { text-decoration: underline; }
+.xp-cog { color: #b0a29d; margin-left: 6px; font-size: 11px; }
+
+.xp-pill {
+    display: inline-block;
+    padding: 0 6px;
+    margin-right: 3px;
+    font-size: 10.5px;
+    line-height: 15px;
+    border-radius: 8px;
+    background: #eee9e7;
+    color: #5a4a44;
+}
+.xp-tick { color: #2e7d32; font-weight: 700; }
+.xp-cross { color: #d0d0d0; }
+
+/* Aggregate footer — one selected statistic per numeric column. */
+.xp-table tfoot th, .xp-table tfoot td {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    background: #f7f5f4;
+    border-top: 1px solid #d8cfcb;
+    font-size: 12px;
+    color: #4a3a34;
+    font-weight: 600;
+}
+.xp-table tfoot td.xp-sticky, .xp-table tfoot th.xp-sticky { z-index: 5; }
+.xp-foot-sel {
+    font: inherit;
+    font-size: 11px;
+    border: 1px solid #ddd0cb;
+    background: #fff;
+    border-radius: 3px;
+    padding: 1px 3px;
+    color: #4a3a34;
+}
+
+.xp-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: #999;
+    font-size: 14px;
+}
+
+/* ---- Pivot table -------------------------------------------------------- */
+.xp-pivot { border-collapse: collapse; font-size: 12.5px; margin: 12px; }
+.xp-pivot th, .xp-pivot td {
+    border: 1px solid #e4e4e4;
+    padding: 4px 10px;
+    text-align: right;
+    white-space: nowrap;
+}
+.xp-pivot th { background: #f5f2f1; font-weight: 600; font-size: 11.5px; color: #4a3a34; }
+.xp-pivot th.xp-rowhead, .xp-pivot td.xp-rowhead { text-align: left; }
+.xp-pivot thead th { position: sticky; top: 0; z-index: 2; }
+.xp-pivot .xp-total { background: #faf7f6; font-weight: 600; }
+.xp-pivot td.xp-heat { position: relative; }
+.xp-pivot td .xp-heatbar {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: #eadfd9;
+    z-index: 0;
+}
+.xp-pivot td .xp-heatval { position: relative; z-index: 1; }
+
+/* ---- Popover panels ----------------------------------------------------- */
+#xp-pop { position: static; }
+.xp-panel {
+    position: fixed;
+    background: #fff;
+    border: 1px solid #cfc4c0;
+    border-radius: 4px;
+    box-shadow: 0 6px 22px rgba(0,0,0,.16);
+    font-size: 12.5px;
+    color: #333;
+    z-index: 40;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+}
+.xp-panel-head {
+    padding: 8px 10px 6px;
+    border-bottom: 1px solid #eee;
+    font-weight: 600;
+    font-size: 12px;
+    color: #4a3a34;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.xp-panel-head .xp-sub { font-weight: 400; color: #999; font-size: 11px; }
+.xp-panel-body { padding: 8px 10px; overflow: auto; }
+.xp-panel-foot {
+    padding: 7px 10px;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    background: #fbfafa;
+}
+.xp-sort-row {
+    display: flex;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid #eee;
+}
+.xp-mini {
+    padding: 3px 8px;
+    font-size: 11.5px;
+    font-family: inherit;
+    border: 1px solid #ddd0cb;
+    background: #f7f3f1;
+    border-radius: 3px;
+    cursor: pointer;
+    color: #4a3a34;
+}
+.xp-mini:hover { background: #ece4e1; }
+.xp-mini.xp-on { background: #5D4037; color: #fff; border-color: #5D4037; }
+
+.xp-vlist { max-height: 260px; overflow-y: auto; margin: 4px -4px 0; }
+.xp-vrow {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+}
+.xp-vrow:hover { background: #f4f0ee; }
+.xp-vrow input { margin: 0; flex: 0 0 auto; }
+.xp-vrow .xp-vname { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xp-vrow .xp-vn { color: #999; font-size: 11px; font-variant-numeric: tabular-nums; }
+.xp-vrow.xp-zero .xp-vname { color: #b5b5b5; }
+.xp-vrow .xp-blank { font-style: italic; color: #999; }
+
+.xp-inp {
+    width: 100%;
+    padding: 4px 7px;
+    font-size: 12.5px;
+    font-family: inherit;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+.xp-range { display: flex; align-items: center; gap: 6px; }
+.xp-range .xp-inp { width: 50%; }
+.xp-hist { display: block; width: 100%; height: 54px; margin: 8px 0 4px; }
+.xp-hist rect { fill: #cbb8b0; }
+.xp-hist rect.xp-in { fill: #7d5a4f; }
+.xp-statgrid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1px 12px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #eee;
+    font-size: 11.5px;
+    color: #777;
+}
+.xp-statgrid b { color: #1a1a1a; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+
+.xp-colgroup-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #a08d86;
+    margin: 10px 0 3px;
+}
+.xp-colgroup-title:first-child { margin-top: 0; }
+
+.xp-field { margin-bottom: 8px; }
+.xp-field label { display: block; font-size: 11px; color: #888; margin-bottom: 2px; }
+.xp-field select, .xp-field input {
+    width: 100%;
+    padding: 4px 6px;
+    font-size: 12.5px;
+    font-family: inherit;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+}
+
+.xp-note { font-size: 11px; color: #999; line-height: 1.35; margin-top: 6px; }
+
+/* ---- Tooltip ------------------------------------------------------------ */
+.xp-tip {
+    position: fixed;
+    z-index: 60;
+    background: rgba(30,26,25,.94);
+    color: #fff;
+    font-size: 11.5px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    pointer-events: none;
+    max-width: 320px;
+    white-space: pre-line;
+}

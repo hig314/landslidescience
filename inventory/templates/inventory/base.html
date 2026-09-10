@@ -21,6 +21,8 @@
     <nav class="inv-header-nav">
       {% block header_nav %}
         <a href="{% url 'inventory:home' %}">Map</a>
+        <a href="{% url 'inventory:table' %}"
+           title="Sort, filter and cross-tabulate every field in the inventory">Explore</a>
         <a href="{% url 'inventory:methods' %}">Methods</a>
         <a href="{% url 'glaciers:home' %}" title="Experimental Lagrangian visualization of ITS_LIVE glacier velocity">Glaciers</a>
         {% comment %}

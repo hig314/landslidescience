@@ -91,6 +91,8 @@
 
     // ---------------------------------------------------------------------------
     // URL hash state — `#map=zoom/lat/lon&base=<id>&id=<n>` plus optional
+    // `ids=<n,n,…>` (a record selection handed over by the explorer at
+    // /inventory/table/ — show only these; absent = no such constraint) and
     // `swipe=<id>&sx=<pct>` (wiper) and `ov=<id>.<spec>,…` (raster overlays,
     // spec = `l<pct>` / `r<pct>` per visible pane, pct = opacity 0–100, e.g.
     // `ov=opera-asc.l75r40,susc-lw.r100`). An `ov` param fully describes
@@ -129,6 +131,14 @@
             } else if (k === 'id') {
                 var n = parseInt(v, 10);
                 if (n > 0) out.id = n;
+            } else if (k === 'ids') {
+                // Explicit record selection handed over from the explorer
+                // (/inventory/table/): show ONLY these ids. Additive to every
+                // other filter — absent means "no such constraint", which is
+                // what every pre-existing link says.
+                var ids = v.split(',').map(function (t) { return parseInt(t, 10); })
+                           .filter(function (t) { return t > 0; });
+                if (ids.length) out.ids = ids;
             } else if (k === 'ov') {
                 var ovOut = {};
                 v.split(',').forEach(function (ent) {
@@ -173,6 +183,16 @@
         } catch (e) {}
     }
     var _pendingDetailId = _initialHash.id || null;
+    // Explorer hand-off: null = unconstrained (the normal case).
+    var _idsFilter = _initialHash.ids || null;
+    function _syncIdsNotice() {
+        var box = document.getElementById('ids-notice');
+        if (!box) return;
+        box.classList.toggle('hidden', !_idsFilter);
+        if (!_idsFilter) return;
+        document.getElementById('ids-notice-text').textContent =
+            'Showing ' + _idsFilter.length + ' selected records';
+    }
     // Wiper state to restore once its basemap is resolvable (built-ins are
     // available immediately; a shared QMS layer only after api/qms/promoted).
     var _pendingSwipe = _initialHash.swipe
@@ -193,9 +213,14 @@
         if (tab !== 'inventory') parts.push('tab=' + tab);
         var an = _anEncodeHash();
         if (an) parts.push('an=' + an);
+        // Re-emit the explorer selection so panning/zooming doesn't silently
+        // drop it (and so the link stays shareable). Deliberately NOT saved to
+        // localStorage below: a one-off selection must not become the view the
+        // map restores days later.
         var newHash = '#' + parts.join('&');
-        if (location.hash !== newHash) history.replaceState(null, '', newHash);
         try { localStorage.setItem('ls_map_view', newHash); } catch (e) {}
+        if (_idsFilter) newHash += '&ids=' + _idsFilter.join(',');
+        if (location.hash !== newHash) history.replaceState(null, '', newHash);
     }
 
     // ---------------------------------------------------------------------------
@@ -2442,6 +2467,10 @@
         var c = map.getCenter(), z = map.getZoom();
         // Unlike writeHashState, always pin the basemap: a curated view should
         // reproduce its imagery even if the site default changes later.
+        // Deliberately NO `ids=` here even when an explorer selection is
+        // active: a record's stored default view is a permanent property of
+        // that record, and a transient "these 40 rows" selection has no
+        // business surviving in it. Don't add it.
         var parts = ['map=' + z.toFixed(2) + '/' + c.lat.toFixed(4) + '/' + c.lng.toFixed(4),
                      'base=' + _currentBasemap];
         if (_swipe.on && _swipe.basemapId) {
@@ -4056,6 +4085,19 @@
     var cbSuperElevated = document.getElementById('cb-super-elevated');
     var cbFlagged      = document.getElementById('cb-flagged');   // editor-only
     var cbLimitView    = document.getElementById('cb-limit-view');
+
+    // Explorer hand-off notice: shows how many records the #ids= selection
+    // covers, and drops it. Runs on every load — with no selection it just
+    // leaves the (hidden) notice alone.
+    _syncIdsNotice();
+    var idsClear = document.getElementById('ids-notice-clear');
+    if (idsClear) idsClear.addEventListener('click', function () {
+        _idsFilter = null;
+        _syncIdsNotice();
+        buildFilter();          // rebuild the layer filter + query-string state
+        writeHashState();       // and drop &ids= now, not on the next pan
+    });
+
     [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012, cbTsunamigenic, cbGlacierContact, cbSuperElevated, cbFlagged].forEach(function (cb) {
         if (cb) cb.addEventListener('change', buildFilter);
     });
@@ -4332,6 +4374,8 @@
             ['in', ['get', 'landslide_type'],  ['literal', activeTypes]],
             ['in', classExpr, ['literal', activeClasses]]
         ];
+        // Explorer selection, when one was handed over in the hash.
+        if (_idsFilter) f.push(['in', ['get', 'id'], ['literal', _idsFilter]]);
 
         // Dual-handle filters: each side adds an expression only when its
         // handle has moved off the "no filter" position. Records with NULL

@@ -5,7 +5,7 @@
  *   & ov=<id>[~s].l<pct>r<pct>,…   (~s = data-variant flag, e.g. smoothed
  *                                   thinning; l/r = pane visibility+opacity)
  *   & <extras…>                    (app-specific params pass through:
- *                                   inventory id/tab/an, glaciers site/t)
+ *                                   inventory id/ids/tab/an, glaciers site/t)
  *
  * /glaciers/ consumes this module directly. map.js still carries its own
  * embedded parser with the IDENTICAL grammar (migration onto this module is

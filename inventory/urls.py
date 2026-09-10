@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import insar, opera, photos, trace_views, views
+from . import insar, opera, photos, table_data, trace_views, views
 
 app_name = 'inventory'
 
@@ -14,6 +14,11 @@ urlpatterns = [
     path('methods/', views.methods, name='methods'),
     path('howto/', views.howto, name='howto'),
     path('naming/', views.naming, name='naming'),
+    # Inventory explorer — spreadsheet-style filter/sort/pivot page.
+    # Its payload endpoint is the whole visible table, columnar (see
+    # inventory/table_data.py).
+    path('table/', table_data.table_page, name='table'),
+    path('api/table/', table_data.api_table, name='api_table'),
     path('api/features/', views.api_features, name='api_features'),
     path('api/polygons/', views.api_polygons, name='api_polygons'),
     path('api/provisional/', views.api_provisional, name='api_provisional'),

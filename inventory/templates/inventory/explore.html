@@ -1,0 +1,69 @@
+{% extends "inventory/base.html" %}
+{% load static %}
+{% block title %}Explore the inventory{% endblock %}
+{% block page_title %}Explore · table{% endblock %}
+{% block body_class %}inv-explore-body{% endblock %}
+
+{% block extra_styles %}
+  <link rel="stylesheet" href="{% static 'inventory/css/explore.css' %}">
+{% endblock %}
+
+{% block body %}
+{% comment %}
+Everything below the toolbar is built by explore.js from the columnar payload
+at /inventory/api/table/. The markup here is only the frame: the popover
+panels (column menu, column chooser, group-by, chart) are created on demand
+and parented to #xp-pop so they escape the table's scroll/stacking context.
+{% endcomment %}
+<div class="xp-wrap">
+
+  <div class="xp-toolbar">
+    <input type="search" id="xp-q" class="xp-search" placeholder="Search names…"
+           autocomplete="off" spellcheck="false">
+    <button type="button" class="xp-btn" id="xp-cols-btn">Columns <span class="xp-caret">▾</span></button>
+    <button type="button" class="xp-btn" id="xp-preset-btn">Preset <span class="xp-caret">▾</span></button>
+    <button type="button" class="xp-btn" id="xp-group-btn">Group by <span class="xp-caret">▾</span></button>
+    <button type="button" class="xp-btn" id="xp-chart-btn">Chart <span class="xp-caret">▾</span></button>
+    <span class="xp-tb-gap"></span>
+    <button type="button" class="xp-btn" id="xp-map-btn"
+            title="Open the map showing only the records currently selected here">↗ Show on map</button>
+    <button type="button" class="xp-btn" id="xp-dl-btn">⬇ Data <span class="xp-caret">▾</span></button>
+    <button type="button" class="xp-btn xp-btn-quiet" id="xp-reset-btn"
+            title="Clear every filter, sort, and grouping">Reset</button>
+  </div>
+
+  <div class="xp-chips" id="xp-chips" hidden></div>
+
+  <div class="xp-summary" id="xp-summary">
+    <span class="xp-loading">Loading inventory…</span>
+  </div>
+
+  <div class="xp-chartbox" id="xp-chartbox" hidden></div>
+
+  <div class="xp-scroll" id="xp-scroll">
+    <table class="xp-table" id="xp-table">
+      <colgroup id="xp-colgroup"></colgroup>
+      <thead id="xp-thead"></thead>
+      <tbody id="xp-tbody"></tbody>
+      <tfoot id="xp-tfoot"></tfoot>
+    </table>
+    <div class="xp-empty" id="xp-empty" hidden>
+      No records match the current filters.
+    </div>
+  </div>
+
+</div>
+
+<div id="xp-pop"></div>
+<div class="xp-tip" id="xp-tip" hidden></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.XP_API   = "{% url 'inventory:api_table' %}";
+  window.XP_MAP   = "{% url 'inventory:home' %}";
+  window.XP_EDIT  = "{% url 'inventory:manage_list' %}";
+  window.XP_VERSION = "{{ data_version }}";
+</script>
+<script src="{% static 'inventory/js/explore.js' %}?v={{ data_version }}"></script>
+{% endblock %}
