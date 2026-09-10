@@ -1563,32 +1563,39 @@
     // DIST_CLASSES — the palette below is the DECODE key, not a design choice,
     // and must track GIBS's colormap exactly or classes stop resolving.
     //
-    // The colours we PAINT are ours, and deliberately not GIBS's: theirs makes
-    // "no disturbance" opaque near-black, and encodes both axes by hue alone,
-    // which lets the huge and mostly meaningless "first detection <50%" class
-    // dominate any view of Alaska. Ours puts MATURITY on hue (saturated red
-    // when fresh -> dull brown when finished, so emerging activity is loudest)
-    // and MAGNITUDE on lightness+saturation, with the widest gap at first
-    // detection so the speculative class recedes without needing a filter.
-    // The full rationale, the CVD check and its one known weak pair live in
-    // tools/dist_color_status.txt, which is the source of truth and also feeds
-    // the colour key + export legend via /inventory/api/ramps/. Change both
-    // together or the key stops describing the pixels.
+    // The colours we PAINT are ours, and deliberately not GIBS's: theirs puts
+    // both axes on hue alone, which lets the huge and mostly meaningless
+    // "first detection <50%" class dominate any view of Alaska.
+    //
+    // DARKNESS = IMPORTANCE = certainty x recency, reinforced by saturation.
+    // The darkest class is therefore CONFIRMED (certain and still current),
+    // NOT "finished" — equally certain, but its recency is spent, so it steps
+    // back to a light dull brown. A plain monotonic ramp along maturity gets
+    // this backwards and leaves the oldest, least actionable class loudest;
+    // that is the bug this ramp was rewritten to fix. Magnitude rides the same
+    // channel (<50% paler and duller than its >=50% partner, widest gap at
+    // first detection), and maturity rides hue, red -> brown.
+    //
+    // tools/dist_color_status.txt is the source of truth — it carries the full
+    // rationale, the accepted trade-off in the pale row, and the CVD check —
+    // and it also feeds the colour key + export legend via
+    // /inventory/api/ramps/. Change both together or the key stops describing
+    // the pixels.
     // ---------------------------------------------------------------------------
     var DIST_TILE_V = '1';
     // [class code, GIBS rgb, our rgba]. GIBS rgb is what arrives; our rgba is
     // what we paint. Only class 0 differs: opaque near-black -> transparent.
     var DIST_CLASSES = [
-        //  code  GIBS rgb (what arrives)   ours (what we paint)
+        //  code  GIBS rgb (decode key)     ours (what we paint)
         [0, [ 18,  18,  18], [  0,   0,   0,   0]],   // no disturbance -> clear
-        [1, [  0,  85,  85], [237, 212, 215, 255]],   // first detection  <50%
+        [1, [  0,  85,  85], [237, 212, 215, 255]],   // first detection  <50%   palest of all
         [2, [137, 127,  78], [229, 183, 169, 255]],   // provisional      <50%
-        [3, [222, 224,  67], [212, 160, 119, 255]],   // confirmed        <50%
-        [4, [  0, 136, 136], [240,  51,  73, 255]],   // first detection >=50%
+        [3, [222, 224,  67], [197, 141,  99, 255]],   // confirmed        <50%   darkest pale
+        [4, [  0, 136, 136], [240,  51,  73, 255]],   // first detection >=50%   loud via chroma
         [5, [228, 135,  39], [207,  66,  23, 255]],   // provisional     >=50%
-        [6, [224,  27,   7], [140,  80,  33, 255]],   // confirmed       >=50%
-        [7, [119, 119, 119], [155, 136, 111, 255]],   // confirmed  <50% finished
-        [8, [221, 221, 221], [ 77,  63,  45, 255]]    // confirmed >=50% finished
+        [6, [224,  27,   7], [110,  60,  23, 255]],   // confirmed       >=50%   darkest = most important
+        [7, [119, 119, 119], [212, 205, 196, 255]],   // confirmed  <50% finished
+        [8, [221, 221, 221], [164, 141, 112, 255]]    // confirmed >=50% finished  steps back
     ];
     // Exact-match lookup keyed by packed GIBS rgb, holding the PAINTED classes
     // (1-8) only. GIBS serves these as an 8-bit COLORMAP PNG carrying no gAMA
