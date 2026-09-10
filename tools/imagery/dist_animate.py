@@ -15,6 +15,15 @@ known up to this date" and the only thing that moves is actual disturbance.
 Needs no Earthdata login — GIBS is open. Colours match the map overlay
 (tools/dist_color_status.txt); nodata is drawn dark so "not observed" never
 looks like "nothing happened".
+
+WHAT THE DARK AREA MEANS. Two different things, and the animation separates
+them: dark that fills in over the first few frames was cloud, dark that never
+fills is PERMANENT SNOW AND ICE, which the product masks outright. Measured by
+stacking a season of source granules and counting pixels never observed in any
+of them: Columbia Glacier 32.4%, Portage 21.4%, Kachemak 7.8%, and a
+non-glaciated Talkeetna site 0.0%. It is not water — of pixels DATA-MASK calls
+water, only 2% go unobserved. Worth knowing before reading a glacier
+foreland: a third of that scene is not "quiet", it is not surveyed.
 """
 import argparse
 import concurrent.futures as cf
