@@ -55,7 +55,7 @@ urlpatterns = [
             opera.opera_tile, name='opera_tile'),
     # OPERA DIST disturbance tiles, proxied+cached from NASA GIBS (public;
     # see inventory/dist.py). z/x/y here; the GIBS y/x swap happens in there.
-    re_path(r'^tiles/dist/(?P<layer>alert|ann)/(?P<date>\d{4}-\d{2}-\d{2})'
+    re_path(r'^tiles/dist/(?P<layer>alert|ann)/(?P<date>\d{4}-\d{2}-\d{2}|all)'
             r'/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             dist.dist_tile, name='dist_tile'),
     path('api/dist_dates/', dist.dist_dates, name='dist_dates'),

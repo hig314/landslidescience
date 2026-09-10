@@ -659,6 +659,20 @@ protocol. Routes: `tiles/dist/<alert|ann>/<date>/<z>/<x>/<y>.png`,
   satisfiable — with a floor of 3 an all-Alaska view fell through to 64 tiles.
 - **Every overlay row has a collapsible colour key** (`_rampLegendEl`), fed by
   the same `api/ramps/` the PNG export uses.
+- **`date=all`** (annual only) serves a MERGED composite of every year — the
+  cumulative disturbance footprint, which is the view a landslide inventory
+  usually wants. It merges in **palette-index space**: GIBS sends 8-bit
+  colormap PNGs whose index IS the class code and all years share one palette,
+  so the merge is a per-pixel index pick and the output is byte-compatible
+  with a single-year tile (the client needs no special case). Which class wins
+  is the ramp's own darkest-first importance order, not a second ranking —
+  `tools/check_dist_palette.py` asserts that, and that map.js agrees with the
+  ramp file class by class. The three year-fetches run concurrently, so a cold
+  merged tile costs 1.2x a single year rather than 3x; warm it is identical
+  (~6 ms), and annual composites never change so the cache is permanent. Cache
+  dir is `ann/_all_<first>_<last>_<n>/`, and the client folds the year set into
+  the `?v=` token, so a new annual release lands in a fresh cache rather than
+  staling the old one.
 
 ### The daily layer is retired (2026-09-10) — `DIST_ALERT_ACTIVE = false`
 

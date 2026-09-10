@@ -47,18 +47,24 @@ map.js at the same time so browser caches roll too).
 Attribution: OPERA DIST-ALERT-HLS / DIST-ANN-HLS (c) NASA/JPL, distributed by
 LP DAAC; imagery service by NASA GIBS.
 """
+import concurrent.futures as cf
 import datetime
 import io
 import json
 import logging
 import math
+import os
 import re
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+import numpy as np
+
 from django.conf import settings
-from django.http import FileResponse, HttpResponseNotFound, JsonResponse
+from django.http import (FileResponse, HttpResponse, HttpResponseNotFound,
+                         JsonResponse)
 from django.views.decorators.http import require_safe
 
 log = logging.getLogger(__name__)
@@ -159,11 +165,134 @@ def _tile_bytes(layer, date, z, x, y, fresh):
             return None
         raise
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix('.png.part')
+    # Unique temp name: concurrent requests for the same tile would otherwise
+    # write the same .part file and race each other's rename.
+    tmp = dest.with_suffix('.png.part.%d' % os.getpid() + '.%d' % threading.get_ident())
     tmp.write_bytes(body)
-    tmp.rename(dest)
+    tmp.replace(dest)
     if marker.exists():
         marker.unlink()              # coverage appeared where there was none
+    return body
+
+
+# ---------------------------------------------------------------------------
+# The merged "all years" annual tile.
+#
+# GIBS serves one DIST-ANN composite per year. This stacks them into a single
+# tile answering "what is the worst thing that ever happened to this pixel in
+# the record", which is the view you want for a landslide inventory: a
+# cumulative disturbance footprint rather than a snapshot of one season.
+#
+# It merges in PALETTE-INDEX space, which is the trick that keeps it cheap and
+# exact. GIBS serves these as 8-bit colormap PNGs whose palette index IS the
+# DIST class code (verified against live tiles, 2026-09-10), and all years
+# share one palette. So no RGB decode, no interpolation, no colour matching —
+# just pick an index per pixel — and the output is byte-compatible with a
+# single-year tile, so the client's `distcolor` recolouring needs no special
+# case at all. The only thing the client does differently is ask for the date
+# `all`.
+#
+# WHICH CLASS WINS is decided by our own palette's importance ordering, i.e.
+# darkest-paints-first, rather than by inventing a second ranking here that
+# could disagree with what the map shows. Read off tools/dist_color_status.txt
+# by L*: confirmed >=50% (L*31) > provisional >=50% (49) > first detect >=50%
+# (53) > confirmed >=50% finished (60) > confirmed <50% (63) > provisional
+# <50% (78) > confirmed <50% finished (83) > first detect <50% (87). Then
+# class 0, an observation of nothing happening, which still beats 255 — never
+# observed at all. tools/check_dist_palette.py asserts this order against the
+# ramp file so the two cannot drift.
+# ---------------------------------------------------------------------------
+ANN_ALL = 'all'
+MERGE_PRIORITY = [6, 5, 4, 8, 3, 2, 7, 1, 0, 255]
+
+# The GIBS colormap, written back out so the merged tile carries every class
+# even when a given year's tile only used a few palette slots. Twin of column
+# 2 of DIST_CLASSES in map.js — that one is the decode key, this one is the
+# encode key, and they must stay identical.
+_GIBS_CLASS_RGB = {
+    0: (18, 18, 18),    1: (0, 85, 85),     2: (137, 127, 78),
+    3: (222, 224, 67),  4: (0, 136, 136),   5: (228, 135, 39),
+    6: (224, 27, 7),    7: (119, 119, 119), 8: (221, 221, 221),
+}
+_NODATA_IDX = 255
+
+
+def _ann_years():
+    """Dates of the annual composites, oldest first (one per year)."""
+    return _expand_domain(_layer_domain('ann'))
+
+
+def _ann_all_sig(years):
+    """Cache signature for a merged tile: which years went into it. A new
+    annual release lands in a new directory rather than silently staling the
+    old composites."""
+    return '%s_%s_%d' % (years[0][:4], years[-1][:4], len(years)) if years else 'none'
+
+
+def _merge_ann(z, x, y, years):
+    """Stack the yearly tiles into one, highest-priority class per pixel."""
+    from PIL import Image
+
+    # In parallel: a merged tile should cost one upstream round trip of
+    # latency, not one per year. Sequentially this was 2.6x a single-year
+    # tile cold; concurrently it is about the same as one.
+    with cf.ThreadPoolExecutor(max_workers=len(years)) as pool:
+        bodies = list(pool.map(
+            lambda yr: _tile_bytes('ann', yr, z, x, y, False), years))
+    stack = []
+    for body in bodies:
+        if body is None:
+            continue
+        im = Image.open(io.BytesIO(body))
+        if im.mode != 'P':               # defensive: GIBS has always sent P
+            return None
+        stack.append(np.array(im, dtype=np.uint8))
+    if not stack:
+        return None
+    shape = stack[0].shape
+    stack = [a for a in stack if a.shape == shape]
+
+    out = np.full(shape, _NODATA_IDX, np.uint8)
+    filled = np.zeros(shape, bool)
+    # Walk best-first and take each pixel the first time it is claimed, so a
+    # single pass settles every pixel at its most important class.
+    for cls in MERGE_PRIORITY:
+        if filled.all():
+            break
+        for a in stack:
+            hit = (a == cls) & ~filled
+            if hit.any():
+                out[hit] = cls
+                filled |= hit
+    im = Image.fromarray(out, mode='P')
+    pal = [0] * 768
+    for cls, rgb in _GIBS_CLASS_RGB.items():
+        pal[cls * 3:cls * 3 + 3] = list(rgb)
+    im.putpalette(pal)
+    buf = io.BytesIO()
+    im.save(buf, format='PNG', transparency=_NODATA_IDX, optimize=True)
+    return buf.getvalue()
+
+
+def _ann_all_tile(z, x, y):
+    """Cached merged tile bytes, or None where no year has coverage."""
+    years = _ann_years()
+    if not years:
+        return None
+    dest = TILES_DIR / 'ann' / ('_all_' + _ann_all_sig(years)) / str(z) / str(x) / f'{y}.png'
+    marker = dest.with_suffix('.404')
+    if dest.exists():
+        return dest.read_bytes()
+    if marker.exists():
+        return None
+    body = _merge_ann(z, x, y, years)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if body is None:
+        marker.touch()
+        return None
+    tmp = dest.with_suffix('.png.part.%d' % os.getpid() + '.%d' % threading.get_ident())
+    tmp.write_bytes(body)
+    tmp.replace(dest)
     return body
 
 
@@ -171,11 +300,28 @@ def _tile_bytes(layer, date, z, x, y, fresh):
 def dist_tile(request, layer, date, z, x, y):
     z, x, y = int(z), int(x), int(y)
     n = 1 << z
-    day = _valid_date(date)
-    if layer not in LAYERS or day is None or z > MAX_ZOOM \
-            or not (0 <= x < n and 0 <= y < n):
+    if layer not in LAYERS or z > MAX_ZOOM or not (0 <= x < n and 0 <= y < n):
         return HttpResponseNotFound()
 
+    if date == ANN_ALL:
+        # Merged annual composite. Only meaningful for `ann` — the daily layer
+        # has ~1300 dates and merging them would be a different product.
+        if layer != 'ann':
+            return HttpResponseNotFound()
+        try:
+            body = _ann_all_tile(z, x, y)
+        except Exception as exc:
+            log.warning('dist ann-all z%s/%s/%s failed: %s', z, x, y, exc)
+            return HttpResponseNotFound()
+        if body is None:
+            return _miss(CACHE_HEADER)
+        resp = HttpResponse(body, content_type='image/png')
+        resp['Cache-Control'] = CACHE_HEADER
+        return resp
+
+    day = _valid_date(date)
+    if day is None:
+        return HttpResponseNotFound()
     fresh = _is_fresh(day)
     header = FRESH_CACHE_HEADER if fresh else CACHE_HEADER
     try:

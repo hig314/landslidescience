@@ -1794,10 +1794,20 @@
     };
 
     function _distSourceDef(dateCtl) {
+        var date = dateCtl.get();
+        // The merged 'all' tile is served with a 30-day cache header, and its
+        // CONTENT changes when a new annual composite is published. Fold the
+        // year set into the cache token so a new release rolls browser caches
+        // without anyone remembering to bump DIST_TILE_V.
+        var v = DIST_TILE_V;
+        if (date === 'all') {
+            var yrs = dateCtl.list();
+            v += '.' + yrs.length + (yrs.length ? '-' + yrs[yrs.length - 1].slice(0, 4) : '');
+        }
         return {
             type: 'raster',
-            tiles: ['distcolor://' + dateCtl.layer + '/' + dateCtl.get() +
-                    '/{z}/{x}/{y}?v=' + DIST_TILE_V],
+            tiles: ['distcolor://' + dateCtl.layer + '/' + date +
+                    '/{z}/{x}/{y}?v=' + v],
             tileSize: 256,
             maxzoom: 12,
             attribution: 'OPERA DIST-ALERT/ANN-HLS © NASA/JPL · LP DAAC · ' +
@@ -1809,7 +1819,7 @@
     // same shape as `variant` (get/set + a title): global rather than per-pane,
     // because the two panes show the same product and a date that differed
     // between them would read as a wiper comparison it isn't.
-    function _distStepper(dateCtl, label, kind) {
+    function _distStepper(dateCtl, label, kind, extra) {
         return {
             label: label,
             kind: kind,                 // 'date' (free date input) | 'select'
@@ -1825,10 +1835,13 @@
             resolve: function () { return _distResolveLatest(dateCtl); },
             list: function () { return dateCtl.list(); },
             // Options for the 'select' kind: value + what the reader sees.
+            // `extra` holds pseudo-dates that are not real domain entries —
+            // 'all' for the merged annual composite — kept out of list() so
+            // stepping and snapping still only walk dates GIBS actually has.
             options: function () {
-                return dateCtl.list().map(function (d) {
+                return (extra || []).concat(dateCtl.list().map(function (d) {
                     return { value: d, label: kind === 'select' ? d.slice(0, 4) : d };
-                });
+                }));
             },
             // Nearest valid date to `v`, so a typed date inside one of GIBS's
             // coverage gaps snaps to real data instead of silently drawing an
@@ -1953,10 +1966,12 @@
         // date.
         { id: 'dist-ann', layerId: 'ov-dist-ann', sourceId: 'ov-dist-ann-src',
           label: 'Surface disturbance — annual',
-          sub: 'OPERA DIST-ANN-HLS, 30 m · vegetated terrain; permanent ice masked',
+          sub: 'OPERA DIST-ANN-HLS, 30 m · one year or all merged · ' +
+               'vegetated terrain, permanent ice masked',
           sourceDef: function () { return _distSourceDef(_distAnnDate); },
           defOpacity: 0.85,
-          stepper: _distStepper(_distAnnDate, 'year', 'select') },
+          stepper: _distStepper(_distAnnDate, 'year', 'select',
+                                [{ value: 'all', label: 'all years' }]) },
     ]).concat(DIST_ALERT_ACTIVE ? [DIST_ALERT_OVERLAY] : []);
     var ICEBOOST_TILE_V = '2';   // v2: banded bed hypsometry (v1 continuous)
     var ICEBOOST_ATTR = 'Ice thickness: IceBoost v2.0 (Maffezzoli et al. 2025, CC-BY 4.0)';

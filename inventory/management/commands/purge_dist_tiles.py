@@ -57,7 +57,10 @@ class Command(BaseCommand):
                         if datetime.date.fromisoformat(datedir.name) >= cutoff:
                             continue
                     except ValueError:
-                        continue        # not a date dir; leave it alone
+                        # _all_<sig> holds merged annual composites, which have
+                        # no single date. --before is about reclaiming space
+                        # from a long animation session, so leave them.
+                        continue
                 files = [p for p in datedir.rglob('*') if p.is_file()]
                 nbytes = _size(files)
                 total_files += len(files)
