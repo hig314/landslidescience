@@ -316,7 +316,11 @@ def _dates_response(layers):
 # ---------------------------------------------------------------------------
 PROBE_MAX_TILES = 6         # per date; keeps a cold walk bounded
 PROBE_MAX_ZOOM = 9
-PROBE_MIN_ZOOM = 3
+# Down to 0 (one tile for the whole world), so the tile budget below is ALWAYS
+# satisfiable. With a floor of 3 a zoomed-out view could not meet it, and the
+# fallback then ignored the budget entirely: an all-Alaska view came to 64
+# tiles, which at 20 dates is 1280 upstream requests for one button press.
+PROBE_MIN_ZOOM = 0
 PROBE_MAX_DATES = 20        # how far back to walk before giving up
 
 
@@ -339,10 +343,9 @@ def _probe_zoom(west, south, east, north):
         ny = int(y1) - int(y0) + 1
         if nx * ny <= PROBE_MAX_TILES:
             return z, int(x0), int(y0), nx, ny
-    z = PROBE_MIN_ZOOM
-    x0, y0 = _lonlat_to_tilef(west, north, z)
-    x1, y1 = _lonlat_to_tilef(east, south, z)
-    return z, int(x0), int(y0), int(x1) - int(x0) + 1, int(y1) - int(y0) + 1
+    # Unreachable: z0 is a single tile, so the loop always returns. Kept as a
+    # belt-and-braces floor rather than a path that can silently go wide.
+    return 0, 0, 0, 1, 1
 
 
 def _has_data_in_view(layer, date, bbox, fresh):
@@ -359,10 +362,14 @@ def _has_data_in_view(layer, date, bbox, fresh):
     fx0, fy0 = _lonlat_to_tilef(west, north, z)
     fx1, fy1 = _lonlat_to_tilef(east, south, z)
 
+    budget = PROBE_MAX_TILES
     for ty in range(ty0, ty0 + ny):
         for tx in range(tx0, tx0 + nx):
             if not (0 <= tx < (1 << z) and 0 <= ty < (1 << z)):
                 continue
+            if budget <= 0:          # hard stop, whatever the zoom maths said
+                return False
+            budget -= 1
             body = _tile_bytes(layer, date, z, tx, ty, fresh)
             if body is None:
                 continue
