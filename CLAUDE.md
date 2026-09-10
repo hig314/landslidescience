@@ -643,7 +643,7 @@ the app. Code: `landslidescience/analytics.py` (the forwarder),
 | Its database | `umami` DB **in the existing `tethys_db`**, own `umami` role — a second Postgres is not worth 200 MB on a 4 GB box |
 | Beacon | `/s/t.js` + `/s/api/send` on landslidescience.org, forwarded by Django |
 | Dashboard | Umami's own UI, entered **only** through `/traffic/` (Django-authenticated) |
-| Secrets | `.env`: `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET`, `UMAMI_WEBSITE_ID`, `UMAMI_PUBLIC_URL`, `UMAMI_BRIDGE_USER`, `UMAMI_BRIDGE_PASSWORD` |
+| Secrets | `.env`: `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET`, `UMAMI_WEBSITE_ID`, `UMAMI_TEAM_WEBSITE_ID`, `UMAMI_PUBLIC_URL`, `UMAMI_BRIDGE_USER`, `UMAMI_BRIDGE_PASSWORD` |
 
 **One login, not two.** Umami's own login form is switched **off**
 (`DISABLE_LOGIN=1` makes `/login` return 403), so there is no second password
@@ -724,7 +724,7 @@ and no filter *values* are ever recorded — only which column was used.
 2. Create the role + database in `tethys_db`: `CREATE ROLE umami LOGIN PASSWORD '…'; CREATE DATABASE umami OWNER umami;`
 3. `docker compose … up -d umami` — it runs its own Prisma migrations on start; watch for "Database is up to date."
 4. **Change the default `admin` / `umami` password immediately** — `POST /api/me/password` with `{currentPassword, newPassword}` (the endpoint is `/api/me/password`, not `/api/users/<id>/password`).
-5. Create a team (`POST /api/teams`, returns a **list**), then create the website **with that `teamId`** (`POST /api/websites`) — it cannot be moved into a team later. Put the returned website id in `UMAMI_WEBSITE_ID`.
+5. Create a team (`POST /api/teams`, returns a **list**), then create **both** websites **with that `teamId`** (`POST /api/websites`) — a website cannot be moved into a team later, and the bridge user only sees team-owned sites. Public → `UMAMI_WEBSITE_ID`, collaborators → `UMAMI_TEAM_WEBSITE_ID`.
 6. Create the bridge user (`POST /api/users` with `role: "view-only"`) and add it to the team (`POST /api/teams/<id>/users` with `role: "team-view-only"`). Put its credentials in `UMAMI_BRIDGE_USER` / `UMAMI_BRIDGE_PASSWORD`.
 7. **`docker compose up -d web`, not `restart`** — `restart` reuses the old environment and will silently serve stale `UMAMI_*` values.
 8. Caddy site block for the dashboard subdomain + the DNS A record — see below.
@@ -746,22 +746,32 @@ it: **collection works without any Caddy change**, because the beacon rides
 the existing landslidescience.org route. Only reading the dashboard needs it,
 and `UMAMI_PUBLIC_URL` is what points `/traffic/` at it.
 
-**Excluding ourselves** (`analytics.is_excluded`) — two layers, because they
-cover different situations, and both work by omitting the tracker tag rather
-than filtering data afterwards, so an excluded visit makes no analytics
-request at all:
+**Two audiences, two site records** (`analytics.site_for`). Signed-in traffic
+reports to `UMAMI_TEAM_WEBSITE_ID`, everyone else to `UMAMI_WEBSITE_ID`, so
+the public dashboard *cannot* contain a collaborator session — switch between
+them in Umami's site picker. Separate sites rather than one site with tagged
+sessions, because a tag still lands in the default Overview and would have to
+be filtered out by hand every time, which is the obscuring this exists to
+prevent.
 
-1. **Anyone signed in is never counted.** There is no public sign-up, so every
-   account is an editor, a site admin, or Hig — none of them the audience being
-   measured. Needs no action and can't be forgotten.
-2. **A per-browser opt-out cookie** (`ls_no_track`, two years), toggled at
-   **`/traffic/optout/`** — for browsing signed out, which is the usual way of
-   checking how the public site actually looks. The page is deliberately
-   public: an opt-out only the owner can reach is a worse thing to have built,
-   and it doubles as the site's do-not-measure control for visitors.
+Resolution order: the opt-out cookie wins over everything; then anyone signed
+in goes to the collaborator site (there is no public sign-up, so every account
+is an editor, a viewer, or Hig — **including Hig, asked for 2026-09-10**,
+since the operator's own use of the editing tools is part of what that
+dashboard is for); everyone else goes to the public site. `site_for` returning
+`''` emits **no tracker tag at all**, so an excluded visit makes no analytics
+request rather than one filtered later.
 
-Umami's own `IGNORE_IP` is the third option and is *not* used — it needs a
-stable address, which a field-based Alaska connection is not.
+The only exclusion is the **per-browser opt-out cookie** (`ls_no_track`, two
+years) at **`/traffic/optout/`**. That page is deliberately public: an opt-out
+only the owner can reach is a worse thing to have built, and it doubles as the
+site's do-not-measure control for visitors. Umami's own `IGNORE_IP` is not
+used — it needs a stable address, which a field-based Alaska connection is not.
+
+> **Read the collaborator dashboard as named people, not as an aggregate.**
+> There are 3 accounts (2026-09), so region plus time-of-day identifies who is
+> who. That is a reasonable thing to have for a tool built *for* those people,
+> but it is not anonymous, and they should be told it exists.
 
 ## Inventory explorer — `/inventory/table/`
 

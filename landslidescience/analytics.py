@@ -160,42 +160,56 @@ def health(request):
 
 
 # ---------------------------------------------------------------------------
-# Excluding ourselves from the numbers
+# Which numbers a visit belongs in
 #
-# Two layers, because they cover different situations:
+# Two Umami website records, so the two populations never mix:
 #
-#  1. Anyone logged in is never counted. There is no public sign-up on this
-#     site, so every account is an editor, a site admin, or Hig — none of whom
-#     are the audience being measured. This needs no action from anyone and
-#     cannot be forgotten.
-#  2. A per-browser opt-out cookie, for browsing logged out (the common case
-#     when checking how the public site actually looks). Set at
-#     /traffic/optout/, lasts two years, and is offered to visitors too — an
-#     opt-out that only the owner can use is a worse thing to have built.
+#   UMAMI_WEBSITE_ID       the public audience
+#   UMAMI_TEAM_WEBSITE_ID  signed-in collaborators
 #
-# Both work by omitting the tracker tag entirely rather than by discarding data
-# afterwards: nothing is sent, so there is nothing to filter, and the page
-# makes no analytics request at all.
+# Separate *sites* rather than one site with tagged sessions, because a tag
+# still lands in the default Overview and would have to be filtered out by
+# hand every time — which is exactly the obscuring this is meant to prevent.
+# With separate ids the public dashboard cannot contain a collaborator
+# session at all.
 #
-# A third option not used here: Umami's own IGNORE_IP. It needs a stable
-# address, which a field-based Alaska connection is not.
+# The resolution order:
+#   1. Opt-out cookie wins over everything — whoever it is said no. It is the
+#      only exclusion, and it is per-browser, at /traffic/optout/.
+#   2. Anyone signed in → the collaborator site. Every account here is an
+#      editor, a viewer, or Hig; there is no public sign-up. Hig is included
+#      deliberately (asked for 2026-09-10): the operator's own use of the
+#      editing tools is part of what that dashboard is for, and separating it
+#      out would mean the busiest user is invisible in it.
+#   3. Everyone else → the public site.
+#
+# Returning '' means no tracker tag is emitted at all, so an excluded visit
+# makes no analytics request rather than sending one that is filtered later.
+#
+# Worth remembering: the collaborator group is tiny (2 accounts as of
+# 2026-09), so region plus time-of-day identifies who is who. That dashboard
+# is "what these named people did", not an aggregate — treat it accordingly,
+# and tell collaborators it exists.
 # ---------------------------------------------------------------------------
 OPTOUT_COOKIE = 'ls_no_track'
 _OPTOUT_MAX_AGE = 60 * 60 * 24 * 730          # two years
 
 
-def is_excluded(request):
-    if getattr(request, 'user', None) is not None and request.user.is_authenticated:
-        return True
-    return request.COOKIES.get(OPTOUT_COOKIE) == '1'
+def site_for(request):
+    """The Umami website id this request belongs to, or '' for don't track."""
+    if request.COOKIES.get(OPTOUT_COOKIE) == '1':
+        return ''
+    user = getattr(request, 'user', None)
+    if user is not None and user.is_authenticated:
+        return getattr(settings, 'UMAMI_TEAM_WEBSITE_ID', '')
+    return getattr(settings, 'UMAMI_WEBSITE_ID', '')
 
 
 def website_id(request):
-    """Template context: the Umami site id + dashboard URL, '' when unset."""
+    """Template context: which site to report to, and where the dashboard is."""
     return {
-        'UMAMI_WEBSITE_ID': getattr(settings, 'UMAMI_WEBSITE_ID', ''),
+        'ANALYTICS_SITE_ID': site_for(request),
         'UMAMI_PUBLIC_URL': getattr(settings, 'UMAMI_PUBLIC_URL', ''),
-        'ANALYTICS_EXCLUDED': is_excluded(request),
     }
 
 
@@ -218,10 +232,12 @@ def optout(request):
         return resp
 
     on = request.COOKIES.get(OPTOUT_COOKIE) == '1'
-    signed_in = getattr(request, 'user', None) is not None and request.user.is_authenticated
-    if signed_in:
-        state = ('You are signed in, so this browsing is already excluded from '
-                 'the analytics regardless of the setting below.')
+    user = getattr(request, 'user', None)
+    signed_in = user is not None and user.is_authenticated
+    if signed_in and not on:
+        state = ('You are signed in, so this browsing is counted on the '
+                 '<strong>collaborators</strong> dashboard rather than the '
+                 'public one.')
     elif on:
         state = 'This browser is <strong>excluded</strong> from the analytics.'
     else:

@@ -12,14 +12,14 @@ stack running emits nothing at all.
   data-do-not-track   Honour the browser's DNT signal without us doing
                       anything server-side.
 
-ANALYTICS_EXCLUDED covers the two self-exclusion paths (signed in, or this
-browser opted out at /traffic/optout/). The tag is omitted entirely rather
-than the data being filtered later, so an excluded visit makes no analytics
-request at all.
+ANALYTICS_SITE_ID is resolved by analytics.site_for(): the public site for
+visitors, a separate collaborators site for signed-in accounts, and '' for
+anyone excluded (opted out, or the superuser). Empty emits no tag at all, so
+an excluded visit makes no analytics request rather than one filtered later.
 {% endcomment %}
-{% if UMAMI_WEBSITE_ID and not ANALYTICS_EXCLUDED %}
+{% if ANALYTICS_SITE_ID %}
   <script defer src="/s/t.js"
-          data-website-id="{{ UMAMI_WEBSITE_ID }}"
+          data-website-id="{{ ANALYTICS_SITE_ID }}"
           data-exclude-hash="true"
           data-do-not-track="true"></script>
   <script>

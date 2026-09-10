@@ -18,6 +18,9 @@ ALLOWED_HOSTS = [
 # is what a fresh clone or a developer without the stack running should get.
 UMAMI_INTERNAL_URL = os.environ.get('UMAMI_INTERNAL_URL', 'http://umami:3000')
 UMAMI_WEBSITE_ID = os.environ.get('UMAMI_WEBSITE_ID', '')
+# A second Umami site, for signed-in collaborators, so their sessions never
+# land in the public audience numbers. Empty = collaborators aren't counted.
+UMAMI_TEAM_WEBSITE_ID = os.environ.get('UMAMI_TEAM_WEBSITE_ID', '')
 # Where a human goes to READ the analytics (the Umami dashboard). Separate
 # from UMAMI_INTERNAL_URL, which is the container address the beacon uses.
 # Empty = no link is shown, which is correct until the subdomain exists.
