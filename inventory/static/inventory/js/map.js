@@ -223,6 +223,141 @@
         if (location.hash !== newHash) history.replaceState(null, '', newHash);
     }
 
+
+    // ---------------------------------------------------------------------------
+    // LSTools — the map-click tools, as ONE control with radio semantics.
+    //
+    // Measure (distance / area), Draw and InSAR all claim map clicks, so at
+    // most one can be live at a time. They used to be three separate control
+    // groups policing each other by hand, and doing it inconsistently:
+    //   - Draw alerted "Exit the measure tool first."
+    //   - InSAR alerted "Exit the measure/draw tool first."
+    //   - Measure SILENTLY refused to start while Draw was on — a dead button
+    //     with no explanation.
+    //   - Measure never checked InSAR at all, so measuring while InSAR was
+    //     live left two tools fighting over the same click.
+    // Three different answers to one question, and a real bug in the fourth
+    // corner. Hig, 2026-09-10: they are "similar in type but mutually
+    // exclusive since they both respond to click-on-map" — so make that one
+    // control, and make the exclusivity structural rather than policed.
+    //
+    // Now: one bordered group, so they read as alternatives; picking one
+    // RELEASES whichever was live instead of refusing; picking the live one
+    // again returns to plain inspect mode. An outgoing tool can object via
+    // `canRelease` (Draw does, when a polygon ring is still open), which is
+    // the one case where a switch should ask rather than just happen.
+    //
+    // `order` fixes the button sequence independently of registration order,
+    // because the tools register whenever their own setup code runs and two
+    // of them are conditional (turf, editor).
+    // ---------------------------------------------------------------------------
+    var LSTools = (function () {
+        var container = null, added = false;
+        var reg = {};              // id -> {onRelease, canRelease}
+        var activeId = null;
+
+        function ensure() {
+            if (container) return container;
+            container = document.createElement('div');
+            container.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-tools-ctrl';
+            container.setAttribute('role', 'radiogroup');
+            container.setAttribute('aria-label', 'Map click tools');
+            return container;
+        }
+        function attach() {
+            if (added) return;
+            added = true;
+            var el = ensure();
+            map.addControl({
+                onAdd: function () { return el; },
+                onRemove: function () {}
+            }, 'top-left');
+        }
+        // Insert by `order` so the group always reads line, area, draw, InSAR,
+        // clear — whatever sequence the tools happened to register in.
+        function place(btn, order) {
+            var el = ensure();
+            btn.dataset.order = order;
+            var kids = el.children, before = null;
+            for (var i = 0; i < kids.length; i++) {
+                if ((+kids[i].dataset.order || 0) > order) { before = kids[i]; break; }
+            }
+            el.insertBefore(btn, before);
+            attach();
+        }
+        function mkBtn(o) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.title = o.title;
+            b.setAttribute('aria-label', o.aria || o.title);
+            b.textContent = o.label;
+            if (o.className) b.className = o.className;
+            return b;
+        }
+        return {
+            // A mode button: selecting it releases whatever else was live.
+            mode: function (o) {
+                var b = mkBtn(o);
+                b.setAttribute('role', 'radio');
+                b.setAttribute('aria-checked', 'false');
+                reg[o.id] = { onRelease: o.onRelease, canRelease: o.canRelease };
+                b.addEventListener('click', function () {
+                    if (activeId === o.id) { o.onRelease(); }
+                    else { o.onSelect(); }
+                });
+                reg[o.id].btn = b;
+                place(b, o.order);
+                return b;
+            },
+            // A plain action (measure's clear) — never becomes the active mode.
+            action: function (o) {
+                var b = mkBtn(o);
+                b.addEventListener('click', o.onClick);
+                place(b, o.order);
+                return b;
+            },
+            // Claim the map. Returns false if the outgoing tool objected, in
+            // which case the caller must not proceed.
+            claim: function (id) {
+                if (activeId === id) return true;
+                if (activeId) {
+                    var cur = reg[activeId];
+                    if (cur && cur.canRelease && !cur.canRelease()) return false;
+                    var prev = activeId;
+                    activeId = null;          // before onRelease, so its own
+                    if (cur) cur.onRelease(); // release() call is a no-op
+                    if (reg[prev] && reg[prev].btn) {
+                        reg[prev].btn.classList.remove('active');
+                        reg[prev].btn.setAttribute('aria-checked', 'false');
+                    }
+                }
+                activeId = id;
+                if (reg[id] && reg[id].btn) {
+                    reg[id].btn.classList.add('active');
+                    reg[id].btn.setAttribute('aria-checked', 'true');
+                }
+                return true;
+            },
+            // Give the map back. No-op unless `id` currently holds it, so a
+            // tool's own deactivate() can call this unconditionally.
+            release: function (id) {
+                if (activeId !== id) return;
+                activeId = null;
+                if (reg[id] && reg[id].btn) {
+                    reg[id].btn.classList.remove('active');
+                    reg[id].btn.setAttribute('aria-checked', 'false');
+                }
+            },
+            active: function () { return activeId; },
+            // Called once, right after the navigation control, so the group's
+            // slot in the top-left stack is fixed rather than depending on
+            // which tool happens to register first — and so registration is
+            // never a re-entrant map.addControl from inside another control's
+            // onAdd. Idempotent; place() still calls it as a safety net.
+            attach: attach
+        };
+    })();
+
     // ---------------------------------------------------------------------------
     // MeasureControl — custom maplibre IControl for distance / area measurement.
     // ---------------------------------------------------------------------------
@@ -245,28 +380,30 @@
         var self = this;
         this._map = mapArg;
 
-        var el = document.createElement('div');
-        el.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-measure-ctrl';
-
-        function mkBtn(label, title, onClick) {
-            var b = document.createElement('button');
-            b.type = 'button';
-            b.title = title;
-            b.setAttribute('aria-label', title);
-            b.textContent = label;
-            b.addEventListener('click', onClick);
-            return b;
-        }
-        this._btnLine  = mkBtn('━', 'Measure distance (Esc to cancel)',
-                               function () { self._setMode(self._mode === 'line' ? 'idle' : 'line'); });
-        this._btnPoly  = mkBtn('▱', 'Measure area (Esc to cancel)',
-                               function () { self._setMode(self._mode === 'polygon' ? 'idle' : 'polygon'); });
-        this._btnClear = mkBtn('✕', 'Clear measurements and exit tool',
-                               function () { self._clearAll(); });
-        el.appendChild(this._btnLine);
-        el.appendChild(this._btnPoly);
-        el.appendChild(this._btnClear);
-        this._container = el;
+        // Both measure modes share ONE slot in LSTools ('measure'), because
+        // switching line <-> area is not a tool change — it stays the measure
+        // tool and keeps its finalized shapes. Only leaving for Draw or InSAR
+        // is a release.
+        this._btnLine = LSTools.mode({
+            id: 'measure-line', order: 10, label: '━',
+            title: 'Measure distance (Esc to cancel)',
+            onSelect: function () { self._setMode('line'); },
+            onRelease: function () { self._setMode('idle'); }
+        });
+        this._btnPoly = LSTools.mode({
+            id: 'measure-area', order: 20, label: '▱',
+            title: 'Measure area (Esc to cancel)',
+            onSelect: function () { self._setMode('polygon'); },
+            onRelease: function () { self._setMode('idle'); }
+        });
+        this._btnClear = LSTools.action({
+            id: 'measure-clear', order: 90, label: '✕',
+            className: 'tool-action',
+            title: 'Clear measurements and exit the measure tool',
+            onClick: function () { self._clearAll(); }
+        });
+        var el = document.createElement('div');   // IControl must return a node;
+        el.style.display = 'none';                // the buttons live in LSTools
 
         this._readout = document.getElementById('measure-readout');
         this._tooltip = document.createElement('div');
@@ -295,17 +432,20 @@
     MeasureControl.prototype._setMode = function (mode) {
         if (mode !== 'idle') {
             window.LSTrack && LSTrack.event('map_tool', { tool: 'measure_' + mode });
+            // Exclusion is the coordinator's job now: this releases Draw or
+            // InSAR if either holds the map, and only fails if the outgoing
+            // tool objected (an open polygon ring).
+            if (!LSTools.claim('measure-' + (mode === 'line' ? 'line' : 'area'))) return;
+        } else {
+            LSTools.release('measure-line');
+            LSTools.release('measure-area');
         }
-        // Mutual exclusion with the draw-new tool — don't start measuring mid-draw.
-        if (mode !== 'idle' && this._map.__drawActive) return;
         if (this._mode === mode) return;
         // Switching out of an in-progress shape commits whatever is valid so far.
         if (this._mode !== 'idle') this._finalize();
         this._mode = mode;
         var drawing = mode !== 'idle';
         this._map.__measureActive = drawing;   // flag for landslide click/hover handlers to skip
-        this._btnLine.classList.toggle('active', mode === 'line');
-        this._btnPoly.classList.toggle('active', mode === 'polygon');
         this._map.getCanvas().style.cursor = drawing ? 'crosshair' : '';
         if (drawing) this._map.doubleClickZoom.disable();
         else         this._map.doubleClickZoom.enable();
@@ -475,8 +615,8 @@
         if (this._mode !== 'idle') {
             this._mode = 'idle';
             this._map.__measureActive = false;
-            this._btnLine.classList.remove('active');
-            this._btnPoly.classList.remove('active');
+            LSTools.release('measure-line');
+            LSTools.release('measure-area');
             this._map.getCanvas().style.cursor = '';
             this._map.doubleClickZoom.enable();
         }
@@ -615,6 +755,10 @@
     map.on('style.load', applyGlobe);
     applyGlobe();
     map.addControl(new maplibregl.NavigationControl(), 'top-left');
+    // The click-tool group sits directly under the zoom controls; the tools
+    // themselves register into it as their own setup runs (two are
+    // conditional — measure needs turf, draw needs an editor).
+    LSTools.attach();
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric'   }), 'bottom-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
 
@@ -1068,14 +1212,27 @@
     function DrawModeControl() {}
     DrawModeControl.prototype.onAdd = function (mapArg) {
         var self = this; this._map = mapArg; this._on = false;
+        // Joins the shared tool group. `tool-editor` keeps the brown cue the
+        // editor-only controls use without putting this button outside the
+        // set of things that compete for a map click.
+        this._btn = LSTools.mode({
+            id: 'draw', order: 30, label: '✏',
+            className: 'tool-editor',
+            title: 'Draw a new landslide on the map',
+            aria: 'Draw a new landslide',
+            onSelect: function () { self.activate(); },
+            onRelease: function () { self.deactivate(); },
+            // The one switch that should ask rather than just happen: staged
+            // components are held server-side and come back, but an unclosed
+            // ring only exists inside Terra Draw and dies with it.
+            canRelease: function () {
+                if (!map.__drawPolyOpen) return true;
+                return window.confirm('A polygon is still open and will be discarded.'
+                                      + '\n\nSwitch tools anyway?');
+            }
+        });
         var el = document.createElement('div');
-        el.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-newrec-ctrl';
-        var b = document.createElement('button');
-        b.type = 'button'; b.textContent = '✏ draw';
-        b.title = 'Draw a new landslide on the map';
-        b.setAttribute('aria-label', 'Draw a new landslide');
-        b.addEventListener('click', function () { self.toggle(); });
-        this._btn = b; el.appendChild(b);
+        el.style.display = 'none';
         // Provisional layers + staged data survive basemap switches (re-added on
         // every style.load, MeasureControl pattern).
         map.on('style.load', refreshProvData);
@@ -1085,12 +1242,14 @@
     DrawModeControl.prototype.onRemove = function () {};
     DrawModeControl.prototype.toggle = function () { this._on ? this.deactivate() : this.activate(); };
     DrawModeControl.prototype.activate = function () {
-        if (map.__measureActive) { alert('Exit the measure tool first.'); return; }
         if (typeof terraDraw === 'undefined' || typeof terraDrawMaplibreGlAdapter === 'undefined') {
             alert('Drawing library failed to load — check your connection and reload.');
             return;
         }
-        map.__drawActive = true; this._on = true; this._btn.classList.add('active');
+        // Takes the map from measure/InSAR if either has it; false only if
+        // the outgoing tool objected.
+        if (!LSTools.claim('draw')) return;
+        map.__drawActive = true; this._on = true;
         map.getCanvas().style.cursor = 'crosshair';
         var self = this;
         // Open the panel first so any Terra Draw init error is visible (and the
@@ -1112,7 +1271,8 @@
         }
     };
     DrawModeControl.prototype.deactivate = function () {
-        map.__drawActive = false; this._on = false; this._btn.classList.remove('active');
+        map.__drawActive = false; this._on = false;
+        LSTools.release('draw');
         map.getCanvas().style.cursor = '';
         if (this._styleReload) { map.off('style.load', this._styleReload); this._styleReload = null; }
         stopTD(); closePanel();
@@ -7964,21 +8124,15 @@
         var _active = false;
         var _btn = null;
 
-        function InsarControl() {}
-        InsarControl.prototype.onAdd = function () {
-            var el = document.createElement('div');
-            el.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-insar-ctrl';
-            _btn = document.createElement('button');
-            _btn.type = 'button';
-            _btn.title = 'InSAR time series — click points to chart + compare OPERA displacement (Esc to exit)';
-            _btn.setAttribute('aria-label', 'InSAR time series');
-            _btn.textContent = 'InSAR';
-            _btn.addEventListener('click', function () { setActive(!_active); });
-            el.appendChild(_btn);
-            return el;
-        };
-        InsarControl.prototype.onRemove = function () {};
-        map.addControl(new InsarControl(), 'top-left');
+        _btn = LSTools.mode({
+            id: 'insar', order: 40, label: 'InSAR',
+            className: 'tool-text',
+            title: 'InSAR time series — click points to chart + compare OPERA '
+                   + 'displacement (Esc to exit)',
+            aria: 'InSAR time series',
+            onSelect: function () { setActive(true); },
+            onRelease: function () { setActive(false); }
+        });
 
         var fp = makeFloatingPanel(panel, {
             handle: panel.querySelector('.insar-header'),
@@ -8004,14 +8158,12 @@
         }
 
         function setActive(on) {
-            if (on && (map.__measureActive || map.__drawActive)) {
-                alert('Exit the measure/draw tool first.');
-                return;
-            }
+            // Exclusion is structural now — claiming releases measure/draw.
+            if (on && !LSTools.claim('insar')) return;
+            if (!on) LSTools.release('insar');
             _active = on;
             map.__insarActive = on;
             if (on) window.LSTrack && LSTrack.event('map_tool', { tool: 'insar' });
-            if (_btn) _btn.classList.toggle('active', on);
             map.getCanvas().style.cursor = on ? 'crosshair' : '';
             if (on) { fp.open(); draw(); }
         }

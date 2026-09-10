@@ -904,17 +904,42 @@ body.inv-article-body {
     margin-right: 4px;
 }
 
-/* --- Measure tool --- */
-.inv-measure-ctrl button {
+/* --- Map-click tools (measure line/area, draw, InSAR) ---
+ * ONE control group with radio semantics: these all claim the map click, so
+ * at most one is live and picking another releases it. Sharing a single
+ * bordered box is what says "alternatives" — as three separate groups they
+ * read as three unrelated buttons that happened to fight each other.
+ * See LSTools in map.js. */
+.inv-tools-ctrl button {
     font-size: 16px;
     font-weight: 700;
     line-height: 1;
     color: #333;
 }
-.inv-measure-ctrl button.active {
+/* The live tool. Same amber the measure + InSAR buttons always used. */
+.inv-tools-ctrl button.active {
     background: #ffaa00;
     color: #fff;
 }
+/* "InSAR" is a word, not a glyph, and has to fit the 29px control square. */
+.inv-tools-ctrl button.tool-text {
+    font-size: 9px;
+    letter-spacing: 0.01em;
+}
+/* Editor-only tools keep the brown cue the +data control uses, as an edge
+ * rather than a fill — it must not read as the active state, which is the
+ * amber above. */
+.inv-tools-ctrl button.tool-editor {
+    box-shadow: inset 3px 0 0 #5D4037;
+}
+/* Clear is an ACTION, not a mode — it never lights up, and the rule above it
+ * separates it from the things that do. */
+.inv-tools-ctrl button.tool-action {
+    border-top: 2px solid #d8d3ce !important;
+    font-size: 13px;
+    color: #888;
+}
+.inv-tools-ctrl button.tool-action:hover { color: #333; }
 
 /* --- "+data" upload tool (editor-only) ---
  * Compact "+data" label; brown background keeps it legible on any basemap
@@ -1010,9 +1035,7 @@ body.inv-article-body {
 .ov-cat-summary::before { content: '▸ '; font-size: 9px; color: #999; }
 details[open] > .ov-cat-summary::before { content: '▾ '; }
 
-/* --- InSAR time-series tool --- */
-.inv-insar-ctrl button { font-size: 9px; font-weight: 700; color: #333; letter-spacing: 0.01em; }
-.inv-insar-ctrl button.active { background: #ffaa00; color: #fff; }
+/* --- InSAR time-series tool (its button lives in .inv-tools-ctrl above) --- */
 .insar-panel { width: 560px; height: 320px; display: flex; flex-direction: column; }
 .insar-panel canvas { flex: 1; width: 100%; min-height: 0; }
 .float-close { margin-left: auto; border: none; background: none; font-size: 17px;
