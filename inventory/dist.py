@@ -40,8 +40,10 @@ Attribution: OPERA DIST-ALERT-HLS / DIST-ANN-HLS (c) NASA/JPL, distributed by
 LP DAAC; imagery service by NASA GIBS.
 """
 import datetime
+import io
 import json
 import logging
+import math
 import re
 import urllib.error
 import urllib.request
@@ -109,6 +111,54 @@ def _miss(header):
     return resp
 
 
+def _tile_path(layer, date, z, x, y):
+    return TILES_DIR / layer / date / str(z) / str(x) / f'{y}.png'
+
+
+def _stale(path, fresh):
+    """Only a still-settling date ever expires; a finished date is final."""
+    if not fresh:
+        return False
+    try:
+        return datetime.datetime.now().timestamp() - path.stat().st_mtime > FRESH_TTL
+    except OSError:
+        return True
+
+
+def _tile_bytes(layer, date, z, x, y, fresh):
+    """Cached tile bytes, or None for "no coverage here".
+
+    Shared by the tile view and the coverage probe, so a probe warms exactly
+    the same cache the map will read a moment later. Raises on a transient
+    upstream failure so callers can tell "no data" from "could not ask".
+    """
+    dest = _tile_path(layer, date, z, x, y)
+    marker = dest.with_suffix('.404')
+    if dest.exists() and not _stale(dest, fresh):
+        return dest.read_bytes()
+    if marker.exists() and not _stale(marker, fresh):
+        return None
+
+    url = _upstream(layer, date, z, x, y)
+    req = urllib.request.Request(url, headers=_UA)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            body = r.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch()
+            return None
+        raise
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix('.png.part')
+    tmp.write_bytes(body)
+    tmp.rename(dest)
+    if marker.exists():
+        marker.unlink()              # coverage appeared where there was none
+    return body
+
+
 @require_safe
 def dist_tile(request, layer, date, z, x, y):
     z, x, y = int(z), int(x), int(y)
@@ -120,48 +170,14 @@ def dist_tile(request, layer, date, z, x, y):
 
     fresh = _is_fresh(day)
     header = FRESH_CACHE_HEADER if fresh else CACHE_HEADER
-    dest = TILES_DIR / layer / date / str(z) / str(x) / f'{y}.png'
-    marker = dest.with_suffix('.404')
-
-    def _stale(p):
-        # Only still-settling dates ever expire; a finished date is final.
-        if not fresh:
-            return False
-        try:
-            age = datetime.datetime.now().timestamp() - p.stat().st_mtime
-        except OSError:
-            return True
-        return age > FRESH_TTL
-
-    if dest.exists() and not _stale(dest):
-        return _send(dest, header)
-    if marker.exists() and not _stale(marker):
-        return _miss(header)
-
-    url = _upstream(layer, date, z, x, y)
     try:
-        req = urllib.request.Request(url, headers=_UA)
-        with urllib.request.urlopen(req, timeout=20) as r:
-            body = r.read()
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            # No coverage, or a date inside a gap in the GIBS time domain.
-            marker.parent.mkdir(parents=True, exist_ok=True)
-            marker.touch()
-            return _miss(header)
-        log.warning('dist upstream %s -> HTTP %s', url, e.code)
-        return HttpResponseNotFound()   # transient upstream trouble: NOT cached
+        body = _tile_bytes(layer, date, z, x, y, fresh)
     except Exception as exc:
-        log.warning('dist upstream %s failed: %s', url, exc)
-        return HttpResponseNotFound()
-
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix('.png.part')
-    tmp.write_bytes(body)
-    tmp.rename(dest)
-    if marker.exists():
-        marker.unlink()              # coverage appeared where there was none
-    return _send(dest, header)
+        log.warning('dist upstream %s/%s z%s failed: %s', layer, date, z, exc)
+        return HttpResponseNotFound()   # transient: NOT cached
+    if body is None:
+        return _miss(header)
+    return _send(_tile_path(layer, date, z, x, y), header)
 
 
 def _fetch_domain(layer):
@@ -219,6 +235,51 @@ def dist_dates(request):
     return _dates_response(layers)
 
 
+def _layer_domain(layer):
+    """This layer's ISO8601 time domain, from the same disk cache dist_dates
+    serves — so a coverage probe never re-asks GIBS for something the dates
+    endpoint fetched a moment ago."""
+    cache = TILES_DIR / '_domains.json'
+    now = datetime.datetime.now().timestamp()
+    try:
+        cached = json.loads(cache.read_text())
+        if now - cached.get('fetched_at', 0) < DOMAINS_TTL:
+            return cached['layers'][layer]['domain']
+    except (OSError, ValueError, KeyError):
+        pass
+    try:
+        return _fetch_domain(layer)
+    except Exception as exc:
+        log.warning('dist domain %s failed: %s', layer, exc)
+        return ''
+
+
+def _expand_domain(domain):
+    """'a/b/P1D,c/d/P1Y' -> ascending list of dates. Mirrors _distExpand in
+    map.js; the client walks the same list to step the date control."""
+    out = []
+    for chunk in (domain or '').split(','):
+        parts = chunk.strip().split('/')
+        if not parts[0]:
+            continue
+        if len(parts) < 2:
+            out.append(parts[0])
+            continue
+        try:
+            cur = datetime.date.fromisoformat(parts[0])
+            end = datetime.date.fromisoformat(parts[1])
+        except ValueError:
+            continue
+        yearly = len(parts) > 2 and parts[2] == 'P1Y'
+        guard = 0
+        while cur <= end and guard < 20000:
+            out.append(cur.isoformat())
+            cur = (cur.replace(year=cur.year + 1) if yearly
+                   else cur + datetime.timedelta(days=1))
+            guard += 1
+    return out
+
+
 def _newest(domain):
     """Last date in the last range of an ISO8601 domain string."""
     if not domain:
@@ -233,4 +294,138 @@ def _newest(domain):
 def _dates_response(layers):
     resp = JsonResponse({'layers': layers})
     resp['Cache-Control'] = 'public, max-age=3600'
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# Coverage probe — "the newest date with data in THIS view".
+#
+# The DIST-ALERT layer for date D holds only the granules acquired on D, and
+# on any given day roughly half of Alaska goes unobserved (measured over a
+# Talkeetna-sized box on 2026-09-08: 50.5% data, 20.1% no-data inside present
+# tiles, 29.4% no tile at all). So "the newest published date" — the obvious
+# default — routinely opens the map on a view with nothing in it, which is
+# what a viewer reads as "no disturbance here". Hence this: resolve the newest
+# date that actually has pixels where the user is looking, and pin to that.
+#
+# Cheap because it probes at a LOW zoom, where one tile stands for the whole
+# view, and because it fetches through the same disk cache the map reads. It
+# still crops to the viewport in tile-pixel space rather than accepting the
+# whole tile — at z6 a tile is ~300 km across at these latitudes, and taking
+# it whole would happily report coverage from the next drainage over.
+# ---------------------------------------------------------------------------
+PROBE_MAX_TILES = 6         # per date; keeps a cold walk bounded
+PROBE_MAX_ZOOM = 9
+PROBE_MIN_ZOOM = 3
+PROBE_MAX_DATES = 20        # how far back to walk before giving up
+
+
+def _lonlat_to_tilef(lon, lat, z):
+    """Fractional tile coordinates (x, y) in the Web-Mercator pyramid."""
+    lat = max(-85.05112878, min(85.05112878, lat))
+    n = 1 << z
+    x = (lon + 180.0) / 360.0 * n
+    sin = math.sin(math.radians(lat))
+    y = (0.5 - math.log((1 + sin) / (1 - sin)) / (4 * math.pi)) * n
+    return x, y
+
+
+def _probe_zoom(west, south, east, north):
+    """Largest zoom whose tile cover of the bbox stays within the budget."""
+    for z in range(PROBE_MAX_ZOOM, PROBE_MIN_ZOOM - 1, -1):
+        x0, y0 = _lonlat_to_tilef(west, north, z)
+        x1, y1 = _lonlat_to_tilef(east, south, z)
+        nx = int(x1) - int(x0) + 1
+        ny = int(y1) - int(y0) + 1
+        if nx * ny <= PROBE_MAX_TILES:
+            return z, int(x0), int(y0), nx, ny
+    z = PROBE_MIN_ZOOM
+    x0, y0 = _lonlat_to_tilef(west, north, z)
+    x1, y1 = _lonlat_to_tilef(east, south, z)
+    return z, int(x0), int(y0), int(x1) - int(x0) + 1, int(y1) - int(y0) + 1
+
+
+def _has_data_in_view(layer, date, bbox, fresh):
+    """True if any pixel INSIDE the bbox is something other than no-data.
+
+    "Data" means coverage, not disturbance: class 0 (no disturbance) counts,
+    because it is a real observation of nothing happening. In the GIBS palette
+    only the no-data code is transparent, so alpha carries exactly that.
+    """
+    from PIL import Image             # local: the site runs fine without it
+
+    west, south, east, north = bbox
+    z, tx0, ty0, nx, ny = _probe_zoom(west, south, east, north)
+    fx0, fy0 = _lonlat_to_tilef(west, north, z)
+    fx1, fy1 = _lonlat_to_tilef(east, south, z)
+
+    for ty in range(ty0, ty0 + ny):
+        for tx in range(tx0, tx0 + nx):
+            if not (0 <= tx < (1 << z) and 0 <= ty < (1 << z)):
+                continue
+            body = _tile_bytes(layer, date, z, tx, ty, fresh)
+            if body is None:
+                continue
+            # Crop to the part of THIS tile the viewport actually covers.
+            px0 = max(0, min(256, int(round((fx0 - tx) * 256))))
+            px1 = max(0, min(256, int(math.ceil((fx1 - tx) * 256))))
+            py0 = max(0, min(256, int(round((fy0 - ty) * 256))))
+            py1 = max(0, min(256, int(math.ceil((fy1 - ty) * 256))))
+            if px1 <= px0 or py1 <= py0:
+                continue
+            im = Image.open(io.BytesIO(body)).convert('RGBA').crop((px0, py0, px1, py1))
+            if im.getextrema()[3][1] > 0:      # any non-transparent alpha
+                return True
+    return False
+
+
+@require_safe
+def dist_coverage(request):
+    """Newest date with data inside `bbox`, walking back from the newest.
+
+    GET params: layer=alert|ann, bbox=west,south,east,north (EPSG:4326).
+    Returns {date, newest, days_back, checked, exhausted}. `date` is null only
+    if nothing in the probed window had data; the client falls back to the
+    newest published date rather than showing an empty layer with no
+    explanation.
+    """
+    layer = request.GET.get('layer', 'alert')
+    if layer not in LAYERS:
+        return JsonResponse({'error': 'unknown layer'}, status=400)
+    try:
+        west, south, east, north = (float(v) for v in request.GET['bbox'].split(','))
+    except (KeyError, ValueError):
+        return JsonResponse({'error': 'bbox=west,south,east,north required'}, status=400)
+    if not (-180 <= west <= 180 and -180 <= east <= 180
+            and -90 <= south <= 90 and -90 <= north <= 90 and south < north):
+        return JsonResponse({'error': 'bbox out of range'}, status=400)
+    if east < west:              # antimeridian: probe the whole width rather
+        west, east = -180.0, 180.0   # than guessing which half is meant
+    bbox = (west, south, east, north)
+
+    domain = _layer_domain(layer)
+    dates = _expand_domain(domain)
+    if not dates:
+        return JsonResponse({'date': None, 'newest': None, 'days_back': None,
+                             'checked': 0, 'exhausted': True})
+    newest = dates[-1]
+    checked = 0
+    for date in reversed(dates[-PROBE_MAX_DATES:]):
+        checked += 1
+        try:
+            hit = _has_data_in_view(layer, date, bbox, _is_fresh(_valid_date(date)))
+        except Exception as exc:
+            log.warning('dist coverage probe %s %s failed: %s', layer, date, exc)
+            break
+        if hit:
+            back = (datetime.date.fromisoformat(newest)
+                    - datetime.date.fromisoformat(date)).days
+            resp = JsonResponse({'date': date, 'newest': newest, 'days_back': back,
+                                 'checked': checked, 'exhausted': False})
+            # View-dependent, so it must not land in a shared cache.
+            resp['Cache-Control'] = 'private, max-age=300'
+            return resp
+    resp = JsonResponse({'date': None, 'newest': newest, 'days_back': None,
+                         'checked': checked, 'exhausted': True})
+    resp['Cache-Control'] = 'private, max-age=60'
     return resp

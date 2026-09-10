@@ -59,6 +59,7 @@ urlpatterns = [
             r'/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             dist.dist_tile, name='dist_tile'),
     path('api/dist_dates/', dist.dist_dates, name='dist_dates'),
+    path('api/dist_coverage/', dist.dist_coverage, name='dist_coverage'),
     path('api/timed_events/', views.api_timed_events, name='api_timed_events'),
     path('api/timeline_events/', views.api_timeline_events, name='api_timeline_events'),
     path('api/survey_circles/',  views.api_survey_circles,  name='api_survey_circles'),

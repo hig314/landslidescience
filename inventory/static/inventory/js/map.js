@@ -1649,8 +1649,11 @@
         return out;
     }
     function _distMakeDate(layer, storeKey) {
-        var explicit = '';
-        try { explicit = localStorage.getItem(storeKey) || ''; } catch (e) {}
+        var explicit = '', auto = false;
+        try {
+            explicit = localStorage.getItem(storeKey) || '';
+            auto = localStorage.getItem(storeKey + '_auto') === '1';
+        } catch (e) {}
         return {
             layer: layer,
             // The date actually used to build tile URLs.
@@ -1659,13 +1662,27 @@
                 var d = _distDomains && _distDomains[layer];
                 return (d && d['default']) || _distFallbackDate(layer);
             },
-            isLatest: function () { return !explicit; },
-            // '' pins the row back to "latest" (and keeps tracking it).
-            set: function (v) {
+            // No explicit date yet, so `get` is still on a fallback and the
+            // source needs re-pointing once the real domain arrives.
+            isUnresolved: function () { return !explicit; },
+            // Still following "latest with data here" — either nothing has been
+            // resolved yet, or what was resolved came from the coverage probe
+            // rather than from the user. Re-enabling re-resolves these; a date
+            // the user chose by hand is left alone.
+            isTracking: function () { return !explicit || auto; },
+            // set(v) marks a deliberate choice; set(v, true) an auto-resolved
+            // one. '' returns the row to tracking.
+            set: function (v, isAuto) {
                 explicit = v || '';
+                auto = !!isAuto && !!explicit;
                 try {
-                    if (explicit) localStorage.setItem(storeKey, explicit);
-                    else localStorage.removeItem(storeKey);
+                    if (explicit) {
+                        localStorage.setItem(storeKey, explicit);
+                        localStorage.setItem(storeKey + '_auto', auto ? '1' : '0');
+                    } else {
+                        localStorage.removeItem(storeKey);
+                        localStorage.removeItem(storeKey + '_auto');
+                    }
                 } catch (e) {}
             },
             list: function () {
@@ -1766,12 +1783,15 @@
             label: label,
             kind: kind,                 // 'date' (free date input) | 'select'
             title: kind === 'date'
-                ? 'Disturbance state as of this date. Blank/latest tracks the ' +
-                  'newest date NASA GIBS has published.'
+                ? 'Disturbance state as of this date. The daily product holds ' +
+                  'only the granules acquired that day, so an empty view means ' +
+                  '"not observed", not "nothing happened" — use "latest" to ' +
+                  'jump to the newest date with data here.'
                 : 'Annual summary year.',
             get: function () { return dateCtl.get(); },
-            isLatest: function () { return dateCtl.isLatest(); },
-            set: function (v) { dateCtl.set(v); },
+            isTracking: function () { return dateCtl.isTracking(); },
+            set: function (v, isAuto) { dateCtl.set(v, isAuto); },
+            resolve: function () { return _distResolveLatest(dateCtl); },
             list: function () { return dateCtl.list(); },
             // Options for the 'select' kind: value + what the reader sees.
             options: function () {
@@ -1819,6 +1839,23 @@
         };
     }
 
+    // Ask the server for the newest date with data inside the CURRENT view.
+    // The daily layer carries only the granules acquired that day, and about
+    // half of Alaska goes unobserved on any given date, so "the newest
+    // published date" routinely opens on an empty view — which reads as "no
+    // disturbance here" rather than "nobody looked". Resolving against the
+    // viewport is the difference between those two statements.
+    function _distResolveLatest(dateCtl) {
+        var b = map && map.getBounds && map.getBounds();
+        if (!b) return Promise.resolve(null);
+        var bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
+                   .map(function (v) { return (+v).toFixed(4); }).join(',');
+        return fetch(API_BASE + 'api/dist_coverage/?layer=' + dateCtl.layer +
+                     '&bbox=' + encodeURIComponent(bbox))
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .catch(function () { return null; });
+    }
+
     // Rows that hold a stepper register here so the date list arriving late can
     // repaint them (and re-point any layer still following "latest").
     var _distDatesApplied = false;
@@ -1830,7 +1867,7 @@
                 if (!ov.stepper) return;
                 // A row pinned to "latest" was built against the fallback date;
                 // now that the real newest date is known, re-point it.
-                if (ov.stepper.isLatest() && map && map.getLayer(ov.layerId)) {
+                if (ov.stepper.isTracking() && map && map.getLayer(ov.layerId)) {
                     _ovSwapSource(ov);
                 }
             });
@@ -2972,6 +3009,7 @@
         // — a shared link therefore lands on "latest", which is the right
         // default for an alert layer; pin-the-date-in-a-link is future work.
         var step = ov.stepper, line4 = null, dEl = null, latestBtn = null;
+        var _stepToLatest = function () {};
         if (step) {
             line4 = document.createElement('div');
             line4.style.cssText = 'display:flex;align-items:center;gap:4px;' +
@@ -2986,7 +3024,8 @@
             // file's `var`-everywhere style would quietly change meaning.
             var commit = function (v) {
                 if (!v) return;              // step() at a clamp returns null
-                step.set(v);
+                step.set(v);                 // deliberate: stops auto-tracking
+                note.textContent = ''; note.title = '';
                 _ovSwapSource(ov);           // both panes; the date is global
                 _ovSyncUI();                 // repaint the twin pane's row
             };
@@ -3018,20 +3057,55 @@
                 latestBtn = document.createElement('button');
                 latestBtn.type = 'button';
                 latestBtn.textContent = 'latest';
-                latestBtn.title = 'Track the newest date NASA GIBS has published';
+                latestBtn.title = 'Jump to the newest date with data in this view. '
+                                + 'Not simply the newest published date: about half of '
+                                + 'Alaska goes unobserved on any given day, so that one '
+                                + 'is often empty here.';
                 latestBtn.style.cssText = 'flex:none;padding:0 4px;font-size:10px;' +
                                           'line-height:16px;cursor:pointer;';
-                latestBtn.addEventListener('click', function () {
-                    step.set('');            // '' = follow latest
-                    _ovSwapSource(ov);
-                    _ovSyncUI();
-                });
+                latestBtn.addEventListener('click', function () { _stepToLatest(); });
                 line4.appendChild(prev);
                 line4.appendChild(dEl);
                 line4.appendChild(next);
                 line4.appendChild(latestBtn);
             }
+            // A muted status the row uses to say WHY it is on this date —
+            // "3 d back" is the difference between "nothing happened" and
+            // "nobody looked", and that is the whole point of resolving
+            // against the view.
+            var note = document.createElement('span');
+            note.style.cssText = 'flex:none;font-size:9px;color:#999;min-width:0;';
+            line4.appendChild(note);
             row.appendChild(line4);
+
+            var resolving = false;
+            _stepToLatest = function () {
+                if (resolving || !step.resolve) return;
+                resolving = true;
+                note.textContent = '\u2026';
+                step.resolve().then(function (j) {
+                    resolving = false;
+                    if (!j) { note.textContent = ''; return; }
+                    if (j.date) {
+                        step.set(j.date, true);        // auto-resolved
+                        note.textContent = j.days_back ? j.days_back + ' d back' : '';
+                        note.title = j.days_back
+                            ? 'Newest date with data in this view; the newest ' +
+                              'published date (' + j.newest + ') has none here.'
+                            : '';
+                    } else {
+                        // Nothing in the probed window — open water, or a long
+                        // gap. Show the newest published date and SAY it is
+                        // empty rather than looking like a clean map.
+                        step.set(j.newest || '', true);
+                        note.textContent = 'no data in view';
+                        note.title = 'No coverage in this view in the last ' +
+                                     j.checked + ' published dates.';
+                    }
+                    _ovSwapSource(ov);
+                    _ovSyncUI();
+                });
+            };
             // The date list arrives asynchronously; this resolves immediately
             // on every row after the first.
             _distDatesReady();
@@ -3059,9 +3133,11 @@
             } else {
                 dEl.value = step.get();
                 if (b) { dEl.min = b.min; dEl.max = b.max; }
-                // "latest" is a state, not just a button: show which one it is.
-                latestBtn.style.fontWeight = step.isLatest() ? '700' : '400';
-                latestBtn.style.opacity = step.isLatest() ? 1 : 0.6;
+                // "latest" is a state, not just a button: bold while the row
+                // is still tracking newest-with-data, normal once the user has
+                // stepped or typed a date of their own.
+                latestBtn.style.fontWeight = step.isTracking() ? '700' : '400';
+                latestBtn.style.opacity = step.isTracking() ? 1 : 0.6;
             }
             line4.style.opacity = st[side] ? 1 : 0.45;
             Array.prototype.forEach.call(line4.querySelectorAll('input,select,button'),
@@ -3081,6 +3157,10 @@
             st[side] = cb.checked;
             if (cb.checked) {
                 window.LSTrack && LSTrack.event('overlay', { id: ov.id, side: side });
+                // Turning it on should show something. Only re-resolve rows
+                // still tracking — a date the user picked by hand survives
+                // being toggled off and on.
+                if (step && step.isTracking()) _distDatesReady().then(_stepToLatest);
             }
             _ovSaveState();
             _ovApplyAll();
