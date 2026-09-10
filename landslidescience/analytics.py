@@ -41,12 +41,17 @@ measurement is a rounding error; a broken map is not.
 import json
 import logging
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from django.conf import settings
-from django.http import HttpResponse
+from django.contrib.auth.decorators import login_required
+from django.http import HttpResponse, HttpResponseForbidden
+from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_safe
+
+from inventory.auth import is_site_admin
 
 log = logging.getLogger(__name__)
 
@@ -160,3 +165,88 @@ def website_id(request):
         'UMAMI_WEBSITE_ID': getattr(settings, 'UMAMI_WEBSITE_ID', ''),
         'UMAMI_PUBLIC_URL': getattr(settings, 'UMAMI_PUBLIC_URL', ''),
     }
+
+
+# ---------------------------------------------------------------------------
+# Dashboard access — one login, not two
+#
+# Umami's own login form is switched OFF (`DISABLE_LOGIN=1` makes /login return
+# 403), so nobody signs in to Umami directly and there is no second password to
+# hand out, rotate, or leak. The only door is this view: it checks the caller
+# against *Django's* auth, mints a dashboard token server-side, and hands it to
+# Umami's built-in `/sso` route, which stores it client-side and lands on the
+# dashboard.
+#
+# The token is minted for `UMAMI_BRIDGE_USER`, a Umami account with the
+# `team-view-only` role on the team that owns the website. So the token that
+# reaches the browser can read the analytics and nothing else — it cannot
+# create, reconfigure, or delete a site. The full-privilege `admin` account
+# still exists for maintenance but is never used by a browser.
+#
+# Known and accepted: /sso carries the token as a query parameter, so it lands
+# in that browser's history. That is Umami's own hand-off design, and the
+# read-only scope is what keeps the consequence small.
+# ---------------------------------------------------------------------------
+
+def _bridge_token():
+    """Mint a fresh view-only Umami token. None if that isn't possible.
+
+    Deliberately not cached: an admin opens this a few times a day, the call is
+    to a container on the same host, and a stale cached token is a confusing
+    failure ("Access denied" on a page that worked yesterday) for no gain.
+    """
+    user = getattr(settings, 'UMAMI_BRIDGE_USER', '')
+    password = getattr(settings, 'UMAMI_BRIDGE_PASSWORD', '')
+    if not (user and password):
+        return None
+    body = json.dumps({'username': user, 'password': password}).encode()
+    req = urllib.request.Request(
+        UMAMI_URL + '/api/auth/login', data=body,
+        headers={'Content-Type': 'application/json'}, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=6) as r:
+            return json.loads(r.read()).get('token')
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError) as e:
+        log.warning('analytics: could not mint a dashboard token: %s', e)
+        return None
+
+
+def _can_view_traffic(user):
+    return user.is_superuser or is_site_admin(user)
+
+
+@login_required
+@require_safe
+def dashboard(request):
+    """Sign the current Django admin into the Umami dashboard and go there."""
+    if not _can_view_traffic(request.user):
+        return HttpResponseForbidden('Traffic analytics are restricted to site admins.')
+
+    public = (getattr(settings, 'UMAMI_PUBLIC_URL', '') or '').rstrip('/')
+    site_id = getattr(settings, 'UMAMI_WEBSITE_ID', '')
+    if not public or not site_id:
+        return _plain('Analytics are not configured in this environment '
+                      '(UMAMI_PUBLIC_URL / UMAMI_WEBSITE_ID unset).')
+
+    token = _bridge_token()
+    if not token:
+        return _plain('The analytics service is not reachable right now. '
+                      'Try again in a moment.')
+
+    # Umami's /sso validates that `url` is a same-site absolute path, so the
+    # destination cannot be turned into an open redirect from here.
+    target = '/websites/' + site_id
+    return redirect('{}/sso?token={}&url={}'.format(
+        public,
+        urllib.parse.quote(token, safe=''),
+        urllib.parse.quote(target, safe=''),
+    ))
+
+
+def _plain(message):
+    return HttpResponse(
+        '<!doctype html><meta charset="utf-8">'
+        '<div style="font:14px system-ui;margin:3rem auto;max-width:34rem;color:#333">'
+        '<h1 style="font-size:17px">Traffic analytics</h1><p>' + message + '</p>'
+        '<p><a href="/inventory/manage/" style="color:#5D4037">← Back to Manage</a></p></div>',
+        content_type='text/html', status=503)

@@ -108,6 +108,9 @@ urlpatterns = [
     path('s/t.js', analytics.script),
     path('s/api/send', analytics.send),
     path('s/health', analytics.health),
+    # Django-authenticated door to the Umami dashboard. Umami's own
+    # login is disabled, so this is the only way in.
+    path('traffic/', analytics.dashboard, name='traffic'),
     path('lidar/', lidar_serve.preview),
     path('lidar/catalog.geojson', lidar_serve.catalog),
     re_path(r'^lidar/pmtiles/(?P<dataset_id>[a-z0-9_]+)\.pmtiles$',

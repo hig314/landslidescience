@@ -26,6 +26,11 @@ services:
       # Real client IP arrives via the Django forwarder, not the socket.
       CLIENT_IP_HEADER: x-forwarded-for
       DISABLE_TELEMETRY: "1"
+      # Umami's own login form is switched OFF (it 403s). The only way in is
+      # the Django-gated SSO bridge at /inventory/manage/traffic/, so site
+      # access is governed by one account system, not two. Minting a token
+      # server-side via /api/auth/login is unaffected by this flag.
+      DISABLE_LOGIN: "1"
       # Bot traffic is noise in a site this small; drop it at ingest.
       ENABLE_BOT_FILTER: "1"
     env_file:

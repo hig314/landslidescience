@@ -57,6 +57,7 @@ pushing untested code to GH.
 | `/inventory/export/` | public *(behind preview password)* | Download zip of GeoJSON + QGIS .qml styles |
 | `/inventory/manage/import/` | inventory_editors + Hig | Upload zip/.geojson; preview diff; confirm to apply |
 | `/s/t.js`, `/s/api/send` | public | First-party analytics beacon, forwarded to Umami (`landslidescience/analytics.py`) |
+| `/traffic/` | superusers + site_admins | Signs the current Django user into the Umami dashboard (Umami's own login is disabled) |
 | `/files/<name>` | public *(unlisted)* | Serves an admin-uploaded `HostedFile` by its URL token (no auth, no preview barrier). |
 | `/admin/` | site_admins (Page + HostedFile perms) + Hig | Django admin — Page + HostedFile models + User/Group management |
 
@@ -615,8 +616,40 @@ the app. Code: `landslidescience/analytics.py` (the forwarder),
 | Umami container | `umami` service; image pinned `ghcr.io/umami-software/umami:3.3.1` (~170 MB resident) |
 | Its database | `umami` DB **in the existing `tethys_db`**, own `umami` role — a second Postgres is not worth 200 MB on a 4 GB box |
 | Beacon | `/s/t.js` + `/s/api/send` on landslidescience.org, forwarded by Django |
-| Dashboard | Umami's own UI (`UMAMI_PUBLIC_URL`); linked from `/inventory/manage/` for superusers |
-| Secrets | `.env`: `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET`, `UMAMI_WEBSITE_ID`, `UMAMI_PUBLIC_URL` |
+| Dashboard | Umami's own UI, entered **only** through `/traffic/` (Django-authenticated) |
+| Secrets | `.env`: `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET`, `UMAMI_WEBSITE_ID`, `UMAMI_PUBLIC_URL`, `UMAMI_BRIDGE_USER`, `UMAMI_BRIDGE_PASSWORD` |
+
+**One login, not two.** Umami's own login form is switched **off**
+(`DISABLE_LOGIN=1` makes `/login` return 403), so there is no second password
+to hand out, rotate or leak, and nobody can reach the dashboard by finding its
+URL. The only door is `/traffic/` (`analytics.dashboard`): it authorises the
+caller against *Django's* auth (superuser or `site_admins`), mints a token
+server-side via `POST /api/auth/login`, and redirects to Umami's built-in
+`/sso?token=…&url=/websites/<id>`, which stores the token client-side and lands
+on the dashboard. `DISABLE_LOGIN` blocks only the `/login` **page** — the login
+API still works, which is what makes this possible.
+
+The token is minted for **`UMAMI_BRIDGE_USER`**, a Umami account holding
+`team-view-only` on the team that owns the website — so the token that reaches
+a browser can read the analytics and nothing else (verified: reads 200, create
+and delete 401). The full-privilege `admin` account still exists for
+maintenance and is never used by a browser. Note that a website can only be
+given a `teamId` **at creation**; an existing personally-owned website cannot
+be moved into a team through the API, so create it team-owned from the start.
+
+Accepted trade-off: `/sso` carries the token as a query parameter, so it lands
+in that browser's history. That is Umami's own hand-off design, and the
+read-only scope is what keeps the consequence small. The dashboard UI still
+renders admin affordances (an "Edit" button) to a view-only user — they fail
+server-side, which is where it matters.
+
+Two Umami settings are **not** runtime-configurable, both checked the hard way:
+`BASE_PATH` is baked in by Next.js at *their* build time (setting it on the
+container gives 404s), so Umami cannot be mounted under a subpath without
+rebuilding the image — hence a subdomain rather than `landslidescience.org/stats/`.
+And the `umami.auth` cookie is not accepted server-side; only
+`Authorization: Bearer` is, which is why the SSO hand-off (not a cookie
+injection) is the mechanism.
 
 **The beacon is first-party on purpose.** Filter lists match `umami.js` as a
 filename, `umami.` as a hostname label, and `/api/send` under a recognisable
@@ -664,9 +697,11 @@ and no filter *values* are ever recorded — only which column was used.
 1. In prod `.env`: `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET` (`openssl rand -hex 32`), later `UMAMI_WEBSITE_ID`, `UMAMI_PUBLIC_URL`.
 2. Create the role + database in `tethys_db`: `CREATE ROLE umami LOGIN PASSWORD '…'; CREATE DATABASE umami OWNER umami;`
 3. `docker compose … up -d umami` — it runs its own Prisma migrations on start; watch for "Database is up to date."
-4. Create the website record via its API (`POST /api/websites`), put the returned id in `UMAMI_WEBSITE_ID`, recreate `web`.
-5. **Change the default `admin` / `umami` password immediately** (`POST /api/me/password`, or in the UI).
-6. Caddy site block for the dashboard subdomain + the DNS A record — see below.
+4. **Change the default `admin` / `umami` password immediately** — `POST /api/me/password` with `{currentPassword, newPassword}` (the endpoint is `/api/me/password`, not `/api/users/<id>/password`).
+5. Create a team (`POST /api/teams`, returns a **list**), then create the website **with that `teamId`** (`POST /api/websites`) — it cannot be moved into a team later. Put the returned website id in `UMAMI_WEBSITE_ID`.
+6. Create the bridge user (`POST /api/users` with `role: "view-only"`) and add it to the team (`POST /api/teams/<id>/users` with `role: "team-view-only"`). Put its credentials in `UMAMI_BRIDGE_USER` / `UMAMI_BRIDGE_PASSWORD`.
+7. **`docker compose up -d web`, not `restart`** — `restart` reuses the old environment and will silently serve stale `UMAMI_*` values.
+8. Caddy site block for the dashboard subdomain + the DNS A record — see below.
 
 **The Caddy step lives in the other repo.** `/opt/monitoring` is a clone of
 `tethys-timescale-grafana`, and its `Caddyfile` is untracked (hand-maintained
@@ -682,7 +717,8 @@ stats.landslidescience.org {
 
 plus a DNS A record for `stats` → the droplet. Nothing else here depends on
 it: **collection works without any Caddy change**, because the beacon rides
-the existing landslidescience.org route. Only reading the dashboard needs it.
+the existing landslidescience.org route. Only reading the dashboard needs it,
+and `UMAMI_PUBLIC_URL` is what points `/traffic/` at it.
 
 **Note on expectations**: `robots.txt` still disallows everything while the
 site is pre-release, so traffic will be near-zero until that is lifted.

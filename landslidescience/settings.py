@@ -22,6 +22,10 @@ UMAMI_WEBSITE_ID = os.environ.get('UMAMI_WEBSITE_ID', '')
 # from UMAMI_INTERNAL_URL, which is the container address the beacon uses.
 # Empty = no link is shown, which is correct until the subdomain exists.
 UMAMI_PUBLIC_URL = os.environ.get('UMAMI_PUBLIC_URL', '')
+# The Umami account the SSO bridge signs in as. Scoped `team-view-only`, so
+# the token handed to a browser can read the analytics and change nothing.
+UMAMI_BRIDGE_USER = os.environ.get('UMAMI_BRIDGE_USER', '')
+UMAMI_BRIDGE_PASSWORD = os.environ.get('UMAMI_BRIDGE_PASSWORD', '')
 
 # Trust X-Forwarded-Proto from Caddy so Django knows the request was HTTPS.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
