@@ -2808,6 +2808,85 @@
 
     // One overlay row for either pane's panel: full wrapping label + subtitle,
     // an on/off checkbox for THAT pane, and that pane's own opacity slider.
+    // Colour ramps for every overlay, keyed by overlay id (inventory/views.py
+    // reads them from the same tools/*color*.txt files the tiles were baked
+    // from, so a legend can never drift from the pixels it describes). One
+    // fetch per session, shared by the in-panel key below and the PNG export.
+    var _rampsPromise = null;
+    function _loadRamps() {
+        if (!_rampsPromise) {
+            _rampsPromise = fetch(API_BASE + 'api/ramps/')
+                .then(function (r) { return r.ok ? r.json() : {}; })
+                .catch(function () { return {}; });
+        }
+        return _rampsPromise;
+    }
+    // The ramp key for an overlay in its CURRENT state — the thinning layer's
+    // smoothed build has its own ramp, registered under a `~s` suffix.
+    function _rampKey(ov, ramps) {
+        if (ov.variant && ov.variant.get() && ramps[ov.id + '~s']) return ov.id + '~s';
+        return ov.id;
+    }
+    // A compact colour key inside the overlay row. Collapsed by default — it
+    // answers "what am I looking at" on demand without adding permanent height
+    // to a panel that already holds a dozen rows.
+    function _rampLegendEl(ov) {
+        var det = document.createElement('details');
+        det.style.cssText = 'margin-top:4px;';
+        var sum = document.createElement('summary');
+        sum.textContent = 'key';
+        sum.style.cssText = 'font-size:10px;color:#777;cursor:pointer;outline:none;';
+        det.appendChild(sum);
+        var body = document.createElement('div');
+        body.style.cssText = 'margin-top:3px;';
+        det.appendChild(body);
+        var filled = false;
+        det.addEventListener('toggle', function () {
+            if (!det.open || filled) return;
+            filled = true;
+            _loadRamps().then(function (ramps) {
+                var r = ramps[_rampKey(ov, ramps)];
+                if (!r) { body.textContent = 'no key available'; return; }
+                body.innerHTML = '';
+                if (r.kind === 'classes' && r.classes) {
+                    r.classes.forEach(function (c) {
+                        var line = document.createElement('div');
+                        line.style.cssText = 'display:flex;align-items:center;gap:5px;' +
+                                             'font-size:10px;color:#555;line-height:1.5;';
+                        var sw = document.createElement('span');
+                        sw.style.cssText = 'flex:none;width:11px;height:11px;border-radius:2px;' +
+                                           'border:1px solid rgba(0,0,0,.25);background:rgba(' +
+                                           c.rgba[0] + ',' + c.rgba[1] + ',' + c.rgba[2] + ',' +
+                                           (c.rgba[3] / 255) + ');';
+                        line.appendChild(sw);
+                        line.appendChild(document.createTextNode(c.label));
+                        body.appendChild(line);
+                    });
+                } else if (r.stops && r.stops.length) {
+                    var lo = r.stops[0], hi = r.stops[r.stops.length - 1];
+                    var span = hi.v - lo.v || 1;
+                    var bar = document.createElement('div');
+                    var css = r.stops.map(function (st) {
+                        return 'rgba(' + st.rgba[0] + ',' + st.rgba[1] + ',' + st.rgba[2] +
+                               ',' + (st.rgba[3] / 255) + ') ' +
+                               Math.round(100 * (st.v - lo.v) / span) + '%';
+                    }).join(',');
+                    bar.style.cssText = 'height:9px;border-radius:2px;border:1px solid ' +
+                                        'rgba(0,0,0,.2);background:linear-gradient(to right,' +
+                                        css + ');';
+                    body.appendChild(bar);
+                    var ends = document.createElement('div');
+                    ends.style.cssText = 'display:flex;justify-content:space-between;' +
+                                         'font-size:9px;color:#888;margin-top:1px;';
+                    ends.innerHTML = '<span>' + lo.v + '</span><span>' + (r.units || '') +
+                                     '</span><span>' + hi.v + '</span>';
+                    body.appendChild(ends);
+                }
+            });
+        });
+        return det;
+    }
+
     function _overlayRow(ov, side) {
         var st = _ovState[ov.id];
         var opKey = side === 'left' ? 'opLeft' : 'opRight';
@@ -2943,6 +3022,11 @@
             // on every row after the first.
             _distDatesReady();
         }
+
+        // Colour key, for any overlay the ramps endpoint knows about. Added
+        // unconditionally and told to say so if there is no ramp, rather than
+        // gated on a hardcoded id list that a new overlay would fall out of.
+        row.appendChild(_rampLegendEl(ov));
 
         function paintStepper() {
             if (!step) return;
@@ -7642,9 +7726,7 @@
                 // The thinning layer's smoothed build has its own ramp; the
                 // hash encodes that variant as a `~s` suffix, and so does the
                 // ramp registry.
-                var key = ov.id;
-                if (ov.variant && ov.variant.get() && _ramps[ov.id + '~s']) key = ov.id + '~s';
-                var r = _ramps[key];
+                var r = _ramps[_rampKey(ov, _ramps)];
                 if (r) out.push(r);
             });
             return out;
@@ -7667,11 +7749,9 @@
             setStatus('Loading tiles at full resolution\u2026');
             var scale = parseInt(scaleSel.value, 10) || 2;
 
-            // Ramps are small and rarely change — fetch once per session.
-            var pre = _ramps ? Promise.resolve(_ramps)
-                             : fetch('/inventory/api/ramps/')
-                                 .then(function (r) { return r.ok ? r.json() : {}; })
-                                 .catch(function () { return {}; });
+            // Ramps are small and rarely change — one shared fetch per session
+            // (_loadRamps), the same object the in-panel colour keys read.
+            var pre = _loadRamps();
 
             pre.then(function (r) {
                 _ramps = r;
