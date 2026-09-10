@@ -629,6 +629,80 @@ the citable record behind published work, and being findable is most of their
 point. Accepted cost — dated copies of the same records compete with the live
 map in search results.
 
+## OPERA DIST — surface disturbance overlay
+
+One overlay on the inventory map, **Surface disturbance — annual**
+(`dist-ann`), backed by NASA GIBS's ready-coloured Web-Mercator tiles for
+`OPERA_L3_DIST-ANN-HLS_Color_Index`. `inventory/dist.py` proxies and disk-caches
+them (`data/dist_tiles/<layer>/<date>/<z>/<x>/<y>.png`, `.404` markers,
+`purge_dist_tiles`); `map.js` recolours them through the `distcolor://`
+protocol. Routes: `tiles/dist/<alert|ann>/<date>/<z>/<x>/<y>.png`,
+`api/dist_dates/` (GIBS time domain), `api/dist_coverage/` (below).
+
+- **GIBS axis order is `z/y/x`**, unlike every other tile route here. The swap
+  happens once, in `_upstream`. Verified by md5 against the upstream URL.
+- **GIBS paints class 0 "no disturbance" opaque #121212** — fine for a
+  Worldview backdrop, fatal for an overlay (~97% of a tile). `_distLut` holds
+  the PAINTED classes 1-8 only, so class 0 *and anything unrecognised* fall
+  through to transparent. Matching class 0 by colour instead would mean one
+  missed match paints near-black over the whole map.
+- **Colours are ours, not GIBS's** — `tools/dist_color_status.txt` is the
+  source of truth and also feeds the colour key and export legend via
+  `api/ramps/`. Darkness = importance (certainty x recency), so *confirmed* is
+  darkest and *finished* steps back; magnitude rides the same channel. The red
+  is hue 353, not 0: the trace of blue is what keeps the freshest class
+  separable under red-green CVD.
+- **`api/dist_coverage/`** resolves "latest" against the viewport rather than
+  the calendar, because the daily product publishes only that day's granules.
+  Probes at a low zoom, crops to the viewport in tile-pixel space, walks back
+  at most 20 dates. The zoom floor is 0 so the 6-tile budget is always
+  satisfiable — with a floor of 3 an all-Alaska view fell through to 64 tiles.
+- **Every overlay row has a collapsible colour key** (`_rampLegendEl`), fed by
+  the same `api/ramps/` the PNG export uses.
+
+### The daily layer is retired (2026-09-10) — `DIST_ALERT_ACTIVE = false`
+
+Built, evaluated against real events, switched off; nothing was deleted, and
+one line in `map.js` brings it back. Why, so nobody re-litigates it blind:
+
+- **~Half of Alaska is unobserved on any given date** (50.5% data / 20.1%
+  no-data / 29.4% no tile, Talkeetna box, 2026-09-08). An empty view reads as
+  "no disturbance here".
+- **It does not resolve progressive change**, which was the reason to want
+  daily. The one unambiguous event tested — a Nepal landslide at
+  28.288/85.518 — was a single step: 1.62 km2 of >=50% vegetation loss, every
+  pixel dated 2026-08-26, next-largest date 76 px.
+- The Alaska daily signal was dominated by **seasonal snow** (86% of generic
+  detections at Portage fall in October) and by the alert layer's own **annual
+  reset**, which makes disturbance appear to vanish each year.
+
+### Limits that bite, and are not obvious
+
+- **VEG only.** GIBS publishes no `GEN-*` (generic / non-vegetated) layer on
+  either projection endpoint, so the overlay is blind above treeline — bare
+  rock, talus, fresh debris. `GEN-*` exists only in the LP DAAC COGs; read it
+  with `tools/imagery/dist_probe.py`.
+- **Permanent snow and ice are masked outright.** Never-observed fraction,
+  stacking a season of granules: Columbia Glacier 32.4%, Portage 21.4%,
+  Kachemak 7.8%, non-glaciated Talkeetna 0.0%. Not water (only 2% of
+  DATA-MASK water goes unobserved). The mask is a fixed footprint, so ground
+  newly exposed by glacier retreat — the most interesting ground on a
+  retreating tidewater glacier — stays masked. A supraglacial landslide
+  (Iliamna, Aug 2026) is invisible.
+- **Nov-Jan blackout** at Alaska latitudes: 3 DIST-ALERT granules in all of
+  December 2025.
+- `DATA-MASK` is the CURRENT acquisition; `*-DIST-STATUS` is carried-forward
+  state and stays populated through cloud. **Rank granules by clear-land
+  fraction, never by date.**
+- `VEG-ANOM-MAX` is uint8 **percent**; every `GEN-*` metric and both
+  `*-DIST-CONF` are int16 **unitless 0-32000**. Not comparable.
+- `*-DIST-DATE` is days since **2020-12-31**; value 0 means *never disturbed*.
+
+Research tools, kept but not shipped: `tools/imagery/dist_probe.py` (read any
+DIST layer from the COGs for a point, VEG vs GEN side by side) and
+`tools/imagery/dist_animate.py` (animate from GIBS tiles; accumulates by
+default, because raw daily playback strobes on the coverage gaps).
+
 ## Traffic analytics — self-hosted Umami
 
 Who visits, what they read, and which of the site's tools actually get used.
