@@ -60,8 +60,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-import numpy as np
-
 from django.conf import settings
 from django.http import (FileResponse, HttpResponse, HttpResponseNotFound,
                          JsonResponse)
@@ -231,6 +229,10 @@ def _ann_all_sig(years):
 
 def _merge_ann(z, x, y, years):
     """Stack the yearly tiles into one, highest-priority class per pixel."""
+    # Imported here, not at module scope: this module is loaded by urls.py at
+    # startup, and the house rule is that the heavy wheels never sit in that
+    # path. A broken numpy/Pillow should cost the merged tile, not the site.
+    import numpy as np
     from PIL import Image
 
     # In parallel: a merged tile should cost one upstream round trip of
