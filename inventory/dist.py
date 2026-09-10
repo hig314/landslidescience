@@ -6,6 +6,14 @@ as ready-coloured Web-Mercator WMTS pyramids, no Earthdata login required:
     OPERA_L3_DIST-ALERT-HLS_Color_Index   daily,  2023-01-01 -> yesterday-ish
     OPERA_L3_DIST-ANN-HLS_Color_Index     annual, 2023 / 2024 / 2025
 
+**Only DIST-ANN is on the map.** The daily DIST-ALERT layer was built,
+evaluated against real events, and retired on 2026-09-10 — half of Alaska is
+unobserved on any given date, and the one unambiguous landslide we tested
+against showed up as a single step rather than the progressive change that
+was the reason to want daily at all (see DIST_ALERT_ACTIVE in map.js for the
+full note). Everything here still serves both layers: the route, the date
+domain, the coverage probe. Nothing needs re-plumbing if it comes back.
+
 Both are the **VEG-DIST-STATUS** code space (see tools/dist_color_status.txt).
 GIBS publishes no GEN-* (generic / non-vegetated) layer — checked across both
 the epsg3857 and epsg4326 endpoints on 2026-09-10 — so anything above treeline

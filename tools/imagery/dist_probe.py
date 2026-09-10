@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Read OPERA DIST layers straight from the LP DAAC COGs, for one point.
 
+STATUS: research tool, kept for reference. The daily DIST-ALERT map layer it
+was written alongside is retired (see DIST_ALERT_ACTIVE in map.js); only the
+annual layer ships. This still runs against either.
+
 WHY THIS EXISTS. NASA GIBS publishes only VEG-DIST-STATUS, so the map overlays
 are blind above treeline — bare rock, talus, fresh debris on gravel. The GEN-*
 (generic) layers, which are what could see those, exist only in the source

@@ -4,6 +4,10 @@
   python3 tools/imagery/dist_animate.py 61.19698,-146.96439 --km 8 \
       --from 2026-05-01 --to 2026-09-08 --out data/dist_animations/valdez.gif
 
+STATUS: research tool, kept for reference. The daily DIST-ALERT map layer it
+was written alongside is retired (see DIST_ALERT_ACTIVE in map.js); only the
+annual layer ships. This still runs against either.
+
 WHY ACCUMULATION IS THE DEFAULT. The daily layer holds only the granules
 acquired that day, and about half of Alaska goes unobserved on any given date.
 Play those frames raw and the animation strobes: half of them blink to empty,

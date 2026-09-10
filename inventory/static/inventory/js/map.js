@@ -1762,6 +1762,37 @@
             });
     }
 
+    // ---- DIST-ALERT (daily): BUILT, EVALUATED, RETIRED 2026-09-10 ----------
+    // Flip this to true to put the daily layer back on the map. Everything it
+    // needs is still here and still works — the proxy route, the date
+    // stepper, the coverage probe, tools/imagery/dist_animate.py.
+    //
+    // Why it is off, from the evaluation Hig and I ran:
+    //  - COVERAGE. The daily layer holds only the granules acquired that day.
+    //    Over a Talkeetna-sized box on 2026-09-08: 50.5% data, 20.1% no-data
+    //    inside present tiles, 29.4% no tile at all. Half of Alaska is
+    //    unobserved on any given date, which reads as "no disturbance here".
+    //  - IT DOES NOT SHOW PROGRESSIVE CHANGE, which was the reason to want
+    //    daily. The one unambiguous event we found (a Nepal landslide,
+    //    28.288/85.518) appeared as a single step: 1.62 km2 of >=50%
+    //    vegetation loss, every pixel dated 2026-08-26, next-largest date 76
+    //    px. An event detector, not a trend detector.
+    //  - The Alaska daily signal was dominated by seasonal snow — 86% of
+    //    generic detections at Portage fall in October — and by the alert
+    //    layer's own annual reset, which makes disturbance appear to vanish
+    //    each year.
+    // DIST-ANN has none of these problems: one composite per year, no
+    // mid-year reset, and it is the layer that survived the evidence.
+    var DIST_ALERT_ACTIVE = false;
+    var DIST_ALERT_OVERLAY = {
+        id: 'dist-alert', layerId: 'ov-dist-alert', sourceId: 'ov-dist-alert-src',
+        label: 'Surface disturbance — alert (daily)',
+        sub: 'OPERA DIST-ALERT-HLS, 30 m · ~50% of Alaska unobserved per day',
+        sourceDef: function () { return _distSourceDef(_distAlertDate); },
+        defOpacity: 0.85,
+        stepper: _distStepper(_distAlertDate, 'date', 'date')
+    };
+
     function _distSourceDef(dateCtl) {
         return {
             type: 'raster',
@@ -1917,21 +1948,16 @@
           label: 'Bed overdeepenings', sub: 'closed-basin depth >10 m — future lakes / fjord arms',
           sourceDef: function () { return _iceboostSourceDef('overdeep'); },
           defOpacity: 0.9 },
-        // OPERA DIST last, so alerts draw over the glacier fields. Both carry
-        // a `stepper` — the first overlays whose content depends on a date.
-        { id: 'dist-alert', layerId: 'ov-dist-alert', sourceId: 'ov-dist-alert-src',
-          label: 'Surface disturbance — alert',
-          sub: 'OPERA DIST-ALERT-HLS, 30 m · vegetated terrain only',
-          sourceDef: function () { return _distSourceDef(_distAlertDate); },
-          defOpacity: 0.85,
-          stepper: _distStepper(_distAlertDate, 'date', 'date') },
+        // OPERA DIST last, so disturbance draws over the glacier fields.
+        // Carries a `stepper` — the first overlay whose content depends on a
+        // date.
         { id: 'dist-ann', layerId: 'ov-dist-ann', sourceId: 'ov-dist-ann-src',
           label: 'Surface disturbance — annual',
-          sub: 'OPERA DIST-ANN-HLS · summary year, no mid-year reset',
+          sub: 'OPERA DIST-ANN-HLS, 30 m · vegetated terrain; permanent ice masked',
           sourceDef: function () { return _distSourceDef(_distAnnDate); },
           defOpacity: 0.85,
           stepper: _distStepper(_distAnnDate, 'year', 'select') },
-    ]);
+    ]).concat(DIST_ALERT_ACTIVE ? [DIST_ALERT_OVERLAY] : []);
     var ICEBOOST_TILE_V = '2';   // v2: banded bed hypsometry (v1 continuous)
     var ICEBOOST_ATTR = 'Ice thickness: IceBoost v2.0 (Maffezzoli et al. 2025, CC-BY 4.0)';
     function _iceboostSourceDef(product) {
@@ -3196,8 +3222,11 @@
     var _OV_CATS = [
         { key: 'susc',  label: 'Landslide susceptibility', ids: ['susc-lw', 'susc-n10'] },
         { key: 'insar', label: 'InSAR ground motion',      ids: ['opera-asc', 'opera-desc'] },
+        // 'dist-alert' stays listed although it is retired: _ovRenderGrouped
+        // filters ids that are not in OVERLAYS, so this needs no edit if
+        // DIST_ALERT_ACTIVE is flipped back on.
         { key: 'dist',  label: 'Surface disturbance (OPERA DIST)',
-          ids: ['dist-alert', 'dist-ann'] },
+          ids: ['dist-ann', 'dist-alert'] },
         { key: 'gsurf', label: 'Glacier surface',          ids: ['ice-v', 'ice-amp', 'ice-dvdt', 'ice-dhdt'] },
         { key: 'gbed',  label: 'Ice thickness & bed',      ids: ['ice-thick', 'ice-bed', 'ice-over'] },
     ];
