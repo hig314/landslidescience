@@ -1,0 +1,37 @@
+{% comment %}
+Self-hosted Umami tracker, loaded first-party from /s/t.js (see
+landslidescience/analytics.py for why it isn't loaded from the Umami host).
+Rendered only when UMAMI_WEBSITE_ID is set, so a clone without the analytics
+stack running emits nothing at all.
+
+  data-exclude-hash   The map and the explorer keep their whole state in the
+                      URL fragment, so every pan, filter and record click
+                      would otherwise mint a brand-new "page". Pageviews stay
+                      as clean paths; what happens inside a page is recorded
+                      as a named custom event instead (window.LSTrack).
+  data-do-not-track   Honour the browser's DNT signal without us doing
+                      anything server-side.
+{% endcomment %}
+{% if UMAMI_WEBSITE_ID %}
+  <script defer src="/s/t.js"
+          data-website-id="{{ UMAMI_WEBSITE_ID }}"
+          data-exclude-hash="true"
+          data-do-not-track="true"></script>
+  <script>
+    /* One tiny shim so call sites never have to care whether analytics is
+     * loaded, blocked, disabled by DNT, or switched off entirely. Every
+     * tracking call in this codebase goes through LSTrack.event and is
+     * therefore safe to leave in place unconditionally. */
+    window.LSTrack = {
+      event: function (name, data) {
+        try {
+          if (window.umami && typeof window.umami.track === 'function') {
+            window.umami.track(name, data || {});
+          }
+        } catch (e) { /* analytics must never break a page */ }
+      }
+    };
+  </script>
+{% else %}
+  <script>window.LSTrack = { event: function () {} };</script>
+{% endif %}

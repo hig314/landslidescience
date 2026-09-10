@@ -25,6 +25,17 @@
       <a href="{% url 'inventory:manage_import' %}" class="inv-action-btn">⬆ Import GeoJSON</a>
       <a href="{% url 'inventory:rules' %}" class="inv-action-btn inv-action-btn-light">ƒ Rules</a>
       <a href="{% url 'inventory:manage_settings' %}" class="inv-action-btn inv-action-btn-light">⚙ Map settings</a>
+      {% comment %}
+      Traffic analytics live in Umami's own dashboard, not here — it already
+      does sessions, referrers, geo and custom events better than a page we'd
+      maintain. This is just the door. Hidden until UMAMI_PUBLIC_URL is set,
+      so environments without the analytics stack show nothing broken.
+      {% endcomment %}
+      {% if UMAMI_PUBLIC_URL and user.is_superuser %}
+        <a href="{{ UMAMI_PUBLIC_URL }}" target="_blank" rel="noopener"
+           class="inv-action-btn inv-action-btn-light"
+           title="Site traffic: pages, referrers, and the custom events for record opens, explorer use and downloads">📈 Traffic</a>
+      {% endif %}
       {% if user.is_superuser %}
         <a href="/admin/" class="inv-action-btn inv-action-btn-light" title="Django admin (superusers only)">🛠 Django admin</a>
       {% endif %}

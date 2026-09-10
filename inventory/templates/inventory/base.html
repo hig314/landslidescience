@@ -10,6 +10,7 @@
   <link rel="icon" type="image/x-icon" href="{% static 'inventory/img/favicon.ico' %}">
   <link rel="stylesheet" href="{% static 'inventory/css/main.css' %}">
   {% block extra_styles %}{% endblock %}
+  {% include '_analytics.html' %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
   <header class="inv-header">
@@ -36,6 +37,7 @@
                   aria-haspopup="true" aria-expanded="false">⬇ Download ▾</button>
           <span class="inv-dl-menu hidden" id="dl-menu" role="menu">
             <a href="{% url 'inventory:export' %}" role="menuitem"
+               data-umami-event="download" data-umami-event-kind="geojson_zip"
                title="GeoJSON + QGIS styles, zipped">Zip of data files</a>
             {% block download_extra %}{% endblock %}
           </span>

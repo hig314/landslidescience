@@ -293,6 +293,9 @@
     MeasureControl.prototype.onRemove = function () { /* not used */ };
 
     MeasureControl.prototype._setMode = function (mode) {
+        if (mode !== 'idle') {
+            window.LSTrack && LSTrack.event('map_tool', { tool: 'measure_' + mode });
+        }
         // Mutual exclusion with the draw-new tool — don't start measuring mid-draw.
         if (mode !== 'idle' && this._map.__drawActive) return;
         if (this._mode === mode) return;
@@ -1880,6 +1883,7 @@
             return;
         }
         _currentBasemap = id;
+        window.LSTrack && LSTrack.event('basemap', { id: id });
         // Visual selection across the places it appears (the redundant
         // pinned quick-select was removed; the Reference maps tab owns
         // basemap choice).
@@ -2411,6 +2415,7 @@
     }
 
     function _swipeEnable(basemapId) {
+        if (!_swipe.on) window.LSTrack && LSTrack.event('map_tool', { tool: 'wiper' });
         var hadMap = !!_swipe.map;
         if (basemapId) _swipe.basemapId = basemapId;
         _swipeEnsure();
@@ -2582,6 +2587,9 @@
         }
         cb.addEventListener('change', function () {
             st[side] = cb.checked;
+            if (cb.checked) {
+                window.LSTrack && LSTrack.event('overlay', { id: ov.id, side: side });
+            }
             _ovSaveState();
             _ovApplyAll();
             paint();
@@ -4831,6 +4839,13 @@
     }
 
     function renderDetail(d) {
+        // Analytics: the single most useful signal on this site — which
+        // records get looked at. LSTrack no-ops when analytics is off or
+        // blocked (see landslidescience/templates/_analytics.html).
+        window.LSTrack && LSTrack.event('landslide_open', {
+            id: d.id, name: d.unique_name,
+            type: d.landslide_type, cls: d.landslide_class
+        });
         _lastDetail = { id: d.id, name: d.unique_name };   // trace-overlay link target
         var html = '';
         var stories = d.planet_stories || [];
@@ -7175,6 +7190,9 @@
     (function () {
         var goBtn = document.getElementById('exp-go');
         if (!goBtn || !window.LSExport) return;
+        goBtn.addEventListener('click', function () {
+            window.LSTrack && LSTrack.event('download', { kind: 'map_png' });
+        });
         var panel = document.getElementById('export-panel');
         var closeBtn = document.getElementById('export-close');
         if (closeBtn) closeBtn.addEventListener('click', function () {
@@ -7378,6 +7396,7 @@
             }
             _active = on;
             map.__insarActive = on;
+            if (on) window.LSTrack && LSTrack.event('map_tool', { tool: 'insar' });
             if (_btn) _btn.classList.toggle('active', on);
             map.getCanvas().style.cursor = on ? 'crosshair' : '';
             if (on) { fp.open(); draw(); }

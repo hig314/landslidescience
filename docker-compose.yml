@@ -5,3 +5,29 @@ services:
       - .env
     volumes:
       - ./data:/app/data
+
+  # Self-hosted Umami — traffic analytics for landslidescience.org.
+  # PostgreSQL-only since v3; it runs `prisma migrate deploy` itself on every
+  # start, so there is no separate migration step. Its database lives in the
+  # SAME tethys_db instance that already holds `landslides` (a second Postgres
+  # container is not worth 200 MB on a 4 GB box), but under its own `umami`
+  # role so analytics and landslide data never share credentials.
+  #
+  # Nothing points at this container directly from the public internet: the
+  # browser talks to /s/* on landslidescience.org and Django forwards
+  # (inventory/analytics.py). See CLAUDE.md "Traffic analytics".
+  umami:
+    image: ghcr.io/umami-software/umami:3.3.1
+    restart: unless-stopped
+    environment:
+      DATABASE_TYPE: postgresql
+      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD}@${TETHYS_DB_HOST}:${TETHYS_DB_PORT}/umami
+      APP_SECRET: ${UMAMI_APP_SECRET}
+      # Real client IP arrives via the Django forwarder, not the socket.
+      CLIENT_IP_HEADER: x-forwarded-for
+      DISABLE_TELEMETRY: "1"
+      # Bot traffic is noise in a site this small; drop it at ingest.
+      ENABLE_BOT_FILTER: "1"
+    env_file:
+      - .env
+

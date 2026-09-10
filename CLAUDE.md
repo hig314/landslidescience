@@ -56,6 +56,7 @@ pushing untested code to GH.
 | `/inventory/manage/settings/` | inventory_editors + Hig | Map display settings (colors, point sizes) |
 | `/inventory/export/` | public *(behind preview password)* | Download zip of GeoJSON + QGIS .qml styles |
 | `/inventory/manage/import/` | inventory_editors + Hig | Upload zip/.geojson; preview diff; confirm to apply |
+| `/s/t.js`, `/s/api/send` | public | First-party analytics beacon, forwarded to Umami (`landslidescience/analytics.py`) |
 | `/files/<name>` | public *(unlisted)* | Serves an admin-uploaded `HostedFile` by its URL token (no auth, no preview barrier). |
 | `/admin/` | site_admins (Page + HostedFile perms) + Hig | Django admin — Page + HostedFile models + User/Group management |
 
@@ -600,6 +601,91 @@ docker compose exec web python manage.py archive_planet_stories
 slugs added through the edit form, classifies them by HEAD-probing GCS, and
 stamps disk-archive metadata. `--no-probe` skips the GCS check (useful when
 offline). `--dry-run` rolls back at the end.
+
+## Traffic analytics — self-hosted Umami
+
+Who visits, what they read, and which of the site's tools actually get used.
+Umami v3 (MIT, cookieless, no consent banner needed), self-hosted alongside
+the app. Code: `landslidescience/analytics.py` (the forwarder),
+`landslidescience/templates/_analytics.html` (the tag + `LSTrack` shim),
+`umami` service in the compose files.
+
+| Piece | Where |
+|---|---|
+| Umami container | `umami` service; image pinned `ghcr.io/umami-software/umami:3.3.1` (~170 MB resident) |
+| Its database | `umami` DB **in the existing `tethys_db`**, own `umami` role — a second Postgres is not worth 200 MB on a 4 GB box |
+| Beacon | `/s/t.js` + `/s/api/send` on landslidescience.org, forwarded by Django |
+| Dashboard | Umami's own UI (`UMAMI_PUBLIC_URL`); linked from `/inventory/manage/` for superusers |
+| Secrets | `.env`: `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET`, `UMAMI_WEBSITE_ID`, `UMAMI_PUBLIC_URL` |
+
+**The beacon is first-party on purpose.** Filter lists match `umami.js` as a
+filename, `umami.` as a hostname label, and `/api/send` under a recognisable
+host — and this site's audience runs blockers, so the measurements lost would
+not be a random sample. Nothing on the page names Umami: the browser loads
+`/s/t.js` and posts to `/s/api/send`, both on landslidescience.org. No
+`data-host-url` is needed because the tracker derives its endpoint from its
+own script URL (`dirname(script.src) + '/api/send'`) — **serving the script
+from `/s/` is what points the beacon at `/s/`**, so if you move one you move
+both.
+
+Two things must survive the forward or the data is *wrong* rather than merely
+missing: the **client IP** (`X-Forwarded-For`, first entry, matched by
+`CLIENT_IP_HEADER=x-forwarded-for` on the container — it is what Umami hashes
+into the session id and resolves to a country) and the **`x-umami-*` headers**
+(v3 carries the website id and hostname there, and the tracker reads
+`{cache, disabled}` off the response; break either direction and every visit
+fragments into one-hit sessions). Cookies are deliberately not forwarded.
+Any upstream failure returns a quiet 204 — analytics must never break a page.
+
+**`data-exclude-hash="true"` is load-bearing.** The map and the explorer keep
+their entire state in the URL fragment, so without it every pan, filter and
+record click would mint a brand-new "page" and the pageview table would be
+useless. Pageviews stay clean paths; what happens *inside* a page is recorded
+as a named custom event instead.
+
+**Custom events** — all emitted through `window.LSTrack.event(name, data)`,
+which no-ops when analytics is off, blocked, or DNT is set, so call sites need
+no guards of their own:
+
+| Event | Where | Carries |
+|---|---|---|
+| `landslide_open` | `renderDetail` (map.js) | id, name, type, class |
+| `basemap` / `overlay` / `map_tool` | `setBasemap`, overlay checkbox, wiper / measure / InSAR | which one |
+| `explore_filter` / `explore_group` / `explore_chart` / `explore_preset` | explore.js | **column names only, never the values typed** |
+| `download` | zip link, explorer CSV/TSV, map PNG | kind, row count |
+| `explore_to_map` | "Show on map" | selection size |
+
+**Privacy stance**: cookieless, DNT honoured client-side via
+`data-do-not-track`, IP used only for the session hash and country then
+discarded (city/region need a MaxMind DB we do not ship, so they stay empty),
+and no filter *values* are ever recorded — only which column was used.
+
+**Deploying it** (the analytics stack is NOT part of a plain code deploy):
+1. In prod `.env`: `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET` (`openssl rand -hex 32`), later `UMAMI_WEBSITE_ID`, `UMAMI_PUBLIC_URL`.
+2. Create the role + database in `tethys_db`: `CREATE ROLE umami LOGIN PASSWORD '…'; CREATE DATABASE umami OWNER umami;`
+3. `docker compose … up -d umami` — it runs its own Prisma migrations on start; watch for "Database is up to date."
+4. Create the website record via its API (`POST /api/websites`), put the returned id in `UMAMI_WEBSITE_ID`, recreate `web`.
+5. **Change the default `admin` / `umami` password immediately** (`POST /api/me/password`, or in the UI).
+6. Caddy site block for the dashboard subdomain + the DNS A record — see below.
+
+**The Caddy step lives in the other repo.** `/opt/monitoring` is a clone of
+`tethys-timescale-grafana`, and its `Caddyfile` is untracked (hand-maintained
+on the droplet). Do not edit it from this repo's work — coordinate. The block
+needed is:
+
+```
+stats.landslidescience.org {
+    encode gzip
+    reverse_proxy umami:3000
+}
+```
+
+plus a DNS A record for `stats` → the droplet. Nothing else here depends on
+it: **collection works without any Caddy change**, because the beacon rides
+the existing landslidescience.org route. Only reading the dashboard needs it.
+
+**Note on expectations**: `robots.txt` still disallows everything while the
+site is pre-release, so traffic will be near-zero until that is lifted.
 
 ## Inventory explorer — `/inventory/table/`
 

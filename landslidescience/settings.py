@@ -12,6 +12,17 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
+# Self-hosted Umami, reached over the Docker network only — the browser never
+# talks to it directly (see landslidescience/analytics.py). UMAMI_WEBSITE_ID
+# empty = analytics off: the templates then emit no tracker tag at all, which
+# is what a fresh clone or a developer without the stack running should get.
+UMAMI_INTERNAL_URL = os.environ.get('UMAMI_INTERNAL_URL', 'http://umami:3000')
+UMAMI_WEBSITE_ID = os.environ.get('UMAMI_WEBSITE_ID', '')
+# Where a human goes to READ the analytics (the Umami dashboard). Separate
+# from UMAMI_INTERNAL_URL, which is the container address the beacon uses.
+# Empty = no link is shown, which is correct until the subdomain exists.
+UMAMI_PUBLIC_URL = os.environ.get('UMAMI_PUBLIC_URL', '')
+
 # Trust X-Forwarded-Proto from Caddy so Django knows the request was HTTPS.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
@@ -68,7 +79,7 @@ ROOT_URLCONF = 'landslidescience.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'landslidescience' / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -76,6 +87,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'inventory.context_processors.user_roles',
+                'landslidescience.analytics.website_id',
             ],
         },
     },

@@ -22,6 +22,15 @@ services:
       - tethys_internal
     command: python manage.py runserver 0.0.0.0:8000
 
+  umami:
+    # 8003 so the dashboard is reachable in dev without a proxy.
+    # (8000 = tethys, 8001 = this site, 8002 = ad-hoc test proxies.)
+    ports:
+      - "127.0.0.1:8003:3000"
+    networks:
+      - default
+      - tethys_internal
+
 networks:
   # Joins the local Tethys stack's internal network so the inventory app can
   # reach tethys_db via Docker DNS (host=tethys_db). Requires the local Tethys

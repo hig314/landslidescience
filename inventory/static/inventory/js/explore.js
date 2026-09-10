@@ -659,6 +659,11 @@
         var apply = el('button', 'xp-mini xp-on', 'Apply');
         apply.addEventListener('click', function () {
             var f = draft();
+            // Analytics: which fields people interrogate is the whole point of
+            // knowing whether this page earns its place. Column name and filter
+            // kind only — never the values someone typed.
+            window.LSTrack && LSTrack.event(f ? 'explore_filter' : 'explore_filter_clear',
+                                            { col: name, kind: f ? f.k : null });
             if (f) S.filters[name] = f; else delete S.filters[name];
             closePop(); refresh();
         });
@@ -1000,6 +1005,7 @@
             b.style.textAlign = 'left';
             b.style.marginBottom = '4px';
             b.addEventListener('click', function () {
+                window.LSTrack && LSTrack.event('explore_preset', { preset: k });
                 S.cols = D.presets[k].slice();
                 closePop(); render(); writeHash();
             });
@@ -1075,6 +1081,12 @@
         var foot = el('div', 'xp-panel-foot');
         var go = el('button', 'xp-mini xp-on', 'Apply');
         go.addEventListener('click', function () {
+            if (byS.value) {
+                window.LSTrack && LSTrack.event('explore_group', {
+                    by: byS.value, by2: by2S.value || null,
+                    measure: mS.value || null, agg: mS.value ? aggS.value : 'count'
+                });
+            }
             if (!byS.value) { S.group = null; }
             else S.group = {
                 by: byS.value, by2: by2S.value || null,
@@ -1272,6 +1284,10 @@
         var foot = el('div', 'xp-panel-foot');
         var go = el('button', 'xp-mini xp-on', 'Show');
         go.addEventListener('click', function () {
+            if (sel.value) {
+                window.LSTrack && LSTrack.event('explore_chart',
+                                                { col: sel.value, log: lcb.checked });
+            }
             S.chart = sel.value ? { c: sel.value, log: lcb.checked } : null;
             closePop(); renderChart(); writeHash();
         });
@@ -1469,6 +1485,8 @@
         var body = el('div', 'xp-panel-body');
 
         add('⬇  Download CSV', function () {
+            window.LSTrack && LSTrack.event('download',
+                                            { kind: 'explore_csv', rows: rows.length });
             var blob = new Blob([buildDelim(',')], { type: 'text/csv;charset=utf-8' });
             var a = el('a');
             a.href = URL.createObjectURL(blob);
@@ -1477,6 +1495,8 @@
             setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
         });
         add('⧉  Copy for Excel (TSV)', function (b) {
+            window.LSTrack && LSTrack.event('download',
+                                            { kind: 'explore_tsv', rows: rows.length });
             var text = buildDelim('\t');
             navigator.clipboard.writeText(text).then(function () {
                 b.textContent = '✓  Copied ' + rows.length + ' rows';
@@ -1519,6 +1539,7 @@
             return;
         }
         if (!rows.length) { alert('Nothing selected.'); return; }
+        window.LSTrack && LSTrack.event('explore_to_map', { n: rows.length });
         var ids = rows.map(function (i) { return D.data.id[i]; }).join(',');
         window.open(XP_MAP + '#ids=' + ids, '_blank', 'noopener');
     }

@@ -7,6 +7,16 @@ services:
       - external
       - internal
 
+  umami:
+    container_name: umami
+    restart: unless-stopped
+    # No published port: reachable only from monitoring_external (Caddy, for
+    # the dashboard subdomain) and monitoring_internal (tethys_db).
+    ports: []
+    networks:
+      - external
+      - internal
+
 networks:
   external:
     name: monitoring_external

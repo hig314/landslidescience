@@ -96,11 +96,18 @@ def glacierfit_tile(request, var, z, x, y):
 # over HTTP range requests, so they need the range-capable views in
 # lidar_serve.py rather than django.views.static.serve (which, as of Django
 # 5.2, ignores Range entirely). Built by tools/lidar/build_lidar.py.
-from landslidescience import lidar_serve  # noqa: E402
+from landslidescience import analytics, lidar_serve  # noqa: E402
 
 
 urlpatterns = [
     path('robots.txt', robots_txt),
+    # First-party analytics beacon. The path is deliberately terse and
+    # un-Umami-shaped: filter lists match on `umami` and on `/api/send` under
+    # a recognisable host, and this site's audience runs blockers. See
+    # landslidescience/analytics.py.
+    path('s/t.js', analytics.script),
+    path('s/api/send', analytics.send),
+    path('s/health', analytics.health),
     path('lidar/', lidar_serve.preview),
     path('lidar/catalog.geojson', lidar_serve.catalog),
     re_path(r'^lidar/pmtiles/(?P<dataset_id>[a-z0-9_]+)\.pmtiles$',
