@@ -1525,6 +1525,7 @@
     }
     if (typeof maplibregl !== 'undefined' && maplibregl.addProtocol) {
         maplibregl.addProtocol('operacolor', _operaLoader);
+        maplibregl.addProtocol('distcolor', _distLoader);
         // Pre-baked trace imagery arrives as one PMTiles archive per render
         // mode (tools/imagery/bake_trace.py) and is read by range requests.
         if (typeof pmtiles !== 'undefined') {
@@ -1544,6 +1545,283 @@
             maxzoom: 12,
             attribution: 'OPERA DISP-S1 velocity © NASA/JPL · mosaic ASF'
         };
+    }
+
+
+    // ---------------------------------------------------------------------------
+    // OPERA DIST — land-surface disturbance (NASA GIBS upstream, proxied and
+    // cached same-origin by inventory/dist.py). Two layers over one code space:
+    // DIST-ALERT (daily, a live alert state that RESETS each year) and DIST-ANN
+    // (the annual summary, which does not). Both are VEG-DIST-STATUS: GIBS
+    // publishes no GEN-* (generic / non-vegetated) layer, so above treeline —
+    // bare rock, talus, fresh debris — these show nothing. That gap needs the
+    // LP DAAC COGs, not this route.
+    //
+    // Tiles arrive already coloured by GIBS as an 8-bit palette PNG, so unlike
+    // the OPERA velocity tiles there is no value to decode. `distcolor` still
+    // canvas-decodes them for one reason: GIBS paints class 0 "no disturbance"
+    // as opaque #121212, which blacks out the basemap over ~97% of a typical
+    // tile. The loader maps GIBS's nine RGB triples back to class codes and
+    // repaints from DIST_CLASSES, where 0 is transparent.
+    //
+    // Colours are GIBS's own, kept byte-identical to their colormap so this
+    // matches NASA Worldview pixel-for-pixel. tools/dist_color_status.txt is
+    // the shared source of truth (it also feeds the export legend via
+    // /inventory/api/ramps/) — change both together or they drift.
+    // ---------------------------------------------------------------------------
+    var DIST_TILE_V = '1';
+    // [class code, GIBS rgb, our rgba]. GIBS rgb is what arrives; our rgba is
+    // what we paint. Only class 0 differs: opaque near-black -> transparent.
+    var DIST_CLASSES = [
+        [0, [ 18,  18,  18], [  0,   0,   0,   0]],
+        [1, [  0,  85,  85], [  0,  85,  85, 255]],
+        [2, [137, 127,  78], [137, 127,  78, 255]],
+        [3, [222, 224,  67], [222, 224,  67, 255]],
+        [4, [  0, 136, 136], [  0, 136, 136, 255]],
+        [5, [228, 135,  39], [228, 135,  39, 255]],
+        [6, [224,  27,   7], [224,  27,   7, 255]],
+        [7, [119, 119, 119], [119, 119, 119, 255]],
+        [8, [221, 221, 221], [221, 221, 221, 255]]
+    ];
+    // Exact-match lookup keyed by packed GIBS rgb, holding the PAINTED classes
+    // (1-8) only. GIBS serves these as an 8-bit COLORMAP PNG carrying no gAMA
+    // / sRGB / iCCP chunk (verified on a live tile, 2026-09-10), so the decoded
+    // bytes are the palette entries verbatim and an exact match is enough.
+    //
+    // Class 0 is deliberately NOT in the table: everything unrecognised falls
+    // through to transparent, which makes 0 ("no disturbance", GIBS #121212)
+    // and any future palette change fail the same safe way. Matching 0 by
+    // colour instead would mean that one missed match paints opaque near-black
+    // over ~97% of every tile — an unusable map — and that is too sharp an
+    // edge to balance on a colour comparison.
+    var _distLut = (function () {
+        var m = new Map();
+        DIST_CLASSES.forEach(function (c) {
+            if (!c[2][3]) return;                    // alpha 0 -> not painted
+            m.set((c[1][0] << 16) | (c[1][1] << 8) | c[1][2], c[2]);
+        });
+        return m;
+    })();
+
+    // Which date each DIST layer is showing. '' means "latest", which resolves
+    // against the GIBS time domain once /api/dist_dates/ answers; until then a
+    // conservative fallback keeps the source definable at map-build time (the
+    // layers start hidden, so the swap when the real answer lands is unseen).
+    var _distDomains = null;              // {alert: {domain, default}, ann: {…}}
+    var _distDatesPending = null;
+    function _distFallbackDate(layer) {
+        if (layer === 'ann') return (new Date().getUTCFullYear() - 1) + '-01-01';
+        var d = new Date(Date.now() - 3 * 86400000);
+        return d.toISOString().slice(0, 10);
+    }
+    // Expand an ISO8601 domain ('a/b/P1D,c/d/P1D') into an ascending date list.
+    // Ranges, not an expanded list, come over the wire (~500 B vs ~17 kB); the
+    // control has to walk them anyway to step past the gaps in GIBS's coverage.
+    function _distExpand(domain) {
+        var out = [];
+        (domain || '').split(',').forEach(function (chunk) {
+            var p = chunk.trim().split('/');
+            if (!p[0]) return;
+            if (p.length < 2) { out.push(p[0]); return; }
+            var step = p[2] === 'P1Y' ? 'y' : 'd';
+            var cur = new Date(p[0] + 'T00:00:00Z'), end = new Date(p[1] + 'T00:00:00Z');
+            var guard = 0;
+            while (cur <= end && guard++ < 20000) {
+                out.push(cur.toISOString().slice(0, 10));
+                if (step === 'y') cur.setUTCFullYear(cur.getUTCFullYear() + 1);
+                else cur.setUTCDate(cur.getUTCDate() + 1);
+            }
+        });
+        return out;
+    }
+    function _distMakeDate(layer, storeKey) {
+        var explicit = '';
+        try { explicit = localStorage.getItem(storeKey) || ''; } catch (e) {}
+        return {
+            layer: layer,
+            // The date actually used to build tile URLs.
+            get: function () {
+                if (explicit) return explicit;
+                var d = _distDomains && _distDomains[layer];
+                return (d && d['default']) || _distFallbackDate(layer);
+            },
+            isLatest: function () { return !explicit; },
+            // '' pins the row back to "latest" (and keeps tracking it).
+            set: function (v) {
+                explicit = v || '';
+                try {
+                    if (explicit) localStorage.setItem(storeKey, explicit);
+                    else localStorage.removeItem(storeKey);
+                } catch (e) {}
+            },
+            list: function () {
+                var d = _distDomains && _distDomains[layer];
+                return d ? _distExpand(d.domain) : [];
+            }
+        };
+    }
+    var _distAlertDate = _distMakeDate('alert', 'ls_dist_alert_date');
+    var _distAnnDate   = _distMakeDate('ann',   'ls_dist_ann_date');
+
+    // One fetch per session, shared by both rows and both panes.
+    function _distLoadDates() {
+        if (_distDatesPending) return _distDatesPending;
+        _distDatesPending = fetch(API_BASE + 'api/dist_dates/')
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (j) {
+                _distDomains = (j && j.layers) || null;
+                return _distDomains;
+            })
+            .catch(function () { return null; });
+        return _distDatesPending;
+    }
+
+    var _distEmptyTilePromise = null;
+    function _distEmptyTile() {
+        if (!_distEmptyTilePromise) {
+            _distEmptyTilePromise = new Promise(function (resolve, reject) {
+                var c = document.createElement('canvas');
+                c.width = c.height = 1;
+                c.toBlob(function (blob) {
+                    if (!blob) { reject(new Error('empty tile failed')); return; }
+                    blob.arrayBuffer().then(function (buf) { resolve(buf); }, reject);
+                }, 'image/png');
+            });
+        }
+        return _distEmptyTilePromise.then(function (buf) { return { data: buf }; });
+    }
+    function _distLoader(params, abortController) {
+        // distcolor://<layer>/<date>/{z}/{x}/{y}?v=N  →  same-origin proxy tile,
+        // canvas-decoded, class 0 dropped to transparent.
+        var u = new URL(params.url.replace('distcolor://', 'https://dist.invalid/'));
+        var p = u.pathname.split('/').filter(Boolean);   // [layer, date, z, x, y]
+        var tileUrl = API_BASE + 'tiles/dist/' + p[0] + '/' + p[1] + '/' + p[2] + '/' +
+                      p[3] + '/' + p[4] + '.png?v=' + (u.searchParams.get('v') || '1');
+        return fetch(tileUrl, { signal: abortController ? abortController.signal : undefined })
+            .then(function (r) {
+                // 404 = no coverage, or a date inside a gap in the GIBS domain.
+                if (r.status === 404) return null;
+                if (!r.ok) throw new Error('dist tile HTTP ' + r.status);
+                return r.blob().then(function (b) { return createImageBitmap(b); });
+            })
+            .then(function (bmp) {
+                if (!bmp) return _distEmptyTile();
+                var c = document.createElement('canvas');
+                c.width = c.height = 256;
+                var ctx = c.getContext('2d');
+                ctx.drawImage(bmp, 0, 0);
+                var img = ctx.getImageData(0, 0, 256, 256), d = img.data;
+                for (var i = 0; i < d.length; i += 4) {
+                    if (d[i + 3] === 0) continue;    // GIBS no-data (index 255)
+                    var hit = _distLut.get((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+                    if (hit) {
+                        d[i] = hit[0]; d[i + 1] = hit[1];
+                        d[i + 2] = hit[2]; d[i + 3] = hit[3];
+                    } else {
+                        d[i] = d[i + 1] = d[i + 2] = d[i + 3] = 0;   // incl. class 0
+                    }
+                }
+                ctx.putImageData(img, 0, 0);
+                return new Promise(function (resolve, reject) {
+                    c.toBlob(function (blob) {
+                        if (!blob) { reject(new Error('distcolor toBlob failed')); return; }
+                        blob.arrayBuffer().then(function (buf) { resolve({ data: buf }); }, reject);
+                    }, 'image/png');
+                });
+            });
+    }
+
+    function _distSourceDef(dateCtl) {
+        return {
+            type: 'raster',
+            tiles: ['distcolor://' + dateCtl.layer + '/' + dateCtl.get() +
+                    '/{z}/{x}/{y}?v=' + DIST_TILE_V],
+            tileSize: 256,
+            maxzoom: 12,
+            attribution: 'OPERA DIST-ALERT/ANN-HLS © NASA/JPL · LP DAAC · ' +
+                         'imagery NASA GIBS'
+        };
+    }
+
+    // Descriptor consumed by _overlayRow to draw the date control. Kept in the
+    // same shape as `variant` (get/set + a title): global rather than per-pane,
+    // because the two panes show the same product and a date that differed
+    // between them would read as a wiper comparison it isn't.
+    function _distStepper(dateCtl, label, kind) {
+        return {
+            label: label,
+            kind: kind,                 // 'date' (free date input) | 'select'
+            title: kind === 'date'
+                ? 'Disturbance state as of this date. Blank/latest tracks the ' +
+                  'newest date NASA GIBS has published.'
+                : 'Annual summary year.',
+            get: function () { return dateCtl.get(); },
+            isLatest: function () { return dateCtl.isLatest(); },
+            set: function (v) { dateCtl.set(v); },
+            list: function () { return dateCtl.list(); },
+            // Options for the 'select' kind: value + what the reader sees.
+            options: function () {
+                return dateCtl.list().map(function (d) {
+                    return { value: d, label: kind === 'select' ? d.slice(0, 4) : d };
+                });
+            },
+            // Nearest valid date to `v`, so a typed date inside one of GIBS's
+            // coverage gaps snaps to real data instead of silently drawing an
+            // empty layer.
+            snap: function (v) {
+                var list = dateCtl.list();
+                if (!list.length || !v) return v;
+                var best = list[0], bestGap = Infinity;
+                var t = Date.parse(v + 'T00:00:00Z');
+                if (isNaN(t)) return list[list.length - 1];
+                for (var i = 0; i < list.length; i++) {
+                    var gap = Math.abs(Date.parse(list[i] + 'T00:00:00Z') - t);
+                    if (gap < bestGap) { bestGap = gap; best = list[i]; }
+                }
+                return best;
+            },
+            // Walk the valid list, skipping GIBS's gaps. dir = -1 | +1.
+            step: function (dir) {
+                var list = dateCtl.list();
+                if (!list.length) return null;
+                var cur = dateCtl.get();
+                var i = list.indexOf(cur);
+                if (i < 0) {                       // current isn't in the list
+                    cur = this.snap(cur);
+                    i = list.indexOf(cur);
+                    if (i < 0) return null;
+                }
+                var j = Math.min(list.length - 1, Math.max(0, i + dir));
+                return list[j];
+            },
+            latest: function () {
+                var list = dateCtl.list();
+                return list.length ? list[list.length - 1] : '';
+            },
+            bounds: function () {
+                var list = dateCtl.list();
+                return list.length ? { min: list[0], max: list[list.length - 1] } : null;
+            }
+        };
+    }
+
+    // Rows that hold a stepper register here so the date list arriving late can
+    // repaint them (and re-point any layer still following "latest").
+    var _distDatesApplied = false;
+    function _distDatesReady() {
+        return _distLoadDates().then(function () {
+            if (_distDatesApplied) return;   // idempotent: basemap switches re-call
+            _distDatesApplied = true;
+            OVERLAYS.forEach(function (ov) {
+                if (!ov.stepper) return;
+                // A row pinned to "latest" was built against the fallback date;
+                // now that the real newest date is known, re-point it.
+                if (ov.stepper.isLatest() && map && map.getLayer(ov.layerId)) {
+                    _ovSwapSource(ov);
+                }
+            });
+            _ovSyncUI();
+        });
     }
 
     // ITS_LIVE + Hugonnet glacier overlays are defined ONCE in the shared
@@ -1588,6 +1866,20 @@
           label: 'Bed overdeepenings', sub: 'closed-basin depth >10 m — future lakes / fjord arms',
           sourceDef: function () { return _iceboostSourceDef('overdeep'); },
           defOpacity: 0.9 },
+        // OPERA DIST last, so alerts draw over the glacier fields. Both carry
+        // a `stepper` — the first overlays whose content depends on a date.
+        { id: 'dist-alert', layerId: 'ov-dist-alert', sourceId: 'ov-dist-alert-src',
+          label: 'Surface disturbance — alert',
+          sub: 'OPERA DIST-ALERT-HLS, 30 m · vegetated terrain only',
+          sourceDef: function () { return _distSourceDef(_distAlertDate); },
+          defOpacity: 0.85,
+          stepper: _distStepper(_distAlertDate, 'date', 'date') },
+        { id: 'dist-ann', layerId: 'ov-dist-ann', sourceId: 'ov-dist-ann-src',
+          label: 'Surface disturbance — annual',
+          sub: 'OPERA DIST-ANN-HLS · summary year, no mid-year reset',
+          sourceDef: function () { return _distSourceDef(_distAnnDate); },
+          defOpacity: 0.85,
+          stepper: _distStepper(_distAnnDate, 'year', 'select') },
     ]);
     var ICEBOOST_TILE_V = '2';   // v2: banded bed hypsometry (v1 continuous)
     var ICEBOOST_ATTR = 'Ice thickness: IceBoost v2.0 (Maffezzoli et al. 2025, CC-BY 4.0)';
@@ -1733,6 +2025,9 @@
     // Add all overlay sources+layers to a map (idempotent; called wherever the
     // susceptibility layers used to be added, main + swipe).
     function _ovEnsure(m, beforeId) {
+        // DIST layers are built against a fallback date until the GIBS time
+        // domain answers; ask for it the moment the layers exist.
+        if (OVERLAYS.some(function (ov) { return !!ov.stepper; })) _distDatesReady();
         OVERLAYS.forEach(function (ov) {
             if (!m.getSource(ov.sourceId)) m.addSource(ov.sourceId, ov.sourceDef());
             if (!m.getLayer(ov.layerId)) {
@@ -2577,6 +2872,104 @@
             row.appendChild(line3);
         }
 
+        // Optional date stepper (OPERA DIST). Global like `variant`, not
+        // per-pane: both panes show the same product, so a date that differed
+        // between them would read as a wiper comparison it isn't. Changing it
+        // swaps the tile source on both maps. NOT encoded into the `ov=` hash
+        // — a shared link therefore lands on "latest", which is the right
+        // default for an alert layer; pin-the-date-in-a-link is future work.
+        var step = ov.stepper, line4 = null, dEl = null, latestBtn = null;
+        if (step) {
+            line4 = document.createElement('div');
+            line4.style.cssText = 'display:flex;align-items:center;gap:4px;' +
+                                  'margin-top:4px;font-size:10px;color:#777;';
+            line4.title = step.title || '';
+            var sLbl = document.createElement('span');
+            sLbl.textContent = step.label;
+            line4.appendChild(sLbl);
+
+            // A function EXPRESSION, not a declaration: this lives inside an
+            // `if` block, and block-scoped declarations are the one place this
+            // file's `var`-everywhere style would quietly change meaning.
+            var commit = function (v) {
+                if (!v) return;              // step() at a clamp returns null
+                step.set(v);
+                _ovSwapSource(ov);           // both panes; the date is global
+                _ovSyncUI();                 // repaint the twin pane's row
+            };
+
+            if (step.kind === 'select') {
+                dEl = document.createElement('select');
+                dEl.style.cssText = 'flex:1;font-size:11px;padding:1px 2px;';
+                dEl.addEventListener('change', function () { commit(dEl.value); });
+                line4.appendChild(dEl);
+            } else {
+                var prev = document.createElement('button');
+                prev.type = 'button'; prev.textContent = '\u2039';
+                var next = document.createElement('button');
+                next.type = 'button'; next.textContent = '\u203a';
+                [prev, next].forEach(function (b) {
+                    b.style.cssText = 'flex:none;width:18px;padding:0;font-size:12px;' +
+                                      'line-height:16px;cursor:pointer;';
+                });
+                prev.title = 'Previous available date';
+                next.title = 'Next available date';
+                dEl = document.createElement('input');
+                dEl.type = 'date';
+                dEl.style.cssText = 'flex:1;font-size:11px;padding:1px 2px;min-width:0;';
+                // Typed dates snap to the nearest date GIBS actually has, so a
+                // date in one of its coverage gaps shows data, not a blank layer.
+                dEl.addEventListener('change', function () { commit(step.snap(dEl.value)); });
+                prev.addEventListener('click', function () { commit(step.step(-1)); });
+                next.addEventListener('click', function () { commit(step.step(1)); });
+                latestBtn = document.createElement('button');
+                latestBtn.type = 'button';
+                latestBtn.textContent = 'latest';
+                latestBtn.title = 'Track the newest date NASA GIBS has published';
+                latestBtn.style.cssText = 'flex:none;padding:0 4px;font-size:10px;' +
+                                          'line-height:16px;cursor:pointer;';
+                latestBtn.addEventListener('click', function () {
+                    step.set('');            // '' = follow latest
+                    _ovSwapSource(ov);
+                    _ovSyncUI();
+                });
+                line4.appendChild(prev);
+                line4.appendChild(dEl);
+                line4.appendChild(next);
+                line4.appendChild(latestBtn);
+            }
+            row.appendChild(line4);
+            // The date list arrives asynchronously; this resolves immediately
+            // on every row after the first.
+            _distDatesReady();
+        }
+
+        function paintStepper() {
+            if (!step) return;
+            var b = step.bounds();
+            if (step.kind === 'select') {
+                var opts = step.options();
+                if (dEl.options.length !== opts.length) {
+                    dEl.innerHTML = '';
+                    opts.forEach(function (o) {
+                        var el = document.createElement('option');
+                        el.value = o.value; el.textContent = o.label;
+                        dEl.appendChild(el);
+                    });
+                }
+                dEl.value = step.get();
+            } else {
+                dEl.value = step.get();
+                if (b) { dEl.min = b.min; dEl.max = b.max; }
+                // "latest" is a state, not just a button: show which one it is.
+                latestBtn.style.fontWeight = step.isLatest() ? '700' : '400';
+                latestBtn.style.opacity = step.isLatest() ? 1 : 0.6;
+            }
+            line4.style.opacity = st[side] ? 1 : 0.45;
+            Array.prototype.forEach.call(line4.querySelectorAll('input,select,button'),
+                function (el) { el.disabled = !st[side]; });
+        }
+
         function paint() {
             line2.style.opacity = st[side] ? 1 : 0.45;
             if (line3) {
@@ -2584,6 +2977,7 @@
                 vcb.disabled = !st[side];
                 line3.style.cursor = st[side] ? 'pointer' : 'default';
             }
+            paintStepper();
         }
         cb.addEventListener('change', function () {
             st[side] = cb.checked;
@@ -2624,6 +3018,8 @@
     var _OV_CATS = [
         { key: 'susc',  label: 'Landslide susceptibility', ids: ['susc-lw', 'susc-n10'] },
         { key: 'insar', label: 'InSAR ground motion',      ids: ['opera-asc', 'opera-desc'] },
+        { key: 'dist',  label: 'Surface disturbance (OPERA DIST)',
+          ids: ['dist-alert', 'dist-ann'] },
         { key: 'gsurf', label: 'Glacier surface',          ids: ['ice-v', 'ice-amp', 'ice-dvdt', 'ice-dhdt'] },
         { key: 'gbed',  label: 'Ice thickness & bed',      ids: ['ice-thick', 'ice-bed', 'ice-over'] },
     ];

@@ -1,0 +1,236 @@
+"""OPERA DIST (land-surface disturbance) tile proxy — NASA GIBS upstream.
+
+NASA's Global Imagery Browse Services publishes two OPERA disturbance layers
+as ready-coloured Web-Mercator WMTS pyramids, no Earthdata login required:
+
+    OPERA_L3_DIST-ALERT-HLS_Color_Index   daily,  2023-01-01 -> yesterday-ish
+    OPERA_L3_DIST-ANN-HLS_Color_Index     annual, 2023 / 2024 / 2025
+
+Both are the **VEG-DIST-STATUS** code space (see tools/dist_color_status.txt).
+GIBS publishes no GEN-* (generic / non-vegetated) layer — checked across both
+the epsg3857 and epsg4326 endpoints on 2026-09-10 — so anything above treeline
+(bare rock, talus, fresh debris on gravel) needs the LP DAAC COGs instead, not
+this route. That is a separate phase, not a knob here.
+
+Why proxy at all, when GIBS sends `Access-Control-Allow-Origin: *`?
+
+  1. GIBS sends `Cache-Control: no-store, no-cache, must-revalidate` on every
+     tile. Straight from the browser that means a refetch on every pan, and a
+     date-stepped animation would refetch every frame it had already seen.
+     Here the bytes land on disk once and go out immutable.
+  2. It keeps the upstream URL behind one constant, and keeps cached areas
+     serving if GIBS restructures.
+  3. Same-origin lets the `distcolor` protocol in map.js canvas-decode the
+     tiles (recolouring class 0 to transparent) without tainting the canvas.
+
+Tile axis order is the trap worth remembering: GIBS is {z}/{TileRow}/{TileCol}
+= z/y/x. Every other tile route in this app is z/x/y, so this route is z/x/y
+too and the swap happens HERE, in `_upstream`, once.
+
+Disk cache: data/dist_tiles/<layer>/<date>/<z>/<x>/<y>.png (volume-mounted,
+gitignored). Upstream 404s — no coverage, or a date inside one of the gaps in
+the GIBS time domain — are cached as empty `.404` markers so we don't re-ask.
+Tiles for a date older than FRESH_DAYS are treated as final; the newest few
+days are still being filled in upstream, so those re-fetch after FRESH_TTL.
+
+`python manage.py purge_dist_tiles` clears the cache (bump DIST_TILE_V in
+map.js at the same time so browser caches roll too).
+
+Attribution: OPERA DIST-ALERT-HLS / DIST-ANN-HLS (c) NASA/JPL, distributed by
+LP DAAC; imagery service by NASA GIBS.
+"""
+import datetime
+import json
+import logging
+import re
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+from django.conf import settings
+from django.http import FileResponse, HttpResponseNotFound, JsonResponse
+from django.views.decorators.http import require_safe
+
+log = logging.getLogger(__name__)
+
+# Our short key -> GIBS layer identifier. The keys are public URL surface.
+LAYERS = {
+    'alert': 'OPERA_L3_DIST-ALERT-HLS_Color_Index',
+    'ann':   'OPERA_L3_DIST-ANN-HLS_Color_Index',
+}
+_GIBS = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best'
+_TILE_URL = (_GIBS + '/{layer}/default/{date}/GoogleMapsCompatible_Level12'
+             '/{z}/{y}/{x}.png')
+_DOMAINS_URL = (_GIBS + '/wmts.cgi?SERVICE=WMTS&VERSION=1.0.0'
+                '&REQUEST=DescribeDomains&LAYER={layer}'
+                '&TILEMATRIXSET=GoogleMapsCompatible_Level12')
+
+TILES_DIR = Path(settings.BASE_DIR) / 'data' / 'dist_tiles'
+MAX_ZOOM = 12            # GoogleMapsCompatible_Level12; ~18 m/px at 61 N
+_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+_UA = {'User-Agent': 'landslidescience-dist-proxy/1'}
+
+# A tile for a date this recent may still be filling in upstream: keep it, but
+# re-ask once it is this old. Anything older than FRESH_DAYS is final.
+FRESH_DAYS = 3
+FRESH_TTL = 6 * 3600
+CACHE_HEADER = 'public, max-age=2592000'          # 30 days, final tiles
+FRESH_CACHE_HEADER = 'public, max-age=3600'       # 1 hour, still-settling dates
+DOMAINS_TTL = 6 * 3600
+
+
+def _valid_date(date):
+    if not _DATE_RE.match(date):
+        return None
+    try:
+        return datetime.date.fromisoformat(date)
+    except ValueError:
+        return None
+
+
+def _is_fresh(day):
+    return (datetime.date.today() - day).days <= FRESH_DAYS
+
+
+def _upstream(layer, date, z, x, y):
+    """GIBS tile URL. Note the y/x swap: GIBS is z/TileRow/TileCol."""
+    return _TILE_URL.format(layer=LAYERS[layer], date=date, z=z, y=y, x=x)
+
+
+def _send(path, header):
+    resp = FileResponse(open(path, 'rb'), content_type='image/png')
+    resp['Cache-Control'] = header
+    return resp
+
+
+def _miss(header):
+    resp = HttpResponseNotFound()
+    resp['Cache-Control'] = header
+    return resp
+
+
+@require_safe
+def dist_tile(request, layer, date, z, x, y):
+    z, x, y = int(z), int(x), int(y)
+    n = 1 << z
+    day = _valid_date(date)
+    if layer not in LAYERS or day is None or z > MAX_ZOOM \
+            or not (0 <= x < n and 0 <= y < n):
+        return HttpResponseNotFound()
+
+    fresh = _is_fresh(day)
+    header = FRESH_CACHE_HEADER if fresh else CACHE_HEADER
+    dest = TILES_DIR / layer / date / str(z) / str(x) / f'{y}.png'
+    marker = dest.with_suffix('.404')
+
+    def _stale(p):
+        # Only still-settling dates ever expire; a finished date is final.
+        if not fresh:
+            return False
+        try:
+            age = datetime.datetime.now().timestamp() - p.stat().st_mtime
+        except OSError:
+            return True
+        return age > FRESH_TTL
+
+    if dest.exists() and not _stale(dest):
+        return _send(dest, header)
+    if marker.exists() and not _stale(marker):
+        return _miss(header)
+
+    url = _upstream(layer, date, z, x, y)
+    try:
+        req = urllib.request.Request(url, headers=_UA)
+        with urllib.request.urlopen(req, timeout=20) as r:
+            body = r.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            # No coverage, or a date inside a gap in the GIBS time domain.
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch()
+            return _miss(header)
+        log.warning('dist upstream %s -> HTTP %s', url, e.code)
+        return HttpResponseNotFound()   # transient upstream trouble: NOT cached
+    except Exception as exc:
+        log.warning('dist upstream %s failed: %s', url, exc)
+        return HttpResponseNotFound()
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix('.png.part')
+    tmp.write_bytes(body)
+    tmp.rename(dest)
+    if marker.exists():
+        marker.unlink()              # coverage appeared where there was none
+    return _send(dest, header)
+
+
+def _fetch_domain(layer):
+    """The layer's ISO8601 time domain, e.g.
+    '2023-01-01/2024-03-28/P1D,2024-05-11/2025-06-02/P1D'.
+
+    DescribeDomains is ~500 bytes; the full WMTSCapabilities.xml that carries
+    the same information is 5.8 MB, so this is the endpoint to ask.
+    """
+    url = _DOMAINS_URL.format(layer=LAYERS[layer])
+    req = urllib.request.Request(url, headers=_UA)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        xml = r.read().decode('utf-8', 'replace')
+    m = re.search(r'<Domain>([^<]*)</Domain>', xml)
+    return m.group(1).strip() if m else ''
+
+
+@require_safe
+def dist_dates(request):
+    """Available dates per layer, as ISO8601 range strings the client expands.
+
+    Ranges (~500 bytes) rather than an expanded list (~1350 dates, 17 kB):
+    the client has to walk them anyway to step the date control.
+
+    `default` is the newest available date — what the map shows as "latest".
+    Cached on disk for DOMAINS_TTL; a fetch failure falls back to the stale
+    cache rather than breaking the control.
+    """
+    cache = TILES_DIR / '_domains.json'
+    now = datetime.datetime.now().timestamp()
+    cached = None
+    try:
+        cached = json.loads(cache.read_text())
+        if now - cached.get('fetched_at', 0) < DOMAINS_TTL:
+            return _dates_response(cached['layers'])
+    except (OSError, ValueError, KeyError):
+        pass
+
+    layers = {}
+    for key in LAYERS:
+        try:
+            domain = _fetch_domain(key)
+        except Exception as exc:
+            log.warning('dist domain %s failed: %s', key, exc)
+            domain = ''
+        if not domain and cached:
+            domain = cached.get('layers', {}).get(key, {}).get('domain', '')
+        layers[key] = {'domain': domain, 'default': _newest(domain)}
+
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({'fetched_at': now, 'layers': layers}))
+    except OSError as exc:
+        log.warning('dist domain cache write failed: %s', exc)
+    return _dates_response(layers)
+
+
+def _newest(domain):
+    """Last date in the last range of an ISO8601 domain string."""
+    if not domain:
+        return ''
+    last = domain.split(',')[-1].strip()
+    parts = last.split('/')
+    # 'start/end/period' -> end; a bare date stands for itself.
+    cand = parts[1] if len(parts) >= 2 else parts[0]
+    return cand if _DATE_RE.match(cand) else ''
+
+
+def _dates_response(layers):
+    resp = JsonResponse({'layers': layers})
+    resp['Cache-Control'] = 'public, max-age=3600'
+    return resp

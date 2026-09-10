@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import insar, opera, photos, table_data, trace_views, views
+from . import dist, insar, opera, photos, table_data, trace_views, views
 
 app_name = 'inventory'
 
@@ -53,6 +53,12 @@ urlpatterns = [
     # OPERA velocity value-tile proxy (public; see inventory/opera.py).
     re_path(r'^tiles/opera/(?P<track>asc|desc)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             opera.opera_tile, name='opera_tile'),
+    # OPERA DIST disturbance tiles, proxied+cached from NASA GIBS (public;
+    # see inventory/dist.py). z/x/y here; the GIBS y/x swap happens in there.
+    re_path(r'^tiles/dist/(?P<layer>alert|ann)/(?P<date>\d{4}-\d{2}-\d{2})'
+            r'/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
+            dist.dist_tile, name='dist_tile'),
+    path('api/dist_dates/', dist.dist_dates, name='dist_dates'),
     path('api/timed_events/', views.api_timed_events, name='api_timed_events'),
     path('api/timeline_events/', views.api_timeline_events, name='api_timeline_events'),
     path('api/survey_circles/',  views.api_survey_circles,  name='api_survey_circles'),

@@ -1,0 +1,41 @@
+# OPERA DIST disturbance-status classes (VEG-DIST-STATUS in DIST-ALERT-HLS,
+# and the same code space in DIST-ANN-HLS).
+#
+# SOURCE OF TRUTH for the colours: NASA GIBS's own colormap,
+# https://gibs.earthdata.nasa.gov/colormaps/v1.3/OPERA_Vegetation_Disturbance_Status.xml
+# — kept byte-identical so our overlay matches NASA Worldview pixel-for-pixel
+# and a cross-check against their viewer is meaningful. The class codes match
+# the COG's `flag_values` tag exactly (verified against
+# OPERA_L3_DIST-ALERT-HLS_T05VPH_..._VEG-DIST-STATUS.tif, 2026-09-10).
+#
+# ONE deliberate deviation: GIBS paints class 0 "no disturbance" as opaque
+# #121212, which is right for a full-frame Worldview backdrop and wrong for an
+# overlay — it blacks out the basemap over ~97% of a typical tile. Here class 0
+# (and the 255 no-data code) get alpha 0. Everything else is GIBS's RGB at full
+# alpha; dimming is the row's opacity slider, not the ramp.
+#
+# Class codes, in order:
+#   0  no disturbance            (GIBS #121212, made transparent here)
+#   1  first detection   <50%
+#   2  provisional       <50%
+#   3  confirmed         <50%
+#   4  first detection  >=50%
+#   5  provisional      >=50%
+#   6  confirmed        >=50%
+#   7  confirmed  <50%, finished
+#   8  confirmed >=50%, finished
+# "<50%" / ">=50%" is the fraction of the 30 m pixel judged disturbed;
+# first detection -> provisional -> confirmed is the alert's maturity ladder;
+# "finished" means the anomaly stopped progressing.
+#
+# Columns: VALUE R G B A
+nv     0   0   0   0
+0      0   0   0   0
+1      0  85  85 255
+2    137 127  78 255
+3    222 224  67 255
+4      0 136 136 255
+5    228 135  39 255
+6    224  27   7 255
+7    119 119 119 255
+8    221 221 221 255

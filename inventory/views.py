@@ -1089,6 +1089,20 @@ def api_timeline_events(request):
 # describe the first time a ramp is retuned. Only the labelling (units, and
 # the class names the numeric breaks stand for) lives here, because the .txt
 # files carry it in comments the parser can't rely on.
+# OPERA DIST status codes -> legend labels. Class 0 ("no disturbance") is
+# deliberately absent: it is transparent in the ramp, so it describes nothing
+# the reader can see. Order here is the order on the legend.
+_DIST_CLASSES = [
+    ('First detection <50%', 1),
+    ('Provisional <50%', 2),
+    ('Confirmed <50%', 3),
+    ('First detection \u226550%', 4),
+    ('Provisional \u226550%', 5),
+    ('Confirmed \u226550%', 6),
+    ('Confirmed <50%, finished', 7),
+    ('Confirmed \u226550%, finished', 8),
+]
+
 _RAMP_SPECS = {
     'susc-lw':   {'file': 'susc_color_lw.txt',  'label': 'Landslide susceptibility (lw)',
                   'units': 'frequency-ratio class', 'kind': 'classes',
@@ -1108,6 +1122,17 @@ _RAMP_SPECS = {
                   'label': 'Bed elevation', 'units': 'm a.s.l.'},
     'ice-over':  {'file': 'iceboost_color_overdeep.txt',
                   'label': 'Bed overdeepening depth', 'units': 'm'},
+    # OPERA DIST status classes. Both layers share one code space and one
+    # colour table, so they share one ramp file; the labels differ only in
+    # what the alert/annual distinction means, which the map row already says.
+    'dist-alert': {'file': 'dist_color_status.txt',
+                   'label': 'Surface disturbance (DIST-ALERT)',
+                   'units': 'alert class', 'kind': 'classes',
+                   'classes': _DIST_CLASSES},
+    'dist-ann':   {'file': 'dist_color_status.txt',
+                   'label': 'Surface disturbance (annual)',
+                   'units': 'alert class', 'kind': 'classes',
+                   'classes': _DIST_CLASSES},
 }
 
 
