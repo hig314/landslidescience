@@ -622,8 +622,12 @@ one would have left the site invisible with no obvious symptom.
 Deliberately still closed: `/inventory/api/` and `/inventory/export/` (a ~1 MB
 payload and a 4 MB zip per fetch), `/tiles/` + `/lidar/` (tile pyramids are
 effectively unbounded URL space), `/files/` (unlisted by design),
-`/glaciers/` (experimental), and `/inventory/archive/` (frozen snapshots of
-the same records as the live inventory — indexing them competes with it).
+and `/glaciers/` (experimental).
+
+`/inventory/archive/` is deliberately **open** (2026-09-10): the snapshots are
+the citable record behind published work, and being findable is most of their
+point. Accepted cost — dated copies of the same records compete with the live
+map in search results.
 
 ## Traffic analytics — self-hosted Umami
 

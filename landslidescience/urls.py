@@ -23,8 +23,11 @@ from django.views.static import serve as static_serve
 #                the link; indexing them would undo that
 #   provisional  /glaciers/ — still experimental; not something to surface in
 #                search yet
-#   duplicate    /inventory/archive/ — frozen snapshots of the same records as
-#                the live inventory; indexing them competes with it
+#
+# /inventory/archive/ is deliberately OPEN despite overlapping the live
+# inventory: the snapshots are the citable record behind published work, and
+# being findable is most of their point. The cost is that dated copies of the
+# same records compete with the live map in search results — accepted.
 _ROBOTS = """# landslidescience.org
 User-agent: *
 Allow: /
@@ -43,7 +46,6 @@ Disallow: /lidar/
 Disallow: /inventory/planet/
 Disallow: /files/
 Disallow: /glaciers/
-Disallow: /inventory/archive/
 """
 
 
