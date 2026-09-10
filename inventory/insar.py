@@ -96,9 +96,33 @@ def timeseries(request):
     key = f'{direction}_{round(lat, 4):.4f}_{round(lon, 4):.4f}.json'
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cached = CACHE_DIR / key
-    if cached.exists() and (time.time() - cached.stat().st_mtime) < CACHE_TTL_S:
+    fresh = cached.exists() and (time.time() - cached.stat().st_mtime) < CACHE_TTL_S
+    if fresh:
         resp = JsonResponse(json.loads(cached.read_text()))
         resp['X-Insar-Cache'] = 'hit'
+        return resp
+
+    def _stale(reason):
+        """Serve an expired entry rather than fail.
+
+        The module docstring promises that 'if ASF restructures, cached points
+        keep serving while we adapt' -- but the code returned 502 the moment
+        the TTL lapsed and upstream was unhappy, which is the opposite. An
+        expired time series is a week old at worst and these rates change over
+        years; a stale answer is worth far more to a reader than an error.
+        Flagged in the payload so the chart can say so."""
+        if not cached.exists():
+            return None
+        try:
+            out = json.loads(cached.read_text())
+        except Exception:
+            return None
+        out['stale'] = True
+        out['stale_reason'] = reason
+        age = int(time.time() - cached.stat().st_mtime)
+        resp = JsonResponse(out)
+        resp['X-Insar-Cache'] = 'stale'
+        resp['X-Insar-Age'] = str(age)
         return resp
 
     body = json.dumps({
@@ -126,11 +150,12 @@ def timeseries(request):
             cached.write_text(json.dumps(out))
             return JsonResponse(out)
         log.warning('insar upstream HTTP %s: %s', e.code, detail)
-        return JsonResponse({'error': f'ASF service error ({e.code})',
-                             'detail': detail}, status=502)
+        return _stale(f'ASF service error ({e.code})') or JsonResponse(
+            {'error': f'ASF service error ({e.code})', 'detail': detail}, status=502)
     except Exception as e:
         log.warning('insar upstream failed: %s', e)
-        return JsonResponse({'error': 'ASF service unreachable'}, status=502)
+        return _stale('ASF service unreachable') or JsonResponse(
+            {'error': 'ASF service unreachable'}, status=502)
 
     out = _regroup(raw) if isinstance(raw, dict) else {'series': [], 'n': 0,
                                                        'cell': None}

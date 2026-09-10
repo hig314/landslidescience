@@ -7396,7 +7396,9 @@
             }
             var parts = _samples.map(function (s) {
                 if (s.state === 'loading') return s.letter + ': \u2026';
-                if (s.state === 'err') return s.letter + ': failed';
+                if (s.state === 'err') return s.letter + ': ' + (s.err || 'failed');
+                if (s.err) return s.letter + ': one pass only (' + s.err + ')';
+                if (s.stale) return s.letter + ': cached (ASF unreachable)';
                 return s.letter + ': ' + (s.asc.n + s.desc.n);
             });
             subEl.textContent = _samples.length + ' point' + (_samples.length > 1 ? 's' : '') +
@@ -7442,17 +7444,54 @@
                 return fetch('/inventory/api/insar_timeseries/?lat=' + sample.lat.toFixed(4) +
                              '&lon=' + sample.lon.toFixed(4) + '&dir=' + dir)
                     .then(function (r) {
-                        return r.json().then(function (j) {
-                            if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+                        // Guard the parse: an upstream hiccup can arrive as an
+                        // HTML error page from a CDN, and r.json() would then
+                        // throw "Unexpected token <", which is a useless thing
+                        // to show a reader.
+                        return r.text().then(function (t) {
+                            var j = null;
+                            try { j = JSON.parse(t); } catch (e) { j = null; }
+                            if (!r.ok) {
+                                throw new Error((j && j.error) || ('HTTP ' + r.status));
+                            }
+                            if (!j) throw new Error('unreadable response');
                             return j;
                         });
-                    });
+                    })
+                    // One retry on a transient failure. ASF answers 5xx under
+                    // load, and a single retry turns most of those into data.
+                    .catch(function (first) {
+                        return new Promise(function (res) { setTimeout(res, 1200); })
+                            .then(function () {
+                                return fetch('/inventory/api/insar_timeseries/?lat=' +
+                                    sample.lat.toFixed(4) + '&lon=' +
+                                    sample.lon.toFixed(4) + '&dir=' + dir)
+                                    .then(function (r) {
+                                        if (!r.ok) throw first;
+                                        return r.json();
+                                    });
+                            });
+                    })
+                    // Resolve to an error MARKER rather than rejecting, so one
+                    // track failing cannot discard the other. Promise.all used
+                    // to lose a perfectly good descending series because
+                    // ascending happened to 502.
+                    .catch(function (err) { return { __err: err.message || 'failed' }; });
             }
             Promise.all([get('ascending'), get('descending')]).then(function (res) {
-                sample.asc = res[0]; sample.desc = res[1]; sample.state = 'ok';
-                syncSubtitle(); draw();
-            }).catch(function (err) {
-                sample.state = 'err'; sample.err = err.message;
+                sample.asc = res[0] && res[0].__err ? null : res[0];
+                sample.desc = res[1] && res[1].__err ? null : res[1];
+                var errs = [res[0], res[1]].filter(function (x) { return x && x.__err; })
+                                           .map(function (x) { return x.__err; });
+                sample.stale = !!((sample.asc && sample.asc.stale) ||
+                                  (sample.desc && sample.desc.stale));
+                if (!sample.asc && !sample.desc) {
+                    sample.state = 'err';
+                    sample.err = errs[0] || 'no data';
+                } else {
+                    sample.state = 'ok';
+                    sample.err = errs.length ? errs[0] : null;
+                }
                 syncSubtitle(); draw();
             });
         });
