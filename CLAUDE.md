@@ -690,6 +690,37 @@ season, so re-baking one is a command, not a code change.
   season/pol/var; a season-agnostic key would let a winter run silently reuse
   the summer warp.
 
+**How to read it — measured precision vs. real roughness.** These are not the
+same thing, and conflating them is the easy mistake:
+
+- **Precision is high.** Over genuinely uniform open water (Cook Inlet, true
+  coherence ~0) the product reads median 3 %, **sd 1.0 %**, max 7 %. The
+  seasonal median has averaged the per-pair estimator noise right down.
+- **The field is genuinely rough.** Pixel-to-pixel scatter on land in coherent
+  terrain is ~6 points (5x5 detrended). Since precision is ~1 point, most of
+  that 6 is REAL ground variability at 93 m, not measurement noise.
+- **So a gap is believable at patch scale, not pixel scale.** A single 93 m
+  pixel can sit a whole 10 % band either side of its neighbours. Averaging
+  3x3 (~280 m) drops the sd of the mean to ~2 points, which is well inside
+  one band. The landslide cases work because they are big: a patch at 20 %
+  inside terrain at 50 % is a 30-point drop — unambiguous at any scale.
+  Distinguishing 25 % from 35 % in one pixel is not.
+- **Read it relative to surroundings, never against an absolute threshold** —
+  the baseline swings from 4 % (water) to 50 % (Talkeetna) by land cover.
+- **The shipped `rmse` band is NOT the precision of COH12.** It is the
+  residual of the exponential-decay fit across COH12/24/36/48 (median ~10
+  coherence points here, and *larger* where coherence is high). A big residual
+  means coherence does not decay exponentially at that pixel, which is its own
+  signal, not an error bar on the value you are looking at.
+- **The biggest interpretive limit is temporal, and nothing ships to fix it.**
+  This is a seasonal MEDIAN: a pixel at 20 % might be steadily 20 %, or 50 %
+  for half the season and 0 % for the other half. There is no temporal-variance
+  band. So a low patch says *something decorrelates here*, never *when*. And
+  low coherence has several causes — water, wet snow, dense vegetation, and
+  motion — which this product alone cannot separate. What makes the landslide
+  cases legible is context: a low patch with a slide-like shape inside ground
+  that is otherwise coherent.
+
 **What the data actually says**, measured rather than assumed — the intuition
 "bare rock high, vegetation low" is wrong for Alaska. Median coherence over
 ~1.5 km boxes, summer / winter:
