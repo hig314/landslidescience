@@ -25,7 +25,6 @@ from django.views.decorators.http import require_POST, require_safe
 
 from . import planet
 from .auth import inventory_editor_required
-from .middleware import SESSION_KEY as _PREVIEW_SESSION_KEY
 
 # ---------------------------------------------------------------------------
 # Module-level response cache
@@ -2372,10 +2371,8 @@ def manage_edit_fetch_planet(request, landslide_id):
 def export_download(request):
     """Download a zip of the inventory as GeoJSON + QGIS .qml styles.
 
-    Public — same data the map already serves via /api/features and /api/polygons,
-    bundled into a single QGIS-ready archive. While the pre-launch preview
-    password is set, this is still gated by InventoryPreviewMiddleware along
-    with the rest of /inventory/*.
+    Public — same data the map already serves via /api/features and
+    /api/polygons, bundled into a single QGIS-ready archive.
     """
     from .io_geojson import build_export_bundle
     urls = {
@@ -3891,8 +3888,19 @@ def manage_rule_apply(request, name):
 
 
 # ---------------------------------------------------------------------------
-# Pre-launch preview password (paired with InventoryPreviewMiddleware).
-# Unset INVENTORY_PREVIEW_PASSWORD to disable the barrier entirely.
+# Sign-in. ONE door for collaborators: /inventory/login/ (this view). Django's
+# /admin/login/ is a second door for site administrators only — it rejects any
+# account without is_staff, which is why it cannot be the general one.
+#
+# There used to be a THIRD: a shared "preview password" gate over all of
+# /inventory/* and /glaciers/*, removed 2026-09-10. It was the pre-launch
+# barrier, already switched off in production, and it had a nasty failure
+# mode: when a real login lapsed, the middleware bounced you to the PREVIEW
+# form rather than this one, the shared password was accepted, and you landed
+# in an anonymous session that looked normal but silently lacked every editor
+# control. Hig hit exactly that. Two password prompts where the weaker one
+# satisfies the gate is a trap; now a lapsed session just shows the public map
+# with "Log in" in the header.
 # ---------------------------------------------------------------------------
 
 def site_login(request):
@@ -3934,32 +3942,3 @@ def site_logout(request):
     return redirect(reverse('inventory:home'))
 
 
-def preview_login(request):
-    expected = settings.INVENTORY_PREVIEW_PASSWORD
-    next_url = request.GET.get('next') or request.POST.get('next') or '/inventory/'
-    # Only allow same-site redirects to /inventory/* to avoid open-redirect.
-    # Never bounce back to the preview page itself (a stale ?next= chain after
-    # login would otherwise loop here showing the form).
-    if not next_url.startswith('/inventory/') or next_url.startswith(request.path):
-        next_url = '/inventory/'
-
-    # Already past the barrier (logged in, or password already entered)? Step
-    # aside — the middleware lets these through, so showing the form here is
-    # just a redirect-chain artifact (e.g. logging in via ?next=/inventory/preview/).
-    if request.user.is_authenticated or request.session.get(_PREVIEW_SESSION_KEY):
-        return redirect(next_url)
-
-    error = None
-    if request.method == 'POST':
-        if not expected:
-            # Barrier is disabled; let them through.
-            return redirect(next_url)
-        if request.POST.get('password') == expected:
-            request.session[_PREVIEW_SESSION_KEY] = True
-            return redirect(next_url)
-        error = 'Incorrect password.'
-
-    return render(request, 'inventory/preview.html', {
-        'next': next_url,
-        'error': error,
-    })

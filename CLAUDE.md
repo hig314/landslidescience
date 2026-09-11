@@ -43,23 +43,22 @@ pushing untested code to GH.
 |---|---|---|
 | `/` | public | Homepage (Page model, edited from /admin/) |
 | `/tracyarm2025/` | public | Time-aware embargo page (Page model) |
-| `/inventory/` | public *(behind preview password during review)* | Public landslide inventory map |
-| `/inventory/table/` | public *(behind preview password)* | Inventory explorer — spreadsheet-style filter / sort / cross-tab |
-| `/inventory/api/table/` | public *(behind preview password)* | Columnar dump of the whole visible table (backs the explorer) |
-| `/inventory/methods/` | public *(behind preview password)* | Methods doc |
-| `/inventory/<slug>/` | public *(behind preview password)* | Slug deep-link → map at the named landslide |
-| `/inventory/api/*` | public *(behind preview password)* | GeoJSON / JSON endpoints used by the map |
-| `/inventory/preview/` | anyone | Login page for preview password |
+| `/inventory/` | public | Public landslide inventory map |
+| `/inventory/table/` | public | Inventory explorer — spreadsheet-style filter / sort / cross-tab |
+| `/inventory/api/table/` | public | Columnar dump of the whole visible table (backs the explorer) |
+| `/inventory/methods/` | public | Methods doc |
+| `/inventory/<slug>/` | public | Slug deep-link → map at the named landslide |
+| `/inventory/api/*` | public | GeoJSON / JSON endpoints used by the map |
 | `/inventory/manage/` | inventory_editors + Hig | Searchable list of all records |
 | `/inventory/manage/<id>/` | inventory_editors + Hig | Edit form for non-geometry fields |
 | `/inventory/manage/<id>/delete/` | **superusers only** (POST) | Permanent hard-delete (Danger zone); distinct from deprecate |
 | `/inventory/manage/settings/` | inventory_editors + Hig | Map display settings (colors, point sizes) |
-| `/inventory/export/` | public *(behind preview password)* | Download zip of GeoJSON + QGIS .qml styles |
+| `/inventory/export/` | public | Download zip of GeoJSON + QGIS .qml styles |
 | `/inventory/manage/import/` | inventory_editors + Hig | Upload zip/.geojson; preview diff; confirm to apply |
 | `/s/t.js`, `/s/api/send` | public | First-party analytics beacon, forwarded to Umami (`landslidescience/analytics.py`) |
 | `/traffic/` | superusers + site_admins | Signs the current Django user into the Umami dashboard (Umami's own login is disabled) |
 | `/traffic/optout/` | public | Per-browser analytics opt-out (signed-in browsing is excluded automatically) |
-| `/files/<name>` | public *(unlisted)* | Serves an admin-uploaded `HostedFile` by its URL token (no auth, no preview barrier). |
+| `/files/<name>` | public *(unlisted)* | Serves an admin-uploaded `HostedFile` by its URL token (no auth). |
 | `/admin/` | site_admins (Page + HostedFile perms) + Hig | Django admin — Page + HostedFile models + User/Group management |
 
 ## Auth & permissions
@@ -73,15 +72,22 @@ Two non-superuser groups (created/maintained idempotently by `python manage.py i
 
 Adding a user (do this via `/admin/auth/user/`):
 1. Create user with a temp password.
-2. Set `is_staff=True` (required to log in at /admin/login/, which is the only login page).
-3. For inventory editors: add to the `inventory_editors` group. They will see an empty Django admin landing — they navigate to `/inventory/manage/` for their work.
-4. For site admins: add to the `site_admins` group. They get full CRUD on Page **and HostedFile** in /admin/.
+2. For inventory editors: add to the `inventory_editors` group. They sign in at
+   **`/inventory/login/`** and go straight to `/inventory/manage/`. `is_staff` is
+   NOT needed and should not be set — it only grants Django-admin access.
+3. For view-only collaborators: add to `inventory_viewers`. Same sign-in page.
+4. For site admins: add to the `site_admins` group **and** set `is_staff=True`,
+   because their work is in `/admin/` and that form admits staff only.
 
 Hig (superuser) bypasses all role checks.
 
 **Sessions are rolling** — `SESSION_SAVE_EVERY_REQUEST = True` (settings.py) resets the 2-week `SESSION_COOKIE_AGE` clock on every request, so an actively-used editor session doesn't lapse mid-work; an idle one still expires after two weeks (that's expected, not a bug — distinct from the *fleet-wide* logout that only a `DJANGO_SECRET_KEY` change causes). When a session does expire, the manage endpoints 302-redirect to the login page; the in-app draw flow (`_drawPost` in `map.js`) detects that redirect / non-JSON response and shows a clear "log in again" message instead of choking on the login HTML with `Unexpected token '<' … is not valid JSON`. Staged draw components live server-side (`provisional_polygons`), so they survive the re-login.
 
-If the "empty admin landing for editors" friction becomes annoying, wire up `django.contrib.auth.urls` at `/accounts/login/` and update `inventory.auth.inventory_editor_required` to redirect there. For now, deferred.
+(Resolved 2026-09-10: `inventory_editor_required` sends anonymous users to
+`/inventory/login/`, not `/admin/login/`. The old target was unreachable for
+any editor without `is_staff` — the admin form rejected the account even with
+the right password, so it only ever worked for editors who happened to also be
+staff.)
 
 ## Hosted files
 
@@ -89,7 +95,7 @@ The `files` app hosts arbitrary admin-uploaded files at stable, human-readable p
 
 - **Model `HostedFile`** (SQLite): `file` (FileField), `name` (the public URL token), plus `title`/`description` (admin-only notes), `inline` (bool), `content_type` (MIME override). On save, blank `name` auto-fills from the uploaded filename.
 - **Public URL = `/files/<name>`**, served by `files.views.serve` (a `FileResponse`). The URL token is **decoupled from disk storage**: `name` is the URL, `file.name` is wherever Django's storage wrote the bytes (it may suffix on collision — fine). `name` is unique and regex-constrained to `[A-Za-z0-9._-]` (matches `files/urls.py`), so no path traversal. MIME is `content_type` if set, else guessed — with an `_EXTRA_TYPES` table in `views.py` for geo types Python misses (`.kml`/`.kmz`/`.geojson`/`.gpkg`). `inline` toggles `Content-Disposition: inline` vs `attachment`.
-- **Fully public, unlisted.** No auth and no preview-password barrier (that middleware only guards `/inventory/*`). Nothing links to the files, so they're reachable only by someone who knows the URL, and `robots.txt` keeps `/files/` disallowed so indexing can't undo that.
+- **Fully public, unlisted.** No auth. Nothing links to the files, so they're reachable only by someone who knows the URL, and `robots.txt` keeps `/files/` disallowed so indexing can't undo that.
 - **Storage: `MEDIA_ROOT = data/media/`** (`upload_to='hosted_files/'`). `data/` is volume-mounted in dev and prod and gitignored, so uploads **persist across deploys** and are never committed or baked into the image. There is **no `/media/` static route** — the only way out is the `/files/<name>` view.
 - **Permissions** are granted in `init_groups` (HostedFile CRUD → `site_admins`), so **re-run `init_groups` after deploying** if the group needs the perms (as with any group change).
 
@@ -130,8 +136,9 @@ SQLite — photos are landslide data.
 
 ## /glaciers app (experimental; tracer MVP ships, pair stack does not)
 
-Sibling map app at `/glaciers/` (`glaciers/` Django app; behind the same
-preview-password middleware as /inventory/*). Hig declared the tracer app
+Sibling map app at `/glaciers/` (`glaciers/` Django app; public, like
+/inventory/* — it keeps a `noindex` robots block rather than a login barrier,
+since it is experimental rather than sensitive). Hig declared the tracer app
 MVP on 2026-08-19, so it deploys under the normal flow. The RAW IMAGE-PAIR
 stack does NOT: `/glaciers/pairs/`, the fitted-pair overlays and the
 "robust pair fit" tracer field are all gated on `experimental_enabled()`
@@ -224,24 +231,38 @@ behind that same gate rather than inventing a second switch.
   the landslides app. Keep sidebar/tab chrome and per-glacier identity
   (RGI ids) in mind when refactoring.
 
-## Pre-launch preview password
+## Sign-in — one door for collaborators, one for site admins
 
-While `INVENTORY_PREVIEW_PASSWORD` is set, all `/inventory/*` paths require either authentication OR a session flag set by entering the password at `/inventory/preview/`. **Unset the env var to make `/inventory/*` fully public (post-launch).** `preview_login` short-circuits for an already-authenticated user (or one who already entered the password) — redirecting to `next` instead of showing the form — so a post-login `?next=/inventory/preview/…` redirect chain doesn't strand a logged-in editor on the barrier (and it never bounces `next` back to itself). A logged-in editor who unexpectedly lands here means the request arrived **unauthenticated** (session cookie missing/expired); a fleet-wide logout is almost always a **`DJANGO_SECRET_KEY` change** (settings.py:7 falls back to a constant, so the only way every signed session invalidates at once is the env var changing) — keep it stable in prod `.env`.
+There are exactly **two** ways to authenticate, and it is worth being clear
+about which is which:
 
-To set or change the preview password on production:
+| Page | Who | Notes |
+|---|---|---|
+| `/inventory/login/` | any collaborator account (viewers, editors) | The general door. No `is_staff` needed. `LOGIN_URL` points here, and so does `inventory_editor_required`. |
+| `/admin/login/` | site administrators | Django admin. **Rejects any account without `is_staff`**, which is exactly why it cannot be the general door. |
 
-```bash
-ssh root@143.198.140.54 '
-  cd /opt/landslidescience
-  # Set or replace INVENTORY_PREVIEW_PASSWORD in .env
-  sed -i "/^INVENTORY_PREVIEW_PASSWORD=/d" .env
-  echo "INVENTORY_PREVIEW_PASSWORD=YOUR-PASSWORD-HERE" >> .env
-  # Restart container so the new env takes effect
-  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate
-'
-```
+Everything else — the map, the table, the methods page, `/glaciers/`, the API
+and the export — is **public**. Signing in adds editor/viewer surfaces; it is
+never required to look.
 
-To remove the barrier post-launch: same flow but with `INVENTORY_PREVIEW_PASSWORD=` (empty value), or delete the line entirely.
+**The preview password is gone (removed 2026-09-10).** It was the pre-launch
+barrier over `/inventory/*` and `/glaciers/*`, already switched off in
+production, and it had a failure mode worth remembering rather than
+reinventing: when a real login lapsed, the middleware bounced the user to the
+*preview* form rather than the sign-in form, the shared password was accepted,
+and they landed in an anonymous session that looked completely normal but
+silently lacked every editor control. Hig hit precisely that and reasonably
+concluded the draw tool had broken. **Two password prompts where the weaker one
+satisfies the gate is a trap** — if a barrier is ever wanted again, make it
+refuse anonymous sessions rather than manufacture one.
+
+A logged-in editor who unexpectedly finds themselves signed out means the
+request arrived **unauthenticated** (session cookie missing/expired). A
+*fleet-wide* logout is almost always a **`DJANGO_SECRET_KEY` change**
+(settings.py falls back to a constant, so the only way every signed session
+invalidates at once is that env var changing) — keep it stable in prod `.env`.
+The header tells you which state you are in: username + "Log out" when signed
+in, a "Log in" link when not.
 
 ## Production
 
@@ -291,7 +312,7 @@ docker restart landslidescience-web-1
 Templates and Python are read live from the source mount — no restart needed
 for template edits (Python needs the dev server's autoreload or a restart).
 
-Local dev `.env` has `INVENTORY_PREVIEW_PASSWORD=devpreview2026` for testing the barrier; change it freely.
+Local dev needs no preview password — that barrier was removed on 2026-09-10, so dev now matches production: `/inventory/*` and `/glaciers/*` are public and signing in at `/inventory/login/` is what adds the editor surfaces.
 
 ### Refresh dev with production data
 
@@ -879,7 +900,7 @@ column chooser, live aggregates, a group-by cross-tab, charts, and CSV/TSV
 export. Complements the map (spatial) and `/inventory/manage/` (record
 editing) with the attribute-space view neither offers. Code: `table_data.py`
 (server), `explore.html`, `static/inventory/{css/explore.css,js/explore.js}`.
-Public, behind the same preview barrier as everything under `/inventory/`.
+Public, like everything else under `/inventory/`.
 
 **The whole table ships to the browser, once.** ~1,500 records x ~70 columns
 is 2.8 MB as row-JSON but ~1.1 MB columnar with dictionary-encoded text, and

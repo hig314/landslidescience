@@ -84,10 +84,11 @@ docker exec landslidescience-web-1 python manage.py collectstatic --noinput
 docker restart landslidescience-web-1
 ```
 
-- `/inventory/*` and `/glaciers/*` sit behind a preview password
-  (`INVENTORY_PREVIEW_PASSWORD` in the container env); logged-in users
-  bypass it. For scripted checks, the Django test client inside the
-  container is the cheapest authenticated path:
+- `/inventory/*` and `/glaciers/*` are **public** — the preview-password
+  barrier was removed 2026-09-10. Signing in (at `/inventory/login/`) adds
+  the editor surfaces; nothing requires it just to look. For scripted checks
+  that need an editor, the Django test client inside the container is the
+  cheapest authenticated path:
 
   ```bash
   docker exec -i landslidescience-web-1 python manage.py shell <<'EOF'

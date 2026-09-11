@@ -58,13 +58,17 @@ def can_view_restricted(user):
 def inventory_editor_required(view_func):
     """Require login + membership in inventory_editors (or superuser).
 
-    Anonymous users go to the admin login page (where staff sign in). Logged-in
-    users without the role get a 403, since logging in won't help them.
+    Anonymous users go to the COLLABORATOR sign-in, not Django's /admin/login/.
+    That was the old target and it is unreachable for an editor without
+    is_staff: the admin form rejects the account even with correct credentials,
+    so the only editors it ever worked for were the ones who happened to also
+    be staff. Logged-in users without the role get a 403, since signing in
+    again will not help them.
     """
     @wraps(view_func)
     def wrapped(request, *args, **kwargs):
         if not request.user.is_authenticated:
-            login_url = reverse('admin:login')
+            login_url = reverse('inventory:login')
             return redirect(f'{login_url}?next={request.get_full_path()}')
         if is_inventory_editor(request.user):
             return view_func(request, *args, **kwargs)

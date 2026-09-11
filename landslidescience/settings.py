@@ -72,7 +72,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'inventory.middleware.InventoryPreviewMiddleware',
 ]
 
 # Where @login_required and friends send anonymous users. Points at the
@@ -135,5 +134,3 @@ TRACYARM_EMBARGO_LIFT = datetime.datetime.fromisoformat(
 )
 TRACYARM_YOUTUBE_URL = os.environ.get('TRACYARM_YOUTUBE_URL', '').strip()
 
-# Pre-launch preview password for /inventory/*. Empty = no barrier (post-launch).
-INVENTORY_PREVIEW_PASSWORD = os.environ.get('INVENTORY_PREVIEW_PASSWORD', '').strip()

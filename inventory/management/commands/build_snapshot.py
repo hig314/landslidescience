@@ -119,13 +119,14 @@ class Command(BaseCommand):
 
         archive_dir.mkdir(parents=True)
 
-        # ---- 2. test client with preview bypass ----
+        # ---- 2. test client ----
+        # It used to need a preview-password session flag to get past the
+        # pre-launch barrier; that barrier is gone (2026-09-10) and every page
+        # a snapshot fetches is public, so a plain anonymous client is right —
+        # and is also the honest test, since it sees exactly what a reader of
+        # the published snapshot would.
         from django.test import Client
-        from inventory.middleware import SESSION_KEY as PREVIEW_KEY
         client = Client()
-        s = client.session
-        s[PREVIEW_KEY] = True
-        s.save()
 
         # Use the first ALLOWED_HOSTS entry so the request passes Django's
         # host header check. 'testserver' (the test client default) isn't in

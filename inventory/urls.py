@@ -6,7 +6,6 @@ app_name = 'inventory'
 
 urlpatterns = [
     path('', views.home, name='home'),
-    path('preview/', views.preview_login, name='preview_login'),
     # Collaborator sign-in. NOT the Django admin login: that one requires
     # is_staff and so can never admit a view-only account.
     path('login/', views.site_login, name='login'),

@@ -38,7 +38,6 @@ Disallow: /traffic/
 Disallow: /inventory/api/
 Disallow: /s/
 Disallow: /inventory/export/
-Disallow: /inventory/preview/
 Disallow: /inventory/login/
 Disallow: /inventory/logout/
 Disallow: /tiles/
