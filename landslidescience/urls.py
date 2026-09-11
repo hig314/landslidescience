@@ -100,6 +100,19 @@ def hugonnet_tile(request, var, z, x, y):
 # -> tools/build_fit_tiles.sh), coloured with the SAME ramps as the standard
 # ITS_LIVE overlays so a visual difference is a data difference. Experimental,
 # and currently only covers the Columbia test box.
+# Sentinel-1 seasonal interferometric coherence (Kellndorfer et al. 2022,
+# CC BY 4.0). Built by tools/fetch_coherence.py + build_coherence_tiles.sh
+# into data/coherence_tiles/<season>/; same contract as the other pyramids.
+_COHERENCE_TILES_DIR = settings.BASE_DIR / 'data' / 'coherence_tiles'
+
+
+def coherence_tile(request, season, z, x, y):
+    resp = static_serve(request, f'{season}/{z}/{x}/{y}.png',
+                        document_root=str(_COHERENCE_TILES_DIR))
+    resp['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return resp
+
+
 # IceBoost v2.0 ice thickness + derived bed / overdeepenings (Maffezzoli et
 # al. 2025, doi:10.5194/gmd-18-2545-2025; CC-BY 4.0). Built by
 # tools/prep_iceboost_derived.py + build_iceboost_tiles.sh into
@@ -160,6 +173,8 @@ urlpatterns = [
             iceboost_tile),
     re_path(r'^tiles/hugonnet/(?P<var>dhdt|dhdt_smooth)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             hugonnet_tile),
+    re_path(r'^tiles/coherence/(?P<season>winter|spring|summer|fall)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
+            coherence_tile, name='coherence_tile'),
     re_path(r'^tiles/glacierfit/(?P<var>v0|amp|trend)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             glacierfit_tile),
     path('admin/', admin.site.urls),

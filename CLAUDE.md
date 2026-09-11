@@ -650,6 +650,52 @@ the citable record behind published work, and being findable is most of their
 point. Accepted cost — dated copies of the same records compete with the live
 map in search results.
 
+## Radar coherence overlays (Sentinel-1, seasonal)
+
+Two statewide pyramids, `/tiles/coherence/{summer,winter}/`, built by
+`tools/fetch_coherence.py` + `tools/build_coherence_tiles.sh` from the
+Sentinel-1 Global Coherence Dataset (Kellndorfer et al. 2022, CC BY 4.0, free
+and unauthenticated on AWS Open Data). They live in the **InSAR** overlay
+category because their job is to say where the OPERA velocity layer above
+them can be believed.
+
+- Source tiles are 1x1 degree, uint8 **PERCENT** coherence (not 0-255),
+  nodata 0, ~93 m, EPSG:4326. **The tile name is the UPPER-LEFT corner** —
+  N61W150 spans lat 60..61. They are **not true COGs** (no overviews, 6-row
+  strips), hence the local bake. Alaska is 666 tiles, ~450 MB a season for
+  COH12; `tau`/`AMP` are ~1.9 GB, so check before reaching for those.
+- **The ramp is banded, and not only for readability.** Coherence is
+  speckle-noisy at 93 m, so a continuous ramp gives every neighbouring pixel
+  a different colour and PNG cannot compress it: the first cut was **902 MB**
+  for Alaska (78 kB/tile, against 33-43 kB for every other pyramid here).
+  Banding took it to **270 MB**. Bands are written as entry PAIRS so gdaldem
+  interpolation yields hard edges without `-nearest_color_entry`; verified
+  100% of opaque pixels land exactly on a band colour.
+- Transparent below 20%, because Alaska in summer is mostly below that
+  (median 16%) and an opaque floor would blanket the state in meaningless
+  colour.
+- `PROCESSES=1` — gdal2tiles' multiprocessing path dies under QGIS's bundled
+  Python (`module '__main__' has no attribute '__spec__'`), same as the other
+  build scripts here. The warp-reuse cache under `KEEP_TMP` is keyed on
+  season/pol/var; a season-agnostic key would let a winter run silently reuse
+  the summer warp.
+
+**What the data actually says**, measured rather than assumed — the intuition
+"bare rock high, vegetation low" is wrong for Alaska. Median coherence over
+~1.5 km boxes, summer / winter:
+
+| Talkeetna Mtns 50 / 44 | Anchorage urban 46 / 18 | Kenai lowland 43 / 18 |
+|---|---|---|
+| **Koyukuk tundra 7 / 20** | **Chugach nr Valdez 8 / 4** | **Columbia Glacier 5 / 4** |
+
+Steep snowy coastal alpine ground is the worst case in *both* seasons, and
+the dataset's own layover/shadow mask does not single those sites out, so it
+is snow and ice rather than radar geometry. Winter is not a uniform
+improvement either: it wins in the dry interior and loses badly on the
+wet-snow coast. Consequence worth stating plainly: this layer does **not**
+give a route to talus activity — it shows that C-band InSAR mostly cannot see
+that terrain at all.
+
 ## OPERA DIST — surface disturbance overlay
 
 One overlay on the inventory map, **Surface disturbance — annual**

@@ -1,0 +1,61 @@
+# Sentinel-1 12-day interferometric coherence (VV), seasonal median.
+# Kellndorfer et al. 2022, Sentinel-1 Global Coherence Dataset (CC BY 4.0).
+#
+# VALUE is PERCENT coherence, 0-100, exactly as stored in the source uint8
+# rasters (nodata 0). Not a 0-255 byte ramp — check before retuning.
+#
+# WHAT IT MEANS. Coherence is how much radar phase survives 12 days. Where it
+# is low, InSAR has nothing to work with — so this layer says where the OPERA
+# velocity overlay can be believed.
+#
+# DO NOT assume "bare rock high, vegetation low". Sampled medians over ~1.5 km
+# boxes (summer / winter) say otherwise:
+#     Talkeetna Mtns      50 / 44        Koyukuk tundra       7 / 20
+#     Anchorage urban     46 / 18        Chugach nr Valdez    8 /  4
+#     Kenai lowland       43 / 18        Columbia Glacier     5 /  4
+#                                        open water           4 /  4
+# Steep snowy coastal alpine ground is the WORST case in both seasons, and the
+# dataset's own layover/shadow mask does not single those sites out — so it is
+# snow and ice, not radar geometry. Winter is not a uniform improvement: it
+# wins in the dry interior and loses badly on the wet-snow coast.
+#
+# TRANSPARENT FLOOR AT 20 %. Alaska in summer is overwhelmingly low-coherence
+# — median 16 %, p90 59 % over a Chugach tile — so an opaque ramp from zero
+# would blanket the state in colour that says nothing. Painting only >=20 %
+# leaves roughly the top decile visible over a legible basemap, and low
+# coherence reads as absence, which is the honest rendering of "no signal".
+#
+# BANDED, NOT CONTINUOUS, and the reason is not only readability. Coherence is
+# a speckle-noisy field at 93 m: a smooth ramp gives every neighbouring pixel
+# a slightly different colour, which PNG cannot compress — the continuous
+# first cut came to 902 MB for Alaska, 78 kB/tile against 33-43 kB for every
+# other pyramid here. Banding collapses that noise into flat regions. Each
+# band is written as a PAIR of entries (start, and just under the next start)
+# so gdaldem's interpolation produces hard edges without depending on
+# -nearest_color_entry. Read to the nearest 10 % is all a reference layer owes
+# anyone.
+#
+# Bands:  <20 nothing | 20-30 | 30-40 | 40-50 | 50-60 | 60-70 | 70-85 | 85-100
+# Blue -> cyan -> white, escalating in lightness and alpha. Deliberately NOT
+# red/green: Hig is red-green colourblind (the InSAR chart palette moved to
+# Okabe-Ito for the same reason), and it must stay distinct from the red-brown
+# DIST layer and the warm IceBoost ones sharing the panel.
+#
+# Columns: VALUE R G B A
+nv       0   0   0   0
+0        0   0   0   0
+19.999   0   0   0   0
+20      12  74 110  70
+29.999  12  74 110  70
+30      16 112 145 110
+39.999  16 112 145 110
+40      26 150 172 145
+49.999  26 150 172 145
+50      52 180 188 180
+59.999  52 180 188 180
+60     104 208 204 210
+69.999 104 208 204 210
+70     168 232 226 235
+84.999 168 232 226 235
+85     245 255 252 255
+100    245 255 252 255
