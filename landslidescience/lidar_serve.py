@@ -86,8 +86,46 @@ def _chunks(fh, remaining):
         fh.close()
 
 
+# ---------------------------------------------------------------------------
+# CORS. These routes are public open data with no cookies involved, so any
+# origin may read them -- that is what lets another site's MapLibre (or a
+# GeoLibre project, or a plugin's dev page on localhost) open the archives
+# straight off this host. Two things a browser needs beyond the bare allow:
+#
+#   * `Range` is not a CORS-safelisted request header, so the first ranged
+#     read from a foreign origin is preceded by an OPTIONS preflight. Answer
+#     it with 204 and a day-long max-age, or every cold load pays that
+#     round-trip per archive.
+#   * `Content-Range`, `ETag` and friends are not safelisted RESPONSE headers:
+#     without `Expose-Headers` the pmtiles and geotiff readers see a 206 with
+#     no Content-Range, decide the server ignored the range, and either fail
+#     or fetch the whole file (geotiff.js does the latter -- see the
+#     CorsSafeSourceHttp note in maplibre-gl-raster).
+#
+# The editor-gated trace archives under /inventory/tiles/ deliberately get
+# none of this; they are same-origin only.
+# ---------------------------------------------------------------------------
+_CORS_EXPOSE = 'ETag, Content-Range, Content-Length, Accept-Ranges, Last-Modified'
+
+
+def _cors(resp):
+    resp['Access-Control-Allow-Origin'] = '*'
+    resp['Access-Control-Expose-Headers'] = _CORS_EXPOSE
+    return resp
+
+
+def _preflight():
+    resp = HttpResponse(status=204)
+    resp['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+    resp['Access-Control-Allow-Headers'] = 'Range, If-None-Match, If-Range'
+    resp['Access-Control-Max-Age'] = '86400'
+    return _cors(resp)
+
+
 def serve_ranged(request, path, content_type, cache_control,
                  download_name=None):
+    if request.method == 'OPTIONS':
+        return _preflight()
     if not path.is_file():
         raise Http404(path.name)
     stat = path.stat()
@@ -124,7 +162,7 @@ def serve_ranged(request, path, content_type, cache_control,
     resp['ETag'] = etag
     resp['Last-Modified'] = http_date(stat.st_mtime)
     resp['Cache-Control'] = cache_control
-    return resp
+    return _cors(resp)
 
 
 def _checked(directory, dataset_id, suffix):
@@ -145,6 +183,8 @@ def cog(request, dataset_id):
     """Archive COG. Served locally only where a copy is mounted (dev);
     otherwise a redirect to R2, so a 12 GB download never ties up a worker."""
     path = _checked(COG_DIR, dataset_id, '.tif')
+    if request.method == 'OPTIONS':
+        return _preflight()
     if path.is_file():
         return serve_ranged(
             request, path,

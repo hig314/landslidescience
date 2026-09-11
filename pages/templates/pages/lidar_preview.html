@@ -105,7 +105,7 @@ vanish depending on which way you light them.
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-<script src="https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.js"></script>
+<script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
 <script src="{% static 'inventory/js/dem_shade.js' %}"></script>
 <script src="{% static 'inventory/js/dem_fill.js' %}"></script>
 <script>
@@ -149,16 +149,20 @@ vanish depending on which way you light them.
     maxPitch: 85,
     style: {
       version: 8,
+      // USGS Topo, as on the main map. NOT tile.openstreetmap.org: OSM's
+      // tile usage policy bars sites like this one from its servers and it
+      // now answers with a "blocked" tile (osm.wiki/blocked). The USGS
+      // basemap is public domain and needs no key.
       sources: {
-        osm: {
+        base: {
           type: 'raster',
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize: 256, maxzoom: 19,
-          attribution: '© OpenStreetMap contributors'
+          tiles: ['https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}'],
+          tileSize: 256, maxzoom: 16,
+          attribution: 'USGS The National Map'
         }
       },
       layers: [
-        { id: 'osm', type: 'raster', source: 'osm',
+        { id: 'base', type: 'raster', source: 'base',
           paint: { 'raster-opacity': 0.55 } }
       ]
     }
@@ -318,12 +322,21 @@ vanish depending on which way you light them.
 
   function setTerrain(on) {
     if (on && map.getSource('dem')) {
+      // Anchor the map centre at sea level while terrain is on. MapLibre's
+      // default keeps the camera a fixed height above the ground UNDER the
+      // centre and re-solves the zoom every frame; as sharper DEM tiles
+      // stream in, that sampled height jumps, and at a low pitch with high
+      // exaggeration the whole view lurches to a new place. Unclamping
+      // removes the per-frame re-solve (the fix GeoLibre's terrain control
+      // uses, and MapLibre's own guidance for steep pitch).
+      if (map.setCenterClampedToGround) map.setCenterClampedToGround(false);
       map.setTerrain({ source: 'dem',
                        exaggeration: +document.getElementById('ex').value / 10 });
       map.setSky(document.getElementById('fog').checked ? FOG : null);
     } else {
       map.setTerrain(null);
       map.setSky(null);
+      if (map.setCenterClampedToGround) map.setCenterClampedToGround(true);
     }
   }
 

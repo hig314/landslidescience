@@ -73,7 +73,9 @@
             {% if is_site_admin %}
               <span class="inv-menu-head">Site</span>
               <a href="{% url 'traffic' %}" role="menuitem"
-                 title="Visits, pages and referrers (self-hosted Umami)">&#128200; Usage analytics</a>
+                 title="Public visitors: visits, pages and referrers (self-hosted Umami)">&#128200; Usage: public</a>
+              <a href="{% url 'traffic' %}?site=team" role="menuitem"
+                 title="Signed-in collaborators only, tracked as a separate site">&#128200; Usage: collaborators</a>
               {% if user.is_staff %}
                 <a href="{% url 'admin:index' %}" role="menuitem"
                    title="Users, groups, pages and hosted files">Django admin</a>

@@ -170,12 +170,19 @@ var DemFill = (function () {
     });
   }
 
-  function loader(params) {
+  // Same abort policy as dem_shade.js: the shared, cached fetches carry on
+  // (another tile may need them), but a tile MapLibre has already dropped
+  // skips the composite and the PNG encode.
+  function loader(params, abortController) {
+    var ac = abortController;
     var u = new URL(params.url.replace('demfill://', 'https://d.invalid/'));
     var seg = u.pathname.split('/').filter(Boolean);
     var id = u.host === 'd.invalid' ? seg[0] : u.host;
     var z = +seg[1], x = +seg[2], y = +seg[3];
     return Promise.all([lidar(id, z, x, y), context(z, x, y)]).then(function (r) {
+      if (ac && ac.signal && ac.signal.aborted) {
+        var err = new Error('demfill tile aborted'); err.name = 'AbortError'; throw err;
+      }
       var L = r[0], C = r[1];
       if (!L) return encode(C);
       var H = new Float32Array(TILE * TILE);

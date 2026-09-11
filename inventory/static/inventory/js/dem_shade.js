@@ -353,7 +353,19 @@ window.DemShade = (function () {
   }
 
   // ---- protocol -----------------------------------------------------------
-  function loader(params) {
+  // MapLibre hands every protocol loader an AbortController and aborts it when
+  // the tile scrolls out of view. The elevation fetches are NOT cancelled on
+  // that signal: a decode is shared by up to nine output tiles through
+  // elevCache, and the neighbours still want it. What is skipped is the
+  // per-tile work nobody will see -- the shading pass and the PNG encode --
+  // which is where a fast pan used to burn the main thread on dead tiles.
+  function abortError() {
+    try { return new DOMException('demshade tile aborted', 'AbortError'); }
+    catch (e) { var err = new Error('demshade tile aborted'); err.name = 'AbortError'; return err; }
+  }
+  function aborted(ac) { return !!(ac && ac.signal && ac.signal.aborted); }
+
+  function loader(params, abortController) {
     // Finished-tile cache first: on a repeat view this returns without
     // touching PMTiles, the decoder, the shader, or the PNG encoder.
     var cached = lruGet(tileCache, params.url);
@@ -381,7 +393,9 @@ window.DemShade = (function () {
 
     return buildPadded(id, z, x, y).then(function (E) {
       if (!E) { lruSet(tileCache, params.url, EMPTY, TILE_MAX); return { data: null }; }
+      if (aborted(abortController)) throw abortError();
       var px = shade(E, z, y, o);
+      if (aborted(abortController)) throw abortError();
       var c = document.createElement('canvas');
       c.width = c.height = TILE;
       c.getContext('2d').putImageData(new ImageData(px, TILE, TILE), 0, 0);

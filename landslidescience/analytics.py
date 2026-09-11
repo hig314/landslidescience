@@ -321,10 +321,16 @@ def dashboard(request):
         return HttpResponseForbidden('Traffic analytics are restricted to site admins.')
 
     public = (getattr(settings, 'UMAMI_PUBLIC_URL', '') or '').rstrip('/')
-    site_id = getattr(settings, 'UMAMI_WEBSITE_ID', '')
+    # Two Umami sites (see site_for): the public one by default, the
+    # collaborator one with ?site=team. Umami's own header lets you hop
+    # between them once inside; this just picks the landing page.
+    team = request.GET.get('site') == 'team'
+    site_id = getattr(settings,
+                      'UMAMI_TEAM_WEBSITE_ID' if team else 'UMAMI_WEBSITE_ID', '')
     if not public or not site_id:
         return _plain('Analytics are not configured in this environment '
-                      '(UMAMI_PUBLIC_URL / UMAMI_WEBSITE_ID unset).')
+                      '(UMAMI_PUBLIC_URL / UMAMI_%sWEBSITE_ID unset).'
+                      % ('TEAM_' if team else ''))
 
     token = _bridge_token()
     if not token:
