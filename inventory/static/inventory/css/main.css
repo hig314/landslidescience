@@ -1029,6 +1029,23 @@ body.inv-article-body {
 }
 .inv-dl-menu > a:hover, .inv-dl-menu > button:hover { background: #f2ede6; }
 
+/* Signed-in user menu: same dropdown as Download, plus section headings and
+   a POST form (Log out) whose button must line up with the links. */
+.inv-dl-menu > form { display: contents; }
+.inv-dl-menu > form > button {
+    font: 13px/1.3 system-ui, -apple-system, Segoe UI, sans-serif;
+    text-align: left; background: none; border: none; cursor: pointer;
+    color: #333; padding: 8px 14px; white-space: nowrap; width: 100%;
+}
+.inv-dl-menu > form > button:hover { background: #f2ede6; }
+.inv-menu-head {
+    font: 600 10px/1.2 system-ui, -apple-system, Segoe UI, sans-serif;
+    letter-spacing: 0.06em; text-transform: uppercase; color: #999;
+    padding: 8px 14px 3px; border-top: 1px solid #eee6da; margin-top: 4px;
+}
+.inv-menu-head:first-child { border-top: none; margin-top: 0; }
+.inv-header-nav .inv-user-btn { color: #5D4037; font-weight: 600; font-size: 13px; }
+
 /* --- Collapsible overlay categories (sidebar + wiper panel) --- */
 .ov-cat-summary { cursor: pointer; list-style: none; user-select: none; }
 .ov-cat-summary::-webkit-details-marker { display: none; }

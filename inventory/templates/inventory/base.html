@@ -47,15 +47,47 @@
             {% block download_extra %}{% endblock %}
           </span>
         </span>
-        {% if is_inventory_editor %}
-          <a href="{% url 'inventory:manage_list' %}" style="color:#5D4037; font-weight:600;">⚙ Manage</a>
-        {% endif %}
+        {% comment %}
+        Signed-in controls live in one menu keyed by the user's name, so the
+        header stays short as editor/admin surfaces accumulate. Sections are
+        role-gated: editors see the inventory tools, site admins (and
+        superusers) the usage dashboard, and Django admin only for is_staff
+        because the admin login rejects anyone else. The opt-out and Log out
+        are for everyone who is signed in.
+        {% endcomment %}
         {% if user.is_authenticated %}
-          <span class="inv-user-name" title="Signed in">{{ user.username }}</span>
-          <form action="{% url 'inventory:logout' %}" method="post" class="inv-logout-form">
-            {% csrf_token %}
-            <button type="submit" class="inv-logout-btn">Log out</button>
-          </form>
+        <span class="inv-dl-wrap inv-user-wrap">
+          <button type="button" class="inv-dl-btn inv-user-btn" id="user-menu-btn"
+                  aria-haspopup="true" aria-expanded="false"
+                  title="Signed in as {{ user.username }}">&#9776; {{ user.username }}</button>
+          <span class="inv-dl-menu hidden" id="user-menu" role="menu">
+            {% if is_inventory_editor %}
+              <span class="inv-menu-head">Inventory</span>
+              <a href="{% url 'inventory:manage_list' %}" role="menuitem">&#9881; Manage records</a>
+              <a href="{% url 'inventory:manage_new' %}" role="menuitem">&#65291; New record</a>
+              <a href="{% url 'inventory:manage_import' %}" role="menuitem">&#11014; Import GeoJSON</a>
+              <a href="{% url 'inventory:manage_subsets' %}" role="menuitem">Subsets</a>
+              <a href="{% url 'inventory:rules' %}" role="menuitem">Rules</a>
+              <a href="{% url 'inventory:manage_settings' %}" role="menuitem">Map settings</a>
+            {% endif %}
+            {% if is_site_admin %}
+              <span class="inv-menu-head">Site</span>
+              <a href="{% url 'traffic' %}" role="menuitem"
+                 title="Visits, pages and referrers (self-hosted Umami)">&#128200; Usage analytics</a>
+              {% if user.is_staff %}
+                <a href="{% url 'admin:index' %}" role="menuitem"
+                   title="Users, groups, pages and hosted files">Django admin</a>
+              {% endif %}
+            {% endif %}
+            <span class="inv-menu-head">Account</span>
+            <a href="{% url 'traffic_optout' %}" role="menuitem"
+               title="Exclude this browser from the site's visit counts">Analytics opt-out</a>
+            <form action="{% url 'inventory:logout' %}" method="post" class="inv-logout-form">
+              {% csrf_token %}
+              <button type="submit" class="inv-logout-btn" role="menuitem">Log out</button>
+            </form>
+          </span>
+        </span>
         {% else %}
           {% comment %}
           Points at the site sign-in, NOT admin:login. The admin form rejects any
@@ -69,26 +101,34 @@
   </header>
   {% block body %}{% endblock %}
   <script>
-    // Download menu open/close. Plain inline script: it is three lines of
-    // behaviour on every page, and the map bundle is not loaded outside /map.
+    // Header menus (Download, and the signed-in user menu) open/close. Plain
+    // inline script: a few lines of behaviour on every page, and the map
+    // bundle is not loaded outside /map. One menu open at a time.
     (function () {
-      var btn = document.getElementById('dl-menu-btn');
-      var menu = document.getElementById('dl-menu');
-      if (!btn || !menu) return;
-      function close() { menu.classList.add('hidden'); btn.setAttribute('aria-expanded', 'false'); }
-      btn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        var open = menu.classList.toggle('hidden') === false;
-        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      var wraps = Array.prototype.slice.call(document.querySelectorAll('.inv-dl-wrap'));
+      var menus = [];
+      wraps.forEach(function (wrap) {
+        var btn = wrap.querySelector('.inv-dl-btn');
+        var menu = wrap.querySelector('.inv-dl-menu');
+        if (!btn || !menu) return;
+        menus.push({ btn: btn, menu: menu });
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var open = menu.classList.toggle('hidden') === false;
+          btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+          menus.forEach(function (m) { if (m.menu !== menu) close(m); });
+        });
+        // Choosing an item is a completed action — don't leave the menu hanging.
+        menu.addEventListener('click', function (e) {
+          if (e.target.closest('a, button')) close({ btn: btn, menu: menu });
+        });
       });
+      function close(m) { m.menu.classList.add('hidden'); m.btn.setAttribute('aria-expanded', 'false'); }
+      function closeAll() { menus.forEach(close); }
       document.addEventListener('click', function (e) {
-        if (!menu.contains(e.target)) close();
+        menus.forEach(function (m) { if (!m.menu.contains(e.target)) close(m); });
       });
-      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
-      // Choosing an item is a completed action — don't leave the menu hanging.
-      menu.addEventListener('click', function (e) {
-        if (e.target.closest('a, button')) close();
-      });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAll(); });
     })();
   </script>
   {% block scripts %}{% endblock %}
