@@ -650,14 +650,24 @@ the citable record behind published work, and being findable is most of their
 point. Accepted cost — dated copies of the same records compete with the live
 map in search results.
 
-## Radar coherence overlays (Sentinel-1, seasonal)
+## Radar coherence overlay (Sentinel-1, summer)
 
-Two statewide pyramids, `/tiles/coherence/{summer,winter}/`, built by
+One statewide pyramid, `/tiles/coherence/summer/`, built by
 `tools/fetch_coherence.py` + `tools/build_coherence_tiles.sh` from the
 Sentinel-1 Global Coherence Dataset (Kellndorfer et al. 2022, CC BY 4.0, free
-and unauthenticated on AWS Open Data). They live in the **InSAR** overlay
-category because their job is to say where the OPERA velocity layer above
-them can be believed.
+and unauthenticated on AWS Open Data). It lives in the **InSAR** overlay
+category because its first job is to say where the OPERA velocity layer above
+it can be believed.
+
+**Why it ships**, per Hig after looking at it: low-coherence patches sit over
+some very active landslides and it "highlights a few that are otherwise easy
+to miss" — a second, independent way for an active slide to announce itself.
+That, not the InSAR-validity reading, is what earned it a place.
+
+**Winter was built and cut** (2026-09-10): it wins in the dry interior and
+loses badly on the wet-snow coast, and on the map it added nothing summer did
+not already show. The route regex and both build scripts still accept any
+season, so re-baking one is a command, not a code change.
 
 - Source tiles are 1x1 degree, uint8 **PERCENT** coherence (not 0-255),
   nodata 0, ~93 m, EPSG:4326. **The tile name is the UPPER-LEFT corner** —
@@ -687,14 +697,15 @@ them can be believed.
 | Talkeetna Mtns 50 / 44 | Anchorage urban 46 / 18 | Kenai lowland 43 / 18 |
 |---|---|---|
 | **Koyukuk tundra 7 / 20** | **Chugach nr Valdez 8 / 4** | **Columbia Glacier 5 / 4** |
+| open water 4 / 4 | | |
 
 Steep snowy coastal alpine ground is the worst case in *both* seasons, and
 the dataset's own layover/shadow mask does not single those sites out, so it
 is snow and ice rather than radar geometry. Winter is not a uniform
 improvement either: it wins in the dry interior and loses badly on the
 wet-snow coast. Consequence worth stating plainly: this layer does **not**
-give a route to talus activity — it shows that C-band InSAR mostly cannot see
-that terrain at all.
+give a route to talus activity — 93 m is too coarse for it, and the terrain is
+radar-dark besides. Its value is the active-landslide flagging above.
 
 ## OPERA DIST — surface disturbance overlay
 

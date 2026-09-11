@@ -2122,14 +2122,10 @@
           sourceDef: function () { return _iceboostSourceDef('overdeep'); },
           defOpacity: 0.9 },
         { id: 'coh-summer', layerId: 'ov-coh-summer', sourceId: 'ov-coh-summer-src',
-          label: 'Radar coherence — summer',
-          sub: 'Sentinel-1 12-day VV, 93 m · where InSAR holds a signal',
+          label: 'Radar coherence',
+          sub: 'Sentinel-1 12-day VV summer, 93 m · where InSAR works; ' +
+               'low patches can mark active ground',
           sourceDef: function () { return _coherenceSourceDef('summer'); },
-          defOpacity: 0.85 },
-        { id: 'coh-winter', layerId: 'ov-coh-winter', sourceId: 'ov-coh-winter-src',
-          label: 'Radar coherence — winter',
-          sub: 'Sentinel-1 12-day VV · better inland than summer, worse on the coast',
-          sourceDef: function () { return _coherenceSourceDef('winter'); },
           defOpacity: 0.85 },
         // OPERA DIST last, so disturbance draws over the glacier fields.
         // Carries a `stepper` — the first overlay whose content depends on a
@@ -2151,16 +2147,26 @@
     // radar phase survives 12 days; where it is low, InSAR has nothing to
     // work with.
     //
+    // WHAT IT IS ACTUALLY FOR, per Hig after looking at it: low-coherence
+    // patches sit over some very active landslides, and it "highlights a few
+    // that are otherwise easy to miss". That is the layer's justification —
+    // a second, independent way for an active slide to announce itself. It is
+    // NOT a route to talus activity: 93 m is too coarse, and the measurements
+    // below show the terrain is radar-dark anyway.
+    //
     // MEASURED, not assumed — the intuition "bare rock holds coherence,
-    // vegetation loses it" is wrong here, and the sampled medians say so
-    // (summer / winter, ~1.5 km boxes): Talkeetna Mtns 50/44, Anchorage urban
-    // 46/18, Kenai lowland 43/18, Koyukuk tundra 7/20, Chugach near Valdez
-    // 8/4, Columbia Glacier 5/4, open water 4/4. So the steep, snowy coastal
-    // alpine ground — exactly the talus terrain of most interest — is the
+    // vegetation loses it" is wrong here. Sampled medians over ~1.5 km boxes
+    // (summer / winter): Talkeetna Mtns 50/44, Anchorage urban 46/18, Kenai
+    // lowland 43/18, Koyukuk tundra 7/20, Chugach near Valdez 8/4, Columbia
+    // Glacier 5/4, open water 4/4. Steep snowy coastal alpine ground is the
     // WORST case in both seasons, and the dataset's own layover/shadow mask
     // does not single those sites out, so it is snow and ice rather than
-    // radar geometry. Nor is winter uniformly better: it wins inland (dry,
-    // frozen) and loses badly on the coast (wet snow).
+    // radar geometry.
+    //
+    // SUMMER ONLY. Winter was built and cut (2026-09-10): it wins inland and
+    // loses badly on the wet-snow coast, and on the map it added nothing
+    // summer did not already show. The route and both build scripts still
+    // take any season, so re-baking one is a command, not a code change.
     //
     // Below 20% is drawn as nothing: Alaska in summer is mostly below 20%
     // (median 16%), and an opaque floor would blanket the state in colour
@@ -3441,7 +3447,7 @@
     var _OV_CATS = [
         { key: 'susc',  label: 'Landslide susceptibility', ids: ['susc-lw', 'susc-n10'] },
         { key: 'insar', label: 'InSAR ground motion',
-          ids: ['opera-asc', 'opera-desc', 'coh-summer', 'coh-winter'] },
+          ids: ['opera-asc', 'opera-desc', 'coh-summer'] },
         // 'dist-alert' stays listed although it is retired: _ovRenderGrouped
         // filters ids that are not in OVERLAYS, so this needs no edit if
         // DIST_ALERT_ACTIVE is flipped back on.
