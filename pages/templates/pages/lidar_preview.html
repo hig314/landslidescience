@@ -94,11 +94,13 @@ vanish depending on which way you light them.
   <label><input type="checkbox" id="t3d"> Terrain</label>
   <label>Terrain exaggeration <span class="val" id="exv">1.0</span></label>
   <input type="range" id="ex" min="0" max="40" value="10">
-  <label><input type="checkbox" id="ctx" checked> Statewide DEM outside the survey</label>
+  <label><input type="checkbox" id="ctx" checked> USGS 3DEP outside the survey</label>
   <label><input type="checkbox" id="fog" checked> Fade into the distance</label>
   <div class="stackhint">Without context a survey stands on a flat plane as a
-    block of towers. Context is the USGS 2-arc-second NED via AWS Terrain Tiles,
-    clamped at sea level; the fog also spares the renderer the far field.</div>
+    block of towers. Context is USGS 3DEP, fetched live per tile (slow on first
+    view); in Alaska that is 2010 IfSAR, so retreated glaciers still show as
+    ice and the survey steps off them with a cliff. The fog spares the
+    renderer the far field.</div>
 
   <div id="status"></div>
   <button type="button" id="copyurl">Copy link to this view</button>
@@ -106,8 +108,13 @@ vanish depending on which way you light them.
 
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
-<script src="{% static 'inventory/js/dem_shade.js' %}"></script>
-<script src="{% static 'inventory/js/dem_fill.js' %}"></script>
+<script>
+  // Many archives stay open at once here ("warm"), and the 3DEP context is
+  // slow to fetch, so hold more decoded tiles than the package default.
+  window.DEMSHADE_OPTIONS = { elevationCacheSize: 600, tileCacheSize: 400 };
+</script>
+<script src="{% static 'inventory/js/vendor/maplibre-gl-demshade.iife.js' %}"></script>
+<script src="{% static 'inventory/js/dem_shade_bridge.js' %}"></script>
 <script>
 (function () {
   'use strict';
@@ -117,7 +124,13 @@ vanish depending on which way you light them.
   var protocol = new pmtiles.Protocol();
   maplibregl.addProtocol('pmtiles', protocol.tile);
   DemShade.register(maplibregl);
-  DemFill.register(maplibregl);
+  // Context DEM: USGS 3DEP, live float32 exports per tile. In Alaska this is
+  // 2010 IfSAR, so a glacier that has since retreated still shows as ice;
+  // where a survey has newer data the composite steps off it with a cliff.
+  // That is deliberate: an honest artifact beats a masked one.
+  var CTX_ID = 'usgs3dep';
+  DemShade.addImageServer(CTX_ID,
+    'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer');
 
   // ---- shareable state --------------------------------------------------
   // MapLibre's built-in `hash` only carries the camera. The whole point here is
@@ -215,9 +228,13 @@ vanish depending on which way you light them.
   var props4 = {};        // id -> catalog properties
   var bboxOf = {};        // id -> [w, s, e, n]
 
+  // Two registrations per survey: the archive alone (shading, and terrain
+  // without context) and the archive over 3DEP (terrain with context).
+  function ctxId(p) { return p.id + '_ctx'; }
   function ensureLayer(p) {
     if (map.getLayer('shade-' + p.id)) return;
     DemShade.addDataset(p.id, p.pmtiles_url);
+    DemShade.addDataset(ctxId(p), p.pmtiles_url, { fill: CTX_ID });
     map.addSource('shade-' + p.id, {
       type: 'raster',
       tiles: [DemShade.url(p.id, readOpts())],
@@ -281,7 +298,6 @@ vanish depending on which way you light them.
 
     // The raster-dem source only feeds 3D terrain, and only one can be active,
     // so this one does get swapped.
-    DemFill.addDataset(p.id, p.pmtiles_url);
     rebuildDem(p);
 
     syncLayers();
@@ -291,19 +307,20 @@ vanish depending on which way you light them.
     render();
   }
 
-  // With context on, the terrain source is the demfill:// composite: lidar
-  // where the survey has data, the statewide DEM everywhere else, so the
-  // survey sits on real ground instead of a 0 m plane. minzoom drops to 0
-  // because the context exists at every zoom even where the archive does not.
+  // Terrain comes through the package's raster-dem passthrough for both
+  // modes. With context on it is the composite: lidar where the survey has
+  // data, 3DEP everywhere else, so the survey sits on real ground instead of
+  // a 0 m plane (minzoom drops to 0 because the context exists at every
+  // zoom). Without context, no-data is 0 m rather than the -10 km pit that
+  // MapLibre's own decoder makes of a transparent pixel.
   function rebuildDem(p) {
     var ctx = document.getElementById('ctx').checked;
     var was = !!map.getTerrain();
     if (map.getSource('dem')) { map.setTerrain(null); map.removeSource('dem'); }
     map.addSource('dem', {
       type: 'raster-dem',
-      tiles: [ctx ? DemFill.url(p.id)
-                  : 'pmtiles://' + location.origin + p.pmtiles_url + '/{z}/{x}/{y}'],
-      encoding: 'mapbox',          // must match build_lidar.py's encoder
+      tiles: [DemShade.demUrl(ctx ? ctxId(p) : p.id)],
+      encoding: 'mapbox',          // the passthrough always writes Mapbox terrain-RGB
       tileSize: 256,
       minzoom: ctx ? 0 : p.min_zoom,
       maxzoom: p.max_zoom
@@ -320,23 +337,26 @@ vanish depending on which way you light them.
               'horizon-fog-blend': 0.9, 'sky-horizon-blend': 0.6,
               'atmosphere-blend': 0 };
 
+  var untrackTerrain = null;
   function setTerrain(on) {
     if (on && map.getSource('dem')) {
-      // Anchor the map centre at sea level while terrain is on. MapLibre's
-      // default keeps the camera a fixed height above the ground UNDER the
-      // centre and re-solves the zoom every frame; as sharper DEM tiles
-      // stream in, that sampled height jumps, and at a low pitch with high
-      // exaggeration the whole view lurches to a new place. Unclamping
-      // removes the per-frame re-solve (the fix GeoLibre's terrain control
-      // uses, and MapLibre's own guidance for steep pitch).
-      if (map.setCenterClampedToGround) map.setCenterClampedToGround(false);
       map.setTerrain({ source: 'dem',
                        exaggeration: +document.getElementById('ex').value / 10 });
       map.setSky(document.getElementById('fog').checked ? FOG : null);
+      // Neither MapLibre default is right here. Clamped (the default), the
+      // centre elevation is re-sampled every frame and the view lurches as
+      // sharper DEM tiles stream in. Unclamped, the centre sits at sea level:
+      // over high ground the surface is far closer than the zoom says, so
+      // zooming in DROPS detail and stays coarse, and rotation pivots about a
+      // point in the air. The package samples the surface under the centre
+      // only after each gesture and once tiles settle, and eases to it.
+      if (!untrackTerrain && DemShade && DemShade.trackTerrainCenter) {
+        untrackTerrain = DemShade.trackTerrainCenter(map);
+      }
     } else {
       map.setTerrain(null);
       map.setSky(null);
-      if (map.setCenterClampedToGround) map.setCenterClampedToGround(true);
+      if (untrackTerrain) { untrackTerrain(); untrackTerrain = null; }
     }
   }
 
