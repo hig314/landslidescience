@@ -20,7 +20,7 @@ MLLW) before adding multibeam; the manifest's `vertical_datum` is the hook.
 | Thing | Where | Status |
 |---|---|---|
 | Code | `main` | GitHub, droplet, and local all in sync (2026-09-08) |
-| PMTiles (~7.2 GB, nineteen files) | `data/lidar/pmtiles/` local and `/opt/landslidescience/data/lidar/pmtiles/` on the droplet | synced; droplet 8.3 GB free |
+| PMTiles (~7.3 GB, nineteen files) | `data/lidar/pmtiles/` local and R2 bucket `landslidescience-lidar` under `pmtiles/` (public `https://lidar.landslidescience.org/pmtiles/<id>.pmtiles`) | all 19 uploaded 2026-09-11 (sizes verified with `rclone check`); catalog `pmtiles_url` is now the R2 URL; `/lidar/pmtiles/<id>` serves a local copy if mounted else 302s to R2. The droplet copies are to be deleted once prod is verified on R2. NEEDS the Cloudflare cache rule extended to `/pmtiles/` (four archives exceed 512 MB: seward, matsu, kbay, glacier_bay) |
 | Catalog | `data/lidar/catalog.geojson` (19 features) | synced |
 | Archive COGs (~54 GB, predictor-compressed) | `/Volumes/Nunatak/lidar_build/cog/` + R2 bucket `landslidescience-lidar` under `cog/` | all 19 uploaded 2026-09-08; Cache Rule 'bypass cache' on /cog/ added by Hig |
 | Paused InSAR kinematics | branch `insar-kinematics` (19 commits, rebased onto `main`, pushed) | dev-only; check it out to resume |
@@ -54,8 +54,11 @@ IceBridge guard, the manifest additions, and docs.
   700 MB object, first request 206 / `cf-cache-status: DYNAMIC`. Re-verify the
   same way if the rule changes; an already-requested object will not reproduce
   the fault.
-- **Droplet disk is the next constraint: 8.3 GB free** with ~7.2 GB of tiles on
-  it. The next big survey either needs the tiles moved to R2 (one rclone
+- **Droplet disk: 9.3 GB free before the PMTiles move (2026-09-11)**; deleting the
+  droplet copies frees 7.3 GB. Uploads run from the Mac with rclone reading
+  `~/.r2.env` through `RCLONE_CONFIG_R2_*` env vars (no config file;
+  `RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true` because the token cannot create
+  buckets) at ~1.5 MB/s. The next big survey (one rclone
   command plus a catalog URL change) or a bigger droplet.
 - Automation cannot see a rendered MapLibre page (hidden tab pauses
   `requestAnimationFrame`; headless Chrome hangs on WebGL — see the note in

@@ -43,6 +43,12 @@ PM_DIR = Path(os.environ.get("LIDAR_PM_OUT", ROOT / "data" / "lidar" / "pmtiles"
 # gunicorn workers. Pushed by tools/lidar/r2_sync.sh into <bucket>/cog/.
 COG_PUBLIC_BASE = os.environ.get("LIDAR_COG_PUBLIC_BASE",
                                  "https://lidar.landslidescience.org/cog")
+# The web pyramids moved to R2 too (2026-09-11): 7.3 GB that no longer needs
+# droplet disk, and every range read now comes off Cloudflare instead of two
+# gunicorn workers. The bucket's CORS allowlist must include every origin that
+# reads them (landslidescience.org and the dev origin do).
+PMTILES_PUBLIC_BASE = os.environ.get(
+    "LIDAR_PMTILES_PUBLIC_BASE", "https://lidar.landslidescience.org/pmtiles")
 
 # Footprint detail. 0.0001 deg is ~11 m of latitude -- finer than anyone needs
 # for "does this survey cover my slope?", and keeps the whole catalog small
@@ -149,7 +155,7 @@ def main():
                 "max_zoom": ds["max_zoom"],
                 "grid": f"{width} x {height}",
                 "coverage_km2": round(area, 1),
-                "pmtiles_url": f"/lidar/pmtiles/{did}.pmtiles",
+                "pmtiles_url": f"{PMTILES_PUBLIC_BASE}/{did}.pmtiles",
                 "pmtiles_bytes": pm_bytes,
                 "cog_url": f"{COG_PUBLIC_BASE}/{did}.tif",
                 "cog_bytes": cog.stat().st_size,

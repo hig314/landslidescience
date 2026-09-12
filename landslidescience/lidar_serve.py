@@ -50,6 +50,12 @@ COG_DIR = getattr(settings, 'LIDAR_COG_DIR', None) or (LIDAR_DIR / 'cog')
 # links keep working, and so dev can serve a locally mounted copy.
 COG_PUBLIC_BASE = getattr(settings, 'LIDAR_COG_PUBLIC_BASE',
                           'https://lidar.landslidescience.org/cog')
+# The web pyramids followed the COGs to R2 (2026-09-11). The catalog links
+# there directly; this route serves a locally mounted copy where one exists
+# (dev, or a survey not yet uploaded) and otherwise redirects, so old links
+# and the MapLibre pmtiles:// protocol (which follows redirects) keep working.
+PMTILES_PUBLIC_BASE = getattr(settings, 'LIDAR_PMTILES_PUBLIC_BASE',
+                              'https://lidar.landslidescience.org/pmtiles')
 
 
 def _parse_range(header, size):
@@ -172,11 +178,16 @@ def _checked(directory, dataset_id, suffix):
 
 
 def pmtiles(request, dataset_id):
-    """The web DEM pyramid. Not immutable: a rebuild replaces the file in
-    place, so this leans on the ETag rather than a year-long max-age."""
-    return serve_ranged(
-        request, _checked(LIDAR_DIR / 'pmtiles', dataset_id, '.pmtiles'),
-        'application/vnd.pmtiles', 'public, max-age=3600')
+    """The web DEM pyramid: a local copy where mounted, else R2. Not
+    immutable: a rebuild replaces the file in place, so the local path leans
+    on the ETag rather than a year-long max-age."""
+    path = _checked(LIDAR_DIR / 'pmtiles', dataset_id, '.pmtiles')
+    if request.method == 'OPTIONS':
+        return _preflight()
+    if path.is_file():
+        return serve_ranged(request, path, 'application/vnd.pmtiles',
+                            'public, max-age=3600')
+    return _cors(HttpResponseRedirect(f'{PMTILES_PUBLIC_BASE}/{dataset_id}.pmtiles'))
 
 
 def cog(request, dataset_id):
