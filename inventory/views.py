@@ -12,6 +12,7 @@ data — Django doesn't need to know about these tables at all.
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -121,29 +122,64 @@ _HALO_COLOR = {
 # Connection pool
 # ---------------------------------------------------------------------------
 _pool = None
+_pool_lock = threading.Lock()
 
 
 def _get_pool():
+    """One pool per process, created on first use. The creation is locked:
+    under the threaded dev runserver two simultaneous first requests each
+    built a pool, the second overwrote `_pool`, and the first request then
+    returned its connection to a pool that never issued it -- psycopg2's
+    "trying to put unkeyed connection" 500 (dev, 2026-09-13, seconds after a
+    restart). gunicorn's sync workers are single-threaded, so prod never
+    raced, but the same code must be safe under both."""
     global _pool
     if _pool is None:
-        _pool = psycopg2.pool.ThreadedConnectionPool(
-            minconn=1,
-            maxconn=8,
-            host=os.environ.get("TETHYS_DB_HOST", "tethys_db"),
-            port=int(os.environ.get("TETHYS_DB_PORT", "5432")),
-            dbname=os.environ.get("LANDSLIDE_DB_NAME", "landslides"),
-            user=os.environ.get("TETHYS_DB_USERNAME", "tethys"),
-            password=os.environ.get("TETHYS_DB_PASSWORD", "tethys_pass"),
-        )
+        with _pool_lock:
+            if _pool is None:
+                _pool = psycopg2.pool.ThreadedConnectionPool(
+                    minconn=1,
+                    maxconn=8,
+                    host=os.environ.get("TETHYS_DB_HOST", "tethys_db"),
+                    port=int(os.environ.get("TETHYS_DB_PORT", "5432")),
+                    dbname=os.environ.get("LANDSLIDE_DB_NAME", "landslides"),
+                    user=os.environ.get("TETHYS_DB_USERNAME", "tethys"),
+                    password=os.environ.get("TETHYS_DB_PASSWORD", "tethys_pass"),
+                )
     return _pool
 
 
-def _get_conn():
-    return _get_pool().getconn()
+def _get_conn(timeout=5.0):
+    """A pooled connection, waiting up to `timeout` seconds for one to come
+    free. psycopg2's pool raises "connection pool exhausted" the instant all
+    `maxconn` are out; a page load fires several API requests at once, and
+    under the threaded dev runserver that turned a busy moment into 500s.
+    Views hold connections for milliseconds, so a brief wait is the right
+    answer; a genuine leak still surfaces as the timeout."""
+    pool = _get_pool()
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return pool.getconn()
+        except psycopg2.pool.PoolError as exc:
+            if 'exhausted' not in str(exc) or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.02)
 
 
 def _put_conn(conn):
-    _get_pool().putconn(conn)
+    """Return a connection to the pool. A connection the pool does not
+    recognise (double return, or a stray from before a pool swap) is closed
+    rather than raised on: by the time a view reaches its `finally`, its
+    response is already decided, and pool bookkeeping must never turn that
+    into a 500."""
+    try:
+        _get_pool().putconn(conn, close=bool(conn.closed))
+    except psycopg2.pool.PoolError:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +212,54 @@ _VIEW_STATE_RE = re.compile(r'^[A-Za-z0-9_.\-/&=~%,]+$')
 
 def valid_view_state(v):
     return bool(v) and bool(_VIEW_STATE_RE.match(v)) and 'map=' in v
+
+
+# A default view is served to every visitor (slug redirects, permalinks,
+# snapshots), so it may only name layers every visitor can see. These return
+# the offending references so the editor is told what to change.
+_VIEW_BASE_RE = re.compile(r'(?:^|&)(base|swipe)=([^&]*)')
+_VIEW_LI_RE = re.compile(r'(?:^|&)li=([^&]*)')
+
+
+def _public_lidar_ids():
+    """Survey ids in the PUBLIC lidar catalog (gated surveys are not in it)."""
+    from landslidescience.lidar_serve import LIDAR_DIR
+    try:
+        fc = json.loads((LIDAR_DIR / 'catalog.geojson').read_text())
+    except (OSError, ValueError):
+        return set()
+    return {f.get('properties', {}).get('id') for f in fc.get('features', [])}
+
+
+def view_state_private_layers(v):
+    """Layers in a view-state string that non-admin visitors cannot see: an
+    editor's browser-local QMS layer (`qms-<id>`), a shared QMS layer that is
+    not marked public (`qmsshared-<id>`), or a lidar survey (`li=`) absent from
+    the public catalog. Empty list = safe to store as a default view."""
+    from .models import QmsLayer
+    problems = []
+    for key, bid in _VIEW_BASE_RE.findall(v or ''):
+        if bid.startswith('qms-'):
+            problems.append(f'{key}: "{bid}" is a browser-local QMS layer (share it first)')
+        elif bid.startswith('qmsshared-'):
+            try:
+                qid = int(bid.split('-', 1)[1])
+            except ValueError:
+                problems.append(f'{key}: bad layer id "{bid}"')
+                continue
+            lay = QmsLayer.objects.filter(qms_id=qid).first()
+            if lay is None:
+                problems.append(f'{key}: QMS layer #{qid} is no longer shared')
+            elif not lay.public:
+                problems.append(f'{key}: "{lay.name}" is shared with data admins only')
+    m = _VIEW_LI_RE.search(v or '')
+    if m and m.group(1):
+        public_ids = _public_lidar_ids()
+        for ent in m.group(1).split(','):
+            lid = ent.split('.', 1)[0]
+            if lid and lid not in public_ids:
+                problems.append(f'lidar "{lid}" is not in the public catalog')
+    return problems
 
 
 def _slugify(name):
@@ -1368,6 +1452,26 @@ def api_qms_promote(request):
                   'attribution': det['copyright_text'], 'public': public,
                   'added_by': request.user},
     )
+    return JsonResponse({'ok': True, 'layer': _qms_layer_descriptor(layer)})
+
+
+@inventory_editor_required
+@require_POST
+def api_qms_set_scope(request, qms_id):
+    """Change who sees an already-shared QMS layer. Body: {public: bool}.
+    Default stays admin-only (QmsLayer.public=False); an editor widens a layer
+    to everyone deliberately, per layer, and can narrow it again. No QMS
+    round-trip — the stored tiles/attribution are untouched."""
+    from .models import QmsLayer
+    try:
+        public = bool(json.loads(request.body.decode('utf-8')).get('public'))
+    except (ValueError, UnicodeDecodeError, AttributeError):
+        return JsonResponse({'error': 'public required'}, status=400)
+    layer = QmsLayer.objects.filter(qms_id=int(qms_id)).first()
+    if layer is None:
+        return JsonResponse({'error': 'not a shared layer'}, status=404)
+    layer.public = public
+    layer.save(update_fields=['public'])
     return JsonResponse({'ok': True, 'layer': _qms_layer_descriptor(layer)})
 
 
@@ -2953,7 +3057,18 @@ def manage_edit_field(request, landslide_id):
             conn.rollback()
             return JsonResponse({'ok': False, 'error': (
                 'Not a valid map-view string (expected '
-                '"map=zoom/lat/lon&base=…[&swipe=…&sx=…][&ov=…][&tab=…][&an=…]").')}, status=400)
+                '"map=zoom/lat/lon&base=…[&swipe=…&sx=…][&ov=…][&li=…][&tab=…][&an=…]").')}, status=400)
+        # ...and it must not lean on layers visitors cannot see (admin-only
+        # QMS layers, browser-local QMS layers, gated lidar): the view is
+        # public the moment it is stored.
+        if name == 'default_map_view' and val:
+            private = view_state_private_layers(val)
+            if private:
+                conn.rollback()
+                return JsonResponse({'ok': False, 'error': (
+                    'Default views are shown to everyone, so they cannot use '
+                    'admin-only layers: ' + '; '.join(private) + '. Share the layer '
+                    'with everyone or pick a public one, then set the view again.')}, status=400)
 
         # planet_story_link keeps the N:M story tables in step (this autosave
         # endpoint is the main path scalar fields save through — without the

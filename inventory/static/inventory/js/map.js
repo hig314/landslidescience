@@ -103,7 +103,15 @@
     // when not the inventory default, and absent = leave alone. `an=<key>,…`
     // records the open analysis panels (hist | timing | scatter | opera) the
     // same way: written only when at least one is open, absent = leave alone.
+    // `li=<id>.<p>l<pct>r<pct>,…` records the lidar DEM overlays exactly as
+    // `ov` does raster overlays: <id> is the catalog survey id, <p> the shading
+    // preset (h hillshade | k KBSP), l/r the main / wiper pane with opacity.
+    // Present = fully describes the visible surveys (unlisted = off); absent =
+    // leave lidar alone. This is what makes a stored default view reproduce
+    // the lidar an editor had on when they set it (Hig, 2026-09-13).
     // ---------------------------------------------------------------------------
+    var LIDAR_PRESET_CODE = { hillshade: 'h', kbsp: 'k' };
+    var LIDAR_CODE_PRESET = { h: 'hillshade', k: 'kbsp' };
     function parseHashState(hashStr) {
         var h = hashStr != null ? hashStr : (location.hash || '');
         if (h.charAt(0) === '#') h = h.substring(1);
@@ -161,6 +169,21 @@
                     }
                 });
                 out.ov = ovOut;   // present (even if empty) whenever the param exists
+            } else if (k === 'li') {
+                var liOut = {};
+                v.split(',').forEach(function (ent) {
+                    var lm = /^([A-Za-z0-9_]+)\.([hk])((?:[lr]\d+)+)$/.exec(ent);
+                    if (!lm) return;
+                    var le = { preset: LIDAR_CODE_PRESET[lm[2]] };
+                    lm[3].replace(/([lr])(\d+)/g, function (_, sideCh, pct) {
+                        var o = Math.min(100, Math.max(0, parseInt(pct, 10))) / 100;
+                        if (sideCh === 'l') { le.left = true; le.opLeft = o; }
+                        else                { le.right = true; le.opRight = o; }
+                        return '';
+                    });
+                    if (le.left || le.right) liOut[lm[1]] = le;
+                });
+                out.li = liOut;   // present (even if empty) whenever the param exists
             } else if (k === 'tab') {
                 if (/^[a-z]+$/.test(v)) out.tab = v;   // validated against real tabs on apply
             } else if (k === 'an') {
@@ -198,6 +221,9 @@
     var _pendingSwipe = _initialHash.swipe
         ? { base: _initialHash.swipe, x: (_initialHash.sx != null ? _initialHash.sx : 50) }
         : null;
+    // Lidar overlays from the URL / saved view: applied once the catalog is in
+    // (_lidarFetch), since the ids mean nothing before then.
+    var _pendingLi = _initialHash.li || null;
 
     function writeHashState() {
         var c = map.getCenter(), z = map.getZoom();
@@ -209,6 +235,8 @@
         }
         var ovh = _ovEncodeHash();
         if (ovh) parts.push('ov=' + ovh);
+        var lih = _liEncodeHash();
+        if (lih) parts.push('li=' + lih);
         var tab = _activeSidebarTab();
         if (tab !== 'inventory') parts.push('tab=' + tab);
         var an = _anEncodeHash();
@@ -2562,11 +2590,20 @@
             });
             card.appendChild(plus);
         }
-        if (bm.category === 'Shared') {   // small scope tag
-            var tag = document.createElement('div');
+        if (bm.category === 'Shared') {   // small scope tag; editors click it to change the scope
+            var tag = document.createElement(window._isInventoryEditor ? 'button' : 'div');
+            if (window._isInventoryEditor) tag.type = 'button';
             tag.textContent = bm.public ? 'everyone' : 'admins';
             tag.style.cssText = 'position:absolute;bottom:2px;left:2px;font-size:9px;padding:0 3px;border-radius:2px;' +
-                'background:rgba(0,0,0,.6);color:#fff;';
+                'background:rgba(0,0,0,.6);color:#fff;border:none;line-height:1.4;' +
+                (window._isInventoryEditor ? 'cursor:pointer;' : '');
+            if (window._isInventoryEditor) {
+                tag.title = 'Who can see this layer — click to change';
+                tag.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    _showScopeMenu(tag, bm);
+                });
+            }
             card.style.position = 'relative';
             card.appendChild(tag);
         }
@@ -2772,6 +2809,54 @@
             .then(function () { _applyPendingSwipe(); });  // hash wiper on a now-merged shared layer
     }
 
+    // Popup off a shared card's scope tag: re-scope an already-shared layer.
+    // Default remains admins-only; widening to everyone is a deliberate,
+    // per-layer act — and the only way a default view may then reference it.
+    function _showScopeMenu(anchor, bm) {
+        var old = document.getElementById('qms-share-menu');
+        if (old) old.remove();
+        var menu = document.createElement('div');
+        menu.id = 'qms-share-menu';
+        menu.style.cssText = 'position:fixed;z-index:30;background:#fff;border:1px solid #bbb;border-radius:4px;' +
+            'box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:12px;overflow:hidden;';
+        var r = anchor.getBoundingClientRect();
+        menu.style.left = Math.round(r.left) + 'px';
+        menu.style.top  = Math.round(r.bottom + 3) + 'px';
+        [['Data admins only', false], ['Everyone', true]].forEach(function (opt) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = (opt[1] === !!bm.public ? '\u2713 ' : '\u2003') + 'Visible to ' + opt[0];
+            b.style.cssText = 'display:block;width:100%;text-align:left;padding:6px 14px;border:none;' +
+                'background:#fff;cursor:pointer;white-space:nowrap;';
+            b.addEventListener('mouseenter', function () { b.style.background = '#f0ebe9'; });
+            b.addEventListener('mouseleave', function () { b.style.background = '#fff'; });
+            b.addEventListener('click', function () {
+                menu.remove();
+                if (opt[1] === !!bm.public) return;
+                _setQmsScope(bm, opt[1]);
+            });
+            menu.appendChild(b);
+        });
+        document.body.appendChild(menu);
+        setTimeout(function () {
+            document.addEventListener('click', function onDoc(ev) {
+                if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', onDoc); }
+            });
+        }, 0);
+    }
+    function _setQmsScope(bm, isPublic) {
+        fetch(API_BASE + 'api/qms/' + bm.qms_id + '/scope/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
+            body: JSON.stringify({ public: isPublic })
+        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+          .then(function (res) {
+            if (!res.ok || !res.j.ok) { alert((res.j && res.j.error) || 'Could not change the layer scope'); return; }
+            bm.public = !!res.j.layer.public;
+            rebuildBasemapUI();
+        }).catch(function () { alert('Could not change the layer scope'); });
+    }
+
     // Small popup menu off the card's + button: pick who to share with.
     function _showShareMenu(anchor, qmsId) {
         var old = document.getElementById('qms-share-menu');
@@ -2906,6 +2991,7 @@
         // per-pane (the overlay framework's whole point) — unlike landslide
         // data, overlays are imagery-like and deliberately not mirrored.
         _ovEnsure(cmap);
+        _lidarReplayLayers();   // right-pane lidar, incl. li= state restored before the wiper existed
         if (!cmap.getSource('faults'))
             cmap.addSource('faults', { type: 'geojson', data: _faultsData || { type: 'FeatureCollection', features: [] } });
         if (!cmap.getLayer('faults-line')) cmap.addLayer(_faultsLayerDef());
@@ -3081,11 +3167,27 @@
         }
         var ovh = _ovEncodeHash();
         if (ovh) parts.push('ov=' + ovh);
+        var lih = _liEncodeHash();
+        if (lih) parts.push('li=' + lih);
         var tab = _activeSidebarTab();
         if (tab !== 'inventory') parts.push('tab=' + tab);
         var an = _anEncodeHash();
         if (an) parts.push('an=' + an);
         return parts.join('&');
+    }
+    // Basemaps named by a view string that non-admin visitors cannot see:
+    // an editor's browser-local QMS layer, or a shared QMS layer still scoped
+    // to data admins. Lidar is checked server-side against the public catalog.
+    function _viewPrivateLayers(v) {
+        var s = parseHashState('#' + v), out = [];
+        [s.base, s.swipe].forEach(function (id) {
+            if (!id) return;
+            var bm = findBasemap(id);
+            if (!bm) return;
+            if (bm._qms) out.push('"' + bm.label + '" (only in your browser)');
+            else if (bm.category === 'Shared' && !bm.public) out.push('"' + bm.label + '" (admins only)');
+        });
+        return out;
     }
     // Fully apply a stored view: basemap, wiper (off if the view has none),
     // overlays (views predating the ov param leave them alone), then fly to
@@ -3100,6 +3202,7 @@
             _swipeDisable();
         }
         if (s.ov) _ovApplyHashSpec(s.ov);
+        if (s.li) _liApplyHashSpec(s.li);
         if (s.tab) _setSidebarTab(s.tab);
         if (s.an) _anApplyHashSpec(s.an);
         _syncSwipeUI();
@@ -4073,8 +4176,13 @@
                 fc.features.forEach(function (f) {
                     var p = f.properties, b = _geomBounds(f.geometry);
                     _lidarBbox[p.id] = b;
-                    DemShade.addDataset(p.id, p.pmtiles_url);
+                    DemShade.addDataset(p.id, p.pmtiles_url,
+                        p.slope_url ? { slope: p.slope_url, slopeStep: p.slope_step } : undefined);
                 });
+                // Lidar carried in the URL / saved view (li=): the ids are
+                // resolvable only now. Unknown ids (a gated or retired survey)
+                // are simply skipped.
+                if (_pendingLi) { var pl = _pendingLi; _pendingLi = null; _liApplyHashSpec(pl); }
                 _rasterUiKey = '';
                 _rasterPanelRefresh();
             })
@@ -4174,6 +4282,56 @@
                 _lidarAddLayer(id, _swipe.map, _lidarActiveR);
             });
         }
+    }
+
+    // Encode the visible lidar surveys for the URL hash / a stored view:
+    // `<id>.<preset>l<pct>r<pct>` per survey (see the hash grammar comment at
+    // the top). One preset per survey: the main pane's if it is on there,
+    // else the wiper pane's.
+    function _liEncodeHash() {
+        var ids = {};
+        Object.keys(_lidarActive).forEach(function (id) { ids[id] = 1; });
+        Object.keys(_lidarActiveR).forEach(function (id) { ids[id] = 1; });
+        var parts = [];
+        Object.keys(ids).sort().forEach(function (id) {
+            var L = _lidarActive[id], R = _lidarActiveR[id];
+            var spec = '';
+            if (L) spec += 'l' + Math.round(L.opacity * 100);
+            if (R) spec += 'r' + Math.round(R.opacity * 100);
+            parts.push(id + '.' + (LIDAR_PRESET_CODE[(L || R).preset] || 'h') + spec);
+        });
+        return parts.join(',');
+    }
+    // Overwrite lidar visibility from a parsed `li` spec: listed surveys go on
+    // with the given preset/opacity per pane, unlisted ones go off. Layers are
+    // (re)built only when the maps can take them; otherwise the state waits for
+    // initLayers / _swipeAddData to replay it.
+    function _liApplyHashSpec(spec) {
+        var known = Object.keys(_lidarBbox);
+        if (!known.length) { _pendingLi = spec; return; }   // catalog not in yet
+        var ids = {};
+        known.forEach(function (id) { ids[id] = 1; });
+        Object.keys(_lidarActive).concat(Object.keys(_lidarActiveR)).forEach(function (id) { ids[id] = 1; });
+        Object.keys(ids).forEach(function (id) {
+            var e = spec[id];
+            if (e && e.left) {
+                _lidarActive[id] = { preset: e.preset || 'hillshade',
+                                     opacity: e.opLeft != null ? e.opLeft : 1 };
+            } else if (_lidarActive[id]) {
+                if (_mapReady) _lidarRemoveLayer(id, map);
+                delete _lidarActive[id];
+            }
+            if (e && e.right) {
+                _lidarActiveR[id] = { preset: e.preset || 'hillshade',
+                                      opacity: e.opRight != null ? e.opRight : 1 };
+            } else if (_lidarActiveR[id]) {
+                if (_swipe.map && _swipe.map.__lsStyleReady) _lidarRemoveLayer(id, _swipe.map);
+                delete _lidarActiveR[id];
+            }
+        });
+        if (_mapReady) _lidarReplayLayers();
+        _rasterUiKey = '';
+        _rasterPanelRefresh();
     }
 
     // ---- footprints (the zoomed-out view of "where is there data?") ----------
@@ -4434,6 +4592,7 @@
             if (state[p.id]) {
                 state[p.id].preset = sel.value;
                 _lidarAddLayer(p.id, m, state);
+                writeHashState();
             }
         });
         ctl.appendChild(sel);
@@ -4449,6 +4608,7 @@
                     m.setPaintProperty(_lidarLayerId(p.id), 'raster-opacity', op.value / 100);
             }
         });
+        op.addEventListener('change', function () { writeHashState(); });   // once per drag, not per pixel
         ctl.appendChild(op);
         row.appendChild(ctl);
 
@@ -4462,6 +4622,7 @@
                 delete state[p.id];
                 ctl.style.display = 'none';
             }
+            writeHashState();   // li= must track what is actually on
         });
         return row;
     }
@@ -6001,7 +6162,19 @@
         }
         var dvSet = document.getElementById('defview-set');
         if (dvSet) dvSet.addEventListener('click', function () {
-            _saveDefView(_currentViewString(), 'saving…');
+            // A default view is public the moment it is stored: refuse one that
+            // leans on layers visitors cannot see (the server checks too, and
+            // also covers gated lidar, which this client-side list cannot).
+            var view = _currentViewString();
+            var priv = _viewPrivateLayers(view);
+            if (priv.length) {
+                var st0 = document.getElementById('defview-status');
+                st0.style.color = '#c00';
+                st0.textContent = 'Not saved — visitors can\u2019t see ' + priv.join(', ') +
+                    '. Share the layer with everyone (its admins/everyone tag) or pick a public one.';
+                return;
+            }
+            _saveDefView(view, 'saving…');
         });
         var dvClear = document.getElementById('defview-clear');
         if (dvClear) dvClear.addEventListener('click', function () {
@@ -8000,6 +8173,7 @@
         // Same leave-alone rule for overlays, tab, and analysis panels: only
         // explicit params apply.
         if (s.ov) _ovApplyHashSpec(s.ov);
+        if (s.li) _liApplyHashSpec(s.li);
         if (s.tab) _setSidebarTab(s.tab);
         if (s.an) _anApplyHashSpec(s.an);
         if (s.lat != null && s.lon != null && s.zoom != null) {

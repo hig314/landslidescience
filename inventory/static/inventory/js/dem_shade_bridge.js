@@ -33,6 +33,11 @@ window.DemShade = (function () {
       known[id] = true;
       var spec = { pmtiles: new URL(pmtilesUrl, location.href).href, encoding: 'mapbox' };
       if (opts && opts.fill) spec.fill = opts.fill;
+      // Pre-baked slope pyramid (build_lidar.py --stage slope): the slope ramp
+      // reads true slope from the float32 archive instead of a gradient of
+      // the 0.1 m-quantised tiles, which staircases on gentle ground.
+      if (opts && opts.slope) spec.slope = { pmtiles: new URL(opts.slope, location.href).href,
+                                            step: opts.slopeStep || 0.5 };
       inst.addSource(id, spec)
           .catch(function (e) { delete known[id]; console.warn('demshade: source ' + id + ' failed', e); });
     },

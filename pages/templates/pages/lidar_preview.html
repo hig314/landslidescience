@@ -45,6 +45,11 @@ vanish depending on which way you light them.
   #panel button { margin: 8px 4px 0 0; font-size: 11px; padding: 3px 7px; }
   #panel select { font-size: 11px; margin-left: 4px; }
   label.disabled { color: #aaa; }
+  details.grp { margin: 4px 0 6px; }
+  details.grp summary { cursor: pointer; font-size: 12px; }
+  details.grp .cnt { color: #888; font-size: 11px; font-weight: normal; }
+  details.grp .ds { margin-left: 8px; }
+  .ds.far label b { color: #888; font-weight: 500; }
 </style>
 </head>
 <body>
@@ -53,6 +58,7 @@ vanish depending on which way you light them.
   <h1>Lidar DEM preview</h1>
 
   <h2>Datasets</h2>
+  <label><input type="checkbox" id="inview"> Only surveys in view</label>
   <div id="datasets">loading catalog…</div>
 
   <h2>Illumination</h2>
@@ -71,10 +77,13 @@ vanish depending on which way you light them.
   <input type="range" id="hs" min="0" max="100" value="100">
   <label>Blend
     <select id="bl">
-      <option value="0">Overlay</option>
-      <option value="1">Transparency</option>
+      <option value="2">Hard light (shade decides)</option>
+      <option value="0">Overlay (ramp decides; fades on pale ramps)</option>
+      <option value="3">Multiply (shadows only)</option>
+      <option value="1">Plain transparency</option>
     </select>
   </label>
+  <label><input type="checkbox" id="preslope" checked> Slope from the archive (pre-baked, true metres) where available</label>
   <label>Slope ramp <span class="val" id="slv">0.00</span></label>
   <input type="range" id="sl" min="0" max="100" value="0">
   <label>Mod 5 m <span class="val" id="mdv">0.00</span></label>
@@ -86,6 +95,7 @@ vanish depending on which way you light them.
 
   <h2>View</h2>
   <label id="nuplabel"><input type="checkbox" id="nup"> North up (lock bearing)</label>
+  <label><input type="checkbox" id="nadir"> Nadir (lock pitch)</label>
   <label><input type="checkbox" id="warm" checked> Keep overlapping DEMs warm</label>
   <div class="stackhint">Preloads every survey covering the view so switching
     between them is instant. <span id="cachestat"></span></div>
@@ -138,7 +148,7 @@ vanish depending on which way you light them.
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
   var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex'];
-  var CHECKS = ['t3d', 'nup', 'warm', 'ctx', 'fog'];
+  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'fog', 'inview', 'preslope'];
   var Q = new URLSearchParams(location.search);
   var qnum = function (k, d) { var v = Q.get(k); return v === null || v === '' ? d : +v; };
   var qbool = function (k, d) { var v = Q.get(k); return v === null ? d : (v === '1' || v === 'true'); };
@@ -150,7 +160,7 @@ vanish depending on which way you light them.
     if (v !== null && v !== '') document.getElementById(id).value = v;
   });
   CHECKS.forEach(function (id) {
-    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'fog');
+    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'fog' || id === 'preslope');
   });
 
   var map = new maplibregl.Map({
@@ -180,6 +190,9 @@ vanish depending on which way you light them.
       ]
     }
   });
+  // Exposed for the browser test harness (the page's `map` is closure-local;
+  // the bare global `map` is the <div id="map"> element).
+  window.lidarMap = map;
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }));
 
@@ -231,13 +244,23 @@ vanish depending on which way you light them.
   // Two registrations per survey: the archive alone (shading, and terrain
   // without context) and the archive over 3DEP (terrain with context).
   function ctxId(p) { return p.id + '_ctx'; }
+  // Which registration feeds the shade layer: the pre-baked slope one by
+  // default, the gradient-only twin when the checkbox is off (for comparing).
+  function shadeId(id) {
+    return document.getElementById('preslope').checked ? id : id + '_grad';
+  }
   function ensureLayer(p) {
     if (map.getLayer('shade-' + p.id)) return;
-    DemShade.addDataset(p.id, p.pmtiles_url);
-    DemShade.addDataset(ctxId(p), p.pmtiles_url, { fill: CTX_ID });
+    // Three registrations of the same archive: with its pre-baked slope
+    // (when the catalog has one), a gradient-only twin for the A/B checkbox,
+    // and the composite over 3DEP for terrain.
+    var slopeOpts = p.slope_url ? { slope: p.slope_url, slopeStep: p.slope_step } : {};
+    DemShade.addDataset(p.id, p.pmtiles_url, slopeOpts);
+    DemShade.addDataset(p.id + '_grad', p.pmtiles_url);
+    DemShade.addDataset(ctxId(p), p.pmtiles_url, Object.assign({ fill: CTX_ID }, slopeOpts));
     map.addSource('shade-' + p.id, {
       type: 'raster',
-      tiles: [DemShade.url(p.id, readOpts())],
+      tiles: [DemShade.url(shadeId(p.id), readOpts())],
       tileSize: 256,
       minzoom: p.min_zoom,
       maxzoom: p.max_zoom,
@@ -295,6 +318,7 @@ vanish depending on which way you light them.
   function showDataset(p) {
     if (active === p.id) return;
     active = p.id;
+    openRegionOf(p);
 
     // The raster-dem source only feeds 3D terrain, and only one can be active,
     // so this one does get swapped.
@@ -390,7 +414,36 @@ vanish depending on which way you light them.
     }, 250);
   }
   map.on('moveend', syncUrl);      // covers pan, zoom, rotate and pitch
-  map.on('moveend', function () { if (catalog) syncLayers(); });
+  map.on('moveend', function () { if (catalog) { syncLayers(); updateInView(); } });
+  // Only the region holding the selected survey stays open.
+  function openRegionOf(p) {
+    document.querySelectorAll('#datasets details.grp').forEach(function (det) {
+      det.open = !!det.querySelector('.ds[data-id="' + p.id + '"]');
+    });
+  }
+
+  // Mark which surveys overlap the current view; optionally hide the rest and
+  // fold the regions with nothing in view.
+  function updateInView() {
+    var only = document.getElementById('inview').checked;
+    document.querySelectorAll('#datasets .ds').forEach(function (div) {
+      var inView = overlapsView(div.dataset.id);
+      div.classList.toggle('far', !inView);
+      div.hidden = only && !inView;
+    });
+    document.querySelectorAll('#datasets details.grp').forEach(function (det) {
+      var all = det.querySelectorAll('.ds').length;
+      var here = det.querySelectorAll('.ds:not(.far)').length;
+      det.querySelector('.cnt').textContent = here ? here + ' of ' + all + ' in view' : all + ' surveys';
+      if (only) det.open = here > 0;
+    });
+  }
+  document.getElementById('inview').addEventListener('change', function () {
+    updateInView(); syncUrl();
+  });
+  document.getElementById('preslope').addEventListener('change', function () {
+    render(); syncUrl();
+  });
 
   document.getElementById('warm').addEventListener('change', function () {
     syncLayers(); syncUrl();
@@ -439,6 +492,15 @@ vanish depending on which way you light them.
   document.getElementById('nup').addEventListener('change', function () {
     applyNorthUp(); syncUrl();
   });
+  // Nadir: hold the camera straight down. Unlike north-up it stays available
+  // in 3D -- a plan view of exaggerated terrain is a legitimate way to look.
+  function applyNadir() {
+    if (document.getElementById('nadir').checked && map.getPitch() > 0.01) map.easeTo({ pitch: 0 });
+  }
+  document.getElementById('nadir').addEventListener('change', function () {
+    applyNadir(); syncUrl();
+  });
+  map.on('pitchend', applyNadir);
 
   // Run once at startup rather than only from the catalog callback: the panel's
   // enabled/greyed state describes the controls, not the tiles, and must be
@@ -489,7 +551,7 @@ vanish depending on which way you light them.
       var o = readOpts();
       Object.keys(props4).forEach(function (id) {
         var src = map.getSource('shade-' + id);
-        if (src) src.setTiles([DemShade.url(id, o)]);
+        if (src) src.setTiles([DemShade.url(shadeId(id), o)]);
       });
     }, 160);
   }
@@ -523,13 +585,37 @@ vanish depending on which way you light them.
         addFootprints(fc);
         var host = document.getElementById('datasets');
         host.innerHTML = '';
-        fc.features.forEach(function (f) {
+        // Grouped by region (a manifest field), newest first within a group,
+        // each group a <details> so the list stays scannable as it grows.
+        var REGION_ORDER = ['Anchorage', 'Mat-Su', 'Kenai Peninsula',
+                            'Turnagain Arm and Prince William Sound', 'Southeast', 'Other'];
+        var feats = fc.features.slice().sort(function (a, b) {
+          var ra = REGION_ORDER.indexOf(a.properties.region || 'Other');
+          var rb = REGION_ORDER.indexOf(b.properties.region || 'Other');
+          if (ra !== rb) return (ra < 0 ? 99 : ra) - (rb < 0 ? 99 : rb);
+          return (b.properties.year || 0) - (a.properties.year || 0) ||
+                 a.properties.title.localeCompare(b.properties.title);
+        });
+        var groups = {};
+        function groupFor(region) {
+          if (groups[region]) return groups[region];
+          var det = document.createElement('details');
+          // Collapsed by default; the region holding the active survey is
+          // opened by showDataset (and the in-view filter opens its matches).
+          det.open = false; det.className = 'grp';
+          det.innerHTML = '<summary><b>' + region + '</b> <span class="cnt"></span></summary>';
+          host.appendChild(det);
+          groups[region] = det;
+          return det;
+        }
+        feats.forEach(function (f) {
           var p = f.properties;
           props4[p.id] = p;
           var bb = turfBounds(f.geometry);
           bboxOf[p.id] = [bb[0][0], bb[0][1], bb[1][0], bb[1][1]];
           var div = document.createElement('div');
           div.className = 'ds';
+          div.dataset.id = p.id;
           div.innerHTML =
             '<label><input type="radio" name="ds" value="' + p.id + '"> ' +
             '<b>' + p.title + '</b></label>' +
@@ -538,8 +624,9 @@ vanish depending on which way you light them.
             p.horizontal_crs +
             (p.vertical_datum ? ' + ' + p.vertical_datum : '') + '<br>' +
             'tiles ' + fmtBytes(p.pmtiles_bytes) +
-            ' · <a href="' + p.cog_url + '">COG ' + fmtBytes(p.cog_bytes) +
-            '</a> · <a href="#" class="zoomto">zoom to</a></div>';
+            ' · <a href="' + p.cog_url + '" title="Cloud-optimized GeoTIFF of the full-resolution DTM in ' +
+            p.horizontal_crs + '; opens directly in QGIS by URL">Download DTM (' + fmtBytes(p.cog_bytes) +
+            ')</a> · <a href="#" class="zoomto">zoom to</a></div>';
           // Selecting a dataset deliberately does NOT move the camera: holding
           // the view still is what lets you flip between overlapping surveys
           // and see the change between them. "zoom to" is the explicit opt-in.
@@ -550,9 +637,10 @@ vanish depending on which way you light them.
             ev.preventDefault();
             map.fitBounds(turfBounds(f.geometry), { padding: 40 });
           });
-          host.appendChild(div);
+          groupFor(p.region || 'Other').appendChild(div);
         });
         if (!fc.features.length) host.textContent = 'no datasets built yet';
+        updateInView();
 
         // Restore the shared dataset. Deliberately does not touch the camera —
         // the URL already carries it, and re-fitting would discard the very

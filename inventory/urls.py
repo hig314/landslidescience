@@ -33,6 +33,7 @@ urlpatterns = [
     path('api/qms/promote/', views.api_qms_promote, name='api_qms_promote'),
     path('api/qms/<int:qms_id>/', views.api_qms_detail, name='api_qms_detail'),
     path('api/qms/<int:qms_id>/unpromote/', views.api_qms_unpromote, name='api_qms_unpromote'),
+    path('api/qms/<int:qms_id>/scope/', views.api_qms_set_scope, name='api_qms_set_scope'),
     # Trace rasters — editor-uploaded GeoTIFF overlays (all editor-gated,
     # incl. tiles; see inventory/trace_views.py).
     path('api/trace_rasters/', trace_views.trace_list, name='trace_list'),

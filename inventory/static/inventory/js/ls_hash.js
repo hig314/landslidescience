@@ -4,6 +4,8 @@
  *   map=<zoom>/<lat>/<lon> & base=<id> & swipe=<id> & sx=<pct>
  *   & ov=<id>[~s].l<pct>r<pct>,…   (~s = data-variant flag, e.g. smoothed
  *                                   thinning; l/r = pane visibility+opacity)
+ *   & li=<id>.<p>l<pct>r<pct>,…    (lidar DEM overlays; p = shading preset
+ *                                   h hillshade | k KBSP; l/r as for ov)
  *   & <extras…>                    (app-specific params pass through:
  *                                   inventory id/ids/tab/an, glaciers site/t)
  *
@@ -58,6 +60,21 @@
                     }
                 });
                 out.ov = ovOut;
+            } else if (k === 'li') {
+                var liOut = {};
+                v.split(',').forEach(function (ent) {
+                    var m3 = /^([A-Za-z0-9_]+)\.([hk])((?:[lr]\d+)+)$/.exec(ent);
+                    if (!m3) return;
+                    var e3 = { preset: m3[2] === 'k' ? 'kbsp' : 'hillshade' };
+                    m3[3].replace(/([lr])(\d+)/g, function (_, sideCh, pct) {
+                        var o = Math.min(100, Math.max(0, parseInt(pct, 10))) / 100;
+                        if (sideCh === 'l') { e3.left = true; e3.opLeft = o; }
+                        else                { e3.right = true; e3.opRight = o; }
+                        return '';
+                    });
+                    if (e3.left || e3.right) liOut[m3[1]] = e3;
+                });
+                out.li = liOut;
             } else {
                 out.extras[k] = v;
             }
@@ -66,7 +83,8 @@
     }
 
     /* o: { zoom, lat, lon, base, swipe, sx,
-     *      ov: {id: {left, right, opLeft, opRight, smooth}}, extras: {…} }
+     *      ov: {id: {left, right, opLeft, opRight, smooth}},
+     *      li: {id: {preset, left, right, opLeft, opRight}}, extras: {…} }
      * Omit/null any part to leave it out of the hash. Number formats match
      * the inventory writer exactly (zoom 2dp, lat/lon 4dp). */
     function encode(o) {
@@ -90,6 +108,17 @@
                 if (spec) ovp.push(id + (e.smooth ? '~s' : '') + '.' + spec);
             });
             if (ovp.length) parts.push('ov=' + ovp.join(','));
+        }
+        if (o.li) {
+            var lip = [];
+            Object.keys(o.li).forEach(function (id) {
+                var e = o.li[id];
+                var spec = '';
+                if (e.left)  spec += 'l' + Math.round((e.opLeft != null ? e.opLeft : 1) * 100);
+                if (e.right) spec += 'r' + Math.round((e.opRight != null ? e.opRight : 1) * 100);
+                if (spec) lip.push(id + '.' + (e.preset === 'kbsp' ? 'k' : 'h') + spec);
+            });
+            if (lip.length) parts.push('li=' + lip.join(','));
         }
         if (o.extras) {
             Object.keys(o.extras).forEach(function (k) {
