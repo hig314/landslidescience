@@ -119,3 +119,69 @@ the 1 m one to 13 GB and 2.3 GB, and Hig judged 1 m enough for the purpose.
 The full tile set is kept in `/Volumes/Nunatak/lidar_src/glacier_bay_2019/`;
 the download was `scratchpad/gb_download.py`-style (pooled, size-checked,
 resumable) from rockyweb.usgs.gov's OPR staging index.
+
+
+## Slope pyramids (2026-09-12)
+
+Every survey now gets a third product, `<id>_slope.pmtiles`: slope in degrees
+computed ONCE from the float32 archive in its UTM zone (`gdaldem slope`, true
+metres), resampled per zoom with `average`, quantised to 0.5° as 8-bit
+greyscale PNG (255 = nodata). Why: terrain-RGB tiles hold elevation in 0.1 m
+steps, so a slope taken from them in the browser staircases on gentle ground
+(false ~10° lines at z17 on the Anchorage flats). Hillshade stays client-side
+(the sun is a slider); the mod-5 banding keeps reading the raw tile values.
+Build with `build_lidar.py <id> --stage slope` (needs the archive; `all` now
+includes it). `make_catalog.py` writes `slope_url` / `slope_bytes` /
+`slope_step` when the file exists; the package reads it when present and
+falls back to the in-browser gradient otherwise. Full rationale in the
+`build_lidar.py` docstring ("WHY SLOPE IS PRE-BAKED").
+
+## Kenai 2008 from the point cloud
+
+See `KENAI_2008_PLAN.md`: no public DTM exists; the EPT point cloud (14 B
+points) and the USGS boundary/tile index are the raw form; PDAL SMRF/PMF
+re-classification vs vendor class 2, gridded at 4 ft, density raster
+alongside. Disk budget fits on Nunatak as is.
+
+## 2026-09-12 (evening): datum shift in eight archives, rebuild queued
+
+- **Bug found**: sources tagged generic NAD83 (EPSG:4269 / datum 6269) were
+  NADCON5-shifted 0.5-1 m by the archive warp to NAD83(2011). Proven at Homer:
+  archive sits 0.67 m E / 0.58 m N of its own source; USGS 2008 EPT and USACE
+  2018 NCMP both agree with the *source* (~0.35 m) and not the archive.
+  Affected: homer_2019, anchorage_2015, matanuska_2011 + 5 siblings. Fix in
+  build_lidar.py (`retag_generic_nad83`, docstring section) re-tags via VRT.
+- **Running**: `logs/datum_fix_chain.sh` (local only: rebuild the 8, then slope
+  pyramids for all; log `datum_fix_chain.log`, superseded products in
+  `lidar_build/superseded/*.nadcon5-shifted.*`). Publishing is
+  `logs/datum_fix_publish.sh` (R2 push + catalog install) -- needs Hig's OK.
+- **Testing trap**: interactive `gdalwarp` is QGIS-LTR GDAL 3.3 (no NADCON5,
+  no compound vertical conversion); use /opt/homebrew/bin explicitly and
+  /opt/anaconda3/bin/python3 for rasterio. Co-registration scripts in
+  `lidar_build/kenai_coreg/` (Nuth & Kaab fit: `shift_field.py`,
+  `src_vs_archive.py`, `override_test/`).
+- **Kenai 2008 teacher work**: Woodard patch done (`kenai_test_woodard/`,
+  `crest*.py`); after co-registration SMRF-steep keeps sharp crests best
+  (median -0.04 m, 2.3% >1 m low) vs vendor (-0.12 m, 9.7%), CSF worst.
+  Teacher sites (`kenai_teacher/`) must be regenerated after the homer_2019
+  rebuild with per-block co-registration (2008 still ~0.35 m off 2019).
+
+## 2026-09-12 late: rebuilds done, four new surveys built, publish pending
+
+- `datum_fix_chain` finished 22:29: the 8 generic-NAD83 archives rebuilt (all
+  `retagged=1`), slope pyramids now exist for all 25 original surveys.
+- `online_next_chain` finished 22:46: homer_2018 (NCMP, 0.54 m), juneau_thane_2019
+  (translate), juneau_2012 and hoonah_2015 (re-tagged) built locally; units of all
+  four confirmed metres against 3DEP (`lidar_build/unit_check/check3dep.py`).
+  **hoonah_2015 is `gated: true`**: make_catalog skips it (use `--include-gated`
+  for an admin catalog), r2_sync excludes it. Admin-only serving path still to build.
+- **Publish step** (`logs/datum_fix_publish.sh`: r2_sync cog + pmtiles, make_catalog,
+  scp catalog to prod) waits for Hig's OK. Catalog would then list 28 surveys.
+- Kenai 2008 taught filter: Homer 2019 point cloud (DGGS RDF 2021-2, portal dataset
+  1354, 11.6 GB) cannot be pulled from elevation.alaska.gov (30 KB/s, truncated
+  zips) -> Hig to ask DGGS for a direct link. NOAA 2018 Homer topobathy points
+  (ID 8686, 2.5 GB, COPC) mirroring to `lidar_src/homer_2018_ncmp/` for the
+  merged-cloud prototype (2008 + 2018). Full-footprint 2008 tiles/features in
+  `kenai_taught/full/` (fetch verifies each LAZ now). Review map artifact:
+  https://claude.ai/code/artifact/47d62994-1f5a-4fbe-ba63-16a304624e8f (db
+  collection `sites`, docs {sid,state}).

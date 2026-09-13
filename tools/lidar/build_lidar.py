@@ -13,6 +13,11 @@ For each dataset in datasets.json this produces:
      a `raster-dem` source over HTTP range requests. One file per dataset
      instead of ~10^5 loose PNGs, which matters for both rsync and R2.
 
+  3. SLOPE    data/lidar/pmtiles/<id>_slope.pmtiles
+     A companion pyramid of slope in degrees, 8-bit greyscale in 0.5 degree
+     steps (value = round(2 * slope); 255 = nodata). See WHY SLOPE IS
+     PRE-BAKED below.
+
 Run with the Homebrew GDAL 3.13 (the QGIS-LTR bundle is 3.3 and its gdal2tiles
 is broken); see REQUIRED TOOLING below.
 
@@ -42,6 +47,62 @@ aliases badly: at z13 it picks one 0.5 m lidar post per 8 m cell, so the
 hillshade turns to noise.
 
 
+WHY SLOPE IS PRE-BAKED (and hillshade is not)
+--------------------------------------------
+Terrain-RGB stores elevation in 0.1 m steps. On a low-gradient surface -- a
+tidal flat, a floodplain -- one step falls on a single pixel, and at z17 a
+0.1 m rise over a 0.6 m pixel is a 10 degree slope. Any slope computed in
+the browser from those tiles therefore shows a staircase of false ~10 degree
+lines across ground that is nearly flat (Hig, Anchorage flats, 2026-09-12).
+
+Slope depends only on the terrain, so it is computed ONCE here, from the
+float32 archive in its UTM zone where a pixel is a true metre (gdaldem
+slope, Horn 3x3, no Mercator scale fudge), then resampled per zoom with
+`average` -- mean slope per cell is the right statistic at coarse zooms --
+and quantised to 0.5 degrees, which compresses far better than a float and
+is finer than any colour ramp resolves. The browser reads that raster for
+the slope ramp and computes nothing.
+
+Hillshade cannot be pre-baked: the sun azimuth and altitude are sliders. It
+stays a client-side Horn gradient on the elevation tiles, where the
+staircase is a faint lighting artefact rather than a coloured band. The
+elevation banding (mod 5 m) deliberately keeps reading the raw tile values.
+
+A survey without a slope pyramid still works: the client falls back to the
+in-browser gradient.
+
+
+WHY A GENERIC "NAD83" SOURCE IS TREATED AS NAD83(2011)
+------------------------------------------------------
+Vendors' GeoTIFFs often carry the bare NAD83 datum (EPSG:4269, or datum
+6269 in ESRI-style WKT) even though the survey was adjusted to NAD83(2011)
+-- the USGS lidar base specification has required NAD83(2011) since 2012,
+and no lidar vendor has delivered NAD83(1986) positions in this century.
+Warping such a file to our NAD83(2011) target makes PROJ (Homebrew GDAL,
+NADCON5 grids installed, PROJ_NETWORK=ON) apply the 1986->1992->2007->2011
+grid chain: 0.5-1 m in Alaska, direction varying with place.
+
+Found 2026-09-12 while co-registering the Kenai 2008 point cloud: the
+homer_2019 archive sat 0.67 m E / 0.58 m N of its own source file, while
+two independent surveys (USGS 2008 EPT, USACE 2018 NCMP) agreed with the
+source to ~0.35 m and disagreed with the archive by ~0.7 m. Affected
+sources: homer_2019, anchorage_2015, matanuska_2011 and its five siblings
+(all rebuilt from 2026-09-12). Invisible in the viewer; wrong for any
+survey-to-survey change detection.
+
+Fix: retag_generic_nad83() writes a VRT of the source whose BASEGEOGCRS is
+NAD83(2011) (EPSG:6318) and warps from that. Only the horizontal datum tag
+changes; the projection, units and any compound vertical CRS are kept, so a
+NAVD88-feet source (Anchorage) is still converted to metres by the warp.
+A source that really is NAD83(1986) can set "keep_source_datum": true in
+datasets.json to opt out.
+
+Testing trap: in an interactive shell `gdalwarp` is the QGIS-LTR GDAL 3.3,
+whose PROJ has no NADCON5 grids and does not convert compound vertical
+units -- it does NOT reproduce this build. Call /opt/homebrew/bin/gdalwarp
+explicitly (and /opt/anaconda3/bin/python3 for rasterio).
+
+
 REQUIRED TOOLING
 ----------------
   brew install gdal pmtiles     # GDAL >= 3.11 for `gdal raster tile`
@@ -54,6 +115,7 @@ import argparse
 import json
 import math
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -128,6 +190,46 @@ def load_manifest():
 # stage 1: archive COG in the correct UTM zone
 # --------------------------------------------------------------------------
 
+# Generic NAD83 (EPSG:4269 geographic CRS / EPSG:6269 datum) -> NAD83(2011).
+NAD83_2011_BASE = ('BASEGEOGCRS["NAD83(2011)",'
+                   'DATUM["NAD83 (National Spatial Reference System 2011)",'
+                   'ELLIPSOID["GRS 1980",6378137,298.257222101,LENGTHUNIT["metre",1]]],'
+                   'PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],'
+                   'ID["EPSG",6318]]')
+
+
+def retag_generic_nad83(ds, src, env):
+    """Path to warp from: `src`, or a VRT of it re-tagged NAD83(2011).
+    See WHY A GENERIC "NAD83" SOURCE IS TREATED AS NAD83(2011) above."""
+    if ds.get("keep_source_datum"):
+        print("  archive: keep_source_datum set; warping with the source's own datum")
+        return src
+    wkt = subprocess.run([GDAL_BIN / "gdalsrsinfo", "-o", "wkt2", "--single-line", str(src)],
+                         capture_output=True, text=True, env=env).stdout.strip()
+    i = wkt.find("BASEGEOGCRS[")
+    if i < 0:
+        return src
+    depth = 0
+    for j in range(i, len(wkt)):
+        if wkt[j] == "[":
+            depth += 1
+        elif wkt[j] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+    if not re.search(r'ID\["EPSG",(4269|6269)\]', wkt[i:j + 1]):
+        return src
+    out_dir = BUILD / ds["id"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    wkt_path = out_dir / "source_nad83_2011.wkt"
+    vrt = out_dir / "source_nad83_2011.vrt"
+    wkt_path.write_text(wkt[:i] + NAD83_2011_BASE + wkt[j + 1:])
+    run([GDAL_BIN / "gdal_translate", "-q", "-of", "VRT", "-a_srs", str(wkt_path), src, vrt], env=env)
+    print("  archive: source tagged generic NAD83 -> re-tagged NAD83(2011) via VRT "
+          "(no NADCON5 datum shift); \"keep_source_datum\": true overrides")
+    return vrt
+
+
 def build_archive(ds, env):
     src = Path(ds["src"])
     if not src.exists():
@@ -183,7 +285,17 @@ def build_archive(ds, env):
     # -r bilinear: the archive is a reprojection at (near) native scale, not a
     # downsample. Nodata is normalised to -9999 so every dataset behaves the
     # same downstream regardless of what the vendor used.
-    run([GDAL_BIN / "gdalwarp", "-overwrite",
+    #
+    # src_nodata overrides the file's own nodata tag for sources whose real
+    # voids carry a different value (matsu_2019: a 0 m plateau over 84% of
+    # its box, tagged -99999 which never occurs). Masked before the warp, so
+    # bilinear never blends the fill into the edge of the real data.
+    src_nodata = []
+    if ds.get("src_nodata") is not None:
+        src_nodata = ["-srcnodata", str(ds["src_nodata"])]
+        print(f"  archive: masking source value {ds['src_nodata']} as nodata")
+    warp_src = retag_generic_nad83(ds, src, env)
+    run([GDAL_BIN / "gdalwarp", "-overwrite", *src_nodata,
          "-t_srs", f"EPSG:{target}",
          "-tr", ds["native_res_m"], ds["native_res_m"],
          "-r", "bilinear",
@@ -192,13 +304,25 @@ def build_archive(ds, env):
          "-multi", "-wo", "NUM_THREADS=ALL_CPUS",
          "-co", "TILED=YES", "-co", "COMPRESS=ZSTD", "-co", "ZSTD_LEVEL=9",
          "-co", "BIGTIFF=YES",
-         src, tmp], env=env)
+         warp_src, tmp], env=env)
 
     # Vertical unit conversion, if the vendor shipped feet. Done here, once, so
     # that BOTH products (the download COG and the terrain-RGB tiles) are in
     # metres and can never drift apart. Applied after the warp because gdalwarp
     # reprojects but does not rescale pixel values.
     scale = ds.get("vertical_scale")
+    # A source that DECLARES its vertical CRS (compound CRS such as NOAA's
+    # "NAD83 / Alaska zone 4 (ftUS) + NAVD88 height (ftUS)") is already
+    # converted by gdalwarp: PROJ scales the heights to metres as part of the
+    # transformation. Scaling again here shrank Anchorage 2015 by a second
+    # factor of 0.3048 (found 2026-09-12). vertical_scale is for sources that
+    # only say "feet" in their metadata, like the Mat-Su 2011 tiles.
+    with rasterio.open(src) as probe:
+        compound = probe.crs is not None and "VERT" in probe.crs.to_wkt()
+    if scale and scale != 1 and compound:
+        print("  archive: source declares a vertical CRS; gdalwarp already converted "
+              f"its units, so vertical_scale {scale} is NOT applied")
+        scale = None
     if scale and scale != 1:
         print(f"  archive: converting vertical units x{scale} (feet -> metres)")
         scaled = BUILD / ds["id"] / "archive_m.tif"
@@ -287,22 +411,7 @@ def build_web(ds, archive, env, webp=False):
     minz, maxz = ds["min_zoom"], ds["max_zoom"]
 
     # 3857 bounds of the archive, once.
-    info = json.loads(subprocess.run(
-        [str(GDAL_BIN / "gdalinfo"), "-json", str(archive)],
-        check=True, capture_output=True, text=True, env=env).stdout)
-    ext = info["wgs84Extent"]["coordinates"][0]
-    lons = [p[0] for p in ext]
-    lats = [p[1] for p in ext]
-
-    def to_merc(lon, lat):
-        x = MERC_SPAN / 2 * lon / 180.0
-        y = MERC_SPAN / 2 * math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) / math.pi
-        return x, y
-
-    corners = [to_merc(lo, la) for lo in (min(lons), max(lons))
-               for la in (min(lats), max(lats))]
-    bounds = (min(c[0] for c in corners), min(c[1] for c in corners),
-              max(c[0] for c in corners), max(c[1] for c in corners))
+    bounds = merc_bounds(archive, env)
 
     for z in range(maxz, minz - 1, -1):
         res = res_at_zoom(z)
@@ -358,10 +467,110 @@ def build_web(ds, archive, env, webp=False):
 
 
 # --------------------------------------------------------------------------
+# stage 2b: slope from the archive -> per-zoom average -> 8-bit tiles
+# --------------------------------------------------------------------------
+
+SLOPE_STEP_DEG = 0.5      # quantisation: value = round(slope / SLOPE_STEP_DEG)
+SLOPE_NODATA = 255
+
+
+def build_slope_native(ds, archive, env):
+    """Slope in degrees from the archive, in the archive's own UTM metres."""
+    work = BUILD / ds["id"]
+    work.mkdir(parents=True, exist_ok=True)
+    out = work / "slope_native.tif"
+    if out.exists():
+        print(f"  slope: native raster exists, reusing {out}")
+        return out
+    print("  slope: gdaldem slope on the archive (degrees, true metres)")
+    run([GDAL_BIN / "gdaldem", "slope", archive, out,
+         "-compute_edges", "-s", "1",
+         "-co", "TILED=YES", "-co", "COMPRESS=ZSTD", "-co", "PREDICTOR=3",
+         "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS"], env=env)
+    return out
+
+
+def quantise_slope(src_path, dst_path):
+    """Float32 degrees -> uint8 in SLOPE_STEP_DEG steps, SLOPE_NODATA where empty."""
+    with rasterio.open(src_path) as src:
+        prof = src.profile.copy()
+        prof.update(driver="GTiff", dtype="uint8", count=1, nodata=SLOPE_NODATA,
+                    tiled=True, blockxsize=512, blockysize=512,
+                    compress="deflate", zlevel=6, bigtiff="YES",
+                    predictor=1, num_threads="ALL_CPUS")
+        nodata = src.nodata
+        with rasterio.open(dst_path, "w", **prof) as dst:
+            for _, win in src.block_windows(1):
+                a = src.read(1, window=win)
+                valid = np.isfinite(a) & (a >= 0)
+                if nodata is not None:
+                    valid &= a != nodata
+                q = np.rint(np.clip(a, 0, 90) / SLOPE_STEP_DEG).astype(np.uint8)
+                dst.write(np.where(valid, q, SLOPE_NODATA).astype(np.uint8), 1, window=win)
+
+
+def build_slope_web(ds, archive, env, bounds):
+    """Per-zoom slope tiles, mirroring build_web's warps on the slope raster."""
+    work = BUILD / ds["id"]
+    tiles = work / "tiles_slope"
+    native = build_slope_native(ds, archive, env)
+    minz, maxz = ds["min_zoom"], ds["max_zoom"]
+    for z in range(maxz, minz - 1, -1):
+        res = res_at_zoom(z)
+        warped = work / f"slope_z{z}.tif"
+        q = work / f"slopeq_z{z}.tif"
+        te = snap_extent(bounds, res)
+        resamp = "bilinear" if z == maxz else "average"
+        print(f"  slope z{z}: warp -> {res:.4f} m/px ({resamp})")
+        run([GDAL_BIN / "gdalwarp", "-overwrite",
+             "-s_srs", f"EPSG:{ds['target_epsg']}",
+             "-t_srs", "EPSG:3857",
+             "-te", *[f"{v:.10f}" for v in te],
+             "-tr", f"{res:.12f}", f"{res:.12f}",
+             "-r", resamp,
+             "-dstnodata", "-9999",
+             "-ot", "Float32",
+             "-multi", "-wo", "NUM_THREADS=ALL_CPUS",
+             "-co", "TILED=YES", "-co", "COMPRESS=ZSTD", "-co", "BIGTIFF=YES",
+             native, warped], env=env)
+        print(f"  slope z{z}: quantise + tile")
+        quantise_slope(warped, q)
+        run([GDAL_BIN / "gdal", "raster", "tile",
+             "--min-zoom", z, "--max-zoom", z,
+             "-r", "nearest", "--convention", "xyz",
+             "--skip-blank", "--resume", "--webviewer", "none",
+             "-j", "ALL_CPUS", "--no-intersection-ok",
+             q, tiles], env=env)
+        warped.unlink(missing_ok=True)
+        q.unlink(missing_ok=True)
+    return tiles
+
+
+def merc_bounds(archive, env):
+    """3857 bounds of the archive, from its WGS84 extent."""
+    info = json.loads(subprocess.run(
+        [str(GDAL_BIN / "gdalinfo"), "-json", str(archive)],
+        check=True, capture_output=True, text=True, env=env).stdout)
+    ext = info["wgs84Extent"]["coordinates"][0]
+    lons = [p[0] for p in ext]
+    lats = [p[1] for p in ext]
+
+    def to_merc(lon, lat):
+        x = MERC_SPAN / 2 * lon / 180.0
+        y = MERC_SPAN / 2 * math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) / math.pi
+        return x, y
+
+    corners = [to_merc(lo, la) for lo in (min(lons), max(lons))
+               for la in (min(lats), max(lats))]
+    return (min(c[0] for c in corners), min(c[1] for c in corners),
+            max(c[0] for c in corners), max(c[1] for c in corners))
+
+
+# --------------------------------------------------------------------------
 # stage 3: XYZ directory -> MBTiles -> PMTiles
 # --------------------------------------------------------------------------
 
-def dir_to_mbtiles(tiles, mb_path, ds, fmt):
+def dir_to_mbtiles(tiles, mb_path, ds, fmt, description=None):
     """MBTiles stores TMS y (origin bottom-left); our tiles are XYZ (top-left)."""
     if mb_path.exists():
         mb_path.unlink()
@@ -397,20 +606,20 @@ def dir_to_mbtiles(tiles, mb_path, ds, fmt):
                 "(zoom_level, tile_column, tile_row)")
     for k, v in [("name", ds["title"]), ("format", fmt), ("type", "baselayer"),
                  ("minzoom", ds["min_zoom"]), ("maxzoom", ds["max_zoom"]),
-                 ("description", f"Mapbox terrain-RGB DEM, {ds['title']}")]:
+                 ("description", description or f"Mapbox terrain-RGB DEM, {ds['title']}")]:
         con.execute("INSERT INTO metadata VALUES (?,?)", (k, str(v)))
     con.commit()
     con.close()
     return n
 
 
-def build_pmtiles(ds, tiles, webp=False):
+def build_pmtiles(ds, tiles, webp=False, suffix="", description=None):
     OUT_PM.mkdir(parents=True, exist_ok=True)
     fmt = "webp" if webp else "png"
-    mb = BUILD / ds["id"] / f"{ds['id']}.mbtiles"
+    mb = BUILD / ds["id"] / f"{ds['id']}{suffix}.mbtiles"
     print("  packing MBTiles")
-    n = dir_to_mbtiles(tiles, mb, ds, fmt)
-    out = OUT_PM / f"{ds['id']}.pmtiles"
+    n = dir_to_mbtiles(tiles, mb, ds, fmt, description)
+    out = OUT_PM / f"{ds['id']}{suffix}.pmtiles"
     print(f"  converting {n} tiles -> {out}")
     run([PMTILES, "convert", mb, out])
     mb.unlink(missing_ok=True)
@@ -421,7 +630,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("dataset", nargs="?")
     ap.add_argument("--stage", default="all",
-                    choices=["archive", "web", "pmtiles", "all"])
+                    choices=["archive", "web", "pmtiles", "slope", "all"],
+                    help="slope = the slope pyramid only (needs the archive)")
     ap.add_argument("--webp", action="store_true",
                     help="lossless WEBP tiles (~25%% smaller than PNG)")
     ap.add_argument("--list", action="store_true")
@@ -450,6 +660,15 @@ def main():
     if args.stage in ("pmtiles", "all"):
         out = build_pmtiles(ds, tiles, webp=args.webp)
         print(f"== done: {out} ({out.stat().st_size / 2**30:.2f} GB)")
+    if args.stage in ("slope", "all"):
+        if not archive.exists():
+            sys.exit(f"slope stage needs the archive: {archive}")
+        stiles = build_slope_web(ds, archive, env, merc_bounds(archive, env))
+        sout = build_pmtiles(ds, stiles, suffix="_slope",
+                             description=f"Slope, degrees x{1 / SLOPE_STEP_DEG:g} as uint8 "
+                                         f"(255 = nodata), {ds['title']}")
+        print(f"== done: {sout} ({sout.stat().st_size / 2**20:.0f} MB)")
+        (BUILD / ds["id"] / "slope_native.tif").unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
