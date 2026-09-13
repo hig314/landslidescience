@@ -60,8 +60,14 @@ PMTILES_PUBLIC_BASE = os.environ.get(
 # Footprint detail. 0.0001 deg is ~11 m of latitude -- finer than anyone needs
 # for "does this survey cover my slope?", and keeps the whole catalog small
 # enough to ship as one eagerly-loaded GeoJSON.
-SIMPLIFY_DEG = 0.0001
-SIMPLIFY_M = 11.0
+SIMPLIFY_DEG = 0.0004
+# 40 m: footprints are a where-is-there-data cue at z8-12, not a boundary
+# product (the archive carries the exact edge). At 11 m the 25-survey catalog
+# was 5.4 MB / 94k vertices (Glacier Bay alone 58k) and took a visitor on a
+# slow link 25 s to load before the raster panel could work (2026-09-13);
+# at 40 m it is 0.3 MB / 13k vertices with the same areas to 0.1 km2.
+SIMPLIFY_M = 40.0
+MIN_PART_KM2 = 0.02   # islands smaller than this add vertices, not information
 # Trace against the coarsest overview still >= this on its long side.
 FOOTPRINT_TARGET_PX = 4000
 
@@ -110,10 +116,10 @@ def footprint(path):
         # single-pixel islands add vertices, not information.
         cell = abs(transform.a * transform.e)
         parts = list(geom.geoms) if geom.geom_type == "MultiPolygon" else [geom]
-        parts = [g for g in parts if g.area >= 4 * cell]
+        parts = [g for g in parts if g.area >= max(4 * cell, MIN_PART_KM2 * 1e6 if src.crs.is_projected else 0)]
         if not parts:
             return None
-        gj = transform_geom(src.crs, "EPSG:4326", mapping(MultiPolygon(parts)), precision=6)
+        gj = transform_geom(src.crs, "EPSG:4326", mapping(MultiPolygon(parts)), precision=5)
         if gj["type"] == "Polygon":
             gj = {"type": "MultiPolygon", "coordinates": [gj["coordinates"]]}
         return gj
