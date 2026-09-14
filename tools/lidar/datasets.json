@@ -494,6 +494,22 @@
    "notes": "Hoonah 2015 lidar DEM, 1 m, NAD83 / Alaska State Plane zone 1 (EPSG:26931) tagged generic NAD83 -> re-tagged NAD83(2011) by build_lidar; warped to UTM 8N. Uncompressed 8.2 GB, 51300x39600, 41.5% valid, nodata -9999, values 0-866 (metres). Vertical datum unknown (no metadata on disk). Provenance to confirm with Hig. Units confirmed metres against USGS 3DEP (fit slope 1.01, 2026-09-12; -4.9 m median vs the IfSAR 3DEP). Not found online; GATED (admin login) until provenance is settled.",
    "region": "Southeast",
    "gated": true
+  },
+  {
+   "id": "cordova_2023",
+   "title": "Cordova 2023 bare-earth DTM",
+   "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/Cordova_2023/data/dtm_hydro_flattened/cordova_lidar_2023_dtm.tif",
+   "target_epsg": 6335,
+   "native_res_m": 0.5,
+   "center_lat": 60.55,
+   "min_zoom": 8,
+   "max_zoom": 17,
+   "year": 2023,
+   "product": "DTM (bare earth, hydro-flattened)",
+   "archive_mode": "translate",
+   "vertical_datum": "NAVD88",
+   "notes": "DGGS RDF 2024-6 (doi 10.14509/31159), flown 2023-08-18/19 and 09-19/22 (leaf-on) for landslide and avalanche hazard assessment; Cordova, Eyak Lake, Orca Inlet. NAD83(2011)/UTM 6N, GEOID12B orthometric heights, 0.5 m posts, ground density 2.84 pts/m2. Hydro-flattened DTM. 62277x61058 uncompressed (15.3 GB) with internal overviews; already the target zone, so translate. Classified LAZ also on disk in the same RDF package.",
+   "region": "Turnagain Arm and Prince William Sound"
   }
  ]
 }

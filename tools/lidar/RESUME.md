@@ -185,3 +185,20 @@ alongside. Disk budget fits on Nunatak as is.
   `kenai_taught/full/` (fetch verifies each LAZ now). Review map artifact:
   https://claude.ai/code/artifact/47d62994-1f5a-4fbe-ba63-16a304624e8f (db
   collection `sites`, docs {sid,state}).
+
+## 2026-09-13 17:15: cordova_2023 built; publish pending (Hig runs it)
+
+- cordova_2023 (DGGS RDF 2024-6, translate) built locally: cog 2.8 G, pmtiles 477 M,
+  slope 573 M, 1.3-1683 m. Manifest now 30 datasets (hoonah_2015 gated).
+- Site code deployed 0a60dba/9a5312f (li= view state, QMS scope toggle, public-safe
+  default views, pool fixes). Prod catalog simplified in place to 40 m footprints.
+- **Publish still to run**: `logs/datum_fix_publish.sh` (R2 cog+pmtiles, catalog,
+  prod install) -- the auto-mode classifier blocks Claude from launching it; Hig runs
+  it with `! nohup ... &` from the terminal. Covers the 8 datum-corrected archives,
+  homer_2018, juneau_2012, juneau_thane_2019, cordova_2023 and all slope pyramids.
+- Homer 2019 point cloud: 79 complete / 72 unfinalised (DGGS-side) / coverage pass
+  fetching the last ~13 (`homer_2019_pc/download_pass2c.log`, `tile_status2.json`).
+  Kenai 2008 metadata unpacked (`homer_2019_pc/kenai2008_meta/`): Optech ALTM Gemini,
+  1.4 m spacing, NAD83(CORS96)/GEOID06, flown 2008-05-21..23, 06-05/06, 09-22.
+  Skyhub (AGO catalog, services1.arcgis.com/7HDiw78fcUiM2BWn/.../Alaska_Skyhub_Database)
+  has Homer 2019 DTM/DSM on geoportal.alaska.gov/public_data/elevation/ but no LAZ.
