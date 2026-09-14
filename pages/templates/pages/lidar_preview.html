@@ -141,6 +141,11 @@ vanish depending on which way you light them.
   var CTX_ID = 'usgs3dep';
   DemShade.addImageServer(CTX_ID,
     'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer');
+  // What each survey composites over. Once the catalog advertises the baked
+  // context (bake_context.py: the same 3DEP data, one PMTiles archive on R2,
+  // z5-z13, over-zoomed above), that comes first and the live service only
+  // answers where the bake has no data -- far past every survey.
+  var ctxFill = CTX_ID;
 
   // ---- shareable state --------------------------------------------------
   // MapLibre's built-in `hash` only carries the camera. The whole point here is
@@ -254,10 +259,11 @@ vanish depending on which way you light them.
     // Three registrations of the same archive: with its pre-baked slope
     // (when the catalog has one), a gradient-only twin for the A/B checkbox,
     // and the composite over 3DEP for terrain.
-    var slopeOpts = p.slope_url ? { slope: p.slope_url, slopeStep: p.slope_step } : {};
-    DemShade.addDataset(p.id, p.pmtiles_url, slopeOpts);
-    DemShade.addDataset(p.id + '_grad', p.pmtiles_url);
-    DemShade.addDataset(ctxId(p), p.pmtiles_url, Object.assign({ fill: CTX_ID }, slopeOpts));
+    // catalogOpts: tile-Worker URLs when the catalog carries them (edge-cached
+    // per tile), otherwise the archives directly; the slope pyramid if built.
+    DemShade.addDataset(p.id, p.pmtiles_url, DemShade.catalogOpts(p));
+    DemShade.addDataset(p.id + '_grad', p.pmtiles_url, DemShade.catalogOpts(p, { slope: null, slopeTiles: null }));
+    DemShade.addDataset(ctxId(p), p.pmtiles_url, DemShade.catalogOpts(p, { fill: ctxFill }));
     map.addSource('shade-' + p.id, {
       type: 'raster',
       tiles: [DemShade.url(shadeId(p.id), readOpts())],
@@ -582,6 +588,11 @@ vanish depending on which way you light them.
       .then(function (r) { return r.json(); })
       .then(function (fc) {
         catalog = fc;
+        if (fc.context) {
+          DemShade.addDataset(fc.context.id, fc.context.pmtiles_url,
+                              DemShade.catalogOpts(fc.context, { overzoom: true, fill: CTX_ID }));
+          ctxFill = fc.context.id;
+        }
         addFootprints(fc);
         var host = document.getElementById('datasets');
         host.innerHTML = '';

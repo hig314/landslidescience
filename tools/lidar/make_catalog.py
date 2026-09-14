@@ -56,6 +56,19 @@ COG_PUBLIC_BASE = os.environ.get("LIDAR_COG_PUBLIC_BASE",
 # reads them (landslidescience.org and the dev origin do).
 PMTILES_PUBLIC_BASE = os.environ.get(
     "LIDAR_PMTILES_PUBLIC_BASE", "https://lidar.landslidescience.org/pmtiles")
+# Per-tile URLs through the tile Worker (workers/lidar-tiles, 2026-09-14): each
+# tile is cached at the Cloudflare edge instead of every view paying an R2 range
+# read plus directory lookups. Empty = no tile URLs in the catalog, and clients
+# read the archives directly via pmtiles_url; set it once the Worker is live.
+# The ?v= token is the archive's ETag as R2 serves it right now, so it changes
+# exactly when the bytes on R2 change -- which is what lets the Worker cache
+# every tile as immutable. (A local mtime would not do: the catalog can be
+# regenerated before an upload finishes, and tiles of the old archive would be
+# cached for a year under the new token.) No ETag = not on R2 = no tile URL.
+TILES_PUBLIC_BASE = os.environ.get("LIDAR_TILES_PUBLIC_BASE", "").rstrip("/")
+# Baked terrain context under the surveys (bake_context.py); advertised as the
+# catalog's top-level "context" member once the archive exists.
+CONTEXT_ID = "ctx_3dep"
 
 # Footprint detail. 0.0001 deg is ~11 m of latitude -- finer than anyone needs
 # for "does this survey cover my slope?", and keeps the whole catalog small
@@ -148,6 +161,38 @@ def geom_area_km2(geom):
     return total
 
 
+def r2_etag(name):
+    """ETag of pmtiles/<name>.pmtiles on R2, normalised (no W/, no quotes), or None."""
+    import urllib.request
+    req = urllib.request.Request(f"{PMTILES_PUBLIC_BASE}/{name}.pmtiles", method="HEAD")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            tag = r.headers.get("ETag") or ""
+    except Exception:
+        return None
+    tag = tag.strip()
+    if tag.startswith("W/"):
+        tag = tag[2:]
+    return tag.strip('"') or None
+
+
+def tiles_url(name, path):
+    if not TILES_PUBLIC_BASE or not path.exists():
+        return None
+    v = r2_etag(name)
+    if not v:
+        print(f"  {name}: not on R2 yet, no tile URL", file=sys.stderr)
+        return None
+    return f"{TILES_PUBLIC_BASE}/{name}/{{z}}/{{x}}/{{y}}.png?v={v}"
+
+
+def geom_bounds(geom):
+    polys = geom["coordinates"] if geom["type"] == "MultiPolygon" else [geom["coordinates"]]
+    xs = [p[0] for poly in polys for r in poly for p in r]
+    ys = [p[1] for poly in polys for r in poly for p in r]
+    return [round(min(xs), 5), round(min(ys), 5), round(max(xs), 5), round(max(ys), 5)]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(ROOT / "data" / "lidar" / "catalog.geojson"))
@@ -197,8 +242,11 @@ def main():
                 "max_zoom": ds["max_zoom"],
                 "grid": f"{width} x {height}",
                 "coverage_km2": round(area, 1),
+                "bounds": geom_bounds(geom),
                 "pmtiles_url": f"{PMTILES_PUBLIC_BASE}/{did}.pmtiles",
                 "pmtiles_bytes": pm_bytes,
+                "tiles_url": tiles_url(did, pm),
+                "slope_tiles_url": tiles_url(f"{did}_slope", slope_pm) if slope_bytes else None,
                 # Companion slope pyramid (build_lidar.py --stage slope): 8-bit
                 # degrees in slope_step steps, 255 = nodata. Absent until built;
                 # the client then falls back to its in-browser gradient.
@@ -213,8 +261,19 @@ def main():
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(
-        {"type": "FeatureCollection", "features": features}, indent=1))
+    fc = {"type": "FeatureCollection", "features": features}
+    ctx_pm = PM_DIR / f"{CONTEXT_ID}.pmtiles"
+    if ctx_pm.exists():
+        # A GeoJSON foreign member: the terrain context every survey composites
+        # over in 3D (USGS 3DEP 1/3 arc-second, baked; the client over-zooms it
+        # past max_zoom and falls back to the live service outside it).
+        fc["context"] = {"id": CONTEXT_ID, "title": "USGS 3DEP 1/3 arc-second context",
+                         "min_zoom": 5, "max_zoom": 13,
+                         "pmtiles_url": f"{PMTILES_PUBLIC_BASE}/{CONTEXT_ID}.pmtiles",
+                         "pmtiles_bytes": ctx_pm.stat().st_size,
+                         "tiles_url": tiles_url(CONTEXT_ID, ctx_pm)}
+    # Compact: every visitor to /inventory/ and /lidar/ downloads this first.
+    out.write_text(json.dumps(fc, separators=(",", ":")))
 
     print(f"\nwrote {out}  ({len(features)} datasets)")
     for f in features:

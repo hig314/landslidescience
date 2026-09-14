@@ -1,0 +1,24 @@
+# Tile Worker in front of the lidar bucket. See src/index.ts for the why.
+# Deploy: npx wrangler deploy   (needs CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID)
+name = "lidar-tiles"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+routes = [ { pattern = "tiles.landslidescience.org", custom_domain = true } ]
+
+[vars]
+# Mirrors the R2 bucket's CORS allowlist.
+ALLOWED_ORIGINS = "https://landslidescience.org,https://www.landslidescience.org,http://localhost:8001"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "landslidescience-lidar"
+
+# Local end-to-end test against the real bucket, no Cloudflare account needed:
+#   npx wrangler dev --env dev --port 8787
+# No R2 binding here, so the Worker reads the archives over HTTP from the
+# public bucket domain (HttpSource) and caches tiles in the local emulator.
+[env.dev]
+routes = []
+[env.dev.vars]
+ORIGIN = "https://lidar.landslidescience.org"
+ALLOWED_ORIGINS = "http://localhost:8001,http://127.0.0.1:8001"

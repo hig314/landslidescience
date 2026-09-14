@@ -4176,8 +4176,11 @@
                 fc.features.forEach(function (f) {
                     var p = f.properties, b = _geomBounds(f.geometry);
                     _lidarBbox[p.id] = b;
+                    // Tile-Worker URLs (edge-cached per tile) when the catalog
+                    // carries them, else the archive itself; slope pyramid if built.
                     DemShade.addDataset(p.id, p.pmtiles_url,
-                        p.slope_url ? { slope: p.slope_url, slopeStep: p.slope_step } : undefined);
+                        DemShade.catalogOpts ? DemShade.catalogOpts(p)
+                            : (p.slope_url ? { slope: p.slope_url, slopeStep: p.slope_step } : undefined));
                 });
                 // Lidar carried in the URL / saved view (li=): the ids are
                 // resolvable only now. Unknown ids (a gated or retired survey)
