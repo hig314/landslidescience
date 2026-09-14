@@ -164,7 +164,9 @@ def geom_area_km2(geom):
 def r2_etag(name):
     """ETag of pmtiles/<name>.pmtiles on R2, normalised (no W/, no quotes), or None."""
     import urllib.request
-    req = urllib.request.Request(f"{PMTILES_PUBLIC_BASE}/{name}.pmtiles", method="HEAD")
+    # Cloudflare's bot protection answers Python's default User-Agent with 403.
+    req = urllib.request.Request(f"{PMTILES_PUBLIC_BASE}/{name}.pmtiles", method="HEAD",
+                                 headers={"User-Agent": "landslidescience-make_catalog/1"})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             tag = r.headers.get("ETag") or ""
@@ -196,6 +198,8 @@ def geom_bounds(geom):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(ROOT / "data" / "lidar" / "catalog.geojson"))
+    ap.add_argument("--no-context", action="store_true", help="omit the baked terrain context member")
+    ap.add_argument("--include-gated", action="store_true", help="include gated surveys (admin catalog)")
     args = ap.parse_args()
 
     manifest = json.loads((HERE / "datasets.json").read_text())
@@ -263,7 +267,9 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     fc = {"type": "FeatureCollection", "features": features}
     ctx_pm = PM_DIR / f"{CONTEXT_ID}.pmtiles"
-    if ctx_pm.exists():
+    # --no-context: leave the baked context out (e.g. a production catalog
+    # switched to the tile Worker before the context has been reviewed on dev).
+    if ctx_pm.exists() and "--no-context" not in sys.argv:
         # A GeoJSON foreign member: the terrain context every survey composites
         # over in 3D (USGS 3DEP 1/3 arc-second, baked; the client over-zooms it
         # past max_zoom and falls back to the live service outside it).

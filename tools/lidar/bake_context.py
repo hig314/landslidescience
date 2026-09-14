@@ -85,6 +85,41 @@ def groups(cells):
     return out
 
 
+# Three coastal cells (n57w135, n60w152, n60w153 in 2026-09) mark open water
+# with -9999 instead of the declared -999999 nodata. Warped as data, those become
+# 10 km pits in the terrain and a sheer wall at every shoreline. No Alaskan
+# ground is below -100 m, so anything under VOID_BELOW is a void.
+VOID_BELOW = -500.0
+
+
+def clean_cell(path, work):
+    """The cell itself, or a cached copy with its undeclared voids set to nodata."""
+    import numpy as np
+    import rasterio
+    from rasterio.enums import Resampling
+    with rasterio.open(path) as src:
+        nd = src.nodata
+        probe = src.read(1, out_shape=(src.height // 8, src.width // 8), resampling=Resampling.nearest)
+        if not np.any((probe < VOID_BELOW) & (probe != nd)):
+            return path
+        out = work / "cells" / Path(path).name
+        if out.exists():
+            return out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        print(f"  {Path(path).name}: undeclared voids (< {VOID_BELOW} m) -> nodata")
+        prof = src.profile.copy()
+        prof.update(driver="GTiff", tiled=True, blockxsize=512, blockysize=512,
+                    compress="zstd", predictor=3, bigtiff="YES")
+        tmp = out.with_suffix(".tmp.tif")
+        with rasterio.open(tmp, "w", **prof) as dst:
+            for _, win in src.block_windows(1):
+                a = src.read(1, window=win)
+                a[(a < VOID_BELOW) & (a != nd)] = nd
+                dst.write(a, 1, window=win)
+        tmp.rename(out)
+        return out
+
+
 def vrt(paths, out, env):
     lst = out.with_suffix(".txt")
     lst.write_text("".join(f"{p}\n" for p in paths))
@@ -102,15 +137,21 @@ def main():
 
     cells = wanted_cells(args.catalog)
     have = {c: cells_dir / f"n{c[0]}w{c[1]}" / f"USGS_13_n{c[0]}w{c[1]}.tif" for c in cells}
-    missing = [c for c, p in have.items() if not p.exists()]
+    # USGS publishes no tile for an all-ocean cell (n58w138-140, n59w140 and
+    # n59w151 around our surveys, 2026-09-14), so a cell absent on disk after
+    # a completed download is simply sea: skip it.
+    missing = sorted(c for c, p in have.items() if not p.exists())
     if missing:
-        sys.exit(f"missing {len(missing)} cells, e.g. {missing[:4]} -- run the download first")
+        print(f"  {len(missing)} cells have no USGS tile (open water): "
+              + " ".join(f"n{la}w{lo}" for la, lo in missing))
+    have = {c: p for c, p in have.items() if p.exists()}
 
     ds = {"id": "ctx_3dep", "title": "USGS 3DEP 1/3 arc-second context",
           "target_epsg": 4269}
     work = bl.BUILD / ds["id"]
     work.mkdir(parents=True, exist_ok=True)
     tiles = work / "tiles"
+    have = {c: clean_cell(p, work) for c, p in have.items()}
 
     print(f"== low zooms z{LOW[0]}-z{LOW[1]} from all {len(have)} cells")
     all_vrt = vrt(sorted(str(p) for p in have.values()), work / "all.vrt", env)
