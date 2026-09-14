@@ -510,6 +510,22 @@
    "vertical_datum": "NAVD88",
    "notes": "DGGS RDF 2024-6 (doi 10.14509/31159), flown 2023-08-18/19 and 09-19/22 (leaf-on) for landslide and avalanche hazard assessment; Cordova, Eyak Lake, Orca Inlet. NAD83(2011)/UTM 6N, GEOID12B orthometric heights, 0.5 m posts, ground density 2.84 pts/m2. Hydro-flattened DTM. 62277x61058 uncompressed (15.3 GB) with internal overviews; already the target zone, so translate. Classified LAZ also on disk in the same RDF package.",
    "region": "Turnagain Arm and Prince William Sound"
+  },
+  {
+   "id": "haines_2022",
+   "title": "Haines 2021-2022 bare-earth DTM",
+   "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/Haines_rdf2023_018_dtm/data/dtm/haines_2022_dtm.tif",
+   "target_epsg": 6337,
+   "native_res_m": 0.5,
+   "center_lat": 59.3,
+   "min_zoom": 8,
+   "max_zoom": 17,
+   "year": 2022,
+   "product": "DTM (bare earth)",
+   "archive_mode": "translate",
+   "vertical_datum": "NAVD88",
+   "notes": "DGGS RDF 2023-18, flown October 2021 and October 2022 (merged), Haines, Chilkat and Chilkoot valleys and the Haines Highway corridor. NAD83(2011)/UTM 8N, NAVD88 heights, 0.5 m posts. Uncompressed 46 GB, 109925x109438, with 9 overviews; already the target zone, so translate. The package also has four dtm_detail_* sub-AOIs (Beach Road and Iron Mountain, 2021 and 2022 each) for the 2020 landslide sites -- candidates for separate change-detection ids.",
+   "region": "Southeast"
   }
  ]
 }
