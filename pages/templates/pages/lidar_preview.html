@@ -42,6 +42,15 @@ vanish depending on which way you light them.
   .val { float: right; color: #666; font-variant-numeric: tabular-nums; }
   #status { margin-top: 10px; color: #666; font-size: 11px; }
   .stackhint { color: #777; font-size: 11px; margin-bottom: 2px; }
+  /* Difference legend: the PRGn ramp itself, so the reader never has to
+     remember which end is which. */
+  .dfbar { height: 10px; border-radius: 2px; margin: 4px 0 2px;
+           background: linear-gradient(to right, #40004b, #762a83, #9970ab, #c2a5cf,
+                       #e7d4e8, #f7f7f7, #d9f0d3, #a6dba0, #5aae61, #1b7837, #00441b); }
+  .dfends { display: flex; justify-content: space-between; color: #666; font-size: 11px;
+            font-variant-numeric: tabular-nums; }
+  .dfnote { color: #777; font-size: 11px; margin: 2px 0 4px; }
+  #df { width: 100%; margin-bottom: 4px; }
   #panel button { margin: 8px 4px 0 0; font-size: 11px; padding: 3px 7px; }
   #panel select { font-size: 11px; margin-left: 4px; }
   label.disabled { color: #aaa; }
@@ -93,6 +102,25 @@ vanish depending on which way you light them.
   <button type="button" id="preset">KBSP preset</button>
   <button type="button" id="plain">Hillshade only</button>
 
+  <h2>Difference</h2>
+  <select id="df"><option value="">— off —</option></select>
+  <div id="dfpanel" hidden>
+    <div class="dfbar"></div>
+    <div class="dfends"><span id="dflo"></span><span id="dfhi"></span></div>
+    <div class="dfnote" id="dfnote"></div>
+    <label>Ramp saturates at <span class="val" id="dmaxv">0.10 m/yr</span></label>
+    <input type="range" id="dmax" min="0" max="100" value="29">
+    <label>Difference opacity <span class="val" id="dopv">0.75</span></label>
+    <input type="range" id="dop" min="0" max="100" value="75">
+  </div>
+  <div class="stackhint">Colours the overlap of two surveys by how fast the
+    ground moved between them, ColorBrewer PRGn: green where it rose, purple
+    where it fell, neutral where it did not, transparent outside the overlap.
+    The scale is a RATE, metres per year, so a pair eleven years apart and a
+    pair one year apart can be read against each other.
+    A whole survey in one flat colour is not change but a vertical datum
+    disagreement, which is what this is best at catching.</div>
+
   <h2>View</h2>
   <label id="nuplabel"><input type="checkbox" id="nup"> North up (lock bearing)</label>
   <label><input type="checkbox" id="nadir"> Nadir (lock pitch)</label>
@@ -105,12 +133,17 @@ vanish depending on which way you light them.
   <label>Terrain exaggeration <span class="val" id="exv">1.0</span></label>
   <input type="range" id="ex" min="0" max="40" value="10">
   <label><input type="checkbox" id="ctx" checked> USGS 3DEP outside the survey</label>
-  <label><input type="checkbox" id="fog" checked> Fade into the distance</label>
+  <label><input type="checkbox" id="fog" checked> Fade into the distance (pitched views)</label>
   <div class="stackhint">Without context a survey stands on a flat plane as a
     block of towers. Context is USGS 3DEP, fetched live per tile (slow on first
     view); in Alaska that is 2010 IfSAR, so retreated glaciers still show as
-    ice and the survey steps off them with a cliff. The fog spares the
-    renderer the far field.</div>
+    ice and the survey steps off them with a cliff. It fills only around the
+    survey: water and other voids inside one stay voids, at 0 m, rather than
+    being painted with a regional DEM's guess at the sea surface. The fog
+    spares the renderer the far field, and applies only once the view is
+    pitched: looking straight down there is no far field, and on a deep
+    bathymetric survey the fog reads depth as distance and washes the seabed
+    out past a certain contour.</div>
 
   <div id="status"></div>
   <button type="button" id="copyurl">Copy link to this view</button>
@@ -152,7 +185,7 @@ vanish depending on which way you light them.
   // that a link reproduces what the sender was looking at, which means the
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
-  var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex'];
+  var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop'];
   var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'fog', 'inview', 'preslope'];
   var Q = new URLSearchParams(location.search);
   var qnum = function (k, d) { var v = Q.get(k); return v === null || v === '' ? d : +v; };
@@ -263,7 +296,12 @@ vanish depending on which way you light them.
     // per tile), otherwise the archives directly; the slope pyramid if built.
     DemShade.addDataset(p.id, p.pmtiles_url, DemShade.catalogOpts(p));
     DemShade.addDataset(p.id + '_grad', p.pmtiles_url, DemShade.catalogOpts(p, { slope: null, slopeTiles: null }));
-    DemShade.addDataset(ctxId(p), p.pmtiles_url, DemShade.catalogOpts(p, { fill: ctxFill }));
+    // fillMode 'missing': the context supplies ground OUTSIDE the survey and
+    // nothing inside it. Patching a 10 m regional DEM into a hole in a 1 m
+    // coastal survey invents a surface out of whatever that DEM believed the
+    // water was, which is worse than an honest void (Hig, 2026-09-14).
+    DemShade.addDataset(ctxId(p), p.pmtiles_url,
+                        DemShade.catalogOpts(p, { fill: ctxFill, fillMode: 'missing' }));
     map.addSource('shade-' + p.id, {
       type: 'raster',
       tiles: [DemShade.url(shadeId(p.id), readOpts())],
@@ -331,6 +369,8 @@ vanish depending on which way you light them.
     rebuildDem(p);
 
     syncLayers();
+    fillDiffOptions();
+    updateDiff();
     if (document.getElementById('t3d').checked) setTerrain(true);
     status.textContent = p.title + ' · z' + p.min_zoom + '–' +
                          p.max_zoom + ' · ' + p.coverage_km2 + ' km²';
@@ -368,11 +408,54 @@ vanish depending on which way you light them.
               'atmosphere-blend': 0 };
 
   var untrackTerrain = null;
+
+  // KNOWN BUG, open (2026-09-14): on a deep bathymetric survey at high terrain
+  // exaggeration, a band of the seabed occasionally washes out to near-white
+  // below a smooth curved edge that slides as you zoom. Rare and transient --
+  // Hig saw it two or three times and could not catch a screenshot.
+  //
+  // Ruled out, each by measurement rather than argument, so nobody repeats it:
+  //   - the archives. Values run smoothly to -170 m at every zoom, over a
+  //     thousand distinct levels, nothing piling up at a limit.
+  //   - the terrain-RGB encode. Negatives round-trip; only |h| > 9999 clips.
+  //   - the 2D shading. shade() on real bathymetry tiles with the reported
+  //     settings gives a uniform mid-tone in every depth band from 0 to -200 m
+  //     and zero pure-white pixels, with and without the pre-baked slope.
+  //   - the difference layer. It reproduces the archives pixel for pixel, and
+  //     the effect shows with no comparison selected.
+  //   - the view frustum. MapLibre's _calculateNearFarZIfNeeded already takes
+  //     the minimum elevation (exaggerated) into account.
+  //   - tile culling. Measured in the live transform: 16 of 25 candidate tiles
+  //     culled, unchanged from exaggeration 1 to 10 and identical for a deep
+  //     tile and a mountain. The edge is a smooth curve, not tile-aligned,
+  //     which rules this out independently.
+  // Left: something in MapLibre's terrain mesh or draping that keys on depth
+  // below the camera. Workaround is to lower the exaggeration.
+
+  // MapLibre blends the fog over 3D terrain by how far a point is from the
+  // camera, and with terrain on, DEPTH counts as distance. On a bathymetric
+  // survey that is ruinous: exaggeration 4 puts a -170 m seabed 680 m further
+  // away than the shore, so everything past some depth crosses the blend and
+  // washes out to the near-white fog colour -- a flat contour that slides as
+  // the camera distance changes with zoom (Hig, 2026-09-14). Nothing else in
+  // the collection goes deep enough to show it.
+  //
+  // The fix is the comment above's own logic: fog exists to dissolve the far
+  // field of a PITCHED view. Looking straight down there is no far field, so
+  // the fog can only take away. Below FOG_MIN_PITCH it is simply off.
+  var FOG_MIN_PITCH = 20;
+  function applySky() {
+    var want = document.getElementById('fog').checked &&
+               document.getElementById('t3d').checked &&
+               map.getPitch() >= FOG_MIN_PITCH;
+    map.setSky(want ? FOG : null);
+  }
+
   function setTerrain(on) {
     if (on && map.getSource('dem')) {
       map.setTerrain({ source: 'dem',
                        exaggeration: +document.getElementById('ex').value / 10 });
-      map.setSky(document.getElementById('fog').checked ? FOG : null);
+      applySky();
       // Neither MapLibre default is right here. Clamped (the default), the
       // centre elevation is re-sampled every frame and the view lurches as
       // sharper DEM tiles stream in. Unclamped, the centre sits at sea level:
@@ -390,8 +473,204 @@ vanish depending on which way you light them.
     }
   }
 
+  // ---- difference layer -------------------------------------------------
+  // One survey minus another over their overlap, coloured PRGn. Two questions
+  // it answers that a hillshade cannot: where did material move, and do the
+  // two surveys agree at all. Real change is patchy and sits where ground can
+  // move; a survey-wide flat tint is a vertical datum disagreement.
+  var DIFF_SRC = 'diffsrc', DIFF_LAYER = 'difflayer';
+  var pendingDf = Q.get('df') || '';
+  var geomOf = {};            // id -> footprint rings, for the overlap test
+  var diffReg = {};           // demshade ids registered for differencing
+
+  function bboxOverlap(a, b) {
+    return !!a && !!b && !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
+  }
+
+  // Ray casting across every ring, so holes fall out by even-odd.
+  function pointInRings(rings, x, y) {
+    var inside = false;
+    for (var k = 0; k < rings.length; k++) {
+      var r = rings[k];
+      for (var i = 0, j = r.length - 1; i < r.length; j = i++) {
+        var xi = r[i][0], yi = r[i][1], xj = r[j][0], yj = r[j][1];
+        if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  // Do two surveys actually cover common ground? Bounding boxes are not
+  // enough: the 2023 Kachemak Bay survey's box reaches Homer but the survey
+  // itself stops well short, so offering it as a comparison there produces a
+  // layer that renders nothing at all. Sample the intersection box, then try
+  // each footprint's own vertices, which catches a shared strip too thin for
+  // the grid to land on. Footprints are the simplified ones from the catalog,
+  // so this is a good filter rather than a proof.
+  function shareGround(aId, bId) {
+    var A = bboxOf[aId], B = bboxOf[bId], ra = geomOf[aId], rb = geomOf[bId];
+    if (!A || !B || !ra || !rb || !bboxOverlap(A, B)) return false;
+    var w = Math.max(A[0], B[0]), s = Math.max(A[1], B[1]);
+    var e = Math.min(A[2], B[2]), n = Math.min(A[3], B[3]);
+    var N = 24, i, j, x, y;
+    for (i = 0; i < N; i++) {
+      for (j = 0; j < N; j++) {
+        x = w + (e - w) * (i + 0.5) / N;
+        y = s + (n - s) * (j + 0.5) / N;
+        if (pointInRings(ra, x, y) && pointInRings(rb, x, y)) return true;
+      }
+    }
+    var pairs = [[ra, rb], [rb, ra]];
+    for (var k = 0; k < 2; k++) {
+      var from = pairs[k][0], into = pairs[k][1];
+      for (i = 0; i < from.length; i++) {
+        for (j = 0; j < from[i].length; j++) {
+          var pt = from[i][j];
+          if (pt[0] >= w && pt[0] <= e && pt[1] >= s && pt[1] <= n && pointInRings(into, pt[0], pt[1])) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // Comparison candidates: every other survey that shares ground with the
+  // active one, newest first, because that is the order a reader thinks in.
+  //
+  // Switching survey always drops back to "off". The previous choice is
+  // rarely the one wanted against a different survey, and silently carrying
+  // it over left a difference layer on screen that nobody had asked for
+  // against the new DEM (Hig, 2026-09-14). The one exception is a ?df= in the
+  // link, which is honoured on the first fill and then spent.
+  function fillDiffOptions() {
+    var sel = document.getElementById('df');
+    var want = pendingDf;
+    pendingDf = '';
+    var opts = Object.keys(props4)
+      .filter(function (id) { return id !== active && shareGround(active, id); })
+      .map(function (id) { return props4[id]; })
+      .sort(function (a, b) { return (b.year || 0) - (a.year || 0); });
+    sel.innerHTML = '<option value="">— off —</option>';
+    opts.forEach(function (q) {
+      var o = document.createElement('option');
+      o.value = q.id;
+      o.textContent = q.title + (q.year ? ' (' + q.year + ')' : '');
+      sel.appendChild(o);
+    });
+    sel.value = opts.some(function (q) { return q.id === want; }) ? want : '';
+    sel.disabled = opts.length === 0;
+  }
+
+  // The tile's own source must be the LATER survey: the ramp says "the ground
+  // rose", and that is only true in time order.
+  //
+  // BOTH sides get their own `overzoom` registration, including the active
+  // survey. The pair rarely shares a maxzoom -- 1 m surveys stop at z16 and
+  // 0.5 m surveys go to z17 -- and the layer is drawn to the deeper of the
+  // two, so whichever survey is coarser must keep answering past its own
+  // maxzoom by upsampling. Reusing the active survey's ordinary registration
+  // (overzoom deliberately off, since a survey should not invent detail for
+  // its own hillshade) made the overlay vanish one zoom past the coarser
+  // survey: it returned no tile, and no tile on either side is a blank.
+  // The saturation slider is a position on a log scale, not a value: the
+  // useful range runs from survey noise spread over a decade (about 0.01 m/yr)
+  // to a moving delta or glacier front (tens of m/yr), and a linear slider
+  // spends nearly all its travel in the top decade where nothing happens.
+  // The default (slider 29, about 0.1 m/yr) is set for survey-to-survey
+  // comparison rather than for glaciers: two lidar surveys of the same ground
+  // typically differ by 0.1-0.2 m, so a ramp ending at metres of movement
+  // paints the whole overlap the neutral white and hides everything real.
+  var RATE_MIN = 0.01, RATE_MAX = 30;
+  function diffRate() {
+    return RATE_MIN * Math.pow(RATE_MAX / RATE_MIN, V('dmax') / 100);
+  }
+  function fmtRate(r) {
+    return r >= 1 ? r.toFixed(1) : r >= 0.1 ? r.toFixed(2) : r.toFixed(3);
+  }
+
+  // Years between the pair, and what the ramp saturates at in metres -- which
+  // is what the tile actually needs, since it differences elevations. Dividing
+  // the metre scale by the span is the same thing as scaling the difference by
+  // it, so the rate never has to reach the worker.
+  function diffScale() {
+    var a = active && props4[active];
+    var b = props4[document.getElementById('df').value];
+    var span = a && b ? Math.abs((a.year || 0) - (b.year || 0)) : 0;
+    var rate = diffRate();
+    // Two surveys from the same year have no rate to speak of, so the slider
+    // reads as plain metres -- numerically the same, honestly labelled.
+    return { span: span, rate: rate, dmaxM: rate * (span || 1),
+             unit: span ? ' m/yr' : ' m' };
+  }
+
+  function diffSourceId(p) {
+    var id = p.id + '_dz';
+    if (!diffReg[id]) {
+      DemShade.addDataset(id, p.pmtiles_url, DemShade.catalogOpts(p, { overzoom: true, slope: null, slopeTiles: null }));
+      diffReg[id] = true;
+    }
+    return id;
+  }
+
+  function removeDiff() {
+    if (map.getLayer(DIFF_LAYER)) map.removeLayer(DIFF_LAYER);
+    if (map.getSource(DIFF_SRC)) map.removeSource(DIFF_SRC);
+  }
+
+  function updateDiff() {
+    var otherId = document.getElementById('df').value;
+    var panel = document.getElementById('dfpanel');
+    var a = active && props4[active];
+    var b = otherId && props4[otherId];
+    if (!a || !b) { removeDiff(); panel.hidden = true; return; }
+    panel.hidden = false;
+
+    // Equal years cannot be ordered in time, so fall back to "active minus
+    // other" and say so rather than implying a direction the data lacks.
+    var sameYear = (a.year || 0) === (b.year || 0);
+    var newer = sameYear || (a.year || 0) > (b.year || 0) ? a : b;
+    var older = newer === a ? b : a;
+    var sc = diffScale();
+    var dmax = sc.dmaxM;
+
+    var url = DemShade.diffUrl(diffSourceId(newer), diffSourceId(older), dmax);
+    var src = map.getSource(DIFF_SRC);
+    if (src) {
+      src.setTiles([url]);
+    } else {
+      map.addSource(DIFF_SRC, {
+        type: 'raster',
+        tiles: [url],
+        tileSize: 256,
+        // Both surveys must be able to answer: the shallower minzoom wins,
+        // and overzoom carries the coarser one up to the finer one's maxzoom.
+        minzoom: Math.max(a.min_zoom, b.min_zoom),
+        maxzoom: Math.max(a.max_zoom, b.max_zoom),
+        attribution: a.title + ' vs ' + b.title
+      });
+      map.addLayer({
+        id: DIFF_LAYER, type: 'raster', source: DIFF_SRC,
+        paint: { 'raster-opacity': 0, 'raster-opacity-transition': { duration: 0, delay: 0 }, 'raster-fade-duration': 0 }
+      }, 'fp-fill');
+    }
+    map.setPaintProperty(DIFF_LAYER, 'raster-opacity', V('dop') / 100);
+
+    document.getElementById('dflo').textContent = '−' + fmtRate(sc.rate) + sc.unit;
+    document.getElementById('dfhi').textContent = '+' + fmtRate(sc.rate) + sc.unit;
+    document.getElementById('dfnote').textContent = sameYear
+      ? 'Same year: green where ' + a.title + ' is higher. No time order, so the scale is metres.'
+      : 'Green where the ground rose between ' + older.year + ' and ' + newer.year +
+        ', purple where it fell. ' + sc.span + ' yr, so the ramp ends at ' +
+        sc.dmaxM.toFixed(sc.dmaxM >= 1 ? 1 : 2) + ' m of movement.';
+    showDmax();
+  }
+
   // ---- controls ---------------------------------------------------------
   var V = function (id) { return +document.getElementById(id).value; };
+
+  function showDmax() {
+    var sc = diffScale();
+    document.getElementById('dmaxv').textContent = fmtRate(sc.rate) + sc.unit;
+  }
 
   function readOpts() {
     return {
@@ -414,12 +693,16 @@ vanish depending on which way you light them.
       p.set('lon', c.lng.toFixed(6));
       p.set('b', map.getBearing().toFixed(1));
       p.set('p', map.getPitch().toFixed(1));
+      var df = document.getElementById('df').value;
+      if (df) p.set('df', df);
       CONTROLS.forEach(function (id) { p.set(id, document.getElementById(id).value); });
       CHECKS.forEach(function (id) { p.set(id, document.getElementById(id).checked ? '1' : '0'); });
       history.replaceState(null, '', location.pathname + '?' + p.toString());
     }, 250);
   }
   map.on('moveend', syncUrl);      // covers pan, zoom, rotate and pitch
+  // Pitching in or out of the fog's useful range has to switch it.
+  map.on('moveend', function () { if (map.getTerrain()) applySky(); });
   map.on('moveend', function () { if (catalog) { syncLayers(); updateInView(); } });
   // Only the region holding the selected survey stays open.
   function openRegionOf(p) {
@@ -542,6 +825,8 @@ vanish depending on which way you light them.
     document.getElementById('mdv').textContent = o.md.toFixed(2);
     document.getElementById('asv').textContent = o.as.toFixed(2);
     document.getElementById('exv').textContent = (V('ex') / 10).toFixed(1);
+    showDmax();
+    document.getElementById('dopv').textContent = (V('dop') / 100).toFixed(2);
 
     // Opacity is a paint property — instant, no refetch.
     applyOpacity();
@@ -559,6 +844,7 @@ vanish depending on which way you light them.
         var src = map.getSource('shade-' + id);
         if (src) src.setTiles([DemShade.url(shadeId(id), o)]);
       });
+      updateDiff();
     }, 160);
   }
 
@@ -573,12 +859,16 @@ vanish depending on which way you light them.
     applyNorthUp();
     syncUrl();
   });
+  document.getElementById('df').addEventListener('change', function () {
+    updateDiff();
+    syncUrl();
+  });
   document.getElementById('ctx').addEventListener('change', function () {
     if (active && props4[active]) rebuildDem(props4[active]);
     syncUrl();
   });
   document.getElementById('fog').addEventListener('change', function () {
-    if (map.getTerrain()) setTerrain(true);
+    if (map.getTerrain()) applySky();
     syncUrl();
   });
 
@@ -624,6 +914,8 @@ vanish depending on which way you light them.
           props4[p.id] = p;
           var bb = turfBounds(f.geometry);
           bboxOf[p.id] = [bb[0][0], bb[0][1], bb[1][0], bb[1][1]];
+          var cs = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates];
+          geomOf[p.id] = cs.reduce(function (acc, poly) { return acc.concat(poly); }, []);
           var div = document.createElement('div');
           div.className = 'ds';
           div.dataset.id = p.id;

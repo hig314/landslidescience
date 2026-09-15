@@ -103,6 +103,37 @@ units -- it does NOT reproduce this build. Call /opt/homebrew/bin/gdalwarp
 explicitly (and /opt/anaconda3/bin/python3 for rasterio).
 
 
+WHY SELDOVIA 2019 CARRIES A VERTICAL SHIFT
+------------------------------------------
+"NAVD88" on a delivery label does not say which geoid model turned ellipsoid
+heights into orthometric ones, and in Alaska the choice is worth over a metre.
+
+The 2019 NCMP Seldovia tiles are labelled NAVD88, but the vendor's own LAS
+headers say the heights were computed with xGEOID17B, an experimental
+GRAV-D-era model, not the GEOID12B that NAVD88 means everywhere else in this
+collection. The result sits 1.42 m BELOW the 2023 Kachemak Bay survey, whose
+report states NAVD88 (GEOID12B): median -1.416 m over 1.18 M cells of stable
+land, MAD 0.117 m, and -1.43 m as the median of thirteen 1 km blocks spanning
+-1.50 to -1.24. Two parallel surfaces, one constant step.
+
+Confirmed independently of either lidar survey. NOAA's 2008/09 multibeam is
+referenced to MLLW; differencing it against the unshifted Seldovia grid puts
+MLLW 3.00 m below NAVD88 (IQR 0.13 m). NOAA's own tide stations say otherwise:
+Coal Point (9455558) publishes MLLW 1.553 m below NAVD88, and Seldovia
+(9455500) has the same tidal range, so ~1.50 m is expected. With the +1.42 m
+shift applied the multibeam gives 1.55 m and the discrepancy disappears.
+
+Not a build defect: the archive reproduces both vendor files exactly, and the
+2018 NCMP Homer delivery agrees with the 2019 state survey to 0.08 m, so this
+is specific to the 2019 NCMP season.
+
+Fix: "vertical_shift_m": 1.42 in datasets.json, applied by
+apply_vertical_shift() as a VRT ScaleOffset read before the archive is written.
+Works with archive_mode "warp" and "translate", both of which read the source
+through GDAL; not with "copy", which byte-copies the file. The same mechanism
+carries the Kachemak multibeam from MLLW to NAVD88.
+
+
 REQUIRED TOOLING
 ----------------
   brew install gdal pmtiles     # GDAL >= 3.11 for `gdal raster tile`
@@ -230,6 +261,47 @@ def retag_generic_nad83(ds, src, env):
     return vrt
 
 
+def apply_vertical_shift(ds, src, env):
+    """Path to read from: `src`, or a VRT of it with a constant added to every
+    elevation. See WHY SELDOVIA 2019 CARRIES A VERTICAL SHIFT above."""
+    dz = ds.get("vertical_shift_m")
+    if not dz:
+        return src
+    info = json.loads(subprocess.run([GDAL_BIN / "gdalinfo", "-json", str(src)],
+                                     capture_output=True, text=True, env=env).stdout)
+    nd = info["bands"][0].get("noDataValue")
+    out_dir = BUILD / ds["id"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    plain, vrt = out_dir / "source_plain.vrt", out_dir / "source_shifted.vrt"
+    run([GDAL_BIN / "gdal_translate", "-q", "-of", "VRT", src, plain], env=env)
+    # A ComplexSource applies ScaleOffset on read, so no pixels are rewritten
+    # and the warp that follows sees the corrected surface. <NODATA> is
+    # mandatory: without it the offset is added to the nodata value too, which
+    # leaves voids at -9997.58 against a band still declaring -9999 (caught in
+    # testing, 2026-09-14).
+    body = open(plain).read()
+    if "<ScaleOffset>" in body:
+        sys.exit("vertical_shift_m: the source VRT already carries a ScaleOffset")
+    shift = (f"      <ScaleOffset>{dz:g}</ScaleOffset>\n"
+             "      <ScaleRatio>1</ScaleRatio>\n")
+    if "<ComplexSource>" in body:
+        # gdal_translate flattens a VRT source into the ComplexSource entries
+        # gdalbuildvrt wrote, each already carrying its own <NODATA>.
+        n = body.count("</ComplexSource>")
+        body = body.replace("</ComplexSource>", shift + "    </ComplexSource>")
+    elif "<SimpleSource>" in body:
+        n = body.count("</SimpleSource>")
+        nodata_el = f"      <NODATA>{nd:g}</NODATA>\n" if nd is not None else ""
+        body = body.replace("<SimpleSource>", "<ComplexSource>").replace(
+            "</SimpleSource>", nodata_el + shift + "    </ComplexSource>")
+    else:
+        sys.exit("vertical_shift_m: VRT has neither a SimpleSource nor a ComplexSource")
+    open(vrt, "w").write(body)
+    print(f"  archive: vertical_shift_m {dz:+g} m applied on read across {n} source(s); "
+          f"nodata {nd} untouched")
+    return vrt
+
+
 def build_archive(ds, env):
     src = Path(ds["src"])
     if not src.exists():
@@ -249,6 +321,10 @@ def build_archive(ds, env):
     # even though its horizontal CRS is exactly the target. Warping it anyway
     # would be an identity resample AND would silently drop the NAVD88 vertical
     # datum -- the only declared vertical reference in the whole collection.
+    if ds.get("vertical_shift_m") and ds.get("archive_mode") == "copy":
+        sys.exit(f"{ds['id']}: vertical_shift_m cannot be used with archive_mode "
+                 "'copy', which byte-copies the source file")
+
     if ds.get("archive_mode") == "copy":
         print("  archive: source already correct (compound CRS preserved) - copying")
         shutil.copyfile(src, dst)
@@ -265,6 +341,10 @@ def build_archive(ds, env):
         args = []
         if ds.get("src_srs"):
             args += ["-a_srs", ds["src_srs"]]
+        # A vertical shift is free here: gdal_translate reads through the
+        # ScaleOffset VRT, so the pixels are still copied at their own
+        # resolution with no resample, just offset on the way past.
+        src = apply_vertical_shift(ds, src, env)
         # IGNORE_EXISTING: the COG driver otherwise adopts the vendor's
         # external .ovr verbatim. Glen Alps' was misregistered against its
         # own full-res grid, with a different shift either side of a vertical
@@ -294,7 +374,7 @@ def build_archive(ds, env):
     if ds.get("src_nodata") is not None:
         src_nodata = ["-srcnodata", str(ds["src_nodata"])]
         print(f"  archive: masking source value {ds['src_nodata']} as nodata")
-    warp_src = retag_generic_nad83(ds, src, env)
+    warp_src = apply_vertical_shift(ds, retag_generic_nad83(ds, src, env), env)
     run([GDAL_BIN / "gdalwarp", "-overwrite", *src_nodata,
          "-t_srs", f"EPSG:{target}",
          "-tr", ds["native_res_m"], ds["native_res_m"],
@@ -404,11 +484,40 @@ def encode_terrain_rgb(src_path, dst_path):
                                rasterio.enums.ColorInterp.alpha]
 
 
+def drop_stale_tiles(tiles, archive, work, patterns, mbtiles=None):
+    """Discard a tile pyramid the archive has outgrown.
+
+    `gdal raster tile --resume` keeps every tile already on disk, which is what
+    makes an interrupted bake resumable -- and a silent liar the moment the
+    archive changes underneath it. Rebuilding seldovia_2019 with its +1.42 m
+    vertical shift produced a fresh archive, a fresh .mbtiles and a fresh
+    .pmtiles whose tiles were every one of them the OLD surface: the pyramid
+    differed from the archive it claimed to come from by exactly the correction
+    (found in the browser, 2026-09-14; the archive itself was correct, so
+    nothing upstream of the tiles could reveal it). An archive newer than the
+    tile directory means every tile in it is suspect, so start over.
+    """
+    if not tiles.exists() or not archive.exists():
+        return
+    if archive.stat().st_mtime <= tiles.stat().st_mtime:
+        return
+    print(f"  archive is newer than {tiles.name}/ -- discarding stale tiles")
+    shutil.rmtree(tiles)
+    for pat in patterns:
+        for leftover in work.glob(pat):
+            leftover.unlink()
+    if mbtiles and mbtiles.exists():
+        mbtiles.unlink()
+
+
 def build_web(ds, archive, env, webp=False):
     work = BUILD / ds["id"]
     work.mkdir(parents=True, exist_ok=True)
     tiles = work / "tiles"
     minz, maxz = ds["min_zoom"], ds["max_zoom"]
+
+    drop_stale_tiles(tiles, archive, work, ("elev_z*.tif", "rgb_z*.tif"),
+                     mbtiles=work / f"{ds['id']}.mbtiles")
 
     # 3857 bounds of the archive, once.
     bounds = merc_bounds(archive, env)
@@ -513,6 +622,10 @@ def build_slope_web(ds, archive, env, bounds):
     """Per-zoom slope tiles, mirroring build_web's warps on the slope raster."""
     work = BUILD / ds["id"]
     tiles = work / "tiles_slope"
+    # Same trap as the elevation pyramid. A constant vertical shift leaves
+    # slope untouched, but a resampling or extent change does not.
+    drop_stale_tiles(tiles, archive, work, ("slope_z*.tif", "slopeq_z*.tif"),
+                     mbtiles=work / f"{ds['id']}_slope.mbtiles")
     native = build_slope_native(ds, archive, env)
     minz, maxz = ds["min_zoom"], ds["max_zoom"]
     for z in range(maxz, minz - 1, -1):

@@ -556,8 +556,43 @@
    "product": "Bathymetry (preliminary)",
    "archive_mode": "translate",
    "vertical_datum": null,
-   "notes": "Preliminary 2023 bathymetry of Lituya Bay, 1 m Float32 GeoTIFF, NAD83(2011)/UTM 8N, NaN nodata, -169 to +6 m. No metadata on disk: surveyor, vertical datum and processing unknown. Lituya_PrelimBathy.tif in the same folder is an RGB rendering, not elevations.",
-   "region": "Southeast"
+   "notes": "Preliminary 2023 bathymetry of Lituya Bay, 1 m Float32 GeoTIFF, NAD83(2011)/UTM 8N, NaN nodata, -169 to +6 m. No metadata on disk: surveyor, vertical datum and processing unknown. Lituya_PrelimBathy.tif in the same folder is an RGB rendering, not elevations. GATED 2026-09-14 at Hig's request until the originator confirms provenance and vertical datum.",
+   "region": "Southeast",
+   "gated": true
+  },
+  {
+   "id": "seldovia_2019",
+   "title": "Seldovia 2019 NCMP bare-earth topobathy",
+   "src": "/Volumes/Nunatak/lidar_build/bathy_src/seldovia_2019_bareearth.vrt",
+   "target_epsg": 6334,
+   "native_res_m": 1.0,
+   "center_lat": 59.45,
+   "min_zoom": 8,
+   "max_zoom": 16,
+   "year": 2019,
+   "product": "DTM (bare earth, topobathymetric)",
+   "archive_mode": "warp",
+   "vertical_datum": "NAVD88 (GEOID12B, after vertical_shift_m)",
+   "vertical_shift_m": 1.42,
+   "notes": "NOAA/USACE National Coastal Mapping Program 2019 (JALBTCX), Seldovia and Seldovia Bay: green lidar, so the grid is continuous from the hills to about -31 m. Source: the 31 vendor BareEarth_1mGrid tiles, mosaicked with a VRT (bathy_src/seldovia_2019_bareearth.vrt); tiles are NAD83(2011) geographic at 0.9e-5 deg (~1 m), warped here to UTM 5N. The companion 1mGrid tiles in the same package are the FIRST-return surface (vegetation kept, +15 m over bare earth at the 90th percentile) and are deliberately not used. Also on disk, not published: 31 classified LAS, 125 RGB orthos, NAVD88 zero contour. Public (NOAA/USACE). VERTICAL: the tiles are labelled NAVD88 but the vendor LAS headers say the heights were computed with xGEOID17B, not the GEOID12B that NAVD88 means elsewhere here, so the delivered surface sits 1.42 m low. vertical_shift_m 1.42 corrects it; see the build_lidar docstring for the evidence and the independent tide-gauge check.",
+   "region": "Kenai Peninsula"
+  },
+  {
+   "id": "kachemak_bathy_2009",
+   "title": "Kachemak Bay 2008-2009 multibeam bathymetry",
+   "src": "/Volumes/Nunatak/lidar_build/bathy_src/kachemak_2008_2009_mllw_nad83.vrt",
+   "target_epsg": 6334,
+   "native_res_m": 1.0,
+   "center_lat": 59.55,
+   "min_zoom": 8,
+   "max_zoom": 16,
+   "year": 2009,
+   "product": "Bathymetry (multibeam, merged survey bands)",
+   "archive_mode": "translate",
+   "vertical_datum": "NAVD88 (GEOID12B, after vertical_shift_m)",
+   "vertical_shift_m": -1.38,
+   "notes": "NOAA hydrographic surveys H11933/34/35/38 (2008) and H12084-90/12114/12146 (2009), the Kachemak Bay 'Hydropalooza'. Built by bathy_proto/stitch_kachemak.py from the per-survey, per-depth-band BASE node lists (Raw/H*/*.xyz), each gridded at its own native cell size (1 m to ~23 m depth, 2 m to ~52 m, 4 m to ~115 m, 8 m below) with no search radius and no interpolation, then stacked finest-on-top into one 1 m VRT: 66 bands, unsurveyed ground left as nodata rather than triangulated across, which is what the vendor's ready-made TIFFs do (32% of one test window was fabricated that way). HORIZONTAL: the node lists carry no CRS, so the grids were written with an override; the survey metadata says NAD83, and the VRT is re-tagged EPSG:6334 without touching pixels (an earlier tag of WGS 84 / UTM 5N would have been ~1 m off in Alaska). VERTICAL: the source is MLLW. vertical_shift_m -1.38 puts it in NAVD88, measured as the median lidar-minus-bathymetry over the two NCMP topobathy surveys that overlap it (2018 Homer -1.334 m over 1.0 M cells, 2019 Seldovia -1.400 m over 2.2 M cells); NOAA Coal Point publishes -1.553 m, and per-2 km blocks run -1.30 to -1.50, so the bay's separation genuinely varies and a constant carries about +/-0.15 m. Matching the lidar is the point, since this exists to be differenced against it. Public (NOAA).",
+   "region": "Kenai Peninsula"
   }
  ]
 }

@@ -13,6 +13,7 @@
  *   DemShade.addImageServer(id, url, opts);   // e.g. USGS 3DEP, live float32 exports
  *   DemShade.url(id, { az, alt, hs, bl, sl, md, as, ve });
  *   DemShade.demUrl(id);                      // raster-dem passthrough (terrain)
+ *   DemShade.diffUrl(newerId, olderId, dmax); // PRGn difference, newer - older
  *
  * `opts.fill` names another registered source to read where this one has no
  * data (a survey over 3DEP). `bl` codes: 0 overlay, 1 plain transparency,
@@ -46,6 +47,10 @@ window.DemShade = (function () {
         spec = { pmtiles: new URL(pmtilesUrl, location.href).href, encoding: 'mapbox' };
       }
       if (opts.fill) spec.fill = opts.fill;
+      // 'missing' keeps the fill outside the survey only, so water holes
+      // inside it stay holes instead of showing the regional DEM's idea
+      // of the sea surface.
+      if (opts.fillMode) spec.fillMode = opts.fillMode;
       if (opts.overzoom) spec.overzoom = true;
       // Pre-baked slope pyramid (build_lidar.py --stage slope): the slope ramp
       // reads true slope from the float32 archive instead of a gradient of
@@ -81,6 +86,10 @@ window.DemShade = (function () {
     },
     url: function (id, o) { return inst.tileUrl(id, P.toOptions(o || {})); },
     demUrl: function (id) { return inst.demTileUrl(id); },
+    // Difference layer: newer minus older, ColorBrewer PRGn. Pass the pair
+    // in TIME order -- green means the ground rose, which is only true when
+    // the first id is the later survey.
+    diffUrl: function (newerId, olderId, dmax) { return inst.diffTileUrl(newerId, olderId, dmax); },
     defaults: P.DEFAULT_PARAMS,
     loadTile: function (url, signal) { return inst.loadTile(url, signal); },
     // Old API was synchronous; return the last snapshot and refresh it.
