@@ -526,6 +526,38 @@
    "vertical_datum": "NAVD88",
    "notes": "DGGS RDF 2023-18, flown October 2021 and October 2022 (merged), Haines, Chilkat and Chilkoot valleys and the Haines Highway corridor. NAD83(2011)/UTM 8N, NAVD88 heights, 0.5 m posts. Uncompressed 46 GB, 109925x109438, with 9 overviews; already the target zone, so translate. The package also has four dtm_detail_* sub-AOIs (Beach Road and Iron Mountain, 2021 and 2022 each) for the 2020 landslide sites -- candidates for separate change-detection ids.",
    "region": "Southeast"
+  },
+  {
+   "id": "pedersen_2025",
+   "title": "Pedersen Lagoon 2025 multibeam bathymetry",
+   "src": "/Volumes/Nunatak/lidar_build/bathy_src/pedersen_2025.tif",
+   "target_epsg": 6335,
+   "native_res_m": 0.5,
+   "center_lat": 59.89,
+   "min_zoom": 8,
+   "max_zoom": 17,
+   "year": 2025,
+   "product": "Bathymetry (multibeam)",
+   "archive_mode": "translate",
+   "vertical_datum": "NAVD88 (GEOID12B) per metadata",
+   "notes": "NPS Water Resources Division / Kenai Fjords NP, EchoBoat 160 uncrewed survey vessel with Norbit iWBMSe multibeam, June 10-12 2025, after the 7 August 2024 landslide-generated tsunami. Source: KEFJ_Pedersen_05m.xyz (positive-down depths, negated here). Gridded by lidar_build/bathy_src/pedersen_merge.py: cell means of the soundings at 0.5/1/2 m, chosen per 2 m block by sounding density (0.5 m where >=95% filled, 1 m >=90%, else 2 m), no interpolation. Metadata states NAVD88 GEOID12B but also that soundings were tide-corrected to MLLW: confirm the vertical datum with NPS before comparing with lidar. NAD83(2011)/UTM 6N.",
+   "region": "Kenai Peninsula"
+  },
+  {
+   "id": "lituya_2023",
+   "title": "Lituya Bay 2023 preliminary bathymetry",
+   "src": "/Volumes/Powder/Alaska GIS/Raster/Bathymetry/Lituya/Lituya_prelimbathy_2023_geotiff.tiff",
+   "target_epsg": 6337,
+   "native_res_m": 1.0,
+   "center_lat": 58.64,
+   "min_zoom": 8,
+   "max_zoom": 16,
+   "year": 2023,
+   "product": "Bathymetry (preliminary)",
+   "archive_mode": "translate",
+   "vertical_datum": null,
+   "notes": "Preliminary 2023 bathymetry of Lituya Bay, 1 m Float32 GeoTIFF, NAD83(2011)/UTM 8N, NaN nodata, -169 to +6 m. No metadata on disk: surveyor, vertical datum and processing unknown. Lituya_PrelimBathy.tif in the same folder is an RGB rendering, not elevations.",
+   "region": "Southeast"
   }
  ]
 }
