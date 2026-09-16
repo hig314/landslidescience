@@ -184,6 +184,17 @@
                     if (le.left || le.right) liOut[lm[1]] = le;
                 });
                 out.li = liOut;   // present (even if empty) whenever the param exists
+            } else if (k === 'im') {
+                // Imagery overlays (uploaded scenes and Sentinel-2 windows),
+                // main pane only -- they have never been offered in the
+                // wiper's right pane, so the spec carries no r<pct>.
+                var imOut = {};
+                v.split(',').forEach(function (ent) {
+                    var im = /^(\d+)\.l(\d+)$/.exec(ent);
+                    if (!im) return;
+                    imOut[im[1]] = Math.min(100, Math.max(0, parseInt(im[2], 10))) / 100;
+                });
+                out.im = imOut;   // present (even if empty) whenever the param exists
             } else if (k === 'tab') {
                 if (/^[a-z]+$/.test(v)) out.tab = v;   // validated against real tabs on apply
             } else if (k === 'an') {
@@ -224,6 +235,9 @@
     // Lidar overlays from the URL / saved view: applied once the catalog is in
     // (_lidarFetch), since the ids mean nothing before then.
     var _pendingLi = _initialHash.li || null;
+    // Imagery overlays wait on the trace-raster list the same way lidar waits
+    // on the catalog: the ids mean nothing until the rows are in.
+    var _pendingIm = _initialHash.im || null;
 
     function writeHashState() {
         var c = map.getCenter(), z = map.getZoom();
@@ -237,6 +251,8 @@
         if (ovh) parts.push('ov=' + ovh);
         var lih = _liEncodeHash();
         if (lih) parts.push('li=' + lih);
+        var imh = _imEncodeHash();
+        if (imh) parts.push('im=' + imh);
         var tab = _activeSidebarTab();
         if (tab !== 'inventory') parts.push('tab=' + tab);
         var an = _anEncodeHash();
@@ -2461,10 +2477,17 @@
         map.addLayer(_faultsLayerDef(), bId);
         if (_faultsData) map.getSource('faults').setData(_faultsData);
 
-        // Editor trace-raster overlays sit here in the stack: above basemap +
+        // Imagery overlays sit here in the stack: above basemap +
         // susceptibility, below faults and all landslide data. Re-added after
         // every basemap switch, like everything else in this function.
-        if (window._isInventoryEditor) _traceReplayLayers();
+        //
+        // NOT gated on the editor flag. _traceActive only ever holds rows the
+        // viewer was allowed to see, so replaying it is safe for anyone, and a
+        // visitor needs it: a default view that pins a basemap reloads the
+        // style, which wipes the layer that `im=` had just added. Gating this
+        // was the last of the four places that had to know about imagery
+        // (2026-09-16) -- the layer appeared and was silently thrown away.
+        _traceReplayLayers();
         _lidarReplayLayers();
 
         map.addSource('landslides', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -3169,6 +3192,12 @@
         if (ovh) parts.push('ov=' + ovh);
         var lih = _liEncodeHash();
         if (lih) parts.push('li=' + lih);
+        // Imagery overlays. This builder is SEPARATE from writeHashState and
+        // has to be kept in step with it by hand: adding `im` to the hash
+        // alone left every stored default view silently without its imagery,
+        // which looked like a serving bug and was not (2026-09-16).
+        var imh = _imEncodeHash();
+        if (imh) parts.push('im=' + imh);
         var tab = _activeSidebarTab();
         if (tab !== 'inventory') parts.push('tab=' + tab);
         var an = _anEncodeHash();
@@ -3203,6 +3232,7 @@
         }
         if (s.ov) _ovApplyHashSpec(s.ov);
         if (s.li) _liApplyHashSpec(s.li);
+        if (s.im) _imApplyHashSpec(s.im);
         if (s.tab) _setSidebarTab(s.tab);
         if (s.an) _anApplyHashSpec(s.an);
         _syncSwipeUI();
@@ -3823,6 +3853,37 @@
     function _traceReplayLayers() {
         Object.keys(_traceActive).forEach(function (id) { _traceAddLayer(+id); });
     }
+    // --- imagery overlays in the shareable view state (`im=`) ----------------
+    function _imEncodeHash() {
+        return Object.keys(_traceActive).sort(function (a, b) { return a - b; })
+            .map(function (id) { return id + '.l' + Math.round(_traceActive[id] * 100); })
+            .join(',');
+    }
+    // Overwrite imagery visibility from a parsed `im` spec: listed rows go on at
+    // the given opacity, unlisted ones go off. Rows the viewer cannot see are
+    // skipped rather than failing the whole view -- a default view naming an
+    // editor-only upload must still open for a visitor, just without it.
+    function _imApplyHashSpec(spec) {
+        if (!_traceRasters.length) {
+            // Not in yet. For an editor the boot load is already on its way;
+            // for a visitor nothing would ever fetch it, so ask now.
+            _pendingIm = spec;
+            _traceLoad(true);
+            return;
+        }
+        var known = {};
+        _traceRasters.forEach(function (r) { known[r.id] = r; });
+        Object.keys(_traceActive).forEach(function (id) {
+            if (!spec || spec[id] == null) _traceSetVisible(+id, false);
+        });
+        Object.keys(spec || {}).forEach(function (id) {
+            var r = known[id];
+            if (!r || r.status !== 'ready') return;
+            _traceActive[id] = spec[id];
+            _traceSetVisible(+id, true);
+        });
+        if (typeof _renderTraceRows === 'function') _renderTraceRows();
+    }
     function _traceZoomTo(r) {
         if (r.bounds_w == null) return;
         map.fitBounds([[r.bounds_w, r.bounds_s], [r.bounds_e, r.bounds_n]],
@@ -3882,12 +3943,19 @@
                 }).catch(function () {});
         }, 2500);
     }
-    function _traceLoad() {
-        if (!window._isInventoryEditor) return;
+    // `force` loads the list for a visitor who is not an editor. The endpoint
+    // answers them with the public rows only, so this is exactly what a view
+    // naming a Sentinel-2 image needs to resolve it -- and nothing more. It is
+    // not done on every public page load, only when a view actually asks for
+    // imagery, which is why the flag exists rather than dropping the gate.
+    function _traceLoad(force) {
+        if (!window._isInventoryEditor && !force) return;
         fetch(API_BASE + 'api/trace_rasters/')
             .then(function (res) { return res.json(); })
             .then(function (d) {
                 _traceRasters = (d && d.rasters) || [];
+                if (_pendingIm) { var sp = _pendingIm; _pendingIm = null; _imApplyHashSpec(sp); }
+                if (!document.getElementById('trace-imagery-rows')) return;
                 _renderTraceRows();
                 _traceRasters.forEach(function (r) {
                     if (r.status === 'processing' && !r.stalled) _tracePoll(r.id);
@@ -4871,7 +4939,12 @@
         if (_initialHash.tab) _setSidebarTab(_initialHash.tab); // sidebar tab from the URL / saved view
         _applyPendingSwipe(); // wiper from the URL hash / saved view (built-in + local layers)
         _loadPromotedQms();   // merge admin-curated shared layers (public set for everyone)
-        _traceLoad();         // editor GeoTIFF overlays (no-op for the public)
+        // Editor GeoTIFF overlays. Normally a no-op for the public -- but a
+        // view that NAMES imagery has to resolve it, and for a visitor nothing
+        // else would ever ask for the list, so the initial `im=` forces the
+        // fetch here. Without this the layer only ever appeared for editors,
+        // which is how it looked like a serving bug (2026-09-16).
+        _traceLoad(!!_pendingIm);
 
     }());
 
@@ -8177,6 +8250,7 @@
         // explicit params apply.
         if (s.ov) _ovApplyHashSpec(s.ov);
         if (s.li) _liApplyHashSpec(s.li);
+        if (s.im) _imApplyHashSpec(s.im);
         if (s.tab) _setSidebarTab(s.tab);
         if (s.an) _anApplyHashSpec(s.an);
         if (s.lat != null && s.lon != null && s.zoom != null) {

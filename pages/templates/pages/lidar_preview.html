@@ -116,8 +116,9 @@ vanish depending on which way you light them.
   <div class="stackhint">Colours the overlap of two surveys by how fast the
     ground moved between them, ColorBrewer PRGn: green where it rose, purple
     where it fell, neutral where it did not, transparent outside the overlap.
-    The scale is a RATE, metres per year, so a pair eleven years apart and a
-    pair one year apart can be read against each other.
+    Two surveys years apart are scaled as a RATE, metres per year, so a pair
+    eleven years apart and a pair one year apart can be read against each
+    other. Two renderings of the same date are scaled in plain metres.
     A whole survey in one flat colour is not change but a vertical datum
     disagreement, which is what this is best at catching.</div>
 
@@ -579,27 +580,58 @@ vanish depending on which way you light them.
   // comparison rather than for glaciers: two lidar surveys of the same ground
   // typically differ by 0.1-0.2 m, so a ramp ending at metres of movement
   // paints the whole overlap the neutral white and hides everything real.
-  var RATE_MIN = 0.01, RATE_MAX = 30;
-  function diffRate() {
-    return RATE_MIN * Math.pow(RATE_MAX / RATE_MIN, V('dmax') / 100);
+  // The saturation slider has two modes, because the two questions it answers
+  // are not the same question.
+  //
+  //   rate    two surveys years apart. The scale is metres per year, so a pair
+  //           eleven years apart and a pair one year apart read alike. Useful
+  //           range runs from survey noise spread over a decade to a moving
+  //           delta or glacier front.
+  //   metres  two renderings of the SAME date -- two ground filters on one
+  //           point cloud, say. There is no elapsed time, so a rate is
+  //           meaningless, and the differences are far larger than a yearly
+  //           rate: whole metres where filters disagree about a ridge crest.
+  //
+  // Sharing one scale between them was the bug (Hig, 2026-09-15): a default of
+  // 0.1 is a sensible m/yr but a punishing metre, so comparing two versions of
+  // one survey saturated the whole overlap and looked broken. Each mode now
+  // carries its own range and its own default, and switching mode snaps the
+  // slider to that mode's default, because the number under it changed meaning.
+  var DIFF_MODES = {
+    rate:   { min: 0.01, max: 30, dflt: 29, unit: ' m/yr' },
+    metres: { min: 0.05, max: 50, dflt: 33, unit: ' m' }
+  };
+  var diffModeShown = null;
+
+  function diffSpan() {
+    var a = active && props4[active];
+    var b = props4[document.getElementById('df').value];
+    return a && b ? Math.abs((a.year || 0) - (b.year || 0)) : 0;
   }
+  function diffMode() { return diffSpan() > 0 ? 'rate' : 'metres'; }
+
   function fmtRate(r) {
     return r >= 1 ? r.toFixed(1) : r >= 0.1 ? r.toFixed(2) : r.toFixed(3);
   }
 
-  // Years between the pair, and what the ramp saturates at in metres -- which
-  // is what the tile actually needs, since it differences elevations. Dividing
-  // the metre scale by the span is the same thing as scaling the difference by
-  // it, so the rate never has to reach the worker.
+  // What the ramp saturates at, in metres, which is what the tile needs: it
+  // differences elevations and knows nothing about time. In rate mode the
+  // displayed rate is multiplied by the span here, so the rate never has to
+  // reach the worker.
   function diffScale() {
-    var a = active && props4[active];
-    var b = props4[document.getElementById('df').value];
-    var span = a && b ? Math.abs((a.year || 0) - (b.year || 0)) : 0;
-    var rate = diffRate();
-    // Two surveys from the same year have no rate to speak of, so the slider
-    // reads as plain metres -- numerically the same, honestly labelled.
-    return { span: span, rate: rate, dmaxM: rate * (span || 1),
-             unit: span ? ' m/yr' : ' m' };
+    var mode = diffMode(), m = DIFF_MODES[mode], span = diffSpan();
+    var v = m.min * Math.pow(m.max / m.min, V('dmax') / 100);
+    return { mode: mode, span: span, rate: v, unit: m.unit,
+             dmaxM: mode === 'rate' ? v * span : v };
+  }
+
+  // Snap the slider when the mode changes, and report whether it moved.
+  function syncDiffMode() {
+    var mode = diffMode();
+    if (mode === diffModeShown) return false;
+    diffModeShown = mode;
+    document.getElementById('dmax').value = DIFF_MODES[mode].dflt;
+    return true;
   }
 
   function diffSourceId(p) {
@@ -629,6 +661,7 @@ vanish depending on which way you light them.
     var sameYear = (a.year || 0) === (b.year || 0);
     var newer = sameYear || (a.year || 0) > (b.year || 0) ? a : b;
     var older = newer === a ? b : a;
+    syncDiffMode();
     var sc = diffScale();
     var dmax = sc.dmaxM;
 
@@ -657,7 +690,7 @@ vanish depending on which way you light them.
     document.getElementById('dflo').textContent = '−' + fmtRate(sc.rate) + sc.unit;
     document.getElementById('dfhi').textContent = '+' + fmtRate(sc.rate) + sc.unit;
     document.getElementById('dfnote').textContent = sameYear
-      ? 'Same year: green where ' + a.title + ' is higher. No time order, so the scale is metres.'
+      ? 'Same date, so no rate: green where ' + a.title + ' is higher, in metres.'
       : 'Green where the ground rose between ' + older.year + ' and ' + newer.year +
         ', purple where it fell. ' + sc.span + ' yr, so the ramp ends at ' +
         sc.dmaxM.toFixed(sc.dmaxM >= 1 ? 1 : 2) + ' m of movement.';

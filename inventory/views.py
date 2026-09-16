@@ -219,6 +219,7 @@ def valid_view_state(v):
 # the offending references so the editor is told what to change.
 _VIEW_BASE_RE = re.compile(r'(?:^|&)(base|swipe)=([^&]*)')
 _VIEW_LI_RE = re.compile(r'(?:^|&)li=([^&]*)')
+_VIEW_IM_RE = re.compile(r'(?:^|&)im=([^&]*)')
 
 
 def _public_lidar_ids():
@@ -259,6 +260,28 @@ def view_state_private_layers(v):
             lid = ent.split('.', 1)[0]
             if lid and lid not in public_ids:
                 problems.append(f'lidar "{lid}" is not in the public catalog')
+    # Imagery overlays. An uploaded scene is usually licensed and is served to
+    # editors only, so naming one in a default view would show a visitor
+    # nothing. A Sentinel-2 window is openly licensed and public, so it is
+    # exactly what a default view should be allowed to open on.
+    m = _VIEW_IM_RE.search(v or '')
+    if m and m.group(1):
+        from .models import TraceRaster
+        want = []
+        for ent in m.group(1).split(','):
+            head = ent.split('.', 1)[0]
+            if head.isdigit():
+                want.append(int(head))
+        if want:
+            rows = {r.pk: r for r in TraceRaster.objects.filter(pk__in=want)}
+            for pk in want:
+                r = rows.get(pk)
+                if r is None:
+                    problems.append(f'imagery #{pk} no longer exists')
+                elif not r.public:
+                    problems.append(f'imagery "{r.title}" is an editor-only upload')
+                elif r.status != TraceRaster.STATUS_READY:
+                    problems.append(f'imagery "{r.title}" is not finished baking')
     return problems
 
 

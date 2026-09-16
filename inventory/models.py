@@ -112,6 +112,24 @@ class TraceRaster(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # PUBLIC IMAGERY (Sentinel-2 and anything else openly licensed).
+    #
+    # An uploaded scene is editor-only: it is usually licensed imagery and the
+    # upload is the only copy. A Sentinel-2 window is neither. It is free to
+    # anyone, and we do not hold the scene at all -- `source_ref` records where
+    # it came from and the pyramid is derived data that can be rebuilt from
+    # that record alone. So these may be served to every visitor, which is the
+    # point: a landslide's default view can open on the image that shows it.
+    public = models.BooleanField(
+        default=False,
+        help_text='Openly licensed and derived, so the tiles may be served to '
+                  'anyone. Uploads stay editor-only.')
+    # The linkage, and the whole of what is really stored: enough to re-fetch
+    # and re-bake byte-identical tiles without keeping a single pixel of the
+    # original. {"kind": "sentinel-2-l2a", "scene": "...", "centre": [lon, lat],
+    # "half_m": 6000, "assets": {...}, "cloud_cover": 17.7}
+    source_ref = models.JSONField(null=True, blank=True)
+
     class Meta:
         ordering = ['-created_at']
         verbose_name = 'trace raster'

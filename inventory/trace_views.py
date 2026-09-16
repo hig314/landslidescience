@@ -91,9 +91,21 @@ def _row_json(r):
     }
 
 
-@inventory_editor_required
 @require_safe
 def trace_list(request):
+    """Every raster for an editor; the public, ready ones for anyone else.
+
+    A visitor needs the list, not just the tiles: the map has to know a public
+    scene's bounds and zoom range before it can add the layer, and a default
+    view that names one has to resolve it.
+    """
+    if not is_inventory_editor(request.user):
+        rows = TraceRaster.objects.filter(public=True, status=TraceRaster.STATUS_READY)
+        return JsonResponse({'rasters': [_row_json(r) for r in rows]})
+    return _trace_list_editor(request)
+
+
+def _trace_list_editor(request):
     # Rows from before render modes existed carry 'auto' and a pyramid sitting
     # directly under their directory. Resolve the mode from the file once and
     # file the pyramid under it, so tile serving and mode reuse are exact.
@@ -281,10 +293,19 @@ def trace_link(request, raster_id):
 
 @require_safe
 def trace_pmtiles(request, raster_id, render):
-    """A pre-baked archive for one mode. Range requests, editor-only, immutable
-    per (id, mode). Same range machinery as the lidar pyramids."""
+    """A pre-baked archive for one mode. Range requests, immutable per
+    (id, mode). Same range machinery as the lidar pyramids.
+
+    Editor-only UNLESS the row is marked public. An upload is usually licensed
+    imagery held in one copy and stays behind the gate; a Sentinel-2 window is
+    openly licensed and is derived data we could rebuild from its linkage, so
+    it is served to everyone. That is what lets a landslide's default view open
+    on the image that shows it.
+    """
     if not is_inventory_editor(request.user):
-        return HttpResponseForbidden()
+        if not TraceRaster.objects.filter(pk=raster_id, public=True,
+                                          status=TraceRaster.STATUS_READY).exists():
+            return HttpResponseForbidden()
     from landslidescience.lidar_serve import serve_ranged
     from . import raster_tiles
     path = raster_tiles.pmtiles_path(raster_id, render)
@@ -296,19 +317,26 @@ def trace_pmtiles(request, raster_id, render):
 
 @require_safe
 def trace_tile(request, raster_id, z, x, y):
-    """Serve one baked tile. Viewers and editors only (403, not a login
-    redirect — this is an <img>-style fetch from MapLibre, not a navigable
-    page). Cache is `private`: tiles are immutable for a given raster id, but
-    must not land in shared caches."""
-    if not can_view_restricted(request.user):
-        return HttpResponseForbidden()
+    """Serve one baked tile. 403 rather than a login redirect — this is an
+    <img>-style fetch from MapLibre, not a navigable page.
+
+    Uploads are for viewers and editors. A row marked `public` is openly
+    licensed imagery we hold only as a rebuildable rendering, so it goes to
+    everyone and may sit in shared caches; that is what makes it usable as a
+    landslide's default view.
+    """
     from . import raster_tiles
     try:
-        render = TraceRaster.objects.values_list('render', flat=True).get(pk=raster_id)
+        row = TraceRaster.objects.values('render', 'public', 'status').get(pk=raster_id)
     except TraceRaster.DoesNotExist:
         raise Http404
+    is_public = row['public'] and row['status'] == TraceRaster.STATUS_READY
+    if not is_public and not can_view_restricted(request.user):
+        return HttpResponseForbidden()
+    render = row['render']
     raster_tiles.adopt_legacy(raster_id, render)   # no-op once moved
     resp = static_serve(request, f'{z}/{x}/{y}.png',
                         document_root=str(raster_tiles.mode_dir(raster_id, render)))
-    resp['Cache-Control'] = 'private, max-age=31536000, immutable'
+    resp['Cache-Control'] = ('public, max-age=31536000, immutable' if is_public
+                             else 'private, max-age=31536000, immutable')
     return resp

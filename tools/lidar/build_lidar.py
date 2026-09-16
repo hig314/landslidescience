@@ -378,7 +378,14 @@ def build_archive(ds, env):
     run([GDAL_BIN / "gdalwarp", "-overwrite", *src_nodata,
          "-t_srs", f"EPSG:{target}",
          "-tr", ds["native_res_m"], ds["native_res_m"],
-         "-r", "bilinear",
+         # bilinear is right when the archive is a reprojection at (near) native
+         # scale. It is WRONG when native_res_m is deliberately coarser than the
+         # source -- Prince of Wales is delivered at 0.5 m and archived at 1 m --
+         # because bilinear samples the target grid rather than integrating over
+         # the source pixels it skips, which aliases fine terrain into noise.
+         # "archive_resample": "average" opts a downsampled archive into the
+         # correct kernel.
+         "-r", ds.get("archive_resample", "bilinear"),
          "-dstnodata", "-9999",
          "-ot", "Float32",
          "-multi", "-wo", "NUM_THREADS=ALL_CPUS",

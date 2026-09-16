@@ -6,6 +6,11 @@
  *                                   thinning; l/r = pane visibility+opacity)
  *   & li=<id>.<p>l<pct>r<pct>,…    (lidar DEM overlays; p = shading preset
  *                                   h hillshade | k KBSP; l/r as for ov)
+ *   & im=<id>.l<pct>,…             (imagery overlays: uploaded scenes and
+ *                                   Sentinel-2 windows. Main pane only, which
+ *                                   is why there is no r<pct> -- these have
+ *                                   never been offered in the wiper's right
+ *                                   pane. <id> is the TraceRaster row id.)
  *   & <extras…>                    (app-specific params pass through:
  *                                   inventory id/ids/tab/an, glaciers site/t)
  *
@@ -75,6 +80,14 @@
                     if (e3.left || e3.right) liOut[m3[1]] = e3;
                 });
                 out.li = liOut;
+            } else if (k === 'im') {
+                var imOut = {};
+                v.split(',').forEach(function (ent) {
+                    var m4 = /^(\d+)\.l(\d+)$/.exec(ent);
+                    if (!m4) return;
+                    imOut[m4[1]] = Math.min(100, Math.max(0, parseInt(m4[2], 10))) / 100;
+                });
+                out.im = imOut;
             } else {
                 out.extras[k] = v;
             }
@@ -119,6 +132,14 @@
                 if (spec) lip.push(id + '.' + (e.preset === 'kbsp' ? 'k' : 'h') + spec);
             });
             if (lip.length) parts.push('li=' + lip.join(','));
+        }
+        if (o.im) {
+            var imp = [];
+            Object.keys(o.im).forEach(function (id) {
+                var op = o.im[id];
+                if (op != null) imp.push(id + '.l' + Math.round(op * 100));
+            });
+            if (imp.length) parts.push('im=' + imp.join(','));
         }
         if (o.extras) {
             Object.keys(o.extras).forEach(function (k) {

@@ -200,13 +200,22 @@ def main():
     ap.add_argument("--out", default=str(ROOT / "data" / "lidar" / "catalog.geojson"))
     ap.add_argument("--no-context", action="store_true", help="omit the baked terrain context member")
     ap.add_argument("--include-gated", action="store_true", help="include gated surveys (admin catalog)")
+    ap.add_argument("--include-dev", action="store_true",
+                    help="include datasets marked dev_only (method tests, never published)")
     args = ap.parse_args()
 
     manifest = json.loads((HERE / "datasets.json").read_text())
     features = []
 
     include_gated = "--include-gated" in sys.argv
+    include_dev = "--include-dev" in sys.argv
     for ds in manifest["datasets"]:
+        # dev_only: a surface built to compare methods against each other, not a
+        # survey. It must never reach the public catalog by default -- these are
+        # several renderings of the SAME ground, and a reader who met two of them
+        # in the survey list would reasonably think they were two surveys.
+        if ds.get("dev_only") and not include_dev:
+            continue
         if ds.get("gated") and not include_gated:
             print(f"  skip {ds['id']}: gated (pass --include-gated for the admin catalog)", file=sys.stderr)
             continue
