@@ -38,6 +38,8 @@ urlpatterns = [
     # incl. tiles; see inventory/trace_views.py).
     path('api/trace_rasters/', trace_views.trace_list, name='trace_list'),
     path('api/trace_rasters/upload/', trace_views.trace_upload, name='trace_upload'),
+    path('api/sentinel/search/', trace_views.sentinel_search, name='sentinel_search'),
+    path('api/sentinel/add/', trace_views.sentinel_add, name='sentinel_add'),
     path('api/trace_rasters/<int:raster_id>/status/', trace_views.trace_status,
          name='trace_status'),
     path('api/trace_rasters/<int:raster_id>/rebuild/', trace_views.trace_rebuild,

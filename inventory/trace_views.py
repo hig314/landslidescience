@@ -76,6 +76,7 @@ def _row_json(r):
         'image_date': r.image_date.isoformat() if r.image_date else None,
         'source_note': r.source_note or None,
         'render': r.render,
+        'public': r.public,
         'baked_at': _baked_at(r.pk, r.render),
         'tiles': _tiles_for(r),
         'bounds_w': r.bounds_w, 'bounds_s': r.bounds_s,
@@ -340,3 +341,122 @@ def trace_tile(request, raster_id, z, x, y):
     resp['Cache-Control'] = ('public, max-age=31536000, immutable' if is_public
                              else 'private, max-age=31536000, immutable')
     return resp
+
+
+# --- Sentinel-2 by date and place ------------------------------------------
+# Adding a scene is an editor action, so these two are behind the gate; the
+# row they produce is public, because a Copernicus window is openly licensed
+# and we hold it only as a rebuildable rendering. See inventory/sentinel.py.
+
+SENTINEL_MAX_HALF_M = 20000.0
+_LEVEL_LABEL = {'sentinel-2-l1c': 'Sentinel-2 L1C',
+                'sentinel-2-l2a': 'Sentinel-2 L2A'}
+
+
+def _json_body(request):
+    try:
+        return json.loads(request.body.decode('utf-8')), None
+    except (ValueError, UnicodeDecodeError):
+        return None, JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+
+
+@inventory_editor_required
+@require_POST
+def sentinel_search(request):
+    """Candidate scenes for a point and a date.
+
+    Body: {"lat":, "lon":, "date": "YYYY-MM-DD", "days": 7}. Returns the
+    scenes with their cloud cover so the picker can show which dates are worth
+    fetching -- the cover is the whole granule's, which is a hint and not a
+    verdict, and the form says so.
+    """
+    payload, err = _json_body(request)
+    if err:
+        return err
+    try:
+        lat = float(payload['lat'])
+        lon = float(payload['lon'])
+        date = str(payload['date'])[:10]
+        days = min(int(payload.get('days') or 7), 60)
+    except (KeyError, TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'lat, lon and date (YYYY-MM-DD) '
+                             'are required.'}, status=400)
+    try:
+        datetime.date.fromisoformat(date)
+    except ValueError:
+        return JsonResponse({'ok': False, 'error': 'Date must be YYYY-MM-DD.'}, status=400)
+
+    from . import sentinel
+    collection = sentinel.COLLECTIONS.get(payload.get('level') or sentinel.DEFAULT_LEVEL)
+    if collection is None:
+        return JsonResponse({'ok': False, 'error': 'Unknown processing level.'}, status=400)
+    try:
+        scenes = sentinel.search(lon, lat, date, days=days, collection=collection)
+    except Exception as exc:                                   # noqa: BLE001
+        return JsonResponse({'ok': False, 'error': f'Scene search failed: {exc}'},
+                            status=502)
+    return JsonResponse({'ok': True, 'collection': collection, 'scenes': [
+        {'scene': s['scene'], 'date': s['date'], 'datetime': s['datetime'],
+         'cloud_cover': s['cloud_cover']} for s in scenes]})
+
+
+@inventory_editor_required
+@require_POST
+def sentinel_add(request):
+    """Fetch one scene's window here and bake it, in the background.
+
+    Body: {"lat":, "lon":, "scene":, "date":, "half":, "render":, "title":}.
+    Returns the row immediately with status 'processing'; the picker polls
+    the usual trace status endpoint from there, exactly as an upload does.
+    """
+    payload, err = _json_body(request)
+    if err:
+        return err
+    try:
+        lat = float(payload['lat'])
+        lon = float(payload['lon'])
+        scene_id = str(payload['scene'])
+        date = str(payload['date'])[:10]
+    except (KeyError, TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'lat, lon, scene and date '
+                             'are required.'}, status=400)
+    half = float(payload.get('half') or 6000)
+    if not 500 <= half <= SENTINEL_MAX_HALF_M:
+        return JsonResponse({'ok': False, 'error': 'Half-width must be between 500 m '
+                             f'and {SENTINEL_MAX_HALF_M:.0f} m.'}, status=400)
+    render = payload.get('render') or 'nrg'
+    if render not in dict(TraceRaster.RENDER_CHOICES):
+        return JsonResponse({'ok': False, 'error': 'Unknown render mode.'}, status=400)
+
+    # The asset URLs have to come from the search, not from the client: they
+    # are where we will read bytes from, and a caller-supplied href would make
+    # this endpoint fetch anything an editor's browser was told to name.
+    from . import sentinel
+    collection = sentinel.COLLECTIONS.get(payload.get('level') or sentinel.DEFAULT_LEVEL)
+    if collection is None:
+        return JsonResponse({'ok': False, 'error': 'Unknown processing level.'}, status=400)
+    try:
+        scenes = sentinel.search(lon, lat, date, days=1, collection=collection)
+    except Exception as exc:                                   # noqa: BLE001
+        return JsonResponse({'ok': False, 'error': f'Scene lookup failed: {exc}'},
+                            status=502)
+    pick = next((s for s in scenes if s['scene'] == scene_id), None)
+    if pick is None:
+        return JsonResponse({'ok': False, 'error': 'That scene no longer covers this '
+                             'point — search again.'}, status=400)
+
+    cc = pick['cloud_cover']
+    title = (payload.get('title') or '').strip() or f"Sentinel-2 {pick['date']}"
+    row = TraceRaster.objects.create(
+        title=title[:200], image_date=datetime.date.fromisoformat(pick['date']),
+        render=render, public=True, uploaded_by=request.user,
+        status=TraceRaster.STATUS_PROCESSING,
+        source_note=(f"Copernicus {_LEVEL_LABEL.get(collection, collection)}"
+                     f" · {pick['scene']}"
+                     + (f" · cloud {cc:.0f}%" if cc is not None else ''))[:300],
+        source_ref={'kind': collection, 'scene': pick['scene'],
+                    'datetime': pick['datetime'], 'centre': [lon, lat],
+                    'half_m': half, 'cloud_cover': cc, 'assets': pick['assets']})
+    threading.Thread(target=sentinel.process, args=(row.pk,), daemon=True,
+                     name=f'sentinel-{row.pk}').start()
+    return JsonResponse({'ok': True, 'id': row.pk, 'raster': _row_json(row)})

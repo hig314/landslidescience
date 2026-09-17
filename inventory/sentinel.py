@@ -2,11 +2,13 @@
 
 WHY THIS IS CHEAP
 -----------------
-The Sentinel-2 L2A archive is published as cloud-optimised GeoTIFFs on public
-S3 with no credentials, and indexed by a STAC API. So finding the right scene
-is one HTTP query, and reading a 12 km window out of it is a handful of range
-requests: measured at 8.9 MB and 48 s against roughly 1 GB for a whole granule.
-That is what makes an in-app "show me this date here" button possible at all.
+The Sentinel-2 archive is published on public S3 with no credentials and
+indexed by a STAC API. So finding the right scene is one HTTP query, and
+reading a 12 km window out of it is a handful of range requests: measured at
+17 s for L1C and 48 s for L2A, against roughly 1 GB for a whole granule. That
+is what makes an in-app "show me this date here" button possible at all. Both
+levels are internally tiled -- L1C as JP2, L2A as COG -- so neither needs the
+granule pulled down to cut a window out of it.
 
 WHAT IS STORED
 --------------
@@ -26,12 +28,44 @@ near-infrared makes vivid. On natural colour the same scar is a grey smudge
 among grey rock. That difference is the whole reason for the render mode.
 """
 import json
-import subprocess
 import urllib.request
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 STAC = "https://earth-search.aws.element84.com/v1/search"
-COLLECTION = "sentinel-2-l2a"
+# Level-1C by default: top-of-atmosphere, uncorrected.
+#
+# L2A is the "better" product on paper -- atmospherically corrected surface
+# reflectance -- and in Alaska it is worse for this job. Sen2Cor's terrain and
+# cirrus corrections misfire in steep shadowed terrain, leaving dark blotches
+# and haze-removal artifacts exactly where a landslide scar would be, so a
+# feature you are trying to interpret cannot be told from a correction that
+# went wrong. L1C is rawer and honest: what the sensor saw. Hig's call after
+# reviewing both (2026-09-17). L2A stays selectable for the cases where the
+# correction helps.
+COLLECTIONS = {
+    "l1c": "sentinel-2-l1c",
+    "l2a": "sentinel-2-l2a",
+}
+DEFAULT_LEVEL = "l1c"
+COLLECTION = COLLECTIONS[DEFAULT_LEVEL]
+# L1C assets are JP2 in a plain public S3 bucket rather than COGs, addressed
+# as s3:// URLs that GDAL cannot open without credentials -- but the same
+# objects are readable anonymously over HTTPS, and a windowed JP2 read turns
+# out to be FASTER than the equivalent COG read (17 s against 48 s for a 12 km
+# window), because the JP2 is internally tiled and there are no overviews to
+# skip past. So the only thing needed is the address.
+S3_REGIONS = {"sentinel-s2-l1c": "eu-central-1", "sentinel-cogs": "us-west-2"}
+
+
+def _http(href):
+    """s3://bucket/key -> the bucket's anonymous HTTPS endpoint. Anything
+    that is already a URL passes through, which is what lets a row recorded
+    against L2A rebuild unchanged."""
+    if not href.startswith("s3://"):
+        return href
+    bucket, _, key = href[5:].partition("/")
+    region = S3_REGIONS.get(bucket, "us-west-2")
+    return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
 # R, G, B, NIR. bake_trace reads red/green/blue from the colour interpretation
 # and takes the last band as near-infrared, so one file serves both renders.
 BANDS = ["red", "green", "blue", "nir"]
@@ -39,7 +73,7 @@ DEFAULT_HALF_M = 6000.0
 UA = "landslidescience/1 (+https://landslidescience.org)"
 
 
-def search(lon, lat, when, days=7, limit=40):
+def search(lon, lat, when, days=7, limit=40, collection=None):
     """Scenes covering a point within `days` either side of `when`.
 
     -> [{scene, datetime, cloud_cover, epsg, assets{band: href}}], soonest
@@ -53,7 +87,7 @@ def search(lon, lat, when, days=7, limit=40):
         when = when.date()
     lo, hi = when - timedelta(days=days), when + timedelta(days=days)
     body = json.dumps({
-        "collections": [COLLECTION],
+        "collections": [collection or COLLECTION],
         "intersects": {"type": "Point", "coordinates": [float(lon), float(lat)]},
         "datetime": f"{lo}T00:00:00Z/{hi}T23:59:59Z",
         "limit": limit,
@@ -74,7 +108,8 @@ def search(lon, lat, when, days=7, limit=40):
             "date": (p.get("datetime") or "")[:10],
             "cloud_cover": p.get("eo:cloud_cover"),
             "epsg": p.get("proj:epsg"),
-            "assets": {b: a[b]["href"] for b in BANDS},
+            "collection": f.get("collection") or collection or COLLECTION,
+            "assets": {b: _http(a[b]["href"]) for b in BANDS},
         })
     out.sort(key=lambda s: (abs((datetime.strptime(s["date"], "%Y-%m-%d").date() - when).days),
                             s["cloud_cover"] if s["cloud_cover"] is not None else 100))
@@ -82,11 +117,15 @@ def search(lon, lat, when, days=7, limit=40):
 
 
 def fetch_window(scene, lon, lat, half_m, out_tif):
-    """Read the window out of the remote COGs into a 4-band GeoTIFF.
+    """Read the window out of the remote rasters into a 4-band GeoTIFF.
 
     Only the blocks the window touches are transferred. The bands are stacked
-    R, G, B, NIR with the colour interpretation set, because that is what
-    bake_trace keys off.
+    R, G, B, NIR with the colour interpretation set, because that is what the
+    baker keys off.
+
+    The profile is built here rather than copied from the source: the source
+    is a COG for L2A and a JP2 for L1C, and a copied profile carries the
+    source driver's creation options into a GTiff write.
     """
     import numpy as np
     import rasterio
@@ -96,24 +135,28 @@ def fetch_window(scene, lon, lat, half_m, out_tif):
 
     order = [("red", ColorInterp.red), ("green", ColorInterp.green),
              ("blue", ColorInterp.blue), ("nir", ColorInterp.undefined)]
-    first = scene["assets"]["red"]
-    with rasterio.open(first) as s:
-        xs, ys = transform("EPSG:4326", s.crs, [float(lon)], [float(lat)])
-        x, y = xs[0], ys[0]
-        win = from_bounds(x - half_m, y - half_m, x + half_m, y + half_m,
-                          s.transform).round_offsets().round_lengths()
-        prof = s.profile.copy()
-        tr = s.window_transform(win)
-    stack = []
-    for band, _ in order:
-        with rasterio.open(scene["assets"][band]) as s:
-            stack.append(s.read(1, window=win))
+    # A JP2 sits beside a dozen siblings in its granule directory; without
+    # this GDAL lists the whole prefix before every open.
+    env = dict(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", GDAL_HTTP_TIMEOUT="60")
+    with rasterio.Env(**env):
+        first = _http(scene["assets"]["red"])
+        with rasterio.open(first) as s:
+            xs, ys = transform("EPSG:4326", s.crs, [float(lon)], [float(lat)])
+            x, y = xs[0], ys[0]
+            win = from_bounds(x - half_m, y - half_m, x + half_m, y + half_m,
+                              s.transform).round_offsets().round_lengths()
+            crs, tr = s.crs, s.window_transform(win)
+        stack = []
+        for band, _ in order:
+            with rasterio.open(_http(scene["assets"][band])) as s:
+                stack.append(s.read(1, window=win))
     arr = np.stack(stack)
     if not arr.any():
-        raise ValueError("window is entirely empty — off the granule edge?")
-    prof.update(driver="GTiff", count=len(order), height=arr.shape[1], width=arr.shape[2],
-                transform=tr, dtype=arr.dtype, compress="deflate", tiled=True,
-                blockxsize=512, blockysize=512, nodata=0)
+        raise ValueError("window is entirely empty -- off the granule edge?")
+    prof = dict(driver="GTiff", count=len(order), height=arr.shape[1],
+                width=arr.shape[2], transform=tr, crs=crs, dtype=arr.dtype,
+                compress="deflate", tiled=True, blockxsize=512, blockysize=512,
+                nodata=0)
     with rasterio.open(out_tif, "w", **prof) as d:
         d.write(arr)
         d.colorinterp = [c for _, c in order]
@@ -140,3 +183,42 @@ def bake(tif, raster_id, render):
     meta = raster_tiles._bake(str(tif), out_dir, render=render)
     (out_dir / ".complete").touch()
     return meta
+
+
+def build(row):
+    """Turn a TraceRaster's `source_ref` linkage into baked tiles.
+
+    The window GeoTIFF lives only for the length of this call: what we keep is
+    the pyramid and the record that can rebuild it. Shared by the management
+    command and the in-app picker so both produce identical rows.
+    """
+    import tempfile
+    from pathlib import Path
+
+    ref = row.source_ref or {}
+    lon, lat = ref["centre"]
+    with tempfile.TemporaryDirectory() as tmp:
+        tif = Path(tmp) / f"s2_{row.pk}.tif"
+        fetch_window({"assets": ref["assets"]}, lon, lat, ref["half_m"], tif)
+        meta = bake(tif, row.pk, row.render)
+    for k, v in meta.items():
+        if hasattr(row, k) and v is not None:
+            setattr(row, k, v)
+    row.status = row.STATUS_READY
+    row.error_message = ""
+    row.save()
+    return meta
+
+
+def process(raster_id):
+    """`build`, as a background thread would like it: never raises, and a
+    failure lands on the row where the picker's status poll can show it."""
+    from .models import TraceRaster
+    row = TraceRaster.objects.filter(pk=raster_id).first()
+    if row is None:
+        return
+    try:
+        build(row)
+    except Exception as exc:                                   # noqa: BLE001
+        TraceRaster.objects.filter(pk=raster_id).update(
+            status=TraceRaster.STATUS_ERROR, error_message=str(exc)[:500])

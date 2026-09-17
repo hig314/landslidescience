@@ -696,6 +696,23 @@
    "src_nodata": -999999,
    "notes": "USGS 3DEP OPR, AK_Prince_of_Wales_Island_QL1_Lidar_2017_B17, 1705 tiles delivered at 0.5 m float32 in NAD83(2011) / UTM 8N. 5,639 km2 of real data inside 6,166 km2 of tile boxes. ARCHIVED AT 1 m, not native: at 0.5 m the archive would be ~27 GB, roughly twice the largest survey in the collection, for a survey nobody has asked for at that resolution; the 0.5 m tiles stay on disk so any area that later earns it can be rebuilt native. archive_resample average, because a 2x downsample with bilinear samples the target grid instead of integrating the source pixels it skips. HORIZONTAL: the delivery is not uniformly tagged -- 1593 tiles carry EPSG:6337, 91 carry a compound tag with NAVD88 height and 21 carry plain NAD83 from 1986. All three sit interleaved on the same unrotated half-metre lattice, so it is a tagging inconsistency, not three surveys. The VRT re-tags every tile EPSG:6337 without touching a pixel. Left alone the plain-NAD83 tiles would take a NADCON5 datum shift and the compound ones a geoid shift, putting metre-scale steps along arbitrary internal boundaries. Public (USGS).",
    "region": "Southeast"
+  },
+  {
+   "id": "kenai_2008",
+   "title": "Kenai Peninsula 2008 bare-earth DTM (re-classified)",
+   "src": "/Volumes/Nunatak/lidar_build/kenai_2008/kenai_2008.vrt",
+   "target_epsg": 6334,
+   "native_res_m": 1.2192,
+   "center_lat": 60.3,
+   "min_zoom": 8,
+   "max_zoom": 16,
+   "year": 2008,
+   "product": "DTM (bare earth, re-classified from the point cloud)",
+   "archive_mode": "translate",
+   "vertical_datum": "NAVD88",
+   "dev_only": true,
+   "notes": "USGS 3DEP AK_Kenai_2008 (Aero-Metric, 2008-05-21 to 09-22), 14.05 billion points at ~1.21 pts/m2. No public DTM exists for this survey anywhere, so this one is built here from the points. GROUND CLASSIFICATION: Axelsson progressive TIN densification (r-lidar's MIT C++ library, driven from PDAL by tools/lidar/ptd_ground), angle 40, distance 3, seed 10 m, outlier detection off. Chosen on a hand-scored test patch against the 2019 QL1 surface: crest loss 11.9% against the vendor classification's 20.5%, the tightest spread and fewest gross errors of six candidates, and the least false roughness under dense canopy. 3,130 tiles of 2 km with a 30 m classification buffer, 6.37 h on 8 cores, no failures. Grids are snapped to a GLOBAL 4 ft lattice: a 2 km tile is 1640.42 cells, so pinning each raster to its own tile bounds put neighbours up to 51 cm out of step and would have seamed the mosaic. Agreement with the 2019 survey where they overlap: median +0.035 m, MAD 0.095 m over 20.4 M cells. DESPIKED after gridding (tools/lidar/despike_dtm.py): two tests, because neither catches both artifacts -- an iterative 5x5-median test for the low spikes that outlier detection would have caught, and a scale-free support test for clouds and bird flocks, which asks whether a blob's lowest cell clears the 90th percentile of its own rim rather than how high it is, so a 1800 m arete survives and a blob hanging in the air does not. The classified point cloud is kept on Powder so the gridding can be redone without reclassifying. dev_only until reviewed. Public (USGS).",
+   "region": "Kenai Peninsula"
   }
  ]
 }

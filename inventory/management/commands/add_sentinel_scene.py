@@ -10,15 +10,9 @@ is a TraceRaster with `public` set, so it is served to every visitor, and with
 `source_ref` holding the linkage, so `--rebake` can rebuild the tiles from the
 record alone. The window imagery itself is never kept.
 """
-import json
-import shutil
-import tempfile
-from datetime import datetime
-from pathlib import Path
-
 from django.core.management.base import BaseCommand, CommandError
 
-from inventory import raster_tiles, sentinel
+from inventory import sentinel
 from inventory.models import TraceRaster
 
 
@@ -33,6 +27,9 @@ class Command(BaseCommand):
         p.add_argument("--half", type=float, default=sentinel.DEFAULT_HALF_M,
                        help="half-width of the image in metres (default 6000 = 12 km box)")
         p.add_argument("--render", default="nrg", choices=["nrg", "rgb", "gray"])
+        p.add_argument("--level", default=sentinel.DEFAULT_LEVEL, choices=["l1c", "l2a"],
+                       help="processing level (default l1c: no atmospheric correction "
+                            "to misread in deep shade)")
         p.add_argument("--scene", help="use this exact scene id from the search")
         p.add_argument("--list", action="store_true", help="show candidates and stop")
         p.add_argument("--rebake", type=int, help="rebuild an existing row from its source_ref")
@@ -45,7 +42,9 @@ class Command(BaseCommand):
             if o.get(k) is None:
                 raise CommandError("--lat, --lon and --date are required (or use --rebake)")
 
-        scenes = sentinel.search(o["lon"], o["lat"], o["date"], days=o["days"])
+        collection = sentinel.COLLECTIONS[o["level"]]
+        scenes = sentinel.search(o["lon"], o["lat"], o["date"], days=o["days"],
+                                 collection=collection)
         if not scenes:
             raise CommandError("no Sentinel-2 scenes cover that point in that window")
         self.stdout.write(f"{len(scenes)} candidate scenes:")
@@ -63,13 +62,13 @@ class Command(BaseCommand):
         cc = pick["cloud_cover"]
         self.stdout.write(self.style.NOTICE(f"\nusing {pick['scene']} ({pick['date']}, cloud {cc}%)"))
 
-        ref = {"kind": sentinel.COLLECTION, "scene": pick["scene"],
+        ref = {"kind": collection, "scene": pick["scene"],
                "datetime": pick["datetime"], "centre": [o["lon"], o["lat"]],
                "half_m": o["half"], "cloud_cover": cc, "assets": pick["assets"]}
         title = o.get("title") or f"Sentinel-2 {pick['date']}"
         row = TraceRaster.objects.create(
             title=title[:200], image_date=pick["date"], render=o["render"],
-            source_note=f"Copernicus Sentinel-2 L2A · {pick['scene']} · cloud {cc}%",
+            source_note=f"Copernicus {collection} · {pick['scene']} · cloud {cc}%",
             status=TraceRaster.STATUS_PROCESSING, public=True, source_ref=ref)
         try:
             self._build(row)
@@ -91,19 +90,5 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"rebuilt #{pk} from its linkage"))
 
     def _build(self, row):
-        ref = row.source_ref
-        lon, lat = ref["centre"]
-        with tempfile.TemporaryDirectory() as tmp:
-            tif = Path(tmp) / f"s2_{row.pk}.tif"
-            self.stdout.write("  reading the window from the remote COGs…")
-            sentinel.fetch_window({"assets": ref["assets"]}, lon, lat, ref["half_m"], tif)
-            self.stdout.write(f"  window {tif.stat().st_size/1e6:.1f} MB; baking {row.render}…")
-            meta = sentinel.bake(tif, row.pk, row.render)
-        # The window itself is gone with the temp directory. What persists is
-        # the pyramid and source_ref, and the pyramid is rebuildable from it.
-        for k, v in meta.items():
-            if hasattr(row, k) and v is not None:
-                setattr(row, k, v)
-        row.status = TraceRaster.STATUS_READY
-        row.error_message = ""
-        row.save()
+        self.stdout.write("  reading the window from the remote COGs, then baking\u2026")
+        sentinel.build(row)

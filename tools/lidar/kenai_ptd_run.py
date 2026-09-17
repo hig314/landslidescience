@@ -32,6 +32,7 @@ BUFFERS
 """
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -40,6 +41,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
 from rasterio.warp import transform as rio_transform
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 PDAL = "/opt/homebrew/bin/pdal"
 PTD = "/Volumes/Nunatak/lidar_build/ptd/ptd_ground"
@@ -126,15 +129,79 @@ def tile_bounds_3857(x0, y0, x1, y1):
     return (min(xs) - m, min(ys) - m, max(xs) + m, max(ys) + m)
 
 
+def grid_stage(gx0, gy0, gx1, gy1, dtm):
+    return {"type": "writers.gdal", "filename": dtm, "resolution": CELL,
+            "output_type": "idw", "radius": 1.75, "window_size": 4,
+            "bounds": f"([{gx0},{gx1}],[{gy0},{gy1}])",
+            "gdaldriver": "GTiff", "data_type": "float", "nodata": -9999,
+            "gdalopts": "COMPRESS=ZSTD,PREDICTOR=3,TILED=YES"}
+
+
+def snap(v, up=False):
+    """v moved onto the GLOBAL cell lattice (multiples of CELL from 0).
+
+    Pinning the raster to the tile's nominal bounds is not enough: 2000 m is
+    1640.42 cells at 4 ft, so every tile started at a different fraction of a
+    cell and neighbours sat up to 51 cm out of step -- seams through the whole
+    mosaic, invisible in any single tile. Snapping outward to the lattice makes
+    every tile share one grid and overlap by at most a cell, never gap.
+    """
+    n = math.ceil(v / CELL) if up else math.floor(v / CELL)
+    return n * CELL
+
+
 def run_tile(job):
-    tid, x0, y0, no_spikes = job
+    tid, x0, y0, no_spikes, regrid = job
     x1, y1 = x0 + TILE, y0 + TILE
+    gx0, gy0, gx1, gy1 = snap(x0), snap(y0), snap(x1, True), snap(y1, True)
     las = os.path.join(SCRATCH, f"{tid}.las")
     laz = os.path.join(CLASSIFIED, f"{tid}.laz")
     dtm = os.path.join(OUT, "dtm", f"{tid}.tif")
+    t0 = time.time()
+    if regrid:
+        # Re-grid only, from the classified points we kept. This is the whole
+        # reason for keeping them: a gridding change -- cell size, estimator,
+        # or in this case a lattice fix -- costs minutes instead of another
+        # pass over 14 billion points.
+        if not os.path.exists(laz):
+            return tid, 0, 0, "empty"
+        os.makedirs(os.path.dirname(dtm), exist_ok=True)
+        # The class filter is NOT optional here. The kept tile holds every
+        # point, ground (2) and not (1), because the whole value of keeping it
+        # is being able to re-derive anything from it. Gridding it unfiltered
+        # produces a surface model: measured on one tile, up to 49 m above the
+        # ground with 22% of cells more than 2 m high. Dropped from this path
+        # once already (2026-09-16); it is why the first re-grid looked like a
+        # DSM even where the classification had tested well.
+        r = subprocess.run([PDAL, "pipeline", "--stdin"], text=True, capture_output=True,
+                           input=json.dumps({"pipeline": [
+                               laz,
+                               {"type": "filters.range", "limits": "Classification[2:2]"},
+                               grid_stage(gx0, gy0, gx1, gy1, dtm)]}))
+        if r.returncode:
+            return tid, 0, time.time() - t0, "grid failed: " + r.stderr.strip()[-120:]
+        # Remove floating noise: clouds the vendor never flagged and that the
+        # classifier seeded on where nothing lay below, and the low spikes that
+        # outlier detection would have caught if it were not switched off for
+        # speed. Both are found by support rather than by height, so a 1800 m
+        # arete survives while a blob hanging in the air does not.
+        try:
+            import rasterio
+            from despike_dtm import find_floating
+            with rasterio.open(dtm) as rr:
+                z = rr.read(1).astype("float32"); nd = rr.nodata; prof = rr.profile
+            import numpy as _np
+            z[z == nd] = _np.nan
+            mask, _ = find_floating(z)
+            if mask.any():
+                z[mask] = _np.nan
+                with rasterio.open(dtm, "w", **prof) as dd:
+                    dd.write(_np.where(_np.isfinite(z), z, nd).astype("float32"), 1)
+        except Exception as e:
+            return tid, 0, time.time() - t0, f"despike failed: {e}"
+        return tid, 0, time.time() - t0, "ok"
     if os.path.exists(laz) and os.path.exists(dtm):
         return tid, 0, 0, "skip"
-    t0 = time.time()
     b = tile_bounds_3857(x0 - BUFFER, y0 - BUFFER, x1 + BUFFER, y1 + BUFFER)
     fetch = {"pipeline": [
         {"type": "readers.ept", "filename": EPT,
@@ -170,11 +237,7 @@ def run_tile(job):
         {"type": "writers.las", "filename": laz, "compression": "laszip",
          "forward": "all", "a_srs": f"EPSG:{EPSG}"},
         {"type": "filters.range", "limits": "Classification[2:2]"},
-        {"type": "writers.gdal", "filename": dtm, "resolution": CELL,
-         "output_type": "idw", "radius": 1.75, "window_size": 4,
-         "bounds": f"([{x0},{x1}],[{y0},{y1}])",
-         "gdaldriver": "GTiff", "data_type": "float", "nodata": -9999,
-         "gdalopts": "COMPRESS=ZSTD,PREDICTOR=3,TILED=YES"}]}
+        grid_stage(gx0, gy0, gx1, gy1, dtm)]}
     r2 = subprocess.run([PDAL, "pipeline", "--stdin"], input=json.dumps(out),
                         text=True, capture_output=True)
     os.remove(las)
@@ -190,6 +253,8 @@ def main():
     ap.add_argument("--only", help="run one tile id")
     ap.add_argument("--bbox", help="x0,y0,x1,y1 in EPSG:6334; run only tiles meeting it")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--regrid", action="store_true",
+                    help="re-grid from the saved classified tiles; no re-classification")
     a = ap.parse_args()
 
     os.makedirs(SCRATCH, exist_ok=True)
@@ -207,7 +272,7 @@ def main():
     for i in range(nx):
         for j in range(ny):
             tx, ty = x0 + i * TILE, y0 + j * TILE
-            jobs.append((f"t_{int(tx)}_{int(ty)}", tx, ty, no_spikes))
+            jobs.append((f"t_{int(tx)}_{int(ty)}", tx, ty, no_spikes, a.regrid))
     if a.bbox:
         bx0, by0, bx1, by1 = (float(v) for v in a.bbox.split(","))
         jobs = [j for j in jobs

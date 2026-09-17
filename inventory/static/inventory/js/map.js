@@ -4712,17 +4712,201 @@
     }
     var _traceLastUploaded = null;   // {id, title} — drives the success cue across re-renders
 
+    // Sentinel-2 by date and place. Cloud cover comes from the scene's own
+    // metadata, so a date can be judged before anything is fetched: that is
+    // the whole point of listing candidates rather than just taking the
+    // nearest. It is the granule's cover, not this window's, so a 60% scene
+    // can still be clear over one valley — the form says so rather than
+    // hiding the high numbers.
+    function _sentinelCloudSpan(cc) {
+        var el = document.createElement('span');
+        if (cc == null) { el.textContent = 'cloud ?'; el.style.color = '#888'; return el; }
+        el.textContent = 'cloud ' + Math.round(cc) + '%';
+        el.style.color = cc < 10 ? '#1b7a3d' : (cc < 35 ? '#b26a00' : '#999');
+        if (cc < 10) el.style.fontWeight = '600';
+        return el;
+    }
+
+    function _fillSentinelForm(det) {
+        var inpCss = 'font-size:12px;padding:3px 4px;border:1px solid #ccc;border-radius:3px;width:100%;box-sizing:border-box;';
+        var form = document.createElement('div');
+        form.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:5px;';
+
+        var where = document.createElement('div');
+        where.style.cssText = 'font-size:11px;color:#777;line-height:1.35;';
+        function setWhere() {
+            var c = map.getCenter();
+            where.textContent = 'Cut around the map centre: ' + c.lat.toFixed(4) + ', ' +
+                                c.lng.toFixed(4) + ' — pan before searching to move it.';
+        }
+        setWhere();
+        det.addEventListener('toggle', function () { if (det.open) setWhere(); });
+
+        var dateInp = document.createElement('input');
+        dateInp.type = 'date';
+        dateInp.title = 'The date you are looking for; nearby passes are listed too';
+        dateInp.style.cssText = inpCss;
+
+        var daysSel = document.createElement('select');
+        daysSel.style.cssText = inpCss;
+        [[3, '± 3 days'], [7, '± 7 days'], [14, '± 2 weeks'], [30, '± 1 month']]
+            .forEach(function (o) {
+                var op = document.createElement('option');
+                op.value = o[0]; op.textContent = o[1];
+                daysSel.appendChild(op);
+            });
+        daysSel.value = '7';
+
+        var opt = document.createElement('div');
+        opt.style.cssText = 'display:flex;gap:4px;';
+        var halfSel = document.createElement('select');
+        halfSel.style.cssText = inpCss;
+        [[3000, '6 km across'], [6000, '12 km across'], [12000, '24 km across']]
+            .forEach(function (o) {
+                var op = document.createElement('option');
+                op.value = o[0]; op.textContent = o[1];
+                halfSel.appendChild(op);
+            });
+        halfSel.value = '6000';
+        var rendSel = document.createElement('select');
+        rendSel.style.cssText = inpCss;
+        [['nrg', 'False colour'], ['rgb', 'Natural colour']].forEach(function (o) {
+            var op = document.createElement('option');
+            op.value = o[0]; op.textContent = o[1];
+            rendSel.appendChild(op);
+        });
+        // L1C first, and the default. The atmospheric correction behind L2A
+        // misfires in steep shadowed terrain, leaving blotches where a scar
+        // would be; L1C is what the sensor saw.
+        var lvlSel = document.createElement('select');
+        lvlSel.style.cssText = inpCss;
+        lvlSel.title = 'L1C is top-of-atmosphere — no correction to misread. ' +
+                       'L2A is surface reflectance, which can blotch in deep shade.';
+        [['l1c', 'L1C (as seen)'], ['l2a', 'L2A (corrected)']].forEach(function (o) {
+            var op = document.createElement('option');
+            op.value = o[0]; op.textContent = o[1];
+            lvlSel.appendChild(op);
+        });
+        opt.appendChild(halfSel); opt.appendChild(rendSel); opt.appendChild(lvlSel);
+
+        var goBtn = document.createElement('button');
+        goBtn.type = 'button'; goBtn.textContent = 'Find scenes';
+        goBtn.style.cssText = _TRACE_BTN_CSS + 'align-self:flex-start;padding:3px 12px;';
+        var stat = document.createElement('span');
+        stat.style.cssText = 'font-size:11px;';
+        var out = document.createElement('div');
+        out.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+
+        form.appendChild(where); form.appendChild(dateInp); form.appendChild(daysSel);
+        form.appendChild(opt); form.appendChild(goBtn); form.appendChild(stat);
+        form.appendChild(out);
+        det.appendChild(form);
+
+        function add(scene, centre) {
+            stat.style.color = '#1a73e8';
+            stat.textContent = 'fetching the window and baking…';
+            fetch(API_BASE + 'api/sentinel/add/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
+                body: JSON.stringify({ lat: centre.lat, lon: centre.lon, scene: scene.scene,
+                                       date: scene.date, half: +halfSel.value,
+                                       render: rendSel.value, level: lvlSel.value })
+            }).then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
+              .then(function (res) {
+                if (!(res.ok && res.j.ok)) {
+                    stat.style.color = '#c00';
+                    stat.textContent = (res.j && res.j.error) || 'could not add that scene';
+                    return;
+                }
+                stat.textContent = ''; out.innerHTML = ''; det.open = false;
+                _traceReplaceRow(res.j.raster);
+                _traceLastUploaded = { id: res.j.id, title: res.j.raster.title };
+                _traceGoTo(res.j.raster);
+                _traceShowCue();
+                _traceSetListOpen(true);
+                _renderTraceRows();
+                _tracePoll(res.j.id);
+            }).catch(function () {
+                stat.style.color = '#c00'; stat.textContent = 'could not add that scene';
+            });
+        }
+
+        goBtn.addEventListener('click', function () {
+            if (!dateInp.value) {
+                stat.style.color = '#c00'; stat.textContent = 'Pick a date first.'; return;
+            }
+            var c = map.getCenter();
+            var centre = { lat: c.lat, lon: c.lng };
+            out.innerHTML = '';
+            goBtn.disabled = true;
+            stat.style.color = '#1a73e8'; stat.textContent = 'searching…';
+            fetch(API_BASE + 'api/sentinel/search/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
+                body: JSON.stringify({ lat: centre.lat, lon: centre.lon,
+                                       date: dateInp.value, days: +daysSel.value,
+                                       level: lvlSel.value })
+            }).then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
+              .then(function (res) {
+                goBtn.disabled = false;
+                if (!(res.ok && res.j.ok)) {
+                    stat.style.color = '#c00';
+                    stat.textContent = (res.j && res.j.error) || 'search failed';
+                    return;
+                }
+                var scenes = res.j.scenes || [];
+                if (!scenes.length) {
+                    stat.style.color = '#c00';
+                    stat.textContent = 'No Sentinel-2 pass covers this point in that window.';
+                    return;
+                }
+                // Date order reads like a calendar; the clearest pass is
+                // marked so the eye finds it without re-sorting the list.
+                var best = null;
+                scenes.forEach(function (s) {
+                    if (s.cloud_cover == null) return;
+                    if (!best || s.cloud_cover < best.cloud_cover) best = s;
+                });
+                scenes.slice().sort(function (a, b) {
+                    return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0);
+                }).forEach(function (s) {
+                    var row = document.createElement('div');
+                    row.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;';
+                    var d = document.createElement('span');
+                    d.textContent = (best && s.scene === best.scene ? '★ ' : '') + s.date;
+                    d.style.cssText = 'font-variant-numeric:tabular-nums;min-width:86px;';
+                    var btn = document.createElement('button');
+                    btn.type = 'button'; btn.textContent = 'Add';
+                    btn.style.cssText = _TRACE_BTN_CSS + 'padding:1px 8px;font-size:11px;';
+                    btn.addEventListener('click', function () { add(s, centre); });
+                    row.appendChild(d);
+                    row.appendChild(_sentinelCloudSpan(s.cloud_cover));
+                    row.appendChild(btn);
+                    row.title = s.scene;
+                    out.appendChild(row);
+                });
+                stat.style.color = '#777';
+                stat.textContent = scenes.length + ' pass' + (scenes.length > 1 ? 'es' : '') +
+                    '; cloud is the whole granule’s, so a high figure can still be clear here.';
+            }).catch(function () {
+                goBtn.disabled = false;
+                stat.style.color = '#c00'; stat.textContent = 'search failed';
+            });
+        });
+        return det;
+    }
+
     function _buildTraceUI(opts) {
         opts = opts || {};
         var wrap = document.createElement('div');
         wrap.style.cssText = 'margin-top:12px;';
         var hdr = document.createElement('div');
         hdr.className = 'refmaps-category';
-        hdr.textContent = 'Traced imagery (uploads)';
+        hdr.textContent = 'Traced imagery';
         wrap.appendChild(hdr);
         var hint = document.createElement('div');
         hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:5px;line-height:1.35;';
-        hint.textContent = 'Upload a georeferenced GeoTIFF, then trace it with the ✏ draw tool. Data admins only.';
+        hint.textContent = 'Fetch a Sentinel-2 scene by date, or upload a georeferenced GeoTIFF, then trace it with the ✏ draw tool. Data admins only; Sentinel-2 scenes are shown to everyone.';
         wrap.appendChild(hint);
 
         // Uploads list — collapsed by default so a growing library doesn't
@@ -4750,6 +4934,29 @@
         cue.id = 'trace-upload-cue';
         cue.style.cssText = 'font-size:11px;color:#1b7a3d;margin:4px 0;line-height:1.35;display:none;';
         wrap.appendChild(cue);
+
+        // Sentinel-2 becomes available only when the view is close enough
+        // for the cut to mean anything: the window is taken around the map
+        // centre and is 12 km across by default, so from a statewide view you
+        // would be asking for a scene of somewhere you cannot see. Below the
+        // threshold the control stays visible but inert, and says why.
+        var s2 = document.createElement('details');
+        var s2sum = document.createElement('summary');
+        s2sum.textContent = '＋ Fetch Sentinel-2 scene…';
+        s2sum.style.cssText = 'cursor:pointer;font-size:12px;color:#1a5fb4;';
+        s2.appendChild(s2sum);
+        if (opts.far) {
+            s2sum.style.color = '#999';
+            s2sum.style.cursor = 'default';
+            s2.addEventListener('click', function (e) { e.preventDefault(); });
+            var s2far = document.createElement('div');
+            s2far.style.cssText = 'font-size:11px;color:#777;margin:3px 0 0 14px;line-height:1.35;';
+            s2far.textContent = 'Zoom to z' + RASTER_UI_ZOOM + ' first — the scene is cut around the map centre.';
+            s2.appendChild(s2far);
+            wrap.appendChild(s2);
+        } else {
+            wrap.appendChild(_fillSentinelForm(s2));
+        }
 
         var det = document.createElement('details');
         var sum = document.createElement('summary');
