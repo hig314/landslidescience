@@ -209,6 +209,24 @@ def main():
 
     include_gated = "--include-gated" in sys.argv
     include_dev = "--include-dev" in sys.argv
+
+    # A dev_only survey is never uploaded to R2 -- that is what dev_only means
+    # -- so a dev catalogue that carries the R2 base writes URLs which are all
+    # guaranteed 404s, and the dataset silently shows nothing on the map while
+    # every other layer behaves. Cost an afternoon on 2026-09-17: the Kenai
+    # 2008 rebuild was complete and correct and simply could not be seen.
+    if include_dev and PMTILES_PUBLIC_BASE.startswith("http"):
+        print("\n  ERROR: --include-dev with the public R2 base "
+              f"({PMTILES_PUBLIC_BASE}).\n"
+              "  A dev_only dataset is not on R2, so every URL for it would 404 and the\n"
+              "  layer would appear to be broken rather than missing. Point the catalogue\n"
+              "  at the dev server's own routes:\n\n"
+              "    LIDAR_PMTILES_PUBLIC_BASE=/lidar/pmtiles \\\n"
+              "    LIDAR_COG_PUBLIC_BASE=/lidar/cog \\\n"
+              "      python3 make_catalog.py --include-dev\n\n"
+              "  Those routes serve a local copy where one is mounted and redirect to R2\n"
+              "  otherwise, so published surveys keep working too.\n", file=sys.stderr)
+        return 2
     for ds in manifest["datasets"]:
         # dev_only: a surface built to compare methods against each other, not a
         # survey. It must never reach the public catalog by default -- these are
@@ -301,4 +319,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
