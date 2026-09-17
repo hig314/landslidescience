@@ -4236,10 +4236,24 @@
 
     function _lidarFetch() {
         if (_lidarCatalog || !window.DemShade) return;
-        fetch('/lidar/catalog.geojson')
-            .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (fc) {
+        // Restricted surveys live in a second, auth-only catalogue. Fetch both
+        // and merge: the public one must keep working if the gated one 403s or
+        // does not exist, which is the normal case for almost every visitor.
+        var pub = fetch('/lidar/catalog.geojson')
+            .then(function (r) { return r.ok ? r.json() : null; });
+        var gated = window._canViewRestricted
+            ? fetch('/lidar/catalog-gated.geojson')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .catch(function () { return null; })
+            : Promise.resolve(null);
+        Promise.all([pub, gated])
+            .then(function (both) {
+                var fc = both[0];
                 if (!fc) return;
+                if (both[1] && both[1].features && both[1].features.length) {
+                    fc = { type: 'FeatureCollection',
+                           features: fc.features.concat(both[1].features) };
+                }
                 _lidarCatalog = fc;
                 fc.features.forEach(function (f) {
                     var p = f.properties, b = _geomBounds(f.geometry);

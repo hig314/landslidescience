@@ -514,6 +514,10 @@
 <script>
   // Inject role flag for the map detail panel — editors get a "⚙ Manage" link.
   window._isInventoryEditor = {% if is_inventory_editor %}true{% else %}false{% endif %};
+  // Restricted surveys (gated lidar) are fetched from a separate,
+  // auth-only catalogue; this flag just avoids a guaranteed 403 for
+  // everyone else. The server decides, not this line.
+  window._canViewRestricted = {% if can_view_restricted %}true{% else %}false{% endif %};
   {% if is_inventory_editor %}
   // CSRF token for the editor-only draw-tool POSTs (stage/delete/commit).
   window.CSRF_TOKEN = '{{ csrf_token }}';

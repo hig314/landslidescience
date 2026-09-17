@@ -261,6 +261,42 @@ def retag_generic_nad83(ds, src, env):
     return vrt
 
 
+def check_retag(src, dst, ds, env, limit_km=2.0):
+    """A re-tag must not MOVE the data, only correct how it is described.
+
+    src_srs exists for deliveries whose embedded CRS is wrong in a way that
+    does not change where the pixels are -- Sitka resolving to 7 degrees east,
+    a plain-NAD83 tag that should be NAD83(2011), a BOUNDCRS carrying a null
+    transform. Those shift a footprint by metres at most.
+
+    Getting the CODE wrong is a different thing entirely and looks identical
+    in the manifest. EPSG:6332 is NAD83(2011) / UTM zone 3N, not zone 6N --
+    the series starts at 6330 for zone 1N -- and building the Corax surveys
+    with it put three Matanuska valley sites off the Yukon Delta, 18 degrees
+    west, with every other property of the file perfectly in order. The
+    footprints were the only evidence, so check them.
+    """
+    def centre(path):
+        out = subprocess.run([str(GDAL_BIN / "gdalinfo"), "-json", str(path)],
+                             capture_output=True, text=True, env=env).stdout
+        ring = json.loads(out).get("wgs84Extent", {}).get("coordinates", [[]])[0]
+        if not ring:
+            return None
+        return (sum(p[0] for p in ring) / len(ring), sum(p[1] for p in ring) / len(ring))
+    a, b = centre(src), centre(dst)
+    if not a or not b:
+        return
+    dlon, dlat = b[0] - a[0], b[1] - a[1]
+    km = math.hypot(dlon * 111.32 * math.cos(math.radians(a[1])), dlat * 110.57)
+    if km > limit_km:
+        sys.exit(f"{ds['id']}: src_srs {ds['src_srs']!r} MOVES the data "
+                 f"{km:.0f} km ({a[1]:.4f},{a[0]:.4f} -> {b[1]:.4f},{b[0]:.4f}).\n"
+                 f"  A re-tag corrects how the pixels are described; it must not "
+                 f"relocate them. Check the EPSG code -- NAD83(2011) UTM north "
+                 f"zones run 6330 (zone 1N), 6331 (2N), ... so zone 6N is 6335.")
+    print(f"  re-tag check: footprint moved {km * 1000:.1f} m (within {limit_km} km)")
+
+
 def apply_vertical_shift(ds, src, env):
     """Path to read from: `src`, or a VRT of it with a constant added to every
     elevation. See WHY SELDOVIA 2019 CARRIES A VERTICAL SHIFT above."""
@@ -356,6 +392,8 @@ def build_archive(ds, env):
              "-co", "OVERVIEW_RESAMPLING=AVERAGE",
              "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
              src, dst], env=env)
+        if ds.get("src_srs"):
+            check_retag(ds["src"], dst, ds, env)
         return dst
 
     print(f"  archive: -> EPSG:{target}")

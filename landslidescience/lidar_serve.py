@@ -28,8 +28,8 @@ import re
 
 from django.conf import settings
 from django.http import (FileResponse, Http404, HttpResponse,
-                         HttpResponseNotModified, HttpResponseRedirect,
-                         StreamingHttpResponse)
+                         HttpResponseForbidden, HttpResponseNotModified,
+                         HttpResponseRedirect, StreamingHttpResponse)
 from django.utils.http import http_date
 
 # Dataset ids come from tools/lidar/datasets.json and are always plain slugs.
@@ -56,6 +56,49 @@ COG_PUBLIC_BASE = getattr(settings, 'LIDAR_COG_PUBLIC_BASE',
 # and the MapLibre pmtiles:// protocol (which follows redirects) keep working.
 PMTILES_PUBLIC_BASE = getattr(settings, 'LIDAR_PMTILES_PUBLIC_BASE',
                               'https://lidar.landslidescience.org/pmtiles')
+
+
+# The gated companion catalogue (tools/lidar/make_catalog.py --gated-only) is
+# the single source of truth for which surveys are restricted: a survey is
+# gated exactly when it appears there. Keeping it in one file means the list
+# the server enforces and the list an admin is shown cannot drift apart.
+GATED_CATALOG = LIDAR_DIR / 'catalog-gated.geojson'
+_gated_cache = {'mtime': None, 'ids': frozenset()}
+
+
+def gated_ids():
+    """Ids of restricted surveys, re-read when the file changes."""
+    try:
+        mtime = GATED_CATALOG.stat().st_mtime
+    except OSError:
+        _gated_cache.update(mtime=None, ids=frozenset())
+        return _gated_cache['ids']
+    if _gated_cache['mtime'] != mtime:
+        try:
+            import json
+            fc = json.loads(GATED_CATALOG.read_text())
+            ids = frozenset(f.get('properties', {}).get('id')
+                            for f in fc.get('features', []))
+        except (OSError, ValueError):
+            ids = frozenset()
+        _gated_cache.update(mtime=mtime, ids=ids)
+    return _gated_cache['ids']
+
+
+def _gate(request, dataset_id):
+    """403 unless this user may see a restricted survey.
+
+    Applied to the BYTES, not just the listing. Leaving a gated pyramid on
+    disk behind an unauthenticated route would mean the only thing protecting
+    it was that its id is absent from the public catalogue -- which is not
+    protection, it is a guessable filename.
+    """
+    if dataset_id not in gated_ids():
+        return None
+    from inventory.auth import can_view_restricted
+    if can_view_restricted(request.user):
+        return None
+    return _cors(HttpResponseForbidden())
 
 
 def _parse_range(header, size):
@@ -184,9 +227,15 @@ def pmtiles(request, dataset_id):
     path = _checked(LIDAR_DIR / 'pmtiles', dataset_id, '.pmtiles')
     if request.method == 'OPTIONS':
         return _preflight()
+    denied = _gate(request, dataset_id)
+    if denied is not None:
+        return denied
     if path.is_file():
-        return serve_ranged(request, path, 'application/vnd.pmtiles',
-                            'public, max-age=3600')
+        # A restricted survey must not sit in a shared cache: the response
+        # only got past _gate because of who asked for it.
+        cache = ('private, max-age=3600' if dataset_id in gated_ids()
+                 else 'public, max-age=3600')
+        return serve_ranged(request, path, 'application/vnd.pmtiles', cache)
     return _cors(HttpResponseRedirect(f'{PMTILES_PUBLIC_BASE}/{dataset_id}.pmtiles'))
 
 
@@ -196,11 +245,15 @@ def cog(request, dataset_id):
     path = _checked(COG_DIR, dataset_id, '.tif')
     if request.method == 'OPTIONS':
         return _preflight()
+    denied = _gate(request, dataset_id)
+    if denied is not None:
+        return denied
     if path.is_file():
         return serve_ranged(
             request, path,
             'image/tiff; application=geotiff; profile=cloud-optimized',
-            'public, max-age=3600')
+            'private, max-age=3600' if dataset_id in gated_ids()
+            else 'public, max-age=3600')
     return HttpResponseRedirect(f'{COG_PUBLIC_BASE}/{dataset_id}.tif')
 
 
@@ -208,6 +261,21 @@ def catalog(request):
     """Footprints + metadata for every hosted dataset."""
     return serve_ranged(request, LIDAR_DIR / 'catalog.geojson',
                         'application/geo+json', 'public, max-age=300')
+
+
+def catalog_gated(request):
+    """The restricted surveys, for signed-in data admins only.
+
+    Served `private` and never cached publicly: the response body names
+    surveys whose existence is itself not public yet.
+    """
+    from inventory.auth import can_view_restricted
+    if not can_view_restricted(request.user):
+        return HttpResponseForbidden()
+    if not GATED_CATALOG.is_file():
+        raise Http404
+    return serve_ranged(request, GATED_CATALOG,
+                        'application/geo+json', 'private, max-age=60')
 
 
 def preview(request):

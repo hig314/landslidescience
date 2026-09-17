@@ -200,6 +200,8 @@ def main():
     ap.add_argument("--out", default=str(ROOT / "data" / "lidar" / "catalog.geojson"))
     ap.add_argument("--no-context", action="store_true", help="omit the baked terrain context member")
     ap.add_argument("--include-gated", action="store_true", help="include gated surveys (admin catalog)")
+    ap.add_argument("--gated-only", action="store_true",
+                    help="write ONLY the gated surveys (the admin companion catalogue)")
     ap.add_argument("--include-dev", action="store_true",
                     help="include datasets marked dev_only (method tests, never published)")
     args = ap.parse_args()
@@ -209,13 +211,21 @@ def main():
 
     include_gated = "--include-gated" in sys.argv
     include_dev = "--include-dev" in sys.argv
+    # --gated-only writes the companion catalogue that the server serves to
+    # signed-in data admins and to nobody else. It is a SEPARATE file rather
+    # than a flag inside the public one, because the public catalogue is
+    # world-readable: anything in it is disclosed, including the existence,
+    # title, footprint and notes of a survey we are not ready to publish.
+    gated_only = "--gated-only" in sys.argv
+    if gated_only:
+        include_gated = True
 
     # A dev_only survey is never uploaded to R2 -- that is what dev_only means
     # -- so a dev catalogue that carries the R2 base writes URLs which are all
     # guaranteed 404s, and the dataset silently shows nothing on the map while
     # every other layer behaves. Cost an afternoon on 2026-09-17: the Kenai
     # 2008 rebuild was complete and correct and simply could not be seen.
-    if include_dev and PMTILES_PUBLIC_BASE.startswith("http"):
+    if (include_dev or gated_only) and PMTILES_PUBLIC_BASE.startswith("http"):
         print("\n  ERROR: --include-dev with the public R2 base "
               f"({PMTILES_PUBLIC_BASE}).\n"
               "  A dev_only dataset is not on R2, so every URL for it would 404 and the\n"
@@ -240,6 +250,8 @@ def main():
         # person to rebuild it from the source file they just found.
         if ds.get("retired"):
             print(f"  skip {ds['id']}: retired -- {ds['retired'][:80]}", file=sys.stderr)
+            continue
+        if gated_only and not ds.get("gated"):
             continue
         if ds.get("gated") and not include_gated:
             print(f"  skip {ds['id']}: gated (pass --include-gated for the admin catalog)", file=sys.stderr)
