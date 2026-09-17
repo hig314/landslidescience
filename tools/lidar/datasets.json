@@ -51,7 +51,8 @@
    "archive_mode": "warp",
    "vertical_datum": null,
    "notes": "Source tagged WGS 84 / UTM 5N (EPSG:32605). Uncompressed and stripe-blocked (43603x1) - must be converted to a tiled COG before any windowed read. No vertical CRS declared.",
-   "region": "Kenai Peninsula"
+   "region": "Kenai Peninsula",
+   "retired": "Superseded 2026-09-17 by kenai_2008, which is the same 2008 survey re-classified from the point cloud. kenai_2008 covers every km2 of this one and 140 km2 more in the same window, and agrees with it to a median of +0.018 m (MAD 0.034 m) over 2.96 M cells at 20 m. The only ground this one has that kenai_2008 does not is 5.7 km2 that is 99.9% below 5 m: water surface the vendor gridded and the ground filter correctly dropped."
   },
   {
    "id": "kbay_2023",
@@ -710,7 +711,6 @@
    "product": "DTM (bare earth, re-classified from the point cloud)",
    "archive_mode": "translate",
    "vertical_datum": "NAVD88",
-   "dev_only": true,
    "notes": "USGS 3DEP AK_Kenai_2008 (Aero-Metric, 2008-05-21 to 09-22), 14.05 billion points at ~1.21 pts/m2. No public DTM exists for this survey anywhere, so this one is built here from the points. GROUND CLASSIFICATION: Axelsson progressive TIN densification (r-lidar's MIT C++ library, driven from PDAL by tools/lidar/ptd_ground), angle 40, distance 3, seed 10 m, outlier detection off. Chosen on a hand-scored test patch against the 2019 QL1 surface: crest loss 11.9% against the vendor classification's 20.5%, the tightest spread and fewest gross errors of six candidates, and the least false roughness under dense canopy. 3,130 tiles of 2 km with a 30 m classification buffer, 6.37 h on 8 cores, no failures. Grids are snapped to a GLOBAL 4 ft lattice: a 2 km tile is 1640.42 cells, so pinning each raster to its own tile bounds put neighbours up to 51 cm out of step and would have seamed the mosaic. Agreement with the independent Homer 2019 survey, both warped to one 5 m lattice over their 39.9 x 14.9 km overlap: median -0.014 m, MAD 0.092 m over 3.6 M cells, 1.21% of cells differing by more than 2 m. The entire >20 m tail is 228 cells in a single 1 km spot at 59.65913,-151.67076, material missing from 108 m and added at 24 m nearby -- ground that moved between the surveys, not an artifact. DESPIKED after gridding (tools/lidar/despike_dtm.py): two tests, because neither catches both artifacts -- an iterative 5x5-median test for the low spikes that outlier detection would have caught, and a scale-free support test for clouds and bird flocks, which asks whether a blob's lowest cell clears the 90th percentile of its own rim rather than how high it is, so a 1800 m arete survives and a blob hanging in the air does not. The classified point cloud is kept on Powder so the gridding can be redone without reclassifying. dev_only until reviewed. Public (USGS).",
    "region": "Kenai Peninsula"
   }

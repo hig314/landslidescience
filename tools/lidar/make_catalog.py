@@ -234,6 +234,13 @@ def main():
         # in the survey list would reasonably think they were two surveys.
         if ds.get("dev_only") and not include_dev:
             continue
+        # retired: superseded by a better surface over the same ground. The
+        # entry stays in the manifest because it carries what was learned
+        # about that delivery, and because a bare deletion invites the next
+        # person to rebuild it from the source file they just found.
+        if ds.get("retired"):
+            print(f"  skip {ds['id']}: retired -- {ds['retired'][:80]}", file=sys.stderr)
+            continue
         if ds.get("gated") and not include_gated:
             print(f"  skip {ds['id']}: gated (pass --include-gated for the admin catalog)", file=sys.stderr)
             continue
