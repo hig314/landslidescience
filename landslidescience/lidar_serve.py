@@ -318,3 +318,38 @@ def preview(request):
     """Standalone dev page that exercises the whole hosting path."""
     from django.shortcuts import render
     return render(request, 'pages/lidar_preview.html')
+
+
+def publish_audit(request):
+    """Where every survey actually is, for data admins.
+
+    Renders the same answer tools/lidar/publish_audit.py gives on the command
+    line, by importing it rather than reimplementing it -- a second copy of
+    this logic would drift, and the whole point is that it is the one place
+    that checks the seams between build, upload, catalogue and gate.
+
+    The R2 probes are ~200 HTTP requests, so they are opt-in: the page loads
+    fast by default and `?r2=1` asks the slow question.
+    """
+    from inventory.auth import can_view_restricted
+    if not can_view_restricted(request.user):
+        return HttpResponseForbidden()
+    import importlib.util
+    from django.shortcuts import render as _render
+    path = settings.BASE_DIR / 'tools' / 'lidar' / 'publish_audit.py'
+    if not path.is_file():
+        return HttpResponse('publish_audit.py is not in this image',
+                            content_type='text/plain', status=501)
+    spec = importlib.util.spec_from_file_location('publish_audit', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    want_r2 = request.GET.get('r2') in ('1', 'true', 'yes')
+    prod = request.build_absolute_uri('/').rstrip('/')
+    rows, problems, meta = mod.audit(prod=prod, no_r2=not want_r2,
+                                     catalog_dir=LIDAR_DIR)
+    return _render(request, 'pages/publish_audit.html', {
+        'rows': [{'id': r[0], 'state': r[1], 'built': r[2], 'r2': r[3],
+                  'in_cat': r[4], 'verdict': r[5],
+                  'bad': r[5].isupper() or 'NOT' in r[5]} for r in rows],
+        'problems': problems, 'meta': meta, 'want_r2': want_r2, 'prod': prod,
+    })

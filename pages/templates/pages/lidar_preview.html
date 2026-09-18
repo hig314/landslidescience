@@ -68,6 +68,9 @@ vanish depending on which way you light them.
   #who { font-size: 11px; color: #666; margin: -4px 0 8px; }
   #who a { color: #1a5fb4; }
   #who .gated { color: #b26a00; }
+  .btnrow { margin-bottom: 4px; }
+  label.vis { font-weight: 600; }
+  .visrow { margin: 0 0 6px 14px; }
 </style>
 </head>
 <body>
@@ -83,7 +86,8 @@ vanish depending on which way you light them.
   <div id="who">
     {% if user.is_authenticated %}
       Signed in as {{ user.get_username }}{% if can_view_restricted %} ·
-      <span class="gated">restricted surveys shown</span>{% endif %} ·
+      <span class="gated">restricted surveys shown</span> ·
+      <a href="/lidar/audit/">publication audit</a>{% endif %} ·
       <a href="{% url 'inventory:logout' %}">sign out</a>
     {% else %}
       <a href="{% url 'inventory:login' %}?next={{ request.get_full_path|urlencode }}">Sign in</a>
@@ -108,20 +112,23 @@ vanish depending on which way you light them.
   </div>
 
   <h2>Layer stack</h2>
-  <div class="stackhint">hillshade (Overlay) · slope · mod&nbsp;5&nbsp;m</div>
-  <label>Layer opacity <span class="val" id="opv">1.00</span></label>
-  <input type="range" id="op" min="0" max="100" value="100">
-  <label>Shading exaggeration <span class="val" id="vev">1.0</span></label>
-  <input type="range" id="ve" min="1" max="60" value="10">
+  <div class="btnrow">
+    <button type="button" id="preset">Preset</button>
+    <button type="button" id="plain">Hillshade only</button>
+    <button type="button" id="imgview" style="display:none">Imagery</button>
+  </div>
+  <div class="stackhint">hillshade (Hard light) · slope · mod&nbsp;5&nbsp;m</div>
 
   <label>Hillshade <span class="val" id="hsv">1.00</span></label>
   <input type="range" id="hs" min="0" max="100" value="100">
   <details class="grp" id="shadegrp">
-    <summary>Hillshade controls <span class="cnt">sun angle, blend</span></summary>
+    <summary>Hillshade controls <span class="cnt">sun angle, blend, exaggeration</span></summary>
     <label>Sun azimuth <span class="val" id="azv">315°</span></label>
     <input type="range" id="az" min="0" max="359" value="315">
     <label>Sun altitude <span class="val" id="altv">45°</span></label>
     <input type="range" id="alt" min="1" max="89" value="45">
+    <label>Shading exaggeration <span class="val" id="vev">1.0</span></label>
+    <input type="range" id="ve" min="1" max="60" value="10">
     <label>Blend
       <select id="bl">
         <option value="2">Hard light (shade decides)</option>
@@ -132,15 +139,43 @@ vanish depending on which way you light them.
     </label>
   </details>
 
-  <label>Slope ramp <span class="val" id="slv">0.00</span></label>
-  <input type="range" id="sl" min="0" max="100" value="0">
-  <label><input type="checkbox" id="preslope" checked> Slope from the archive (pre-baked, true metres) where available</label>
-  <label>Mod 5 m <span class="val" id="mdv">0.00</span></label>
-  <input type="range" id="md" min="0" max="100" value="0">
-  <label>Aspect tint <span class="val" id="asv">0.00</span></label>
-  <input type="range" id="as" min="0" max="100" value="0">
-  <button type="button" id="preset">KBSP preset</button>
-  <button type="button" id="plain">Hillshade only</button>
+  {% comment %}
+    A ramp that is off should read as off. A slider parked at zero says
+    "there is something here, set to nothing", which is the same shape as a
+    slider set to a little -- so the panel could not be read at a glance.
+    The checkbox carries on/off and the slider only exists while it is on.
+    No new URL key: a value of zero already means off, so the checkbox is
+    derived from the value and old links keep working.
+  {% endcomment %}
+  <label class="vis"><input type="checkbox" id="slon"> Slope ramp</label>
+  <div class="visrow" id="slrow" hidden>
+    <label>Strength <span class="val" id="slv">0.00</span></label>
+    <input type="range" id="sl" min="0" max="100" value="0">
+    <label><input type="checkbox" id="preslope" checked> From the archive (pre-baked, true metres) where available</label>
+  </div>
+
+  <label class="vis"><input type="checkbox" id="mdon"> Mod 5 m</label>
+  <div class="visrow" id="mdrow" hidden>
+    <label>Strength <span class="val" id="mdv">0.00</span></label>
+    <input type="range" id="md" min="0" max="100" value="0">
+  </div>
+
+  <label class="vis"><input type="checkbox" id="ason"> Aspect tint</label>
+  <div class="visrow" id="asrow" hidden>
+    <label>Strength <span class="val" id="asv">0.00</span></label>
+    <input type="range" id="as" min="0" max="100" value="0">
+  </div>
+
+  {% comment %}
+    Layer opacity fades the whole shaded surface towards the basemap, which is
+    only a useful thing to do when there is imagery draped over it to fade
+    between. On a survey with no ortho it just dims everything, so it is not
+    offered there.
+  {% endcomment %}
+  <div id="oprow" style="display:none">
+    <label>Layer opacity <span class="val" id="opv">1.00</span></label>
+    <input type="range" id="op" min="0" max="100" value="100">
+  </div>
 
   <h2>Difference</h2>
   <select id="df"><option value="">— off —</option></select>
@@ -247,6 +282,10 @@ vanish depending on which way you light them.
     var v = Q.get(id);
     if (v !== null && v !== '') document.getElementById(id).value = v;
   });
+  // The ramp checkboxes are derived from those values, so this runs straight
+  // after them: a link arriving with sl=60 must open with the slope ramp on
+  // AND its box ticked, not on with the box clear.
+  syncVisRows();
   CHECKS.forEach(function (id) {
     document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'fog' || id === 'preslope');
   });
@@ -487,7 +526,14 @@ vanish depending on which way you light them.
     var p = props4[active];
     var has = !!(p && p.ortho_url);
     document.getElementById('imagery-box').style.display = has ? '' : 'none';
-    if (!has) document.getElementById('ortho').checked = false;
+    document.getElementById('imgview').style.display = has ? '' : 'none';
+    document.getElementById('oprow').style.display = has ? '' : 'none';
+    if (!has) {
+      document.getElementById('ortho').checked = false;
+      // Leaving it faded on a survey with nothing to fade between would hide
+      // the surface with no visible control to bring it back.
+      document.getElementById('op').value = 100;
+    }
   }
 
   function showDataset(p) {
@@ -980,14 +1026,55 @@ vanish depending on which way you light them.
     Object.keys(p).forEach(function (k) {
       document.getElementById(k).value = p[k];
     });
+    syncVisRows();
     render();
     syncUrl();
   }
+
+  // The three optional ramps: the checkbox is DERIVED from the value, so the
+  // URL grammar does not grow a key and a link written before these existed
+  // still opens to the same picture.
+  var VIS = [['slon', 'sl', 'slrow', 60], ['mdon', 'md', 'mdrow', 100],
+             ['ason', 'as', 'asrow', 50]];
+  function syncVisRows() {
+    VIS.forEach(function (v) {
+      var on = +document.getElementById(v[1]).value > 0;
+      document.getElementById(v[0]).checked = on;
+      document.getElementById(v[2]).hidden = !on;
+    });
+  }
+  VIS.forEach(function (v) {
+    document.getElementById(v[0]).addEventListener('change', function () {
+      var slider = document.getElementById(v[1]);
+      // Turning one on restores what it was, or a sensible default the first
+      // time -- never 0, which would tick a box and change nothing.
+      slider.value = this.checked ? (slider.dataset.last || v[3]) : 0;
+      document.getElementById(v[2]).hidden = !this.checked;
+      render(); syncUrl();
+    });
+    document.getElementById(v[1]).addEventListener('input', function () {
+      if (+this.value > 0) this.dataset.last = this.value;
+    });
+  });
   document.getElementById('preset').addEventListener('click', function () {
-    applyPreset({ md: 100, sl: 60, hs: 100, bl: 0, as: 0, az: 315, alt: 45, op: 100 });
+    // Hard light rather than Overlay: Overlay lets the ramp decide and washes
+    // the shading out wherever the ramp is pale, which is most of a mod-5
+    // base. And the drape comes off -- the preset is a way of reading FORM,
+    // and a photograph over the top is the other way of reading the ground.
+    document.getElementById('ortho').checked = false;
+    applyPreset({ md: 100, sl: 60, hs: 100, bl: 2, as: 0, az: 315, alt: 45, op: 100 });
   });
   document.getElementById('plain').addEventListener('click', function () {
-    applyPreset({ md: 0, sl: 0, hs: 100, bl: 0, as: 0, op: 100 });
+    document.getElementById('ortho').checked = false;
+    applyPreset({ md: 0, sl: 0, hs: 100, bl: 2, as: 0, op: 100 });
+  });
+  // Only offered for a survey that has imagery from its own flight. Puts the
+  // photograph up at full strength over a quiet hillshade, so the shading
+  // gives relief to a picture rather than competing with it.
+  document.getElementById('imgview').addEventListener('click', function () {
+    document.getElementById('ortho').checked = true;
+    document.getElementById('oop').value = 100;
+    applyPreset({ md: 0, sl: 0, as: 0, hs: 45, bl: 2, op: 100 });
   });
 
   var retileTimer = null;

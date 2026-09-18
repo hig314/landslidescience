@@ -162,6 +162,7 @@ urlpatterns = [
     path('lidar/', lidar_serve.preview),
     path('lidar/catalog.geojson', lidar_serve.catalog),
     path('lidar/catalog-gated.geojson', lidar_serve.catalog_gated),
+    path('lidar/audit/', lidar_serve.publish_audit, name='publish_audit'),
     re_path(r'^lidar/pmtiles/(?P<dataset_id>[a-z0-9_]+)\.pmtiles$',
             lidar_serve.pmtiles),
     re_path(r'^lidar/cog/(?P<dataset_id>[a-z0-9_]+)\.tif$',

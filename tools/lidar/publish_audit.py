@@ -60,17 +60,51 @@ def fetch_ids(url):
         return None
 
 
+def audit(prod="https://landslidescience.org", no_r2=False, catalog_dir=None):
+    """-> (rows, problems, meta). Importable so the admin page can render the
+    same answer the command line gives, rather than a second implementation of
+    it that can drift."""
+    class _A:
+        pass
+    a = _A()
+    a.prod, a.no_r2, a.catalog_dir = prod, no_r2, catalog_dir
+    return _run(a)
+
+
+def read_ids(path):
+    """-> (ids, build-metadata) for a catalogue on disk; (None, {}) if unreadable."""
+    try:
+        fc = json.loads(Path(path).read_text())
+        return ({f.get("properties", {}).get("id") for f in fc.get("features", [])},
+                fc.get("build") or {})
+    except (OSError, ValueError):
+        return None, {}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prod", default="https://landslidescience.org")
     ap.add_argument("--no-r2", action="store_true", help="skip the R2 probes (faster)")
     a = ap.parse_args()
+    a.catalog_dir = None
+    rows, problems, meta = _run(a)
+    _print(rows, problems, meta, a.prod)
+    return 1 if problems else 0
 
+
+def _run(a):
     manifest = json.loads((HERE / "datasets.json").read_text())["datasets"]
-    public_ids = fetch_ids(f"{a.prod}/lidar/catalog.geojson")
-    # The gated catalogue is auth-only, so an anonymous probe SHOULD be refused.
-    # That refusal is itself a result worth reporting.
-    gated_status = head(f"{a.prod}/lidar/catalog-gated.geojson")
+    if getattr(a, "catalog_dir", None):
+        # Running ON the server that serves these: read the files rather than
+        # asking the server to make an HTTP request to itself, which is both
+        # fragile and a worse answer -- the file IS what it would serve.
+        public_ids, build = read_ids(Path(a.catalog_dir) / "catalog.geojson")
+        gated_status = None
+    else:
+        public_ids, build = fetch_ids(f"{a.prod}/lidar/catalog.geojson"), {}
+        # The gated catalogue is auth-only, so an anonymous probe SHOULD be
+        # refused. That refusal is itself a result worth reporting.
+        gated_status = head(f"{a.prod}/lidar/catalog-gated.geojson")
 
     rows, problems = [], []
     probes = {}
@@ -117,7 +151,12 @@ def main():
         if state == "retired":
             verdict = "retired" if not in_cat else "RETIRED BUT STILL LISTED"
         elif state == "dev-only":
-            verdict = "dev only" if not in_cat else "DEV-ONLY BUT LISTED PUBLICLY"
+            if not in_cat:
+                verdict = "dev only"
+            elif build.get("include_dev"):
+                verdict = "dev only (this is a dev catalogue)"
+            else:
+                verdict = "DEV-ONLY BUT LISTED PUBLICLY"
         elif state == "gated":
             if in_cat:
                 verdict = "GATED BUT IN THE PUBLIC CATALOGUE"
@@ -126,7 +165,9 @@ def main():
             else:
                 verdict = "gated, served from the droplet"
         else:  # public
-            if not in_cat:
+            if in_cat is None:
+                verdict = "catalogue unreadable — cannot tell"
+            elif not in_cat:
                 verdict = "built, NOT YET PUBLISHED"
             elif r2[0] != "P" and not a.no_r2:
                 verdict = "LISTED BUT NOT ON R2 — reader sees nothing"
@@ -138,6 +179,15 @@ def main():
             problems.append((did, verdict))
         rows.append((did, state, local, r2, in_cat, verdict))
 
+    if gated_status is not None and gated_status not in (401, 403):
+        problems.append(("catalog-gated.geojson",
+                         f"anonymous got {gated_status}, should be 403"))
+
+    return rows, problems, {"build": build, "public_count": None if public_ids is None else len(public_ids),
+                            "gated_status": gated_status}
+
+
+def _print(rows, problems, meta, prod):
     w = max(len(r[0]) for r in rows) + 1
     print(f"\n  {'survey':{w}} {'state':9} {'built':6} {'R2':5} {'cat':4} verdict")
     print(f"  {'-' * w} {'-' * 9} {'-' * 6} {'-' * 5} {'-' * 4} {'-' * 40}")
@@ -146,19 +196,18 @@ def main():
         print(f"  {did:{w}} {state:9} {local:6} {r2:5} {flag:4} {verdict}")
 
     print("\n  built = Pyramid / slope / ortho / COG present locally; R2 = same, on the bucket")
-    print(f"  public catalogue on {a.prod}: "
-          f"{'unreachable' if public_ids is None else str(len(public_ids)) + ' surveys'}")
-    print(f"  gated catalogue, asked anonymously: {gated_status} "
-          f"{'(correctly refused)' if gated_status in (401, 403) else '<-- SHOULD BE 403'}")
-    if gated_status not in (401, 403):
-        problems.append(("catalog-gated.geojson", f"anonymous got {gated_status}"))
+    pc = meta["public_count"]
+    print(f"  public catalogue on {prod}: "
+          f"{'unreachable' if pc is None else str(pc) + ' surveys'}")
+    gs = meta["gated_status"]
+    print(f"  gated catalogue, asked anonymously: {gs} "
+          f"{'(correctly refused)' if gs in (401, 403) else '<-- SHOULD BE 403'}")
     if problems:
         print(f"\n  {len(problems)} thing(s) a reader would see as broken:")
         for did, v in problems:
             print(f"    {did}: {v}")
-        return 1
+        return
     print("\n  nothing a reader would see as broken.")
-    return 0
 
 
 if __name__ == "__main__":

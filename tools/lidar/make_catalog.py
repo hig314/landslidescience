@@ -17,6 +17,7 @@ Usage:  tools/lidar/make_catalog.py [--out PATH]
 """
 
 import argparse
+import datetime
 import json
 import math
 import os
@@ -331,7 +332,17 @@ def main():
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    fc = {"type": "FeatureCollection", "features": features}
+    # What this catalogue IS, recorded in the catalogue. Several are produced
+    # from one manifest -- public, dev, gated-only -- and they are otherwise
+    # indistinguishable once written, so anything reading one has to guess
+    # whether a dev-only survey appearing in it is correct or a leak. It is
+    # not guesswork if the file says.
+    fc = {"type": "FeatureCollection",
+          "build": {"include_dev": include_dev, "include_gated": include_gated,
+                    "gated_only": gated_only,
+                    "generated": datetime.datetime.now(datetime.timezone.utc)
+                                 .replace(microsecond=0).isoformat()},
+          "features": features}
     ctx_pm = PM_DIR / f"{CONTEXT_ID}.pmtiles"
     # --no-context: leave the baked context out (e.g. a production catalog
     # switched to the tile Worker before the context has been reviewed on dev).

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Publication audit · landslidescience</title>
+<style>
+  body { font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         margin: 0; padding: 18px 20px 60px; color: #222; background: #fff; }
+  h1 { font-size: 17px; margin: 0 0 2px; }
+  .sub { color: #666; font-size: 12px; margin-bottom: 14px; }
+  .sub a { color: #1a5fb4; }
+  table { border-collapse: collapse; width: 100%; max-width: 1100px; font-size: 12px; }
+  th { text-align: left; font-weight: 600; color: #555; border-bottom: 1px solid #ccc;
+       padding: 4px 8px 5px 0; white-space: nowrap; }
+  td { padding: 3px 8px 3px 0; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            letter-spacing: 0.06em; white-space: nowrap; }
+  tr.bad td { background: #fff6ec; }
+  .v-ok { color: #1b7a3d; }
+  .v-bad { color: #b3261e; font-weight: 600; }
+  .v-quiet { color: #888; }
+  .state { font-size: 11px; padding: 1px 6px; border-radius: 9px; background: #eee; color: #555; }
+  .state.public { background: #e6f3ea; color: #1b7a3d; }
+  .state.gated { background: #fdf0e0; color: #b26a00; }
+  .panel { background: #fbfbfb; border: 1px solid #e5e5e5; border-radius: 6px;
+           padding: 10px 12px; margin: 0 0 16px; max-width: 1100px; }
+  .panel h2 { font-size: 13px; margin: 0 0 6px; }
+  .panel ul { margin: 0; padding-left: 18px; }
+  .panel li { margin-bottom: 2px; }
+  .legend { color: #666; font-size: 11px; margin-top: 12px; max-width: 1100px; }
+  .btn { display: inline-block; font-size: 12px; padding: 3px 10px; border: 1px solid #ccc;
+         border-radius: 4px; background: #fff; color: #1a5fb4; text-decoration: none; }
+</style>
+</head>
+<body>
+<h1>Publication audit</h1>
+<div class="sub">
+  A survey reaches a reader only if the pyramid is built, the bytes are fetchable, the
+  catalogue names it, and the gate admits the right people. Each is maintained by a
+  different step, so a mismatch between any two is invisible from inside the step that
+  caused it. · <a href="/lidar/">back to the viewer</a>
+</div>
+
+<div class="panel">
+  {% if problems %}
+    <h2>{{ problems|length }} thing{{ problems|length|pluralize }} a reader would see as broken</h2>
+    <ul>
+      {% for id, verdict in problems %}<li><b>{{ id }}</b> — {{ verdict }}</li>{% endfor %}
+    </ul>
+  {% else %}
+    <h2 class="v-ok">Nothing a reader would see as broken.</h2>
+  {% endif %}
+  <div style="margin-top:8px;color:#666;font-size:11px">
+    Public catalogue on {{ prod }}:
+    {% if meta.public_count %}{{ meta.public_count }} surveys{% else %}unreachable{% endif %} ·
+    gated catalogue asked anonymously: {{ meta.gated_status }}
+    {% if meta.gated_status == 403 or meta.gated_status == 401 %}
+      <span class="v-ok">(correctly refused)</span>
+    {% else %}<span class="v-bad">— should be 403</span>{% endif %}
+  </div>
+</div>
+
+{% if not want_r2 %}
+  <p><a class="btn" href="?r2=1">Also check R2 (≈200 requests, slower)</a></p>
+{% endif %}
+
+<table>
+  <tr>
+    <th>Survey</th><th>State</th><th>Built</th><th>On R2</th><th>In catalogue</th><th>What a reader gets</th>
+  </tr>
+  {% for r in rows %}
+  <tr{% if r.bad %} class="bad"{% endif %}>
+    <td>{{ r.id }}</td>
+    <td><span class="state {{ r.state }}">{{ r.state }}</span></td>
+    <td class="mono">{{ r.built }}</td>
+    <td class="mono">{{ r.r2 }}</td>
+    <td>{% if r.in_cat %}yes{% else %}<span class="v-quiet">no</span>{% endif %}</td>
+    <td class="{% if r.bad %}v-bad{% elif r.verdict == 'ok' %}v-ok{% else %}v-quiet{% endif %}">{{ r.verdict }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<div class="legend">
+  <b>Built</b> and <b>On R2</b> read as four slots:
+  <span class="mono">P</span> pyramid ·
+  <span class="mono">s</span> slope ·
+  <span class="mono">o</span> orthomosaic ·
+  <span class="mono">C</span> archive COG. A dash means absent.
+  {% if not want_r2 %}R2 shows <span class="mono">????</span> until you ask for it.{% endif %}
+  Restricted surveys are served from the droplet, so an empty R2 row is expected for them.
+</div>
+</body>
+</html>
