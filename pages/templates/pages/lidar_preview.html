@@ -637,10 +637,71 @@ vanish depending on which way you light them.
     map.setSky(want ? FOG : null);
   }
 
+  // THE WHITE-WASHOUT FIX (2026-09-18). MapLibre sets its far clip plane from
+  // the minimum terrain elevation, and it takes that minimum from ONE tile --
+  // the one under the map centre -- via
+  //   getMinTileElevationForLngLatZoom() -> getMinMaxElevation(tile).minElevation ?? 0
+  // When that tile has no DEM loaded, or none at all, minElevation is null and
+  // the `?? 0` makes it sea level. The far plane is then computed as if
+  // nothing were deeper than 0 m, and every part of the survey below it is
+  // clipped: a white region under a smooth curved edge (the clip plane cutting
+  // the seabed), sliding as the centre tile changes, and scaling with
+  // exaggeration because the minimum is multiplied by it.
+  //
+  // Pedersen shows it worst because it is 80% nodata and reaches -188 m, so
+  // the centre tile is very often one that reports 0.
+  //
+  // The fix is to stop that one tile speaking for the survey: floor the
+  // reported minimum at the survey's own z_min (exaggerated). MapLibre then
+  // does its own near/far arithmetic with a truthful number, which is far
+  // safer than overrideNearFarZ() -- that would mean reimplementing its
+  // projection maths here and keeping it in step across versions.
+  //
+  // Verified against the shipped maplibre-gl 5.24.0, not from the docs.
+  // map.getTerrain() returns the OPTIONS, not the object; the instance lives on
+  // the style and may not exist the instant setTerrain() is called. So look in
+  // each plausible place and retry on render until it appears -- and say on
+  // the console whether it attached, because a fix that silently does nothing
+  // is worse than no fix.
+  var _floorTried = 0;
+  function terrainObject() {
+    return (map.style && map.style.terrain) || map.terrain ||
+           (map.painter && map.painter.terrain) || null;
+  }
+  function floorTerrainMinimum(t) {
+    t = t || terrainObject();
+    if (!t || typeof t.getMinTileElevationForLngLatZoom !== 'function') {
+      if (++_floorTried === 60) {
+        console.warn('demshade: could not floor the terrain minimum — deep ' +
+                     'surveys may clip white at high exaggeration');
+      }
+      return;
+    }
+    if (t._lsFloored) return;
+    t._lsFloored = true;
+    console.info('demshade: terrain minimum floored at the survey z_min');
+    var inner = t.getMinTileElevationForLngLatZoom.bind(t);
+    t.getMinTileElevationForLngLatZoom = function (lnglat, z) {
+      var v = inner(lnglat, z);
+      var p = props4[active];
+      if (!p || p.z_min == null) return v;
+      var floor = p.z_min * (t.exaggeration || 1);
+      return Math.min(v, floor);
+    };
+  }
+
+  // Terrain is built lazily, so keep trying cheaply until it is there.
+  function watchTerrainForFloor() {
+    map.on('render', function () {
+      if (map.getTerrain()) floorTerrainMinimum();
+    });
+  }
+
   function setTerrain(on) {
     if (on && map.getSource('dem')) {
       map.setTerrain({ source: 'dem',
                        exaggeration: +document.getElementById('ex').value / 10 });
+      floorTerrainMinimum();
       applySky();
       // Neither MapLibre default is right here. Clamped (the default), the
       // centre elevation is re-sampled every frame and the view lurches as
@@ -1145,6 +1206,7 @@ vanish depending on which way you light them.
 
   // ---- boot -------------------------------------------------------------
   map.on('load', function () {
+    watchTerrainForFloor();
     // Restricted surveys come from a second, auth-only catalogue. This page
     // has its own boot, so merging them in map.js did nothing for it -- which
     // is how the Corax surveys came to be built, gated and serving correctly

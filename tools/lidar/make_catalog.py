@@ -117,6 +117,15 @@ def footprint(path):
         valid &= a > -1e30
         if not valid.any():
             return None
+        # The elevation range, free: the valid mask is already in hand. The
+        # viewer needs the MINIMUM for 3D terrain -- MapLibre sets its far
+        # clip plane from the minimum of the tile under the map centre alone,
+        # and reports 0 when that tile has no data, so a deep survey with a
+        # lot of nodata gets a clip plane computed as if the seabed were at
+        # sea level and everything deeper is clipped away.
+        v = a[valid]
+        footprint.z_range = (float(v.min()), float(v.max()))
+        del v
         transform = src.transform * Affine.scale(src.width / out_w, src.height / out_h)
         polys = [shape(g) for g, v in features.shapes(valid.astype("uint8"), mask=valid,
                                                         transform=transform, connectivity=8)
@@ -265,7 +274,9 @@ def main():
             continue
 
         print(f"  footprint: {did}", file=sys.stderr)
+        footprint.z_range = None
         geom = footprint(cog)
+        z_range = footprint.z_range
         if geom is None:
             print(f"  skip {did}: empty footprint", file=sys.stderr)
             continue
@@ -317,6 +328,8 @@ def main():
                 # a blank in the table is a question to answer, a wrong credit
                 # is worse than none.
                 "source": ds.get("source") or None,
+                "z_min": z_range[0] if z_range else None,
+                "z_max": z_range[1] if z_range else None,
                 # The orthomosaic from the same flight, for the viewer to
                 # drape over this surface. Only advertised when the pyramid is
                 # actually built, so a manifest flag alone cannot produce a
