@@ -58,6 +58,12 @@ vanish depending on which way you light them.
   details.grp summary { cursor: pointer; font-size: 12px; }
   details.grp .cnt { color: #888; font-size: 11px; font-weight: normal; }
   details.grp .ds { margin-left: 8px; }
+  table.src { border-collapse: collapse; width: 100%; font-size: 11px; margin-top: 4px; }
+  table.src th { text-align: left; font-weight: 600; color: #555; border-bottom: 1px solid #ddd;
+                 padding: 2px 4px 3px 0; }
+  table.src td { padding: 2px 4px 2px 0; vertical-align: top; border-bottom: 1px solid #f0f0f0; }
+  table.src td.yr { font-variant-numeric: tabular-nums; color: #666; white-space: nowrap; }
+  table.src td.unk { color: #b26a00; }
   .ds.far label b { color: #888; font-weight: 500; }
 </style>
 </head>
@@ -160,6 +166,15 @@ vanish depending on which way you light them.
     pitched: looking straight down there is no far field, and on a deep
     bathymetric survey the fog reads depth as distance and washes the seabed
     out past a certain contour.</div>
+
+  <details class="grp" id="srcgrp">
+    <summary>Sources &amp; credits <span class="cnt" id="srccount"></span></summary>
+    <div class="stackhint">Who produced each survey. Where this says "not
+      recorded" the provenance is written up in the survey's own notes but has
+      not been reduced to a credit line yet — an honest blank rather than a
+      guess at someone's attribution.</div>
+    <table class="src" id="srctable"></table>
+  </details>
 
   <div id="status"></div>
   <button type="button" id="copyurl">Copy link to this view</button>
@@ -363,6 +378,35 @@ vanish depending on which way you light them.
     // Insertion order is the only thing keeping the drape above its shading,
     // and order depends on the history of what was added when. Assert it.
     if (map.getLayer('ortho-' + p.id)) map.moveLayer('ortho-' + p.id, 'fp-fill');
+  }
+
+  // Every survey the viewer can see, with who made it. Sorted by source so
+  // the same producer's surveys sit together and the gaps group at the end.
+  function fillSources(fc) {
+    var rows = fc.features.map(function (f) { return f.properties; })
+      .sort(function (a, b) {
+        var sa = a.source || '\uffff', sb = b.source || '\uffff';
+        if (sa !== sb) return sa < sb ? -1 : 1;
+        return (a.title || '') < (b.title || '') ? -1 : 1;
+      });
+    var named = rows.filter(function (p) { return p.source; }).length;
+    document.getElementById('srccount').textContent =
+      named + ' of ' + rows.length + ' credited';
+    var html = '<tr><th>Survey</th><th>Year</th><th>Source</th></tr>';
+    rows.forEach(function (p) {
+      var src = p.source
+        ? esc(p.source)
+        : '<span class="unk">not recorded</span>';
+      html += '<tr><td>' + esc(p.title) + '</td><td class="yr">' +
+              (p.year || '') + '</td><td>' + src + '</td></tr>';
+    });
+    document.getElementById('srctable').innerHTML = html;
+  }
+
+  function esc(t) {
+    return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
   }
 
   function overlapsView(id) {
@@ -1017,6 +1061,7 @@ vanish depending on which way you light them.
           ctxFill = fc.context.id;
         }
         addFootprints(fc);
+        fillSources(fc);
         var host = document.getElementById('datasets');
         host.innerHTML = '';
         // Grouped by region (a manifest field), newest first within a group,

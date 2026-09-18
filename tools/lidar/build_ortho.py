@@ -84,11 +84,18 @@ def main():
     ap.add_argument("--max-zoom", default="auto")
     ap.add_argument("--quality", type=int, default=80)
     ap.add_argument("--keep-cog", action="store_true")
+    ap.add_argument("--srs", default="EPSG:6335",
+                    help="re-tag the source with this CRS (it must not move the data)")
+    ap.add_argument("--scale", action="append", metavar="LO,HI",
+                    help="per-band input range to stretch to 0-255, repeated once per "
+                         "band. Required for a source that is not already 8-bit.")
+    ap.add_argument("--gamma", type=float, default=None,
+                    help="applied after the stretch; <1 lifts the midtones")
     ap.add_argument("--out", default=None, help="PMTiles output directory")
     a = ap.parse_args()
 
     src = Path(a.src)
-    if not src.is_file():
+    if not src.exists():
         sys.exit(f"no such file: {src}")
     WORK.mkdir(parents=True, exist_ok=True)
     out_dir = Path(a.out) if a.out else bl.OUT_PM
@@ -106,7 +113,23 @@ def main():
         print(f"  reusing {cog.name}", flush=True)
     else:
         print("  converting to a tiled COG (the source is stripe-blocked)", flush=True)
-        bl.run([str(GDAL / "gdal_translate"), "-of", "COG", "-a_srs", "EPSG:6335",
+        scale = []
+        if a.scale:
+            # A 16-bit aerial ortho has to be stretched to 8 bits somewhere, and
+            # the only safe place is ONCE, globally, here. Letting each tile
+            # find its own range -- which is what any per-tile automatic
+            # stretch does -- makes every seam in the mosaic a brightness step,
+            # because a tile of dark forest and a tile of bright gravel would
+            # each be stretched to full range. So the numbers come from
+            # sampling the whole survey and are passed in explicitly.
+            for i, rng in enumerate(a.scale, start=1):
+                lo, hi = rng.split(",")
+                scale += [f"-scale_{i}", lo, hi, "0", "255"]
+            if a.gamma:
+                for i in range(1, len(a.scale) + 1):
+                    scale += [f"-exponent_{i}", str(a.gamma)]
+            scale += ["-ot", "Byte"]
+        bl.run([str(GDAL / "gdal_translate"), "-of", "COG", "-a_srs", a.srs, *scale,
                 "-co", "COMPRESS=ZSTD", "-co", "LEVEL=9", "-co", "PREDICTOR=YES",
                 "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
                 "-co", "OVERVIEWS=IGNORE_EXISTING", "-co", "OVERVIEW_RESAMPLING=AVERAGE",

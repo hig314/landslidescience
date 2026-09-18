@@ -311,6 +311,11 @@ def main():
                 # fills from the regional DEM, which is right where a void is
                 # simply outside a small survey's flight polygon.
                 "fill_mode": ds.get("fill_mode") or None,
+                # Who produced the survey, for the credits table. Deliberately
+                # null rather than guessed where it has not been established:
+                # a blank in the table is a question to answer, a wrong credit
+                # is worse than none.
+                "source": ds.get("source") or None,
                 # The orthomosaic from the same flight, for the viewer to
                 # drape over this surface. Only advertised when the pyramid is
                 # actually built, so a manifest flag alone cannot produce a
