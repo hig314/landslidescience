@@ -65,12 +65,31 @@ vanish depending on which way you light them.
   table.src td.yr { font-variant-numeric: tabular-nums; color: #666; white-space: nowrap; }
   table.src td.unk { color: #b26a00; }
   .ds.far label b { color: #888; font-weight: 500; }
+  #who { font-size: 11px; color: #666; margin: -4px 0 8px; }
+  #who a { color: #1a5fb4; }
+  #who .gated { color: #b26a00; }
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div id="panel">
   <h1>Lidar DEM preview</h1>
+  {% comment %}
+    Restricted surveys are served only to a signed-in data admin, and until
+    now this page gave no hint that signing in was even possible -- a survey
+    you were entitled to see was simply absent, which is indistinguishable
+    from one that does not exist.
+  {% endcomment %}
+  <div id="who">
+    {% if user.is_authenticated %}
+      Signed in as {{ user.get_username }}{% if can_view_restricted %} ·
+      <span class="gated">restricted surveys shown</span>{% endif %} ·
+      <a href="{% url 'inventory:logout' %}">sign out</a>
+    {% else %}
+      <a href="{% url 'inventory:login' %}?next={{ request.get_full_path|urlencode }}">Sign in</a>
+      to see restricted surveys.
+    {% endif %}
+  </div>
 
   <h2>Datasets</h2>
   <label><input type="checkbox" id="inview"> Only surveys in view</label>

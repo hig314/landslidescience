@@ -267,9 +267,36 @@ def cog(request, dataset_id):
 
 
 def catalog(request):
-    """Footprints + metadata for every hosted dataset."""
-    return serve_ranged(request, LIDAR_DIR / 'catalog.geojson',
-                        'application/geo+json', 'public, max-age=300')
+    """Footprints + metadata for every hosted dataset.
+
+    Gated surveys are filtered out HERE as well as being left out of the file
+    at build time. Belt and braces on purpose: the file is produced by a
+    script with several flags, and one wrong flag would otherwise publish the
+    existence, title, footprint and notes of a survey that is not ready --
+    while the tiles stayed 403 and the leak looked like a broken layer rather
+    than a disclosure. The serving path should not depend on the build having
+    been run correctly.
+    """
+    gated = gated_ids()
+    if not gated:
+        return serve_ranged(request, LIDAR_DIR / 'catalog.geojson',
+                            'application/geo+json', 'public, max-age=300')
+    try:
+        import json
+        fc = json.loads((LIDAR_DIR / 'catalog.geojson').read_text())
+    except (OSError, ValueError):
+        raise Http404
+    keep = [f for f in fc.get('features', [])
+            if f.get('properties', {}).get('id') not in gated]
+    dropped = len(fc.get('features', [])) - len(keep)
+    fc['features'] = keep
+    resp = _cors(HttpResponse(json.dumps(fc), content_type='application/geo+json'))
+    # A response whose content depends on the build is still public, but say
+    # so loudly if it ever had to strip something.
+    resp['Cache-Control'] = 'public, max-age=300'
+    if dropped:
+        resp['X-Gated-Filtered'] = str(dropped)
+    return resp
 
 
 def catalog_gated(request):
