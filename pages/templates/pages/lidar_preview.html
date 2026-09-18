@@ -135,6 +135,7 @@ vanish depending on which way you light them.
   <input type="range" id="ex" min="0" max="40" value="10">
   <label><input type="checkbox" id="ctx" checked> USGS 3DEP outside the survey</label>
   <label><input type="checkbox" id="fog" checked> Fade into the distance (pitched views)</label>
+  <label id="ortho-row" style="display:none"><input type="checkbox" id="ortho"> Drape the orthomosaic</label>
   <div class="stackhint">Without context a survey stands on a flat plane as a
     block of towers. Context is USGS 3DEP, fetched live per tile (slow on first
     view); in Alaska that is 2010 IfSAR, so retreated glaciers still show as
@@ -187,7 +188,7 @@ vanish depending on which way you light them.
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
   var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop'];
-  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'fog', 'inview', 'preslope'];
+  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'fog', 'inview', 'preslope', 'ortho'];
   var Q = new URLSearchParams(location.search);
   var qnum = function (k, d) { var v = Q.get(k); return v === null || v === '' ? d : +v; };
   var qbool = function (k, d) { var v = Q.get(k); return v === null ? d : (v === '1' || v === 'true'); };
@@ -302,7 +303,8 @@ vanish depending on which way you light them.
     // coastal survey invents a surface out of whatever that DEM believed the
     // water was, which is worse than an honest void (Hig, 2026-09-14).
     DemShade.addDataset(ctxId(p), p.pmtiles_url,
-                        DemShade.catalogOpts(p, { fill: ctxFill, fillMode: 'missing' }));
+                        DemShade.catalogOpts(p, { fill: ctxFill,
+                                                  fillMode: p.fill_mode || 'missing' }));
     map.addSource('shade-' + p.id, {
       type: 'raster',
       tiles: [DemShade.url(shadeId(p.id), readOpts())],
@@ -324,6 +326,26 @@ vanish depending on which way you light them.
         'raster-fade-duration': 0
       }
     }, 'fp-fill');
+
+    // The orthomosaic from the same flight. It needs no shading pipeline of
+    // its own -- it is a photograph, and MapLibre drapes a plain raster layer
+    // over whatever terrain is set. That terrain is this survey's own DSM,
+    // which is the only surface it can honestly be draped over: an SfM ortho
+    // and its DSM are one product of one flight, and over any other surface
+    // the parallax is wrong and the imagery slides against the relief.
+    if (p.ortho_url && !map.getLayer('ortho-' + p.id)) {
+      map.addSource('ortho-' + p.id, {
+        type: 'raster', tiles: ['pmtiles://' + p.ortho_url + '/{z}/{x}/{y}'],
+        tileSize: 256, minzoom: p.min_zoom, maxzoom: p.max_zoom,
+        attribution: p.title
+      });
+      map.addLayer({
+        id: 'ortho-' + p.id, type: 'raster', source: 'ortho-' + p.id,
+        paint: { 'raster-opacity': 0,
+                 'raster-opacity-transition': { duration: 0, delay: 0 },
+                 'raster-fade-duration': 0 }
+      }, 'fp-fill');
+    }
   }
 
   function overlapsView(id) {
@@ -352,12 +374,29 @@ vanish depending on which way you light them.
 
   function applyOpacity() {
     var op = +document.getElementById('op').value / 100;
+    // The drape is all-or-nothing against the shading: at full opacity the
+    // photograph replaces the hillshade, which is what you want for reading
+    // ground cover, and unticking it puts the shading back for reading form.
+    var drape = document.getElementById('ortho').checked;
     Object.keys(props4).forEach(function (id) {
       if (map.getLayer('shade-' + id)) {
         map.setPaintProperty('shade-' + id, 'raster-opacity',
                              id === active ? op : 0);
       }
+      if (map.getLayer('ortho-' + id)) {
+        map.setPaintProperty('ortho-' + id, 'raster-opacity',
+                             (id === active && drape) ? 1 : 0);
+      }
     });
+  }
+
+  // The control only exists for a survey that has imagery from its own flight.
+  function syncOrthoControl() {
+    var p = props4[active];
+    var row = document.getElementById('ortho-row');
+    var has = !!(p && p.ortho_url);
+    row.style.display = has ? '' : 'none';
+    if (!has) document.getElementById('ortho').checked = false;
   }
 
   function showDataset(p) {
@@ -370,6 +409,7 @@ vanish depending on which way you light them.
     rebuildDem(p);
 
     syncLayers();
+    syncOrthoControl();
     fillDiffOptions();
     updateDiff();
     if (document.getElementById('t3d').checked) setTerrain(true);
@@ -769,6 +809,10 @@ vanish depending on which way you light them.
 
   document.getElementById('warm').addEventListener('change', function () {
     syncLayers(); syncUrl();
+  });
+
+  document.getElementById('ortho').addEventListener('change', function () {
+    applyOpacity(); syncUrl();
   });
 
   // Cache counters, so "is this actually warm?" is visible rather than assumed.

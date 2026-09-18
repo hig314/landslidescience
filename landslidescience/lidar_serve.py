@@ -77,8 +77,17 @@ def gated_ids():
         try:
             import json
             fc = json.loads(GATED_CATALOG.read_text())
-            ids = frozenset(f.get('properties', {}).get('id')
-                            for f in fc.get('features', []))
+            out = set()
+            for f in fc.get('features', []):
+                props = f.get('properties', {})
+                out.add(props.get('id'))
+                # A gated survey's orthomosaic is a separate archive under its
+                # own id. Gating the survey and leaving its imagery open would
+                # be a gate in name only: the ortho is the more revealing of
+                # the two.
+                if props.get('ortho_url'):
+                    out.add(f"{props.get('id')}_ortho")
+            ids = frozenset(out)
         except (OSError, ValueError):
             ids = frozenset()
         _gated_cache.update(mtime=mtime, ids=ids)

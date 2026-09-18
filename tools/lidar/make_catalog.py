@@ -276,6 +276,8 @@ def main():
         pm_bytes = pm.stat().st_size if pm.exists() else None
         slope_pm = PM_DIR / f"{did}_slope.pmtiles"
         slope_bytes = slope_pm.stat().st_size if slope_pm.exists() else None
+        ortho_pm = PM_DIR / f"{did}_ortho.pmtiles"
+        ortho_bytes = ortho_pm.stat().st_size if ortho_pm.exists() else None
         features.append({
             "type": "Feature",
             "geometry": geom,
@@ -303,6 +305,19 @@ def main():
                 "slope_url": f"{PMTILES_PUBLIC_BASE}/{did}_slope.pmtiles" if slope_bytes else None,
                 "slope_bytes": slope_bytes,
                 "slope_step": 0.5 if slope_bytes else None,
+                # How the viewer treats nodata inside a tile this survey
+                # touches. Default 'missing' keeps it a void, which is right
+                # where a void is water the sensor could not see. 'holes'
+                # fills from the regional DEM, which is right where a void is
+                # simply outside a small survey's flight polygon.
+                "fill_mode": ds.get("fill_mode") or None,
+                # The orthomosaic from the same flight, for the viewer to
+                # drape over this surface. Only advertised when the pyramid is
+                # actually built, so a manifest flag alone cannot produce a
+                # layer that 404s.
+                "ortho_url": (f"{PMTILES_PUBLIC_BASE}/{did}_ortho.pmtiles"
+                              if ortho_bytes else None),
+                "ortho_bytes": ortho_bytes or None,
                 "cog_url": f"{COG_PUBLIC_BASE}/{did}.tif",
                 "cog_bytes": cog.stat().st_size,
                 "notes": ds.get("notes", ""),
