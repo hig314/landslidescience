@@ -328,8 +328,9 @@ def publish_audit(request):
     this logic would drift, and the whole point is that it is the one place
     that checks the seams between build, upload, catalogue and gate.
 
-    The R2 probes are ~200 HTTP requests, so they are opt-in: the page loads
-    fast by default and `?r2=1` asks the slow question.
+    The R2 probes are ~200 HTTP requests and take a few seconds. They are ON
+    by default anyway: a column that reads "????" every time is not an audit,
+    it is a column. `?r2=0` skips them when you only want the local picture.
     """
     from inventory.auth import can_view_restricted
     if not can_view_restricted(request.user):
@@ -343,7 +344,7 @@ def publish_audit(request):
     spec = importlib.util.spec_from_file_location('publish_audit', path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    want_r2 = request.GET.get('r2') in ('1', 'true', 'yes')
+    want_r2 = request.GET.get('r2') not in ('0', 'false', 'no')
     prod = request.build_absolute_uri('/').rstrip('/')
     rows, problems, meta = mod.audit(prod=prod, no_r2=not want_r2,
                                      catalog_dir=LIDAR_DIR)

@@ -272,6 +272,14 @@ vanish depending on which way you light them.
   // Written with replaceState so panning doesn't fill up the back button.
   var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop'];
   var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'fog', 'inview', 'preslope', 'ortho'];
+  // [checkbox, slider, row, default-when-first-ticked] for the optional ramps.
+  // Declared HERE, beside the other boot tables, because syncVisRows() runs
+  // during restore: `var` hoists the name but not the value, so leaving this
+  // at the bottom left VIS undefined at first call and the whole boot script
+  // died on it -- the page sat on "loading catalog..." with a clean syntax
+  // check, because the fault was ordering rather than grammar.
+  var VIS = [['slon', 'sl', 'slrow', 60], ['mdon', 'md', 'mdrow', 100],
+             ['ason', 'as', 'asrow', 50]];
   var Q = new URLSearchParams(location.search);
   var qnum = function (k, d) { var v = Q.get(k); return v === null || v === '' ? d : +v; };
   var qbool = function (k, d) { var v = Q.get(k); return v === null ? d : (v === '1' || v === 'true'); };
@@ -1034,8 +1042,6 @@ vanish depending on which way you light them.
   // The three optional ramps: the checkbox is DERIVED from the value, so the
   // URL grammar does not grow a key and a link written before these existed
   // still opens to the same picture.
-  var VIS = [['slon', 'sl', 'slrow', 60], ['mdon', 'md', 'mdrow', 100],
-             ['ason', 'as', 'asrow', 50]];
   function syncVisRows() {
     VIS.forEach(function (v) {
       var on = +document.getElementById(v[1]).value > 0;

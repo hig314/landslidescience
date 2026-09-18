@@ -27,7 +27,6 @@ Exit code is 1 if any survey is in a state a reader would see as broken.
 import argparse
 import json
 import os
-import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -39,36 +38,36 @@ COG_DIR = Path(os.environ.get("LIDAR_COG_OUT", "/Volumes/Nunatak/lidar_build/cog
 R2 = "https://lidar.landslidescience.org"
 
 
-def head(url):
-    """HTTP status for a URL, without downloading it."""
+def head(url, timeout=8):
+    """HTTP status for a URL, without downloading it.
+
+    urllib rather than a curl subprocess: this also runs inside the app
+    container, which has no curl -- and a missing binary there returned 0 for
+    every probe, which read as "nothing is on R2" and flagged every published
+    survey as broken. A dependency that fails by reporting absence is worse
+    than one that fails loudly.
+    """
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, method="HEAD")
+    req.add_header("User-Agent", "landslidescience-audit/1")
     try:
-        out = subprocess.run(
-            ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "-I", "--max-time", "25", url],
-            capture_output=True, text=True).stdout.strip()
-        return int(out or 0)
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
     except Exception:
         return 0
 
 
-def fetch_ids(url):
+def fetch_ids(url, timeout=20):
+    import urllib.request
     try:
-        out = subprocess.run(["curl", "-s", "--max-time", "30", url],
-                             capture_output=True, text=True).stdout
-        fc = json.loads(out)
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            fc = json.load(r)
         return {f.get("properties", {}).get("id") for f in fc.get("features", [])}
     except Exception:
         return None
-
-
-def audit(prod="https://landslidescience.org", no_r2=False, catalog_dir=None):
-    """-> (rows, problems, meta). Importable so the admin page can render the
-    same answer the command line gives, rather than a second implementation of
-    it that can drift."""
-    class _A:
-        pass
-    a = _A()
-    a.prod, a.no_r2, a.catalog_dir = prod, no_r2, catalog_dir
-    return _run(a)
 
 
 def read_ids(path):
@@ -79,6 +78,17 @@ def read_ids(path):
                 fc.get("build") or {})
     except (OSError, ValueError):
         return None, {}
+
+
+def audit(prod="https://landslidescience.org", no_r2=False, catalog_dir=None):
+    """-> (rows, problems, meta). Importable so the admin page renders the
+    same answer the command line gives, rather than a second implementation
+    of it that can drift."""
+    class _A:
+        pass
+    a = _A()
+    a.prod, a.no_r2, a.catalog_dir = prod, no_r2, catalog_dir
+    return _run(a)
 
 
 def main():
@@ -114,7 +124,7 @@ def _run(a):
             did = ds["id"]
             want += [f"{R2}/pmtiles/{did}.pmtiles", f"{R2}/pmtiles/{did}_slope.pmtiles",
                      f"{R2}/pmtiles/{did}_ortho.pmtiles", f"{R2}/cog/{did}.tif"]
-        with ThreadPoolExecutor(12) as ex:
+        with ThreadPoolExecutor(24) as ex:
             probes = dict(zip(want, ex.map(head, want)))
 
     for ds in manifest:

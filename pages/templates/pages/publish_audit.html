@@ -61,9 +61,10 @@
   </div>
 </div>
 
-{% if not want_r2 %}
-  <p><a class="btn" href="?r2=1">Also check R2 (≈200 requests, slower)</a></p>
-{% endif %}
+<p>
+  {% if want_r2 %}<a class="btn" href="?r2=0">Skip the R2 check (faster)</a>
+  {% else %}<a class="btn" href="?r2=1">Check R2 too (≈200 requests)</a>{% endif %}
+</p>
 
 <table>
   <tr>
