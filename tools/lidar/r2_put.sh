@@ -15,7 +15,11 @@ export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
        RCLONE_CONFIG_R2_ENDPOINT="$R2_ENDPOINT" RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
 COG="${LIDAR_COG_OUT:-/Volumes/Nunatak/lidar_build/cog}"
 PM="${LIDAR_PM_OUT:-$ROOT/data/lidar/pmtiles}"
-for pair in "$COG/$id.tif cog/$id.tif" "$PM/$id.pmtiles pmtiles/$id.pmtiles" "$PM/${id}_slope.pmtiles pmtiles/${id}_slope.pmtiles"; do
+# The orthomosaic is part of a survey, not a separate dataset: a DSM whose
+# imagery is missing drapes nothing, and the catalogue only advertises
+# ortho_url when the file exists, so publishing one without the other
+# produces a survey that silently lost a feature it had on dev.
+for pair in "$COG/$id.tif cog/$id.tif" "$PM/$id.pmtiles pmtiles/$id.pmtiles" "$PM/${id}_slope.pmtiles pmtiles/${id}_slope.pmtiles" "$PM/${id}_ortho.pmtiles pmtiles/${id}_ortho.pmtiles"; do
   set -- $pair
   [ -f "$1" ] || { echo "skip (not built): $1"; continue; }
   for i in 1 2 3; do
