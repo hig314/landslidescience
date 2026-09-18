@@ -82,20 +82,21 @@ vanish depending on which way you light them.
       are bare rock and which are vegetated.</div>
   </div>
 
-  <h2>Hillshade</h2>
+  <h2>Layer stack</h2>
+  <div class="stackhint">hillshade (Overlay) · slope · mod&nbsp;5&nbsp;m</div>
   <label>Layer opacity <span class="val" id="opv">1.00</span></label>
   <input type="range" id="op" min="0" max="100" value="100">
+  <label>Shading exaggeration <span class="val" id="vev">1.0</span></label>
+  <input type="range" id="ve" min="1" max="60" value="10">
+
+  <label>Hillshade <span class="val" id="hsv">1.00</span></label>
+  <input type="range" id="hs" min="0" max="100" value="100">
   <details class="grp" id="shadegrp">
-    <summary>Shading controls <span class="cnt">illumination, blend, ramps</span></summary>
+    <summary>Hillshade controls <span class="cnt">sun angle, blend</span></summary>
     <label>Sun azimuth <span class="val" id="azv">315°</span></label>
     <input type="range" id="az" min="0" max="359" value="315">
     <label>Sun altitude <span class="val" id="altv">45°</span></label>
     <input type="range" id="alt" min="1" max="89" value="45">
-    <label>Shading exaggeration <span class="val" id="vev">1.0</span></label>
-    <input type="range" id="ve" min="1" max="60" value="10">
-    <div class="stackhint">hillshade (Overlay) · slope · mod&nbsp;5&nbsp;m</div>
-    <label>Hillshade <span class="val" id="hsv">1.00</span></label>
-    <input type="range" id="hs" min="0" max="100" value="100">
     <label>Blend
       <select id="bl">
         <option value="2">Hard light (shade decides)</option>
@@ -104,16 +105,17 @@ vanish depending on which way you light them.
         <option value="1">Plain transparency</option>
       </select>
     </label>
-    <label><input type="checkbox" id="preslope" checked> Slope from the archive (pre-baked, true metres) where available</label>
-    <label>Slope ramp <span class="val" id="slv">0.00</span></label>
-    <input type="range" id="sl" min="0" max="100" value="0">
-    <label>Mod 5 m <span class="val" id="mdv">0.00</span></label>
-    <input type="range" id="md" min="0" max="100" value="0">
-    <label>Aspect tint <span class="val" id="asv">0.00</span></label>
-    <input type="range" id="as" min="0" max="100" value="0">
-    <button type="button" id="preset">KBSP preset</button>
-    <button type="button" id="plain">Hillshade only</button>
   </details>
+
+  <label>Slope ramp <span class="val" id="slv">0.00</span></label>
+  <input type="range" id="sl" min="0" max="100" value="0">
+  <label><input type="checkbox" id="preslope" checked> Slope from the archive (pre-baked, true metres) where available</label>
+  <label>Mod 5 m <span class="val" id="mdv">0.00</span></label>
+  <input type="range" id="md" min="0" max="100" value="0">
+  <label>Aspect tint <span class="val" id="asv">0.00</span></label>
+  <input type="range" id="as" min="0" max="100" value="0">
+  <button type="button" id="preset">KBSP preset</button>
+  <button type="button" id="plain">Hillshade only</button>
 
   <h2>Difference</h2>
   <select id="df"><option value="">— off —</option></select>
