@@ -70,37 +70,50 @@ vanish depending on which way you light them.
   <label><input type="checkbox" id="inview"> Only surveys in view</label>
   <div id="datasets">loading catalog…</div>
 
-  <h2>Illumination</h2>
-  <label>Sun azimuth <span class="val" id="azv">315°</span></label>
-  <input type="range" id="az" min="0" max="359" value="315">
-  <label>Sun altitude <span class="val" id="altv">45°</span></label>
-  <input type="range" id="alt" min="1" max="89" value="45">
+  <div id="imagery-box" style="display:none">
+    <h2>Imagery</h2>
+    <label><input type="checkbox" id="ortho"> Drape the orthomosaic</label>
+    <label>Imagery opacity <span class="val" id="oopv">1.00</span></label>
+    <input type="range" id="oop" min="0" max="100" value="100">
+    <div class="stackhint">The photograph from the same flight as this
+      surface, on top of everything else. Drop its opacity to read the two
+      together: the shading gives the form, the imagery gives the ground
+      cover, and at around half you can see which boulders on the hillshade
+      are bare rock and which are vegetated.</div>
+  </div>
+
+  <h2>Hillshade</h2>
   <label>Layer opacity <span class="val" id="opv">1.00</span></label>
   <input type="range" id="op" min="0" max="100" value="100">
-  <label>Shading exaggeration <span class="val" id="vev">1.0</span></label>
-  <input type="range" id="ve" min="1" max="60" value="10">
-
-  <h2>Layer stack</h2>
-  <div class="stackhint">hillshade (Overlay) · slope · mod&nbsp;5&nbsp;m</div>
-  <label>Hillshade <span class="val" id="hsv">1.00</span></label>
-  <input type="range" id="hs" min="0" max="100" value="100">
-  <label>Blend
-    <select id="bl">
-      <option value="2">Hard light (shade decides)</option>
-      <option value="0">Overlay (ramp decides; fades on pale ramps)</option>
-      <option value="3">Multiply (shadows only)</option>
-      <option value="1">Plain transparency</option>
-    </select>
-  </label>
-  <label><input type="checkbox" id="preslope" checked> Slope from the archive (pre-baked, true metres) where available</label>
-  <label>Slope ramp <span class="val" id="slv">0.00</span></label>
-  <input type="range" id="sl" min="0" max="100" value="0">
-  <label>Mod 5 m <span class="val" id="mdv">0.00</span></label>
-  <input type="range" id="md" min="0" max="100" value="0">
-  <label>Aspect tint <span class="val" id="asv">0.00</span></label>
-  <input type="range" id="as" min="0" max="100" value="0">
-  <button type="button" id="preset">KBSP preset</button>
-  <button type="button" id="plain">Hillshade only</button>
+  <details class="grp" id="shadegrp">
+    <summary>Shading controls <span class="cnt">illumination, blend, ramps</span></summary>
+    <label>Sun azimuth <span class="val" id="azv">315°</span></label>
+    <input type="range" id="az" min="0" max="359" value="315">
+    <label>Sun altitude <span class="val" id="altv">45°</span></label>
+    <input type="range" id="alt" min="1" max="89" value="45">
+    <label>Shading exaggeration <span class="val" id="vev">1.0</span></label>
+    <input type="range" id="ve" min="1" max="60" value="10">
+    <div class="stackhint">hillshade (Overlay) · slope · mod&nbsp;5&nbsp;m</div>
+    <label>Hillshade <span class="val" id="hsv">1.00</span></label>
+    <input type="range" id="hs" min="0" max="100" value="100">
+    <label>Blend
+      <select id="bl">
+        <option value="2">Hard light (shade decides)</option>
+        <option value="0">Overlay (ramp decides; fades on pale ramps)</option>
+        <option value="3">Multiply (shadows only)</option>
+        <option value="1">Plain transparency</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="preslope" checked> Slope from the archive (pre-baked, true metres) where available</label>
+    <label>Slope ramp <span class="val" id="slv">0.00</span></label>
+    <input type="range" id="sl" min="0" max="100" value="0">
+    <label>Mod 5 m <span class="val" id="mdv">0.00</span></label>
+    <input type="range" id="md" min="0" max="100" value="0">
+    <label>Aspect tint <span class="val" id="asv">0.00</span></label>
+    <input type="range" id="as" min="0" max="100" value="0">
+    <button type="button" id="preset">KBSP preset</button>
+    <button type="button" id="plain">Hillshade only</button>
+  </details>
 
   <h2>Difference</h2>
   <select id="df"><option value="">— off —</option></select>
@@ -135,7 +148,6 @@ vanish depending on which way you light them.
   <input type="range" id="ex" min="0" max="40" value="10">
   <label><input type="checkbox" id="ctx" checked> USGS 3DEP outside the survey</label>
   <label><input type="checkbox" id="fog" checked> Fade into the distance (pitched views)</label>
-  <label id="ortho-row" style="display:none"><input type="checkbox" id="ortho"> Drape the orthomosaic</label>
   <div class="stackhint">Without context a survey stands on a flat plane as a
     block of towers. Context is USGS 3DEP, fetched live per tile (slow on first
     view); in Alaska that is 2010 IfSAR, so retreated glaciers still show as
@@ -187,7 +199,7 @@ vanish depending on which way you light them.
   // that a link reproduces what the sender was looking at, which means the
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
-  var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop'];
+  var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop'];
   var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'fog', 'inview', 'preslope', 'ortho'];
   var Q = new URLSearchParams(location.search);
   var qnum = function (k, d) { var v = Q.get(k); return v === null || v === '' ? d : +v; };
@@ -390,7 +402,7 @@ vanish depending on which way you light them.
     // The drape is all-or-nothing against the shading: at full opacity the
     // photograph replaces the hillshade, which is what you want for reading
     // ground cover, and unticking it puts the shading back for reading form.
-    var drape = document.getElementById('ortho').checked;
+    var drape = document.getElementById('ortho').checked ? V('oop') / 100 : 0;
     Object.keys(props4).forEach(function (id) {
       if (map.getLayer('shade-' + id)) {
         map.setPaintProperty('shade-' + id, 'raster-opacity',
@@ -398,17 +410,18 @@ vanish depending on which way you light them.
       }
       if (map.getLayer('ortho-' + id)) {
         map.setPaintProperty('ortho-' + id, 'raster-opacity',
-                             (id === active && drape) ? 1 : 0);
+                             id === active ? drape : 0);
       }
     });
   }
 
-  // The control only exists for a survey that has imagery from its own flight.
+  // The whole Imagery block exists only for a survey with imagery from its
+  // own flight -- which is most of them not having any, so it stays out of
+  // the way rather than sitting there disabled.
   function syncOrthoControl() {
     var p = props4[active];
-    var row = document.getElementById('ortho-row');
     var has = !!(p && p.ortho_url);
-    row.style.display = has ? '' : 'none';
+    document.getElementById('imagery-box').style.display = has ? '' : 'none';
     if (!has) document.getElementById('ortho').checked = false;
   }
 
@@ -739,6 +752,10 @@ vanish depending on which way you light them.
       }, 'fp-fill');
     }
     map.setPaintProperty(DIFF_LAYER, 'raster-opacity', V('dop') / 100);
+    // The drape stays the top of the render stack. The difference layer is
+    // added before 'fp-fill' too, so without this it lands above the imagery
+    // and you would be reading a colour ramp through a photograph.
+    if (active && map.getLayer('ortho-' + active)) map.moveLayer('ortho-' + active, 'fp-fill');
 
     document.getElementById('dflo').textContent = '−' + fmtRate(sc.rate) + sc.unit;
     document.getElementById('dfhi').textContent = '+' + fmtRate(sc.rate) + sc.unit;
@@ -825,6 +842,11 @@ vanish depending on which way you light them.
   });
 
   document.getElementById('ortho').addEventListener('change', function () {
+    applyOpacity(); syncUrl();
+  });
+  // Opacity is a paint property, so this is instant and needs no retile.
+  document.getElementById('oop').addEventListener('input', function () {
+    document.getElementById('oopv').textContent = (V('oop') / 100).toFixed(2);
     applyOpacity(); syncUrl();
   });
 
@@ -917,6 +939,7 @@ vanish depending on which way you light them.
     document.getElementById('exv').textContent = (V('ex') / 10).toFixed(1);
     showDmax();
     document.getElementById('dopv').textContent = (V('dop') / 100).toFixed(2);
+    document.getElementById('oopv').textContent = (V('oop') / 100).toFixed(2);
 
     // Opacity is a paint property — instant, no refetch.
     applyOpacity();

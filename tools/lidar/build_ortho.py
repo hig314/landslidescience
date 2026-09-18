@@ -64,7 +64,15 @@ def native_zoom(src):
     ring = d.get("wgs84Extent", {}).get("coordinates", [[]])[0]
     lat = sum(p[1] for p in ring) / len(ring) if ring else 0.0
     ground = 156543.03392 * math.cos(math.radians(lat))
-    return max(0, min(24, round(math.log2(ground / res)))), res, lat
+    # Round UP rather than to nearest, with a 10% grace band. Rounding to
+    # nearest quietly throws away detail whenever a source sits just above a
+    # zoom boundary: the MNI 2023 lidar at 0.105 m rounded to z19, which is
+    # 0.141 m here -- 1.35x coarser than it was flown. Over-sampling by up to
+    # 2x costs tiles and loses nothing; under-sampling cannot be undone
+    # without rebuilding. The grace band keeps a source within 10% of a zoom
+    # from doubling the pyramid for a couple of percent of detail.
+    z = math.ceil(math.log2(ground / res) - 0.1375)
+    return max(0, min(24, z)), res, lat
 
 
 def main():

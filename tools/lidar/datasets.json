@@ -783,7 +783,7 @@
    "native_res_m": 0.1048,
    "center_lat": 61.807,
    "min_zoom": 11,
-   "max_zoom": 19,
+   "max_zoom": 20,
    "year": 2023,
    "product": "DTM (bare earth, lidar)",
    "archive_mode": "translate",
@@ -791,7 +791,7 @@
    "fill_mode": "holes",
    "gated": true,
    "region": "Mat-Su",
-   "notes": "Corax Drone Services 2023, the fourth site of the same collection as the 2024 Index Lake / Muddy Creek / Upper Boulder Creek packages, but delivered separately and by a different method: this one is LIDAR, not photogrammetry, which is why it has no orthomosaic and why it is a bare-earth DTM rather than a surface model. UNITS: the delivery ships three copies of one surface and only one is usable directly. Corax2023_6393usfeet.tif (NAD83(2011) / Alaska Albers) and its _UTM6 reprojection both carry ELEVATIONS IN US SURVEY FEET -- 2334 to 4989 -- while Corax2023_UTM6_m.tif is the same ground in metres, 711 to 1521; the ratio is 3.2809, which is the US survey foot to four decimal places rather than the international foot. The metres copy is the source here, so no vertical conversion is needed and none can be got wrong. HORIZONTAL: that copy is tagged WGS 84 / UTM 6N, which is the reprojection's error -- the authoritative Albers original is NAD83(2011) -- so src_srs re-tags it EPSG:6335 to match the rest of the collection. The re-tag guard confirms the footprint does not move. No orthomosaic was delivered with this site, unlike the 2024 three. GATED: not a public delivery; provenance is a letter of commitment, not an open licence."
+   "notes": "Corax Drone Services 2023, the fourth site of the same collection as the 2024 Index Lake / Muddy Creek / Upper Boulder Creek packages, but delivered separately and by a different method: this one is LIDAR, not photogrammetry, which is why it has no orthomosaic and why it is a bare-earth DTM rather than a surface model. UNITS: the delivery ships three copies of one surface and only one is usable directly. Corax2023_6393usfeet.tif (NAD83(2011) / Alaska Albers) and its _UTM6 reprojection both carry ELEVATIONS IN US SURVEY FEET -- 2334 to 4989 -- while Corax2023_UTM6_m.tif is the same ground in metres, 711 to 1521; the ratio is 3.2809, which is the US survey foot to four decimal places rather than the international foot. The metres copy is the source here, so no vertical conversion is needed and none can be got wrong. HORIZONTAL: that copy is tagged WGS 84 / UTM 6N, which is the reprojection's error -- the authoritative Albers original is NAD83(2011) -- so src_srs re-tags it EPSG:6335 to match the rest of the collection. The re-tag guard confirms the footprint does not move. No orthomosaic was delivered with this site, unlike the 2024 three. GATED: not a public delivery; provenance is a letter of commitment, not an open licence. ZOOM: z20, not the z19 that rounding to the nearest zoom gives. At 61.8N a z19 pixel is 0.141 m and this survey is 0.105 m, so z19 would serve it 1.35x coarser than it was flown -- throwing away a third of the detail that makes it worth gating. The other Corax sites land within 2% of native at their rounded zoom; this one sits just above a zoom boundary, which is exactly where rounding to nearest costs the most."
   }
  ]
 }
