@@ -542,7 +542,8 @@
    "archive_mode": "translate",
    "vertical_datum": "NAVD88 (GEOID12B) per metadata",
    "notes": "NPS Water Resources Division / Kenai Fjords NP, EchoBoat 160 uncrewed survey vessel with Norbit iWBMSe multibeam, June 10-12 2025, after the 7 August 2024 landslide-generated tsunami. Source: KEFJ_Pedersen_05m.xyz (positive-down depths, negated here). Gridded by lidar_build/bathy_src/pedersen_merge.py: cell means of the soundings at 0.5/1/2 m, chosen per 2 m block by sounding density (0.5 m where >=95% filled, 1 m >=90%, else 2 m), no interpolation. Metadata states NAVD88 GEOID12B but also that soundings were tide-corrected to MLLW: confirm the vertical datum with NPS before comparing with lidar. NAD83(2011)/UTM 6N.",
-   "region": "Kenai Peninsula"
+   "region": "Kenai Peninsula",
+   "source": "National Park Service — Water Resources Division and Kenai Fjords National Park"
   },
   {
    "id": "lituya_2023",
@@ -765,6 +766,26 @@
    "source": "Lemaire, E., Dufresne, A., Higman, B. & Hamdi, P. (RWTH Aachen University) — CC BY 4.0, doi:10.5281/zenodo.14548600",
    "region": "Turnagain Arm and Prince William Sound",
    "notes": "Structure-from-motion survey of the Portage slope, flown 14 July 2023, from the open Zenodo record 'Portage slope 2022 and 2023 DEMs' (CC BY 4.0). 0.25 m, about 2.9 km2 of data inside a 2.6 x 2.7 km box. Downloaded and checksum-verified against the record (19f8639e). SOURCE QUIRKS: Float64 and uncompressed with one-row strips, so it is converted once to a tiled Float32 COG -- a DEM has no use for 15 significant figures and the strip layout makes every windowed read pull the full width. Nodata is declared as 22.50, an odd value that turns out to be safe: it sits below the lowest real elevation here (26 m), so no ground is masked by it. HORIZONTAL: declared WGS 84 / UTM 6N, so it is REPROJECTED to NAD83(2011) / UTM 6N rather than re-tagged -- the two differ by about a metre in Alaska and the declaration is the only evidence available. VERTICAL: no datum stated, and none needed. Against portage_2020 (NAVD88 lidar over the same slope) the medians are -0.17 m (2022) and -0.18 m (2023) on ground under 2 degrees, with no sign of the ~10 m offset an ellipsoidal product would show. The offset is NOT flat across slope bands (-0.17 at <2 deg, -0.45 at <5, -0.04 at <20), which is what rules out a constant datum bias: the residual is the slope moving and SfM noise, and half the gentle-ground cells differ by more than a metre between 2022 and 2023. 3DEP is no use as a reference here -- even portage_2020 sits 24 m from it, because the 2010 IfSAR predates a lot of glacier change in this valley."
+  },
+  {
+   "id": "pedersen_sfm_2024",
+   "title": "Pedersen 2024 SfM surface model (NPS)",
+   "src": "/Volumes/Powder/lidar_build/pedersen_sfm/pedersen_sfm_2024.tif",
+   "target_epsg": 6335,
+   "native_res_m": 0.3405,
+   "center_lat": 59.896,
+   "min_zoom": 10,
+   "max_zoom": 19,
+   "year": 2024,
+   "product": "DSM (surface, photogrammetric)",
+   "archive_mode": "translate",
+   "vertical_datum": "NAVD88 (GEOID12B), stated in the delivery metadata",
+   "fill_mode": "holes",
+   "gated": true,
+   "source": "National Park Service — Alaska Regional Office, Natural Resources Team, and Kenai Fjords National Park",
+   "region": "Kenai Peninsula",
+   "ortho": true,
+   "notes": "Structure-from-motion survey of the Pedersen Glacier / Pedersen Lagoon landslide, flown 9 August 2024 by the National Park Service, one year after the 7 August 2024 landslide-generated tsunami that pedersen_2025 surveys the seabed of. 0.341 m surface model with a 0.17 m orthomosaic. GATED, and not because the data is sensitive: the delivery states that it 'cannot be further distributed in its original form without approval of the NPS and all products derived from it must identify the NPS as the source'. The web pyramid and the ortho tiles are derived renderings and are fine to serve with NPS credited; the archive COG is the original form and is NOT to be published until the NPS says so. Hig is asking (contact in the delivery: Chad Hults, Alaska NPS Regional Geologist). Until then the whole survey stays behind the gate, which is the conservative reading. DATUM: stated outright for once -- NAD83(2011) epoch 2010, Alaska State Plane 4, NAVD88 Geoid 12B Alaska, with a vertical RMSE of 0.109 m and a mean error of 0.002 m against 20 GNSS check points. No datum work needed, unlike Dixon. SOURCE CHOICE: the delivery ships the DSM three times. The _UTM6 copy is tagged WGS 84 / UTM 6N, which contradicts the metadata and is 3x the size; the native copy is NAD83(2011) / Alaska zone 4 exactly as documented. The native one is the source here, reprojected once to UTM 6N and written Float32 -- a projection change inside one datum, so no pixel values move. The orthomosaic stays in Alaska zone 4 and is tiled from there (build_ortho --srs keep), because the tiler reprojects to Web Mercator regardless and re-tagging a correct State Plane file as UTM 6N would move the imagery a long way while looking like housekeeping."
   }
  ]
 }

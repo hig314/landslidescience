@@ -85,7 +85,8 @@ def main():
     ap.add_argument("--quality", type=int, default=80)
     ap.add_argument("--keep-cog", action="store_true")
     ap.add_argument("--srs", default="EPSG:6335",
-                    help="re-tag the source with this CRS (it must not move the data)")
+                    help="re-tag the source with this CRS (it must not move the data); "
+                         "'keep' leaves the source's own CRS alone")
     ap.add_argument("--scale", action="append", metavar="LO,HI",
                     help="per-band input range to stretch to 0-255, repeated once per "
                          "band. Required for a source that is not already 8-bit.")
@@ -129,7 +130,13 @@ def main():
                 for i in range(1, len(a.scale) + 1):
                     scale += [f"-exponent_{i}", str(a.gamma)]
             scale += ["-ot", "Byte"]
-        bl.run([str(GDAL / "gdal_translate"), "-of", "COG", "-a_srs", a.srs, *scale,
+        # 'keep' when the source already declares a CRS that is RIGHT but is
+        # not the collection's zone. The tiler reprojects to Web Mercator
+        # anyway, so the only thing that matters is that the declaration is
+        # true -- re-tagging a correct Alaska State Plane file as UTM 6N would
+        # move the imagery a long way while looking like a tidy-up.
+        srs = [] if a.srs == "keep" else ["-a_srs", a.srs]
+        bl.run([str(GDAL / "gdal_translate"), "-of", "COG", *srs, *scale,
                 "-co", "COMPRESS=ZSTD", "-co", "LEVEL=9", "-co", "PREDICTOR=YES",
                 "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
                 "-co", "OVERVIEWS=IGNORE_EXISTING", "-co", "OVERVIEW_RESAMPLING=AVERAGE",
