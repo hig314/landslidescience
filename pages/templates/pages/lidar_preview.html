@@ -346,6 +346,9 @@ vanish depending on which way you light them.
                  'raster-fade-duration': 0 }
       }, 'fp-fill');
     }
+    // Insertion order is the only thing keeping the drape above its shading,
+    // and order depends on the history of what was added when. Assert it.
+    if (map.getLayer('ortho-' + p.id)) map.moveLayer('ortho-' + p.id, 'fp-fill');
   }
 
   function overlapsView(id) {
@@ -367,6 +370,16 @@ vanish depending on which way you light them.
       } else if (map.getLayer('shade-' + id)) {
         map.removeLayer('shade-' + id);
         map.removeSource('shade-' + id);
+        // The drape goes with it. Leaving it behind is not just untidy: it
+        // survives while its shading does not, so the next ensureLayer adds
+        // the shading ABOVE the stale drape and the photograph disappears
+        // under the hillshade. That is why Index would not drape after you
+        // had looked at another survey and come back, while Muddy -- looked
+        // at once and never left -- was fine.
+        if (map.getLayer('ortho-' + id)) {
+          map.removeLayer('ortho-' + id);
+          map.removeSource('ortho-' + id);
+        }
       }
     });
     applyOpacity();

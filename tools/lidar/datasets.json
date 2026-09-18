@@ -773,6 +773,25 @@
    "notes": "Corax Drone Services 2024 instability survey, photogrammetric DSM at 0.1375 m in NAD83(2011) / UTM 6N, NAVD88 heights per the filename. Source is stripe-blocked (one row of blocks the full width, 32 rows tall), so a windowed read has to pull a whole stripe -- it is converted to a tiled COG before anything else touches it. The CRS arrives as a BOUNDCRS wrapping EPSG:6335 with an all-zero NAD83(2011)->WGS84 transform, so src_srs re-tags it to plain 6335 (NAD83(2011) / UTM 6N; the series starts at 6330 for zone 1N, so 6332 is zone 3N and puts these sites off the Yukon Delta): identical geometry, and it stops a warp from inventing a datum shift. This is a SURFACE model (first return: canopy, buildings, boulders), not bare earth -- which is the point, since the survey is of boulders and slope instability. GATED: not a public delivery. FILL MODE 'holes': the default leaves a void inside a tile the survey touches unfilled, which is right for a coastal lidar survey where a void is water the sensor could not see. Here it is wrong -- a void is simply outside the flight polygon, and because a z13 tile is 2.3 km across while the survey is 1.6-2.6 km, leaving it unfilled wrapped each site in a flat 0 m collar most of a tile wide, which also pulled the 3D camera onto a false plane. ORTHO: the matching orthomosaic is built by build_ortho.py to <id>_ortho.pmtiles and carried in the catalogue as ortho_url, so the viewer can drape it over this DSM. Imagery and surface come from the same flight and are only interpretable together -- an SfM ortho draped over anything else is draped over the wrong shape.",
    "fill_mode": "holes",
    "ortho": true
+  },
+  {
+   "id": "corax_mni_2023",
+   "title": "MNI 2023 lidar DTM (Corax)",
+   "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/MNI_2023/Corax2023_UTM6_m.tif",
+   "target_epsg": 6335,
+   "src_srs": "EPSG:6335",
+   "native_res_m": 0.1048,
+   "center_lat": 61.807,
+   "min_zoom": 11,
+   "max_zoom": 19,
+   "year": 2023,
+   "product": "DTM (bare earth, lidar)",
+   "archive_mode": "translate",
+   "vertical_datum": "NAVD88 (assumed; the delivery states none)",
+   "fill_mode": "holes",
+   "gated": true,
+   "region": "Mat-Su",
+   "notes": "Corax Drone Services 2023, the fourth site of the same collection as the 2024 Index Lake / Muddy Creek / Upper Boulder Creek packages, but delivered separately and by a different method: this one is LIDAR, not photogrammetry, which is why it has no orthomosaic and why it is a bare-earth DTM rather than a surface model. UNITS: the delivery ships three copies of one surface and only one is usable directly. Corax2023_6393usfeet.tif (NAD83(2011) / Alaska Albers) and its _UTM6 reprojection both carry ELEVATIONS IN US SURVEY FEET -- 2334 to 4989 -- while Corax2023_UTM6_m.tif is the same ground in metres, 711 to 1521; the ratio is 3.2809, which is the US survey foot to four decimal places rather than the international foot. The metres copy is the source here, so no vertical conversion is needed and none can be got wrong. HORIZONTAL: that copy is tagged WGS 84 / UTM 6N, which is the reprojection's error -- the authoritative Albers original is NAD83(2011) -- so src_srs re-tags it EPSG:6335 to match the rest of the collection. The re-tag guard confirms the footprint does not move. No orthomosaic was delivered with this site, unlike the 2024 three. GATED: not a public delivery; provenance is a letter of commitment, not an open licence."
   }
  ]
 }
