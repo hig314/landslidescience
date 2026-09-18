@@ -907,9 +907,27 @@ vanish depending on which way you light them.
 
   // ---- boot -------------------------------------------------------------
   map.on('load', function () {
-    fetch('/lidar/catalog.geojson')
-      .then(function (r) { return r.json(); })
-      .then(function (fc) {
+    // Restricted surveys come from a second, auth-only catalogue. This page
+    // has its own boot, so merging them in map.js did nothing for it -- which
+    // is how the Corax surveys came to be built, gated and serving correctly
+    // and still absent from the list here.
+    var _pubCat = fetch('/lidar/catalog.geojson').then(function (r) { return r.json(); });
+    var _gatedCat = {% if can_view_restricted %}
+      fetch('/lidar/catalog-gated.geojson')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; })
+    {% else %}Promise.resolve(null){% endif %};
+    Promise.all([_pubCat, _gatedCat])
+      .then(function (both) {
+        var fc = both[0];
+        if (both[1] && both[1].features && both[1].features.length) {
+          // Keep every other property of the public catalogue (context in
+          // particular); only the feature list grows.
+          var merged = {};
+          for (var k in fc) { if (fc.hasOwnProperty(k)) merged[k] = fc[k]; }
+          merged.features = fc.features.concat(both[1].features);
+          fc = merged;
+        }
         catalog = fc;
         if (fc.context) {
           DemShade.addDataset(fc.context.id, fc.context.pmtiles_url,
