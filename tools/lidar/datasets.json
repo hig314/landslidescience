@@ -814,6 +814,42 @@
    "ortho": true,
    "notes": "Structure-from-motion survey of 19 September 2023 from Mark Laker, covering the south side of Kachemak Bay around Dixon and Grewingk. 0.30 m surface model over a 31 x 23 km box of which 64.5% carries data -- about 409 km2, which makes it far the largest SfM survey in the collection. Elevations 45 to 1730 m; the delivery states no vertical datum and none is embedded, so it is recorded as unknown rather than guessed at. DATE: the orthomosaic tiles are named Dixon_09192024 against the DSM's 09192023, which looks like a year's gap between surface and imagery and is not one -- every file in the package, both products, was written on 2024-07-02, which is BEFORE 19 September 2024. The ortho name is a typo; both come from the 2023 flight, which is what makes draping the imagery on this surface legitimate. ORTHO SOURCE: Ortho_merge.tif in the package is 76 GB of zeros -- a merge that failed silently and was kept. Five full-resolution windows across the middle of it are empty. The imagery is built instead from the 214 tiles in Ortho/, via a VRT. Produced by Mark Laker of the U.S. Fish and Wildlife Service, Kenai National Wildlife Refuge, and published here with his agreement. VERTICAL DATUM: the delivery is in NAD83(2011) ELLIPSOIDAL heights, not NAVD88, and says nothing either way. Measured on the terrain that can settle it -- 700-1100 m, slope under 4 degrees, on the 4,368 cells where this survey, kbay_2023, grewingk_2021 and USGS 3DEP all have data -- Dixon sits +10.38 m (MAD 0.36) above 3DEP while grewingk_2021 sits at -0.02 and kbay_2023 at +0.09. The offset matches the geoid separation here, so the source is converted ONCE with a real vertical transform (EPSG:6335+6319 -> EPSG:6335+5703, which PROJ resolves over Alaska to the GEOID12B grid us_noaa_g2012ba0 at a stated 0.02 m -- the same model grewingk_2021 records) rather than shifted by a constant: the geoid runs from +9.69 m at the north-west corner to +11.63 m at the south-east, so a single number would leave nearly two metres of tilt across the survey. A WARNING FOR THE NEXT COMPARISON: kbay_2023 first appeared to be the broken one, 10 m high, because gdalwarp silently applies a geoid shift to a source whose CRS is compound -- and kbay_2023 is the one survey here that declares its vertical datum. Pass -novshiftgrid when measuring against it, or measure the warp instead of the data. The converted file keeps a compound CRS declaring NAVD88, so archive_mode 'translate' is used rather than any warp: gdal_translate preserves the vertical declaration, and a src_srs re-tag would silently drop it. ONE ORTHO TILE IS DAMAGED. Dixon_09192024-9-11.tif fails LZW decoding and stopped the first build; a scan of all 214 found it is the only one, and the damage is a single 32-row strip. Dropping the tile would have cost 1500 x 1500 m of imagery for a fault occupying 5 m, so it is copied block by block with the unreadable strip written as nodata: 0.32% of that tile, 0.0075 km2 of a 409 km2 survey. The repaired copy lives beside the VRT. Note that it must carry RGB colour interpretation or gdalbuildvrt drops it SILENTLY with a warning about heterogeneous bands and rebuilds the hole you were trying to avoid.",
    "source": "Mark Laker, U.S. Fish and Wildlife Service — Kenai National Wildlife Refuge"
+  },
+  {
+   "id": "portage_sfm_2022",
+   "title": "Portage slope 2022 SfM surface model",
+   "src": "/Volumes/Powder/lidar_build/portage/portage_sfm_2022.tif",
+   "target_epsg": 6335,
+   "native_res_m": 0.25,
+   "center_lat": 60.749,
+   "min_zoom": 11,
+   "max_zoom": 19,
+   "year": 2022,
+   "product": "DSM (surface, photogrammetric)",
+   "archive_mode": "translate",
+   "vertical_datum": "NAVD88 (matches portage_2020 to 0.2 m; none stated in the record)",
+   "fill_mode": "holes",
+   "source": "Lemaire, E., Dufresne, A., Higman, B. & Hamdi, P. (RWTH Aachen University) — CC BY 4.0, doi:10.5281/zenodo.14548600",
+   "region": "Turnagain Arm and Prince William Sound",
+   "notes": "Structure-from-motion survey of the Portage slope, flown 10 August 2022, from the open Zenodo record 'Portage slope 2022 and 2023 DEMs' (CC BY 4.0). 0.25 m, about 2.9 km2 of data inside a 2.6 x 2.7 km box. Downloaded and checksum-verified against the record (7ccaf76c). SOURCE QUIRKS: Float64 and uncompressed with one-row strips, so it is converted once to a tiled Float32 COG -- a DEM has no use for 15 significant figures and the strip layout makes every windowed read pull the full width. Nodata is declared as 18.58, an odd value that turns out to be safe: it sits below the lowest real elevation here (26 m), so no ground is masked by it. HORIZONTAL: declared WGS 84 / UTM 6N, so it is REPROJECTED to NAD83(2011) / UTM 6N rather than re-tagged -- the two differ by about a metre in Alaska and the declaration is the only evidence available. VERTICAL: no datum stated, and none needed. Against portage_2020 (NAVD88 lidar over the same slope) the medians are -0.17 m (2022) and -0.18 m (2023) on ground under 2 degrees, with no sign of the ~10 m offset an ellipsoidal product would show. The offset is NOT flat across slope bands (-0.17 at <2 deg, -0.45 at <5, -0.04 at <20), which is what rules out a constant datum bias: the residual is the slope moving and SfM noise, and half the gentle-ground cells differ by more than a metre between 2022 and 2023. 3DEP is no use as a reference here -- even portage_2020 sits 24 m from it, because the 2010 IfSAR predates a lot of glacier change in this valley."
+  },
+  {
+   "id": "portage_sfm_2023",
+   "title": "Portage slope 2023 SfM surface model",
+   "src": "/Volumes/Powder/lidar_build/portage/portage_sfm_2023.tif",
+   "target_epsg": 6335,
+   "native_res_m": 0.25,
+   "center_lat": 60.749,
+   "min_zoom": 11,
+   "max_zoom": 19,
+   "year": 2023,
+   "product": "DSM (surface, photogrammetric)",
+   "archive_mode": "translate",
+   "vertical_datum": "NAVD88 (matches portage_2020 to 0.2 m; none stated in the record)",
+   "fill_mode": "holes",
+   "source": "Lemaire, E., Dufresne, A., Higman, B. & Hamdi, P. (RWTH Aachen University) — CC BY 4.0, doi:10.5281/zenodo.14548600",
+   "region": "Turnagain Arm and Prince William Sound",
+   "notes": "Structure-from-motion survey of the Portage slope, flown 14 July 2023, from the open Zenodo record 'Portage slope 2022 and 2023 DEMs' (CC BY 4.0). 0.25 m, about 2.9 km2 of data inside a 2.6 x 2.7 km box. Downloaded and checksum-verified against the record (19f8639e). SOURCE QUIRKS: Float64 and uncompressed with one-row strips, so it is converted once to a tiled Float32 COG -- a DEM has no use for 15 significant figures and the strip layout makes every windowed read pull the full width. Nodata is declared as 22.50, an odd value that turns out to be safe: it sits below the lowest real elevation here (26 m), so no ground is masked by it. HORIZONTAL: declared WGS 84 / UTM 6N, so it is REPROJECTED to NAD83(2011) / UTM 6N rather than re-tagged -- the two differ by about a metre in Alaska and the declaration is the only evidence available. VERTICAL: no datum stated, and none needed. Against portage_2020 (NAVD88 lidar over the same slope) the medians are -0.17 m (2022) and -0.18 m (2023) on ground under 2 degrees, with no sign of the ~10 m offset an ellipsoidal product would show. The offset is NOT flat across slope bands (-0.17 at <2 deg, -0.45 at <5, -0.04 at <20), which is what rules out a constant datum bias: the residual is the slope moving and SfM noise, and half the gentle-ground cells differ by more than a metre between 2022 and 2023. 3DEP is no use as a reference here -- even portage_2020 sits 24 m from it, because the 2010 IfSAR predates a lot of glacier change in this valley."
   }
  ]
 }
