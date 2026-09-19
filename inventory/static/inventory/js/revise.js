@@ -65,7 +65,9 @@ window.LSRevise = (function () {
     if (g.coordinates.length > 1) {
       return { why: 'has ' + (g.coordinates.length - 1) + ' hole(s)' };
     }
-    return { geometry: g };
+    // Rounded to the precision Terra Draw will accept, and stored that way as
+    // the baseline, so an untouched polygon still compares equal afterwards.
+    return { geometry: round(g) };
   }
 
   // Terra Draw identifies features by its own id; we need the db id. Keep the
@@ -83,18 +85,27 @@ window.LSRevise = (function () {
     });
   }
 
+  // Terra Draw counts the decimals on every coordinate and rejects a feature
+  // with more than its adapter's precision -- "Feature has invalid
+  // coordinates". The MapLibre adapter's default is 9, while the API serves
+  // ST_AsGeoJSON(geom, 15); real rows carry 13-15 decimals, so every polygon
+  // was refused. 9 decimals is about a tenth of a millimetre of longitude,
+  // which is far below the precision of anything mapped from imagery, and it
+  // is the precision Terra Draw will hand back anyway.
+  var COORD_PRECISION = 9;
+
   function sameGeometry(a, b) {
-    // Coordinate-wise compare after rounding: Terra Draw round-trips floats,
-    // and an untouched polygon must not be written back as an "update" --
-    // that would snapshot a history row and re-run the rule cascade for a
-    // no-op edit on every save.
+    // Compare at the same precision both sides are stored at, so Terra Draw's
+    // float round-tripping cannot make an untouched polygon look edited --
+    // that would snapshot a history row and re-run the rule cascade for an
+    // edit nobody made.
     try {
       return JSON.stringify(round(a)) === JSON.stringify(round(b));
     } catch (e) { return false; }
   }
   function round(g) {
     return JSON.parse(JSON.stringify(g, function (k, v) {
-      return typeof v === 'number' ? +v.toFixed(9) : v;
+      return typeof v === 'number' ? +v.toFixed(COORD_PRECISION) : v;
     }));
   }
 
