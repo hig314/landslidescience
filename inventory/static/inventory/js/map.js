@@ -2515,6 +2515,33 @@
         if (_featuresData) map.getSource('landslides').setData(_featuresData);
         buildFilter();
         onMoveEnd();
+        // Imagery added BEFORE these layers existed ended up on top of them;
+        // put it back underneath now that they do.
+        _traceReseat();
+    }
+
+    // Traced imagery belongs at the BOTTOM of the data stack -- it is what the
+    // polygons were drawn FROM, so they must sit on it, not under it.
+    //
+    // _traceAddLayer picks a beforeId from the first data layer that exists,
+    // which is right whenever one does. At boot it often does not: a landslide
+    // default view applies `im=` from the hash before initDataLayers() has run,
+    // and `pending-poly-fill` -- first in that candidate list -- is editor-only,
+    // so a logged-out visitor following a shared link is the likeliest person
+    // to get a beforeId of undefined and an image painted over the outline.
+    // Insertion order depends on history; assert the order instead.
+    function _traceReseat() {
+        var floor = ['pending-poly-fill']
+            .concat(SUSC_LAYERS.map(function (s) { return 'susc-' + s.key + '-layer'; }))
+            .concat(['faults-line', 'points'])
+            .find(function (cand) { return map.getLayer(cand); });
+        if (!floor) return;
+        Object.keys(_traceActive).forEach(function (id) {
+            var lyr = 'trace-' + id;
+            if (map.getLayer(lyr)) {
+                try { map.moveLayer(lyr, floor); } catch (e) { /* layer went away */ }
+            }
+        });
     }
 
     // ---------------------------------------------------------------------------
@@ -3828,6 +3855,7 @@
                 paint: { 'raster-opacity': (_traceActive[id] != null ? _traceActive[id] : 1) }
             }, beforeId);
         }
+        _traceReseat();
     }
     function _traceRemoveLayer(id) {
         if (map.getLayer('trace-' + id)) map.removeLayer('trace-' + id);
@@ -6125,6 +6153,108 @@
         return esc(reason);
     }
 
+
+    // -----------------------------------------------------------------------
+    // Revising an existing outline, on the live map
+    // -----------------------------------------------------------------------
+    // The draw tool makes new components; this edits ones that exist. It runs
+    // against the whole map -- basemaps, wiper, lidar, Sentinel -- which is the
+    // entire point: the form's preview has none of that, and an outline is only
+    // as good as what you could see while drawing it.
+    var _reviseBar = null;
+
+    function _reviseBuildBar(info) {
+        if (_reviseBar) _reviseBar.remove();
+        var bar = document.createElement('div');
+        bar.id = 'revise-bar';
+        bar.innerHTML =
+            '<div class="rv-title">Revising <b>' + esc(info.name) + '</b>' +
+            ' <span class="rv-count">' + info.count + ' polygon' +
+            (info.count === 1 ? '' : 's') + '</span></div>' +
+            '<div class="rv-hint">Drag a vertex to move it, a midpoint to add one. ' +
+            'Select a polygon to drag it whole. Nothing is written until you save.</div>' +
+            '<div class="rv-actions">' +
+            '  <button type="button" id="rv-save" class="rv-primary">Save</button>' +
+            '  <button type="button" id="rv-revert">Revert</button>' +
+            '  <button type="button" id="rv-exit">Done</button>' +
+            '  <span id="rv-status"></span>' +
+            '</div>';
+        document.body.appendChild(bar);
+        _reviseBar = bar;
+        var status = bar.querySelector('#rv-status');
+        function say(msg, cls) {
+            status.textContent = msg || '';
+            status.className = cls || '';
+        }
+        bar.querySelector('#rv-save').addEventListener('click', function () {
+            var d = LSRevise.diff();
+            if (!d.updates.length && !d.deletes.length) { say('Nothing changed.', 'rv-quiet'); return; }
+            say('Saving ' + d.updates.length + ' change' + (d.updates.length === 1 ? '' : 's') + '…');
+            LSRevise.save().then(function (res) {
+                if (res.nothing) { say('Nothing changed.', 'rv-quiet'); return; }
+                say('Saved.', 'rv-ok');
+                // The rule cascade may have moved the centroid, area, size
+                // class -- reload what the map shows rather than guess at it.
+                _reviseRefreshData();
+            }).catch(function (e) {
+                say(e && e.message ? e.message : 'Save failed.', 'rv-bad');
+            });
+        });
+        bar.querySelector('#rv-revert').addEventListener('click', function () {
+            if (!window.confirm('Discard unsaved changes to this outline?')) return;
+            var id = LSRevise.current() && LSRevise.current().id;
+            LSRevise.stop();
+            if (id) _reviseStart(id);
+        });
+        bar.querySelector('#rv-exit').addEventListener('click', function () {
+            var d = LSRevise.diff();
+            if ((d.updates.length || d.deletes.length) &&
+                !window.confirm('There are unsaved changes. Leave without saving?')) return;
+            LSRevise.stop();
+        });
+    }
+
+    function _reviseRefreshData() {
+        // Re-pull the polygon + feature sources so the saved geometry, and
+        // anything the rule cascade recomputed from it, is what the map draws.
+        fetch(API_BASE + 'api/polygons/').then(function (r) { return r.json(); })
+            .then(function (fc) {
+                var src = map.getSource('polygons');
+                if (src) src.setData(fc);
+            }).catch(function () { /* the next load will pick it up */ });
+    }
+
+    function _reviseStart(id) {
+        if (typeof LSRevise === 'undefined') return;
+        if (map.__drawActive) { window.__drawFlash && window.__drawFlash(
+            'Finish or close the draw tool before revising an outline.'); return; }
+        if (LSRevise.isActive()) LSRevise.stop();
+        LSRevise.start({
+            map: map, api: API_BASE, csrf: _csrf,
+            terraDraw: window.terraDraw, adapter: window.terraDrawMaplibreGlAdapter,
+            onExit: function () {
+                map.__reviseActive = false;
+                if (_reviseBar) { _reviseBar.remove(); _reviseBar = null; }
+                _reviseRefreshData();
+            }
+        }).then(function (info) {
+            map.__reviseActive = true;
+            _reviseBuildBar(info);
+        }).catch(function (e) {
+            window.alert('Could not open the reviser: ' +
+                         (e && e.message ? e.message : 'unknown error'));
+        });
+    }
+
+    // Delegated: the detail panel is re-rendered on every open, so a handler
+    // bound to the button itself would be lost each time.
+    document.addEventListener('click', function (e) {
+        var b = e.target && e.target.closest && e.target.closest('.revise-open');
+        if (!b) return;
+        e.preventDefault();
+        _reviseStart(+b.dataset.id);
+    });
+
     function renderDetail(d) {
         // Analytics: the single most useful signal on this site — which
         // records get looked at. LSTrack no-ops when analytics is off or
@@ -6144,7 +6274,12 @@
             // restores its view (localStorage) on return — new tabs just
             // accumulate stale maps. External resources stay target=_blank.
             ? ' <a class="manage-gear" href="/inventory/manage/' + d.id + '/" ' +
-              'rel="noopener" title="Edit this record in Manage">⚙</a>'
+              'rel="noopener" title="Edit this record in Manage">⚙</a>' +
+              // Revise the outline HERE, with the basemaps, wiper, lidar and
+              // Sentinel imagery this record was mapped from — rather than in
+              // the form's 360 px preview, which has none of them.
+              ' <button type="button" class="revise-open" data-id="' + d.id + '" ' +
+              'title="Revise this outline on the map">✎</button>'
             : '';
         if (d.slug) {
             // Slug-based permalink, identical shape on live and snapshot —

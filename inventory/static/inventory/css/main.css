@@ -1058,3 +1058,33 @@ details[open] > .ov-cat-summary::before { content: '▾ '; }
 .float-close { margin-left: auto; border: none; background: none; font-size: 17px;
                line-height: 1; cursor: pointer; color: #888; }
 .float-close:hover { color: #333; }
+
+/* Revising an outline on the live map (revise.js). The bar is fixed to the
+   bottom rather than docked in the side panel: revising means looking at the
+   map, and the panel is where the record's text lives, not its geometry. */
+.revise-open {
+  background: none; border: 0; padding: 0 2px; cursor: pointer;
+  font-size: 15px; line-height: 1; color: #5D4037; opacity: 0.55;
+}
+.revise-open:hover { opacity: 1; }
+#revise-bar {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px;
+  z-index: 1200; background: #fffdf9; border: 1px solid #d4cdc0;
+  border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+  padding: 8px 12px; max-width: min(560px, 92vw); font-size: 13px; color: #3b2f2a;
+}
+#revise-bar .rv-title { font-size: 13px; margin-bottom: 2px; }
+#revise-bar .rv-count { color: #777; font-size: 11px; }
+#revise-bar .rv-hint { color: #777; font-size: 11px; line-height: 1.35; margin-bottom: 6px; }
+#revise-bar .rv-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#revise-bar button {
+  font-size: 12px; padding: 4px 10px; border: 1px solid #d6c8c2;
+  background: #f0ebe9; color: #5D4037; border-radius: 4px; cursor: pointer;
+}
+#revise-bar button:hover { background: #e6dfdc; }
+#revise-bar .rv-primary { background: #5D4037; color: #fff; border-color: #5D4037; }
+#revise-bar .rv-primary:hover { background: #432d27; }
+#revise-bar #rv-status { font-size: 11px; color: #777; }
+#revise-bar #rv-status.rv-ok { color: #1b7a3d; }
+#revise-bar #rv-status.rv-bad { color: #b3261e; }
+#revise-bar #rv-status.rv-quiet { color: #999; }

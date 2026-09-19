@@ -544,6 +544,12 @@
 {% if is_inventory_editor %}
 <script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
 <script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>
+{% comment %}
+  Revising an existing outline on the live map, against the whole overlay
+  stack, rather than in the form's 360 px preview. Editor-only, like the
+  draw tool it sits beside.
+{% endcomment %}
+<script src="{% static 'inventory/js/revise.js' %}"></script>
 {% endif %}
 {# Self-hosted lidar DEMs: PMTiles archives read over range requests, shaded #}
 {# client-side in a Web Worker by maplibre-gl-demshade (vendor/), behind the #}

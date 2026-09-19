@@ -86,6 +86,25 @@ MIN_PART_KM2 = 0.02   # islands smaller than this add vertices, not information
 FOOTPRINT_TARGET_PX = 4000
 
 
+def _on_bucket(url):
+    """Is this object actually served? HEAD only -- nothing is downloaded."""
+    import urllib.request
+    if not url.startswith("http"):
+        return True          # a local-base catalogue: nothing to verify
+    req = urllib.request.Request(url, method="HEAD")
+    # A User-Agent is not optional here. Cloudflare answers 403 to urllib's
+    # default "Python-urllib/3.x", so without this every probe fails and the
+    # check reports that NOTHING is on the bucket -- which, for a guard whose
+    # job is to withhold anything unverified, means it withholds the entire
+    # catalogue. Verified: 403 with the default agent, 200 with this one.
+    req.add_header("User-Agent", "landslidescience-catalog/1 (+https://landslidescience.org)")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
 def footprint(path):
     """Trace where the archive actually has data, as a 4326 MultiPolygon.
 
@@ -212,6 +231,9 @@ def main():
     ap.add_argument("--include-gated", action="store_true", help="include gated surveys (admin catalog)")
     ap.add_argument("--gated-only", action="store_true",
                     help="write ONLY the gated surveys (the admin companion catalogue)")
+    ap.add_argument("--verify-r2", action="store_true",
+                    help="before listing a survey, check its pyramid is actually on the "
+                         "bucket; skip it if not")
     ap.add_argument("--include-dev", action="store_true",
                     help="include datasets marked dev_only (method tests, never published)")
     args = ap.parse_args()
@@ -227,6 +249,7 @@ def main():
     # world-readable: anything in it is disclosed, including the existence,
     # title, footprint and notes of a survey we are not ready to publish.
     gated_only = "--gated-only" in sys.argv
+    verify_r2 = "--verify-r2" in sys.argv
     if gated_only:
         include_gated = True
 
@@ -263,6 +286,17 @@ def main():
             continue
         if gated_only and not ds.get("gated"):
             continue
+        # Listing a survey whose tiles are not there yet is the one failure
+        # that looks like a broken layer rather than a missing one: the entry
+        # resolves, the map asks for tiles, and the reader gets nothing with
+        # no way to tell that publication is simply mid-flight. Checked here
+        # so it cannot depend on whoever runs this remembering the order.
+        if verify_r2 and not ds.get("gated") and not ds.get("dev_only"):
+            url = f"{PMTILES_PUBLIC_BASE}/{ds['id']}.pmtiles"
+            if not _on_bucket(url):
+                print(f"  SKIP {ds['id']}: pyramid not on the bucket yet ({url})",
+                      file=sys.stderr)
+                continue
         if ds.get("gated") and not include_gated:
             print(f"  skip {ds['id']}: gated (pass --include-gated for the admin catalog)", file=sys.stderr)
             continue

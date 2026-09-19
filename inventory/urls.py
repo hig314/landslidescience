@@ -22,6 +22,8 @@ urlpatterns = [
     path('api/polygons/', views.api_polygons, name='api_polygons'),
     path('api/provisional/', views.api_provisional, name='api_provisional'),
     path('api/landslide/<int:landslide_id>/', views.api_detail, name='api_detail'),
+    path('api/landslide/<int:landslide_id>/polygons/', views.api_landslide_polygons,
+         name='api_landslide_polygons'),
     path('api/settings/', views.api_settings, name='api_settings'),
     # Colour ramps for the high-res PNG export legend (inventory/views.py).
     path('api/ramps/', views.api_ramps, name='api_ramps'),

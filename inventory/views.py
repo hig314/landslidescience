@@ -48,6 +48,47 @@ _data_version = str(int(time.time()))
 _ALWAYS_INVALIDATE = ('table_public', 'table_editor')
 
 
+# The polygons of one landslide as GeoJSON, each feature carrying its db id
+# and role. Defined once because two callers need exactly the same answer:
+# the edit form's preview map, and the live map's revise tool. Two copies
+# would drift, and the drift would surface as an editor saving a polygon
+# against the wrong row.
+LANDSLIDE_POLYGONS_SQL = """
+            SELECT json_build_object(
+                'type', 'FeatureCollection',
+                'features', COALESCE(json_agg(
+                    json_build_object(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(p.geom, 15)::json,
+                        'properties', json_build_object('db_id', p.id,
+                                                        'role', p.role,
+                                                        'is_primary', p.is_primary,
+                                                        -- so the preview map colors polygons
+                                                        -- by the same attributes as the main
+                                                        -- map (ls_colors.js): type + creep +
+                                                        -- age. landslide_class kept for ref.
+                                                        'landslide_class', l.landslide_class,
+                                                        'landslide_type', l.landslide_type,
+                                                        'creep_behavior', l.creep_behavior,
+                                                        'year_num', CASE
+                                                            WHEN l.seismic_datetime IS NOT NULL THEN EXTRACT(YEAR FROM l.seismic_datetime)::int
+                                                            WHEN l.year_text ~ '^[0-9]{4}$' THEN l.year_text::int
+                                                            WHEN l.year_text ILIKE '%%holocene%%' THEN -1
+                                                            WHEN l.year_text ILIKE '%%modern%%'   THEN 0
+                                                            WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
+                                                            WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
+                                                            WHEN l.date_min IS NOT NULL THEN EXTRACT(YEAR FROM l.date_min)::int
+                                                            ELSE NULL
+                                                        END)
+                    )
+                ), '[]'::json)
+            )::text
+            FROM landslide_polygons p
+            JOIN landslides l ON l.id = p.landslide_id
+            WHERE p.landslide_id = %s
+"""
+
+
 def _invalidate(*keys):
     global _data_version
     for k in keys + _ALWAYS_INVALIDATE:
@@ -2141,40 +2182,7 @@ def manage_edit(request, landslide_id, review_mode=False):
     conn = _get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("""
-            SELECT json_build_object(
-                'type', 'FeatureCollection',
-                'features', COALESCE(json_agg(
-                    json_build_object(
-                        'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(p.geom, 15)::json,
-                        'properties', json_build_object('db_id', p.id,
-                                                        'role', p.role,
-                                                        'is_primary', p.is_primary,
-                                                        -- so the preview map colors polygons
-                                                        -- by the same attributes as the main
-                                                        -- map (ls_colors.js): type + creep +
-                                                        -- age. landslide_class kept for ref.
-                                                        'landslide_class', l.landslide_class,
-                                                        'landslide_type', l.landslide_type,
-                                                        'creep_behavior', l.creep_behavior,
-                                                        'year_num', CASE
-                                                            WHEN l.seismic_datetime IS NOT NULL THEN EXTRACT(YEAR FROM l.seismic_datetime)::int
-                                                            WHEN l.year_text ~ '^[0-9]{4}$' THEN l.year_text::int
-                                                            WHEN l.year_text ILIKE '%%holocene%%' THEN -1
-                                                            WHEN l.year_text ILIKE '%%modern%%'   THEN 0
-                                                            WHEN l.landslide_class LIKE '%%Holocene%%' THEN -1
-                                                            WHEN l.landslide_class LIKE '%%Modern%%'   THEN 0
-                                                            WHEN l.date_min IS NOT NULL THEN EXTRACT(YEAR FROM l.date_min)::int
-                                                            ELSE NULL
-                                                        END)
-                    )
-                ), '[]'::json)
-            )::text
-            FROM landslide_polygons p
-            JOIN landslides l ON l.id = p.landslide_id
-            WHERE p.landslide_id = %s
-        """, (landslide_id,))
+        cur.execute(LANDSLIDE_POLYGONS_SQL, (landslide_id,))
         polygons_geojson = cur.fetchone()[0]
         if review_mode:
             cur.execute("SELECT COUNT(*) FROM landslides WHERE reviewed_at IS NULL")
@@ -4082,3 +4090,29 @@ def site_logout(request):
     return redirect(reverse('inventory:home'))
 
 
+
+
+@inventory_editor_required
+@require_safe
+def api_landslide_polygons(request, landslide_id):
+    """One landslide's polygons, with db ids and roles, for the live-map reviser.
+
+    The same query the edit form's preview map uses, so what you drag on the
+    big map is keyed to the same rows the form would have written. Editor-only:
+    db ids are an editing handle, not public information.
+    """
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT unique_name FROM landslides WHERE id = %s", (landslide_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error': 'Landslide not found.'}, status=404)
+        cur.execute(LANDSLIDE_POLYGONS_SQL, (landslide_id,))
+        fc = cur.fetchone()[0]
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    return JsonResponse({'ok': True, 'id': landslide_id, 'unique_name': row[0],
+                         'polygons': json.loads(fc)})
