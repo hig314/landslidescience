@@ -6201,8 +6201,12 @@
             LSRevise.save().then(function (res) {
                 if (res.nothing) { say('Nothing changed.', 'rv-quiet'); return; }
                 say('Saved.', 'rv-ok');
-                // The rule cascade may have moved the centroid, area, size
-                // class -- reload what the map shows rather than guess at it.
+                // The endpoint hands back this landslide's polygons as they
+                // now stand, so splice them straight in: the outline redraws
+                // at once instead of after a round trip. The refetch still
+                // runs behind it, because the rule cascade may also have moved
+                // the centroid, area and size class that other layers show.
+                _reviseSplicePolygons(res.polygons);
                 _reviseRefreshData();
             }).catch(function (e) {
                 say(e && e.message ? e.message : 'Save failed.', 'rv-bad');
@@ -6222,14 +6226,44 @@
         });
     }
 
+    // After a save, the map must redraw what was just written. This asked
+    // api/polygons/ with no bbox -- which that endpoint requires, so it
+    // answered 400, the catch swallowed it, and nothing changed until a pan or
+    // zoom ran the real loader. Two things were wrong: the request, and
+    // hand-rolling a loader at all when onMoveEnd() already fetches for the
+    // current view AND merges susceptibility values, mirrors to the wiper pane
+    // and rebuilds the filter -- none of which a bare setData does.
     function _reviseRefreshData() {
-        // Re-pull the polygon + feature sources so the saved geometry, and
-        // anything the rule cascade recomputed from it, is what the map draws.
-        fetch(API_BASE + 'api/polygons/').then(function (r) { return r.json(); })
-            .then(function (fc) {
-                var src = map.getSource('polygons');
-                if (src) src.setData(fc);
-            }).catch(function () { /* the next load will pick it up */ });
+        onMoveEnd();
+    }
+
+    // Replace just this landslide's polygons in the loaded set, keeping every
+    // other record untouched, and push the result through the same sources a
+    // normal load feeds.
+    function _reviseSplicePolygons(fc) {
+        var cur = LSRevise.current();
+        if (!fc || !fc.features || !cur || !_polygonsData || !_polygonsData.features) return;
+        var lid = cur.id;
+        var keep = _polygonsData.features.filter(function (f) {
+            return String(f.properties && f.properties.landslide_id) !== String(lid);
+        });
+        // The save response carries db_id/role/is_primary only, so copy the
+        // styling properties off a feature we are replacing -- without them
+        // the outline would redraw in the default colour until the next load.
+        var donor = _polygonsData.features.find(function (f) {
+            return String(f.properties && f.properties.landslide_id) === String(lid);
+        });
+        var fresh = fc.features.map(function (f) {
+            var props = {};
+            if (donor) for (var k in donor.properties) props[k] = donor.properties[k];
+            for (var k2 in f.properties) props[k2] = f.properties[k2];
+            props.landslide_id = lid;
+            return { type: 'Feature', geometry: f.geometry, properties: props };
+        });
+        _polygonsData = { type: 'FeatureCollection', features: keep.concat(fresh) };
+        var src = map.getSource('polygons');
+        if (src) src.setData(_polygonsData);
+        if (typeof _swipeSetPolygons === 'function') _swipeSetPolygons(_polygonsData);
     }
 
     function _reviseStart(id) {
