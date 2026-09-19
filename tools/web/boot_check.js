@@ -6,14 +6,31 @@ var ObjC; // (unused; JXA global)
 function El() {
   this.style = {}; this.dataset = {}; this.checked = false; this.value = '0';
   this.textContent = ''; this.innerHTML = ''; this.hidden = false;
-  this.children = []; this.classList = { add: function(){}, remove: function(){}, toggle: function(){}, contains: function(){return false;} };
+  this.children = []; this.options = []; this.files = [];
+  this.selectedIndex = 0; this.disabled = false; this.classList = { add: function(){}, remove: function(){}, toggle: function(){}, contains: function(){return false;} };
 }
 El.prototype.appendChild = function (c) { this.children.push(c); return c; };
 El.prototype.addEventListener = function () {};
 El.prototype.removeEventListener = function () {};
 El.prototype.querySelectorAll = function () { return []; };
+El.prototype.querySelector = function () { return new El(); };
+El.prototype.setAttributeNS = function () {};
+El.prototype.getAttribute = function () { return null; };
+El.prototype.hasAttribute = function () { return false; };
+El.prototype.removeAttribute = function () {};
+El.prototype.dispatchEvent = function () { return true; };
+El.prototype.scrollIntoView = function () {};
+El.prototype.replaceChildren = function () {};
 El.prototype.setAttribute = function () {};
 El.prototype.getContext = function () { return null; };
+El.prototype.getBoundingClientRect = function () {
+  return { top:0, left:0, right:100, bottom:100, width:100, height:100, x:0, y:0 }; };
+El.prototype.insertBefore = function (c) { this.children.push(c); return c; };
+El.prototype.removeChild = function (c) { return c; };
+El.prototype.contains = function () { return false; };
+El.prototype.closest = function () { return null; };
+El.prototype.focus = function () {};
+El.prototype.click = function () {};
 El.prototype.remove = function () {};
 
 var made = {};
@@ -23,8 +40,16 @@ var document = {
   querySelectorAll: function () { return []; },
   addEventListener: function () {},
   body: new El(), head: new El(),
+  documentElement: new El(),
+  createElementNS: function () { return new El(); },
+  querySelector: function () { return null; },
+  getElementsByTagName: function () { return []; },
+  createTextNode: function (t) { return { textContent: t }; },
+  readyState: 'complete',
 };
-var location = { search: '', href: 'http://x/lidar/', pathname: '/lidar/' };
+var location = { search: '', hash: '', href: 'http://x/inventory/',
+                 pathname: '/inventory/', origin: 'http://x', host: 'x',
+                 protocol: 'http:', reload: function(){}, assign: function(){} };
 var history = { replaceState: function () {} };
 var navigator = { userAgent: 'node', clipboard: { writeText: function(){} } };
 function URLSearchParams(s) { this.get = function () { return null; };
@@ -36,7 +61,31 @@ function setTimeout(f) { return 0; }
 function setInterval() { return 0; }
 function clearTimeout() {}
 var Map_ = function () {
-  this.on = function(){}; this.addSource=function(){}; this.addLayer=function(){};
+  this.on = function(){}; this.once = function(){}; this.off = function(){};
+  this.getStyle = function(){ return { layers: [], sources: {} }; };
+  this.isStyleLoaded = function(){ return true; };
+  this.loaded = function(){ return true; };
+  this.getContainer = function(){ return new El(); };
+  this.getCanvas = function(){ return new El(); };
+  this.getCanvasContainer = function(){ return new El(); };
+  this.queryRenderedFeatures = function(){ return []; };
+  this.querySourceFeatures = function(){ return []; };
+  this.setFilter = function(){}; this.getFilter = function(){ return null; };
+  this.setLayoutProperty = function(){};
+  this.getLayoutProperty = function(){ return null; };
+  this.getPaintProperty = function(){ return null; };
+  this.flyTo=function(){}; this.jumpTo=function(){}; this.panTo=function(){};
+  this.project=function(){return {x:0,y:0};};
+  this.unproject=function(){return {lng:0,lat:0};};
+  this.remove=function(){}; this.triggerRepaint=function(){};
+  this.setMaxBounds=function(){}; this.setStyle=function(){};
+  this.hasImage=function(){return false;}; this.addImage=function(){};
+  this.loadImage=function(){}; this.listImages=function(){return [];};
+  this.setFog=function(){}; this.setLight=function(){};
+  this.getLayersOrder=function(){return [];};
+  this.scrollZoom={enable:function(){},disable:function(){}};
+  this.boxZoom={enable:function(){},disable:function(){}};
+  this.doubleClickZoom={enable:function(){},disable:function(){}}; this.addSource=function(){}; this.addLayer=function(){};
   this.getLayer=function(){return null;}; this.getSource=function(){return null;};
   this.removeLayer=function(){}; this.removeSource=function(){};
   this.moveLayer=function(){}; this.setPaintProperty=function(){};
@@ -60,7 +109,19 @@ var pmtiles = { Protocol: function () { this.tile = function(){}; this.add = fun
                 PMTiles: function () { this.getHeader = function(){ return {then:function(){return this;},
                   catch:function(){return this;}}; }; } };
 var window = { DemShade: null, MapLibreGlDemShade: null, addEventListener: function(){},
-               matchMedia: function(){ return { matches:false, addListener:function(){} }; } };
+               removeEventListener: function(){},
+               matchMedia: function(){ return { matches:false, addListener:function(){},
+                                                addEventListener:function(){} }; },
+               location: location, history: history, navigator: navigator,
+               localStorage: { getItem:function(){return null;}, setItem:function(){},
+                               removeItem:function(){} },
+               sessionStorage: { getItem:function(){return null;}, setItem:function(){},
+                                 removeItem:function(){} },
+               devicePixelRatio: 1, innerWidth: 1280, innerHeight: 800,
+               requestAnimationFrame: function(){ return 0; },
+               getComputedStyle: function(){ return { getPropertyValue:function(){return '';} }; },
+               setTimeout: setTimeout, clearTimeout: clearTimeout,
+               open: function(){ return null; }, print: function(){} };
 var DemShade = { register:function(){}, addDataset:function(){}, addImageServer:function(){},
                  url:function(){return '';}, demUrl:function(){return '';},
                  diffUrl:function(){return '';},
