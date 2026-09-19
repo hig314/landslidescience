@@ -101,9 +101,25 @@ window.LSRevise = (function () {
     flash = opts.flash || function () {};
     var TD = opts.terraDraw, ADAPT = opts.adapter;
 
-    return fetch(api + 'api/landslide/' + opts.id + '/polygons/')
+    if (opts.id == null || isNaN(+opts.id)) {
+      return Promise.reject(new Error('no landslide id was given'));
+    }
+    var url = api + 'api/landslide/' + opts.id + '/polygons/';
+    return fetch(url)
       .then(function (r) {
-        if (r.status === 403 || r.status === 302) throw new Error('not signed in');
+        // Anything that is not JSON here is a page, not an answer: a login
+        // redirect, a 404, an error template. Parsing it blows up on the '<'
+        // of <!DOCTYPE and reports a JSON syntax error, which says nothing
+        // about what actually happened -- say what came back instead.
+        var ct = r.headers.get('content-type') || '';
+        if (ct.indexOf('json') === -1) {
+          throw new Error('server returned ' + r.status + ' ' +
+                          (ct.split(';')[0] || 'an unknown type') +
+                          ' for ' + url +
+                          (r.status === 404 ? ' — no such record?'
+                           : r.redirected ? ' — signed out?' : ''));
+        }
+        if (r.status === 403) throw new Error('not permitted');
         return r.json();
       })
       .then(function (d) {

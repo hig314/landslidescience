@@ -6230,6 +6230,7 @@
             'Finish or close the draw tool before revising an outline.'); return; }
         if (LSRevise.isActive()) LSRevise.stop();
         LSRevise.start({
+            id: id,
             map: map, api: API_BASE, csrf: _csrf,
             terraDraw: window.terraDraw, adapter: window.terraDrawMaplibreGlAdapter,
             onExit: function () {
