@@ -19,6 +19,9 @@ var R = window.LSRevise;
 
 var poly = function (x) {
   return { type:'Polygon', coordinates:[[[x,0],[x+1,0],[x+1,1],[x,1],[x,0]]] }; };
+// what the API actually returns: a single-part MultiPolygon
+var mpoly = function (x) {
+  return { type:'MultiPolygon', coordinates:[poly(x).coordinates] }; };
 var snapshot = [];
 var TD = { TerraDraw: function () {
     this.start=function(){}; this.stop=function(){}; this.setMode=function(){};
@@ -30,8 +33,8 @@ fetch = function () { return SP({ status:200, redirected:false,
     headers:{ get:function(){ return 'application/json'; } },
     json:function(){ return SP({
     ok:true, unique_name:'Test', polygons:{ features:[
-      { geometry:poly(0), properties:{ db_id:11, role:'source' } },
-      { geometry:poly(5), properties:{ db_id:12, role:'deposit' } }]}}); }}); };
+      { geometry:mpoly(0), properties:{ db_id:11, role:'source' } },
+      { geometry:mpoly(5), properties:{ db_id:12, role:'deposit' } }]}}); }}); };
 
 var out = [];
 R.start({ map:fakeMap, csrf:function(){return 'x';}, terraDraw:TD, adapter:ADAPT, id:1 })

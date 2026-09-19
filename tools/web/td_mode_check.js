@@ -30,6 +30,26 @@ if (!TD) { 'FAILED: terra-draw did not expose a global'; } else {
       out.push(label + ': ' + JSON.stringify(r));
     } catch (e) { out.push(label + ': threw ' + e.message); }
   }
+  var withHole = { type:'Feature', properties:{ mode:'polygon' },
+    geometry:{ type:'Polygon', coordinates:[
+      [[0,0],[4,0],[4,4],[0,4],[0,0]],
+      [[1,1],[2,1],[2,2],[1,2],[1,1]] ] } };
+  var multi = { type:'Feature', properties:{ mode:'polygon' },
+    geometry:{ type:'MultiPolygon', coordinates:[[[[0,0],[1,0],[1,1],[0,1],[0,0]]]] } };
+  function tryFeature(label, f) {
+    try {
+      var d = new TD.TerraDraw({ adapter:new Adapter(),
+        modes:[new TD.TerraDrawPolygonMode(), new TD.TerraDrawSelectMode({})] });
+      d.start(); d.setMode('select');
+      out.push(label + ': ' + JSON.stringify(d.addFeatures([f])));
+    } catch (e) { out.push(label + ': threw ' + e.message); }
+  }
+  // what revise.js now sends: the single part, unwrapped
+  var unwrapped = { type:'Feature', properties:{ mode:'polygon' },
+    geometry:{ type:'Polygon', coordinates: multi.geometry.coordinates[0] } };
+  tryFeature('MultiPolygon (1 part)', multi);
+  tryFeature('...after unwrapping  ', unwrapped);
+  tryFeature('Polygon with a hole  ', withHole);
   tryModes('select only          ', [new TD.TerraDrawSelectMode({})]);
   tryModes('polygon + select     ', [new TD.TerraDrawPolygonMode(),
                                      new TD.TerraDrawSelectMode({

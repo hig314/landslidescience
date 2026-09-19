@@ -6170,7 +6170,14 @@
         bar.innerHTML =
             '<div class="rv-title">Revising <b>' + esc(info.name) + '</b>' +
             ' <span class="rv-count">' + info.count + ' polygon' +
-            (info.count === 1 ? '' : 's') + '</span></div>' +
+            (info.count === 1 ? '' : 's') +
+            ((info.skipped && info.skipped.length)
+              // Say what is NOT being edited. A component left out because
+              // Terra Draw cannot represent it is untouched by a save, but
+              // silence would read as "this is all of it".
+              ? ', ' + info.skipped.length + ' not editable: ' +
+                esc(info.skipped.join('; '))
+              : '') + '</span></div>' +
             '<div class="rv-hint">Click a polygon to select it, then drag a vertex to ' +
             'move it or a midpoint to add one; right-click a vertex to remove it. ' +
             'Nothing is written until you save.</div>' +

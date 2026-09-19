@@ -42,6 +42,32 @@ window.LSRevise = (function () {
     });
   }
 
+  // PostGIS stores these in a MULTIPOLYGON column -- all 1825 of them, every
+  // one with a single part -- while Terra Draw handles Point, LineString and
+  // Polygon only. So unwrap on the way in. Nothing is needed on the way out:
+  // the save endpoint already runs ST_Multi(ST_CollectionExtract(...)) and
+  // promotes a plain Polygon back to the column's type.
+  //
+  // The two shapes Terra Draw cannot represent are refused HERE, by name,
+  // rather than left to its generic "Feature is not Point, LineString or
+  // Polygon". Editing part one of a multi-part outline would silently discard
+  // the rest, and it rejects holes outright ("Feature has holes") -- one row
+  // in the inventory has an interior ring.
+  function editableGeometry(g) {
+    if (!g) return { why: 'has no geometry' };
+    if (g.type === 'MultiPolygon') {
+      if (g.coordinates.length !== 1) {
+        return { why: 'is in ' + g.coordinates.length + ' separate parts' };
+      }
+      g = { type: 'Polygon', coordinates: g.coordinates[0] };
+    }
+    if (g.type !== 'Polygon') return { why: 'is a ' + g.type };
+    if (g.coordinates.length > 1) {
+      return { why: 'has ' + (g.coordinates.length - 1) + ' hole(s)' };
+    }
+    return { geometry: g };
+  }
+
   // Terra Draw identifies features by its own id; we need the db id. Keep the
   // mapping on the feature's properties, which survive a round trip through
   // getSnapshot().
@@ -129,10 +155,23 @@ window.LSRevise = (function () {
 
         active = { id: opts.id, name: d.unique_name, original: {}, roles: {} };
         deleted = {};
+        var editable = [], skipped = [];
         feats.forEach(function (f) {
-          active.original[f.properties.db_id] = f.geometry;
+          var r = editableGeometry(f.geometry);
+          if (r.why) {
+            skipped.push((f.properties.role || 'polygon') + ' ' + r.why);
+            return;      // left out of `original`, so a save can never touch it
+          }
+          active.original[f.properties.db_id] = r.geometry;
           active.roles[f.properties.db_id] = f.properties.role;
+          editable.push({ type: 'Feature', geometry: r.geometry,
+                          properties: { db_id: f.properties.db_id,
+                                        role: f.properties.role } });
         });
+        if (!editable.length) {
+          throw new Error('none of this record\'s polygons can be edited here — ' +
+                          skipped.join('; '));
+        }
 
         td = new TD.TerraDraw({
           adapter: new ADAPT.TerraDrawMapLibreGLAdapter({ map: map }),
@@ -176,15 +215,16 @@ window.LSRevise = (function () {
         // addFeatures reports per-feature validity rather than throwing. Say
         // so loudly: a silent rejection here is exactly the failure that looks
         // like the tool simply not working.
-        var res = td.addFeatures(toTDFeatures(d.polygons)) || [];
+        var res = td.addFeatures(toTDFeatures({ features: editable })) || [];
         var bad = res.filter(function (r) { return r && r.valid === false; });
         if (bad.length) {
           throw new Error('Terra Draw rejected ' + bad.length + ' of ' +
-                          feats.length + ' polygons: ' +
+                          editable.length + ' polygons: ' +
                           (bad[0].reason || 'no reason given'));
         }
         map.doubleClickZoom.disable();
-        return { name: d.unique_name, count: feats.length, roles: active.roles };
+        return { name: d.unique_name, count: editable.length,
+                 skipped: skipped, roles: active.roles };
       });
   }
 
