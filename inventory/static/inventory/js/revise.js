@@ -136,32 +136,55 @@ window.LSRevise = (function () {
 
         td = new TD.TerraDraw({
           adapter: new ADAPT.TerraDrawMapLibreGLAdapter({ map: map }),
-          // Select mode only. No polygon mode here: creating a component is
-          // the draw tool's job, and offering it twice invites the two paths
-          // to diverge.
-          modes: [new TD.TerraDrawSelectMode({
-            flags: {
-              polygon: {
-                feature: {
-                  draggable: true,
-                  rotateable: false,
-                  scaleable: false,
-                  coordinates: {
-                    midpoints: true,     // click a midpoint to add a vertex
-                    draggable: true,
-                    deletable: true      // right-click / delete removes one
+          // BOTH modes are registered, and only 'select' is ever active.
+          //
+          // Terra Draw validates every added feature against the instantiated
+          // modes: a feature whose properties.mode is 'polygon' is rejected
+          // outright -- "polygon mode is not in the list of instantiated
+          // modes" -- when only select is registered. Rejected features do not
+          // render and cannot be selected, so the map keeps its own handlers
+          // and the tool looks like it never opened, apart from a flash as the
+          // features are added and dropped. Registering polygon mode makes
+          // them valid; never switching to it keeps this from becoming a
+          // second way to draw.
+          modes: [
+            new TD.TerraDrawPolygonMode(),
+            new TD.TerraDrawSelectMode({
+              flags: {
+                polygon: {
+                  feature: {
+                    // Dragging a whole outline is almost never what you want
+                    // here and is easy to do by accident while reaching for a
+                    // vertex -- it would silently move a mapped feature off
+                    // the ground it was mapped from. Vertices only.
+                    draggable: false,
+                    rotateable: false,
+                    scaleable: false,
+                    coordinates: {
+                      midpoints: true,   // click a midpoint to add a vertex
+                      draggable: true,
+                      deletable: true    // right-click removes one
+                    }
                   }
                 }
               }
-            }
-          })]
+            })
+          ]
         });
         td.start();
         td.setMode('select');
-        td.addFeatures(toTDFeatures(d.polygons));
+        // addFeatures reports per-feature validity rather than throwing. Say
+        // so loudly: a silent rejection here is exactly the failure that looks
+        // like the tool simply not working.
+        var res = td.addFeatures(toTDFeatures(d.polygons)) || [];
+        var bad = res.filter(function (r) { return r && r.valid === false; });
+        if (bad.length) {
+          throw new Error('Terra Draw rejected ' + bad.length + ' of ' +
+                          feats.length + ' polygons: ' +
+                          (bad[0].reason || 'no reason given'));
+        }
         map.doubleClickZoom.disable();
-        return { name: d.unique_name, count: feats.length,
-                 roles: active.roles };
+        return { name: d.unique_name, count: feats.length, roles: active.roles };
       });
   }
 

@@ -6171,8 +6171,9 @@
             '<div class="rv-title">Revising <b>' + esc(info.name) + '</b>' +
             ' <span class="rv-count">' + info.count + ' polygon' +
             (info.count === 1 ? '' : 's') + '</span></div>' +
-            '<div class="rv-hint">Drag a vertex to move it, a midpoint to add one. ' +
-            'Select a polygon to drag it whole. Nothing is written until you save.</div>' +
+            '<div class="rv-hint">Click a polygon to select it, then drag a vertex to ' +
+            'move it or a midpoint to add one; right-click a vertex to remove it. ' +
+            'Nothing is written until you save.</div>' +
             '<div class="rv-actions">' +
             '  <button type="button" id="rv-save" class="rv-primary">Save</button>' +
             '  <button type="button" id="rv-revert">Revert</button>' +
