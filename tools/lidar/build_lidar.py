@@ -327,7 +327,18 @@ def apply_vertical_shift(ds, src, env):
         body = body.replace("</ComplexSource>", shift + "    </ComplexSource>")
     elif "<SimpleSource>" in body:
         n = body.count("</SimpleSource>")
-        nodata_el = f"      <NODATA>{nd:g}</NODATA>\n" if nd is not None else ""
+        # gdalinfo -json cannot express NaN in JSON, so a NaN-nodata source
+        # arrives here as the STRING "nan" and `:g` raises. GDAL's VRT accepts
+        # the literal text "nan", so pass it through rather than formatting it.
+        # (Found on lituya_2023, whose source uses NaN nodata; it only bit once
+        # the dataset gained a vertical_shift_m, since without one this whole
+        # function returns early.)
+        nodata_el = ""
+        if nd is not None:
+            try:
+                nodata_el = f"      <NODATA>{float(nd):g}</NODATA>\n"
+            except (TypeError, ValueError):
+                nodata_el = f"      <NODATA>{nd}</NODATA>\n"
         body = body.replace("<SimpleSource>", "<ComplexSource>").replace(
             "</SimpleSource>", nodata_el + shift + "    </ComplexSource>")
     else:
@@ -338,6 +349,22 @@ def apply_vertical_shift(ds, src, env):
     return vrt
 
 
+def _archive_shift(path, env):
+    """The vertical_shift_m an existing archive was built with, or None when it
+    was built before stamping existed (so we cannot tell)."""
+    try:
+        info = json.loads(subprocess.run(
+            [str(GDAL_BIN / "gdalinfo"), "-json", str(path)],
+            capture_output=True, text=True, env=env).stdout)
+    except Exception:
+        return None
+    v = (info.get("metadata", {}).get("", {}) or {}).get("vertical_shift_m")
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def build_archive(ds, env):
     src = Path(ds["src"])
     if not src.exists():
@@ -345,6 +372,29 @@ def build_archive(ds, env):
     OUT_COG.mkdir(parents=True, exist_ok=True)
     dst = OUT_COG / f"{ds['id']}.tif"
     if dst.exists():
+        # The skip is what makes a re-run of --stage all cheap. But it used to
+        # skip unconditionally, which made changing vertical_shift_m in the
+        # manifest a silent no-op: the archive kept the OLD datum while the
+        # tiles were regenerated from it, so the dataset looked rebuilt and was
+        # not. That is how lituya_2023 came out 0.639 m off on 2026-09-19 --
+        # caught only because a second survey covered the same seabed.
+        #
+        # So the archive now carries the shift it was built with, and a
+        # disagreement stops the build rather than being papered over.
+        want = float(ds.get("vertical_shift_m") or 0.0)
+        have = _archive_shift(dst, env)
+        if have is None:
+            print(f"  archive exists but predates shift stamping; "
+                  f"assuming it matches vertical_shift_m={want:g}: {dst}")
+        elif abs(have - want) > 1e-6:
+            sys.exit(
+                f"\n  ARCHIVE DATUM MISMATCH for {ds['id']}\n"
+                f"    the existing archive was built with vertical_shift_m="
+                f"{have:g}\n"
+                f"    the manifest now says vertical_shift_m={want:g}\n"
+                f"    Rebuilding the tiles alone would leave the old datum in\n"
+                f"    place. Delete the archive and re-run:\n"
+                f"      rm {dst}\n")
         print(f"  archive exists, skipping: {dst}")
         return dst
 
@@ -387,6 +437,9 @@ def build_archive(ds, env):
         # seam -- a step in the terrain at every zoom warped from overviews,
         # gone at full res. Always recompute from the pixels we ship.
         run([GDAL_BIN / "gdal_translate", "-of", "COG", *args,
+             # Stamp the shift into the file so a later run can tell whether
+             # this archive matches the manifest (see build_archive's skip).
+             "-mo", f"vertical_shift_m={float(ds.get('vertical_shift_m') or 0.0):g}",
              "-co", "COMPRESS=ZSTD", "-co", "LEVEL=9", "-co", "PREDICTOR=YES",
              "-co", "OVERVIEWS=IGNORE_EXISTING",
              "-co", "OVERVIEW_RESAMPLING=AVERAGE",
@@ -473,6 +526,7 @@ def build_archive(ds, env):
     # vendor COG used it and was 11.3 GB where ours without it was 19.4 GB.
     print("  archive: rewriting as COG with overviews")
     run([GDAL_BIN / "gdal_translate", "-of", "COG",
+         "-mo", f"vertical_shift_m={float(ds.get('vertical_shift_m') or 0.0):g}",
          "-co", "COMPRESS=ZSTD", "-co", "LEVEL=9", "-co", "PREDICTOR=YES",
          "-co", "OVERVIEW_RESAMPLING=AVERAGE",
          "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",

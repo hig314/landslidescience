@@ -348,9 +348,10 @@ def publish_audit(request):
     prod = request.build_absolute_uri('/').rstrip('/')
     rows, problems, meta = mod.audit(prod=prod, no_r2=not want_r2,
                                      catalog_dir=LIDAR_DIR)
+    # audit() already returns each row as the dict this template reads, 'bad'
+    # included; re-keying it here is how the two fell out of step before.
     return _render(request, 'pages/publish_audit.html', {
-        'rows': [{'id': r[0], 'state': r[1], 'built': r[2], 'r2': r[3],
-                  'in_cat': r[4], 'verdict': r[5],
-                  'bad': r[5].isupper() or 'NOT' in r[5]} for r in rows],
-        'problems': problems, 'meta': meta, 'want_r2': want_r2, 'prod': prod,
+        'rows': rows, 'problems': problems, 'meta': meta,
+        'uncredited': [r for r in rows if not r['source'] and r['state'] != 'retired'],
+        'want_r2': want_r2, 'prod': prod,
     })

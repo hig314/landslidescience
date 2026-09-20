@@ -479,12 +479,28 @@
 
   <div id="scatter-float" class="float-panel scatter-float hidden">
     <div id="scatter-handle" class="scatter-float-header float-header">
-      <span class="scatter-title">Susceptibility&nbsp; lw&nbsp;(x)&nbsp;×&nbsp;n10&nbsp;(y)</span>
-      <label class="scatter-prop-lbl" title="Landslide layer: raw centroid count per cell, or the per-mil proportion of terrain cells of that (lw,n10) value that contain a landslide centroid.">
+      <span class="scatter-title">Susceptibility</span>
+      <label class="scatter-axis-lbl" title="Model on the x axis.">
+        x
+        <select id="scatter-x">
+          <option value="lw" selected>lw</option>
+          <option value="n10">n10</option>
+          <option value="dggs">DGGS</option>
+        </select>
+      </label>
+      <label class="scatter-axis-lbl" title="Model on the y axis. Pick a different model from x — crossing a model with itself only draws its own diagonal.">
+        ×&nbsp;y
+        <select id="scatter-y">
+          <option value="lw">lw</option>
+          <option value="n10" selected>n10</option>
+          <option value="dggs">DGGS</option>
+        </select>
+      </label>
+      <label class="scatter-prop-lbl" title="Landslide layer: raw centroid count per cell, or the per-mil proportion of terrain cells of that value pair that contain a landslide centroid.">
         <input type="checkbox" id="scatter-prop"> proportion&nbsp;(‰)
       </label>
       <span id="scatter-count"></span>
-      <a href="#" id="scatter-clear" class="disabled" title="Reset the lw/n10 selection box to the full range. Drag a box on the plot first; this clears it.">clear box</a>
+      <a href="#" id="scatter-clear" class="disabled" title="Reset the lw/n10 selection box to the full range. Drag a box on the plot first; this clears it. Brushing drives the lw and n10 filters, so it is only available when both axes are those two models.">clear box</a>
       <button id="scatter-close" title="Close">&times;</button>
     </div>
     <div id="scatter-body">

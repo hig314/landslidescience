@@ -306,6 +306,15 @@ def main():
         if not cog.exists():
             print(f"  skip {did}: no archive COG yet", file=sys.stderr)
             continue
+        # The pyramid is what the viewer actually draws. A survey whose archive
+        # exists but whose tiles do not is mid-build: listing it advertises a
+        # pmtiles_url that 404s, and the viewer shows an entry that renders
+        # nothing. Caught the first time on pow_2018, catalogued from a build
+        # still running in another terminal.
+        if not pm.exists():
+            print(f"  skip {did}: no tile pyramid yet (still building?)",
+                  file=sys.stderr)
+            continue
 
         print(f"  footprint: {did}", file=sys.stderr)
         footprint.z_range = None
@@ -362,6 +371,9 @@ def main():
                 # a blank in the table is a question to answer, a wrong credit
                 # is worse than none.
                 "source": ds.get("source") or None,
+                # Where that credit can be checked: a DOI for the
+                # published deliveries, a landing page otherwise.
+                "source_url": ds.get("source_url") or None,
                 "z_min": z_range[0] if z_range else None,
                 "z_max": z_range[1] if z_range else None,
                 # The orthomosaic from the same flight, for the viewer to

@@ -16,6 +16,17 @@
  * second one would be the one that drifts. This edits what is already there:
  * geometry, role, and deletion.
  *
+ * KNOWN LOOSE END: NO CONCURRENCY GUARD
+ * -------------------------------------
+ * The same landslide can be open in the form's mini-editor and out here at the
+ * same time, and there is no version check between them: whoever saves second
+ * overwrites the first, silently. Left as-is deliberately (Hig, 2026-09-19) --
+ * the inventory has a handful of editors who do not work the same record at
+ * the same moment, and the cost of a collision is one re-edit against a
+ * history row that was already snapshotted. If editing ever becomes
+ * concurrent, the fix is to send the geometry's fetched-at stamp with the save
+ * and have manage/<id>/polygons/ refuse a write made against a stale one.
+ *
  * HOW IT SAVES
  * ------------
  * Through the same manage/<id>/polygons/ endpoint the form uses, which already

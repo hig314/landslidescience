@@ -68,9 +68,13 @@
             } else if (k === 'li') {
                 var liOut = {};
                 v.split(',').forEach(function (ent) {
-                    var m3 = /^([A-Za-z0-9_]+)\.([hk])((?:[lr]\d+)+)$/.exec(ent);
+                    // [hpk]: h hillshade, p the converged preset, k its
+                    // retired KBSP spelling (read-only, see LIDAR_CODE_PRESET).
+                    var m3 = /^([A-Za-z0-9_]+)\.([hpk])((?:[lr]\d+)+)$/.exec(ent);
                     if (!m3) return;
-                    var e3 = { preset: m3[2] === 'k' ? 'kbsp' : 'hillshade' };
+                    // 'k' is the retired KBSP code; it now resolves to the
+                    // converged 'preset' so old links keep working.
+                    var e3 = { preset: (m3[2] === 'p' || m3[2] === 'k') ? 'preset' : 'hillshade' };
                     m3[3].replace(/([lr])(\d+)/g, function (_, sideCh, pct) {
                         var o = Math.min(100, Math.max(0, parseInt(pct, 10))) / 100;
                         if (sideCh === 'l') { e3.left = true; e3.opLeft = o; }
@@ -129,7 +133,7 @@
                 var spec = '';
                 if (e.left)  spec += 'l' + Math.round((e.opLeft != null ? e.opLeft : 1) * 100);
                 if (e.right) spec += 'r' + Math.round((e.opRight != null ? e.opRight : 1) * 100);
-                if (spec) lip.push(id + '.' + (e.preset === 'kbsp' ? 'k' : 'h') + spec);
+                if (spec) lip.push(id + '.' + (e.preset === 'preset' ? 'p' : 'h') + spec);
             });
             if (lip.length) parts.push('li=' + lip.join(','));
         }

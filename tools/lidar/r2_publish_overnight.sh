@@ -33,23 +33,40 @@ say() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG"; }
 
 # HEAD, with a User-Agent: Cloudflare answers 403 to some default agents, and a
 # verifier that reports absence for everything would retry for ever.
+#
+# Presence is NOT the test. A survey rebuilt at a deeper zoom has the same key
+# on the bucket, so the stale file answers 200 and a presence check calls the
+# job done without uploading anything -- which is exactly what happened the
+# first time portage_2020 was deepened from z18 to z19. Compare the byte count
+# as well, which is what actually distinguishes the old file from the new one.
 on_bucket() {
+  key=$1; local_file=$2
   code=$(curl -s -o /dev/null -w '%{http_code}' -I --max-time 20 \
-         -A 'landslidescience-publish/1' "$BASE/$1")
-  [ "$code" = "200" ]
+         -A 'landslidescience-publish/1' "$BASE/$key")
+  [ "$code" = "200" ] || return 1
+  [ -n "${local_file:-}" ] && [ -f "$local_file" ] || return 0   # nothing to compare
+  remote=$(curl -s -I --max-time 20 -A 'landslidescience-publish/1' "$BASE/$key" \
+           | awk 'tolower($1) == "content-length:" { gsub(/\r/, "", $2); print $2 }')
+  want=$(wc -c < "$local_file" | tr -d ' ')
+  [ -n "$remote" ] || return 0                 # no length header: presence is all we have
+  [ "$remote" = "$want" ]
 }
 
 # What a survey is expected to have on the bucket, based on what exists locally.
+# Each line is "<bucket key> <local file>", so the verifier can compare sizes
+# rather than merely asking whether something is there.
 expected() {
   id=$1
-  [ -f "$COG_DIR/$id.tif" ] && echo "cog/$id.tif"
-  [ -f "$PM_DIR/$id.pmtiles" ] && echo "pmtiles/$id.pmtiles"
-  [ -f "$PM_DIR/${id}_slope.pmtiles" ] && echo "pmtiles/${id}_slope.pmtiles"
-  [ -f "$PM_DIR/${id}_ortho.pmtiles" ] && echo "pmtiles/${id}_ortho.pmtiles"
+  [ -f "$COG_DIR/$id.tif" ] && echo "cog/$id.tif $COG_DIR/$id.tif"
+  [ -f "$PM_DIR/$id.pmtiles" ] && echo "pmtiles/$id.pmtiles $PM_DIR/$id.pmtiles"
+  [ -f "$PM_DIR/${id}_slope.pmtiles" ] && echo "pmtiles/${id}_slope.pmtiles $PM_DIR/${id}_slope.pmtiles"
+  [ -f "$PM_DIR/${id}_ortho.pmtiles" ] && echo "pmtiles/${id}_ortho.pmtiles $PM_DIR/${id}_ortho.pmtiles"
 }
 
 missing_for() {
-  for k in $(expected "$1"); do on_bucket "$k" || echo "$k"; done
+  expected "$1" | while read -r k f; do
+    on_bucket "$k" "$f" || echo "$k"
+  done
 }
 
 run() {

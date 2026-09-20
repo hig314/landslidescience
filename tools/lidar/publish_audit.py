@@ -178,7 +178,12 @@ def _run(a):
             if in_cat is None:
                 verdict = "catalogue unreadable — cannot tell"
             elif not in_cat:
-                verdict = "built, NOT YET PUBLISHED"
+                # "built but unpublished" and "not built at all" are different
+                # jobs -- one wants an upload, the other wants a build -- and
+                # the first reads as an alarm. Only say it when the pyramid is
+                # actually there.
+                verdict = ("built, NOT YET PUBLISHED" if local[0] == "P"
+                           else "not built yet")
             elif r2[0] != "P" and not a.no_r2:
                 verdict = "LISTED BUT NOT ON R2 — reader sees nothing"
             elif local[2] == "o" and r2[2] != "o" and not a.no_r2:
@@ -187,7 +192,20 @@ def _run(a):
                 verdict = "ok"
         if verdict.isupper() or "NOT" in verdict:
             problems.append((did, verdict))
-        rows.append((did, state, local, r2, in_cat, verdict))
+        rows.append({"id": did, "state": state, "built": local, "r2": r2,
+                     "in_cat": in_cat, "verdict": verdict,
+                     # Who made the survey, carried straight from the
+                     # manifest: this page is where a missing credit is
+                     # meant to be noticed and filled in.
+                     "source": (ds.get("source") or "")
+                               .replace(" (to confirm)", "") or None,
+                     "source_url": ds.get("source_url") or None,
+                     # An attribution inferred from file naming or a partial
+                     # match, rather than read off a metadata record. It is
+                     # still shown -- a lead beats a blank -- but marked, so
+                     # nobody cites it as though it were established.
+                     "source_tentative": "(to confirm)" in (ds.get("source") or ""),
+                     "bad": verdict.isupper() or "NOT" in verdict})
 
     if gated_status is not None and gated_status not in (401, 403):
         problems.append(("catalog-gated.geojson",
@@ -198,12 +216,14 @@ def _run(a):
 
 
 def _print(rows, problems, meta, prod):
-    w = max(len(r[0]) for r in rows) + 1
-    print(f"\n  {'survey':{w}} {'state':9} {'built':6} {'R2':5} {'cat':4} verdict")
-    print(f"  {'-' * w} {'-' * 9} {'-' * 6} {'-' * 5} {'-' * 4} {'-' * 40}")
-    for did, state, local, r2, in_cat, verdict in rows:
-        flag = "?" if in_cat is None else ("yes" if in_cat else "no")
-        print(f"  {did:{w}} {state:9} {local:6} {r2:5} {flag:4} {verdict}")
+    w = max(len(r["id"]) for r in rows) + 1
+    print(f"\n  {'survey':{w}} {'state':9} {'built':6} {'R2':5} {'cat':4} {'src':4} verdict")
+    print(f"  {'-' * w} {'-' * 9} {'-' * 6} {'-' * 5} {'-' * 4} {'-' * 4} {'-' * 40}")
+    for r in rows:
+        flag = "?" if r["in_cat"] is None else ("yes" if r["in_cat"] else "no")
+        src = "yes" if r["source"] else "--"
+        print(f"  {r['id']:{w}} {r['state']:9} {r['built']:6} {r['r2']:5} "
+              f"{flag:4} {src:4} {r['verdict']}")
 
     print("\n  built = Pyramid / slope / ortho / COG present locally; R2 = same, on the bucket")
     pc = meta["public_count"]
@@ -212,6 +232,10 @@ def _print(rows, problems, meta, prod):
     gs = meta["gated_status"]
     print(f"  gated catalogue, asked anonymously: {gs} "
           f"{'(correctly refused)' if gs in (401, 403) else '<-- SHOULD BE 403'}")
+    uncredited = [r["id"] for r in rows if not r["source"] and r["state"] != "retired"]
+    if uncredited:
+        print(f"\n  {len(uncredited)} survey(s) with no source recorded: "
+              f"{', '.join(uncredited)}")
     if problems:
         print(f"\n  {len(problems)} thing(s) a reader would see as broken:")
         for did, v in problems:

@@ -1,6 +1,7 @@
 from django.urls import path, re_path
 
-from . import dist, insar, opera, photos, table_data, trace_views, views
+from . import (dist, insar, opera, photos, susc_dggs, table_data, trace_views,
+               views)
 
 app_name = 'inventory'
 
@@ -62,6 +63,11 @@ urlpatterns = [
     re_path(r'^tiles/dist/(?P<layer>alert|ann)/(?P<date>\d{4}-\d{2}-\d{2}|all)'
             r'/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             dist.dist_tile, name='dist_tile'),
+    # Alaska DGGS deep-seated landslide susceptibility (PIR 2025-3), proxied
+    # and disk-cached from their dynamic MapServer (public; see
+    # inventory/susc_dggs.py for why it is proxied rather than linked).
+    re_path(r'^tiles/dggs_susc/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
+            susc_dggs.dggs_susc_tile, name='dggs_susc_tile'),
     path('api/dist_dates/', dist.dist_dates, name='dist_dates'),
     path('api/dist_coverage/', dist.dist_coverage, name='dist_coverage'),
     path('api/timed_events/', views.api_timed_events, name='api_timed_events'),

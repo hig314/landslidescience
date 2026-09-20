@@ -597,6 +597,18 @@ body.inv-article-body {
     display: inline-flex; align-items: center; gap: 3px;
     font-size: 10px; color: #555; white-space: nowrap; cursor: pointer;
 }
+.scatter-float-header .scatter-axis-lbl {
+    display: inline-flex; align-items: center; gap: 2px;
+    font-size: 10px; color: #555; white-space: nowrap; cursor: pointer;
+}
+.scatter-float-header .scatter-axis-lbl select {
+    font-size: 10px; padding: 0 2px; max-width: 5.5em;
+    border: 1px solid #ccc; border-radius: 3px; background: #fff; color: #333;
+}
+/* The catch swatch sits at the left of the landslide legend bar and has no
+   lower edge label, so give the bar's first cell a hairline to mark it off
+   from the ramp proper. */
+.scatter-legend-foot .leg-bar span:first-child { box-shadow: inset -1px 0 0 #fff; }
 .scatter-legend-foot {
     flex-shrink: 0;
     border-top: 1px solid #eee;

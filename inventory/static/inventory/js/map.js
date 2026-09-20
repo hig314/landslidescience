@@ -56,8 +56,12 @@
             // Points key on the landslide id; polygons carry landslide_id.
             var key = ft.properties.id != null ? ft.properties.id : ft.properties.landslide_id;
             var v = SUSC_VALUES[String(key)];
-            ft.properties.n10 = (v && v.n10 != null) ? v.n10 : null;
-            ft.properties.lw  = (v && v.lw  != null) ? v.lw  : null;
+            ft.properties.n10  = (v && v.n10  != null) ? v.n10  : null;
+            ft.properties.lw   = (v && v.lw   != null) ? v.lw   : null;
+            // DGGS is null where the model does not apply (its lake/river/
+            // glacier class) as well as off-raster — both mean "no statement",
+            // which is what the scatter needs to exclude.
+            ft.properties.dggs = (v && v.dggs != null) ? v.dggs : null;
         });
     }
 
@@ -110,8 +114,10 @@
     // leave lidar alone. This is what makes a stored default view reproduce
     // the lidar an editor had on when they set it (Hig, 2026-09-13).
     // ---------------------------------------------------------------------------
-    var LIDAR_PRESET_CODE = { hillshade: 'h', kbsp: 'k' };
-    var LIDAR_CODE_PRESET = { h: 'hillshade', k: 'kbsp' };
+    var LIDAR_PRESET_CODE = { hillshade: 'h', preset: 'p' };
+    // 'k' is the retired KBSP code, kept as a read-only alias so links and
+    // saved views made before 2026-09-20 still resolve. Nothing writes it.
+    var LIDAR_CODE_PRESET = { h: 'hillshade', p: 'preset', k: 'preset' };
     function parseHashState(hashStr) {
         var h = hashStr != null ? hashStr : (location.hash || '');
         if (h.charAt(0) === '#') h = h.substring(1);
@@ -1628,6 +1634,46 @@
         };
     }
 
+    // Alaska DGGS deep-seated landslide susceptibility (PIR 2025-3, Wikstrom
+    // Jones & Larsen 2025). Proxied and disk-cached by inventory/susc_dggs.py
+    // — DGGS serves it only as a dynamic MapServer, and that service returned
+    // 504 for half an hour the day this was built, so the cache is what makes
+    // it dependable. Bump when the cached pixels change (a DGGS republish, or
+    // a change to the class-0 handling in susc_dggs.py); the tile route
+    // promises browsers 30 days.
+    // v2 (2026-09-20): rebaked after the tiles were found to stop at 67.65 N.
+    // The bound had been derived from the VRT's corner-based wgs84Extent, and
+    // under Alaska Albers the corners are not the extreme latitudes -- the top
+    // edge reaches 71.53 N, so the Brooks Range and North Slope were missing.
+    // The tile route sends `immutable, max-age=1yr`, so a rebuild is invisible
+    // to anyone who has already loaded the layer until this is bumped.
+    var DGGS_SUSC_V = '2';
+    // maxzoom 14 is THEIR limit, not a choice: the layer carries
+    // maxScale 36000 and z15 comes back blank. Declaring it makes MapLibre
+    // overzoom the z14 tile instead of requesting empties.
+    function _dggsSuscSourceDef() {
+        return {
+            type: 'raster',
+            // Self-hosted baked tiles, coloured from tools/dggs_susc_color.txt
+            // on the same YlOrRd scale as the USGS pair. This replaced the live
+            // proxy at inventory/susc_dggs.py once the raster was recovered:
+            // no dependence on a service that returned 504 repeatedly, and the
+            // colours match the layers it sits beside. The proxy route is left
+            // in place — it still works, and it is the fallback if the bake is
+            // ever dropped.
+            //
+            // maxzoom 12 is the data's own ceiling: the source is a 20 m grid,
+            // which is 19.1 m/px at z12 for 60 N, so z13 would only invent
+            // detail. The client overzooms above it.
+            tiles: [SUSC_TILE_BASE + 'dggs/{z}/{x}/{y}.png?v=' + DGGS_SUSC_V],
+            tileSize: 256,
+            minzoom: 3,
+            maxzoom: 12,
+            attribution: 'Deep-seated landslide susceptibility: Alaska DGGS, ' +
+                         'Wikstrom Jones & Larsen 2025 (PIR 2025-3)'
+        };
+    }
+
     // ---------------------------------------------------------------------------
     // Raster overlays — one framework for the USGS susceptibility models and the
     // OPERA InSAR velocity mosaics. Each overlay has a PANE (off | left | both |
@@ -2137,6 +2183,13 @@
         { id: 'susc-n10',   layerId: 'susc-n10-layer',  sourceId: 'susc-n10',
           label: 'Susceptibility — n10', sub: 'USGS Belair et al. 2024, 90 m',
           sourceDef: function () { return _suscSourceDef(SUSC_LAYERS[1]); }, defOpacity: 1 },
+        // The state's own model, beside the two USGS ones: different method
+        // (rock strength x slope class, not a statistical fit), different
+        // agency, same question.
+        { id: 'susc-dggs', layerId: 'ov-susc-dggs', sourceId: 'ov-susc-dggs-src',
+          label: 'Susceptibility — DGGS',
+          sub: 'Alaska DGGS PIR 2025-3 · rock strength × slope · 20 m',
+          sourceDef: function () { return _dggsSuscSourceDef(); }, defOpacity: 0.8 },
         { id: 'opera-asc',  layerId: 'ov-opera-asc',    sourceId: 'ov-opera-asc-src',
           label: 'OPERA velocity — ascending', sub: 'InSAR, ±30 mm/yr · NASA/JPL + ASF',
           sourceDef: function () { return _operaSourceDef('asc'); }, defOpacity: 0.75 },
@@ -3605,7 +3658,8 @@
     // explicit user toggle overrides that, persisted per browser.
     // -----------------------------------------------------------------------
     var _OV_CATS = [
-        { key: 'susc',  label: 'Landslide susceptibility', ids: ['susc-lw', 'susc-n10'] },
+        { key: 'susc',  label: 'Landslide susceptibility',
+          ids: ['susc-lw', 'susc-n10', 'susc-dggs'] },
         { key: 'insar', label: 'InSAR ground motion',
           ids: ['opera-asc', 'opera-desc', 'coh-summer'] },
         // 'dist-alert' stays listed although it is retired: _ovRenderGrouped
@@ -4258,8 +4312,14 @@
     var LIDAR_PRESETS = {
         hillshade: { label: 'Hillshade',
                      opts: { hs: 1, sl: 0, md: 0, as: 0, az: 315, alt: 45, ve: 1, bl: 0 } },
-        kbsp:      { label: 'KBSP (mod5+slope)',
-                     opts: { hs: 1, sl: 0.6, md: 1, as: 0, az: 315, alt: 45, ve: 1, bl: 0 } }
+        // The same view /lidar/ calls "Preset", to the parameter: mod-5 base at
+        // full strength, slope at 0.6, hillshade over the top in HARD LIGHT.
+        // It was 'KBSP (mod5+slope)' here with bl:0 (Overlay), which lets the
+        // ramp decide and washes the shading out wherever the ramp is pale —
+        // which is most of a mod-5 base. Converged 2026-09-20 so the two
+        // viewers mean the same thing by the same word.
+        preset:    { label: 'Preset',
+                     opts: { hs: 1, sl: 0.6, md: 1, as: 0, az: 315, alt: 45, ve: 1, bl: 2 } }
     };
 
     function _lidarFetch() {
@@ -4587,9 +4647,23 @@
             // Too far out for the rasters themselves to mean anything — but
             // uploading one is not a display act, so the form stays available;
             // only the overlay list is withheld until the view is close enough.
-            hint.textContent = 'Zoom to z' + RASTER_UI_ZOOM +
-                ' to load lidar or uploaded imagery.';
+            //
+            // EXCEPT anything already switched ON. Its layer keeps drawing at
+            // every zoom, so withholding the only control that turns it off
+            // strands the user with a survey they cannot reach — which is
+            // exactly what happens when you turn one on and then zoom out to
+            // see it in context. Show those rows and nothing else.
+            var onNow = Object.keys(_lidarActive);
+            hint.textContent = onNow.length
+                ? 'Zoom to z' + RASTER_UI_ZOOM + ' to add more. Showing what is on:'
+                : 'Zoom to z' + RASTER_UI_ZOOM + ' to load lidar or uploaded imagery.';
             wrap.appendChild(hint);
+            onNow.forEach(function (id) {
+                var f = _lidarCatalog && _lidarCatalog.features.filter(function (x) {
+                    return x.properties.id === id;
+                })[0];
+                if (f) wrap.appendChild(_lidarRow(f.properties, map, _lidarActive));
+            });
             if (window._isInventoryEditor) wrap.appendChild(_buildTraceUI({ far: true }));
             return;
         }
@@ -4635,8 +4709,18 @@
         var hint = document.createElement('div');
         hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:6px;line-height:1.35;';
         if (map.getZoom() < RASTER_UI_ZOOM) {
-            hint.textContent = 'Zoom to z' + RASTER_UI_ZOOM + ' to load lidar here.';
+            // Same rule as the main pane: whatever is on stays reachable.
+            var onR = Object.keys(_lidarActiveR);
+            hint.textContent = onR.length
+                ? 'Zoom to z' + RASTER_UI_ZOOM + ' to add more. Showing what is on:'
+                : 'Zoom to z' + RASTER_UI_ZOOM + ' to load lidar here.';
             wrap.appendChild(hint);
+            onR.forEach(function (id) {
+                var f = _lidarCatalog && _lidarCatalog.features.filter(function (x) {
+                    return x.properties.id === id;
+                })[0];
+                if (f) wrap.appendChild(_lidarRow(f.properties, cmap, _lidarActiveR));
+            });
             return wrap;
         }
         var ids = Object.keys(_lidarBbox).filter(function (id) {
@@ -8013,6 +8097,38 @@
     // ===========================================================================
     var SVGNS = 'http://www.w3.org/2000/svg';
     var SUSC_VMAX = 81;
+
+    // THE THREE MODELS the scatter can cross. `bins` is how many columns the
+    // axis has; `val(i)`/`idx(v)` convert between a bin index and the model's
+    // own value, which differ for DGGS: its classes are 0,3,5,6,7,8,9,10, an
+    // ORDINAL scale whose numbers are labels rather than a measured quantity.
+    // Plotting them at their numeric positions would imply a linearity the
+    // model does not claim, so the axis is evenly spaced by class position and
+    // the tick labels carry the class numbers.
+    var DGGS_CLASSES = [0, 3, 5, 6, 7, 8, 9, 10];
+    var SUSC_MODELS = {
+        lw:   { key: 'lw',   label: 'lw',   bins: SUSC_VMAX + 1, ordinal: false,
+                sub: 'USGS Belair 2024',
+                val: function (i) { return i; }, idx: function (v) { return v; },
+                ticks: [0, 20, 40, 60, 81] },
+        n10:  { key: 'n10',  label: 'n10',  bins: SUSC_VMAX + 1, ordinal: false,
+                sub: 'USGS Belair 2024',
+                val: function (i) { return i; }, idx: function (v) { return v; },
+                ticks: [0, 20, 40, 60, 81] },
+        dggs: { key: 'dggs', label: 'DGGS', bins: DGGS_CLASSES.length, ordinal: true,
+                sub: 'Alaska DGGS PIR 2025-3',
+                val: function (i) { return DGGS_CLASSES[i]; },
+                idx: function (v) { var i = DGGS_CLASSES.indexOf(v); return i < 0 ? null : i; },
+                ticks: DGGS_CLASSES.slice() }
+    };
+    var _scX = 'lw', _scY = 'n10';                 // current axes
+    function _scMX() { return SUSC_MODELS[_scX]; }
+    function _scMY() { return SUSC_MODELS[_scY]; }
+    // Brushing drives the lw / n10 filter sliders, and those are the only two
+    // susceptibility filters the inventory has. With DGGS on an axis there is
+    // nothing to drive, so the brush is disabled rather than silently setting
+    // the wrong filter.
+    function _scBrushable() { return _scX !== 'dggs' && _scY !== 'dggs'; }
     var _scDims = null;   // {x0,y0,w,h} plot rect in px; set by scatterDrawAll
     var scatterSvg  = document.getElementById('scatter-svg');
     var scatterHeat = document.getElementById('scatter-heat');
@@ -8022,10 +8138,26 @@
         for (var k in attrs) el.setAttribute(k, attrs[k]);
         return el;
     }
-    function _scVx(lw)  { return _scDims.x0 + (lw  / SUSC_VMAX) * _scDims.w; }
-    function _scVy(n10) { return _scDims.y0 + (1 - n10 / SUSC_VMAX) * _scDims.h; }
-    function _scPxToLw(px)  { return Math.max(0, Math.min(SUSC_VMAX, Math.round((px - _scDims.x0) / _scDims.w * SUSC_VMAX))); }
-    function _scPxToN10(py) { return Math.max(0, Math.min(SUSC_VMAX, Math.round((1 - (py - _scDims.y0) / _scDims.h) * SUSC_VMAX))); }
+    // Positions are in BIN INDEX space (0 .. bins-1), so both a 0-81 USGS axis
+    // and an 8-class DGGS axis lay out the same way.
+    // Every bin owns a SLOT of equal width. The axis used to run from the
+    // FIRST value's position to the LAST value's position, which meant the
+    // maximum bin's cell began exactly at the plot edge and had nowhere to
+    // extend — the top row and right column drew as slivers, obvious once the
+    // panel was stretched. Slots also make an 8-class DGGS axis and an 82-bin
+    // USGS axis lay out on the same rule.
+    function _scSlotX() { return _scDims.w / _scMX().bins; }
+    function _scSlotY() { return _scDims.h / _scMY().bins; }
+    function _scVx(i) { return _scDims.x0 + i * _scSlotX(); }                    // left edge of slot i
+    function _scVy(i) { return _scDims.y0 + _scDims.h - (i + 1) * _scSlotY(); }  // top edge of slot i
+    function _scCx(i) { return _scVx(i) + _scSlotX() / 2; }                      // slot centre, for ticks
+    function _scCy(i) { return _scVy(i) + _scSlotY() / 2; }
+    function _scPxToX(px) { return Math.max(0, Math.min(_scMX().bins - 1, Math.floor((px - _scDims.x0) / _scSlotX()))); }
+    function _scPxToY(py) { return Math.max(0, Math.min(_scMY().bins - 1, Math.floor((_scDims.y0 + _scDims.h - py) / _scSlotY()))); }
+    // Kept under their old names for the brush code, which only runs when both
+    // axes are the 0-81 USGS models and bin index therefore equals value.
+    function _scPxToLw(px)  { return _scPxToX(px); }
+    function _scPxToN10(py) { return _scPxToY(py); }
 
     function scatterDrawAll() {
         if (!scatterSvg || !scatterPanel || scatterPanel.classList.contains('hidden')) return;
@@ -8038,21 +8170,26 @@
         // axes box
         scatterSvg.appendChild(_svgEl('rect', { x: _scDims.x0, y: _scDims.y0, width: _scDims.w, height: _scDims.h,
             fill: 'none', stroke: '#ddd', 'stroke-width': 1 }));
-        // ticks + labels
-        [0, 20, 40, 60, 81].forEach(function (t) {
-            var x = _scVx(t), y = _scVy(t);
+        // ticks + labels, from each axis's own model
+        _scMX().ticks.forEach(function (t) {
+            var i = _scMX().idx(t); if (i == null) return;
+            var x = _scCx(i);
             scatterSvg.appendChild(_svgEl('line', { x1: x, y1: _scDims.y0 + _scDims.h, x2: x, y2: _scDims.y0 + _scDims.h + 3, stroke: '#bbb' }));
             var xl = _svgEl('text', { x: x, y: _scDims.y0 + _scDims.h + 13, 'text-anchor': 'middle', 'font-size': 9, fill: '#888' });
             xl.textContent = t; scatterSvg.appendChild(xl);
+        });
+        _scMY().ticks.forEach(function (t) {
+            var i = _scMY().idx(t); if (i == null) return;
+            var y = _scCy(i);
             scatterSvg.appendChild(_svgEl('line', { x1: _scDims.x0 - 3, y1: y, x2: _scDims.x0, y2: y, stroke: '#bbb' }));
             var yl = _svgEl('text', { x: _scDims.x0 - 5, y: y + 3, 'text-anchor': 'end', 'font-size': 9, fill: '#888' });
             yl.textContent = t; scatterSvg.appendChild(yl);
         });
         var xt = _svgEl('text', { x: _scDims.x0 + _scDims.w / 2, y: H - 1, 'text-anchor': 'middle', 'font-size': 9, fill: '#666' });
-        xt.textContent = 'lw →'; scatterSvg.appendChild(xt);
+        xt.textContent = _scMX().label + ' →'; scatterSvg.appendChild(xt);
         var yt = _svgEl('text', { x: 9, y: _scDims.y0 + _scDims.h / 2, 'text-anchor': 'middle', 'font-size': 9, fill: '#666',
             transform: 'rotate(-90 9 ' + (_scDims.y0 + _scDims.h / 2) + ')' });
-        yt.textContent = 'n10 →'; scatterSvg.appendChild(yt);
+        yt.textContent = _scMY().label + ' →'; scatterSvg.appendChild(yt);
 
         // (landslides are drawn as a grid on the canvas in scatterDrawHeat)
         // selection box + transient drag rect (positioned later)
@@ -8070,6 +8207,7 @@
         if (!scatterSvg || !_scDims) return;
         var box = document.getElementById('scatter-box');
         if (!box || !suscLwDual || !suscN10Dual) return;
+        if (!_scBrushable()) { box.setAttribute('display', 'none'); return; }
         var lwLo = parseFloat(suscLwDual.minEl.value), lwHi = parseFloat(suscLwDual.maxEl.value);
         var nLo  = parseFloat(suscN10Dual.minEl.value), nHi = parseFloat(suscN10Dual.maxEl.value);
         var active = lwLo > 0 || lwHi < SUSC_VMAX || nLo > 0 || nHi < SUSC_VMAX;
@@ -8078,8 +8216,10 @@
         var clr = document.getElementById('scatter-clear');
         if (clr) clr.classList.toggle('disabled', !active);
         if (!active) { box.setAttribute('display', 'none'); return; }
-        var x = _scVx(lwLo), w = _scVx(lwHi) - x;
-        var y = _scVy(nHi),  h = _scVy(nLo) - y;
+        // Inclusive of both end slots: from the left edge of the low bin to the
+        // right edge of the high one.
+        var x = _scVx(lwLo), w = _scVx(lwHi + 1) - x;
+        var y = _scVy(nHi),  h = (_scVy(nLo) + _scSlotY()) - y;
         box.setAttribute('x', x); box.setAttribute('y', y);
         box.setAttribute('width', Math.max(0, w)); box.setAttribute('height', Math.max(0, h));
         box.setAttribute('display', 'block');
@@ -8098,19 +8238,54 @@
     // luminance, not just hue. Darkest blue (#5793c3) ≈ L0.54; lightest red
     // (#d7301f) ≈ L0.32.
     var TERRAIN_RAMP = ['#f7fbff','#d8e7f5','#b3d0e8','#86b3d8','#5793c3'];
-    var LS_RAMP      = ['#d7301f','#a50f15','#7a0a10','#560409','#380006'];
+    // ColorBrewer YlOrRd, 7 classes, plus a distinct CATCH colour at the bottom.
+    //
+    // The old ramp was five dark reds ending #560409 / #380006 — two values so
+    // close that the top two bins were not tellable apart, while quantile
+    // binning in proportion mode piled a large share of cells into the last
+    // bin anyway. This spreads the range over more steps that stay distinct at
+    // the dark end, and pairs with the log binner below.
+    //
+    // LS_CATCH is deliberately outside the ramp's hue: it means "some, but
+    // below the bottom of the scale", which is a different statement from
+    // "the least of the values on the scale". Keeping it off-ramp stops a
+    // reader integrating it into the gradient by eye.
+    var LS_CATCH     = '#bcbddc';
+    var LS_RAMP      = ['#ffeda0','#fed976','#feb24c','#fd8d3c','#fc4e2a','#e31a1c','#b10026'];
     var CELL_KM2 = 0.09 * 0.09;       // one 90 m raster cell = 0.0081 km²
     var P_PER_KKM2 = 1000 / CELL_KM2; // fraction -> landslides per 1000 km²
     var _lsGrid = null;               // landslide centroid counts per (lw,n10) cell
 
-    function scatterComputeLsGrid() {
-        var B = SUSC_TERRAIN ? SUSC_TERRAIN.size : 82;
-        var g = new Int32Array(B * B);
+    // The terrain backdrop for the active pair. susc_terrain_density.json stores
+    // one grid per unordered pair ("lw|n10", "lw|dggs", "n10|dggs"); if the
+    // axes are the other way round the same grid is transposed rather than
+    // stored twice.
+    function _scTerrain() {
+        if (!SUSC_TERRAIN || !SUSC_TERRAIN.pairs) return null;
+        var direct = SUSC_TERRAIN.pairs[_scX + '|' + _scY];
+        if (direct) return { xsize: direct.xsize, ysize: direct.ysize,
+                             grid: direct.grid, flip: false };
+        var rev = SUSC_TERRAIN.pairs[_scY + '|' + _scX];
+        if (rev) return { xsize: rev.ysize, ysize: rev.xsize,
+                          grid: rev.grid, flip: true };
+        return null;
+    }
+    function _scTerrainAt(t, xi, yi) {
+        return t.flip ? t.grid[xi * t.ysize + yi] : t.grid[yi * t.xsize + xi];
+    }
+
+    function scatterComputeLsGrid(t) {
+        var g = new Int32Array(t.xsize * t.ysize);
         if (_featuresData && _featuresData.features) {
+            var mx = _scMX(), my = _scMY();
             _featuresData.features.forEach(function (ft) {
                 var p = ft.properties;
-                if (p.n10 == null || p.lw == null) return;
-                g[p.n10 * B + p.lw]++;
+                var xv = p[_scX], yv = p[_scY];
+                if (xv == null || yv == null) return;
+                var xi = mx.idx(xv), yi = my.idx(yv);
+                if (xi == null || yi == null) return;
+                if (xi < 0 || xi >= t.xsize || yi < 0 || yi >= t.ysize) return;
+                g[yi * t.xsize + xi]++;
             });
         }
         _lsGrid = g; return g;
@@ -8132,6 +8307,33 @@
     // log-spaced binner over [lo, hi] (edges as an array, same shape as above).
     // Used for the count layer: counts are skewed integers (mostly 1, a few high),
     // where quantile bins collapse on ties — log spreads the high tail across colors.
+    // Log binner with a CATCH bin for values above zero but below the scale.
+    //
+    // Returns n+1 bins: bin 0 is the catch, bins 1..n are log-spaced over
+    // [lo, hi]. `hi` is the largest observed value, so the top of the scale is
+    // always reached by something and the darkest colour means "the most there
+    // is", not "anything past some fixed threshold".
+    //
+    // DECADES sets how far down the scale runs before the catch takes over.
+    // Three decades keeps the bins meaningful when one cell is thousands of
+    // times denser than another, which is the usual shape here.
+    var LOG_DECADES = 3;
+    function _logCatchBinner(hi, n) {
+        var top = hi > 0 ? hi : 1;
+        var lo = top / Math.pow(10, LOG_DECADES);
+        var a = Math.log(lo), b = Math.log(top), d = (b - a) || 1, edges = [0, lo];
+        for (var i = 1; i <= n; i++) edges.push(Math.exp(a + d * i / n));
+        return {
+            edges: edges,       // [0, lo, ...n log edges] -> n+1 bins
+            catch_: true,
+            bin: function (v) {
+                if (v <= 0) return 0;
+                if (v < lo) return 0;                       // the catch
+                var k = Math.floor((Math.log(v) - a) / d * n);
+                return Math.max(1, Math.min(n, k + 1));
+            }
+        };
+    }
     function _logBinner(lo, hi, n) {
         var a = Math.log(lo), b = Math.log(hi), d = (b - a) || 1, edges = [];
         for (var i = 0; i <= n; i++) edges.push(Math.exp(a + d * i / n));
@@ -8150,13 +8352,17 @@
         if (a >= 0.01) return v.toFixed(2);
         return v.toExponential(1);
     }
-    function _cellRect(l, n) { var x0 = _scVx(l), y0 = _scVy(n + 1); return [x0, y0, (_scVx(l + 1) - x0) + 0.6, (_scVy(n) - y0) + 0.6]; }
+    // +0.6 closes the hairline seams between adjacent fills on fractional
+    // device pixels; the slot itself is the true cell size.
+    function _cellRect(xi, yi) { return [_scVx(xi), _scVy(yi), _scSlotX() + 0.6, _scSlotY() + 0.6]; }
 
     // Terrain-density backdrop (pale, binned) + landslide grid (dark) on top.
     // Landslide layer = raw centroid count, or (proportion mode) the fraction of
     // terrain cells of that (lw,n10) value that contain a centroid (drawn ‰).
     function scatterDrawHeat() {
         if (!scatterHeat || !_scDims || !SUSC_TERRAIN) return;
+        var T = _scTerrain();
+        if (!T) return;
         var body = scatterHeat.parentNode;
         var W = body.clientWidth, H = body.clientHeight;
         var dpr = window.devicePixelRatio || 1;
@@ -8165,37 +8371,44 @@
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, W, H);
 
-        var B = SUSC_TERRAIN.size, tgrid = SUSC_TERRAIN.grid;
-        scatterComputeLsGrid();
+        var NX = T.xsize, NY = T.ysize, N = NX * NY;
+        scatterComputeLsGrid(T);
         var pe = document.getElementById('scatter-prop');
         var propMode = pe && pe.checked;
 
-        var i, r;
+        var i, r, xi, yi, tv;
         // terrain layer (pale, quintile bins over the nonzero cells)
         var tVals = [];
-        for (i = 0; i < B * B; i++) if (tgrid[i]) tVals.push(tgrid[i]);
+        for (yi = 0; yi < NY; yi++) for (xi = 0; xi < NX; xi++) {
+            tv = _scTerrainAt(T, xi, yi); if (tv) tVals.push(tv);
+        }
         var tBins = _quantileBinner(tVals, TERRAIN_RAMP.length);
-        for (i = 0; i < B * B; i++) {
-            if (!tgrid[i]) continue;
-            r = _cellRect(i % B, (i / B) | 0);
-            ctx.fillStyle = TERRAIN_RAMP[tBins.bin(tgrid[i])];
+        for (yi = 0; yi < NY; yi++) for (xi = 0; xi < NX; xi++) {
+            tv = _scTerrainAt(T, xi, yi); if (!tv) continue;
+            r = _cellRect(xi, yi);
+            ctx.fillStyle = TERRAIN_RAMP[tBins.bin(tv)];
             ctx.fillRect(r[0], r[1], r[2], r[3]);
         }
-        // landslide layer (dark). Proportion = quantile (continuous, even bins);
-        // count = log (skewed integers — quantile would collapse on ties).
-        var lsVals = new Float64Array(B * B), lsNonzero = [], lsMax = 0, v;
-        for (i = 0; i < B * B; i++) {
+        // Landslide layer. BOTH modes are log now, scaled to the largest value
+        // present, with a catch bin under the scale — proportion used to be
+        // quantile-binned, which put a large share of cells in the top colour
+        // and made the plot read as saturated wherever anything happened.
+        var lsVals = new Float64Array(N), lsMax = 0, v;
+        for (yi = 0; yi < NY; yi++) for (xi = 0; xi < NX; xi++) {
+            i = yi * NX + xi;
             if (!_lsGrid[i]) continue;
-            v = propMode ? (tgrid[i] > 0 ? _lsGrid[i] / tgrid[i] : 0) : _lsGrid[i];
+            tv = _scTerrainAt(T, xi, yi);
+            v = propMode ? (tv > 0 ? _lsGrid[i] / tv : 0) : _lsGrid[i];
             lsVals[i] = v;
-            if (v > 0) { lsNonzero.push(v); if (v > lsMax) lsMax = v; }
+            if (v > lsMax) lsMax = v;
         }
-        var lBins = propMode ? _quantileBinner(lsNonzero, LS_RAMP.length)
-                             : _logBinner(1, lsMax || 1, LS_RAMP.length);
-        for (i = 0; i < B * B; i++) {
+        var lBins = _logCatchBinner(lsMax, LS_RAMP.length);
+        for (yi = 0; yi < NY; yi++) for (xi = 0; xi < NX; xi++) {
+            i = yi * NX + xi;
             if (!lsVals[i]) continue;
-            r = _cellRect(i % B, (i / B) | 0);
-            ctx.fillStyle = LS_RAMP[lBins.bin(lsVals[i])];
+            r = _cellRect(xi, yi);
+            var b = lBins.bin(lsVals[i]);
+            ctx.fillStyle = b === 0 ? LS_CATCH : LS_RAMP[b - 1];
             ctx.fillRect(r[0], r[1], r[2], r[3]);
         }
         scatterRenderLegend(tBins.edges, lBins.edges, propMode);
@@ -8209,6 +8422,17 @@
                 return '<span style="background:' + c + '" title="' + fmt(edges[i]) + ' – ' + fmt(edges[i + 1]) + '"></span>';
             }).join('') + '</div>';
         }
+        // The landslide bar carries one extra swatch at the left: values above
+        // zero but below the bottom of the log scale. It is labelled '>0' since
+        // its upper edge is the scale's floor, not a value anything reaches.
+        function barCatch(ramp, edges, fmt) {
+            var out = '<div class="leg-bar"><span style="background:' + LS_CATCH +
+                      '" title="above zero, below ' + fmt(edges[1]) + '"></span>';
+            out += ramp.map(function (c, i) {
+                return '<span style="background:' + c + '" title="' + fmt(edges[i + 1]) + ' – ' + fmt(edges[i + 2]) + '"></span>';
+            }).join('');
+            return out + '</div>';
+        }
         function allEdges(edges, fmt) {   // every quintile boundary, under the bar
             return '<div class="leg-edges">' + edges.map(function (v) { return '<span>' + fmt(v) + '</span>'; }).join('') + '</div>';
         }
@@ -8217,8 +8441,11 @@
             '<div style="flex:1">' + bar(TERRAIN_RAMP, tKm2, _fmtNum) + allEdges(tKm2, _fmtNum) + '</div></div>';
         var lTitle = propMode ? 'Slides/1000 km²' : 'Slides/cell';
         var lEdgesD = propMode ? lEdges.map(function (v) { return v * P_PER_KKM2; }) : lEdges;
+        // lEdges from _logCatchBinner is [0, lo, ...log edges]; the printed
+        // boundaries start at the scale floor, with the catch swatch before it.
         var lHtml = '<div class="leg-row"><span class="leg-title">' + lTitle + '</span>' +
-            '<div style="flex:1">' + bar(LS_RAMP, lEdgesD, _fmtNum) + allEdges(lEdgesD, _fmtNum) + '</div></div>';
+            '<div style="flex:1">' + barCatch(LS_RAMP, lEdgesD, _fmtNum) +
+            allEdges(lEdgesD.slice(1), _fmtNum) + '</div></div>';
         el.innerHTML = tHtml + lHtml;
     }
 
@@ -8227,12 +8454,15 @@
         if (!_scDims || !SUSC_TERRAIN ||
             p.x < _scDims.x0 || p.y < _scDims.y0 ||
             p.x > _scDims.x0 + _scDims.w || p.y > _scDims.y0 + _scDims.h) { hideChartTip(); return; }
-        var B = SUSC_TERRAIN.size, lw = _scPxToLw(p.x), n10 = _scPxToN10(p.y);
-        var tc = SUSC_TERRAIN.grid[n10 * B + lw] || 0;
-        var lc = (_lsGrid ? _lsGrid[n10 * B + lw] : 0) || 0;
+        var T = _scTerrain(); if (!T) { hideChartTip(); return; }
+        var xi = _scPxToX(p.x), yi = _scPxToY(p.y);
+        var tc = _scTerrainAt(T, xi, yi) || 0;
+        var lc = (_lsGrid ? _lsGrid[yi * T.xsize + xi] : 0) || 0;
         var dens = tc > 0 ? (lc / tc * P_PER_KKM2) : 0;   // slides per 1000 km²
         showChartTip(e.clientX, e.clientY,
-            'lw ' + lw + ', n10 ' + n10 + ' · ' + _fmtNum(tc * CELL_KM2) + ' km² · ' +
+            _scMX().label + ' ' + _scMX().val(xi) + ', ' +
+            _scMY().label + ' ' + _scMY().val(yi) + ' · ' +
+            _fmtNum(tc * CELL_KM2) + ' km² · ' +
             lc + ' slide' + (lc === 1 ? '' : 's') + (lc ? ' (' + _fmtNum(dens) + '/1000 km²)' : ''));
     }
 
@@ -8293,6 +8523,23 @@
     }
     var scatterProp = document.getElementById('scatter-prop');
     if (scatterProp) scatterProp.addEventListener('change', scatterDrawAll);
+    // Axis pickers. Crossing a model with itself would only draw its own
+    // diagonal, so the other axis steps aside rather than letting the plot
+    // become a line.
+    (function () {
+        var xs = document.getElementById('scatter-x'), ys = document.getElementById('scatter-y');
+        if (!xs || !ys) return;
+        function pick() {
+            _scX = xs.value; _scY = ys.value;
+            if (_scX === _scY) {
+                var alt = ['lw', 'n10', 'dggs'].filter(function (k) { return k !== _scX; })[0];
+                _scY = alt; ys.value = alt;
+            }
+            scatterDrawAll();
+        }
+        xs.addEventListener('change', pick);
+        ys.addEventListener('change', pick);
+    })();
 
     // ===========================================================================
     // Canvas mouseover tooltips

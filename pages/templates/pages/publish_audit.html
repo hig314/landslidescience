@@ -31,6 +31,14 @@
   .legend { color: #666; font-size: 11px; margin-top: 12px; max-width: 1100px; }
   .btn { display: inline-block; font-size: 12px; padding: 3px 10px; border: 1px solid #ccc;
          border-radius: 4px; background: #fff; color: #1a5fb4; text-decoration: none; }
+  /* The credit is prose, not a status code: let it wrap and give it the room,
+     since the whole reason for the column is to read what is there and spot
+     what is not. */
+  td.src { white-space: normal; min-width: 22em; color: #444; }
+  td.src a { color: #1a5fb4; text-decoration: none; }
+  td.src a:hover { text-decoration: underline; }
+  .tentative { color: #b26a00; }
+  .nosrc { color: #b26a00; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -51,6 +59,16 @@
   {% else %}
     <h2 class="v-ok">Nothing a reader would see as broken.</h2>
   {% endif %}
+  {% if uncredited %}
+    <div style="margin-top:6px;font-size:12px">
+      <b>{{ uncredited|length }}</b> survey{{ uncredited|length|pluralize }} with no source
+      recorded —
+      {% for r in uncredited %}<span class="nosrc">{{ r.id }}</span>{% if not forloop.last %}, {% endif %}{% endfor %}.
+      Fill them in at <span class="mono">tools/lidar/datasets.json</span>
+      (<span class="mono">source</span>, and <span class="mono">source_url</span> for a DOI),
+      then rebuild the catalogue.
+    </div>
+  {% endif %}
   <div style="margin-top:8px;color:#666;font-size:11px">
     Public catalogue on {{ prod }}:
     {% if meta.public_count %}{{ meta.public_count }} surveys{% else %}unreachable{% endif %} ·
@@ -68,7 +86,7 @@
 
 <table>
   <tr>
-    <th>Survey</th><th>State</th><th>Built</th><th>On R2</th><th>In catalogue</th><th>What a reader gets</th>
+    <th>Survey</th><th>State</th><th>Built</th><th>On R2</th><th>In catalogue</th><th>What a reader gets</th><th>Source</th>
   </tr>
   {% for r in rows %}
   <tr{% if r.bad %} class="bad"{% endif %}>
@@ -78,6 +96,13 @@
     <td class="mono">{{ r.r2 }}</td>
     <td>{% if r.in_cat %}yes{% else %}<span class="v-quiet">no</span>{% endif %}</td>
     <td class="{% if r.bad %}v-bad{% elif r.verdict == 'ok' %}v-ok{% else %}v-quiet{% endif %}">{{ r.verdict }}</td>
+    <td class="src">
+      {% if r.source %}
+        {% if r.source_url %}<a href="{{ r.source_url }}" target="_blank" rel="noopener">{{ r.source }}</a>
+        {% else %}{{ r.source }}{% endif %}
+        {% if r.source_tentative %}<span class="tentative">(to confirm)</span>{% endif %}
+      {% else %}<span class="{% if r.state == 'retired' %}v-quiet{% else %}nosrc{% endif %}">not recorded</span>{% endif %}
+    </td>
   </tr>
   {% endfor %}
 </table>
@@ -90,6 +115,9 @@
   <span class="mono">C</span> archive COG. A dash means absent.
   {% if not want_r2 %}R2 shows <span class="mono">????</span> until you ask for it.{% endif %}
   Restricted surveys are served from the droplet, so an empty R2 row is expected for them.
+  <b>Source</b> is the credit the public viewer shows, read from the manifest; a credit ending
+  "(to confirm)" was inferred from file naming or a partial match rather than read off a
+  metadata record, and wants checking before it is relied on.
 </div>
 </body>
 </html>

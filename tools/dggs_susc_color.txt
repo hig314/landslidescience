@@ -1,0 +1,23 @@
+# Colour ramp for the Alaska DGGS deep-seated landslide susceptibility
+# raster (PIR 2025-3), in gdaldem color-relief format: VALUE R G B A.
+#
+# Deliberately the SAME scale as the USGS overlays: each stop is the
+# ColorBrewer YlOrRd ramp of tools/susc_color.txt sampled at class/10, so
+# the three susceptibility layers can be read against one another without
+# re-learning a legend. Class 0 (slope < 3 deg, i.e. where this failure
+# style cannot occur) is transparent, matching the USGS transparent low end.
+#
+# Values are DISCRETE classes, so every class has its own stop and the
+# interpolation between them is never exercised.
+nv   0   0   0   0
+0    255 255 178   0
+3    253 171  75 188
+5    248 108  49 208
+6    243  76  38 216
+7    233  51  33 222
+8    219  34  35 226
+9    204  17  36 231
+10   189   0  38 235
+# lake, river or glacier: the model does not apply. Pale and faint, so it
+# reads as 'not assessed' rather than as a susceptibility value.
+200  190 232 255  90

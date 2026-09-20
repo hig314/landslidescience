@@ -63,8 +63,17 @@ vanish depending on which way you light them.
                  padding: 2px 4px 3px 0; }
   table.src td { padding: 2px 4px 2px 0; vertical-align: top; border-bottom: 1px solid #f0f0f0; }
   table.src td.yr { font-variant-numeric: tabular-nums; color: #666; white-space: nowrap; }
-  table.src td.unk { color: #b26a00; }
+  table.src td.unk, table.src .unk { color: #b26a00; }
+  table.src a { color: #1a5fb4; text-decoration: none; }
+  table.src a:hover { text-decoration: underline; }
   .ds.far label b { color: #888; font-weight: 500; }
+  /* An active survey the view has left behind: dimmed like any other
+     out-of-view row, but flagged so it is obvious why it is still
+     listed and that clicking it again turns it off. */
+  .ds.kept { border-left: 2px solid #b26a00; padding-left: 4px; }
+  .ds.kept label b { color: #b26a00; }
+  .ds.kept label b::after { content: ' · out of view, click to turn off';
+     font-weight: 400; font-size: 10px; color: #b26a00; }
   #who { font-size: 11px; color: #666; margin: -4px 0 8px; }
   #who a { color: #1a5fb4; }
   #who .gated { color: #b26a00; }
@@ -461,7 +470,10 @@ vanish depending on which way you light them.
     var html = '<tr><th>Survey</th><th>Year</th><th>Source</th></tr>';
     rows.forEach(function (p) {
       var src = p.source
-        ? esc(p.source)
+        ? (p.source_url
+             ? '<a href="' + esc(p.source_url) + '" target="_blank" rel="noopener">' +
+               esc(p.source) + '</a>'
+             : esc(p.source))
         : '<span class="unk">not recorded</span>';
       html += '<tr><td>' + esc(p.title) + '</td><td class="yr">' +
               (p.year || '') + '</td><td>' + src + '</td></tr>';
@@ -542,6 +554,22 @@ vanish depending on which way you light them.
       // the surface with no visible control to bring it back.
       document.getElementById('op').value = 100;
     }
+  }
+
+  // Turn the current survey OFF. The rows are a radio group, which has no
+  // native "none", so clicking the checked one clears it. Without this the
+  // only way to stop drawing a survey is to draw a different one.
+  function clearDataset() {
+    if (!active) return;
+    active = null;
+    var checked = document.querySelector('#datasets input[name="ds"]:checked');
+    if (checked) checked.checked = false;
+    if (map.getTerrain()) map.setTerrain(null);
+    if (map.getSource('dem')) map.removeSource('dem');
+    syncLayers();          // drops every layer no longer wanted
+    syncOrthoControl();
+    updateInView();        // the row stops being "kept" once nothing is active
+    syncUrl();
   }
 
   function showDataset(p) {
@@ -1000,14 +1028,23 @@ vanish depending on which way you light them.
     var only = document.getElementById('inview').checked;
     document.querySelectorAll('#datasets .ds').forEach(function (div) {
       var inView = overlapsView(div.dataset.id);
+      var isActive = div.dataset.id === active;
       div.classList.toggle('far', !inView);
-      div.hidden = only && !inView;
+      // The ACTIVE survey's row always stays, even when the view has left it
+      // behind. Its layer is still drawn, and hiding the only control that
+      // turns it off strands the user with a layer they cannot reach — which
+      // is exactly what happens when you select a survey and then zoom out to
+      // put it in context.
+      div.hidden = only && !inView && !isActive;
+      div.classList.toggle('kept', !inView && isActive);
     });
     document.querySelectorAll('#datasets details.grp').forEach(function (det) {
       var all = det.querySelectorAll('.ds').length;
       var here = det.querySelectorAll('.ds:not(.far)').length;
+      var kept = det.querySelectorAll('.ds.kept').length;
       det.querySelector('.cnt').textContent = here ? here + ' of ' + all + ' in view' : all + ' surveys';
-      if (only) det.open = here > 0;
+      // ...and its group stays open, or the row is still unreachable.
+      if (only) det.open = here > 0 || kept > 0;
     });
   }
   document.getElementById('inview').addEventListener('change', function () {
@@ -1285,6 +1322,12 @@ vanish depending on which way you light them.
           // Selecting a dataset deliberately does NOT move the camera: holding
           // the view still is what lets you flip between overlapping surveys
           // and see the change between them. "zoom to" is the explicit opt-in.
+          // `change` does not fire when the already-checked radio is clicked,
+          // so the off-switch has to ride on `click` and look at what was
+          // selected BEFORE the browser applied this one.
+          div.querySelector('input').addEventListener('click', function (ev) {
+            if (active === p.id) { ev.preventDefault(); clearDataset(); }
+          });
           div.querySelector('input').addEventListener('change', function () {
             showDataset(p);
           });
