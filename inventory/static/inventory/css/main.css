@@ -1101,40 +1101,6 @@ details[open] > .ov-cat-summary::before { content: '▾ '; }
 #revise-bar #rv-status.rv-bad { color: #b3261e; }
 #revise-bar #rv-status.rv-quiet { color: #999; }
 
-/* ---------------------------------------------------------------------------
-   Fault scarps (public reads, editor-only writes). A floating card in the same idiom as the
-   reviser's bar. Purple dashed lines on the map so they read as neither
-   landslide outlines (which are filled) nor basemap features.
-   --------------------------------------------------------------------------- */
-.scarp-panel {
-    width: 300px; top: 96px; right: 16px;
-    background: #fff; border: 1px solid #ccc; border-radius: 6px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.18); z-index: 6;
-}
-.scarp-panel .scarp-title { font-weight: 600; font-size: 12px; }
-.scarp-panel .scarp-vis {
-    display: inline-flex; align-items: center; gap: 3px;
-    font-size: 10px; color: #555; cursor: pointer;
-}
-.scarp-panel #scarp-count { font-size: 10px; color: #888; margin-left: auto; }
-.scarp-body { padding: 8px 10px 10px; }
-.scarp-actions { display: flex; align-items: center; gap: 8px; }
-.scarp-actions button, .scarp-edit-actions button {
-    font-size: 12px; padding: 3px 9px; border: 1px solid #ccc;
-    border-radius: 4px; background: #fff; cursor: pointer;
-}
-.scarp-actions button.scarp-primary, .scarp-edit-actions button.scarp-primary {
-    background: #7b3fa0; border-color: #6a3590; color: #fff;
-}
-.scarp-hint { font-size: 11px; color: #777; margin-top: 6px; line-height: 1.35; }
-.scarp-edit { margin-top: 8px; border-top: 1px solid #eee; padding-top: 8px; }
-.scarp-edit.hidden { display: none; }
-.scarp-meta { font-size: 10px; color: #888; margin-bottom: 4px; }
-.scarp-edit textarea {
-    width: 100%; box-sizing: border-box; font: inherit; font-size: 12px;
-    border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; resize: vertical;
-}
-.scarp-edit-actions { display: flex; gap: 6px; margin-top: 6px; }
-#scarp-status { font-size: 11px; }
-#scarp-status.scarp-ok  { color: #1b7a3d; }
-#scarp-status.scarp-bad { color: #b3261e; }
+/* Scarp traces: no card any more — the tracing panel reuses .inv-draw-panel
+   (home.html) and a click on a line is a MapLibre popup. Purple dashed lines
+   on the map so they read as neither landslide outlines nor basemap. */

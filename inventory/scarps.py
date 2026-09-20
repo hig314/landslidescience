@@ -1,4 +1,7 @@
-"""Traced fault scarps — a thin CRUD layer over the fault_scarps table.
+"""Scarp traces — a thin CRUD layer over the fault_scarps table.
+
+(The table keeps its original name; the UI says "scarp", not "fault", because
+many of these are of ambiguous or multiple origin — Hig, 2026-09-20.)
 
 Scarps that look tectonic rather than landslide-related turn up constantly
 while tracing landslides on the lidar surfaces. This is somewhere to draw the

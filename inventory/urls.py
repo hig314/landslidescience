@@ -68,7 +68,7 @@ urlpatterns = [
     # inventory/susc_dggs.py for why it is proxied rather than linked).
     re_path(r'^tiles/dggs_susc/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             susc_dggs.dggs_susc_tile, name='dggs_susc_tile'),
-    # Traced fault scarps: public reads, editor-only writes (see inventory/scarps.py).
+    # Scarp traces: public reads, editor-only writes (see inventory/scarps.py).
     path('api/scarps/', scarps.api_scarps, name='api_scarps'),
     path('api/scarps/create/', scarps.api_scarp_create, name='api_scarp_create'),
     re_path(r'^api/scarps/(?P<scarp_id>\d+)/$', scarps.api_scarp_update,

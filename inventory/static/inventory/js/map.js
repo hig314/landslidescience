@@ -793,8 +793,24 @@
         center: (_initialHash.lon != null && _initialHash.lat != null)
                 ? [_initialHash.lon, _initialHash.lat] : [-153, 62],
         zoom: (_initialHash.zoom != null) ? _initialHash.zoom : 4,
+        // North up, nadir, always (Hig, 2026-09-20): a tilted or rotated
+        // inventory map bought nothing and cost the reading of every overlay
+        // against the basemap; 3D exploration lives on /lidar/. The hash
+        // never carried bearing or pitch, so nothing saved is lost. Every
+        // input that could tilt or spin is off, not just the mouse.
+        bearing: 0, pitch: 0, maxPitch: 0,
+        dragRotate: false, pitchWithRotate: false, touchPitch: false,
         transformRequest: LSBasemaps.transformRequest   // resolves quadkey/subdomain QMS tiles
     });
+    // The handler-level switches for the inputs the constructor options miss,
+    // and a snap-back for anything that gets past them: whatever rotates or
+    // tilts the view, the next frame is north-up and nadir again.
+    try { map.dragRotate.disable(); } catch (e) {}
+    try { map.touchZoomRotate.disableRotation(); } catch (e) {}
+    try { map.touchPitch.disable(); } catch (e) {}
+    try { map.keyboard.disableRotation(); } catch (e) {}
+    map.on('rotate', function () { if (map.getBearing() !== 0) map.setBearing(0); });
+    map.on('pitch',  function () { if (map.getPitch()   !== 0) map.setPitch(0); });
     // Globe projection — MapLibre 4.x. Re-assert on every style.load so
     // external-URL basemaps (whose JSON we don't control) also get it.
     function applyGlobe() {
@@ -804,7 +820,8 @@
     }
     map.on('style.load', applyGlobe);
     applyGlobe();
-    map.addControl(new maplibregl.NavigationControl(), 'top-left');
+    // No compass: with rotation off it could only ever say "north".
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
     // The click-tool group sits directly under the zoom controls; the tools
     // themselves register into it as their own setup runs (two are
     // conditional — measure needs turf, draw needs an editor).
@@ -1268,9 +1285,13 @@
         this._btn = LSTools.mode({
             id: 'draw', order: 30, label: '✏',
             className: 'tool-editor',
-            title: 'Draw a new landslide on the map',
-            aria: 'Draw a new landslide',
-            onSelect: function () { self.activate(); },
+            title: 'Draw: landslide polygons or scarp traces',
+            aria: 'Draw a new landslide or trace a scarp',
+            // The pencil asks WHAT to draw rather than assuming polygons: the
+            // scarp tracer used to live under Analysis as its own tool, which
+            // let both editors' Terra Draw sessions be open at once. One mode,
+            // two kinds, so the tool group's mutual exclusion covers both.
+            onSelect: function () { self.choose(); },
             onRelease: function () { self.deactivate(); },
             // The one switch that should ask rather than just happen: staged
             // components are held server-side and come back, but an unclosed
@@ -1290,29 +1311,113 @@
         return el;
     };
     DrawModeControl.prototype.onRemove = function () {};
-    DrawModeControl.prototype.toggle = function () { this._on ? this.deactivate() : this.activate(); };
-    DrawModeControl.prototype.activate = function () {
+    DrawModeControl.prototype.toggle = function () { this._on ? this.deactivate() : this.choose(); };
+
+    // A two-item menu beside the pencil. Click away or Escape closes it;
+    // clicking the pencil again while it is open closes it too.
+    DrawModeControl.prototype.choose = function () {
+        var self = this;
+        if (this._menu) { this._closeMenu(); return; }
+        var m = document.createElement('div');
+        m.className = 'inv-draw-choice';
+        m.setAttribute('role', 'menu');
+        m.innerHTML =
+            '<div class="inv-draw-choice-hd">Draw</div>' +
+            '<button type="button" data-kind="poly">▰ Landslide polygons</button>' +
+            (typeof LSScarps !== 'undefined'
+                ? '<button type="button" data-kind="scarp">╱ Scarp traces</button>' : '');
+        var r = this._btn.getBoundingClientRect();
+        m.style.left = Math.round(r.right + 8) + 'px';
+        m.style.top = Math.round(r.top - 4) + 'px';
+        document.body.appendChild(m);
+        m.addEventListener('click', function (e) {
+            var b = e.target.closest('button[data-kind]');
+            if (!b) return;
+            var kind = b.dataset.kind;
+            self._closeMenu();
+            self.activate(kind);
+        });
+        this._menu = m;
+        this._menuAway = function (e) {
+            if (m.contains(e.target) || self._btn.contains(e.target)) return;
+            self._closeMenu();
+        };
+        this._menuKey = function (e) { if (e.key === 'Escape') self._closeMenu(); };
+        // Next tick, or the click that opened the menu closes it.
+        setTimeout(function () {
+            if (self._menu !== m) return;
+            document.addEventListener('mousedown', self._menuAway);
+            document.addEventListener('keydown', self._menuKey);
+        }, 0);
+    };
+    DrawModeControl.prototype._closeMenu = function () {
+        if (!this._menu) return;
+        this._menu.remove(); this._menu = null;
+        document.removeEventListener('mousedown', this._menuAway);
+        document.removeEventListener('keydown', this._menuKey);
+    };
+
+    // kind: 'poly' (new landslide, the staged-components panel) or 'scarp'
+    // (fault-scarp tracing through LSScarps). Both are the one LSTools mode
+    // 'draw', so measure/InSAR/the other kind are released on the way in.
+    DrawModeControl.prototype.activate = function (kind) {
+        kind = kind === 'scarp' ? 'scarp' : 'poly';
         if (typeof terraDraw === 'undefined' || typeof terraDrawMaplibreGlAdapter === 'undefined') {
             alert('Drawing library failed to load — check your connection and reload.');
             return;
         }
-        // Takes the map from measure/InSAR if either has it; false only if
-        // the outgoing tool objected.
-        if (!LSTools.claim('draw')) return;
-        map.__drawActive = true; this._on = true;
+        if (kind === 'scarp' && typeof LSScarps === 'undefined') {
+            alert('Scarp tracing is not available on this page.');
+            return;
+        }
+        // The reviser is not a tool-group mode (it is opened from a record's
+        // detail panel), so it has to be checked by hand, as _reviseStart
+        // checks this tool.
+        if (map.__reviseActive) {
+            alert('Close the reviser first.');
+            return;
+        }
+        if (this._on && this._kind === kind) return;
+        if (this._on) {
+            // Switching kinds inside the mode: same question canRelease asks.
+            if (this._kind === 'poly' && map.__drawPolyOpen &&
+                !window.confirm('A polygon is still open and will be discarded.'
+                                + '\n\nSwitch to scarp traces anyway?')) return;
+            this._teardown();
+        } else if (!LSTools.claim('draw')) {
+            // Takes the map from measure/InSAR if either has it; false only if
+            // the outgoing tool objected.
+            return;
+        }
+        map.__drawActive = true; this._on = true; this._kind = kind;
         map.getCanvas().style.cursor = 'crosshair';
         var self = this;
         // Open the panel first so any Terra Draw init error is visible (and the
         // catch below fully deactivates, so a failure never locks the map up).
         try {
-            ensureProvLayers();
-            openPanel();
-            startTD();
-            loadProvisional();
-            // Basemap switch (setStyle) wipes Terra Draw's layers — rebuild it on
-            // the new style so drawing keeps working. (Switching is blocked while
-            // a polygon is open, so there's no in-progress ring to lose here.)
-            this._styleReload = function () { if (self._on) { stopTD(); startTD(); } };
+            if (kind === 'poly') {
+                ensureProvLayers();
+                openPanel();
+                startTD();
+                loadProvisional();
+                // Basemap switch (setStyle) wipes Terra Draw's layers — rebuild it on
+                // the new style so drawing keeps working. (Switching is blocked while
+                // a polygon is open, so there's no in-progress ring to lose here.)
+                this._styleReload = function () {
+                    if (self._on && self._kind === 'poly') { stopTD(); startTD(); }
+                };
+            } else {
+                _scarpOpenPanel();
+                LSScarps.startDraw({ terraDraw: window.terraDraw,
+                                     adapter: window.terraDrawMaplibreGlAdapter });
+                this._styleReload = function () {
+                    if (self._on && self._kind === 'scarp') {
+                        LSScarps.stopDraw();
+                        LSScarps.startDraw({ terraDraw: window.terraDraw,
+                                             adapter: window.terraDrawMaplibreGlAdapter });
+                    }
+                };
+            }
             map.on('style.load', this._styleReload);
         } catch (e) {
             console.error('draw activate failed:', e);
@@ -1320,14 +1425,25 @@
             alert('Could not start the draw tool: ' + (e && e.message ? e.message : e));
         }
     };
-    DrawModeControl.prototype.deactivate = function () {
-        map.__drawActive = false; this._on = false;
-        LSTools.release('draw');
+    // Undo whatever the current kind set up, without touching the tool group.
+    DrawModeControl.prototype._teardown = function () {
         map.getCanvas().style.cursor = '';
         if (this._styleReload) { map.off('style.load', this._styleReload); this._styleReload = null; }
-        stopTD(); closePanel();
-        refreshProvData();   // hide staged polygons (kept server-side) — no ghosts
+        if (this._kind === 'scarp') {
+            if (typeof LSScarps !== 'undefined') { LSScarps.stopDraw(); LSScarps.select(null); }
+            _scarpClosePanel();
+        } else {
+            stopTD(); closePanel();
+            refreshProvData();   // hide staged polygons (kept server-side) — no ghosts
+        }
+        map.__drawActive = false; this._on = false; this._kind = null;
     };
+    DrawModeControl.prototype.deactivate = function () {
+        this._closeMenu();
+        this._teardown();
+        LSTools.release('draw');
+    };
+    DrawModeControl.prototype.kind = function () { return this._on ? this._kind : null; };
 
     // --- Editor-only: provisional (pending) landslides, shown in magenta. ---
     // Pending records are hidden from the public map; editors see them so they
@@ -6351,86 +6467,105 @@
     }
 
     // -----------------------------------------------------------------------
-    // Fault scarps. Reads are public, writes editor-only (inventory/scarps.py).
-    // The panel is a floating card like the reviser's bar; the module itself
-    // owns the map layers and the Terra Draw session. For a non-editor the
-    // template omits the trace/save/delete controls, so every one of those
-    // elements is optional here.
+    // Scarp traces. Reads are public, writes editor-only (inventory/scarps.py).
+    // Same pattern and placement as the landslide draw tool: the ✏ pencil
+    // (DrawModeControl, kind 'scarp') opens a bottom-right panel in the
+    // .inv-draw-panel idiom for the session, and closing it ends the session.
+    // Outside a session — for everyone, editor or not — clicking a line opens
+    // a popup with the note. There is no Analysis-pane entry and no card.
     // -----------------------------------------------------------------------
+    var _scarpPanel = null, _scarpStatus = null, _scarpPopup = null;
+
+    function _scarpSay(msg, bad) {
+        if (!_scarpStatus) return;
+        _scarpStatus.textContent = msg || '';
+        _scarpStatus.style.color = bad ? '#b3261e' : '#1b7a3d';
+        if (msg) setTimeout(function () {
+            if (_scarpStatus && _scarpStatus.textContent === msg) _scarpStatus.textContent = '';
+        }, 4000);
+    }
+    function _scarpFmtLen(len) {
+        if (len == null) return '';
+        return len >= 1000 ? (len / 1000).toFixed(2) + ' km' : Math.round(len) + ' m';
+    }
+    function _scarpOpenPanel() {
+        if (_scarpPanel) { _scarpPanel.style.display = ''; _scarpSync(); return; }
+        var p = document.createElement('div'); p.className = 'inv-draw-panel';
+        p.innerHTML =
+            '<div class="inv-draw-hd" style="color:#5a2d80;">✏ Trace scarps</div>' +
+            '<div style="font-size:11px;color:#666;line-height:1.4;margin-bottom:6px;">' +
+            'Click along the scarp, press <b>Enter</b> (or double-click) to finish, ' +
+            '<b>Esc</b> cancels. Each line saves straight away — then write what you saw. ' +
+            'Click an existing line to edit its note. Working observations of scarps ' +
+            'of any origin, not a fault map.</div>' +
+            '<div id="isq-count" style="font-size:11px;color:#888;"></div>' +
+            '<div id="isq-edit" style="display:none;margin-top:6px;border-top:1px solid #eee;padding-top:6px;">' +
+            '<div id="isq-who" style="font-size:10px;color:#888;margin-bottom:4px;"></div>' +
+            '<textarea id="isq-notes" rows="4" style="width:100%;box-sizing:border-box;font:inherit;' +
+            'font-size:12px;border:1px solid #ccc;border-radius:4px;padding:4px 6px;resize:vertical;" ' +
+            'placeholder="What made this look like a scarp? Uphill-facing? Cuts drainage? Which survey?"></textarea>' +
+            '<div style="display:flex;gap:6px;margin-top:6px;">' +
+            '<button id="isq-save" type="button" class="primary" style="background:#7b3fa0;">Save note</button>' +
+            '<button id="isq-del" type="button">Delete</button></div></div>' +
+            '<div id="isq-status" class="ls-poly-status" style="min-height:14px;font-size:11px;"></div>' +
+            '<div style="margin-top:8px;display:flex;gap:6px;">' +
+            '<button id="isq-done" type="button" style="margin-left:auto;">Exit</button></div>';
+        document.body.appendChild(p);
+        _scarpPanel = p; _scarpStatus = p.querySelector('#isq-status');
+        p.querySelector('#isq-save').addEventListener('click', function () {
+            LSScarps.saveNotes(p.querySelector('#isq-notes').value)
+                .then(function () { _scarpSay('Saved.'); })
+                .catch(function (e) { _scarpSay(e.message, true); });
+        });
+        p.querySelector('#isq-del').addEventListener('click', function () {
+            if (!window.confirm('Delete this scarp? This cannot be undone.')) return;
+            LSScarps.remove()
+                .then(function () { _scarpSay('Deleted.'); })
+                .catch(function (e) { _scarpSay(e.message, true); });
+        });
+        p.querySelector('#isq-done').addEventListener('click', function () {
+            if (_drawCtrl) _drawCtrl.deactivate();
+        });
+        _scarpSync();
+    }
+    function _scarpClosePanel() { if (_scarpPanel) _scarpPanel.style.display = 'none'; }
+    function _scarpSync() {
+        if (!_scarpPanel || _scarpPanel.style.display === 'none') return;
+        var fc = LSScarps.all(), f = LSScarps.selected();
+        _scarpPanel.querySelector('#isq-count').textContent =
+            fc.features.length + (fc.features.length === 1 ? ' scarp traced' : ' scarps traced');
+        var ed = _scarpPanel.querySelector('#isq-edit');
+        ed.style.display = f ? '' : 'none';
+        if (f) {
+            _scarpPanel.querySelector('#isq-notes').value = f.properties.notes || '';
+            var len = _scarpFmtLen(f.properties.length_m);
+            _scarpPanel.querySelector('#isq-who').textContent =
+                'traced by ' + (f.properties.traced_by || '—') + (len ? ' · ' + len : '');
+        }
+    }
+    // Read-only view of a trace, for anyone, outside a tracing session.
+    function _scarpShowPopup(f, lngLat) {
+        if (_scarpPopup) { _scarpPopup.remove(); _scarpPopup = null; }
+        var pr = f.properties, len = _scarpFmtLen(pr.length_m);
+        var html = '<div style="font:12px/1.4 system-ui,sans-serif;max-width:240px;">' +
+            '<div style="font-weight:600;color:#5a2d80;">Scarp trace</div>' +
+            '<div style="white-space:pre-wrap;margin:4px 0;">' +
+            (pr.notes ? esc(pr.notes) : '<span style="color:#999;">(no note)</span>') + '</div>' +
+            '<div style="font-size:10px;color:#888;">traced by ' + esc(pr.traced_by || '—') +
+            (len ? ' · ' + len : '') + ' · a working observation, not a fault map</div></div>';
+        _scarpPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
+            .setLngLat(lngLat).setHTML(html).addTo(map);
+    }
     function _scarpInit() {
         if (typeof LSScarps === 'undefined') return;
-        var panel = document.getElementById('scarp-panel');
-        if (!panel) return;
-        var editor = !!window._isInventoryEditor;
-        var elDraw = document.getElementById('scarp-draw'),
-            elEdit = document.getElementById('scarp-edit'),
-            elNotes = document.getElementById('scarp-notes'),
-            elWho = document.getElementById('scarp-who'),
-            elCount = document.getElementById('scarp-count'),
-            elStatus = document.getElementById('scarp-status'),
-            elShow = document.getElementById('scarp-show');
-
-        function say(msg, bad) {
-            elStatus.textContent = msg || '';
-            elStatus.className = bad ? 'scarp-bad' : 'scarp-ok';
-            if (msg) setTimeout(function () {
-                if (elStatus.textContent === msg) elStatus.textContent = '';
-            }, 4000);
-        }
-        function sync() {
-            var fc = LSScarps.all(), f = LSScarps.selected();
-            elCount.textContent = fc.features.length +
-                (fc.features.length === 1 ? ' scarp' : ' scarps');
-            if (elDraw) {
-                elDraw.textContent = LSScarps.isDrawing() ? '■ Stop tracing' : '✎ Trace a scarp';
-                elDraw.classList.toggle('scarp-primary', LSScarps.isDrawing());
-            }
-            elEdit.classList.toggle('hidden', !f);
-            // Clicking a line on the map is the only way a non-editor reaches
-            // the note, so selecting one opens the card if it was closed.
-            if (f && panel.classList.contains('hidden')) panel.classList.remove('hidden');
-            if (f) {
-                elNotes.value = f.properties.notes || '';
-                var len = f.properties.length_m;
-                elWho.textContent = 'traced by ' + (f.properties.traced_by || '—') +
-                    (len != null ? ' · ' + (len >= 1000 ? (len / 1000).toFixed(2) + ' km'
-                                                        : Math.round(len) + ' m') : '');
-            }
-        }
         LSScarps.init({
-            map: map, api: API_BASE, csrf: _csrf, onChange: sync,
-            flash: function (m, bad) { say(m, bad); sync(); }
-        }).catch(function (e) { say('Could not load scarps: ' + e.message, true); });
-
-        if (editor && elDraw) {
-            elDraw.addEventListener('click', function () {
-                if (LSScarps.isDrawing()) { LSScarps.stopDraw(); return; }
-                if (map.__drawActive || map.__reviseActive) {
-                    say('Close the draw tool or the reviser first.', true); return;
-                }
-                LSScarps.startDraw({ terraDraw: window.terraDraw,
-                                     adapter: window.terraDrawMaplibreGlAdapter });
-            });
-            document.getElementById('scarp-save').addEventListener('click', function () {
-                LSScarps.saveNotes(elNotes.value)
-                    .then(function () { say('Saved.'); })
-                    .catch(function (e) { say(e.message, true); });
-            });
-            document.getElementById('scarp-del').addEventListener('click', function () {
-                if (!window.confirm('Delete this scarp? This cannot be undone.')) return;
-                LSScarps.remove()
-                    .then(function () { say('Deleted.'); })
-                    .catch(function (e) { say(e.message, true); });
-            });
-        }
-        elShow.addEventListener('change', function () { LSScarps.setVisible(elShow.checked); });
-        document.getElementById('scarp-close').addEventListener('click', function () {
-            LSScarps.stopDraw(); panel.classList.add('hidden');
-        });
-        window._scarpPanelToggle = function () {
-            panel.classList.toggle('hidden');
-            if (!panel.classList.contains('hidden')) LSScarps.load().catch(function () {});
-        };
+            map: map, api: API_BASE, csrf: _csrf, onChange: _scarpSync,
+            onPick: function (f, lngLat) {
+                if (_drawCtrl && _drawCtrl.kind() === 'scarp') LSScarps.select(f.properties.id);
+                else _scarpShowPopup(f, lngLat);
+            },
+            flash: function (m, bad) { _scarpSay(m, bad); _scarpSync(); }
+        }).catch(function (e) { console.warn('scarps: could not load — ' + e.message); });
     }
 
     function _reviseStart(id) {
@@ -8596,16 +8731,9 @@
         close:    document.getElementById('scatter-close'),
         onResize: scatterDrawAll
     });
-    // Fault scarps: build the panel controller, then hang the Analysis-pane
-    // button off it. Everyone gets the layer and the card; the trace/save/
-    // delete controls exist only for editors.
+    // Scarp traces: the layer and the click popup for everyone; tracing
+    // starts from the ✏ pencil (editors).
     _scarpInit();
-    (function () {
-        var b = document.getElementById('scarp-toggle');
-        if (b && window._scarpPanelToggle) {
-            b.addEventListener('click', function () { window._scarpPanelToggle(); });
-        }
-    })();
 
     // Scatter-specific controls (not part of the shared floating behavior).
     var scatterClear = document.getElementById('scatter-clear');

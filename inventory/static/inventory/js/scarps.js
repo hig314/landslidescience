@@ -1,11 +1,11 @@
-/* scarps.js — trace possible fault scarps on the live map.
+/* scarps.js — trace scarps on the live map.
  *
  * WHY THIS EXISTS
  * ---------------
  * Mapping landslides on the lidar surfaces turns up scarps that are not
  * landslide headwalls: straight breaks that cut across drainage, uphill-facing
- * steps, lineaments that look tectonic. They belong with the Alaska active
- * faults and folds database rather than the landslide inventory, and until now
+ * steps, lineaments that look tectonic — and plenty of ambiguous or
+ * multi-cause origin, which is why the word is "scarp", not "fault". Until now
  * there was nowhere to put the observation at the moment it was made — which
  * in practice means it was lost.
  *
@@ -17,7 +17,9 @@
  * --------------
  * Not a fault map. Reads are public since 2026-09-20 (Hig's call: the traces
  * are shown to everyone by default, labelled as working observations); writes
- * are editor-only on the server, and the tracing UI only exists for editors.
+ * are editor-only on the server. Tracing is started by map.js's pencil
+ * (DrawModeControl, kind 'scarp'), so it and the polygon tool are one mode
+ * and cannot both be open.
  *
  * RELATIONSHIP TO revise.js
  * -------------------------
@@ -31,7 +33,7 @@ window.LSScarps = (function () {
 
   var map = null, td = null, api = '/inventory/', csrf = null;
   var mode = null;               // null | 'draw' | 'select'
-  var onChange = null, flash = null;
+  var onChange = null, flash = null, onPick = null;
   var features = { type: 'FeatureCollection', features: [] };
   var selectedId = null;
 
@@ -71,8 +73,12 @@ window.LSScarps = (function () {
       });
   }
 
+  var wired = false;
   function ensureLayers() {
     if (map.getSource(SRC)) return;
+    // A basemap switch (setStyle) drops the source and layers; they are put
+    // back on style.load (init below). The layer-scoped click handlers are
+    // kept by the map across styles, so they are wired once, not per style.
     map.addSource(SRC, { type: 'geojson', data: features });
     // A wide transparent line under the visible one: scarps are hairlines and
     // clicking a 2 px target is not usable.
@@ -86,10 +92,19 @@ window.LSScarps = (function () {
       filter: ['==', ['get', 'id'], -1],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': '#ffb300', 'line-width': 4 } });
+    if (wired) return;
+    wired = true;
     map.on('click', HIT, function (e) {
       if (mode === 'draw') return;      // mid-trace clicks belong to Terra Draw
-      var f = e.features && e.features[0];
-      if (f) select(f.properties.id);
+      var hit = e.features && e.features[0];
+      if (!hit) return;
+      // Hand back OUR feature (full notes, not the map's flattened copy) and
+      // let the host decide: select for editing, or show a popup.
+      var f = features.features.filter(function (x) {
+        return x.properties.id === hit.properties.id;
+      })[0];
+      if (!f) return;
+      if (onPick) onPick(f, e.lngLat); else select(f.properties.id);
     });
     map.on('mouseenter', HIT, function () { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', HIT, function () { map.getCanvas().style.cursor = ''; });
@@ -216,6 +231,8 @@ window.LSScarps = (function () {
     map = opts.map; api = opts.api || api; csrf = opts.csrf;
     onChange = opts.onChange || function () {};
     flash = opts.flash || function () {};
+    onPick = opts.onPick || null;
+    map.on('style.load', function () { ensureLayers(); redraw(); });
     return load();
   }
 
