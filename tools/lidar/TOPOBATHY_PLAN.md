@@ -1,15 +1,91 @@
 # Topobathy compositing: tools and interface
 
-Status 2026-09-20: plan, nothing built. Fourth draft: the hand interface is
-now a mask *editor* in the Photoshop idiom (select, modify selection, fill),
-not just a brush. Second draft came after Hig pointed at
-his Portage merge (`/Volumes/Nunatak/Landslides/Portage/Portage_topobathy/
-Crops/Topobathy_merge/`): a sequence of identically cropped DEMs, one 8-bit
-mask per DEM painted in Photoshop, folded in order as
-`out = out·(1−m) + new·m`. That is the model this plan generalises. The
-references (USGS DEMFusion, CoNED "binary code", GRASS r.mblend,
-DEM_Smooth_Blend) supply the automatic mask generators and the derived
-layers; they do not change the model.
+## State of play (2026-09-20) and how to resume
+
+**Nothing is built.** This document is the agreed design, reviewed by Hig
+over four drafts on 2026-09-20; the decisions below are his, not proposals.
+A fresh session should read this file top to bottom, then start at step 1
+of "Order of work" — the Portage regression — without re-deriving the
+design.
+
+Decisions taken, in the order they were made:
+
+1. The composite is a **layer stack × mask stack, folded bottom-up** as
+   `out = out·(1−m) + new·m`. This is Hig's own Portage method generalised
+   (see "The Portage example"). Everything else is a way to make a layer or
+   a mask; nothing edits the output.
+2. **Masks are the hand interface.** 8-bit greyscale GeoTIFFs, auto and
+   paint kept separate so regeneration never loses paint. **The paint
+   raster is the record**; brush strokes are transport and session undo,
+   never a versioned log (Hig: a gesture log becomes a second format to
+   keep compatible as tools multiply).
+3. The painting/selection UI must be **smoothly responsive**, so it runs
+   local and offline against the dev server with the stack mounted, syncing
+   to the repo at whatever cadence. Prod never hosts it. It is tier 3; the
+   first composites use Photoshop/QGIS round trips through
+   `import-mask`/`export-mask`.
+4. `lowest` is the headline automatic generator (several good DEMs → the
+   lower surface sees under canopy and snow), with **real change** handled
+   as candidate blobs a human accepts or rejects.
+5. The hand UI is a **Photoshop-idiom mask editor**: magic wand on any
+   raster (especially the difference), feather by a distance, push the
+   selection to 0 or 1. "Put the user in intimate interaction with the mask
+   image." The brush is secondary.
+
+Environment facts a fresh session needs (all verified 2026-09-20):
+
+- Repo: `~/Claude_projects/landslidescience`. Pipeline: `tools/lidar/`
+  (`build_lidar.py`, `make_catalog.py`, `datasets.json`); state of play in
+  `tools/lidar/RESUME.md`. Archive COGs live on
+  `/Volumes/Nunatak/lidar_build/cog/`, never on the droplet.
+- Python: `/opt/anaconda3/bin/python3` (numpy 2.3, scipy 1.15, rasterio
+  1.4; no pyproj/osgeo). GDAL: `/opt/homebrew/bin` 3.13 with
+  `PROJ_NETWORK=ON` — **not** the QGIS GDAL 3.3 that is first on PATH.
+  PDAL is on PATH (Homebrew).
+- The viewer's **Difference** control on `/lidar/` is the review loop for
+  tier 1: any dev-only composite can be differenced against any source.
+- Bathymetry already in the collection, all NAVD88 via `vertical_shift_m`:
+  lituya_2023, lituya_2025, resurrection_2016, resurrection_2024,
+  kachemak_bathy_2009, seldovia_2019 (topobathy), grewingk_sonar_2023
+  (gated), pedersen_2025. MLLW→NAVD88 routes are in `RESUME.md`.
+
+Prior art read for this plan (all four reduce to numpy/scipy; none runs
+outside its host):
+
+- USGS DEMFusion — https://code.usgs.gov/spcmsc/DEMFusion/ (ArcGIS Pro
+  notebook; adaptive weight surface).
+- Cushing & Tyler 2024, *Mitigating disparate elevation differences between
+  adjacent topobathymetric data models using binary code*, Remote Sensing
+  16(18):3418 — https://www.mdpi.com/2072-4292/16/18/3418 (CoNED per-pixel
+  state rules, weighted slope interpolation).
+- GRASS r.mblend — https://grass.osgeo.org/grass-stable/manuals/addons/r.mblend.html
+  (delta-surface blend).
+- DEM_Smooth_Blend — https://github.com/RobWilsonTas/DEM_Smooth_Blend
+  (PyQGIS; proximity → cosine feather).
+
+## The Portage example
+
+`/Volumes/Nunatak/Landslides/Portage/Portage_topobathy/Crops/Topobathy_merge/`
+holds Hig's rigid first version of this tool, and is the regression target
+for step 1:
+
+- `merge_settings.py`: a 30000 × 20000 grid (EPSG:32606, 1 m), a list of
+  five `{'DEM': path, 'mask': path}` entries in fold order — IfSAR base with
+  no mask, then Anchorage 2015, Whittier topobathy, Portage 2020, Portage
+  bathy 2026-01-04 — each mask an 8-bit GeoTIFF painted in Photoshop
+  (`Merge.psb` beside the crops), 0 = black = 0.0 and 255 = white = 1.0.
+- `topobathy_merge.py`: initialises the output to NaN, copies the base,
+  then for each entry streams 1024-row blocks and does
+  `out = out·(1−m) + new·m` in place. No nodata guard, so the masks had to
+  be painted to avoid NaN leaks. Output `Portage_topobathy_merge.tif`
+  (float32, DEFLATE, BigTIFF).
+- Some masks were re-georeferenced by hand with `.tfw` sidecars after
+  Photoshop stripped the tags — the thing `import-mask` does in code.
+
+The plan below generalises this: the same fold, with masks that are
+generated and then edited rather than painted from scratch, a nodata guard,
+derived layers for blends and fills, and a build that is reproducible from a
+recipe.
 
 ## The model: a layer stack and a mask stack
 
@@ -317,11 +393,13 @@ and masks and match it.
 
 ### Tier 2 — polygons and parameters on `/lidar/`, editor-gated
 
-The fault-scarp pattern: Terra Draw (`pointerDistance: 8`, `doubleClickZoom`
-off), CSRF header, JSON-vs-HTML response check, editor-only including
-reads, PostGIS table `composite_edits(id, recipe_id, layer, kind, params
-jsonb, geom, edited_by text, timestamps)` from an idempotent management
-command. `kind` is `prefer` / `exclude` (polygons rasterised into a layer's
+The scarp-trace pattern (`inventory/scarps.py`, `scarps.js`, and the pencil
+in `map.js`): Terra Draw (`pointerDistance: 8`, `doubleClickZoom` off), CSRF
+header, JSON-vs-HTML response check, writes editor-only, a PostGIS table
+`composite_edits(id, recipe_id, layer, kind, params jsonb, geom, edited_by
+text, timestamps)` from an idempotent management command. Unlike scarps,
+reads are editor-only too: a half-made mask polygon is not something the
+public map should show. `kind` is `prefer` / `exclude` (polygons rasterised into a layer's
 `mask_paint` at build), `waterline`, `seam_width`, `slope`,
 `profile_shape`, `attention` (a note, no effect). A "Composite" panel
 lists recipes from `/lidar/composites.json`, shows layers in fold order,
