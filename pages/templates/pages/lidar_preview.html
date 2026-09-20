@@ -755,6 +755,9 @@ vanish depending on which way you light them.
   // move; a survey-wide flat tint is a vertical datum disagreement.
   var DIFF_SRC = 'diffsrc', DIFF_LAYER = 'difflayer';
   var pendingDf = Q.get('df') || '';
+  // A shared link that carries a saturation is a saturation the author chose
+  // for the pair in that link. The first mode sync must not snap it away.
+  var pendingDmax = pendingDf !== '' && Q.get('dmax') !== null && Q.get('dmax') !== '';
   var geomOf = {};            // id -> footprint rings, for the overlap test
   var diffReg = {};           // demshade ids registered for differencing
 
@@ -903,7 +906,10 @@ vanish depending on which way you light them.
   function syncDiffMode() {
     var mode = diffMode();
     if (mode === diffModeShown) return false;
+    var keep = diffModeShown === null && pendingDmax;
+    pendingDmax = false;
     diffModeShown = mode;
+    if (keep) return false;
     document.getElementById('dmax').value = DIFF_MODES[mode].dflt;
     return true;
   }
