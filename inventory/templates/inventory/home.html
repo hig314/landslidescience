@@ -343,6 +343,9 @@
       <button id="hist-toggle" class="inv-analysis-btn">&#9656; Seasonal timing</button>
       <button id="timing-toggle" class="inv-analysis-btn">&#9656; Time-series</button>
       <button id="scatter-toggle" class="inv-analysis-btn">&#9656; Susceptibility scatter (lw × n10)</button>
+      {% if is_inventory_editor %}
+      <button id="scarp-toggle" class="inv-analysis-btn" title="Trace possible fault scarps noticed while mapping. Editor-only — these are working observations, not published data.">&#9656; Fault scarps (trace)</button>
+      {% endif %}
       <button id="opera-toggle" class="inv-analysis-btn" title="Histogram of OPERA InSAR velocity values across the pixels currently in view (asc/desc). Values are 8-bit quantized and clipped at ±30 mm/yr.">&#9656; OPERA velocity in view</button>
       <p style="font-size:11px; color:#888; margin:10px 0 0;">
         Counts and chart data respect the "Limit to map view" toggle in the
@@ -477,6 +480,39 @@
     </div>
   </div>
 
+  {% if is_inventory_editor %}
+  <div id="scarp-panel" class="float-panel scarp-panel hidden">
+    <div id="scarp-handle" class="float-header">
+      <span class="scarp-title">Fault scarps</span>
+      <label class="scarp-vis" title="Show or hide traced scarps on the map.">
+        <input type="checkbox" id="scarp-show" checked> show
+      </label>
+      <span id="scarp-count"></span>
+      <button id="scarp-close" title="Close">&times;</button>
+    </div>
+    <div class="scarp-body">
+      <div class="scarp-actions">
+        <button type="button" id="scarp-draw">✎ Trace a scarp</button>
+        <span id="scarp-status"></span>
+      </div>
+      <div id="scarp-hint" class="scarp-hint">
+        Click along the scarp, then press <b>Enter</b> (or double-click) to
+        finish; <b>Escape</b> cancels. It saves straight away — then write what
+        you saw.
+      </div>
+      <div id="scarp-edit" class="scarp-edit hidden">
+        <div class="scarp-meta"><span id="scarp-who"></span></div>
+        <textarea id="scarp-notes" rows="4"
+          placeholder="What made this look tectonic? Uphill-facing? Cuts drainage? Which survey?"></textarea>
+        <div class="scarp-edit-actions">
+          <button type="button" id="scarp-save" class="scarp-primary">Save note</button>
+          <button type="button" id="scarp-del">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <div id="scatter-float" class="float-panel scatter-float hidden">
     <div id="scatter-handle" class="scatter-float-header float-header">
       <span class="scatter-title">Susceptibility</span>
@@ -566,6 +602,11 @@
   draw tool it sits beside.
 {% endcomment %}
 <script src="{% static 'inventory/js/revise.js' %}"></script>
+{% comment %}
+  Tracing possible fault scarps noticed while mapping landslides. Editor-only
+  including READS — these are working observations, not published data.
+{% endcomment %}
+<script src="{% static 'inventory/js/scarps.js' %}"></script>
 {% endif %}
 {# Self-hosted lidar DEMs: PMTiles archives read over range requests, shaded #}
 {# client-side in a Web Worker by maplibre-gl-demshade (vendor/), behind the #}

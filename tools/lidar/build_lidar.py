@@ -320,12 +320,18 @@ def apply_vertical_shift(ds, src, env):
         sys.exit("vertical_shift_m: the source VRT already carries a ScaleOffset")
     shift = (f"      <ScaleOffset>{dz:g}</ScaleOffset>\n"
              "      <ScaleRatio>1</ScaleRatio>\n")
-    if "<ComplexSource>" in body:
+    # Match the TAG, not the exact string: a source carries attributes when the
+    # VRT sets one, e.g. `<ComplexSource resampling="bilinear">` on
+    # resurrection_2016, whose coarse bands are read bilinear so a 16 m cell is
+    # not replicated into 256 identical metre cells. The old literal
+    # "<ComplexSource>" test missed those and the build exited claiming the VRT
+    # had no sources at all.
+    if "<ComplexSource" in body:
         # gdal_translate flattens a VRT source into the ComplexSource entries
         # gdalbuildvrt wrote, each already carrying its own <NODATA>.
         n = body.count("</ComplexSource>")
         body = body.replace("</ComplexSource>", shift + "    </ComplexSource>")
-    elif "<SimpleSource>" in body:
+    elif "<SimpleSource" in body:
         n = body.count("</SimpleSource>")
         # gdalinfo -json cannot express NaN in JSON, so a NaN-nodata source
         # arrives here as the STRING "nan" and `:g` raises. GDAL's VRT accepts
@@ -339,8 +345,11 @@ def apply_vertical_shift(ds, src, env):
                 nodata_el = f"      <NODATA>{float(nd):g}</NODATA>\n"
             except (TypeError, ValueError):
                 nodata_el = f"      <NODATA>{nd}</NODATA>\n"
-        body = body.replace("<SimpleSource>", "<ComplexSource>").replace(
-            "</SimpleSource>", nodata_el + shift + "    </ComplexSource>")
+        # Keep whatever attributes the opening tag carries while renaming it.
+        body = re.sub(r"<SimpleSource(\s[^>]*)?>",
+                      lambda m: "<ComplexSource%s>" % (m.group(1) or ""), body)
+        body = body.replace("</SimpleSource>",
+                            nodata_el + shift + "    </ComplexSource>")
     else:
         sys.exit("vertical_shift_m: VRT has neither a SimpleSource nor a ComplexSource")
     open(vrt, "w").write(body)

@@ -6350,6 +6350,79 @@
         if (typeof _swipeSetPolygons === 'function') _swipeSetPolygons(_polygonsData);
     }
 
+    // -----------------------------------------------------------------------
+    // Fault scarps. Editor-only, including reads (see inventory/scarps.py).
+    // The panel is a floating card like the reviser's bar; the module itself
+    // owns the map layers and the Terra Draw session.
+    // -----------------------------------------------------------------------
+    function _scarpInit() {
+        if (typeof LSScarps === 'undefined' || !window._isInventoryEditor) return;
+        var panel = document.getElementById('scarp-panel');
+        if (!panel) return;
+        var elDraw = document.getElementById('scarp-draw'),
+            elEdit = document.getElementById('scarp-edit'),
+            elNotes = document.getElementById('scarp-notes'),
+            elWho = document.getElementById('scarp-who'),
+            elCount = document.getElementById('scarp-count'),
+            elStatus = document.getElementById('scarp-status'),
+            elShow = document.getElementById('scarp-show');
+
+        function say(msg, bad) {
+            elStatus.textContent = msg || '';
+            elStatus.className = bad ? 'scarp-bad' : 'scarp-ok';
+            if (msg) setTimeout(function () {
+                if (elStatus.textContent === msg) elStatus.textContent = '';
+            }, 4000);
+        }
+        function sync() {
+            var fc = LSScarps.all(), f = LSScarps.selected();
+            elCount.textContent = fc.features.length +
+                (fc.features.length === 1 ? ' scarp' : ' scarps');
+            elDraw.textContent = LSScarps.isDrawing() ? '■ Stop tracing' : '✎ Trace a scarp';
+            elDraw.classList.toggle('scarp-primary', LSScarps.isDrawing());
+            elEdit.classList.toggle('hidden', !f);
+            if (f) {
+                elNotes.value = f.properties.notes || '';
+                var len = f.properties.length_m;
+                elWho.textContent = 'traced by ' + (f.properties.traced_by || '—') +
+                    (len != null ? ' · ' + (len >= 1000 ? (len / 1000).toFixed(2) + ' km'
+                                                        : Math.round(len) + ' m') : '');
+            }
+        }
+        LSScarps.init({
+            map: map, api: API_BASE, csrf: _csrf, onChange: sync,
+            flash: function (m, bad) { say(m, bad); sync(); }
+        }).catch(function (e) { say('Could not load scarps: ' + e.message, true); });
+
+        elDraw.addEventListener('click', function () {
+            if (LSScarps.isDrawing()) { LSScarps.stopDraw(); return; }
+            if (map.__drawActive || map.__reviseActive) {
+                say('Close the draw tool or the reviser first.', true); return;
+            }
+            LSScarps.startDraw({ terraDraw: window.terraDraw,
+                                 adapter: window.terraDrawMaplibreGlAdapter });
+        });
+        document.getElementById('scarp-save').addEventListener('click', function () {
+            LSScarps.saveNotes(elNotes.value)
+                .then(function () { say('Saved.'); })
+                .catch(function (e) { say(e.message, true); });
+        });
+        document.getElementById('scarp-del').addEventListener('click', function () {
+            if (!window.confirm('Delete this scarp? This cannot be undone.')) return;
+            LSScarps.remove()
+                .then(function () { say('Deleted.'); })
+                .catch(function (e) { say(e.message, true); });
+        });
+        elShow.addEventListener('change', function () { LSScarps.setVisible(elShow.checked); });
+        document.getElementById('scarp-close').addEventListener('click', function () {
+            LSScarps.stopDraw(); panel.classList.add('hidden');
+        });
+        window._scarpPanelToggle = function () {
+            panel.classList.toggle('hidden');
+            if (!panel.classList.contains('hidden')) LSScarps.load().catch(function () {});
+        };
+    }
+
     function _reviseStart(id) {
         if (typeof LSRevise === 'undefined') return;
         if (map.__drawActive) { window.__drawFlash && window.__drawFlash(
@@ -8513,6 +8586,17 @@
         close:    document.getElementById('scatter-close'),
         onResize: scatterDrawAll
     });
+    // Fault scarps: build the panel controller, then hang the Analysis-pane
+    // button off it. Both are no-ops for a non-editor — the template omits the
+    // markup and scarps.js is not loaded.
+    _scarpInit();
+    (function () {
+        var b = document.getElementById('scarp-toggle');
+        if (b && window._scarpPanelToggle) {
+            b.addEventListener('click', function () { window._scarpPanelToggle(); });
+        }
+    })();
+
     // Scatter-specific controls (not part of the shared floating behavior).
     var scatterClear = document.getElementById('scatter-clear');
     if (scatterClear) {

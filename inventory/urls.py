@@ -1,7 +1,7 @@
 from django.urls import path, re_path
 
-from . import (dist, insar, opera, photos, susc_dggs, table_data, trace_views,
-               views)
+from . import (dist, insar, opera, photos, scarps, susc_dggs, table_data,
+               trace_views, views)
 
 app_name = 'inventory'
 
@@ -68,6 +68,11 @@ urlpatterns = [
     # inventory/susc_dggs.py for why it is proxied rather than linked).
     re_path(r'^tiles/dggs_susc/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             susc_dggs.dggs_susc_tile, name='dggs_susc_tile'),
+    # Traced fault scarps (editor-only, reads included; see inventory/scarps.py).
+    path('api/scarps/', scarps.api_scarps, name='api_scarps'),
+    path('api/scarps/create/', scarps.api_scarp_create, name='api_scarp_create'),
+    re_path(r'^api/scarps/(?P<scarp_id>\d+)/$', scarps.api_scarp_update,
+            name='api_scarp_update'),
     path('api/dist_dates/', dist.dist_dates, name='dist_dates'),
     path('api/dist_coverage/', dist.dist_coverage, name='dist_coverage'),
     path('api/timed_events/', views.api_timed_events, name='api_timed_events'),

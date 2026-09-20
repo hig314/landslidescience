@@ -1,29 +1,77 @@
-# Lidar hosting — state of play (2026-09-08, paused here)
+# Lidar hosting — state of play (2026-09-20)
 
-Nineteen surveys built, verified, and **all on production**; all nineteen archive
-COGs in Cloudflare R2 behind `lidar.landslidescience.org/cog/<id>.tif` (54 GB).
-Glacier Bay is the complete 6,728-tile USGS delivery published at 1 m.
-Paused 2026-09-08 with nothing pending on the lidar side; Hig switched topics.
+**38 public surveys on production**, 8 gated, all archive COGs in Cloudflare R2
+behind `lidar.landslidescience.org/cog/<id>.tif`. `/lidar/audit/` is the live
+answer to "where is everything" — it checks the four seams (built / on R2 / in
+the catalogue / what the gate does) and is the thing to read first, not this
+file.
 
-**Imagery overlays** ("trace rasters") are now pre-baked locally with
-`tools/imagery/bake_trace.py` (WebP q95, cubic, one zoom finer than native,
-false colour NIR-R-G with contrast-limited equalisation and gamma 0.8, one
-PMTiles per render mode) and uploaded as a file through the editor form. Planet
-files stay on the droplet behind the editor gate. See CLAUDE.md "Trace rasters".
+**Bathymetry is now part of the collection**, which is what the 2026-09-08
+version of this file said to design for. Three multibeam surveys and two sonar
+sets are in: Lituya Bay 2025 (NOAA H14228), Resurrection Bay 2016 (F00683) and
+2024 (E01001), Kachemak 2008-09, and Grewingk Lake 2023 (gated).
 
-**If resuming:** the next data are more lidar, multibeam DEMs, and a topobathy
-compositing facility. Design the vertical-datum reconciliation (NAVD88 vs tidal
-MLLW) before adding multibeam; the manifest's `vertical_datum` is the hook.
+## Reading a BAG: use MODE=INTERPOLATED
+
+Variable-resolution BAGs extracted with the obvious `MODE=RESAMPLED_GRID` come
+back **full of holes**. That mode samples refinement NODES, so wherever a
+supergrid's refinement is coarser than the cell you asked for, the cells
+between nodes are empty. It cost **92% of Resurrection Bay 2024** (4.3 km2
+recovered instead of 33.7) and **38% of Lituya 2025** (29.0 instead of 46.7) —
+the latter already published, and visible only at native zoom, because
+overviews average the lattice away. Compare the extraction's valid fraction
+against the BAG's own low-resolution supergrid view before trusting it.
+
+Fixed-resolution BAG deliveries (F00683 ships 1/2/4/8/16 m bands) stack
+finest-on-top in one VRT with `-resolution highest`, and the VRT must read
+**bilinear**: 63% of that survey's sounded area is genuinely 16 m, and nearest
+replicates each cell into 256 identical metre cells — 61.5% of cells in a test
+window had exactly zero gradient. Bilinear drops that to 0.3% and cannot
+overshoot into pits the soundings do not contain, which cubic can.
+
+## MLLW -> NAVD88, when nothing published will tell you
+
+Every BAG is MLLW; the collection is NAVD88. Routes, in order of preference:
+
+1. **The tide station's own bench mark.** A mark's height above MLLW is on the
+   CO-OPS bench mark sheet; the same mark's NAVD88 height is on its NGS
+   datasheet. Same disk, two datums, subtract. This is how Seward was settled
+   (-0.118 m) after everything else failed. CO-OPS only prints a NAVD88 row
+   when **two or more** marks have NGS elevations, so the tie often exists
+   while the summary says nothing.
+2. **A topobathy (green lidar) survey.** Spans land and shallow seabed, so it
+   overlaps multibeam by millions of cells — how Kachemak got -1.38 m.
+   Topographic lidar does NOT work: it stops at the waterline, above the
+   sonar's shallowest return, so they share no surface (checked at Seward).
+3. **BlueTopo.** Carries the same soundings already in NAVD88, so differencing
+   it against the BAG gives the separation — how Lituya got -0.513 m. Only
+   works in Southeast: BlueTopo's Alaska coverage stops at -138 deg, and so
+   does VDatum's (three regions, all Southeast). That is not a coincidence —
+   BlueTopo can only publish NAVD88 where a tidal grid exists.
+4. VDatum's web API **cannot** do it in Alaska (circular frame requirements),
+   and PROJ offers only a no-shift "ballpark" operation that would silently
+   assert MLLW = NAVD88.
+
+Watch the units: CO-OPS datums are in **feet** at these stations.
+
+## Changing a datum on a built dataset
+
+`vertical_shift_m` is stamped into the archive COG, and `build_archive` stops
+if the manifest disagrees with the stamp. Before that guard, editing the shift
+regenerated every tile from the **stale archive** and reported success — caught
+only because a second survey covered the same seabed.
 
 ## State
 
 | Thing | Where | Status |
 |---|---|---|
-| Code | `main` | GitHub, droplet, and local all in sync (2026-09-08) |
-| PMTiles (~7.3 GB, nineteen files) | `data/lidar/pmtiles/` local and R2 bucket `landslidescience-lidar` under `pmtiles/` (public `https://lidar.landslidescience.org/pmtiles/<id>.pmtiles`) | all 19 uploaded 2026-09-11 (sizes verified with `rclone check`); catalog `pmtiles_url` is now the R2 URL; `/lidar/pmtiles/<id>` serves a local copy if mounted else 302s to R2. Droplet copies deleted 2026-09-11 after prod verified on R2 (droplet 89% → 79% full); `/lidar/pmtiles/<id>` on prod now 302s to R2. Cloudflare bypass-cache rule extended to `/pmtiles/` by Hig and verified with first-ever ranged requests on kbay and glacier_bay (206, DYNAMIC) |
-| Catalog | `data/lidar/catalog.geojson` (19 features) | synced |
-| Archive COGs (~54 GB, predictor-compressed) | `/Volumes/Nunatak/lidar_build/cog/` + R2 bucket `landslidescience-lidar` under `cog/` | all 19 uploaded 2026-09-08; Cache Rule 'bypass cache' on /cog/ added by Hig |
-| Paused InSAR kinematics | branch `insar-kinematics` (19 commits, rebased onto `main`, pushed) | dev-only; check it out to resume |
+| Code | `main` | GitHub, droplet, local in sync |
+| Public surveys | `data/lidar/pmtiles/` + R2 `pmtiles/` | 38 in the production catalogue |
+| Gated surveys | droplet `data/lidar/{pmtiles,cog}/` only — **never** R2 | 8 (Corax x4, Hoonah, Lituya 2023, Pedersen SfM, Grewingk sonar) |
+| Catalogue | `data/lidar/catalog.geojson` | build with `--verify-r2` for anything going to prod |
+| Archive COGs | `/Volumes/Nunatak/lidar_build/cog/` + R2 `cog/` | |
+| Built, NOT published | pow_2018 (62.8 GB), resurrection_2016, resurrection_2024 | awaiting Hig |
+| Paused InSAR kinematics | branch `insar-kinematics` | dev-only |
 
 Tag `archive/main-2026-09-06-kinematics-plus-lidar` marks what `main` looked
 like before it was rebuilt from `origin/main` (kinematics + a duplicate lidar
@@ -94,6 +142,23 @@ brew install gdal pmtiles
 env -u PROJ_LIB -u PROJ_DATA python tools/lidar/build_lidar.py --list
 env -u PROJ_LIB -u PROJ_DATA python tools/lidar/build_lidar.py <id> --stage all
 env -u PROJ_LIB -u PROJ_DATA python tools/lidar/make_catalog.py
+
+# For anything going to PRODUCTION, verify the bytes are actually on the
+# bucket -- this is what stops a catalogue advertising a pmtiles_url that
+# 404s (shipped once, 2026-09-19, caught on the post-deploy check):
+env -u PROJ_LIB -u PROJ_DATA python tools/lidar/make_catalog.py \
+    --verify-r2 --out /tmp/catalog_prod.geojson
+
+# For DEV, point at the local routes so unpublished surveys resolve:
+env -u PROJ_LIB -u PROJ_DATA \
+  LIDAR_PMTILES_PUBLIC_BASE=/lidar/pmtiles LIDAR_COG_PUBLIC_BASE=/lidar/cog \
+  python tools/lidar/make_catalog.py
+
+# Gated companion catalogue (droplet routes; gated bytes never reach R2):
+env -u PROJ_LIB -u PROJ_DATA \
+  LIDAR_PMTILES_PUBLIC_BASE=/lidar/pmtiles LIDAR_COG_PUBLIC_BASE=/lidar/cog \
+  python tools/lidar/make_catalog.py --gated-only \
+    --out data/lidar/catalog-gated.geojson
 ```
 
 Always strip `PROJ_LIB`: a QGIS-bundled PROJ leaking into another GDAL makes it
