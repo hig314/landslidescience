@@ -125,26 +125,42 @@ folds overlay (DGGS QFF) is always on here as a reference for the editor.
       }).catch(function () {});
   }
 
-  // Alaska Quaternary faults & folds (DGGS QFF — Koehler 2013), fetched once and
-  // cached. Always-on reference here; drawn below the landslide polygons.
-  var FAULTS_URL = "{% static 'inventory/ak_qff.geojson' %}";
+  // Faults & folds, same three files and styling as the main map (map.js
+  // loadFaults): NSHM 2023 sections (blue), DGGS QFF (Koehler 2013, magenta),
+  // USGS 2021 ArcticDEM traces (Bender & Haeussler, orange), merged and
+  // _src-tagged. Fetched once
+  // and cached. Always-on reference here; drawn below the landslide polygons.
+  var FAULTS_URLS = [["{% static 'inventory/ak_nshm2023.geojson' %}", 'nshm2023'],
+                     ["{% static 'inventory/ak_qff.geojson' %}", 'qff'],
+                     ["{% static 'inventory/ak_adem2021.geojson' %}", 'adem2021']];
   var _faults = null;
   function addFaultsLayer() {
     if (!_faults || map.getSource('faults')) return;
     map.addSource('faults', { type: 'geojson', data: _faults });
     map.addLayer({ id: 'faults-line', type: 'line', source: 'faults',
+      filter: ['!=', ['get', 'DEPRECATED'], true],   // ovals + coarse duplicates, see tools/faults/build_faults.py
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#b5179e',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.8, 14, 2.6],
+        'line-color': ['match', ['get', '_src'], 'adem2021', '#e65100', 'nshm2023', '#1e6fb8', '#b5179e'],
+        'line-width': ['interpolate', ['linear'], ['zoom'],
+          4, ['match', ['get', '_src'], 'adem2021', 1.0, 'nshm2023', 0.6, 0.8],
+          14, ['match', ['get', '_src'], 'adem2021', 3.2, 'nshm2023', 1.8, 2.6]],
         'line-opacity': ['match', ['get', 'FTYPE'], 'Inferred', 0.5, 0.85]
       } });
   }
   function loadFaults() {
     if (_faults) { addFaultsLayer(); return; }
-    fetch(FAULTS_URL).then(function (r) { return r.json(); })
-      .then(function (fc) { _faults = fc; addFaultsLayer(); })
-      .catch(function (e) { console.error('faults fetch failed:', e); });
+    Promise.all(FAULTS_URLS.map(function (u) {
+      return fetch(u[0]).then(function (r) { return r.json(); })
+        .then(function (fc) {
+          (fc.features || []).forEach(function (f) { f.properties = f.properties || {}; f.properties._src = u[1]; });
+          return fc.features || [];
+        })
+        .catch(function (e) { console.error('faults fetch failed (' + u[1] + '):', e); return []; });
+    })).then(function (parts) {
+      _faults = { type: 'FeatureCollection', features: [].concat.apply([], parts) };
+      addFaultsLayer();
+    });
   }
 
   // Shared color palette (ls_colors.js). Starts at defaults, then upgraded to

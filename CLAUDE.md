@@ -415,6 +415,14 @@ Mapping landslides on the lidar surfaces turns up scarps that are **not** landsl
 
 Deliberately thin. Certainty, sense of motion, or a link to a USGS fault id are `ALTER TABLE ADD COLUMN` away, which is why the migration is written to be re-run.
 
+## Faults & folds reference layer (three sources, one layer)
+
+`inventory/static/inventory/ak_qff.geojson`, `ak_adem2021.geojson`, `ak_nshm2023.geojson` are **display copies built by `tools/faults/build_faults.py`** — edit the script, never the files. Sources: DGGS DDS 3 (Koehler 2013; pristine copy in `tools/faults/src/`), USGS *Alaska Fault Trace Mapping 2021* (Bender & Haeussler, 648 traces at 1:10,000 on ArcticDEM, interior/western AK) and the *NSHM 2023 Alaska fault sections* v2.0 (Bender, Haeussler & Powers, 105 simplified model lines with rate/dip/rake — the only GIS with the Susitna basin scarps of Haeussler et al. 2017). The two USGS files download from ScienceBase into `data/faults_src/` on first run.
+
+- One map source/layer (`faults` / `faults-line`), features tagged `_src` ∈ `qff` (magenta) / `adem2021` (orange) / `nshm2023` (blue); the popup switches schema on `_src`. Same in `_polygon_map.html`.
+- **`DEPRECATED=true` pieces are hidden by the layer filter, not deleted** (Hig, 2026-09-20): the four DGGS seismic-zone ovals (Minto Flats, Fairbanks, Salcha, Rampart), and every stretch where a coarser line duplicates a finer one from *another* source — the rule is "same structure (names share a word) within 2.5 km, vertex spacing ≤ 0.65× mine ⇒ I am the generalisation here". Castle Mountain and Totschunda lose their NSHM model lines where DGGS is detailed; the Denali fault NW of Haines loses its DGGS inferred lines where NSHM is finer. Lines are split at the boundary, so the un-duplicated remainder stays live. The 2021 traces are never deprecated. `--report` prints every deprecated piece with what covers it; `DEPRECATED_WHY` / `DEPRECATED_BY` say so in the file.
+- Not deprecated on purpose: same-source neighbours (two DGGS strands), and pairs whose names share nothing (Queen Charlotte vs. Fairweather, Cape Cleare vs. Patton Bay) — both draw.
+
 ## Naming & disambiguation standard
 
 Alaska placenames recur across distinct landslides (five "Moose Creek"s), and many features sit *near* a named feature without being on it. Names are **human-readable base + compact, admin-interpretable disambiguators**, read left→right from most to least significant:

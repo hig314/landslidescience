@@ -1611,7 +1611,7 @@
     var _featuresData = null;      // cached GeoJSON so re-init after basemap switch is instant
     var _polygonsData = null;      // last loaded polygons GeoJSON (mirrored to the swipe map)
     var _surveyCirclesData = null; // cached survey-circles GeoJSON (fetched on first toggle)
-    var _faultsData = null;        // cached AK Quaternary faults GeoJSON (fetched at init; on by default)
+    var _faultsData = null;        // cached faults GeoJSON: DGGS QFF + USGS 2021 ArcticDEM traces + NSHM 2023 sections, merged, _src-tagged (fetched at init; on by default)
     var _currentBasemap = _initialBasemapId;
 
     // Layer style variables set by initLayers, reused by initDataLayers on basemap switch
@@ -2558,11 +2558,33 @@
     function _faultsLayerDef() {
         return {
             id: 'faults-line', type: 'line', source: 'faults',
+            // Pieces with DEPRECATED=true are hidden, not deleted: the four
+            // DGGS "seismic zone" ovals, and every stretch where a coarser
+            // line duplicates a finer one from another source (an NSHM model
+            // line along DGGS detail, or a DGGS inferred line along an NSHM
+            // or 2021 trace). tools/faults/build_faults.py decides, writes the
+            // reason into DEPRECATED_WHY, and prints the list with --report.
+            filter: ['!=', ['get', 'DEPRECATED'], true],
             layout: { 'visibility': (cbFaults && cbFaults.checked) ? 'visible' : 'none',
                       'line-cap': 'round', 'line-join': 'round' },
+            // Three sources in one layer, told apart by _src (set in
+            // loadFaults): DGGS QFF (Koehler 2013, statewide, magenta,
+            // Inferred traces faded); the USGS 2021 ArcticDEM traces (Bender &
+            // Haeussler, 1:10,000 on 2 m ArcticDEM, interior/western AK only,
+            // orange, a touch wider); and the NSHM 2023 fault sections (Bender,
+            // Haeussler & Powers, 105 simplified model lines, statewide, steel
+            // blue, thin — the only published GIS with the Susitna basin
+            // scarps of Haeussler et al. 2017). Where two map the same fault
+            // the lines sit apart — that offset IS the revision or the
+            // simplification, so all stay visible rather than one hiding
+            // another.
             paint: {
-                'line-color': '#b5179e',
-                'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.7, 10, 1.6, 14, 2.6],
+                'line-color': ['match', ['get', '_src'],
+                    'adem2021', '#e65100', 'nshm2023', '#1e6fb8', '#b5179e'],
+                'line-width': ['interpolate', ['linear'], ['zoom'],
+                    4, ['match', ['get', '_src'], 'adem2021', 0.9, 'nshm2023', 0.6, 0.7],
+                    10, ['match', ['get', '_src'], 'adem2021', 2.0, 'nshm2023', 1.3, 1.6],
+                    14, ['match', ['get', '_src'], 'adem2021', 3.2, 'nshm2023', 1.8, 2.6]],
                 'line-opacity': ['match', ['get', 'FTYPE'], 'Inferred', 0.5, 0.85]
             }
         };
@@ -5656,10 +5678,29 @@
         });
     }
 
-    // Alaska Quaternary faults & folds (DGGS QFF) — reference overlay, ON by
-    // default. Unlike survey-circles we fetch eagerly (small vector file) so the
-    // layer is populated as soon as the map loads. The source/layer themselves
-    // are created in initDataLayers; here we load the data and wire the toggle.
+    // Faults & folds — reference overlay, ON by default. Three files, merged
+    // here and tagged with _src so one source/layer serves all:
+    // All three are DISPLAY COPIES written by tools/faults/build_faults.py
+    // from the pristine sources (tools/faults/src/, ScienceBase); edit the
+    // script, not these files.
+    //   ak_qff.geojson       DGGS DDS 3 (Koehler 2013): statewide Quaternary
+    //                        faults and folds, NAME/AGE/SLIPRATE/SLIPSENSE/FTYPE.
+    //   ak_adem2021.geojson  USGS Alaska Fault Trace Mapping 2021 (Bender &
+    //                        Haeussler, doi:10.5066/P9H02FXB): 648 traces on
+    //                        25 faults, mapped at 1:10,000 on ArcticDEM 3.0,
+    //                        each "Revised" from or "Added" to the USGS QFFD.
+    //                        Interior and western Alaska only. Coordinates
+    //                        rounded to 1e-6 (the release carries 15 decimals).
+    //   ak_nshm2023.geojson  NSHM 2023 Alaska fault sections v2.0 (Bender,
+    //                        Haeussler & Powers, doi:10.5066/P97NRR0F): 105
+    //                        simplified fault lines with slip rate, dip and
+    //                        rake for the hazard model — generalised, not
+    //                        traces, but statewide and the one place the
+    //                        Susitna basin faults (Bunco Lake, Kahiltna River,
+    //                        Bulchitna Lake, Broad Pass thrust) exist as GIS.
+    // Fetched eagerly (small vector files) so the layer is populated as soon
+    // as the map loads. The source/layer themselves are created in
+    // initDataLayers; here we load the data and wire the toggle.
     var cbFaults = document.getElementById('cb-faults');
     function loadFaults() {
         var seed = function () {
@@ -5667,13 +5708,27 @@
             _swipeAlso(function (m) { if (m.getSource('faults')) m.getSource('faults').setData(_faultsData); });
         };
         if (_faultsData) { seed(); return; }
-        fetch(STATIC_BASE + 'inventory/ak_qff.geojson?v=' + DATA_V)
-            .then(function (r) { return r.json(); })
-            .then(function (fc) {
-                _faultsData = fc;
-                seed();
-            })
-            .catch(function (e) { console.error('faults fetch failed:', e); });
+        var get = function (name) {
+            return fetch(STATIC_BASE + 'inventory/' + name + '?v=' + DATA_V)
+                .then(function (r) { return r.json(); });
+        };
+        var tag = function (fc, src) {
+            (fc.features || []).forEach(function (f) { f.properties = f.properties || {}; f.properties._src = src; });
+            return fc.features || [];
+        };
+        // Drawn in this order, NSHM sections underneath and the detailed 2021
+        // traces on top; a failure of any file still shows the others.
+        Promise.all([
+            get('ak_nshm2023.geojson').then(function (fc) { return tag(fc, 'nshm2023'); })
+                .catch(function (e) { console.error('faults (NSHM 2023) fetch failed:', e); return []; }),
+            get('ak_qff.geojson').then(function (fc) { return tag(fc, 'qff'); })
+                .catch(function (e) { console.error('faults (QFF) fetch failed:', e); return []; }),
+            get('ak_adem2021.geojson').then(function (fc) { return tag(fc, 'adem2021'); })
+                .catch(function (e) { console.error('faults (2021 ArcticDEM) fetch failed:', e); return []; })
+        ]).then(function (parts) {
+            _faultsData = { type: 'FeatureCollection', features: [].concat.apply([], parts) };
+            seed();
+        });
     }
     loadFaults();
     if (cbFaults) {
@@ -6231,22 +6286,55 @@
     map.on('dblclick', 'points',       _dblclickDefaultView);
     map.on('dblclick', 'polygon-fill', _dblclickDefaultView);
 
-    // Quaternary fault trace → popup with name/age/slip attributes (DGGS QFF).
+    // Fault trace → popup. Three schemas behind one layer (see loadFaults):
+    // DGGS QFF (name/age/slip), the USGS 2021 ArcticDEM traces (fault/feature/
+    // slip sense, and whether it revises or adds to the QFFD), and the NSHM
+    // 2023 sections (rate, dip, rake).
     map.on('click', 'faults-line', function (e) {
         if (map.__measureActive || map.__drawActive || map.__insarActive) return;
         var p = e.features[0].properties || {};
         function row(lbl, val) {
             if (val === undefined || val === null || val === '' || val === 'Unknown') return '';
-            return '<div style="margin:1px 0;"><span style="color:#888;">' + lbl + ':</span> ' + val + '</div>';
+            return '<div style="margin:1px 0;"><span style="color:#888;">' + lbl + ':</span> ' + esc(String(val)) + '</div>';
         }
-        var html = '<div style="font:12px/1.4 system-ui,sans-serif; max-width:240px;">' +
-            '<div style="font-weight:600; color:#b5179e; margin-bottom:3px;">' +
-                (p.NAME || 'Unnamed fault') + '</div>' +
-            row('Age', p.AGE) + row('Type', p.FTYPE) +
-            row('Slip rate', p.SLIPRATE) + row('Slip sense', p.SLIPSENSE) +
-            row('Dip dir', p.DIPDIRECTI) +
-            '<div style="margin-top:4px; color:#aaa; font-size:10px;">DGGS DDS 3 (Koehler, 2013)</div>' +
-            '</div>';
+        var html;
+        if (p._src === 'adem2021') {
+            var qid = String(p.QfaultID || '0');
+            html = '<div style="font:12px/1.4 system-ui,sans-serif; max-width:260px;">' +
+                '<div style="font-weight:600; color:#e65100; margin-bottom:3px;">' +
+                    esc(p.FaultName || 'Unnamed fault') + '</div>' +
+                row('Feature', p.Feature) +
+                row('Slip sense', [p.SlipSense1, p.SlipSense2].filter(function (s) {
+                    return s && s !== 'Unknown'; }).join(', ')) +
+                row('Change', p.Change === 'Added' ? 'added — not previously in the USGS QFFD'
+                    : p.Change === 'Revised' ? 'revises QFFD fault ' + esc(qid) : p.Change) +
+                '<div style="margin-top:4px; color:#aaa; font-size:10px;">USGS Alaska Fault Trace Mapping 2021 ' +
+                '(Bender &amp; Haeussler), 1:10,000 on ArcticDEM 3.0</div>' +
+                '</div>';
+        } else if (p._src === 'nshm2023') {
+            var rt = p.rateType === 'VERTICAL_SLIP_RATE' ? 'vertical' :
+                     p.rateType === 'SLIP_RATE' ? 'fault-parallel' :
+                     p.rateType === 'NOMINAL' ? 'nominal (assigned)' : p.rateType;
+            html = '<div style="font:12px/1.4 system-ui,sans-serif; max-width:260px;">' +
+                '<div style="font-weight:600; color:#1e6fb8; margin-bottom:3px;">' +
+                    esc(p.name || 'Unnamed fault') + '</div>' +
+                row('Slip rate', p.rate != null ? p.rate + ' mm/yr' + (rt ? ' (' + rt + ')' : '') : '') +
+                row('Dip', p.dip != null ? p.dip + '°' : '') +
+                row('Rake', p.rake != null ? p.rake + '°' : '') +
+                row('Fault ID', p.FaultID) +
+                '<div style="margin-top:4px; color:#aaa; font-size:10px;">NSHM 2023 Alaska fault sections v2.0 ' +
+                '(Bender, Haeussler &amp; Powers) — a simplified model line, not a mapped trace</div>' +
+                '</div>';
+        } else {
+            html = '<div style="font:12px/1.4 system-ui,sans-serif; max-width:240px;">' +
+                '<div style="font-weight:600; color:#b5179e; margin-bottom:3px;">' +
+                    esc(p.NAME || 'Unnamed fault') + '</div>' +
+                row('Age', p.AGE) + row('Type', p.FTYPE) +
+                row('Slip rate', p.SLIPRATE) + row('Slip sense', p.SLIPSENSE) +
+                row('Dip dir', p.DIPDIRECTI) +
+                '<div style="margin-top:4px; color:#aaa; font-size:10px;">DGGS DDS 3 (Koehler, 2013)</div>' +
+                '</div>';
+        }
         new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
             .setLngLat(e.lngLat).setHTML(html).addTo(map);
     });
