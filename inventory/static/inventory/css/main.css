@@ -1102,7 +1102,7 @@ details[open] > .ov-cat-summary::before { content: '▾ '; }
 #revise-bar #rv-status.rv-quiet { color: #999; }
 
 /* ---------------------------------------------------------------------------
-   Fault scarps (editor-only). A floating card in the same idiom as the
+   Fault scarps (public reads, editor-only writes). A floating card in the same idiom as the
    reviser's bar. Purple dashed lines on the map so they read as neither
    landslide outlines (which are filled) nor basemap features.
    --------------------------------------------------------------------------- */

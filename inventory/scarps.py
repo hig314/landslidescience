@@ -6,10 +6,12 @@ line and write down what you thought at the moment you thought it. See
 inventory/management/commands/migrate_fault_scarps.py for the schema and why
 it is deliberately thin.
 
-EDITOR-ONLY, ALL OF IT — including reads. These are working observations, not
-published data: a half-formed "possible scarp?" on the public map would be read
-as a claim the project is not making. If they ever become public, that is a
-deliberate act (a `published` column and a filter here), not a side effect.
+READS ARE PUBLIC, WRITES ARE EDITOR-ONLY (Hig, 2026-09-20). The first cut
+kept reads editor-only on the argument that a half-formed "possible scarp?"
+on the public map reads as a claim; Hig decided the traces should be seen by
+default, so anyone can list them and read the notes, and the client labels
+them as working observations. Tracing, notes and deletion still need an
+editor login. A `published` column is still the way to hide one later.
 
 Geometry in, geometry out, is GeoJSON in EPSG:4326. Writes go through
 _SCARP_GEOM_EXPR, which mirrors the landslide polygons' _GEOM_WRITE_EXPR: set
@@ -53,10 +55,9 @@ _SELECT = """
 """
 
 
-@inventory_editor_required
 @require_http_methods(['GET'])
 def api_scarps(request):
-    """Scarps in a bbox. ?bbox=minLon,minLat,maxLon,maxLat (optional).
+    """Scarps in a bbox. ?bbox=minLon,minLat,maxLon,maxLat (optional). Public.
 
     The bbox is optional here, unlike the landslide polygons endpoint: there
     are few enough of these that "show me everything" is a reasonable ask, and

@@ -344,7 +344,9 @@
       <button id="timing-toggle" class="inv-analysis-btn">&#9656; Time-series</button>
       <button id="scatter-toggle" class="inv-analysis-btn">&#9656; Susceptibility scatter (lw × n10)</button>
       {% if is_inventory_editor %}
-      <button id="scarp-toggle" class="inv-analysis-btn" title="Trace possible fault scarps noticed while mapping. Editor-only — these are working observations, not published data.">&#9656; Fault scarps (trace)</button>
+      <button id="scarp-toggle" class="inv-analysis-btn" title="Trace possible fault scarps noticed while mapping. Working observations, shown to everyone; only editors can trace or edit.">&#9656; Fault scarps (trace)</button>
+      {% else %}
+      <button id="scarp-toggle" class="inv-analysis-btn" title="Possible fault scarps noticed while mapping landslides on lidar. Working observations, not a fault map.">&#9656; Fault scarps</button>
       {% endif %}
       <button id="opera-toggle" class="inv-analysis-btn" title="Histogram of OPERA InSAR velocity values across the pixels currently in view (asc/desc). Values are 8-bit quantized and clipped at ±30 mm/yr.">&#9656; OPERA velocity in view</button>
       <p style="font-size:11px; color:#888; margin:10px 0 0;">
@@ -480,7 +482,6 @@
     </div>
   </div>
 
-  {% if is_inventory_editor %}
   <div id="scarp-panel" class="float-panel scarp-panel hidden">
     <div id="scarp-handle" class="float-header">
       <span class="scarp-title">Fault scarps</span>
@@ -491,6 +492,7 @@
       <button id="scarp-close" title="Close">&times;</button>
     </div>
     <div class="scarp-body">
+      {% if is_inventory_editor %}
       <div class="scarp-actions">
         <button type="button" id="scarp-draw">✎ Trace a scarp</button>
         <span id="scarp-status"></span>
@@ -500,18 +502,28 @@
         finish; <b>Escape</b> cancels. It saves straight away — then write what
         you saw.
       </div>
+      {% else %}
+      <div id="scarp-hint" class="scarp-hint">
+        Possible tectonic scarps noticed while mapping landslides on lidar:
+        working observations, not a fault map. Click a line to read the note.
+        <span id="scarp-status"></span>
+      </div>
+      {% endif %}
       <div id="scarp-edit" class="scarp-edit hidden">
         <div class="scarp-meta"><span id="scarp-who"></span></div>
+        {% if is_inventory_editor %}
         <textarea id="scarp-notes" rows="4"
           placeholder="What made this look tectonic? Uphill-facing? Cuts drainage? Which survey?"></textarea>
         <div class="scarp-edit-actions">
           <button type="button" id="scarp-save" class="scarp-primary">Save note</button>
           <button type="button" id="scarp-del">Delete</button>
         </div>
+        {% else %}
+        <textarea id="scarp-notes" rows="4" readonly placeholder="(no note yet)"></textarea>
+        {% endif %}
       </div>
     </div>
   </div>
-  {% endif %}
 
   <div id="scatter-float" class="float-panel scatter-float hidden">
     <div id="scatter-handle" class="scatter-float-header float-header">
@@ -602,12 +614,13 @@
   draw tool it sits beside.
 {% endcomment %}
 <script src="{% static 'inventory/js/revise.js' %}"></script>
+{% endif %}
 {% comment %}
-  Tracing possible fault scarps noticed while mapping landslides. Editor-only
-  including READS — these are working observations, not published data.
+  Possible fault scarps noticed while mapping landslides. Reads are public
+  (the module only needs Terra Draw when an editor starts tracing, and only
+  editors get that button); writes are editor-only on the server.
 {% endcomment %}
 <script src="{% static 'inventory/js/scarps.js' %}"></script>
-{% endif %}
 {# Self-hosted lidar DEMs: PMTiles archives read over range requests, shaded #}
 {# client-side in a Web Worker by maplibre-gl-demshade (vendor/), behind the #}
 {# old DemShade API in dem_shade_bridge.js. Public (the /lidar/ routes are #}

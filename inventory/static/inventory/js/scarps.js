@@ -15,9 +15,9 @@
  *
  * WHAT IT IS NOT
  * --------------
- * Not a fault map, and not public. Reads are editor-only along with writes: a
- * half-formed "possible scarp?" rendered on the public map would read as a
- * claim the project is not making.
+ * Not a fault map. Reads are public since 2026-09-20 (Hig's call: the traces
+ * are shown to everyone by default, labelled as working observations); writes
+ * are editor-only on the server, and the tracing UI only exists for editors.
  *
  * RELATIONSHIP TO revise.js
  * -------------------------

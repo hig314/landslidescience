@@ -1,6 +1,8 @@
 # Topobathy compositing: tools and interface
 
-Status 2026-09-20: plan, nothing built. Third draft. Second draft came after Hig pointed at
+Status 2026-09-20: plan, nothing built. Fourth draft: the hand interface is
+now a mask *editor* in the Photoshop idiom (select, modify selection, fill),
+not just a brush. Second draft came after Hig pointed at
 his Portage merge (`/Volumes/Nunatak/Landslides/Portage/Portage_topobathy/
 Crops/Topobathy_merge/`): a sequence of identically cropped DEMs, one 8-bit
 mask per DEM painted in Photoshop, folded in order as
@@ -112,13 +114,34 @@ set in fold order:
   is a human call. Run `despike_dtm.py` on inputs first; the minimum is a
   magnet for negative spikes.
 
-Real change is the caveat: for a "current ground" composite the minimum is
-right (the post-failure surface is the ground now), for anything
-historical it is not, and a `prefer_year` variant exists for that. Where
-the rule is wrong locally, the fix is a brush on the loser's mask, which is
-why this is a mask generator and not a derived "min of N" layer — though
-the two are equivalent in the fold, one mask per layer is what a painter
-can reach.
+**Real change** is where `lowest` is wrong by construction, and it is
+common: glacier thinning is the extreme, but landslide deposits, cut and
+fill, delta growth, a rebuilt road, a beach after a storm all move the
+ground between surveys. Where the newer surface is *lower* (thinning, a
+scar) the minimum happens to pick the newer one and a "current ground"
+composite is right by accident. Where the newer surface is *higher*
+(deposition, advance, construction) the minimum keeps the old ground and
+is simply wrong, and nothing in the elevations alone says whether a rise
+is canopy, snow, or a new landslide toe. That is a human call, and the tool
+has to make the call fast:
+
+- the generator writes `change_candidates` — connected blobs of
+  `|newer − older| > change_m` with area above `min_area_m2`, as polygons
+  with area, mean dz, sign, and which layer `lowest` chose — alongside the
+  masks, and `attention.tif` marks the same cells;
+- in the editor (below) each blob is one click: **accept** pushes the newer
+  layer's mask to 1 over the blob, feathered by the current feather
+  distance, so the newer surface wins there whatever `lowest` said;
+  **reject** leaves the auto mask alone; both are ordinary paint;
+- `prefer_year` is the bulk form of accept: over a drawn or wanded region,
+  the newest valid layer wins, for a glacier where every blob is real.
+
+For anything historical (a composite meant to show the ground as of a
+date) `lowest` is the wrong generator and `prefer_year` with a cutoff is
+the right one. Where the rule is wrong locally, the fix is a selection and
+a fill on the loser's mask, which is why this is a mask generator and not
+a derived "min of N" layer — the two are equivalent in the fold, but one
+mask per layer is what an editor can reach.
 
 `highest` and `median` come free with the same code. `median` over three or
 more renderings of one point cloud is a cheap despiker in its own right.
@@ -280,6 +303,7 @@ composite.py build       recipe.json [--stage grid|stack|derive|masks|fold|all] 
 composite.py masks       recipe.json [--layer NAME]      # regenerate auto masks only
 composite.py import-mask recipe.json --layer NAME edited.tif
 composite.py export-mask recipe.json --layer NAME [--effective|--auto|--paint]
+composite.py export-ref  recipe.json --diff A B | --layer NAME   # 8-bit images on the grid, for wanding in Photoshop
 composite.py report      recipe.json
 composite.py holdout     recipe.json --truth seldovia_2019 --band intertidal
 composite.py publish     recipe.json                     # datasets.json entry + build_lidar --stage all
@@ -307,36 +331,81 @@ and stamps the hash into the COG, so a build is reproducible from the repo
 alone while drawing happens wherever the gated layers are visible,
 including prod.
 
-### Tier 3 — the brush, local and offline-first
+### Tier 3 — the mask editor, local and offline-first
 
-Painting has to feel like painting, so it runs where the stack is: on the
-Mac, against the dev server with the composite working directory mounted,
-with no network in the loop. Sync to the repository (paint rasters,
-`edits.geojson`, the built composite) happens at whatever cadence Hig
-chooses, by the usual commit and publish steps; prod never hosts the brush.
+The user works on the mask image directly, in the Photoshop idiom Hig
+described: **select** a region, **modify** the selection, **fill** it.
+The mask is the document; the DEMs, hillshades and difference rasters are
+reference layers you can see through and select on. A brush is just one
+selection tool among several, and every tool ends in the same place: a
+region of `mask_paint` set to 0, 1, or a value in between, with a feather.
+That is what makes the editor generic across generators — `lowest`,
+`feather`, the state rules and the intertidal fill all just produce a
+starting mask and, where they are unsure, a set of candidate selections.
 
-- **Client**: a canvas layer over the map showing the effective mask for
-  the selected layer; brush with radius in metres (zoom-independent),
-  hardness, value, opacity. A stroke draws on the canvas immediately and
-  is posted on pointer-up as a LineString plus brush params. Undo pops
-  the session stack and re-posts.
-- **Server, local only**: splats the stroke into `mask_paint` (a
-  Gaussian-falloff disc stamped along the path, alpha-composited; a 200 m
-  stroke at 1 m is a few tens of thousands of cells, well under a frame),
-  re-folds the cached stack over the stroke's bounding window, invalidates
-  those tiles, and serves both the mask overlay and the composite as tiles
-  from `/lidar/composite/<id>/{mask,dem}/{z}/{x}/{y}`. Latency is bounded
-  by the fold over the dirty window, which is why stages 1–4 are cached.
-- The same splat code serves `import-mask` (which is a stroke with a
-  raster instead of a path), so a Photoshop edit and a brush edit land in
-  the same place and the build sees no difference.
+Selection tools:
+
+- **Magic wand** on any visible raster: click a seed, take the contiguous
+  region within `±range` of the seed's value. On the *difference* raster
+  this selects a thinning glacier or a landslide deposit in one click; on
+  the *mask* it selects a blotch the generator made; on a *DEM* it
+  selects a flat (a lake surface, a hydro-flattened fill). Tolerance,
+  contiguous or global, and 4/8-connectivity as in Photoshop.
+- **Candidate blobs** from the generators (`change_candidates`,
+  `attention`): listed and outlined, click to select, keyboard to accept
+  or reject, next. This is the efficient path through a glacier with fifty
+  real changes and three canopy artifacts.
+- **Polygon / lasso**, and the **brush** (radius in metres, hardness) as a
+  selection brush or a direct paint.
+- **By value range** on a raster (a threshold, no seed) for bulk work.
+
+Selection modifiers: grow / shrink by a distance, **feather** by a
+distance (the one Hig named — the selection edge becomes a ramp so the fold
+does not step), invert, add / subtract / intersect with the current
+selection, and "select same on the other layer" (a `lowest` decision is
+a pair of complementary masks, and pushing one up should pull the other
+down).
+
+Fills: set to 0 or 1, set to a value, push toward 0 or 1 by an amount,
+restore auto (clear paint alpha in the selection), blur within. Undo is
+per operation, a session stack; the paint raster on disk is the record.
+
+Implementation:
+
+- Runs where the stack is: on the Mac, against the dev server with the
+  composite working directory mounted, no network in the loop. Sync to the
+  repository (paint rasters, `edits.geojson`, the built composite) at
+  whatever cadence Hig chooses, by the usual commit and publish steps;
+  prod never hosts the editor.
+- **Client** draws selections and brush strokes on a canvas over the map
+  at once, for feel; nothing is authoritative until the server answers. A
+  wand click is posted with the seed and tolerance, and the server floods
+  at grid resolution (`scipy.ndimage.label` on the thresholded window,
+  bounded by a maximum region) and returns the selection as a small
+  raster tile set or a polygon, whichever is smaller.
+- **Server, local only**: holds the session selection as a raster, applies
+  modifiers and fills to `mask_paint`, re-folds the cached stack over the
+  dirty window, invalidates tiles, and serves mask, selection and composite
+  as tiles from `/lidar/composite/<id>/{mask,sel,dem}/{z}/{x}/{y}`. A fill
+  over a glacier-sized blob at 1 m is a few million cells: a second, not a
+  frame, but it is one click, not a stroke. Latency for strokes is the
+  fold over the dirty window, which is why stages 1–4 are cached.
+- The same code path serves `import-mask` (an external edit is a fill with
+  a raster as the selection), so a Photoshop edit and an editor edit land
+  in the same place and the build sees no difference.
+
+The plain image-editor route stays valid for anything the editor cannot do
+yet: `export-mask` the effective mask and the difference raster as
+matching 8-bit images, wand and feather in Photoshop, `import-mask` the
+result. Getting this round trip right in tier 1 means the editor is a
+convenience, not a prerequisite.
 
 If a browser canvas over MapLibre cannot be made responsive enough under
-the demshade worker, the fallback is a small native painting window
-(Qt + numpy) over the same local endpoints; the model does not change. Two
-checks before committing either way: whether the demshade package accepts
-a tile URL template rather than a PMTiles archive, and how a MapLibre
-`canvas` source behaves under the demshade compositor.
+the demshade worker, the fallback is a small native window (Qt + numpy)
+over the same local endpoints; the model does not change. Two checks
+before committing either way: whether the demshade package accepts a tile
+URL template rather than a PMTiles archive, and how a MapLibre `canvas`
+source behaves under the demshade compositor.
 
 ## Order of work
 
@@ -353,7 +422,8 @@ a tile URL template rather than a PMTiles archive, and how a MapLibre
    RMSE before going further.
 4. **Tier 2** polygons and panel; migration dev-only first as with fault
    scarps.
-5. **Tier 3** brush and live preview, local only.
+5. **Tier 3** the mask editor, local only: wand + candidate blobs +
+   feather + fill first (that is the real-change workflow), brush second.
 6. Publish the first composite on Hig's call, then the auxiliary PMTiles.
 
 ## Open questions for Hig
@@ -373,9 +443,10 @@ a tile URL template rather than a PMTiles archive, and how a MapLibre
   Portage masks are full-frame paintings with no auto/paint split, and
   would be committed whole unless `import-mask` is run against a
   regenerated auto mask first.
-- For `lowest`: is "current ground" the default intent (min wins, real
-  change adopted), or should real change above `max_drop_m` always wait for
-  a human?
+- For `lowest`: should big *drops* (newer lower by more than `max_drop_m`)
+  be adopted by default, since a current-ground composite wants them, or
+  go to the candidate list like rises do? The plan currently lists both
+  signs and lets the human accept.
 - Do composites get their own region in the catalogue or sit beside their
   sources with a `composite` product tag?
 
