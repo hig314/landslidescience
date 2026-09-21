@@ -1,5 +1,11 @@
 # Lidar hosting — state of play (2026-09-20)
 
+> Hosting is one of two streams under `tools/lidar/`. The other, topobathy
+> compositing (`topobathy/`, `composite.py`, `grid_bathy.py`, `mask_tool/`,
+> `composites/`, `TOPOBATHY_PLAN.md`), lives on branch
+> `topobathy-compositing` in its own worktree. See `../../WORKSTREAMS.md`
+> for the split and the boundary rules.
+
 **38 public surveys on production**, 8 gated, all archive COGs in Cloudflare R2
 behind `lidar.landslidescience.org/cog/<id>.tif`. `/lidar/audit/` is the live
 answer to "where is everything" — it checks the four seams (built / on R2 / in

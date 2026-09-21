@@ -6,7 +6,9 @@ private Tethys stack at `github.com/hig314/tethys-timescale-grafana`.
 **New to this repo?** Read **[ONBOARDING.md](ONBOARDING.md)** first (project
 shape, environments, verification recipes) and **[HAZARDS.md](HAZARDS.md)**
 before editing (the footgun list — every entry earned by a real incident).
-This file is the deep per-feature reference.
+This file is the deep per-feature reference. **Two work streams run in
+parallel in separate worktrees — read [WORKSTREAMS.md](WORKSTREAMS.md)
+before touching anything under `tools/lidar/`.**
 
 ## Development workflow — **dev → test → (revise → test) → GH + production**
 
