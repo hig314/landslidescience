@@ -1,0 +1,253 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mask tool</title>
+<style>
+ :root{--bg:#1b1d20;--panel:#26292e;--fg:#e6e6e6;--mut:#9aa0a6;--acc:#ffa040}
+ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px/1.4 system-ui,sans-serif}
+ #app{display:grid;grid-template-columns:420px 1fr;height:100%}
+ #panel{background:var(--panel);padding:10px;overflow:auto;border-right:1px solid #000}
+ #stack{display:grid;grid-template-columns:auto 1fr 1fr 1fr 1fr 1fr;gap:4px 5px;align-items:center}
+ #why{font:11px/1.35 ui-monospace,Menlo,monospace;color:var(--mut);background:#111;border:1px solid #333;padding:4px;margin-top:6px;white-space:pre;min-height:5em;overflow:auto}
+ #why b{color:var(--fg)}#why .w{color:var(--acc)}
+ #brushcur{position:absolute;pointer-events:none;border:1px solid #0ff;border-radius:50%;box-shadow:0 0 0 1px #0008;display:none}
+ #stack .hd{color:var(--mut);font-size:11px;text-align:center}
+ #stack .nm{font-size:12px;text-align:right;cursor:pointer;padding:2px 4px;border-radius:3px;max-width:70px;overflow:hidden;text-overflow:ellipsis}
+ #stack .nm.cur{background:var(--acc);color:#000}#stack .nm.base{color:var(--mut);cursor:default}
+ #stack img{width:100%;display:block;border:1px solid #000;cursor:pointer;image-rendering:auto}
+ #stack .cur-img{outline:2px solid var(--acc)}
+ #stack .comp{opacity:.9}
+ #stack .cell{display:flex;flex-direction:column;align-items:center;gap:2px}
+ #stack .off img{opacity:.35}
+ .tg{position:relative;width:26px;height:14px;background:#555;border-radius:7px;cursor:pointer;flex:none}
+ .tg::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:#ccc;transition:left .1s}
+ .tg.on{background:var(--acc)}.tg.on::after{left:14px;background:#000}
+ .tgl{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--mut)}
+ .vslide{writing-mode:vertical-lr;direction:rtl;height:110px;width:18px;margin:0}
+ #profile{position:absolute;left:0;right:0;bottom:0;height:200px;background:#111d;border-top:1px solid #444;display:none}
+ #profile canvas{width:100%;height:100%;display:block}
+ #profile .close{position:absolute;right:6px;top:4px;color:var(--mut);cursor:pointer}
+ #legend{display:flex;gap:8px;color:var(--mut);font-size:11px;margin-top:4px;align-items:center}
+ #legend i{display:inline-block;width:14px;height:10px;border:1px solid #000;vertical-align:middle}
+ #panel h1{font-size:14px;margin:0 0 8px;color:var(--acc)}
+ #panel section{margin-bottom:12px}
+ #panel label{display:block;color:var(--mut);margin-top:6px}
+ #panel select,#panel input[type=number]{width:100%;background:#111;color:var(--fg);border:1px solid #444;padding:3px}
+ #panel button{margin:3px 3px 0 0;padding:4px 8px;background:#3a3f47;color:var(--fg);border:1px solid #555;border-radius:3px;cursor:pointer}
+ #panel button.on{background:var(--acc);color:#000}
+ #stage{position:relative;overflow:hidden;cursor:crosshair}
+ #view{position:absolute;left:0;top:0;transform-origin:0 0}
+ #view canvas{position:absolute;left:0;top:0;image-rendering:pixelated}
+ #status{position:absolute;right:8px;bottom:6px;color:var(--mut);font-size:12px;background:#0008;padding:2px 6px}
+ .row{display:flex;gap:4px;align-items:center}.row input[type=range]{flex:1}
+ .lay{display:flex;justify-content:space-between;padding:2px 4px;border-radius:3px;cursor:pointer}
+ .lay.cur{background:#3a3f47}.lay small{color:var(--mut)}
+</style></head><body><div id="app">
+<div id="panel">
+ <h1 id="title">Mask tool</h1>
+ <section><label>Stack (fold order, base at bottom · click to edit a layer)</label><div id="stack"></div>
+  <div id="why">hover the map for the decision at a cell</div>
+  <div id="legend"><span><i id="lg-lo"></i> low</span><span><i id="lg-hi"></i> high</span><span><i style="background:rgb(70,40,110)"></i> nodata</span><span><i style="background:rgba(255,140,0,.55)"></i> shown</span></div></section>
+ <section><label>Background</label>
+  <select id="bg"><option value="shade:out">composite hillshade</option><option value="elev:out">composite elevation (band)</option><option value="elev:layer">this layer's elevation (band)</option><option value="shade:layer">this layer's hillshade</option><option value="diff">this layer − below (±s)</option><option value="mask">this layer's mask (B&amp;W)</option><option value="automask">this layer's auto mask (B&amp;W)</option><option value="paint">this layer's paint (B&amp;W over checker)</option><option value="refdiff" id="bg-refdiff" disabled>composite − reference (±s)</option><option value="class" class="axes" disabled>this layer's class</option><option value="sigma" class="axes" disabled>this layer's quality σ (log grey)</option><option value="sigmatotal" class="axes" disabled>this layer's expected error σ_total</option><option value="classnow" class="axes" disabled>class now (newest credible observation)</option></select>
+  <div class="row"><label>±s m</label><input id="dscale" type="number" value="2" step="0.5" style="width:60px"></div>
+  <div id="bandbox" style="display:none;margin-top:4px">
+   <div class="row" style="align-items:stretch;gap:8px">
+    <div style="display:flex;flex-direction:column;gap:2px"><input id="band-hi" type="range" min="0" max="1000" value="1000" class="vslide"><input id="band-lo" type="range" min="0" max="1000" value="0" class="vslide"></div>
+    <div style="flex:1"><label>band (m)</label><input id="band-lo-v" type="number" step="0.5" style="width:90px"> to <input id="band-hi-v" type="number" step="0.5" style="width:90px"><br><small style="color:var(--mut)">drag the two handles, or type; low = purple, high = yellow, outside = dark</small><br><button id="band-fit">fit to view</button><button id="band-all">full range</button></div>
+   </div>
+  </div>
+  <label>Overlays</label>
+  <label><input type="checkbox" id="ovmask" checked> effective mask (orange)</label>
+  <label><input type="checkbox" id="ovpaint" checked> paint (green=1, red=0)</label>
+  <label><input type="checkbox" id="ovvalid"> layer footprint (blue)</label>
+ </section>
+ <section><label>Select</label>
+  <div><button id="t-wand" class="on">wand</button><button id="t-rect">rect</button><button id="t-brush">airbrush</button><button id="t-profile">profile</button><button id="t-pan">pan</button></div>
+  <div id="brushbox" style="display:none;border:1px solid #444;padding:4px;margin-top:4px">
+   <div class="row"><label style="width:60px;margin:0">size</label><input id="b-size" type="range" min="1" max="300" value="30"><span id="b-size-v">30 m</span></div>
+   <div class="row"><label style="width:60px;margin:0">hardness</label><input id="b-hard" type="range" min="0" max="100" value="50"><span id="b-hard-v">50%</span></div>
+   <div class="row"><label style="width:60px;margin:0">opacity</label><input id="b-opac" type="range" min="1" max="100" value="100"><span id="b-opac-v">100%</span></div>
+   <div class="row"><label style="width:60px;margin:0">flow</label><input id="b-flow" type="range" min="1" max="100" value="30"><span id="b-flow-v">30%</span></div>
+   <div style="margin-top:4px">paints: <button id="b-show" class="on">show (1)</button><button id="b-hide">hide (0)</button><button id="b-erase">erase paint</button></div>
+   <small style="color:var(--mut)">drag to paint · [ ] size · flow builds per pass, opacity caps a stroke</small>
+  </div>
+  <label>wand on</label><select id="ref"><option value="diff">difference (layer − below)</option><option value="rough">roughness of layer (flat → water / snow / ice)</option><option value="slope">slope of layer (°)</option><option value="refdiff" id="ref-refdiff" disabled>composite − reference</option><option value="z">layer elevation</option><option value="out">composite</option><option value="auto">auto mask</option></select>
+  <div class="row"><label>tol</label><input id="tol" type="number" value="0.5" step="0.1" style="width:70px"><span id="tolu">m</span></div>
+  <label>mode: shift = add, alt = subtract</label>
+  <div><button data-mod="grow">grow</button><button data-mod="shrink">shrink</button><button data-mod="holes">fill holes</button><button data-mod="invert">invert</button><button data-mod="valid">∩ footprint</button><button data-mod="clear">clear</button></div>
+  <div class="row"><label>by</label><input id="mdist" type="number" value="5" step="1" style="width:60px"><span>m</span></div>
+ </section>
+ <section><label>Paint axis</label>
+  <select id="axis"><option value="weight">weight (this composite's mask)</option><option value="class" class="axes" disabled>class (the observation's surface type)</option><option value="sigma" class="axes" disabled>quality σ (the observation's error)</option></select>
+  <div id="classpick" style="display:none;margin-top:3px"></div>
+  <div id="sigmapick" style="display:none;margin-top:3px"></div>
+ </section>
+ <section><label>Fill selection → this layer's paint</label>
+  <div class="row"><label>feather</label><input id="feather" type="number" value="10" step="1" style="width:60px"><span>m</span></div>
+  <div><button id="fill1">show layer (1)</button><button id="fill0">hide layer (0)</button><button id="fillclear">restore auto</button></div>
+  <div><button id="undo">undo</button><button id="save">save paint</button></div>
+ </section>
+ <section><small id="info" style="color:var(--mut)"></small></section>
+</div>
+<div id="stage"><div id="view"><canvas id="c-bg"></canvas><canvas id="c-valid"></canvas><canvas id="c-mask"></canvas><canvas id="c-paint"></canvas><canvas id="c-sel"></canvas><canvas id="c-brush"></canvas></div><div id="brushcur"></div><div id="profile"><canvas id="c-prof"></canvas><span class="close" id="prof-close">✕</span></div><div id="status">loading…</div></div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+let ST=null, cur=null, tool='wand', view={x:0,y:0,k:0.5}, ver=0, drag=null;
+const stage=$('#stage'), viewEl=$('#view');
+const layersOf=(kind)=>({'c-bg':'bg','c-valid':'valid','c-mask':'mask','c-paint':'paint','c-sel':'sel'});
+function setStatus(s){$('#status').textContent=s}
+async function api(path,body){const r=await fetch(path,body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:{});const j=await r.json();if(!r.ok){setStatus('error: '+(j.error||r.status));throw j}return j}
+function applyView(){viewEl.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.k})`}
+function draw(id,url){return new Promise(res=>{const im=new Image();im.onload=()=>{const c=$('#'+id);c.width=ST.width;c.height=ST.height;c.getContext('2d').drawImage(im,0,0);res()};im.src=url+(url.includes('?')?'&':'?')+'v='+ver+Math.random()})}
+function clear(id){const c=$('#'+id);c.getContext('2d').clearRect(0,0,c.width,c.height)}
+async function refresh(what){
+  const L=cur; const bg=$('#bg').value; const s=$('#dscale').value;
+  const jobs=[];
+  const maskMode=['mask','automask','paint','refdiff','class','sigma','sigmatotal','classnow'].includes(bg);
+  $('#bandbox').style.display=bg.startsWith('elev')?'block':'none';
+  if(what.has('bg')) jobs.push(draw('c-bg', bg==='shade:out'?'/img/shade':bg==='shade:layer'?`/img/shade?layer=${L}`:bg==='elev:out'?`/img/elev?lo=${BAND.lo}&hi=${BAND.hi}`:bg==='elev:layer'?`/img/elev?layer=${L}&lo=${BAND.lo}&hi=${BAND.hi}`:bg==='diff'?`/img/diff?layer=${L}&s=${s}`:bg==='paint'?`/img/paintbw?layer=${L}`:bg==='refdiff'?`/img/refdiff?s=${s}`:bg==='class'?`/img/class?layer=${L}`:bg==='sigma'?`/img/sigma?layer=${L}`:bg==='sigmatotal'?`/img/sigma?layer=${L}&which=total`:bg==='classnow'?`/img/classnow`:`/img/maskbw?layer=${L}${bg==='automask'?'&which=auto':''}`));
+  if(what.has('mask')||what.has('bg')) jobs.push(($('#ovmask').checked&&!maskMode)?draw('c-mask',`/img/mask?layer=${L}`):clear('c-mask'));
+  if(what.has('paint')) jobs.push($('#ovpaint').checked?draw('c-paint',`/img/paint?layer=${L}`):clear('c-paint'));
+  if(what.has('valid')) jobs.push($('#ovvalid').checked?draw('c-valid',`/img/valid?layer=${L}`):clear('c-valid'));
+  if(what.has('sel')) jobs.push(draw('c-sel','/img/sel'));
+  await Promise.all(jobs);
+  const st=await api('/api/state'); ST=st; ver=st.version;
+  $('#info').textContent=`window rows ${st.window[0]}–${st.window[1]}, cols ${st.window[2]}–${st.window[3]} · selection ${st.sel} cells · undo ${st.undo}`;
+  renderLayers();
+}
+let stackKey='';
+function renderLayers(){
+  const key=ST.layers.map(l=>l.name+':'+(l.painted>0)+':'+(!l.class_uniform||l.cpainted>0)+':'+(!l.sigma_uniform||l.spainted>0)).join('|');
+  if(key===stackKey){updateStack();return}
+  stackKey=key;
+  const d=$('#stack'); d.innerHTML='';
+  const add=(cls,html)=>{const e=document.createElement('div');e.className=cls;e.innerHTML=html;d.appendChild(e);return e};
+  add('hd',''); add('hd','elevation'); add('hd','mask'); add('hd','paint'); add('hd','class'); add('hd','quality');
+  const [lo,hi]=ST.zrange; $('#lg-lo').style.background='rgb(10,10,10)'; $('#lg-hi').style.background='rgb(245,245,245)';
+  const cnm=add('nm base'+(compositeView?' cur':''),'composite'); const cim=add('comp',`<img src="/thumb/composite?size=128&v=${ver}" title="composite · the final result, no overlays · shared grey scale ${lo.toFixed(0)}–${hi.toFixed(0)} m">`); add('comp',''); add('comp',''); add('comp',''); add('comp','');
+  cnm.style.cursor=cim.style.cursor='pointer'; cnm.onclick=cim.onclick=showComposite;
+  [...ST.layers].reverse().forEach((L,i)=>{const isBase=i===ST.layers.length-1; const en=L.enabled||{dem:true,auto:true,paint:true};
+   const tip=`${L.name}: data ${(100*L.valid).toFixed(1)}% · shown ${(100*L.shown).toFixed(1)}%`+(L.zmin!=null?` · z ${L.zmin.toFixed(0)}–${L.zmax.toFixed(0)} m`:'')+(L.painted?` · paint ${(100*L.painted).toFixed(1)}%`:'');
+   const tg=(part,on,label,title)=>`<span class="tgl" title="${title}"><span class="tg ${on?'on':''}" data-layer="${L.name}" data-part="${part}"></span>${label}</span>`;
+   const rowOff=!en.dem?' off':'';
+   const nm=add('nm'+(L.name===cur?' cur':'')+(isBase?' base':'')+rowOff,L.name); nm.title=tip;
+   const a=add('cell'+rowOff,`<img class="${L.name===cur?'cur-img':''}" src="/thumb/dem?layer=${L.name}&size=128&v=${ver}" title="${tip}">`+tg('dem',en.dem,'DEM','toggle the whole layer in the composite (session view only)'));
+   const b=add('cell'+rowOff+(!en.auto?' off':''),isBase?'':`<img class="${L.name===cur?'cur-img':''}" src="/thumb/mask?layer=${L.name}&size=128&v=${ver}" title="effective mask (auto + paint) × footprint">`+tg('auto',en.auto,'auto','toggle the generated/file mask: off = plain footprint, so you see what the auto mask removes'));
+   const c=add('cell'+rowOff+(!en.paint?' off':''),(!isBase&&L.painted>0)?`<img class="${L.name===cur?'cur-img':''}" src="/thumb/paint?layer=${L.name}&size=128&v=${ver}" title="hand paint: value where alpha > 0 (${(100*L.painted).toFixed(1)}% of window), checker = no opinion">`+tg('paint',en.paint,'paint','toggle the hand paint: off = auto mask only'):'');
+   const showC=ST.has_axes&&(!L.class_uniform||L.cpainted>0), showS=ST.has_axes&&(!L.sigma_uniform||L.spainted>0);
+   const d1=add('cell'+rowOff, showC?`<img class="${L.name===cur?'cur-img':''}" src="/thumb/class?layer=${L.name}&size=128&v=${ver}" title="surface class observed by ${L.name}${L.date?' ('+L.date+')':''}${L.cpainted?' · class paint '+(100*L.cpainted).toFixed(1)+'%':''}">`:(ST.has_axes?`<small style="color:var(--mut)">uniform</small>`:''));
+   const d2=add('cell'+rowOff, showS?`<img class="${L.name===cur?'cur-img':''}" src="/thumb/sigma?layer=${L.name}&size=128&v=${ver}" title="quality σ of ${L.name} (log grey: black 1 cm … white 100 m)${L.spainted?' · σ paint '+(100*L.spainted).toFixed(1)+'%':''}">`:(ST.has_axes?`<small style="color:var(--mut)">uniform</small>`:''));
+   if(!isBase){nm.onclick=()=>pick(L.name,null);for(const [cell,view] of [[a,'dem'],[b,'mask'],[c,'paint'],[d1,'class'],[d2,'sigma']]){const im=cell.querySelector('img');if(im)im.onclick=()=>pick(L.name,view)}}
+   for(const sw of d.querySelectorAll(`.tg[data-layer="${L.name}"]`)) sw.onclick=async ev=>{ev.stopPropagation();const on=!sw.classList.contains('on');sw.classList.toggle('on',on);setStatus('refold…');const j=await api('/api/enable',{layer:L.name,part:sw.dataset.part,on});await refresh(new Set(['bg','mask','paint']));setStatus(`${L.name} ${sw.dataset.part} ${on?'on':'off'} · refold ${j.refold_s}s`)}});
+}
+function swap(im,src){return new Promise(res=>{const pre=new Image();pre.onload=()=>{im.src=src;res()};pre.onerror=res;pre.src=src})}
+function updateStack(){ // no DOM rebuild: preload then swap thumbnails, patch highlight/toggle classes
+  const d=$('#stack');
+  for(const im of d.querySelectorAll('img')){const u=new URL(im.src);u.searchParams.set('v',ver+'.'+Math.random().toString(36).slice(2,6));swap(im,u.toString())}
+  d.querySelectorAll('.nm').forEach(e=>{const isComp=e.textContent==='composite';e.classList.toggle('cur',isComp?compositeView:e.textContent===cur)});
+  for(const L of ST.layers){const en=L.enabled||{dem:true,auto:true,paint:true};
+    d.querySelectorAll(`.tg[data-layer="${L.name}"]`).forEach(sw=>{sw.classList.toggle('on',!!en[sw.dataset.part]);const cell=sw.closest('.cell');if(cell)cell.classList.toggle('off',!en.dem||(sw.dataset.part!=='dem'&&!en[sw.dataset.part]))});
+    const nm=[...d.querySelectorAll('.nm')].find(e=>e.textContent===L.name);if(nm)nm.classList.toggle('off',!en.dem);
+    d.querySelectorAll('img').forEach(im=>{if(im.src.includes('layer='+L.name+'&'))im.classList.toggle('cur-img',L.name===cur)})}
+  const nmComp=[...d.querySelectorAll('.nm')].find(e=>e.textContent==='composite');if(nmComp)nmComp.classList.toggle('cur',compositeView);
+}
+let demBg='shade:out';
+const BAND={lo:0,hi:0,min:0,max:0};
+function bandSet(lo,hi,redraw=true){BAND.lo=Math.min(lo,hi);BAND.hi=Math.max(lo,hi);const f=v=>Math.round(1000*(v-BAND.min)/Math.max(BAND.max-BAND.min,1e-6));$('#band-lo').value=f(BAND.lo);$('#band-hi').value=f(BAND.hi);$('#band-lo-v').value=BAND.lo.toFixed(1);$('#band-hi-v').value=BAND.hi.toFixed(1);if(redraw)bandDraw()}
+let bandT=null;function bandDraw(){clearTimeout(bandT);bandT=setTimeout(()=>refresh(new Set(['bg'])),120)}
+function bandInit(){BAND.min=Math.floor(ST.zrange[0]-10);BAND.max=Math.ceil(ST.zrange[1]+10);bandSet(ST.zrange[0],ST.zrange[1],false);
+  const g=v=>BAND.min+(BAND.max-BAND.min)*v/1000;
+  $('#band-lo').oninput=()=>bandSet(g(+$('#band-lo').value),BAND.hi);$('#band-hi').oninput=()=>bandSet(BAND.lo,g(+$('#band-hi').value));
+  $('#band-lo-v').onchange=()=>bandSet(+$('#band-lo-v').value,BAND.hi);$('#band-hi-v').onchange=()=>bandSet(BAND.lo,+$('#band-hi-v').value);
+  $('#band-all').onclick=()=>bandSet(ST.zrange[0],ST.zrange[1]);
+  $('#band-fit').onclick=async()=>{// range of the composite inside the visible viewport
+    const r=stage.getBoundingClientRect();const a=toGrid({clientX:r.left,clientY:r.top}),b=toGrid({clientX:r.right,clientY:r.bottom});
+    const j=await api(`/api/range?r0=${Math.max(a.row,0)}&r1=${Math.min(b.row,ST.height)}&c0=${Math.max(a.col,0)}&c1=${Math.min(b.col,ST.width)}`);if(j.lo!=null)bandSet(j.lo,j.hi)}}
+let compositeView=false, savedOv=null;
+function showComposite(){ // final result, clean: composite hillshade, overlays off; remembered so a layer click restores them
+  if(!compositeView){savedOv={mask:$('#ovmask').checked,paint:$('#ovpaint').checked,valid:$('#ovvalid').checked,bg:$('#bg').value};compositeView=true}
+  $('#bg').value='shade:out';
+  $('#ovmask').checked=false; $('#ovpaint').checked=false; $('#ovvalid').checked=false;
+  refresh(new Set(['bg','mask','paint','valid']))}
+function leaveComposite(){if(!compositeView)return;compositeView=false;
+  $('#ovmask').checked=savedOv.mask; $('#ovpaint').checked=savedOv.paint; $('#ovvalid').checked=savedOv.valid; $('#bg').value=savedOv.bg; demBg=savedOv.bg==='mask'||savedOv.bg==='automask'||savedOv.bg==='paint'?demBg:savedOv.bg}
+function pick(name,view){leaveComposite();cur=name;const sel=$('#bg');
+  const isM=v=>['mask','automask','paint','refdiff','class','sigma','sigmatotal','classnow'].includes(v);
+  if(['mask','paint','class','sigma'].includes(view)){if(!isM(sel.value))demBg=sel.value;sel.value=view}
+  else if(view==='dem'){if(isM(sel.value))sel.value=demBg}
+  refresh(new Set(['bg','mask','paint','valid']))}
+async function showProfile(a,b){setStatus('profile…');const j=await api(`/api/profile?r0=${a.row}&c0=${a.col}&r1=${b.row}&c1=${b.col}&n=600`);
+  const box=$('#profile');box.style.display='block';const cv=$('#c-prof');cv.width=box.clientWidth*devicePixelRatio;cv.height=box.clientHeight*devicePixelRatio;const x=cv.getContext('2d');x.scale(devicePixelRatio,devicePixelRatio);
+  const Wc=box.clientWidth,Hc=box.clientHeight,ml=52,mr=150,mt=10,mb=22;
+  const all=[...j.out,...(j.reference||[]),...Object.values(j.layers).flat()].filter(v=>v!=null);const lo=Math.min(...all),hi=Math.max(...all);const pad=(hi-lo)*0.05||1;
+  const X=i=>ml+(Wc-ml-mr)*j.dist[i]/j.dist[j.dist.length-1],Y=v=>mt+(Hc-mt-mb)*(1-(v-(lo-pad))/((hi+pad)-(lo-pad)));
+  x.fillStyle='#111';x.fillRect(0,0,Wc,Hc);x.strokeStyle='#333';x.fillStyle='#999';x.font='11px system-ui';
+  for(let k=0;k<=4;k++){const v=lo-pad+((hi+pad)-(lo-pad))*k/4;x.beginPath();x.moveTo(ml,Y(v));x.lineTo(Wc-mr,Y(v));x.stroke();x.fillText(v.toFixed(1)+' m',4,Y(v)+4)}
+  for(let k=0;k<=4;k++){const dd=j.dist[j.dist.length-1]*k/4;x.fillText(dd.toFixed(0)+' m',X(Math.round((j.dist.length-1)*k/4))-12,Hc-6)}
+  const cols=['#b08050','#e0a040','#40c0e0','#e04080','#80e040','#c080ff','#ff8040'];
+  const line=(arr,col,w,dash)=>{x.strokeStyle=col;x.lineWidth=w;x.setLineDash(dash||[]);x.beginPath();let on=false;arr.forEach((v,i)=>{if(v==null){on=false;return}if(!on){x.moveTo(X(i),Y(v));on=true}else x.lineTo(X(i),Y(v))});x.stroke();x.setLineDash([])};
+  let ly=mt+10;const leg=(lab,col,dash)=>{x.strokeStyle=col;x.lineWidth=2;x.setLineDash(dash||[]);x.beginPath();x.moveTo(Wc-mr+8,ly);x.lineTo(Wc-mr+30,ly);x.stroke();x.setLineDash([]);x.fillStyle='#ddd';x.fillText(lab,Wc-mr+36,ly+4);ly+=15};
+  Object.entries(j.layers).forEach(([n,arr],i)=>{line(arr,cols[i%cols.length],1,[3,3]);leg(n,cols[i%cols.length],[3,3])});
+  if(j.reference){line(j.reference,'#888',1.5);leg('reference','#888')}
+  line(j.out,'#fff',2);leg('composite','#fff');
+  setStatus(`profile: ${j.dist[j.dist.length-1].toFixed(0)} m, ${lo.toFixed(1)}–${hi.toFixed(1)} m`)}
+$('#prof-close').onclick=()=>{$('#profile').style.display='none';clear('c-sel');refresh(new Set(['sel']))};
+function toGrid(ev){const r=stage.getBoundingClientRect();return {col:Math.floor((ev.clientX-r.left-view.x)/view.k),row:Math.floor((ev.clientY-r.top-view.y)/view.k)}}
+function mode(ev){return ev.shiftKey?'add':ev.altKey?'sub':'replace'}
+stage.addEventListener('wheel',ev=>{ev.preventDefault();const r=stage.getBoundingClientRect();const mx=ev.clientX-r.left,my=ev.clientY-r.top;const f=Math.exp(-ev.deltaY*0.0015);view.x=mx-(mx-view.x)*f;view.y=my-(my-view.y)*f;view.k*=f;applyView()},{passive:false});
+stage.addEventListener('mousedown',ev=>{if(tool==='brush'&&ev.button===0)return;if(ev.button===1||tool==='pan'||ev.button===2){drag={pan:true,x:ev.clientX,y:ev.clientY,vx:view.x,vy:view.y};return}
+  if(tool==='rect'){drag={rect:true,a:toGrid(ev),m:mode(ev)}}
+  if(tool==='profile'&&ev.button===0){drag={prof:true,a:toGrid(ev)}}});
+window.addEventListener('mousemove',ev=>{if(drag&&drag.prof){const b=toGrid(ev);const c=$('#c-sel');c.width=ST.width;c.height=ST.height;const x=c.getContext('2d');x.strokeStyle='#ff0';x.lineWidth=Math.max(2,2/view.k);x.beginPath();x.moveTo(drag.a.col,drag.a.row);x.lineTo(b.col,b.row);x.stroke()}});
+stage.addEventListener('contextmenu',ev=>ev.preventDefault());
+window.addEventListener('mousemove',ev=>{if(drag&&drag.pan){view.x=drag.vx+ev.clientX-drag.x;view.y=drag.vy+ev.clientY-drag.y;applyView()}});
+window.addEventListener('mouseup',async ev=>{if(!drag)return;const d=drag;drag=null;if(d.prof){const b=toGrid(ev);await showProfile(d.a,b);return}if(d.rect){const b=toGrid(ev);setStatus('rect…');await api('/api/rect',{r0:d.a.row,r1:b.row,c0:d.a.col,c1:b.col,mode:d.m});await refresh(new Set(['sel']));setStatus('ok')}});
+stage.addEventListener('click',async ev=>{if(tool!=='wand'||ev.button!==0||!cur)return;const g=toGrid(ev);setStatus('wand…');const t0=performance.now();
+  const j=await api('/api/wand',{row:g.row,col:g.col,ref:$('#ref').value,layer:cur,tol:+$('#tol').value,mode:mode(ev)});
+  await refresh(new Set(['sel']));setStatus(`wand: seed ${j.seed.toFixed(2)}, ${j.cells} cells, ${Math.round(performance.now()-t0)} ms`)});
+for(const id of ['t-wand','t-rect','t-brush','t-profile','t-pan']) $('#'+id).onclick=()=>{tool=id.slice(2);document.querySelectorAll('#panel button[id^=t-]').forEach(b=>b.classList.toggle('on',b.id===id));stage.style.cursor=tool==='pan'?'grab':tool==='brush'?'none':'crosshair';$('#brushbox').style.display=tool==='brush'?'block':'none';$('#brushcur').style.display='none'};
+// ---- airbrush
+const B={size:30,hard:.5,opac:1,flow:.3,mode:'paint',value:1};
+const bind=(id,key,fmt,scale)=>{const e=$('#'+id);const u=()=>{B[key]=+e.value*scale;$('#'+id+'-v').textContent=fmt(+e.value)};e.oninput=u;u()};
+bind('b-size','size',v=>v+' m',1);bind('b-hard','hard',v=>v+'%',.01);bind('b-opac','opac',v=>v+'%',.01);bind('b-flow','flow',v=>v+'%',.01);
+for(const [id,mode,val] of [['b-show','paint',1],['b-hide','paint',0],['b-erase','erase',0]]) $('#'+id).onclick=()=>{B.mode=mode;B.value=val;for(const i of ['b-show','b-hide','b-erase'])$('#'+i).classList.toggle('on',i===id)};
+window.addEventListener('keydown',ev=>{if(tool!=='brush'||ev.target.tagName==='INPUT')return;if(ev.key==='['||ev.key===']'){const e=$('#b-size');e.value=Math.max(1,Math.min(300,+e.value*(ev.key==='['?1/1.2:1.2)));e.oninput()}});
+let stroke=null, pending=[], flushing=false;
+function brushColor(){return B.mode==='erase'?'rgba(255,255,255,':(B.value>0.5?'rgba(0,200,80,':'rgba(220,30,60,')}
+function previewDab(g){const ctx=$('#c-brush').getContext('2d');const R=B.size/ST.res/2;const grd=ctx.createRadialGradient(g.col,g.row,R*B.hard,g.col,g.row,R);const a=Math.min(B.flow*0.6,B.opac);grd.addColorStop(0,brushColor()+a+')');grd.addColorStop(1,brushColor()+'0)');ctx.fillStyle=grd;ctx.beginPath();ctx.arc(g.col,g.row,R,0,Math.PI*2);ctx.fill()}
+async function flush(){if(flushing||!stroke||!pending.length)return;flushing=true;const pts=pending;pending=[];try{await api('/api/stroke_pts',{points:pts})}finally{flushing=false;if(pending.length)flush()}}
+stage.addEventListener('mousemove',ev=>{if(tool!=='brush')return;const r=stage.getBoundingClientRect();const d=B.size/ST.res*view.k;const bc=$('#brushcur');bc.style.display='block';bc.style.width=bc.style.height=d+'px';bc.style.left=(ev.clientX-r.left-d/2)+'px';bc.style.top=(ev.clientY-r.top-d/2)+'px';
+  if(stroke){const g=toGrid(ev);const last=stroke.last;if(last&&Math.hypot(g.row-last.row,g.col-last.col)<1)return;stroke.last=g;pending.push([g.row,g.col]);previewDab(g);flush()}});
+stage.addEventListener('mouseleave',()=>{$('#brushcur').style.display='none'});
+let whyT=0;
+stage.addEventListener('mousemove',ev=>{const now=performance.now();if(now-whyT<150||stroke)return;whyT=now;const g=toGrid(ev);if(g.row<0||g.col<0||g.row>=ST.height||g.col>=ST.width)return;
+  fetch(`/api/why?row=${g.row}&col=${g.col}`).then(r=>r.json()).then(j=>{if(j.error)return;let s=`<b>r${j.row} c${j.col}</b>  out ${j.out??'—'}${j.reference!=null?'  ref '+j.reference:''}`;
+    if(ST.has_axes)s+=`  now: <b>${j.class_now}</b> ${j.date_now>0?j.date_now.toFixed(1):''}`;
+    s+='\n'+j.layers.map((L,i)=>{const w=ST.has_axes&&j.winner===i;const z=L.z==null?'   —   ':L.z.toFixed(1).padStart(7);
+      return (w?'<span class="w">▶':' ')+L.name.padEnd(12)+z+(ST.has_axes?`  ${(L.cls||'').padEnd(7)} gate ${L.gate.toFixed(2)} σq ${L.sigma_q==null?'  —':L.sigma_q.toFixed(2).padStart(5)} σt ${L.sigma_total==null?'  —':L.sigma_total.toFixed(2).padStart(6)}`:'')+`  shown ${L.shown.toFixed(2)}`+(w?'</span>':'')}).join('\n');
+    $('#why').innerHTML=s}).catch(()=>{})});
+stage.addEventListener('mousedown',async ev=>{if(tool!=='brush'||ev.button!==0||!cur)return;ev.preventDefault();const g=toGrid(ev);
+  await api('/api/stroke_begin',{layer:cur,value:axisValue(B.value),axis:AXIS,size_m:B.size,hardness:B.hard,opacity:B.opac,flow:B.flow,mode:B.mode});
+  const c=$('#c-brush');c.width=ST.width;c.height=ST.height;stroke={last:g};pending.push([g.row,g.col]);previewDab(g);flush()});
+window.addEventListener('mouseup',async ev=>{if(!stroke)return;const s=stroke;stroke=null;while(flushing||pending.length){await flush();await new Promise(r=>setTimeout(r,10))}
+  setStatus('stroke…');const t0=performance.now();const j=await api('/api/stroke_end',{});await refresh(new Set(['bg','mask','paint']));clear('c-brush');setStatus(`stroke: refold ${j.refold_s}s, total ${Math.round(performance.now()-t0)} ms`)});
+document.querySelectorAll('button[data-mod]').forEach(b=>b.onclick=async()=>{await api('/api/modify',{op:b.dataset.mod,dist_m:+$('#mdist').value,layer:cur});await refresh(new Set(['sel']))});
+let AXIS='weight', AXVAL={class:1, sigma:1};
+function axisValue(v){return AXIS==='weight'?v:AXIS==='class'?AXVAL.class/8:AXVAL.sigma/8}
+$('#axis').onchange=()=>{AXIS=$('#axis').value;$('#classpick').style.display=AXIS==='class'?'block':'none';$('#sigmapick').style.display=AXIS==='sigma'?'block':'none';
+  $('#fill1').textContent=AXIS==='weight'?'show layer (1)':AXIS==='class'?'set class':'set σ band';$('#fill0').style.display=AXIS==='weight'?'':'none';$('#b-hide').style.display=AXIS==='weight'?'':'none';$('#b-show').textContent=AXIS==='weight'?'show (1)':'paint value';$('#fillclear').textContent=AXIS==='weight'?'restore auto':'clear correction'};
+function buildPickers(){const cp=$('#classpick');cp.innerHTML='';Object.entries(ST.classes).forEach(([code,name])=>{if(name==='void')return;const b=document.createElement('button');b.textContent=name;const rgb=ST.class_rgb[code];b.style.borderColor=`rgb(${rgb})`;b.className=+code===AXVAL.class?'on':'';b.onclick=()=>{AXVAL.class=+code;buildPickers()};cp.appendChild(b)});
+  const sp=$('#sigmapick');sp.innerHTML='';['good 0.1 m','ok 0.5 m','poor 2 m','veto'].forEach((lab,i)=>{const b=document.createElement('button');b.textContent=lab;b.className=i===AXVAL.sigma?'on':'';b.onclick=()=>{AXVAL.sigma=i;buildPickers()};sp.appendChild(b)})}
+async function fill(op,value){setStatus('fill…');const t0=performance.now();const j=await api('/api/fill',{layer:cur,op,value:axisValue(value),axis:AXIS,feather_m:+$('#feather').value});await refresh(new Set(['bg','mask','paint']));setStatus(`refold ${j.refold_s}s, total ${Math.round(performance.now()-t0)} ms`)}
+$('#fill1').onclick=()=>fill('set',1);$('#fill0').onclick=()=>fill('set',0);$('#fillclear').onclick=()=>fill('clear');
+$('#undo').onclick=async()=>{await api('/api/undo',{});await refresh(new Set(['bg','mask','paint']))};
+$('#save').onclick=async()=>{const j=await api('/api/save',{});setStatus('saved: '+(j.written.join(', ')||'nothing painted'))};
+$('#bg').onchange=()=>{compositeView=false;const v=$('#bg').value;if(!['mask','automask','paint','refdiff','class','sigma','sigmatotal','classnow'].includes(v))demBg=v;refresh(new Set(['bg']))};$('#dscale').onchange=()=>refresh(new Set(['bg']));
+$('#ovmask').onchange=()=>{compositeView=false;refresh(new Set(['mask']))};$('#ovpaint').onchange=()=>{compositeView=false;refresh(new Set(['paint']))};$('#ovvalid').onchange=()=>{compositeView=false;refresh(new Set(['valid']))};
+$('#ref').onchange=()=>{const v=$('#ref').value;$('#tolu').textContent=v==='auto'?'(0–1)':v==='slope'?'°':'m';if(v==='rough')$('#tol').value=0.1;if(v==='slope')$('#tol').value=3};
+(async()=>{ST=await api('/api/state');cur=ST.layers[ST.layers.length-1].name;$('#title').textContent='Mask tool · '+ST.id;
+  if(ST.has_axes){document.querySelectorAll('option.axes').forEach(o=>o.disabled=false);buildPickers();$('#title').textContent+=` · ${ST.target} as of ${(+ST.as_of).toFixed(2)}`}
+  if(ST.has_reference){$('#bg-refdiff').disabled=false;$('#ref-refdiff').disabled=false;$('#bg-refdiff').textContent=`composite − reference (${ST.reference.split('/').pop()}) ±s`}
+  view.k=Math.min(stage.clientWidth/ST.width,stage.clientHeight/ST.height);applyView();bandInit();
+  await refresh(new Set(['bg','mask','paint','valid','sel']));setStatus('ready')})();
+</script></body></html>

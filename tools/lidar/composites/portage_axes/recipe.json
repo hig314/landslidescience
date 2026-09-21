@@ -1,0 +1,136 @@
+{
+ "id": "portage_axes",
+ "note": "Revision-2 structure: every layer is a dated observation with a class raster and a sigma raster; masks come from state_rules (gate -> expected error -> winner), then despeckle + feather. No hand masks. Dates for IfSAR and Whittier are ASSUMED (see notes) - correct them.",
+ "root": "/Volumes/Nunatak/Landslides/Portage/Portage_topobathy/Crops",
+ "legacy_output": "Topobathy_merge/Portage_topobathy_merge.tif",
+ "grid": {
+  "from": "base",
+  "width": 30000,
+  "height": 20000
+ },
+ "target": "ground_current",
+ "as_of": "2026-01-04",
+ "rates": {
+  "ground": 0.01,
+  "bed": 0.02,
+  "ice": 3.0
+ },
+ "sigma_max": 5.0,
+ "rules_post": [
+  {
+   "despeckle": {
+    "min_area_m2": 5000
+   }
+  },
+  {
+   "feather": {
+    "width_m": 20
+   }
+  }
+ ],
+ "layers": [
+  {
+   "name": "ifsar",
+   "source": "IfSAR_crop_1m.tif",
+   "align": "pixel",
+   "date": "2012",
+   "notes": "date assumed (AK IfSAR 2010-2012); no water detection: not hydro-flattened at a precise level",
+   "sigma_m": 2.0,
+   "class": [
+    {
+     "default": "ground"
+    }
+   ]
+  },
+  {
+   "name": "anc2015",
+   "source": "Anchorage_2015_UTM6_1m_crop.tif",
+   "align": "pixel",
+   "date": "2015-09-01",
+   "sigma_m": 0.5,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "water_level": {
+      "tol_m": 0.5
+     }
+    },
+    {
+     "snow_vs": {
+      "ref": "portage2020",
+      "dz_m": 0.5,
+      "smooth_m": 50
+     }
+    }
+   ],
+   "notes": "spring 2015 flight with snow: survey-wide sigma 0.5 (snow prior) + snow_vs portage2020 classes the plainly snowy parts as snow (+1.5 m); newer snow-free lidars (Whittier 0.3, Portage 2020 0.1) replace it on land"
+  },
+  {
+   "name": "whittier",
+   "source": "Whittier_topobathy_EPSG32606_crop.tif",
+   "align": "pixel",
+   "date": "2019-07-01",
+   "notes": "date assumed",
+   "sigma_m": 0.3,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "below_level": {
+      "as": "bed",
+      "else": "ground"
+     }
+    },
+    {
+     "water_level": {
+      "tol_m": 0.5
+     }
+    }
+   ]
+  },
+  {
+   "name": "portage2020",
+   "source": "Portage_2020_1m_crop.tif",
+   "align": "pixel",
+   "date": "2020-10-05",
+   "sigma_m": 0.1,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "water_level": {
+      "tol_m": 0.5
+     }
+    }
+   ]
+  },
+  {
+   "name": "bathy2026",
+   "source": "260104_Portage_bathy_crop.tif",
+   "align": "pixel",
+   "date": "2026-01-04",
+   "sigma_m": 0.3,
+   "sigma": [
+    {
+     "facets": {
+      "min_area_m2": 100000,
+      "k": 0.05
+     }
+    }
+   ],
+   "class": [
+    {
+     "below_level": {
+      "as": "bed",
+      "else": "void"
+     }
+    }
+   ]
+  }
+ ],
+ "rules": "sequential"
+}

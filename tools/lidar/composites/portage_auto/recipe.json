@@ -1,0 +1,129 @@
+{
+ "id": "portage_auto",
+ "note": "No hand masks. Same five inputs as portage_legacy, every mask generated: footprint + erode + cosine feather (DEM_Smooth_Blend) for the lidars; the bathy through a CoNED-style water rule with the lake level estimated as the mode of the lidar surface under the sonar footprint, then despeckled and feathered. Meant to be improved by hand in the mask tool afterwards.",
+ "root": "/Volumes/Nunatak/Landslides/Portage/Portage_topobathy/Crops",
+ "legacy_output": "Topobathy_merge/Portage_topobathy_merge.tif",
+ "grid": {
+  "from": "base",
+  "width": 30000,
+  "height": 20000
+ },
+ "layers": [
+  {
+   "name": "ifsar",
+   "source": "IfSAR_crop_1m.tif",
+   "align": "pixel",
+   "category": "topo_mr"
+  },
+  {
+   "name": "anc2015",
+   "source": "Anchorage_2015_UTM6_1m_crop.tif",
+   "align": "pixel",
+   "category": "topo",
+   "mask": {
+    "auto": [
+     "footprint",
+     {
+      "erode": {
+       "dist_m": 5
+      }
+     },
+     {
+      "despeckle": {
+       "min_area_m2": 5000
+      }
+     },
+     {
+      "feather": {
+       "width_m": 40
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "whittier",
+   "source": "Whittier_topobathy_EPSG32606_crop.tif",
+   "align": "pixel",
+   "category": "topobathy",
+   "mask": {
+    "auto": [
+     "footprint",
+     {
+      "erode": {
+       "dist_m": 5
+      }
+     },
+     {
+      "despeckle": {
+       "min_area_m2": 5000
+      }
+     },
+     {
+      "feather": {
+       "width_m": 40
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "portage2020",
+   "source": "Portage_2020_1m_crop.tif",
+   "align": "pixel",
+   "category": "topo",
+   "mask": {
+    "auto": [
+     "footprint",
+     {
+      "erode": {
+       "dist_m": 5
+      }
+     },
+     {
+      "despeckle": {
+       "min_area_m2": 5000
+      }
+     },
+     {
+      "feather": {
+       "width_m": 40
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "bathy2026",
+   "source": "260104_Portage_bathy_crop.tif",
+   "align": "pixel",
+   "category": "bathy_hr",
+   "mask": {
+    "auto": [
+     "footprint",
+     {
+      "water": {
+       "level": "auto",
+       "tol_m": 0.5
+      }
+     },
+     {
+      "despeckle": {
+       "min_area_m2": 5000
+      }
+     },
+     {
+      "erode": {
+       "dist_m": 3
+      }
+     },
+     {
+      "feather": {
+       "width_m": 20
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

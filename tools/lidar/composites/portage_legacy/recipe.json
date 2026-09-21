@@ -1,0 +1,18 @@
+{
+  "id": "portage_legacy",
+  "note": "Regression target: Hig's Portage merge of 2026-01-04 (merge_settings.py + topobathy_merge.py). Everything stacks by pixel index; the painted masks carry no georeferencing. Grid = IfSAR base crop clipped to 30000 x 20000.",
+  "root": "/Volumes/Nunatak/Landslides/Portage/Portage_topobathy/Crops",
+  "legacy_output": "Topobathy_merge/Portage_topobathy_merge.tif",
+  "grid": {"from": "base", "width": 30000, "height": 20000},
+  "layers": [
+    {"name": "ifsar",    "source": "IfSAR_crop_1m.tif", "align": "pixel", "domain": "full", "category": "topo_mr"},
+    {"name": "anc2015",  "source": "Anchorage_2015_UTM6_1m_crop.tif", "align": "pixel", "domain": "full", "category": "topo",
+     "mask": {"file": "Anchorage_2015_mask.tif", "align": "pixel"}},
+    {"name": "whittier", "source": "Whittier_topobathy_EPSG32606_crop.tif", "align": "pixel", "domain": "full", "category": "topobathy",
+     "mask": {"file": "Whittier_topobathy_mask.tif", "align": "pixel"}},
+    {"name": "portage2020", "source": "Portage_2020_1m_crop.tif", "align": "pixel", "domain": "full", "category": "topo",
+     "mask": {"file": "Portage_2020_mask.tif", "align": "pixel"}},
+    {"name": "bathy2026", "source": "260104_Portage_bathy_crop.tif", "align": "pixel", "domain": "full", "category": "bathy_hr",
+     "mask": {"file": "Portage_bathy_mask.tif", "align": "pixel"}}
+  ]
+}
