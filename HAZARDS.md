@@ -32,6 +32,21 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
 - **Port 8000 is the Tethys stack, not this project** — and it serves an
   older copy of the map, so it *looks* right while showing stale code. Dev
   is **8001**.
+- **`rclone --exclude` is IGNORED whenever any `--include` is present.**
+  They are two separate lists, not one ordered list, so no amount of
+  reordering makes an exclude fire next to `--include '*.pmtiles'` (measured
+  against rclone 1.75, 2026-09-21). `tools/lidar/r2_sync.sh` used `--exclude`
+  to keep gated surveys off the public bucket and it never once worked. Write
+  anything order-dependent as `--filter` rules (`- name`, then `+ pattern`,
+  then `- *`), which ARE one ordered list, first match wins. A 2026-09-08 note
+  had already met this symptom, read it as an ordering bug, and "fixed" it by
+  moving the caller's flags to the front — which changed nothing.
+- **`rclone copy` only ever adds, so gating is not retroactive.** Marking a
+  survey `gated` after it has been pushed leaves the bytes public at a
+  guessable R2 URL; the droplet's gate does not cover the bucket. That is how
+  `hoonah_2015` (COG + both pyramids) sat on public R2 while the audit called
+  it "gated, served from the droplet". `/lidar/audit/` now reports **GATED BUT
+  ON PUBLIC R2** instead. Removing such bytes is a manual `rclone delete`.
 - **gunicorn kills requests at ~30 s.** Long work (tile bakes, MP4
   downloads) runs in background threads with a status column the UI polls
   (`trace_views._spawn_bake` is the pattern). Never do slow work inline.

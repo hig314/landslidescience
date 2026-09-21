@@ -157,7 +157,7 @@ def _run(a):
         in_cat = None if public_ids is None else (did in public_ids)
 
         # What would a reader actually get?
-        verdict = "ok"
+        verdict, bad = "ok", None
         if state == "retired":
             verdict = "retired" if not in_cat else "RETIRED BUT STILL LISTED"
         elif state == "dev-only":
@@ -168,8 +168,22 @@ def _run(a):
             else:
                 verdict = "DEV-ONLY BUT LISTED PUBLICLY"
         elif state == "gated":
+            # Bytes on the bucket ARE public, listed or not: R2 has no auth in
+            # front of it and the object name is derived from the id, so the
+            # only thing hiding one is that nobody guessed it. That is not a
+            # gate. It has to be asked separately from the catalogue check
+            # because r2_sync only ever ADDS -- gating a survey that was
+            # already pushed does not pull it back, and nothing else notices.
+            leaks = [] if a.no_r2 else [
+                name for name, ch in zip(("PYRAMID", "SLOPE", "ORTHO", "COG"), r2)
+                if ch != "-"]
+            why = []
+            if leaks:
+                why.append("ON PUBLIC R2 (" + ", ".join(leaks) + ")")
             if in_cat:
-                verdict = "GATED BUT IN THE PUBLIC CATALOGUE"
+                why.append("IN THE PUBLIC CATALOGUE")
+            if why:
+                verdict, bad = "GATED BUT " + " AND ".join(why), True
             elif local[0] != "P":
                 verdict = "gated, pyramid not built"
             else:
@@ -190,7 +204,9 @@ def _run(a):
                 verdict = "listed; ortho built but not uploaded"
             else:
                 verdict = "ok"
-        if verdict.isupper() or "NOT" in verdict:
+        if bad is None:
+            bad = verdict.isupper() or "NOT" in verdict
+        if bad:
             problems.append((did, verdict))
         rows.append({"id": did, "state": state, "built": local, "r2": r2,
                      "in_cat": in_cat, "verdict": verdict,
@@ -205,7 +221,7 @@ def _run(a):
                      # still shown -- a lead beats a blank -- but marked, so
                      # nobody cites it as though it were established.
                      "source_tentative": "(to confirm)" in (ds.get("source") or ""),
-                     "bad": verdict.isupper() or "NOT" in verdict})
+                     "bad": bad})
 
     if gated_status is not None and gated_status not in (401, 403):
         problems.append(("catalog-gated.geojson",

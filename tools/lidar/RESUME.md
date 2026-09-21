@@ -6,7 +6,7 @@
 > `topobathy-compositing` in its own worktree. See `../../WORKSTREAMS.md`
 > for the split and the boundary rules.
 
-**38 public surveys on production**, 8 gated, all archive COGs in Cloudflare R2
+**38 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
 behind `lidar.landslidescience.org/cog/<id>.tif`. `/lidar/audit/` is the live
 answer to "where is everything" — it checks the four seams (built / on R2 / in
 the catalogue / what the gate does) and is the thing to read first, not this
@@ -273,3 +273,66 @@ alongside. Disk budget fits on Nunatak as is.
   1.4 m spacing, NAD83(CORS96)/GEOID06, flown 2008-05-21..23, 06-05/06, 09-22.
   Skyhub (AGO catalog, services1.arcgis.com/7HDiw78fcUiM2BWn/.../Alaska_Skyhub_Database)
   has Homer 2019 DTM/DSM on geoportal.alaska.gov/public_data/elevation/ but no LAZ.
+
+## 2026-09-21: pedersen_sfm_2024 ungated; two gate leaks found in the publish path
+
+- **pedersen_sfm_2024 is public.** Hig established that the NPS publishes this
+  same survey openly, which settles the "cannot be further distributed in its
+  original form" stamp on the copy delivered to us: IRMA DataStore reference
+  2310424, doi:10.57830/2310424, issued 21 May 2025, `licenseType: Public
+  Domain`, visibility and fileAccess both Public, carrying the four DSM tiles
+  and fourteen orthomosaic tiles this survey was built from. Checked against
+  `irmaservices.nps.gov/datastore/v7/rest/Profile/2310424`, which is where to
+  re-check if the terms are ever questioned; the web profile page is
+  JavaScript-rendered and tells you nothing. Manifest: `gated` removed,
+  `source_url` set to the DOI, note rewritten (and a factual slip fixed -- the
+  flight was two days after the tsunami, not a year). COG + DEM + slope + ortho
+  (1.79 GB) pushed to R2 and verified publicly readable. The first ranged
+  request against the fresh 1.03 GB COG returned **206 / DYNAMIC**, so the
+  zone's over-512 MB bypass-cache rule is still doing its job -- an object that
+  has already been requested cannot re-test that, so this was the chance.
+- **`r2_sync.sh` never once excluded a gated dataset.** rclone discards the
+  entire `--exclude` list whenever any `--include` is present. It is not an
+  ordering problem, so the 2026-09-08 "caller flags go first" change fixed
+  nothing; measured both orders against rclone 1.75. Now expressed as ordered
+  `--filter` rules (`- id.*`, then `+ pattern`, then `- *`) and re-verified by
+  dry run. That also covers `_ortho.pmtiles`, which was never in the list at
+  all -- the next `--pmtiles` run would have published three gated Corax
+  orthomosaics. `r2_put.sh` was already written around this ambiguity and is
+  the safer per-dataset publish path; prefer it.
+- **`hoonah_2015`'s bytes are on public R2** -- archive COG and both pyramids,
+  fetchable anonymously at a guessable URL. Pushed 2026-09-12, gated about a
+  week later, and `rclone copy` only ever adds, so gating afterwards did
+  nothing and the droplet's gate does not cover the bucket. `publish_audit.py`
+  now says **GATED BUT ON PUBLIC R2 (...)** where it used to say "gated, served
+  from the droplet", which is why this sat unnoticed. **Open decision for Hig:**
+  purge the three objects to make the gate real, or ungate hoonah if its
+  provenance is now settled.
+
+### Still to run for pedersen_sfm_2024 (needs Hig's approval, per CLAUDE.md)
+
+```bash
+# 1. code: manifest, sync-script filter fix, audit check, hazard notes
+git push origin main
+ssh root@143.198.140.54 'cd /opt/landslidescience && git pull && \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml build && \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate'
+
+# 2. catalogues (NOT in git -- data/ is gitignored). The public one must be
+#    built with --verify-r2 so a survey whose bytes are absent cannot be
+#    listed; that is what keeps pow_2018 and both Resurrection surveys out.
+env -u PROJ_LIB -u PROJ_DATA python tools/lidar/make_catalog.py \
+    --verify-r2 --out /tmp/catalog_prod.geojson
+env -u PROJ_LIB -u PROJ_DATA \
+  LIDAR_PMTILES_PUBLIC_BASE=/lidar/pmtiles LIDAR_COG_PUBLIC_BASE=/lidar/cog \
+  python tools/lidar/make_catalog.py --gated-only --out /tmp/catalog_gated.geojson
+scp /tmp/catalog_prod.geojson  root@143.198.140.54:/opt/landslidescience/data/lidar/catalog.geojson
+scp /tmp/catalog_gated.geojson root@143.198.140.54:/opt/landslidescience/data/lidar/catalog-gated.geojson
+
+# 3. confirm: 39 surveys, pedersen listed, gated catalogue still refuses anon
+env -u PROJ_LIB -u PROJ_DATA python tools/lidar/publish_audit.py
+```
+
+Local `data/lidar/catalog.geojson` is the **dev** build (droplet-relative
+URLs) and must not be rsynced to prod as-is; prod's copy is the `--verify-r2`
+build with `lidar.landslidescience.org` URLs.
