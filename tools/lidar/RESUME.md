@@ -6,7 +6,7 @@
 > `topobathy-compositing` in its own worktree. See `../../WORKSTREAMS.md`
 > for the split and the boundary rules.
 
-**38 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
+**39 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
 behind `lidar.landslidescience.org/cog/<id>.tif`. `/lidar/audit/` is the live
 answer to "where is everything" — it checks the four seams (built / on R2 / in
 the catalogue / what the gate does) and is the thing to read first, not this
@@ -309,10 +309,19 @@ alongside. Disk budget fits on Nunatak as is.
   purge the three objects to make the gate real, or ungate hoonah if its
   provenance is now settled.
 
-### Still to run for pedersen_sfm_2024 (needs Hig's approval, per CLAUDE.md)
+### Shipped 2026-09-21. The recipe, for the next ungating
+
+Hig validated the data and approved production; `git push` 9a60686, droplet
+`git pull` + prod `build` + `up -d --force-recreate`, then both catalogues
+installed. Verified after: public catalogue **39 surveys** with
+pedersen_sfm_2024 listed, all four advertised URLs answering 206, the gated
+catalogue still 403 to anonymous, the six other restricted surveys still 403
+on the droplet routes, and the audit reading `public PsoC PsoC yes yes ok`.
+Prior catalogues on the droplet are backed up as
+`catalog{,-gated}.geojson.bak.20260922-021631`.
 
 ```bash
-# 1. code: manifest, sync-script filter fix, audit check, hazard notes
+# 1. code: the manifest change (and here, the sync/audit fixes)
 git push origin main
 ssh root@143.198.140.54 'cd /opt/landslidescience && git pull && \
   docker compose -f docker-compose.yml -f docker-compose.prod.yml build && \
@@ -329,10 +338,22 @@ env -u PROJ_LIB -u PROJ_DATA \
 scp /tmp/catalog_prod.geojson  root@143.198.140.54:/opt/landslidescience/data/lidar/catalog.geojson
 scp /tmp/catalog_gated.geojson root@143.198.140.54:/opt/landslidescience/data/lidar/catalog-gated.geojson
 
-# 3. confirm: 39 surveys, pedersen listed, gated catalogue still refuses anon
+# 3. confirm: survey count up by one, it is listed, gated still refuses anon
 env -u PROJ_LIB -u PROJ_DATA python tools/lidar/publish_audit.py
 ```
 
 Local `data/lidar/catalog.geojson` is the **dev** build (droplet-relative
 URLs) and must not be rsynced to prod as-is; prod's copy is the `--verify-r2`
 build with `lidar.landslidescience.org` URLs.
+
+**Back up the droplet's catalogues before scp'ing over them** (`cp -p` with a
+timestamp suffix). They are the only copy of what prod is actually serving:
+the local `catalog.geojson` is a dev build, so a bad install cannot be undone
+from the working tree. Note also that no pyramid rsync is needed for a survey
+published this way — the prod catalogue points at R2, so the droplet's own
+`/lidar/pmtiles/` copy is only a fallback and never enters the path.
+
+**Still open, unrelated to Pedersen:** `hoonah_2015`'s bytes on public R2
+(decision above), and `pow_2018` / `resurrection_2016` / `resurrection_2024`
+built but never pushed to the bucket. `--verify-r2` keeps all three out of the
+public catalogue, so they are invisible rather than broken.
