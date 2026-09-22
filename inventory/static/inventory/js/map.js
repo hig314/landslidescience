@@ -3800,6 +3800,8 @@
     // defaults open when any of its overlays is visible on either pane —
     // hiding an ACTIVE layer's controls would be worse than clutter — and an
     // explicit user toggle overrides that, persisted per browser.
+    // The "N on" COUNT is per-pane, which is a different question from
+    // whether to open the group: see _ovRenderGrouped.
     // -----------------------------------------------------------------------
     var _OV_CATS = [
         { key: 'susc',  label: 'Landslide susceptibility',
@@ -3834,15 +3836,29 @@
 
         cats.forEach(function (c) {
             if (!c.ovs.length) return;
-            var active = c.ovs.filter(function (ov) {
+            // Two different questions, and they were being answered by one
+            // number. The COUNT has to describe THIS pane, because so does
+            // every checkbox under it: the sidebar section drives the left
+            // pane, the wiper's panel the right. Counting either pane made a
+            // group read "1 on" with all of its boxes unticked -- and with no
+            // wiper open, the right-pane state being counted was not on
+            // screen anywhere, so the label pointed at nothing at all.
+            var activeHere = c.ovs.filter(function (ov) {
+                var st = _ovState[ov.id];
+                return st && st[side];
+            }).length;
+            // Whether to OPEN the group still asks about either pane, which
+            // is deliberate (see the note above _OV_CATS): showing an empty
+            // section beats hiding the controls of something that is drawn.
+            var activeEither = c.ovs.filter(function (ov) {
                 var st = _ovState[ov.id];
                 return st && (st.left || st.right);
             }).length;
             var det = document.createElement('details');
-            det.open = (c.key in _ovCatPrefs) ? !!_ovCatPrefs[c.key] : active > 0;
+            det.open = (c.key in _ovCatPrefs) ? !!_ovCatPrefs[c.key] : activeEither > 0;
             var sum = document.createElement('summary');
             sum.className = 'refmaps-category ov-cat-summary';
-            sum.textContent = c.label + (active ? ' · ' + active + ' on' : '');
+            sum.textContent = c.label + (activeHere ? ' · ' + activeHere + ' on' : '');
             det.appendChild(sum);
             c.ovs.forEach(function (ov) { det.appendChild(_overlayRow(ov, side)); });
             det.addEventListener('toggle', function () {
