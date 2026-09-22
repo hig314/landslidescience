@@ -6,7 +6,7 @@
 > `topobathy-compositing` in its own worktree. See `../../WORKSTREAMS.md`
 > for the split and the boundary rules.
 
-**39 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
+**41 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
 behind `lidar.landslidescience.org/cog/<id>.tif`. `/lidar/audit/` is the live
 answer to "where is everything" — it checks the four seams (built / on R2 / in
 the catalogue / what the gate does) and is the thing to read first, not this
@@ -353,7 +353,27 @@ from the working tree. Note also that no pyramid rsync is needed for a survey
 published this way — the prod catalogue points at R2, so the droplet's own
 `/lidar/pmtiles/` copy is only a fallback and never enters the path.
 
-**Still open, unrelated to Pedersen:** `hoonah_2015`'s bytes on public R2
-(decision above), and `pow_2018` / `resurrection_2016` / `resurrection_2024`
-built but never pushed to the bucket. `--verify-r2` keeps all three out of the
-public catalogue, so they are invisible rather than broken.
+**Still open:** `hoonah_2015`'s bytes on public R2 (decision above). Hig chose
+on 2026-09-21 to leave those where they are for now.
+
+## 2026-09-21 18:21: Resurrection Bay published; pow_2018 in flight
+
+Hig approved publishing all three of the built-but-unpushed surveys.
+
+- **resurrection_2016 and resurrection_2024 are live** (41 surveys). Both are
+  small, 0.20 and 0.13 GB, so they were queued FIRST and verified within six
+  minutes; the catalogue was installed for them immediately rather than waiting
+  on pow_2018. Both NOAA Office of Coast Survey, public domain, F00683 and
+  E01001. Byte integrity checked on the bucket: PMTiles v3 magic on all four
+  pyramids, BigTIFF magic on both archives.
+- **pow_2018 is UPLOADING and is NOT yet published.** 58.5 GB in three files
+  (archive 31.5, terrain pyramid 11.3, slope pyramid 15.7) at about 1.1 MB/s,
+  so roughly 12 hours from 18:27. Run via
+  `tools/lidar/r2_publish_overnight.sh`, which holds sleep off and verifies
+  each file by byte count. **When it finishes, the catalogue must be rebuilt
+  and installed again** with the recipe above; `--verify-r2` deliberately
+  refuses to list it until its pyramid is on the bucket, so until then prod is
+  correct at 41 and simply does not mention it.
+- Progress and outcome without reading a transcript:
+  `/Volumes/Nunatak/lidar_build/logs/r2_overnight.{log,status}`. Re-running the
+  script is cheap and idempotent, so a died-overnight run just gets run again.
