@@ -377,3 +377,50 @@ Hig approved publishing all three of the built-but-unpushed surveys.
 - Progress and outcome without reading a transcript:
   `/Volumes/Nunatak/lidar_build/logs/r2_overnight.{log,status}`. Re-running the
   script is cheap and idempotent, so a died-overnight run just gets run again.
+
+## 2026-09-21 21:43: pow_2018 FAILED -- Nunatak dropped off the bus
+
+**pow_2018 is NOT published and nothing of it reached the bucket.** Production
+is correct at 41 surveys; `--verify-r2` never listed it, so nothing advertises
+bytes that 404. Verified: no `pow_2018` object under `cog/` or `pmtiles/`, and
+`rclone backend list-multipart-uploads` returns empty, so no half-finished
+upload is accruing storage.
+
+**The volume is gone, not merely unmounted.** `diskutil list` shows disk0
+(internal), disk3 (synthesized) and disk5 (Powder) only -- the disk4 that
+carried Nunatak is absent from the device tree, so this wants a physical
+reconnect, not a `diskutil mount`. It disappeared about three hours into the
+31.5 GiB archive upload, which had been running fine.
+
+**What survived:** both pow_2018 pyramids are on the INTERNAL disk
+(`data/lidar/pmtiles/`, 12.1 GB and 16.9 GB) and are intact. Only the archive
+COG lives on Nunatak. Nunatak also holds every other survey's archive, so if
+the drive is actually failing that matters far beyond this upload -- though R2
+already holds a copy of all but the gated ones, which is the backup that was
+never called that.
+
+**To resume once the drive is back:**
+
+```bash
+env -u PROJ_LIB -u PROJ_DATA sh tools/lidar/r2_publish_overnight.sh pow_2018
+# then rebuild + install the catalogue per the recipe above; it should go to 42
+```
+
+**Two bugs this earned, both now fixed in the script.** They are why the
+failure was quiet rather than loud:
+
+- `expected()` lists a file only when it exists locally, so an unreachable
+  volume DROPS it from the work list instead of failing. The archive was
+  therefore never retried and never reported missing. The dangerous version is
+  worse than what happened: had every product of a survey been on that volume,
+  `expected()` would return nothing, `missing_for()` would be empty, and the run
+  would log "all files verified on the bucket" and write `ok` to the status
+  file having uploaded nothing at all.
+- `>> "$LOG"` pointing into the missing volume makes the redirect itself fail,
+  so `r2_put.sh` never ran and all six retries burned in thirty seconds.
+
+Now a `preflight()` checks every directory the run reads from or writes to,
+both before starting AND before each attempt, since the whole point is that it
+vanishes mid-run; it aborts with exit 2 naming the directory. `say()` also
+suppresses tee's own error, which otherwise printed a "No such file" line per
+message and buried the abort.
