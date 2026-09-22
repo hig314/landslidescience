@@ -861,6 +861,7 @@
       "archive_mode": "translate",
       "vertical_datum": "NAVD88",
       "source": "U.S. Geological Survey 3DEP",
+      "source_url": "https://www.usgs.gov/3d-elevation-program",
       "region": "Southeast",
       "notes": "USGS 3DEP OPR, AK_PrinceOfWalesP2_2018_B18: 1145 tiles at 0.5 m in NAD83(2011) / UTM 8N. Unlike the 2017 delivery this one is uniform -- every tile EPSG:6337, 0.5 m, Float32, nodata -999999, 256-square blocks, LZW -- so no re-tagging is needed and the VRT is a straight mosaic. ARCHIVED AT NATIVE 0.5 m, unlike pow_2017, which was downsampled to 1 m because 0.5 m over its 5,670 km2 would have made a 27 GB archive. This block is a third of that area, so native costs roughly what 2017 cost at half the resolution. max_zoom 18 is 0.33 m here, finer than the source; z17 would be 0.67 m, a third coarser than flown. OVERLAPS pow_2017, which is the interesting part: 2017 spans -133.82..-132.28 / 55.02..56.36 and this spans -134.44..-131.12 / 54.80..57.11, so where they meet there is a 2017-to-2018 pair for the difference tool, and beyond it this adds coverage 2017 never had."
     },
