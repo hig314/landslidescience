@@ -107,17 +107,18 @@
     // when not the inventory default, and absent = leave alone. `an=<key>,…`
     // records the open analysis panels (hist | timing | scatter | opera) the
     // same way: written only when at least one is open, absent = leave alone.
-    // `li=<id>.<p>l<pct>r<pct>,…` records the lidar DEM overlays exactly as
-    // `ov` does raster overlays: <id> is the catalog survey id, <p> the shading
-    // preset (h hillshade | k KBSP), l/r the main / wiper pane with opacity.
+    // `li=<id>.<p>l<pct>r<pct>,…` records the lidar overlays exactly as
+    // `ov` does raster overlays: <id> is the catalog survey id, <p> WHAT TO
+    // DRAW (h hillshade | p preset | o orthomosaic), l/r the main / wiper
+    // pane with opacity.
     // Present = fully describes the visible surveys (unlisted = off); absent =
     // leave lidar alone. This is what makes a stored default view reproduce
     // the lidar an editor had on when they set it (Hig, 2026-09-13).
     // ---------------------------------------------------------------------------
-    var LIDAR_PRESET_CODE = { hillshade: 'h', preset: 'p' };
+    var LIDAR_PRESET_CODE = { hillshade: 'h', preset: 'p', ortho: 'o' };
     // 'k' is the retired KBSP code, kept as a read-only alias so links and
     // saved views made before 2026-09-20 still resolve. Nothing writes it.
-    var LIDAR_CODE_PRESET = { h: 'hillshade', p: 'preset', k: 'preset' };
+    var LIDAR_CODE_PRESET = { h: 'hillshade', p: 'preset', k: 'preset', o: 'ortho' };
     function parseHashState(hashStr) {
         var h = hashStr != null ? hashStr : (location.hash || '');
         if (h.charAt(0) === '#') h = h.substring(1);
@@ -178,7 +179,12 @@
             } else if (k === 'li') {
                 var liOut = {};
                 v.split(',').forEach(function (ent) {
-                    var lm = /^([A-Za-z0-9_]+)\.([hk])((?:[lr]\d+)+)$/.exec(ent);
+                    // [hkpo], not [hk]. 'p' replaced 'k' as the Preset code on
+                    // 2026-09-20 and this regex was not moved with it, so every
+                    // view saved with that shading since has silently dropped
+                    // its survey on restore -- the writer emitted a code the
+                    // reader refused. 'o' is the orthomosaic.
+                    var lm = /^([A-Za-z0-9_]+)\.([hkpo])((?:[lr]\d+)+)$/.exec(ent);
                     if (!lm) return;
                     var le = { preset: LIDAR_CODE_PRESET[lm[2]] };
                     lm[3].replace(/([lr])(\d+)/g, function (_, sideCh, pct) {
@@ -4457,7 +4463,15 @@
         // which is most of a mod-5 base. Converged 2026-09-20 so the two
         // viewers mean the same thing by the same word.
         preset:    { label: 'Preset',
-                     opts: { hs: 1, sl: 0.6, md: 1, as: 0, az: 315, alt: 45, ve: 1, bl: 2 } }
+                     opts: { hs: 1, sl: 0.6, md: 1, as: 0, az: 315, alt: 45, ve: 1, bl: 2 } },
+        // Not a shading at all: the orthomosaic from the same flight, drawn
+        // as a plain raster. It lives in this table and in the same dropdown
+        // because that is what it is to the person using it -- another way to
+        // look at one survey -- and keeping it here buys one layer per survey,
+        // one state field and one hash code instead of a parallel set of each.
+        // Offered only where the catalogue advertises ortho_url, which today
+        // means the SfM flights; a lidar DTM has no imagery to show.
+        ortho:     { label: 'Ortho (imagery)', ortho: true }
     };
 
     function _lidarFetch() {
@@ -4552,8 +4566,18 @@
         if (!f) return;
         var p = f.properties;
         var st = state[id] || (state[id] = { preset: 'hillshade', opacity: 1 });
+        // A shared link or a stored default view can name a rendering this
+        // survey cannot do. Fall back rather than adding a source whose every
+        // tile 404s, which looks like a broken map rather than a missing product.
+        if (st.preset === 'ortho' && !p.ortho_url) st.preset = 'hillshade';
         var srcId = 'lidar-src-' + id, lyrId = _lidarLayerId(id);
-        var url = DemShade.url(id, LIDAR_PRESETS[st.preset].opts);
+        // The ortho is a photograph, not a surface, so it is a plain pmtiles
+        // raster with no shading pipeline. Same layer id and same slot in the
+        // stack as the shaded DEM: one overlay per survey that can draw
+        // different things, not a second overlay competing for position.
+        var url = st.preset === 'ortho'
+            ? 'pmtiles://' + new URL(p.ortho_url, location.href).href + '/{z}/{x}/{y}'
+            : DemShade.url(id, LIDAR_PRESETS[st.preset].opts);
         if (!m.getSource(srcId)) {
             m.addSource(srcId, {
                 type: 'raster', tiles: [url], tileSize: 256,
@@ -4918,6 +4942,9 @@
         var sel = document.createElement('select');
         sel.style.cssText = 'font-size:11px;width:100%;margin-bottom:3px;';
         Object.keys(LIDAR_PRESETS).forEach(function (k) {
+            // The shadings are computed from tiles every survey has; the
+            // orthomosaic is a separate product only some flights produced.
+            if (k === 'ortho' && !p.ortho_url) return;
             var o = document.createElement('option');
             o.value = k; o.textContent = LIDAR_PRESETS[k].label;
             if (st && st.preset === k) o.selected = true;
