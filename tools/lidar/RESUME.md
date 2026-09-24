@@ -6,7 +6,7 @@
 > `topobathy-compositing` in its own worktree. See `../../WORKSTREAMS.md`
 > for the split and the boundary rules.
 
-**41 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
+**42 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
 behind `lidar.landslidescience.org/cog/<id>.tif`. `/lidar/audit/` is the live
 answer to "where is everything" — it checks the four seams (built / on R2 / in
 the catalogue / what the gate does) and is the thing to read first, not this
@@ -441,3 +441,24 @@ both before starting AND before each attempt, since the whole point is that it
 vanishes mid-run; it aborts with exit 2 naming the directory. `say()` also
 suppresses tee's own error, which otherwise printed a "No such file" line per
 message and buried the abort.
+
+## 2026-09-23 22:57: pow_2018 published; wrangell_2023 uploading
+
+**pow_2018 is live** -- 42 public surveys. The slope pyramid that had failed
+for 31 hours on 64 MB parts went up in **3h50m** on 16 MB parts with **zero**
+broken pipes, which settles that the transfer shape was the fault and not the
+file or the link. All three products verified byte-exact on the bucket, and
+the companion check added the same day is what let the catalogue carry
+`slope_url` only once the slope was actually there.
+
+**wrangell_2023 is uploading now**, queued to start the moment pow_2018's run
+ended so the two never shared the uplink. 7.8 GB, so expect roughly two hours.
+When it lands: rebuild the catalogue with `--verify-r2` and install it, taking
+production to 43. `--verify-r2` keeps it out until then, so prod is correct at
+42 rather than advertising bytes that are still in flight.
+
+**Queueing rather than parallelising is deliberate.** Two large transfers
+sharing a ~1.1 MB/s uplink halves each and lengthens every connection, which
+is precisely the condition that produced the broken pipes. The chain script
+waits on `pgrep -f 'r2_publish_overnight.sh pow_2018'` and then starts the
+next survey.
