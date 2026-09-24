@@ -572,6 +572,13 @@
 </script>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
+{% comment %}
+  Pointer policy: the tool group, the one click dispatcher, cursor ownership,
+  pointer-capture drags and the Escape router. Loaded before revise.js and
+  scarps.js so they can ask LSTools.blocked() rather than keep their own
+  guards. See the file header for the policy.
+{% endcomment %}
+<script src="{% static 'inventory/js/ls_tools.js' %}"></script>
 {% if is_inventory_editor %}
 <script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
 <script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>

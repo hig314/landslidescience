@@ -297,138 +297,11 @@
 
 
     // ---------------------------------------------------------------------------
-    // LSTools — the map-click tools, as ONE control with radio semantics.
-    //
-    // Measure (distance / area), Draw and InSAR all claim map clicks, so at
-    // most one can be live at a time. They used to be three separate control
-    // groups policing each other by hand, and doing it inconsistently:
-    //   - Draw alerted "Exit the measure tool first."
-    //   - InSAR alerted "Exit the measure/draw tool first."
-    //   - Measure SILENTLY refused to start while Draw was on — a dead button
-    //     with no explanation.
-    //   - Measure never checked InSAR at all, so measuring while InSAR was
-    //     live left two tools fighting over the same click.
-    // Three different answers to one question, and a real bug in the fourth
-    // corner. Hig, 2026-09-10: they are "similar in type but mutually
-    // exclusive since they both respond to click-on-map" — so make that one
-    // control, and make the exclusivity structural rather than policed.
-    //
-    // Now: one bordered group, so they read as alternatives; picking one
-    // RELEASES whichever was live instead of refusing; picking the live one
-    // again returns to plain inspect mode. An outgoing tool can object via
-    // `canRelease` (Draw does, when a polygon ring is still open), which is
-    // the one case where a switch should ask rather than just happen.
-    //
-    // `order` fixes the button sequence independently of registration order,
-    // because the tools register whenever their own setup code runs and two
-    // of them are conditional (turf, editor).
-    // ---------------------------------------------------------------------------
-    var LSTools = (function () {
-        var container = null, added = false;
-        var reg = {};              // id -> {onRelease, canRelease}
-        var activeId = null;
-
-        function ensure() {
-            if (container) return container;
-            container = document.createElement('div');
-            container.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-tools-ctrl';
-            container.setAttribute('role', 'radiogroup');
-            container.setAttribute('aria-label', 'Map click tools');
-            return container;
-        }
-        function attach() {
-            if (added) return;
-            added = true;
-            var el = ensure();
-            map.addControl({
-                onAdd: function () { return el; },
-                onRemove: function () {}
-            }, 'top-left');
-        }
-        // Insert by `order` so the group always reads line, area, draw, InSAR,
-        // clear — whatever sequence the tools happened to register in.
-        function place(btn, order) {
-            var el = ensure();
-            btn.dataset.order = order;
-            var kids = el.children, before = null;
-            for (var i = 0; i < kids.length; i++) {
-                if ((+kids[i].dataset.order || 0) > order) { before = kids[i]; break; }
-            }
-            el.insertBefore(btn, before);
-            attach();
-        }
-        function mkBtn(o) {
-            var b = document.createElement('button');
-            b.type = 'button';
-            b.title = o.title;
-            b.setAttribute('aria-label', o.aria || o.title);
-            b.textContent = o.label;
-            if (o.className) b.className = o.className;
-            return b;
-        }
-        return {
-            // A mode button: selecting it releases whatever else was live.
-            mode: function (o) {
-                var b = mkBtn(o);
-                b.setAttribute('role', 'radio');
-                b.setAttribute('aria-checked', 'false');
-                reg[o.id] = { onRelease: o.onRelease, canRelease: o.canRelease };
-                b.addEventListener('click', function () {
-                    if (activeId === o.id) { o.onRelease(); }
-                    else { o.onSelect(); }
-                });
-                reg[o.id].btn = b;
-                place(b, o.order);
-                return b;
-            },
-            // A plain action (measure's clear) — never becomes the active mode.
-            action: function (o) {
-                var b = mkBtn(o);
-                b.addEventListener('click', o.onClick);
-                place(b, o.order);
-                return b;
-            },
-            // Claim the map. Returns false if the outgoing tool objected, in
-            // which case the caller must not proceed.
-            claim: function (id) {
-                if (activeId === id) return true;
-                if (activeId) {
-                    var cur = reg[activeId];
-                    if (cur && cur.canRelease && !cur.canRelease()) return false;
-                    var prev = activeId;
-                    activeId = null;          // before onRelease, so its own
-                    if (cur) cur.onRelease(); // release() call is a no-op
-                    if (reg[prev] && reg[prev].btn) {
-                        reg[prev].btn.classList.remove('active');
-                        reg[prev].btn.setAttribute('aria-checked', 'false');
-                    }
-                }
-                activeId = id;
-                if (reg[id] && reg[id].btn) {
-                    reg[id].btn.classList.add('active');
-                    reg[id].btn.setAttribute('aria-checked', 'true');
-                }
-                return true;
-            },
-            // Give the map back. No-op unless `id` currently holds it, so a
-            // tool's own deactivate() can call this unconditionally.
-            release: function (id) {
-                if (activeId !== id) return;
-                activeId = null;
-                if (reg[id] && reg[id].btn) {
-                    reg[id].btn.classList.remove('active');
-                    reg[id].btn.setAttribute('aria-checked', 'false');
-                }
-            },
-            active: function () { return activeId; },
-            // Called once, right after the navigation control, so the group's
-            // slot in the top-left stack is fixed rather than depending on
-            // which tool happens to register first — and so registration is
-            // never a re-entrant map.addControl from inside another control's
-            // onAdd. Idempotent; place() still calls it as a safety net.
-            attach: attach
-        };
-    })();
+    // LSTools — the map-click tools as ONE control with radio semantics, the
+    // click dispatcher, the cursor owner model, the drag helper and the
+    // Escape router — moved to ls_tools.js (2026-09-24) so /lidar/ can load
+    // the same policy. History and the policy statement live in that file's
+    // header. map.js only binds it: LSTools.init(map) below.
 
     // ---------------------------------------------------------------------------
     // MeasureControl — custom maplibre IControl for distance / area measurement.
@@ -847,7 +720,7 @@
     // The click-tool group sits directly under the zoom controls; the tools
     // themselves register into it as their own setup runs (two are
     // conditional — measure needs turf, draw needs an editor).
-    LSTools.attach();
+    LSTools.init(map);
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric'   }), 'bottom-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
 
