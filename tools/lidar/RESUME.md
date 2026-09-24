@@ -399,6 +399,23 @@ the drive is actually failing that matters far beyond this upload -- though R2
 already holds a copy of all but the gated ones, which is the backup that was
 never called that.
 
+**Then the uplink degraded.** With the drive back, the 31.5 GiB archive and
+the 11.3 GiB pyramid went up fine (verified byte-exact on the bucket), and the
+16.9 GiB slope pyramid then spent **31 hours** failing on `broken pipe` write
+errors. Cause was the transfer shape, not the file: `r2_put.sh` used 64 MB
+parts four at a time, and at the ~1.1 MB/s this machine gets that holds each
+connection open about four minutes, which a NAT or edge reset kills. Defaults
+are now **16 MB parts, 2 concurrent**, with `--low-level-retries 20`; a fast
+link can raise them with `R2_CHUNK=64M R2_CONC=4`. If a large upload starts
+failing this way, look at the part size before the file.
+
+**`--verify-r2` only ever checked the MAIN pyramid**, so a survey whose slope
+or ortho had not reached the bucket was published advertising a URL that 404s
+-- the exact thing that check exists to prevent, applied to one product of
+three. It now checks all three and drops just the missing URL, because both
+companions degrade cleanly: no `slope_url` means the client uses its
+in-browser gradient, no `ortho_url` means the viewer offers no ortho option.
+
 **To resume once the drive is back:**
 
 ```bash
