@@ -939,6 +939,24 @@
       "source": "NOAA Office of Coast Survey - hydrographic survey E01001, NOAA Ship FAIRWEATHER, 2024",
       "source_url": "https://www.ngdc.noaa.gov/nos/E00001-E02000/E01001.html",
       "notes": "NOAA Ship FAIRWEATHER, 2024; the newer survey, 33.7 km2 of soundings over part of the 2016 footprint, so the pair supports differencing. Five variable-resolution BAGs, already NAD83(2011)/UTM 6N (EPSG:6335). Depths to -294.4 m. Extracted from the variable-resolution BAGs with the BAG driver's MODE=INTERPOLATED. RESAMPLED_GRID, the obvious choice, samples refinement NODES: where a supergrid's refinement is coarser than the requested cell (1-8 m here) the cells between nodes come back empty, which silently discarded 92 percent of this survey on the first attempt (4.3 km2 recovered instead of 33.7). INTERPOLATED fills between nodes inside surveyed supergrids; it upsamples within real coverage and does not triangulate across voids. VERTICAL: the BAGs are MLLW depth. MLLW sits 0.118 m below NAVD88(GEOID12B) here, applied as vertical_shift_m. Determined from the tide station's own bench mark tie, which is the only route that works in south-central: mark '5090 E 1982' is 5.231 m above MLLW on the CO-OPS bench mark sheet for 9455090, and the same disk (NGS PID DQ3873) is 5.113 m above NAVD88 by GPS (NAD83(2011) ellipsoid 17.147 m minus GEOID12B 12.034 m). Same physical mark, two datums. CO-OPS does not publish a NAVD88 row for Seward because that needs two or more marks with NGS elevations and only this one has a datasheet -- the rest carry OPUS PIDs, a different database. Cross-check: this implies MSL-NAVD88 = 1.576 m, inside the 1.237-1.737 m range of the six nearest stations publishing both. NOTE none of the usual routes work here: VDatum has only three Alaska regions (all Southeast), PROJ offers only a no-shift ballpark, BlueTopo stops at -138 deg, and seward_2023 is topographic lidar that stops at the waterline -- its lowest value (-1.20 m NAVD88) sits above the sonar's shallowest (-0.04 m MLLW), so the two never measure common ground. max_zoom 17 (0.60 m)."
+    },
+    {
+      "id": "wrangell_2023",
+      "title": "Wrangell Island 2023 bare-earth DTM",
+      "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/Wrangell_2023/data/dtm/wrangell_lidar_2023_dtm.tif",
+      "target_epsg": 6337,
+      "native_res_m": 0.5,
+      "center_lat": 56.306,
+      "min_zoom": 8,
+      "max_zoom": 17,
+      "year": 2023,
+      "product": "DTM (bare earth)",
+      "archive_mode": "translate",
+      "vertical_datum": "NAVD88 (GEOID12B), stated in the delivery metadata",
+      "region": "Southeast",
+      "source": "Alaska DGGS \u2014 Zechmann, J.M., Wikstrom Jones, K.M. & Wolken, G.J. (2023), Raw Data File 2023-28",
+      "source_url": "https://doi.org/10.14509/31098",
+      "notes": "Wrangell Island, Southeast Alaska, flown July 2023. DGGS Raw Data File 2023-28, doi:10.14509/31098. Source is the delivery's own 0.5 m bare-earth DTM, 63734 x 86799, Float32, uncompressed 20.6 GiB with external overviews, spanning 132.399W..131.913W and 56.105N..56.507N. Already NAD83(2011)/UTM 8N (EPSG:6337) with every projection parameter correct, so archive_mode translate -- unlike its zone-8 sibling sitka_2019, which needed src_srs to repair a Transverse Mercator with all parameters zeroed. NODATA IS -9999, not the -3.4e38 that Haines and Cordova use; it is declared in the header so translate carries it through, but do not assume the DGGS deliveries agree with each other on this. DATUM is stated rather than inferred: NAD83(2011) horizontal, NAVD88 GEOID12B vertical, converted from ellipsoidal heights during processing. Ground control by Alaska DMLW, base station on benchmark HH-2 (PID BBDX58) at the Heritage Harbor breakwater; 43 control points and 214 checkpoints give a vertical RMSE of 5.3 cm non-vegetated and 17.4 cm vegetated, and 6.4 cm interswath. Ground returns average 3.35 pts/m2 at 54.6 cm spacing, so 0.5 m is at the limit of what the cloud supports and max_zoom 17 (~0.65 m at 56.3N) is the honest ceiling. DGGS use constraints apply as for every RDF here: indicate the source, and describe any modifications made. The delivery also holds a 50 cm DSM, a 16-bit intensity image and an 18.3 GB tiled zip of the same DTM; only the DTM is published."
     }
   ]
 }
