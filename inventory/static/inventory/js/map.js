@@ -1063,7 +1063,17 @@
         document.body.appendChild(ov);
         var nameEl = ov.querySelector('#idp-name'), roleEl = ov.querySelector('#idp-role');
         var warnEl = ov.querySelector('#idp-warn');
+        // Promotion seeds the name from their record, as a starting point and
+        // not an answer -- their databases are not named to the standard at
+        // /inventory/naming/, so the editor is expected to edit this.
+        if (_promote) {
+            if (_promote.name) nameEl.value = _promote.name;
+            warnEl.style.color = '#666';
+            warnEl.textContent = 'From ' + _promote.short + ' · their id ' +
+                                 (_promote.extId || '—') + '. Rename to suit the standard.';
+        }
         nameEl.focus();
+        nameEl.select();
         function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
         function discard() { if (_td) { _td.removeFeatures([fid]); _td.setMode('polygon'); } map.__drawPolyOpen = false; close(); }
         ov.querySelector('#idp-cancel').addEventListener('click', discard);
@@ -1232,7 +1242,16 @@
         // needs_confirm) — the checkbox is the affordance, not the guard.
         _drawPost('commit/', { confirm_attach: Object.keys(_attachOk) })
             .then(function (res) {
-                if (res.ok && res.j.ok) { window.location.href = res.j.redirect; return; }
+                if (res.ok && res.j.ok) {
+                    if (_promote) {
+                        _promoteStamp(res.j.redirect).then(function () {
+                            window.location.href = res.j.redirect;
+                        });
+                    } else {
+                        window.location.href = res.j.redirect;
+                    }
+                    return;
+                }
                 if (res.j && res.j.needs_confirm === 'attach') {
                     window.__drawFlash('Tick the "add to existing landslide" box, or rename ✎, first.');
                     renderQueue();
@@ -5078,7 +5097,17 @@
 
     function _extEnsure(k, geom, colour, m) {
         m = m || map;
-        if (!m || !m.getStyle || !m.getStyle()) return;
+        if (!m || !m.getStyle) return;
+        // Ticking the box before the style has finished loading used to return
+        // here and never come back: the fetch still ran and the row still said
+        // "N in view", so the count claimed data the map was not drawing. Wait
+        // for the style instead of dropping the request on the floor.
+        if (!m.isStyleLoaded || !m.isStyleLoaded()) {
+            m.once('idle', function () {
+                if (_extActive[k]) _extEnsure(k, geom, colour, m);
+            });
+            return;
+        }
         var src = _extSrcId(k);
         if (!m.getSource(src)) {
             m.addSource(src, { type: 'geojson',
@@ -5102,6 +5131,9 @@
     }
 
     function _extSetData(k, fc) {
+        // Cached first: a source created later reads _extData for its initial
+        // data, so an answer that arrives before the layer exists is kept
+        // rather than lost.
         _extData[k] = fc;
         [map, _swipe && _swipe.map].forEach(function (m) {
             if (m && m.getSource && m.getSource(_extSrcId(k))) m.getSource(_extSrcId(k)).setData(fc);
@@ -5277,7 +5309,16 @@
             '<div style="margin-top:5px;color:#aaa;font-size:10px;border-top:1px solid #eee;' +
             'padding-top:4px;">' + esc(s.citation) + ' <a href="' + esc(s.url) +
             '" target="_blank" rel="noopener">source</a><br>Mirrored unmodified; ' +
-            'not part of this inventory.</div></div>';
+            'not part of this inventory.</div>' +
+            (window._isInventoryEditor
+                ? '<div style="margin-top:7px;border-top:1px solid #eee;padding-top:7px;">' +
+                  '<button type="button" class="ext-promote" style="font-size:11px;' +
+                  'padding:4px 9px;cursor:pointer;">＋ Promote into the inventory</button>' +
+                  '<div style="color:#999;font-size:10px;margin-top:3px;">Traces a new ' +
+                  'outline and opens the review form. Nothing is copied automatically.</div>' +
+                  '</div>'
+                : '') +
+            '</div>';
         // focusAfterOpen:false stops MapLibre focusing the close button, which
         // the browser then scrolls into view; resetting scrollTop afterwards
         // covers the case where something else has already moved it.
@@ -5285,6 +5326,10 @@
             .setLngLat(e.lngLat).setHTML(html).addTo(map);
         var box = pop.getElement().querySelector('.ext-fields');
         if (box) box.scrollTop = 0;
+        var pbtn = pop.getElement().querySelector('.ext-promote');
+        if (pbtn) pbtn.addEventListener('click', function () {
+            _promoteStart(s, L, p);
+        });
     }
 
     function _extWireClicks() {
@@ -5316,6 +5361,116 @@
             }
         });
         map.on('moveend', _extRefreshSoon);
+    }
+
+
+    // -----------------------------------------------------------------------
+    // Promoting one mirrored record into this inventory.
+    //
+    // A promotion is NOT a copy. Their point says "something happened near
+    // here" and carries their reading of what; our inventory wants an outline
+    // and our own classification. So the flow is: their record supplies the
+    // prompt and the provenance, the editor supplies the geometry and every
+    // field, and the record lands in the review queue like any other new one.
+    //
+    // It deliberately reuses the existing draw tool rather than inventing a
+    // second creation path. Trace, name, commit, review is the flow editors
+    // already know, and everything hanging off it -- the name-collision block,
+    // the 5 km attach guard, the rule cascade, the audit log -- applies here
+    // for free. The only additions are a pre-filled name and a note of where
+    // the idea came from.
+    // -----------------------------------------------------------------------
+    var _promote = null;   // {sid, short, layer, extId, name, colour, props}
+
+    function _promoteSuggestName(s, L, p) {
+        // Their name if they gave one. Their databases are not named to our
+        // standard, so this is a starting point for the editor, never an
+        // answer: the naming rules at /inventory/naming/ still apply and the
+        // review form is where the name gets settled.
+        var nameCol = null;
+        Object.keys(L.fields || {}).forEach(function (c) {
+            if (!nameCol && /^name$/i.test(L.fields[c])) nameCol = c;
+        });
+        var n = nameCol ? p[nameCol] : null;
+        return (n && String(n).trim()) || '';
+    }
+
+    function _promoteIdOf(s, L, p) {
+        return p.ext_id || p.points_id || p.ls_id || p.objectid || '';
+    }
+
+    function _promoteStart(s, L, p) {
+        if (!window._isInventoryEditor) return;
+        _promote = {
+            sid: s.id, short: s.short, layer: L.layer, colour: s.colour,
+            extId: String(_promoteIdOf(s, L, p) || ''),
+            name: _promoteSuggestName(s, L, p),
+            props: p, fields: L.fields || {}, order: L.field_order || []
+        };
+        // Close any popup so the map is clear to trace on.
+        var pops = document.querySelectorAll('.maplibregl-popup');
+        for (var i = 0; i < pops.length; i++) pops[i].remove();
+        if (_drawCtrl) _drawCtrl.activate('poly');
+        _promoteBanner();
+    }
+
+    function _promoteCancel() {
+        _promote = null;
+        var b = document.getElementById('promote-banner');
+        if (b && b.parentNode) b.parentNode.removeChild(b);
+    }
+
+    function _promoteBanner() {
+        if (!_promote) return;
+        var old = document.getElementById('promote-banner');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+        var b = document.createElement('div');
+        b.id = 'promote-banner';
+        b.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);' +
+            'z-index:12;background:#fff;border:1px solid ' + _promote.colour + ';' +
+            'border-left:5px solid ' + _promote.colour + ';border-radius:4px;' +
+            'padding:7px 11px;font:12px/1.4 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.18);' +
+            'max-width:440px;';
+        b.innerHTML =
+            '<div style="font-weight:600;">Promoting from ' + esc(_promote.short) + '</div>' +
+            '<div style="color:#555;margin-top:2px;">' +
+              (_promote.name ? '“' + esc(_promote.name) + '” · ' : '') +
+              'their id ' + esc(_promote.extId || '—') + '</div>' +
+            '<div style="color:#666;margin-top:4px;">Trace the outline, press <b>Enter</b>, ' +
+              'then name it. Their fields travel with it for reference — none are copied.</div>' +
+            '<div style="text-align:right;margin-top:5px;">' +
+              '<button id="promote-cancel" type="button" style="font-size:11px;">Cancel promotion</button></div>';
+        map.getContainer().appendChild(b);
+        var c = document.getElementById('promote-cancel');
+        if (c) c.addEventListener('click', function () {
+            _promoteCancel();
+            if (_drawCtrl) _drawCtrl.deactivate();
+        });
+    }
+
+    // After the draw tool commits, the new landslide exists and we are about
+    // to land on its review form. Stamp the provenance first, through the same
+    // per-field endpoint the form's own autosave uses -- so there is exactly
+    // one way a column on `landslides` gets written from the browser.
+    function _promoteStamp(redirect) {
+        var m = /\/manage\/(?:review\/)?(\d+)/.exec(redirect || '');
+        if (!m || !_promote) return Promise.resolve();
+        var id = m[1], pr = _promote;
+        function put(name, value) {
+            return fetch('/inventory/manage/' + id + '/field/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
+                body: JSON.stringify({ name: name, value: value })
+            });
+        }
+        return put('external_source', pr.sid)
+            .then(function () { return put('external_id', pr.extId); })
+            .catch(function (e) {
+                // A failed stamp must not lose the landslide the editor just
+                // drew: the record is already committed and the redirect still
+                // happens. Provenance can be set by hand on the form.
+                console.error('promotion provenance stamp failed', e);
+            });
     }
 
     // Planet scene ids lead with the capture timestamp: 20240712_115100_43_2459_3B_...

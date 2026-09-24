@@ -346,6 +346,59 @@ def api_external_sources(request):
 
 
 @require_http_methods(['GET'])
+def api_external_record(request, sid, layer, ext_id):
+    """One mirrored record by THE PUBLISHER'S id, for the promoted-from card.
+
+    Looked up by their identifier rather than our mirror row id because the
+    mirror table is replaced on every refetch and our ids do not survive it --
+    a card keyed on our id would go blank the first time someone refreshed the
+    source, which is exactly when provenance matters most.
+    """
+    s = SOURCES.get(sid)
+    if not s or layer not in s['fetch']['layers']:
+        return JsonResponse({'error': 'unknown source or layer'}, status=404)
+    t = table_name(sid, layer)
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT to_regclass(%s)", (t,))
+        if not cur.fetchone()[0]:
+            conn.rollback()
+            return JsonResponse({'error': 'not mirrored here'}, status=404)
+        cur.execute("""
+            SELECT a.attname, col_description(a.attrelid, a.attnum)
+              FROM pg_attribute a
+             WHERE a.attrelid = %s::regclass AND a.attnum > 0 AND NOT a.attisdropped
+             ORDER BY a.attnum
+        """, (t,))
+        cols, labels = [], {}
+        for col, comment in cur.fetchall():
+            if col in ('id', 'geom', 'fetched_at'):
+                continue
+            cols.append(col)
+            labels[col] = comment or col
+        cur.execute(f'SELECT {", ".join(cols)} FROM {t} WHERE ext_id = %s LIMIT 1',
+                    (str(ext_id),))
+        row = cur.fetchone()
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    if not row:
+        return JsonResponse({'error': 'no such record'}, status=404)
+    props = {}
+    for c, v in zip(cols, row):
+        if v is None or v == '':
+            continue
+        props[c] = v.isoformat() if hasattr(v, 'isoformat') else v
+    return JsonResponse({
+        'source': {'id': sid, 'title': s['title'], 'short': s['short'],
+                   'citation': s['citation'], 'url': s['url'],
+                   'licence': s['licence'], 'colour': s['colour']},
+        'layer': layer, 'labels': labels, 'order': cols, 'properties': props,
+    })
+
+
+@require_http_methods(['GET'])
 def api_external(request, sid, layer):
     """One layer's features in a bbox, as GeoJSON, with their fields verbatim.
 
