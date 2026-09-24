@@ -2686,6 +2686,7 @@
         // (2026-09-16) -- the layer appeared and was silently thrown away.
         _traceReplayLayers();
         _lidarReplayLayers();
+        _extReplayLayers(map);          // mirrors survive a basemap change
 
         map.addSource('landslides', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addSource('polygons',   { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -2881,6 +2882,7 @@
             // _buildRasterUI nests the (editor-only) upload UI inside itself.
             rm.appendChild(_buildRasterUI());
             _lidarFetch();
+            if (!_extSources) _extFetchRegistry();
         }
         // The wiper's right-pane panel lists the same basemaps — refresh it so
         // newly merged QMS/shared layers appear there too.
@@ -3239,6 +3241,7 @@
         // data, overlays are imagery-like and deliberately not mirrored.
         _ovEnsure(cmap);
         _lidarReplayLayers();   // right-pane lidar, incl. li= state restored before the wiper existed
+        _extReplayLayers(_swipe.map);
         if (!cmap.getSource('faults'))
             cmap.addSource('faults', { type: 'geojson', data: _faultsData || { type: 'FeatureCollection', features: [] } });
         if (!cmap.getLayer('faults-line')) cmap.addLayer(_faultsLayerDef());
@@ -5003,6 +5006,316 @@
             writeHashState();   // li= must track what is actually on
         });
         return row;
+    }
+
+
+    // -----------------------------------------------------------------------
+    // Other people's landslide inventories (inventory/external.py)
+    //
+    // These are MIRRORS, not our data: each publisher's table keeps their
+    // columns and their wording, and nothing here translates a record into
+    // our schema. The popup therefore shows whatever fields that row actually
+    // populated, labelled the way the publisher labels them -- which is the
+    // only thing we can honestly claim to know about their records.
+    //
+    // WHY THESE ARE FETCHED BY BBOX AND NOT SHIPPED WHOLE
+    // Our own inventory is ~1,500 features and ships once. These are 77,142
+    // across six layers, and Canada alone is 31,005 points with 28 attributes
+    // each. So the endpoint takes a bbox and a cap, and the layer refetches on
+    // moveend. A cap that is silently hit would look like sparse data, so the
+    // row says when it truncated rather than letting the map imply a gap.
+    //
+    // WHY A ZOOM FLOOR
+    // Below EXT_MIN_ZOOM a continental view would ask for every point in
+    // Alaska or Canada, hit the cap, and draw a smear that means nothing. The
+    // row stays visible and says to zoom in, because "no data here" and "too
+    // far out to ask" are different answers and the map should not conflate
+    // them.
+    // -----------------------------------------------------------------------
+    var EXT_MIN_ZOOM = 7;
+    var _extSources = null;     // registry from api/external/
+    var _extActive = {};        // "sid/layer" -> true
+    var _extData = {};          // "sid/layer" -> last FeatureCollection
+    var _extNote = {};          // "sid/layer" -> {n, truncated, far}
+    var _extTimer = null;
+    var _extSeq = 0;
+
+    function _extKey(sid, layer) { return sid + '/' + layer; }
+    function _extSrcId(k) { return 'ext-src-' + k.replace('/', '__'); }
+    function _extLyrId(k, kind) { return 'ext-' + kind + '-' + k.replace('/', '__'); }
+
+    // One def builder per geometry kind, so the wiper's right pane can mirror
+    // these exactly as it mirrors faults and survey circles.
+    function _extLayerDefs(k, geom, colour) {
+        var src = _extSrcId(k);
+        if (geom === 'POINT') {
+            return [{
+                id: _extLyrId(k, 'circle'), type: 'circle', source: src,
+                paint: {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 2.5, 12, 4.5, 16, 7],
+                    'circle-color': colour,
+                    'circle-opacity': 0.85,
+                    'circle-stroke-width': 1,
+                    'circle-stroke-color': '#ffffff',
+                    'circle-stroke-opacity': 0.9
+                }
+            }];
+        }
+        if (geom === 'MULTIPOLYGON') {
+            return [
+                { id: _extLyrId(k, 'fill'), type: 'fill', source: src,
+                  paint: { 'fill-color': colour, 'fill-opacity': 0.18 } },
+                { id: _extLyrId(k, 'line'), type: 'line', source: src,
+                  paint: { 'line-color': colour, 'line-width': 1.2, 'line-opacity': 0.9 } }
+            ];
+        }
+        return [{
+            id: _extLyrId(k, 'line'), type: 'line', source: src,
+            paint: { 'line-color': colour, 'line-width': 2, 'line-opacity': 0.9,
+                     'line-dasharray': [3, 1.5] }
+        }];
+    }
+
+    function _extEnsure(k, geom, colour, m) {
+        m = m || map;
+        if (!m || !m.getStyle || !m.getStyle()) return;
+        var src = _extSrcId(k);
+        if (!m.getSource(src)) {
+            m.addSource(src, { type: 'geojson',
+                data: _extData[k] || { type: 'FeatureCollection', features: [] } });
+        }
+        // Below the landslide points so our own records always win a click,
+        // and so an external layer can never hide the inventory it sits beside.
+        var before = m.getLayer('points') ? 'points' : undefined;
+        _extLayerDefs(k, geom, colour).forEach(function (def) {
+            if (!m.getLayer(def.id)) m.addLayer(def, before);
+        });
+    }
+
+    function _extRemove(k, geom, m) {
+        m = m || map;
+        if (!m || !m.getStyle || !m.getStyle()) return;
+        _extLayerDefs(k, geom, '#000').forEach(function (def) {
+            if (m.getLayer(def.id)) m.removeLayer(def.id);
+        });
+        if (m.getSource(_extSrcId(k))) m.removeSource(_extSrcId(k));
+    }
+
+    function _extSetData(k, fc) {
+        _extData[k] = fc;
+        [map, _swipe && _swipe.map].forEach(function (m) {
+            if (m && m.getSource && m.getSource(_extSrcId(k))) m.getSource(_extSrcId(k)).setData(fc);
+        });
+    }
+
+    function _extRefresh() {
+        var keys = Object.keys(_extActive);
+        if (!keys.length || !map) return;
+        var far = map.getZoom() < EXT_MIN_ZOOM;
+        var b = map.getBounds();
+        var bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
+                   .map(function (v) { return v.toFixed(5); }).join(',');
+        var seq = ++_extSeq;
+        keys.forEach(function (k) {
+            if (far) {
+                _extNote[k] = { far: true };
+                _extSetData(k, { type: 'FeatureCollection', features: [] });
+                _extRenderNotes();
+                return;
+            }
+            var parts = k.split('/');
+            fetch(API_BASE + 'api/external/' + parts[0] + '/' + parts[1] + '/?bbox=' + bbox)
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (fc) {
+                    // A slow response from a pan the user has already left
+                    // would repaint the previous view's features over the new
+                    // one, so late answers are dropped rather than drawn.
+                    if (!fc || seq !== _extSeq || !_extActive[k]) return;
+                    _extSetData(k, fc);
+                    _extNote[k] = { n: fc.features.length, truncated: !!fc.truncated };
+                    _extRenderNotes();
+                })
+                .catch(function (e) { console.error('external fetch failed', k, e); });
+        });
+    }
+
+    function _extRefreshSoon() {
+        if (_extTimer) clearTimeout(_extTimer);
+        _extTimer = setTimeout(_extRefresh, 250);
+    }
+
+    function _extRenderNotes() {
+        Object.keys(_extNote).forEach(function (k) {
+            var el = document.getElementById('extnote-' + k.replace('/', '__'));
+            if (!el) return;
+            var s = _extNote[k];
+            if (!_extActive[k]) { el.textContent = ''; return; }
+            el.textContent = s.far ? 'zoom in to load'
+                : s.truncated ? (s.n + ' shown — zoom in for the rest')
+                : (s.n + ' in view');
+        });
+    }
+
+    function _extReplayLayers(m) {
+        if (!_extSources) return;
+        Object.keys(_extActive).forEach(function (k) {
+            var parts = k.split('/');
+            var s = _extSources.filter(function (x) { return x.id === parts[0]; })[0];
+            if (!s) return;
+            var L = s.layers.filter(function (x) { return x.layer === parts[1]; })[0];
+            if (L) _extEnsure(k, L.geom, s.colour, m);
+        });
+    }
+
+    function _extBuildUI() {
+        var host = document.getElementById('ext-inventories');
+        if (!host || !_extSources || !_extSources.length) return;
+        host.innerHTML = '';
+        var h = document.createElement('div');
+        h.style.cssText = 'font-size:11px;color:#666;text-transform:uppercase;' +
+                          'letter-spacing:0.5px;margin:10px 0 4px;';
+        h.textContent = 'Other landslide inventories';
+        host.appendChild(h);
+        var note = document.createElement('div');
+        note.style.cssText = 'font-size:10px;color:#999;margin-bottom:5px;line-height:1.35;';
+        note.textContent = 'Published by others and mirrored here unchanged. ' +
+                           'Click a feature to see the fields they recorded.';
+        host.appendChild(note);
+
+        _extSources.forEach(function (s) {
+            var box = document.createElement('div');
+            box.style.cssText = 'margin-bottom:6px;';
+            var title = document.createElement('div');
+            title.style.cssText = 'font-size:11px;font-weight:600;color:#444;display:flex;' +
+                                  'align-items:center;gap:5px;';
+            var sw = document.createElement('span');
+            sw.style.cssText = 'width:9px;height:9px;border-radius:50%;flex:none;background:' +
+                               s.colour + ';border:1px solid #fff;box-shadow:0 0 0 1px #bbb;';
+            title.appendChild(sw);
+            var a = document.createElement('a');
+            a.href = s.url; a.target = '_blank'; a.rel = 'noopener';
+            a.textContent = s.title;
+            a.style.cssText = 'color:#444;text-decoration:none;border-bottom:1px dotted #bbb;';
+            a.title = s.citation + '\n\n' + s.licence;
+            title.appendChild(a);
+            box.appendChild(title);
+
+            s.layers.forEach(function (L) {
+                var k = _extKey(s.id, L.layer);
+                var lab = document.createElement('label');
+                lab.className = 'nav-filter-label small';
+                lab.style.cssText = 'margin-left:14px;display:block;';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = !!_extActive[k];
+                lab.appendChild(cb);
+                lab.appendChild(document.createTextNode(' ' + L.label + ' '));
+                var cnt = document.createElement('span');
+                cnt.style.cssText = 'color:#999;font-size:10px;';
+                cnt.textContent = '(' + L.count.toLocaleString() + ')';
+                lab.appendChild(cnt);
+                var st = document.createElement('span');
+                st.id = 'extnote-' + k.replace('/', '__');
+                st.style.cssText = 'display:block;margin-left:18px;color:#888;font-size:10px;';
+                cb.addEventListener('change', function () {
+                    if (cb.checked) {
+                        _extActive[k] = true;
+                        _extEnsure(k, L.geom, s.colour, map);
+                        if (_swipe && _swipe.map) _extEnsure(k, L.geom, s.colour, _swipe.map);
+                        _extRefresh();
+                    } else {
+                        delete _extActive[k];
+                        delete _extNote[k];
+                        _extRemove(k, L.geom, map);
+                        if (_swipe && _swipe.map) _extRemove(k, L.geom, _swipe.map);
+                        st.textContent = '';
+                    }
+                    if (window.LSTrack) LSTrack.event('overlay', { which: 'ext:' + k });
+                });
+                lab.appendChild(st);
+                box.appendChild(lab);
+            });
+            host.appendChild(box);
+        });
+    }
+
+    function _extFetchRegistry() {
+        fetch(API_BASE + 'api/external/')
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                if (!d || !d.sources) return;
+                _extSources = d.sources;
+                _extBuildUI();
+            })
+            .catch(function (e) { console.error('external registry failed', e); });
+    }
+
+    // Click: show whatever fields this record actually carries, in the
+    // publisher's own words and their own column order. No curation beyond
+    // dropping empties -- deciding which of someone else's fields matter is
+    // the kind of judgement this whole design exists to postpone.
+    function _extPopup(e, s, L) {
+        var p = e.features[0].properties || {};
+        var rows = '';
+        (L.field_order || Object.keys(p)).forEach(function (c) {
+            var v = p[c];
+            if (v === undefined || v === null || v === '') return;
+            if (c === 'id' || c === 'fetched_at') return;
+            rows += '<div style="margin:1px 0;display:flex;gap:6px;">' +
+                    '<span style="color:#888;flex:none;">' + esc(L.fields[c] || c) + ':</span>' +
+                    '<span>' + esc(String(v)) + '</span></div>';
+        });
+        // Only the FIELD LIST scrolls. The heading says whose data this is and
+        // the footer carries the citation both licences require, so neither
+        // may scroll out of sight -- and a records-long panel that opened
+        // somewhere in its own middle was doing exactly that.
+        var html = '<div style="font:12px/1.4 system-ui,sans-serif;max-width:300px;">' +
+            '<div style="font-weight:600;color:' + s.colour + ';margin-bottom:3px;">' +
+                esc(s.short) + ' · ' + esc(L.label) + '</div>' +
+            '<div class="ext-fields" style="max-height:280px;overflow:auto;">' +
+                rows + '</div>' +
+            '<div style="margin-top:5px;color:#aaa;font-size:10px;border-top:1px solid #eee;' +
+            'padding-top:4px;">' + esc(s.citation) + ' <a href="' + esc(s.url) +
+            '" target="_blank" rel="noopener">source</a><br>Mirrored unmodified; ' +
+            'not part of this inventory.</div></div>';
+        // focusAfterOpen:false stops MapLibre focusing the close button, which
+        // the browser then scrolls into view; resetting scrollTop afterwards
+        // covers the case where something else has already moved it.
+        var pop = new maplibregl.Popup({ maxWidth: '330px', focusAfterOpen: false })
+            .setLngLat(e.lngLat).setHTML(html).addTo(map);
+        var box = pop.getElement().querySelector('.ext-fields');
+        if (box) box.scrollTop = 0;
+    }
+
+    function _extWireClicks() {
+        map.on('click', function (e) {
+            if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+            if (!_extSources) return;
+            var ids = [];
+            Object.keys(_extActive).forEach(function (k) {
+                var parts = k.split('/');
+                var s = _extSources.filter(function (x) { return x.id === parts[0]; })[0];
+                if (!s) return;
+                var L = s.layers.filter(function (x) { return x.layer === parts[1]; })[0];
+                if (!L) return;
+                _extLayerDefs(k, L.geom, s.colour).forEach(function (d) {
+                    if (map.getLayer(d.id)) ids.push({ id: d.id, s: s, L: L });
+                });
+            });
+            if (!ids.length) return;
+            // Our own records outrank a mirror: if a click lands on one of our
+            // landslides too, that popup is the one the reader wants.
+            var mine = map.queryRenderedFeatures(e.point, { layers: ['points'] });
+            if (mine && mine.length) return;
+            for (var i = 0; i < ids.length; i++) {
+                var hit = map.queryRenderedFeatures(e.point, { layers: [ids[i].id] });
+                if (hit && hit.length) {
+                    _extPopup({ features: hit, lngLat: e.lngLat }, ids[i].s, ids[i].L);
+                    return;
+                }
+            }
+        });
+        map.on('moveend', _extRefreshSoon);
     }
 
     // Planet scene ids lead with the capture timestamp: 20240712_115100_43_2459_3B_...
@@ -8865,6 +9178,12 @@
     // Scarp traces: the layer and the click popup for everyone; tracing
     // starts from the ✏ pencil (editors).
     _scarpInit();
+
+    // Mirrored third-party inventories: one click handler and the moveend
+    // refetch. Registered once here rather than per layer, because the set of
+    // layers changes as the reader ticks boxes and a handler per layer would
+    // have to be added and removed in step with them.
+    _extWireClicks();
 
     // Scatter-specific controls (not part of the shared floating behavior).
     var scatterClear = document.getElementById('scatter-clear');

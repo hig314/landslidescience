@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import (dist, insar, opera, photos, scarps, susc_dggs, table_data,
+from . import (dist, external, insar, opera, photos, scarps, susc_dggs, table_data,
                trace_views, views)
 
 app_name = 'inventory'
@@ -68,6 +68,14 @@ urlpatterns = [
     # inventory/susc_dggs.py for why it is proxied rather than linked).
     re_path(r'^tiles/dggs_susc/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             susc_dggs.dggs_susc_tile, name='dggs_susc_tile'),
+    # Third-party landslide inventories, mirrored verbatim into their own
+    # tables (see inventory/external.py). Public reads: these are published
+    # datasets whose licences require that we name them, so hiding them behind
+    # a login would be odd as well as unhelpful. No write routes at all -- a
+    # mirror is refreshed by management command, never from the browser.
+    path('api/external/', external.api_external_sources, name='api_external_sources'),
+    re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/$',
+            external.api_external, name='api_external'),
     # Scarp traces: public reads, editor-only writes (see inventory/scarps.py).
     path('api/scarps/', scarps.api_scarps, name='api_scarps'),
     path('api/scarps/create/', scarps.api_scarp_create, name='api_scarp_create'),
