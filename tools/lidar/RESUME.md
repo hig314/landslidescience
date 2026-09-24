@@ -6,7 +6,7 @@
 > `topobathy-compositing` in its own worktree. See `../../WORKSTREAMS.md`
 > for the split and the boundary rules.
 
-**42 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
+**43 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
 behind `lidar.landslidescience.org/cog/<id>.tif`. `/lidar/audit/` is the live
 answer to "where is everything" — it checks the four seams (built / on R2 / in
 the catalogue / what the gate does) and is the thing to read first, not this
@@ -451,11 +451,13 @@ file or the link. All three products verified byte-exact on the bucket, and
 the companion check added the same day is what let the catalogue carry
 `slope_url` only once the slope was actually there.
 
-**wrangell_2023 is uploading now**, queued to start the moment pow_2018's run
-ended so the two never shared the uplink. 7.8 GB, so expect roughly two hours.
-When it lands: rebuild the catalogue with `--verify-r2` and install it, taking
-production to 43. `--verify-r2` keeps it out until then, so prod is correct at
-42 rather than advertising bytes that are still in flight.
+**wrangell_2023 is live too** (2026-09-24 00:39) -- 43 public surveys, 569.1
+km2. It started by itself the moment pow_2018's run ended, took 1h41m for 7.8
+GB and threw zero broken pipes. All three products byte-exact on the bucket.
+
+The queue worked exactly as intended: three consecutive surveys (the pow_2018
+slope, then all of wrangell) moved without a single failed part once the parts
+were 16 MB, against seven failures and 31 wasted hours before.
 
 **Queueing rather than parallelising is deliberate.** Two large transfers
 sharing a ~1.1 MB/s uplink halves each and lengthens every connection, which
