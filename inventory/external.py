@@ -46,6 +46,7 @@ import urllib.request
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 
+from .auth import inventory_editor_required
 from .views import _get_conn, _put_conn
 
 _UA = 'landslidescience.org external-inventory mirror'
@@ -94,6 +95,12 @@ SOURCES = {
         'id_field': 'points_id',
         'name_field': 'name',
         'primary_layer': 'points',
+        # See PROMOTION RULES below.
+        'promote': {
+            'ongoing_work': ('Noted in the Alaska Landslide Inventory '
+                             '(Alaska DGGS Digital Data Series 23, Nicolazzo and '
+                             'Larsen, 2025), doi:10.14509/31697.'),
+        },
     },
     'canada_pcld': {
         'title': 'Preliminary Canadian Landslide Database',
@@ -121,8 +128,58 @@ SOURCES = {
         'id_field': 'LS_ID',
         'name_field': 'Name',
         'primary_layer': 'points',
+        'promote': {
+            'ongoing_work': ('Noted in the Preliminary Canadian Landslide Database '
+                             'v14.0 (Brideau and others, 2026), '
+                             'doi:10.5281/zenodo.20371365.'),
+            # Whose observation this is. Attributable here because the database
+            # has one compiler of record; most inventories do not, which is why
+            # this is a per-source rule and not a universal one.
+            'noted_by': 'Marc-Andre Brideau',
+        },
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# PROMOTION RULES
+#
+# What a source's `promote` dict says is written onto OUR record when one of
+# their records is promoted. It is the first piece of the derivation layer, and
+# deliberately the least clever piece: literal values, per source, that a
+# person decided once and can read back.
+#
+# Two rules are universal and live here rather than in any source:
+#
+#   ongoing_work   every promotion says where the observation came from, so a
+#                  reader of our record can find theirs. A source may phrase it
+#                  itself; absent that, it is generated from the title.
+#
+#   noted_by       is CLEARED, not filled with the editor who promoted it.
+#                  Everywhere else in this app a blank noted_by fills with the
+#                  person at the keyboard, because they are the one who noticed
+#                  it. In a promotion they are not: somebody else noticed it,
+#                  and crediting the promoter would quietly overwrite that. A
+#                  source that has a compiler of record can name them (Canada
+#                  does); most cannot, and a blank is then the honest answer.
+#
+# `owner` is left alone on purpose. It means who is responsible for the record
+# HERE, which really is the editor who promoted it.
+# ---------------------------------------------------------------------------
+PROMOTE_FIELDS = ('ongoing_work', 'noted_by')
+
+
+def promote_values(sid):
+    """Field -> value to write when promoting from this source. A value of None
+    means CLEAR the column, which is how noted_by refuses the editor's name."""
+    s = SOURCES.get(sid) or {}
+    rules = dict(s.get('promote') or {})
+    if 'ongoing_work' not in rules:
+        rules['ongoing_work'] = f"Noted in {s.get('title', sid)}."
+    # Explicitly null unless the source named someone. Absent would mean "leave
+    # it", and what is already there is the promoter's own name.
+    rules.setdefault('noted_by', None)
+    return rules
 
 
 def source(sid):
@@ -343,6 +400,58 @@ def api_external_sources(request):
     finally:
         _put_conn(conn)
     return JsonResponse({'sources': out})
+
+
+@inventory_editor_required
+@require_http_methods(['POST'])
+def api_external_promote(request, sid, layer, ext_id):
+    """Apply a source's promotion rules to a landslide just created from it.
+
+    POST {"landslide_id": N}. Editor-only: it writes to `landslides`.
+
+    WHY THIS IS SERVER-SIDE AND NOT THREE CALLS FROM THE BROWSER
+    -----------------------------------------------------------
+    The rules live in the registry, which is server-side, and they include
+    CLEARING a column. The draw commit has already stamped the promoting
+    editor into noted_by by the time this runs -- that is the right default
+    everywhere else -- so the promotion has to actively undo it. Expressing
+    that as a sequence of per-field saves from the browser would mean a half-
+    applied promotion whenever one of them failed, with the editor's name left
+    on somebody else's observation. One statement, one transaction.
+    """
+    if sid not in SOURCES or layer not in SOURCES[sid]['fetch']['layers']:
+        return JsonResponse({'error': 'unknown source or layer'}, status=404)
+    try:
+        body = json.loads((request.body or b'{}').decode('utf-8'))
+        ls_id = int(body.get('landslide_id'))
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'landslide_id required'}, status=400)
+
+    rules = promote_values(sid)
+    sets = ['external_source = %s', 'external_id = %s']
+    vals = [sid, str(ext_id)]
+    for col in PROMOTE_FIELDS:
+        if col not in rules:
+            continue
+        sets.append(f'{col} = %s')
+        vals.append(rules[col])
+    vals.append(ls_id)
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(f'UPDATE landslides SET {", ".join(sets)} WHERE id = %s', vals)
+        if not cur.rowcount:
+            conn.rollback()
+            return JsonResponse({'error': f'no landslide {ls_id}'}, status=404)
+        conn.commit()
+    finally:
+        _put_conn(conn)
+    from .views import _invalidate
+    _invalidate()
+    return JsonResponse({'ok': True, 'landslide_id': ls_id,
+                         'applied': {'external_source': sid, 'external_id': str(ext_id),
+                                     **{k: rules[k] for k in PROMOTE_FIELDS if k in rules}}})
 
 
 @require_http_methods(['GET'])

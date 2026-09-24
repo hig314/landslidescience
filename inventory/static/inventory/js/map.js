@@ -115,6 +115,12 @@
     // leave lidar alone. This is what makes a stored default view reproduce
     // the lidar an editor had on when they set it (Hig, 2026-09-13).
     // ---------------------------------------------------------------------------
+    // `ext=<source>/<layer>,…` records which mirrored third-party inventory
+    // layers are on, the same present/absent semantics as `ov` and `li`:
+    // present fully describes the visible set, absent leaves them alone. That
+    // makes a mirrored layer survive a reload and travel in a shared link,
+    // which it did not at first -- and a layer you have to re-tick after every
+    // refresh is one you stop using.
     var LIDAR_PRESET_CODE = { hillshade: 'h', preset: 'p', ortho: 'o' };
     // 'k' is the retired KBSP code, kept as a read-only alias so links and
     // saved views made before 2026-09-20 still resolve. Nothing writes it.
@@ -196,6 +202,13 @@
                     if (le.left || le.right) liOut[lm[1]] = le;
                 });
                 out.li = liOut;   // present (even if empty) whenever the param exists
+            } else if (k === 'ext') {
+                var extOut = {};
+                v.split(',').forEach(function (ent) {
+                    var em = /^([a-z0-9_]+)\/([a-z0-9_]+)$/.exec(ent);
+                    if (em) extOut[em[1] + '/' + em[2]] = true;
+                });
+                out.ext = extOut;   // present (even if empty) whenever the param exists
             } else if (k === 'im') {
                 // Imagery overlays (uploaded scenes and Sentinel-2 windows),
                 // main pane only -- they have never been offered in the
@@ -247,6 +260,7 @@
     // Lidar overlays from the URL / saved view: applied once the catalog is in
     // (_lidarFetch), since the ids mean nothing before then.
     var _pendingLi = _initialHash.li || null;
+    var _pendingExt = _initialHash.ext || null;
     // Imagery overlays wait on the trace-raster list the same way lidar waits
     // on the catalog: the ids mean nothing until the rows are in.
     var _pendingIm = _initialHash.im || null;
@@ -263,6 +277,8 @@
         if (ovh) parts.push('ov=' + ovh);
         var lih = _liEncodeHash();
         if (lih) parts.push('li=' + lih);
+        var exh = _extEncode();
+        if (exh) parts.push('ext=' + exh);
         var imh = _imEncodeHash();
         if (imh) parts.push('im=' + imh);
         var tab = _activeSidebarTab();
@@ -3438,6 +3454,8 @@
         if (ovh) parts.push('ov=' + ovh);
         var lih = _liEncodeHash();
         if (lih) parts.push('li=' + lih);
+        var exh = _extEncode();
+        if (exh) parts.push('ext=' + exh);
         // Imagery overlays. This builder is SEPARATE from writeHashState and
         // has to be kept in step with it by hand: adding `im` to the hash
         // alone left every stored default view silently without its imagery,
@@ -3478,6 +3496,7 @@
         }
         if (s.ov) _ovApplyHashSpec(s.ov);
         if (s.li) _liApplyHashSpec(s.li);
+        if (s.ext) { if (_extSources) _extApply(s.ext); else _extPending = s.ext; }
         if (s.im) _imApplyHashSpec(s.im);
         if (s.tab) _setSidebarTab(s.tab);
         if (s.an) _anApplyHashSpec(s.an);
@@ -5058,6 +5077,7 @@
     var _extNote = {};          // "sid/layer" -> {n, truncated, far}
     var _extTimer = null;
     var _extSeq = 0;
+    var _extPending = null;    // ext= seen before the registry arrived
 
     function _extKey(sid, layer) { return sid + '/' + layer; }
     function _extSrcId(k) { return 'ext-src-' + k.replace('/', '__'); }
@@ -5188,6 +5208,43 @@
         });
     }
 
+    // Encode/apply, mirroring _lidarEncode / the li= applier. Only the layers
+    // actually on are listed; an empty set writes nothing, so a reader who has
+    // never touched these never sees the parameter.
+    function _extEncode() {
+        return Object.keys(_extActive).sort().join(',');
+    }
+
+    function _extApply(want) {
+        if (!want || !_extSources) return;
+        // Off first, so a link that names a different set does not leave the
+        // previous one drawn underneath it.
+        Object.keys(_extActive).forEach(function (k) {
+            if (want[k]) return;
+            var parts = k.split('/');
+            var s0 = _extSources.filter(function (x) { return x.id === parts[0]; })[0];
+            var L0 = s0 && s0.layers.filter(function (x) { return x.layer === parts[1]; })[0];
+            delete _extActive[k];
+            delete _extNote[k];
+            if (L0) {
+                _extRemove(k, L0.geom, map);
+                if (_swipe && _swipe.map) _extRemove(k, L0.geom, _swipe.map);
+            }
+        });
+        Object.keys(want).forEach(function (k) {
+            if (_extActive[k]) return;
+            var parts = k.split('/');
+            var s0 = _extSources.filter(function (x) { return x.id === parts[0]; })[0];
+            var L0 = s0 && s0.layers.filter(function (x) { return x.layer === parts[1]; })[0];
+            if (!L0) return;          // a source that is no longer mirrored
+            _extActive[k] = true;
+            _extEnsure(k, L0.geom, s0.colour, map);
+            if (_swipe && _swipe.map) _extEnsure(k, L0.geom, s0.colour, _swipe.map);
+        });
+        _extBuildUI();
+        _extRefresh();
+    }
+
     function _extReplayLayers(m) {
         if (!_extSources) return;
         Object.keys(_extActive).forEach(function (k) {
@@ -5278,6 +5335,10 @@
                 if (!d || !d.sources) return;
                 _extSources = d.sources;
                 _extBuildUI();
+                // A link or restored view may have named layers before the
+                // registry existed; apply it now that the ids mean something.
+                var want = _extPending || _pendingExt;
+                if (want) { _extApply(want); _extPending = null; _pendingExt = null; }
             })
             .catch(function (e) { console.error('external registry failed', e); });
     }
@@ -5317,7 +5378,16 @@
                   '<div style="color:#999;font-size:10px;margin-top:3px;">Traces a new ' +
                   'outline and opens the review form. Nothing is copied automatically.</div>' +
                   '</div>'
-                : '') +
+                // Say why the button is absent rather than just omitting it.
+                // A signed-out editor otherwise sees a popup identical to the
+                // one they expect minus the control, with nothing to explain
+                // the difference -- which cost real time the first time it
+                // happened. The same reasoning as the sign-in note in
+                // CLAUDE.md: a missing affordance should account for itself.
+                : '<div style="margin-top:7px;border-top:1px solid #eee;padding-top:7px;' +
+                  'color:#999;font-size:10px;">' +
+                  '<a href="/inventory/login/">Sign in</a> as an editor to promote ' +
+                  'this record into the inventory.</div>') +
             '</div>';
         // focusAfterOpen:false stops MapLibre focusing the close button, which
         // the browser then scrolls into view; resetting scrollTop afterwards
@@ -5455,22 +5525,24 @@
     function _promoteStamp(redirect) {
         var m = /\/manage\/(?:review\/)?(\d+)/.exec(redirect || '');
         if (!m || !_promote) return Promise.resolve();
-        var id = m[1], pr = _promote;
-        function put(name, value) {
-            return fetch('/inventory/manage/' + id + '/field/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
-                body: JSON.stringify({ name: name, value: value })
-            });
-        }
-        return put('external_source', pr.sid)
-            .then(function () { return put('external_id', pr.extId); })
-            .catch(function (e) {
-                // A failed stamp must not lose the landslide the editor just
-                // drew: the record is already committed and the redirect still
-                // happens. Provenance can be set by hand on the form.
-                console.error('promotion provenance stamp failed', e);
-            });
+        var pr = _promote;
+        // One server call, not a field at a time. The rules live in the
+        // registry and one of them CLEARS a column -- the draw commit has
+        // already stamped this editor into noted_by, and a promotion has to
+        // undo that, because somebody else made the observation. Doing it
+        // field by field from here would leave the editor's name on another
+        // person's record whenever one call failed.
+        return fetch('/inventory/api/external/' + pr.sid + '/' + pr.layer +
+                     '/promote/' + encodeURIComponent(pr.extId) + '/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
+            body: JSON.stringify({ landslide_id: parseInt(m[1], 10) })
+        }).catch(function (e) {
+            // A failed stamp must not lose the landslide the editor just drew:
+            // the record is already committed and the redirect still happens.
+            // Provenance can be set by hand on the form.
+            console.error('promotion rules failed to apply', e);
+        });
     }
 
     // Planet scene ids lead with the capture timestamp: 20240712_115100_43_2459_3B_...
@@ -9723,6 +9795,7 @@
         // explicit params apply.
         if (s.ov) _ovApplyHashSpec(s.ov);
         if (s.li) _liApplyHashSpec(s.li);
+        if (s.ext) { if (_extSources) _extApply(s.ext); else _extPending = s.ext; }
         if (s.im) _imApplyHashSpec(s.im);
         if (s.tab) _setSidebarTab(s.tab);
         if (s.an) _anApplyHashSpec(s.an);

@@ -1959,7 +1959,14 @@ def manage_edit(request, landslide_id, review_mode=False):
     # them by default. They can override before saving.
     if 'owner' in col_names and not initial.get('owner') and request.user.username:
         initial['owner'] = request.user.username
-    if 'noted_by' in col_names and not initial.get('noted_by'):
+    # NOT for a promoted record. Everywhere else a blank noted_by fills with
+    # the person at the keyboard, because they are the one who noticed it. On a
+    # record promoted out of somebody else's inventory they are not, and a
+    # blank there is a deliberate answer set by inventory/external.py's
+    # promotion rules -- re-suggesting the editor would quietly undo it every
+    # time they opened the form.
+    _promoted = bool(initial.get('external_source'))
+    if 'noted_by' in col_names and not initial.get('noted_by') and not _promoted:
         _full = (request.user.get_full_name() or '').strip()
         if _full:
             initial['noted_by'] = _full

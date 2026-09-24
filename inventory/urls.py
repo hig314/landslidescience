@@ -79,6 +79,9 @@ urlpatterns = [
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/record/'
             r'(?P<ext_id>[^/]+)/$',
             external.api_external_record, name='api_external_record'),
+    re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/promote/'
+            r'(?P<ext_id>[^/]+)/$',
+            external.api_external_promote, name='api_external_promote'),
     # Scarp traces: public reads, editor-only writes (see inventory/scarps.py).
     path('api/scarps/', scarps.api_scarps, name='api_scarps'),
     path('api/scarps/create/', scarps.api_scarp_create, name='api_scarp_create'),
