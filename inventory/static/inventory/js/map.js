@@ -331,15 +331,17 @@
         // is a release.
         this._btnLine = LSTools.mode({
             id: 'measure-line', order: 10, label: '━',
-            title: 'Measure distance (Esc to cancel)',
+            title: 'Measure distance (Esc cancels, Esc again exits)',
             onSelect: function () { self._setMode('line'); },
-            onRelease: function () { self._setMode('idle'); }
+            onRelease: function () { self._setMode('idle'); },
+            cancel: function () { self._cancel(); }
         });
         this._btnPoly = LSTools.mode({
             id: 'measure-area', order: 20, label: '▱',
-            title: 'Measure area (Esc to cancel)',
+            title: 'Measure area (Esc cancels, Esc again exits)',
             onSelect: function () { self._setMode('polygon'); },
-            onRelease: function () { self._setMode('idle'); }
+            onRelease: function () { self._setMode('idle'); },
+            cancel: function () { self._cancel(); }
         });
         this._btnClear = LSTools.action({
             id: 'measure-clear', order: 90, label: '✕',
@@ -359,11 +361,9 @@
         this._onClick   = this._onClick.bind(this);
         this._onMove    = this._onMove.bind(this);
         this._onLeave   = this._onLeave.bind(this);
-        this._onKey     = this._onKey.bind(this);
         this._map.on('click', this._onClick);
         this._map.on('mousemove', this._onMove);
         this._map.getContainer().addEventListener('mouseleave', this._onLeave);
-        document.addEventListener('keydown', this._onKey);
 
         // Layers must be re-created on every style.load (basemap switch wipes them).
         this._ensureLayers = this._ensureLayers.bind(this);
@@ -505,13 +505,21 @@
         this._tooltip.style.display = 'none';
     };
 
-    MeasureControl.prototype._onKey = function (e) {
-        if (e.key === 'Escape' && this._mode !== 'idle') {
+    // Escape, routed here by LSTools (Hig, 2026-09-24: two-step). With a shape
+    // in progress, Escape discards it and stays in the tool -- the old meaning.
+    // With nothing in progress, Escape exits the tool, which used to require
+    // the button and left Escape doing visibly nothing. InSAR already meant
+    // "exit"; now the two agree.
+    MeasureControl.prototype._cancel = function () {
+        if (this._mode === 'idle') return;
+        if (this._active.length) {
             this._active = [];
             this._setPreview([]);
             this._tooltip.style.display = 'none';
             this._render();
+            return;
         }
+        this._setMode('idle');
     };
 
     MeasureControl.prototype._setPreview = function (coords) {
@@ -1205,6 +1213,12 @@
             // two kinds, so the tool group's mutual exclusion covers both.
             onSelect: function () { self.choose(); },
             onRelease: function () { self.deactivate(); },
+            // Escape is Terra Draw's here (keyEvents.cancel discards the ring),
+            // and map.__drawPolyOpen updates synchronously inside its change
+            // event -- so a second listener racing it on the same keypress is
+            // exactly the bug the router exists to remove. No-op on purpose;
+            // exiting the tool stays on the button.
+            cancel: function () {},
             // The one switch that should ask rather than just happen: staged
             // components are held server-side and come back, but an unclosed
             // ring only exists inside Terra Draw and dies with it.
@@ -9857,7 +9871,8 @@
                    + 'displacement (Esc to exit)',
             aria: 'InSAR time series',
             onSelect: function () { setActive(true); },
-            onRelease: function () { setActive(false); }
+            onRelease: function () { setActive(false); },
+            cancel: function () { setActive(false); }   // nothing is ever "in progress" here
         });
 
         var fp = makeFloatingPanel(panel, {
@@ -9892,9 +9907,6 @@
             if (on) LSTools.cursor.set('tool', 'crosshair'); else LSTools.cursor.clear('tool');
             if (on) { fp.open(); draw(); }
         }
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && _active) setActive(false);
-        });
 
         // Markers: one source for all samples; sample-colored dot + letter.
         // Mirrored to the wiper pane (exception to the interaction-tool rule:
