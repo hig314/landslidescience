@@ -3219,16 +3219,19 @@
         divr.appendChild(handle);
         host.appendChild(divr);
         _swipe.divider = divr;
-        var dragging = false;
-        divr.addEventListener('pointerdown', function (e) { dragging = true; divr.setPointerCapture(e.pointerId); e.preventDefault(); });
-        divr.addEventListener('pointermove', function (e) {
-            if (!dragging) return;
-            var r = host.getBoundingClientRect();
-            _swipeSetX((e.clientX - r.left) / r.width * 100);
-        });
-        divr.addEventListener('pointerup', function () {
-            dragging = false;
-            if (_mapReady) writeHashState();   // capture the divider position (sx=)
+        // LSTools.drag ends the gesture on pointercancel and lostpointercapture
+        // as well as pointerup. The hand-rolled version ended only on pointerup,
+        // so a drag interrupted by a tab switch left `dragging` true and the
+        // divider glued to the next pointer that wandered past. onEnd runs on a
+        // cancel too: the position is already applied, so the hash should say so.
+        LSTools.drag(divr, {
+            onMove: function (e) {
+                var r = host.getBoundingClientRect();
+                _swipeSetX((e.clientX - r.left) / r.width * 100);
+            },
+            onEnd: function () {
+                if (_mapReady) writeHashState();   // capture the divider position (sx=)
+            }
         });
 
         var bm = findBasemap(_swipe.basemapId) || findBasemap(DEFAULT_BASEMAP_ID);
@@ -7910,28 +7913,25 @@
             }).observe(panel);
         }
         if (handle) {
-            var moving = false, offX = 0, offY = 0, parRect = null;
-            handle.addEventListener('pointerdown', function (e) {
-                if (e.target.closest('button, a, input, label, select')) return;  // let controls work
-                moving = true;
-                var r = panel.getBoundingClientRect();
-                parRect = (panel.offsetParent || document.body).getBoundingClientRect();
-                offX = e.clientX - r.left; offY = e.clientY - r.top;
-                // Pin current position as left/top BEFORE clearing right/bottom so
-                // the anchor flip doesn't jump.
-                panel.style.left = (r.left - parRect.left) + 'px';
-                panel.style.top  = (r.top  - parRect.top)  + 'px';
-                panel.style.right = 'auto'; panel.style.bottom = 'auto';
-                handle.setPointerCapture(e.pointerId);
-                e.preventDefault();
+            var offX = 0, offY = 0, parRect = null;
+            LSTools.drag(handle, {
+                onStart: function (e) {
+                    if (e.target.closest('button, a, input, label, select')) return false;  // let controls work
+                    var r = panel.getBoundingClientRect();
+                    parRect = (panel.offsetParent || document.body).getBoundingClientRect();
+                    offX = e.clientX - r.left; offY = e.clientY - r.top;
+                    // Pin current position as left/top BEFORE clearing right/bottom so
+                    // the anchor flip doesn't jump.
+                    panel.style.left = (r.left - parRect.left) + 'px';
+                    panel.style.top  = (r.top  - parRect.top)  + 'px';
+                    panel.style.right = 'auto'; panel.style.bottom = 'auto';
+                },
+                onMove: function (e) {
+                    var w = panel.offsetWidth, h = panel.offsetHeight;
+                    panel.style.left = Math.max(0, Math.min(parRect.width  - w, e.clientX - offX - parRect.left)) + 'px';
+                    panel.style.top  = Math.max(0, Math.min(parRect.height - h, e.clientY - offY - parRect.top))  + 'px';
+                }
             });
-            handle.addEventListener('pointermove', function (e) {
-                if (!moving) return;
-                var w = panel.offsetWidth, h = panel.offsetHeight;
-                panel.style.left = Math.max(0, Math.min(parRect.width  - w, e.clientX - offX - parRect.left)) + 'px';
-                panel.style.top  = Math.max(0, Math.min(parRect.height - h, e.clientY - offY - parRect.top))  + 'px';
-            });
-            handle.addEventListener('pointerup', function () { moving = false; });
         }
         return { open: open, close: close, isOpen: isOpen };
     }
@@ -9229,42 +9229,49 @@
     // Drag-to-select
     (function () {
         if (!scatterSvg) return;
-        var dragging = false, sx = 0, sy = 0;
+        var sx = 0, sy = 0;
         function localPt(e) {
             var r = scatterSvg.getBoundingClientRect();
             return { x: e.clientX - r.left, y: e.clientY - r.top };
         }
-        scatterSvg.addEventListener('pointerdown', function (e) {
-            if (!_scDims) return;
-            e.preventDefault();   // stop native selection/drag (was causing a start jump)
-            var p = localPt(e);
-            dragging = true; sx = p.x; sy = p.y;
-            scatterSvg.setPointerCapture(e.pointerId);
-        });
-        scatterSvg.addEventListener('pointermove', function (e) {
-            var p = localPt(e);
-            if (dragging) {
-                var dr = document.getElementById('scatter-drag');
+        // The box drag goes through LSTools.drag, which ends the gesture on
+        // pointercancel and lostpointercapture as well as pointerup. The
+        // hand-rolled version left `dragging` true after a tab switch mid-box,
+        // and the next hover then stretched a box nobody had started. A
+        // cancelled gesture hides the box and changes no slider.
+        var brush = LSTools.drag(scatterSvg, {
+            onStart: function (e) {
+                if (!_scDims) return false;
+                // drag() does the preventDefault, which stops the native
+                // selection/drag that used to cause a start jump.
+                var p = localPt(e);
+                sx = p.x; sy = p.y;
+            },
+            onMove: function (e) {
+                var p = localPt(e), dr = document.getElementById('scatter-drag');
                 if (!dr) return;
                 dr.setAttribute('x', Math.min(sx, p.x)); dr.setAttribute('y', Math.min(sy, p.y));
                 dr.setAttribute('width', Math.abs(p.x - sx)); dr.setAttribute('height', Math.abs(p.y - sy));
                 dr.setAttribute('display', 'block');
-                return;
+            },
+            onEnd: function (e, info) {
+                var dr = document.getElementById('scatter-drag');
+                if (dr) dr.setAttribute('display', 'none');
+                if (info.cancelled || !e) return;
+                var p = localPt(e);
+                if (Math.abs(p.x - sx) < 4 && Math.abs(p.y - sy) < 4) return;  // treat as a click, not a box
+                var lwA = _scPxToLw(sx), lwB = _scPxToLw(p.x);
+                var nA  = _scPxToN10(sy), nB = _scPxToN10(p.y);
+                _scatterSetSliders(Math.min(lwA, lwB), Math.max(lwA, lwB), Math.min(nA, nB), Math.max(nA, nB));
             }
-            scatterCellTip(e, p);   // hover readout of exact per-cell numbers
+        });
+        // The hover readout stays its own listener: it has to run when NOT
+        // dragging, and drag() forwards moves only during a gesture.
+        scatterSvg.addEventListener('pointermove', function (e) {
+            if (brush.active()) return;
+            scatterCellTip(e, localPt(e));   // hover readout of exact per-cell numbers
         });
         scatterSvg.addEventListener('pointerleave', hideChartTip);
-        scatterSvg.addEventListener('pointerup', function (e) {
-            if (!dragging) return;
-            dragging = false;
-            var dr = document.getElementById('scatter-drag');
-            if (dr) dr.setAttribute('display', 'none');
-            var p = localPt(e);
-            if (Math.abs(p.x - sx) < 4 && Math.abs(p.y - sy) < 4) return;  // treat as a click, not a box
-            var lwA = _scPxToLw(sx), lwB = _scPxToLw(p.x);
-            var nA  = _scPxToN10(sy), nB = _scPxToN10(p.y);
-            _scatterSetSliders(Math.min(lwA, lwB), Math.max(lwA, lwB), Math.min(nA, nB), Math.max(nA, nB));
-        });
     }());
 
     scatterFP = makeFloatingPanel(scatterPanel, {
