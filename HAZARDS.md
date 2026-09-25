@@ -104,6 +104,14 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
   hash parser with identical grammar — change both or neither until the
   planned migration lands), EPSG:3413 in `ls_proj.js`, PNG export in
   `ls_export.js`. Duplicated registries drift; that's why these exist.
+- **Pointer policy only in `ls_tools.js`.** Do not add a `map.on('click')`,
+  a hand-rolled pointer-capture drag, a direct `canvas.style.cursor` write or
+  a document `keydown` for Escape in map.js: register a click entry, use
+  `LSTools.drag`, `LSTools.cursor`, and give the holder a `cancel()`. The
+  2026-09 review found the old guard typed at 22 sites, a reviser flag read
+  once, three drags with no `pointercancel`, and an external point that
+  opened popup + panel over our polygon but only the panel over our dot —
+  by omission, not by decision.
 - **Verify discoverability, not existence.** A control can be in the DOM,
   clickable by script, and invisible to a human (it rendered at y=2515 in a
   504-px panel). Screenshot the actual page and look.
@@ -175,6 +183,16 @@ CLAUDE.md §/glaciers:
   artifact (+28 from an unrelated element) and two legitimately absent
   records. When numbers don't reconcile to zero, find out why before
   shipping.
+- **An automation tab that is hidden never renders the map.** With
+  `document.hidden === true` (window behind another, tab not selected)
+  `requestAnimationFrame` never fires, and MapLibre loads its style on a
+  rAF, so `isStyleLoaded()` stays false, no tile loads, no data layer is
+  added, `map.once('load')` never fires. A whole session was spent proving
+  "dev never draws the landslide layers" against the code before checking
+  `document.hidden`. Taking a screenshot makes the tab visible for a
+  moment: screenshot after every camera move, then query. Also: a native
+  `confirm()`/`alert()` (the reviser's Revert has one) freezes the
+  automation tab for good — stub `window.confirm` first, or lose the tab.
 - **When a fix has siblings, fix the siblings.** The viewport-count bug
   existed in three hand-copied variants; fixing one left two. Grep for the
   pattern you just fixed.
