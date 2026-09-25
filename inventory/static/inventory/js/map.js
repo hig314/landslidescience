@@ -1296,13 +1296,6 @@
             alert('Scarp tracing is not available on this page.');
             return;
         }
-        // The reviser is not a tool-group mode (it is opened from a record's
-        // detail panel), so it has to be checked by hand, as _reviseStart
-        // checks this tool.
-        if (map.__reviseActive) {
-            alert('Close the reviser first.');
-            return;
-        }
         if (this._on && this._kind === kind) return;
         if (this._on) {
             // Switching kinds inside the mode: same question canRelease asks.
@@ -7127,24 +7120,65 @@
         }).catch(function (e) { console.warn('scarps: could not load — ' + e.message); });
     }
 
+    // The reviser is a Terra Draw session on the live map, exactly like the
+    // draw tool, so it holds the map the same way -- headless, since it opens
+    // from a record's detail panel rather than a button. Before this it set
+    // map.__reviseActive, which exactly one place read: landslide clicks still
+    // opened detail panels mid-edit, right-click still copied coordinates
+    // instead of deleting a vertex, and measure or InSAR could start on top.
+    // Hig, 2026-09-24: a full holder. Another tool taking the map releases
+    // it, asking first only when there are unsaved edits, instead of the two
+    // hand-written refusals that used to guard each direction.
+    function _reviseDirty() {
+        if (typeof LSRevise === 'undefined' || !LSRevise.isActive()) return false;
+        var d = LSRevise.diff();
+        return !!(d && ((d.updates && d.updates.length) || (d.deletes && d.deletes.length)));
+    }
+    LSTools.hold({
+        id: 'revise',
+        onRelease: function () {
+            if (typeof LSRevise !== 'undefined' && LSRevise.isActive()) LSRevise.stop();
+        },
+        canRelease: function () {
+            if (!_reviseDirty()) return true;
+            return window.confirm('Unsaved outline edits will be discarded.'
+                                  + '\n\nSwitch tools anyway?');
+        },
+        // Two-step Escape: with edits pending, say what to do rather than
+        // discard them; with nothing pending, exit. stop() runs onExit, which
+        // releases the holder.
+        cancel: function () {
+            if (typeof LSRevise === 'undefined' || !LSRevise.isActive()) return;
+            if (_reviseDirty()) {
+                var st = _reviseBar && _reviseBar.querySelector('#rv-status');
+                if (st) st.textContent = 'Unsaved changes — Save, Revert or Done';
+                return;
+            }
+            LSRevise.stop();
+        }
+    });
+
     function _reviseStart(id) {
         if (typeof LSRevise === 'undefined') return;
-        if (map.__drawActive) { window.__drawFlash && window.__drawFlash(
-            'Finish or close the draw tool before revising an outline.'); return; }
+        // Stop a previous session BEFORE claiming: its onExit releases the
+        // holder, and doing that after the claim would drop the new one.
         if (LSRevise.isActive()) LSRevise.stop();
+        // Takes the map from draw / measure / InSAR; false only if the outgoing
+        // tool objected (draw does, with a ring still open).
+        if (!LSTools.claim('revise')) return;
         LSRevise.start({
             id: id,
             map: map, api: API_BASE, csrf: _csrf,
             terraDraw: window.terraDraw, adapter: window.terraDrawMaplibreGlAdapter,
             onExit: function () {
-                map.__reviseActive = false;
+                LSTools.release('revise');
                 if (_reviseBar) { _reviseBar.remove(); _reviseBar = null; }
                 _reviseRefreshData();
             }
         }).then(function (info) {
-            map.__reviseActive = true;
             _reviseBuildBar(info);
         }).catch(function (e) {
+            LSTools.release('revise');
             window.alert('Could not open the reviser: ' +
                          (e && e.message ? e.message : 'unknown error'));
         });
