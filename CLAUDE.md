@@ -102,7 +102,8 @@ pushing untested code to GH.
 | `/inventory/manage/<id>/delete/` | **superusers only** (POST) | Permanent hard-delete (Danger zone); distinct from deprecate |
 | `/inventory/manage/settings/` | inventory_editors + Hig | Map display settings (colors, point sizes) |
 | `/inventory/export/` | public | Download zip of GeoJSON + QGIS .qml styles |
-| `/lidar/` | public | Standalone lidar/bathymetry viewer; `/lidar/audit/` is the publish-state check |
+| `/lidar/` | public | Standalone lidar/bathymetry viewer + the ranged `pmtiles`/`cog`/catalogue routes |
+| `/lidar/audit/` | data admins | Publish-state check: for every survey, built / on R2 / in the catalogue / what the gate does |
 | `/inventory/manage/import/` | inventory_editors + Hig | Upload zip/.geojson; preview diff; confirm to apply |
 | `/s/t.js`, `/s/api/send` | public | First-party analytics beacon, forwarded to Umami (`landslidescience/analytics.py`) |
 | `/traffic/` | superusers + site_admins | Signs the current Django user into the Umami dashboard (Umami's own login is disabled) |
@@ -1250,8 +1251,9 @@ There is no on-map legend or floating basemap-picker — those got removed in fa
 published and a list in this file would be wrong within the week. Two live
 answers instead, in this order:
 
-- **`/lidar/audit/`** (`publish_audit`) — the authoritative state, checked
-  rather than remembered: for every manifest entry it tests the four seams
+- **`/lidar/audit/`** (`publish_audit`, **signed-in data admins only** — it
+  names gated surveys, whose existence is not public) — the authoritative
+  state, checked rather than remembered: for every manifest entry it tests the four seams
   (built locally / present on R2 / present in the catalogue / what the gate
   actually does) and names any that disagree. Read it first.
 - **`tools/lidar/RESUME.md`** — the hosting stream's state of play and the
