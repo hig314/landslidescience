@@ -111,8 +111,18 @@ window.LSScarps = (function () {
       if (!f) return;
       if (onPick) onPick(f, e.lngLat); else select(f.properties.id);
     });
-    map.on('mouseenter', HIT, function () { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', HIT, function () { map.getCanvas().style.cursor = ''; });
+    // Through the cursor owner model, so hovering a trace mid-measure can no
+    // longer replace the tool's crosshair with a pointer and then clear it to
+    // nothing on leave -- the one path that used to stomp an active tool.
+    // typeof-guarded so this module still loads on a page without LSTools.
+    map.on('mouseenter', HIT, function () {
+      if (window.LSTools) LSTools.cursor.set('hover', 'pointer');
+      else map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', HIT, function () {
+      if (window.LSTools) LSTools.cursor.clear('hover');
+      else map.getCanvas().style.cursor = '';
+    });
   }
 
   function redraw() {

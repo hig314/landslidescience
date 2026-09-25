@@ -390,7 +390,7 @@
         if (this._mode !== 'idle') this._finalize();
         this._mode = mode;
         var drawing = mode !== 'idle';
-        this._map.getCanvas().style.cursor = drawing ? 'crosshair' : '';
+        if (drawing) LSTools.cursor.set('tool', 'crosshair'); else LSTools.cursor.clear('tool');
         if (drawing) this._map.doubleClickZoom.disable();
         else         this._map.doubleClickZoom.enable();
         this._tooltip.style.display = 'none';
@@ -560,7 +560,7 @@
             this._mode = 'idle';
             LSTools.release('measure-line');
             LSTools.release('measure-area');
-            this._map.getCanvas().style.cursor = '';
+            LSTools.cursor.clear('tool');
             this._map.doubleClickZoom.enable();
         }
         this._render();
@@ -1302,7 +1302,7 @@
             return;
         }
         map.__drawActive = true; this._on = true; this._kind = kind;
-        map.getCanvas().style.cursor = 'crosshair';
+        LSTools.cursor.set('tool', 'crosshair');
         var self = this;
         // Open the panel first so any Terra Draw init error is visible (and the
         // catch below fully deactivates, so a failure never locks the map up).
@@ -1339,7 +1339,7 @@
     };
     // Undo whatever the current kind set up, without touching the tool group.
     DrawModeControl.prototype._teardown = function () {
-        map.getCanvas().style.cursor = '';
+        LSTools.cursor.clear('tool');
         if (this._styleReload) { map.off('style.load', this._styleReload); this._styleReload = null; }
         if (this._kind === 'scarp') {
             if (typeof LSScarps !== 'undefined') { LSScarps.stopDraw(); LSScarps.select(null); }
@@ -1492,18 +1492,18 @@
                 .addTo(map);
         });
         map.on('mouseenter', 'prov-fill', function () {
-            if (!LSTools.blocked()) map.getCanvas().style.cursor = 'pointer';
+            LSTools.cursor.set('hover', 'pointer');
         });
         map.on('mouseleave', 'prov-fill', function () {
-            if (!LSTools.blocked()) map.getCanvas().style.cursor = '';
+            LSTools.cursor.clear('hover');
         });
 
         function _openPending(id) { if (!LSTools.blocked() && id) window.location.href = '/inventory/manage/' + id + '/review/'; }
         map.on('click', 'pending-pt',        function (e) { _openPending(e.features[0].properties.id); });
         map.on('click', 'pending-poly-fill', function (e) { _openPending(e.features[0].properties.landslide_id); });
         ['pending-pt', 'pending-poly-fill'].forEach(function (lyr) {
-            map.on('mouseenter', lyr, function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = 'pointer'; });
-            map.on('mouseleave', lyr, function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = ''; });
+            map.on('mouseenter', lyr, function () { LSTools.cursor.set('hover', 'pointer'); });
+            map.on('mouseleave', lyr, function () { LSTools.cursor.clear('hover'); });
         });
 
         // Pin-field dropdown: restore the saved choice, relabel on change.
@@ -6690,8 +6690,8 @@
     map.on('click', 'points',       function (e) { if (LSTools.blocked()) return; showDetail(e.features[0].properties.id); });
     map.on('click', 'polygon-fill', function (e) { if (LSTools.blocked()) return; showDetail(e.features[0].properties.landslide_id); });
     ['points', 'polygon-fill'].forEach(function (layer) {
-        map.on('mouseenter', layer, function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', layer, function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = ''; });
+        map.on('mouseenter', layer, function () { LSTools.cursor.set('hover', 'pointer'); });
+        map.on('mouseleave', layer, function () { LSTools.cursor.clear('hover'); });
     });
     // Hover highlight is filter-driven, so mirror it to the comparison map —
     // otherwise the white outline cuts off at the wiper divider.
@@ -6792,8 +6792,8 @@
         new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
             .setLngLat(e.lngLat).setHTML(html).addTo(map);
     });
-    map.on('mouseenter', 'faults-line', function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'faults-line', function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = ''; });
+    map.on('mouseenter', 'faults-line', function () { LSTools.cursor.set('hover', 'pointer'); });
+    map.on('mouseleave', 'faults-line', function () { LSTools.cursor.clear('hover'); });
 
     // ---------------------------------------------------------------------------
     // Detail panel
@@ -7856,10 +7856,10 @@
     });
     ['photo-pt', 'photo-pt-cluster'].forEach(function (layer) {
         map.on('mouseenter', layer, function () {
-            if (!LSTools.blocked()) map.getCanvas().style.cursor = 'pointer';
+            LSTools.cursor.set('hover', 'pointer');
         });
         map.on('mouseleave', layer, function () {
-            if (!LSTools.blocked()) map.getCanvas().style.cursor = '';
+            LSTools.cursor.clear('hover');
         });
     });
 
@@ -9882,7 +9882,7 @@
             if (!on) LSTools.release('insar');
             _active = on;
             if (on) window.LSTrack && LSTrack.event('map_tool', { tool: 'insar' });
-            map.getCanvas().style.cursor = on ? 'crosshair' : '';
+            if (on) LSTools.cursor.set('tool', 'crosshair'); else LSTools.cursor.clear('tool');
             if (on) { fp.open(); draw(); }
         }
         document.addEventListener('keydown', function (e) {
