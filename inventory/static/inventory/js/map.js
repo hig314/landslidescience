@@ -390,7 +390,6 @@
         if (this._mode !== 'idle') this._finalize();
         this._mode = mode;
         var drawing = mode !== 'idle';
-        this._map.__measureActive = drawing;   // flag for landslide click/hover handlers to skip
         this._map.getCanvas().style.cursor = drawing ? 'crosshair' : '';
         if (drawing) this._map.doubleClickZoom.disable();
         else         this._map.doubleClickZoom.enable();
@@ -559,7 +558,6 @@
         this._tooltip.style.display = 'none';
         if (this._mode !== 'idle') {
             this._mode = 'idle';
-            this._map.__measureActive = false;
             LSTools.release('measure-line');
             LSTools.release('measure-area');
             this._map.getCanvas().style.cursor = '';
@@ -1481,7 +1479,7 @@
         // blob. Identify it and point at the tool that manages it. Skipped
         // while draw/measure own the cursor.
         map.on('click', 'prov-fill', function (e) {
-            if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+            if (LSTools.blocked()) return;
             var label = (e.features && e.features[0] && e.features[0].properties &&
                          e.features[0].properties.label) || 'staged component';
             new maplibregl.Popup({ closeButton: true })
@@ -1494,18 +1492,18 @@
                 .addTo(map);
         });
         map.on('mouseenter', 'prov-fill', function () {
-            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer';
+            if (!LSTools.blocked()) map.getCanvas().style.cursor = 'pointer';
         });
         map.on('mouseleave', 'prov-fill', function () {
-            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = '';
+            if (!LSTools.blocked()) map.getCanvas().style.cursor = '';
         });
 
-        function _openPending(id) { if (!map.__measureActive && !map.__drawActive && !map.__insarActive && id) window.location.href = '/inventory/manage/' + id + '/review/'; }
+        function _openPending(id) { if (!LSTools.blocked() && id) window.location.href = '/inventory/manage/' + id + '/review/'; }
         map.on('click', 'pending-pt',        function (e) { _openPending(e.features[0].properties.id); });
         map.on('click', 'pending-poly-fill', function (e) { _openPending(e.features[0].properties.landslide_id); });
         ['pending-pt', 'pending-poly-fill'].forEach(function (lyr) {
-            map.on('mouseenter', lyr, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer'; });
-            map.on('mouseleave', lyr, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = ''; });
+            map.on('mouseenter', lyr, function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = 'pointer'; });
+            map.on('mouseleave', lyr, function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = ''; });
         });
 
         // Pin-field dropdown: restore the saved choice, relabel on change.
@@ -5277,7 +5275,7 @@
 
     function _extWireClicks() {
         map.on('click', function (e) {
-            if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+            if (LSTools.blocked()) return;
             if (!_extSources) return;
             var ids = [];
             Object.keys(_extActive).forEach(function (k) {
@@ -6665,7 +6663,7 @@
     // the clipboard for pasting into Planet etc. Skipped while a draw/measure
     // session is active (there, right-click deletes a vertex).
     map.on('contextmenu', function (e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+        if (LSTools.blocked()) return;
         e.preventDefault();
         var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
         var done = function () { _coordToast(txt + ' copied'); };
@@ -6689,11 +6687,11 @@
         t._h = setTimeout(function () { t.style.opacity = '0'; }, 1600);
     }
 
-    map.on('click', 'points',       function (e) { if (map.__measureActive || map.__drawActive || map.__insarActive) return; showDetail(e.features[0].properties.id); });
-    map.on('click', 'polygon-fill', function (e) { if (map.__measureActive || map.__drawActive || map.__insarActive) return; showDetail(e.features[0].properties.landslide_id); });
+    map.on('click', 'points',       function (e) { if (LSTools.blocked()) return; showDetail(e.features[0].properties.id); });
+    map.on('click', 'polygon-fill', function (e) { if (LSTools.blocked()) return; showDetail(e.features[0].properties.landslide_id); });
     ['points', 'polygon-fill'].forEach(function (layer) {
-        map.on('mouseenter', layer, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', layer, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = ''; });
+        map.on('mouseenter', layer, function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', layer, function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = ''; });
     });
     // Hover highlight is filter-driven, so mirror it to the comparison map —
     // otherwise the white outline cuts off at the wiper divider.
@@ -6703,7 +6701,7 @@
         _swipeAlso(function (m) { if (m.getLayer('polygon-hover')) m.setFilter('polygon-hover', f); });
     }
     map.on('mousemove',  'polygon-fill', function (e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+        if (LSTools.blocked()) return;
         _setPolygonHover(e.features[0].properties.landslide_id);
     });
     map.on('mouseleave', 'polygon-fill', function () {
@@ -6717,7 +6715,7 @@
     // map's own double-click zoom; the pair of single clicks has already
     // opened the detail panel, so this just re-renders it with fresh data.
     function _dblclickDefaultView(e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+        if (LSTools.blocked()) return;
         // A dot over its own polygon matches both layers — handle once.
         if (e.originalEvent) {
             if (e.originalEvent._lsDefView) return;
@@ -6747,7 +6745,7 @@
     // slip sense, and whether it revises or adds to the QFFD), and the NSHM
     // 2023 sections (rate, dip, rake).
     map.on('click', 'faults-line', function (e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+        if (LSTools.blocked()) return;
         var p = e.features[0].properties || {};
         function row(lbl, val) {
             if (val === undefined || val === null || val === '' || val === 'Unknown') return '';
@@ -6794,8 +6792,8 @@
         new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
             .setLngLat(e.lngLat).setHTML(html).addTo(map);
     });
-    map.on('mouseenter', 'faults-line', function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'faults-line', function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = ''; });
+    map.on('mouseenter', 'faults-line', function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'faults-line', function () { if (!LSTools.blocked()) map.getCanvas().style.cursor = ''; });
 
     // ---------------------------------------------------------------------------
     // Detail panel
@@ -7839,12 +7837,12 @@
     });
 
     map.on('click', 'photo-pt', function (e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+        if (LSTools.blocked()) return;
         var f = e.features && e.features[0];
         if (f) _photoLightbox.open(_detailPhotos, f.properties.idx);
     });
     map.on('click', 'photo-pt-cluster', function (e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+        if (LSTools.blocked()) return;
         var f = e.features && e.features[0];
         if (!f) return;
         // Open the lightbox at the cluster's first photo — the viewer arrows
@@ -7858,10 +7856,10 @@
     });
     ['photo-pt', 'photo-pt-cluster'].forEach(function (layer) {
         map.on('mouseenter', layer, function () {
-            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer';
+            if (!LSTools.blocked()) map.getCanvas().style.cursor = 'pointer';
         });
         map.on('mouseleave', layer, function () {
-            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = '';
+            if (!LSTools.blocked()) map.getCanvas().style.cursor = '';
         });
     });
 
@@ -9883,7 +9881,6 @@
             if (on && !LSTools.claim('insar')) return;
             if (!on) LSTools.release('insar');
             _active = on;
-            map.__insarActive = on;
             if (on) window.LSTrack && LSTrack.event('map_tool', { tool: 'insar' });
             map.getCanvas().style.cursor = on ? 'crosshair' : '';
             if (on) { fp.open(); draw(); }

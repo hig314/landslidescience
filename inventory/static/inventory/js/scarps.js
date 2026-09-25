@@ -95,7 +95,12 @@ window.LSScarps = (function () {
     if (wired) return;
     wired = true;
     map.on('click', HIT, function (e) {
-      if (mode === 'draw') return;      // mid-trace clicks belong to Terra Draw
+      // One guard, the same one every map handler asks. A scarp is blocked
+      // while ANY tool holds the map -- mid-trace clicks belong to Terra Draw,
+      // and a scarp popup during a measure or an InSAR sample was never wanted
+      // either; the old `mode === 'draw'` check only knew about the first.
+      // typeof-guarded so this module still loads on a page without LSTools.
+      if (window.LSTools && LSTools.blocked()) return;
       var hit = e.features && e.features[0];
       if (!hit) return;
       // Hand back OUR feature (full notes, not the map's flattened copy) and
