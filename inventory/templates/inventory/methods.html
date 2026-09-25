@@ -111,6 +111,42 @@
   <a href="{% url 'inventory:naming' %}">Naming conventions</a>.
 </p>
 
+<h4>Other people&rsquo;s inventories, shown alongside ours</h4>
+<p>
+  The map can display third-party landslide inventories as separate overlays.
+  They are <strong>mirrored verbatim and never merged into this inventory</strong>:
+  each is stored in its own table with the columns its publisher shipped,
+  and clicking a feature shows exactly the fields they populated, under
+  their own name and citation. Nothing in them is reclassified into our
+  scheme, because doing so would require deciding, record by record, things
+  the source never stated. Counts and statistics on this site describe our
+  records only.
+</p>
+<ul>
+  <li>
+    <strong>Alaska Division of Geological &amp; Geophysical Surveys</strong> &mdash;
+    Nicolazzo, J.A., and Larsen, M.C., 2025, <em>Alaska landslide inventory
+    database</em>, DGGS Digital Data Series 23,
+    <a href="https://doi.org/10.14509/31697" target="_blank" rel="noopener">doi:10.14509/31697</a>.
+    Used with the source indicated and modifications described; the mirror is
+    unmodified apart from being re-served for display.
+  </li>
+  <li>
+    <strong>Preliminary Canadian Landslide Database</strong> &mdash;
+    Brideau, M.-A., and others, 2026,
+    <a href="https://doi.org/10.5281/zenodo.20371365" target="_blank" rel="noopener">doi:10.5281/zenodo.20371365</a>.
+    CC&nbsp;BY&nbsp;4.0.
+  </li>
+</ul>
+<p>
+  A record of ours may be <em>promoted</em> from one of theirs: an editor
+  creates our record starting from their observation, maps its geometry here,
+  and fills our fields by hand. A promoted record stores which inventory and
+  which of their identifiers it came from, and credits the original observer
+  rather than the editor who promoted it. It enters the same review queue as
+  any other new record.
+</p>
+
 <h4>Spatial subsets (regions)</h4>
 <p>
   Subsets come in two kinds. <strong>Tags</strong> are hand-curated

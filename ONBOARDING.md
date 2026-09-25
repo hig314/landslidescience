@@ -11,7 +11,9 @@ file is the guided tour. Three documents matter, in this order:
 3. **[CLAUDE.md](CLAUDE.md)** — the deep reference: per-feature design notes,
    workflows, schemas, and the reasoning behind them. Long, but it is the
    record of *why* things are the way they are. Search it before redesigning
-   anything.
+   anything. Its first section, **State of play**, is the only dated snapshot
+   in the file: what shipped recently, what is still open, and which known
+   bugs are deliberate. Start there when picking the project back up.
 
 ## The one rule that outranks everything
 
@@ -45,6 +47,7 @@ Details in CLAUDE.md §Development workflow.
 |---|---|
 | `pages/` | Editable site content (homepage, embargo pages). `Page` model, edited in /admin/. |
 | `inventory/` | The flagship app: public landslide map, editor management UI, import/export, photos, Planet Stories, trace rasters, snapshots. |
+| `inventory/external.py` | Third-party landslide inventories, mirrored verbatim into their own PostGIS tables (registry, fetch, bbox API, one-at-a-time promotion into our inventory). Self-contained; a new source is a registry entry plus a fetch. |
 | `inventory/views.py` | Very large; raw-SQL endpoints, edit/review forms, rule cascade hooks. Key constants: `_FILTER_PROPS_SQL`, `_EDIT_FIELD_GROUPS`, `public_landslide_filter()`. |
 | `inventory/static/inventory/js/map.js` | The main map. ~6,500 lines, one IIFE. Search for section banner comments. See HAZARDS before editing. |
 | `inventory/static/inventory/js/*.js` (shared modules) | **Single sources of truth**: `basemaps.js` (basemap descriptors + tile-URL transforms), `ls_colors.js` (symbology), `ls_overlays.js` (glacier overlay descriptors), `ls_proj.js` (EPSG:3413 math), `ls_hash.js` (URL-hash codec), `ls_export.js` (high-res PNG export), `ls_tools.js` (pointer policy: the tool group, click dispatcher, cursor ownership, drags, Escape — every map handler asks `LSTools.blocked()`, none keeps its own guard). Add/change these things ONLY in their module — never a second copy. |
