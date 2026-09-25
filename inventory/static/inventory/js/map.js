@@ -361,7 +361,13 @@
         this._onClick   = this._onClick.bind(this);
         this._onMove    = this._onMove.bind(this);
         this._onLeave   = this._onLeave.bind(this);
-        this._map.on('click', this._onClick);
+        // An ACTION entry: the dispatcher runs it only while one of these
+        // holders owns the map, and nothing else runs then. Replaces a global
+        // map.on('click') that fired on every click and returned when idle.
+        LSTools.clicks.register({
+            id: 'measure', kind: 'action', holders: ['measure-line', 'measure-area'],
+            handler: function (_f, e) { self._onClick(e); }
+        });
         this._map.on('mousemove', this._onMove);
         this._map.getContainer().addEventListener('mouseleave', this._onLeave);
 
@@ -1485,19 +1491,20 @@
         // "what is this?" when clicked — otherwise they're an inert magenta
         // blob. Identify it and point at the tool that manages it. Skipped
         // while draw/measure own the cursor.
-        map.on('click', 'prov-fill', function (e) {
-            if (LSTools.blocked()) return;
-            var label = (e.features && e.features[0] && e.features[0].properties &&
-                         e.features[0].properties.label) || 'staged component';
-            new maplibregl.Popup({ closeButton: true })
+        // Reference, above external mirrors and below faults and scarps:
+        // staged work is ours, but it is not yet a record.
+        LSTools.clicks.register({ id: 'staged', kind: 'reference', priority: 20,
+                                  layers: ['prov-fill'], handler: function (f, e) {
+            var label = (f.properties && f.properties.label) || 'staged component';
+            LSTools.popup.show(new maplibregl.Popup({ closeButton: true })
                 .setLngLat(e.lngLat)
                 .setHTML('<div style="font-size:12px;line-height:1.45;">' +
                          '<b>Staged (not committed)</b><br>' +
                          String(label).replace(/[<>&]/g, '') +
                          '<br><span style="color:#666;">Open <b>✏ Draw</b> to name, ' +
                          'rename or commit it.</span></div>')
-                .addTo(map);
-        });
+                .addTo(map));
+        } });
         map.on('mouseenter', 'prov-fill', function () {
             LSTools.cursor.set('hover', 'pointer');
         });
@@ -1505,9 +1512,18 @@
             LSTools.cursor.clear('hover');
         });
 
-        function _openPending(id) { if (!LSTools.blocked() && id) window.location.href = '/inventory/manage/' + id + '/review/'; }
-        map.on('click', 'pending-pt',        function (e) { _openPending(e.features[0].properties.id); });
-        map.on('click', 'pending-poly-fill', function (e) { _openPending(e.features[0].properties.landslide_id); });
+        function _openPending(id) { if (id) window.location.href = '/inventory/manage/' + id + '/review/'; }
+        // 'navigate' outranks everything: a click that leaves the page must
+        // not also open a panel it will never show. Point over its own fill
+        // is one record, so one entry.
+        LSTools.clicks.register({
+            id: 'pending', kind: 'navigate', priority: 40,
+            layers: ['pending-pt', 'pending-poly-fill'],
+            handler: function (f) {
+                var p = f.properties || {};
+                _openPending(f.layer && f.layer.id === 'pending-pt' ? p.id : p.landslide_id);
+            }
+        });
         ['pending-pt', 'pending-poly-fill'].forEach(function (lyr) {
             map.on('mouseenter', lyr, function () { LSTools.cursor.set('hover', 'pointer'); });
             map.on('mouseleave', lyr, function () { LSTools.cursor.clear('hover'); });
@@ -5273,8 +5289,8 @@
         // focusAfterOpen:false stops MapLibre focusing the close button, which
         // the browser then scrolls into view; resetting scrollTop afterwards
         // covers the case where something else has already moved it.
-        var pop = new maplibregl.Popup({ maxWidth: '330px', focusAfterOpen: false })
-            .setLngLat(e.lngLat).setHTML(html).addTo(map);
+        var pop = LSTools.popup.show(new maplibregl.Popup({ maxWidth: '330px', focusAfterOpen: false })
+            .setLngLat(e.lngLat).setHTML(html).addTo(map));
         var box = pop.getElement().querySelector('.ext-fields');
         if (box) box.scrollTop = 0;
         var pbtn = pop.getElement().querySelector('.ext-promote');
@@ -5283,32 +5299,37 @@
         });
     }
 
-    function _extWireClicks() {
-        map.on('click', function (e) {
-            if (LSTools.blocked()) return;
-            if (!_extSources) return;
-            var ids = [];
-            Object.keys(_extActive).forEach(function (k) {
-                var parts = k.split('/');
-                var s = _extSources.filter(function (x) { return x.id === parts[0]; })[0];
-                if (!s) return;
-                var L = s.layers.filter(function (x) { return x.layer === parts[1]; })[0];
-                if (!L) return;
-                _extLayerDefs(k, L.geom, s.colour).forEach(function (d) {
-                    if (map.getLayer(d.id)) ids.push({ id: d.id, s: s, L: L });
-                });
+    // Every active mirror layer with the source/layer it belongs to. `layers`
+    // is a FUNCTION on the dispatcher entry because this set changes as the
+    // reader ticks boxes.
+    function _extActiveLayers() {
+        var out = [];
+        if (!_extSources) return out;
+        Object.keys(_extActive).forEach(function (k) {
+            var parts = k.split('/');
+            var s = _extSources.filter(function (x) { return x.id === parts[0]; })[0];
+            if (!s) return;
+            var L = s.layers.filter(function (x) { return x.layer === parts[1]; })[0];
+            if (!L) return;
+            _extLayerDefs(k, L.geom, s.colour).forEach(function (d) {
+                out.push({ id: d.id, s: s, L: L });
             });
-            if (!ids.length) return;
-            // Our own records outrank a mirror: if a click lands on one of our
-            // landslides too, that popup is the one the reader wants.
-            var mine = map.queryRenderedFeatures(e.point, { layers: ['points'] });
-            if (mine && mine.length) return;
-            for (var i = 0; i < ids.length; i++) {
-                var hit = map.queryRenderedFeatures(e.point, { layers: [ids[i].id] });
-                if (hit && hit.length) {
-                    _extPopup({ features: hit, lngLat: e.lngLat }, ids[i].s, ids[i].L);
-                    return;
-                }
+        });
+        return out;
+    }
+    function _extWireClicks() {
+        // A REFERENCE entry, so it opens alongside our own record's panel and
+        // no longer depends on which of our layers the cursor is over. The old
+        // handler deferred to `points` but not to `polygon-fill`, so the same
+        // external point showed its popup inside one of our polygons and not
+        // on one of our dots -- the asymmetry that prompted this whole review.
+        LSTools.clicks.register({
+            id: 'external', kind: 'reference', priority: 10,
+            layers: function () { return _extActiveLayers().map(function (x) { return x.id; }); },
+            handler: function (f, e) {
+                var lid = f.layer && f.layer.id;
+                var m = _extActiveLayers().filter(function (x) { return x.id === lid; })[0];
+                if (m) _extPopup({ features: [f], lngLat: e.lngLat }, m.s, m.L);
             }
         });
         map.on('moveend', _extRefreshSoon);
@@ -6697,8 +6718,19 @@
         t._h = setTimeout(function () { t.style.opacity = '0'; }, 1600);
     }
 
-    map.on('click', 'points',       function (e) { if (LSTools.blocked()) return; showDetail(e.features[0].properties.id); });
-    map.on('click', 'polygon-fill', function (e) { if (LSTools.blocked()) return; showDetail(e.features[0].properties.landslide_id); });
+    // ONE entry for both layers: a dot sitting on its own polygon is one
+    // record, and it used to open the panel -- and log landslide_open --
+    // twice, once per layer handler. Kind 'record': at most one record entry
+    // fires per click, and a reference popup may open alongside it. That is
+    // the declared co-activation (Hig: "fine, maybe even ideal").
+    LSTools.clicks.register({
+        id: 'landslide', kind: 'record', priority: 20,
+        layers: ['points', 'polygon-fill'],
+        handler: function (f) {
+            var p = f.properties || {};
+            showDetail(f.layer && f.layer.id === 'points' ? p.id : p.landslide_id);
+        }
+    });
     ['points', 'polygon-fill'].forEach(function (layer) {
         map.on('mouseenter', layer, function () { LSTools.cursor.set('hover', 'pointer'); });
         map.on('mouseleave', layer, function () { LSTools.cursor.clear('hover'); });
@@ -6754,9 +6786,9 @@
     // DGGS QFF (name/age/slip), the USGS 2021 ArcticDEM traces (fault/feature/
     // slip sense, and whether it revises or adds to the QFFD), and the NSHM
     // 2023 sections (rate, dip, rake).
-    map.on('click', 'faults-line', function (e) {
-        if (LSTools.blocked()) return;
-        var p = e.features[0].properties || {};
+    LSTools.clicks.register({ id: 'faults', kind: 'reference', priority: 30,
+                              layers: ['faults-line'], handler: function (f, e) {
+        var p = f.properties || {};
         function row(lbl, val) {
             if (val === undefined || val === null || val === '' || val === 'Unknown') return '';
             return '<div style="margin:1px 0;"><span style="color:#888;">' + lbl + ':</span> ' + esc(String(val)) + '</div>';
@@ -6799,9 +6831,9 @@
                 '<div style="margin-top:4px; color:#aaa; font-size:10px;">DGGS DDS 3 (Koehler, 2013)</div>' +
                 '</div>';
         }
-        new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
-            .setLngLat(e.lngLat).setHTML(html).addTo(map);
-    });
+        LSTools.popup.show(new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
+            .setLngLat(e.lngLat).setHTML(html).addTo(map));
+    } });
     map.on('mouseenter', 'faults-line', function () { LSTools.cursor.set('hover', 'pointer'); });
     map.on('mouseleave', 'faults-line', function () { LSTools.cursor.clear('hover'); });
 
@@ -7097,7 +7129,6 @@
     }
     // Read-only view of a trace, for anyone, outside a tracing session.
     function _scarpShowPopup(f, lngLat) {
-        if (_scarpPopup) { _scarpPopup.remove(); _scarpPopup = null; }
         var pr = f.properties, len = _scarpFmtLen(pr.length_m);
         var html = '<div style="font:12px/1.4 system-ui,sans-serif;max-width:240px;">' +
             '<div style="font-weight:600;color:#5a2d80;">Scarp trace</div>' +
@@ -7105,17 +7136,21 @@
             (pr.notes ? esc(pr.notes) : '<span style="color:#999;">(no note)</span>') + '</div>' +
             '<div style="font-size:10px;color:#888;">traced by ' + esc(pr.traced_by || '—') +
             (len ? ' · ' + len : '') + ' · a working observation, not a fault map</div></div>';
-        _scarpPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
-            .setLngLat(lngLat).setHTML(html).addTo(map);
+        // The one popup slot closes whatever was open, which is what this
+        // function used to do for its own predecessor alone.
+        _scarpPopup = LSTools.popup.show(new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
+            .setLngLat(lngLat).setHTML(html).addTo(map));
     }
     function _scarpInit() {
         if (typeof LSScarps === 'undefined') return;
         LSScarps.init({
             map: map, api: API_BASE, csrf: _csrf, onChange: _scarpSync,
-            onPick: function (f, lngLat) {
-                if (_drawCtrl && _drawCtrl.kind() === 'scarp') LSScarps.select(f.properties.id);
-                else _scarpShowPopup(f, lngLat);
-            },
+            // Just the popup. The old select-on-click branch here was dead:
+            // LSScarps sets mode='draw' for the whole tracing session and its
+            // click handler returns whenever that is so, so this callback
+            // never ran with the pencil in scarp mode. Selection while tracing
+            // is finish-driven, and stays that way (Hig, 2026-09-24).
+            onPick: _scarpShowPopup,
             flash: function (m, bad) { _scarpSay(m, bad); _scarpSync(); }
         }).catch(function (e) { console.warn('scarps: could not load — ' + e.message); });
     }
@@ -7887,23 +7922,25 @@
         if (_photoPtsFeats.length) refreshPhotoPts();
     });
 
-    map.on('click', 'photo-pt', function (e) {
-        if (LSTools.blocked()) return;
-        var f = e.features && e.features[0];
-        if (f) _photoLightbox.open(_detailPhotos, f.properties.idx);
-    });
-    map.on('click', 'photo-pt-cluster', function (e) {
-        if (LSTools.blocked()) return;
-        var f = e.features && e.features[0];
-        if (!f) return;
-        // Open the lightbox at the cluster's first photo — the viewer arrows
-        // through the rest; no camera movement.
-        map.getSource('photo-pts').getClusterLeaves(f.properties.cluster_id, 100, 0,
-            function (err, leaves) {
-                if (!err && leaves && leaves.length) {
-                    _photoLightbox.open(_detailPhotos, leaves[0].properties.idx);
-                }
-            });
+    // 'navigate': the lightbox is modal, so nothing else should react to the
+    // same click -- the panel used to re-render underneath it.
+    LSTools.clicks.register({
+        id: 'photos', kind: 'navigate', priority: 60,
+        layers: ['photo-pt', 'photo-pt-cluster'],
+        handler: function (f) {
+            if (f.layer && f.layer.id === 'photo-pt') {
+                _photoLightbox.open(_detailPhotos, f.properties.idx);
+                return;
+            }
+            // Open the lightbox at the cluster's first photo — the viewer arrows
+            // through the rest; no camera movement.
+            map.getSource('photo-pts').getClusterLeaves(f.properties.cluster_id, 100, 0,
+                function (err, leaves) {
+                    if (!err && leaves && leaves.length) {
+                        _photoLightbox.open(_detailPhotos, leaves[0].properties.idx);
+                    }
+                });
+        }
     });
     ['photo-pt', 'photo-pt-cluster'].forEach(function (layer) {
         map.on('mouseenter', layer, function () {
@@ -10023,7 +10060,9 @@
             return PALETTE[0];
         }
 
-        map.on('click', function (e) {
+        // Action entry: runs only while 'insar' holds the map. See measure.
+        LSTools.clicks.register({ id: 'insar', kind: 'action', holders: ['insar'],
+                                  handler: function (_f, e) {
             if (!_active) return;
             // Click on an existing marker = remove that sample.
             var hits = map.queryRenderedFeatures(e.point, { layers: map.getLayer('insar-click-pt') ? ['insar-click-pt'] : [] });
@@ -10094,7 +10133,7 @@
                 }
                 syncSubtitle(); draw();
             });
-        });
+        } });
 
         function draw() {
             var r = canvas.getBoundingClientRect();

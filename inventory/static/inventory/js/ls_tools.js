@@ -365,6 +365,11 @@ window.LSTools = (function () {
         active: function () { return activeId; },
         // THE guard. Replaces every hand-typed flag disjunction.
         blocked: function () { return activeId !== null; },
+        // Diagnostics only: the bound map, for querying layers and sources
+        // from the console or a test harness. map.js keeps its map closure-
+        // local, and an hour was once lost proving from outside that a
+        // symbol layer had not been added. Read-only by convention.
+        map: function () { return map; },
         // Kept so nothing that still calls it breaks; init() does this.
         attach: attach,
         cursor: cursor,
