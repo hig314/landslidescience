@@ -1,0 +1,2176 @@
+                                                           March 18, 2025
+
+
+
+
+Coastal Communities, Alaska
+3DEP Lidar Mapping Projects: NC-NA0000-23-01327
+Lidar Technical Data Report NOAA Contract: 1305M221DNCNP0018, Task Order: 1305M223FNCNP0305
+
+ Prepared For:                                                   Prepared By:
+
+
+
+
+ NOAA Office for Coastal Management                              NV5 Anchorage Office
+ Kirk Waters                                                     2014 Merrill Field Drive
+ 2234 South Hobson Avenue                                        Anchorage, AK 99501
+ Charleston SC 29405                                             PH: 907-272-4495
+ PH: 541-555-5555
+
+
+
+
+                                                                        www.nv5.com/geospatial
+                                                                                                                TABLE OF CONTENTS
+
+      INTRODUCTION ................................................................................................................................................. 1
+         Deliverable Products ................................................................................................................................. 2
+      ACQUISITION .................................................................................................................................................... 5
+         Planning ..................................................................................................................................................... 5
+         Airborne Survey ......................................................................................................................................... 6
+            Lidar ....................................................................................................................................................... 6
+         Ground Survey ........................................................................................................................................... 9
+            Land Cover Class .................................................................................................................................. 11
+      PROCESSING ................................................................................................................................................... 13
+         NIR Lidar Data.......................................................................................................................................... 13
+         Feature Extraction ................................................................................................................................... 16
+            Hydroflattening and Water’s Edge Breaklines..................................................................................... 16
+            Intensity Image Processing .................................................................................................................. 17
+            Swath Separation Raster Processing ................................................................................................... 18
+            Maximum Surface Height Raster (MSHR) Processing.......................................................................... 19
+            Buildings............................................................................................................................................... 20
+      RESULTS & DISCUSSION .................................................................................................................................... 21
+         Lidar Density ............................................................................................................................................ 21
+         Lidar Accuracy Assessments .................................................................................................................... 26
+            Lidar Non-Vegetated Vertical Accuracy ............................................................................................... 26
+            Lidar Vegetated Vertical Accuracies .................................................................................................... 31
+            Lidar Relative Vertical Accuracy .......................................................................................................... 34
+            Lidar Horizontal Accuracy .................................................................................................................... 36
+      CERTIFICATIONS .............................................................................................................................................. 37
+      SELECTED IMAGES............................................................................................................................................ 38
+      GLOSSARY ...................................................................................................................................................... 39
+      APPENDIX A - ACCURACY CONTROLS .................................................................................................................. 40
+
+
+      Cover Photo: A view looking northwest at The Goodnews Bay community. The image was created from the lidar
+      bare earth model colored by satellite images.
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project
+                                                                                                                  LIST OF FIGURES
+
+      Figure 1: Location map of the Coastal Communities site in Alaska .............................................................. 4
+      Figure 2: Flightlines map ............................................................................................................................... 8
+      Figure 3: Photo of ground survey base station Qunihagak-401 taken by DOWL ......................................... 9
+      Figure 4: Ground survey location map........................................................................................................ 12
+      Figure 5: Example of hydroflattening in the Coastal Communities Lidar dataset ...................................... 16
+      Figure 6: Example of intensity image viewing the Togiak AOI .................................................................... 17
+      Figure 7: Swath separation raster color ramp values used in the Coastal Communities project............... 18
+      Figure 8: Example of MSHR model viewing the Kachemak AOI with Sadie Peak at 1,317 meters elevation
+      to the southeast .......................................................................................................................................... 19
+      Figure 9: Sample image of building classification on the west Ismailof Island in Halibut Cove part of the
+      Kachemak AOI dataset ................................................................................................................................ 20
+      Figure 10: Frequency distribution of first return point density for UTM Zone 4 values per 100 x 100 m cell
+       .................................................................................................................................................................... 22
+      Figure 11: Frequency distribution of ground-classified return point density values for UTM Zone 4 per
+      100 x 100 m cell .......................................................................................................................................... 22
+      Figure 12: First return and ground-classified point density map of UTM Zone 4 for the Coastal Communities
+      project (100 m x 100 m cells) ...................................................................................................................... 23
+      Figure 13: Frequency distribution of first return point density values for UTM Zone 5 per 100 x 100 m cell
+       .................................................................................................................................................................... 24
+      Figure 14: Frequency distribution of ground-classified return point density values for UTM Zone 5 per
+      100 x 100 m cell .......................................................................................................................................... 24
+      Figure 15: First return and ground-classified point density map for the Coastal Communities site
+      (100 m x 100 m cells) .................................................................................................................................. 25
+      Figure 16: UTM Zone 4 histogram for lidar classified LAS deviation from NVA check points .................... 28
+      Figure 17: UTM Zone 4 histogram for the lidar bare earth DEM surface deviation from NVA check points
+       .................................................................................................................................................................... 28
+      Figure 18: UTM Zone 5 histogram for lidar classified LAS deviation from NVA check points .................... 29
+      Figure 19: UTM Zone 5 histogram for the lidar bare earth DEM surface deviation from ground check points
+       .................................................................................................................................................................... 29
+      Figure 20: UTM Zone 4 histogram for the lidar surface deviation from ground control points ................. 30
+      Figure 21: UTM Zone 5 histogram for the lidar surface deviation from ground control points ................. 30
+      Figure 22: Frequency histogram for the lidar surface deviation from all land cover class point values (VVA)
+      for UTM Zone 4 ........................................................................................................................................... 32
+      Figure 23: Frequency histogram for the lidar bare earth DEM deviation from vegetated check point values
+      (VVA) for UTM Zone 4 ................................................................................................................................. 32
+      Figure 24: Frequency histogram for the lidar surface deviation from all land cover class point values (VVA)
+      for UTM Zone 5 ........................................................................................................................................... 33
+      Figure 25: Frequency histogram for the lidar bare earth DEM deviation from vegetated check point values
+      (VVA) for UTM Zone 5 ................................................................................................................................. 33
+      Figure 26: Frequency plot for relative vertical accuracy between flight lines for UTM Zone 4 ................. 34
+      Figure 27: Frequency plot for relative vertical accuracy between flight lines for UTM Zone 5 ................. 35
+      Figure 28: View looking southeast over Kachemak AOI created by the Maximum Surface Height Raster 38
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project
+                                                                                                         LIST OF TABLES
+
+      Table 1: Acquisition dates, acreage, and data types collected on the Coastal Communities sites .............. 2
+      Table 2: Deliverable product projection information ................................................................................... 2
+      Table 3: Products delivered to NOAA for the Coastal Communities sites .................................................... 3
+      Table 4: Flight Date Table ............................................................................................................................. 5
+      Table 5: Lidar specifications and aerial survey settings ................................................................................ 7
+      Table 6: Base station positions for the Coastal Communities acquisition. Coordinates are on the NAD83
+      (2011) datum, epoch 2010.00..................................................................................................................... 10
+      Table 7: Land Cover Types and Descriptions .............................................................................................. 11
+      Table 8: ASPRS LAS classification standards applied to the Coastal Communities dataset........................ 13
+      Table 9: Lidar processing workflow ............................................................................................................ 15
+      Table 10: Average lidar point densities for UTM Zone 4 ............................................................................ 22
+      Table 11: Average lidar point densities for UTM Zone 5 ............................................................................ 24
+      Table 12: Non vegetated vertical accuracy results as compared to the classified LAS per project site ..... 27
+      Table 13: Absolute accuracy results for UTM Zone 4 ................................................................................. 27
+      Table 14: Absolute accuracy results for UTM Zone 5 ................................................................................. 27
+      Table 15: Vegetated vertical accuracy results for UTM Zone 4 .................................................................. 31
+      Table 16: Vegetated vertical accuracy results for UTM Zone 5 .................................................................. 31
+      Table 17: Relative accuracy results for UTM Zone 4................................................................................... 34
+      Table 18: Relative accuracy results for UTM Zone 5................................................................................... 35
+      Table 19: Horizontal Accuracy .................................................................................................................... 36
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project
+                                                                           INTRODUCTION
+
+
+       This photo was taken by the NV5
+       Acquisition crew in route to acquire
+       lidar data for Coastal Communities sites
+       in Alaska.
+
+
+
+
+      In July 2023, NV5 was contracted by the National Oceanic and Atmospheric Administration (NOAA) to
+      collect Light Detection and Ranging (lidar) data in the summer of 2023, and the spring, summer, and fall
+      of 2024 for the Coastal Communities sites in Alaska. The 2023 and 2024 lidar collection includes the
+      communities of Eek, Quinhagak, Goodnews Bay, Togiak, Nelson Lagoon located in UTM Zone 4, and
+      Kachemak located in UTM Zone 5. Data was collected to support coastal resource managers, watershed
+      managers, and various stakeholders in their decision-making processes.
+
+      This report accompanies the delivered lidar data and documents contract specifications, data acquisition
+      procedures, processing methods, and analysis of the final dataset including lidar accuracy and density.
+      Acquisition dates and acreage are shown in Table 1, deliverable projection information is shown in Table 2,
+      a complete list of contracted deliverables provided to NOAA is shown in Table 3, and the project extent is
+      shown in Figure 1.
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                     Page 1
+          Table 1: Acquisition dates, acreage, and data types collected on the Coastal Communities sites
+
+                                                      Contacted
+        UTM                  Project Site                          Aerial Acquisition Dates     Data Type
+                                                        Acres
+
+
+       Zone 4                Eek, Alaska                1,044            9/21/2024              NIR - Lidar
+
+
+       Zone 4             Quinhagak, Alaska             20,672           9/22/2024              NIR - Lidar
+
+
+       Zone 4         Goodnews Bay, Alaska              2,954            9/21/2024              NIR - Lidar
+
+
+       Zone 4              Togiak, Alaska               40,266     10/2/2023 & 7/31/2024        NIR - Lidar
+
+
+       Zone 4         Nelson Lagoon, Alaska             27,500           8/20/2024              NIR - Lidar
+
+                                                                     8/1/2023 – 8/2/2023,
+       Zone 5             Kachemak, Alaska             286,326     6/15/2024 – 6/17/2024 &      NIR - Lidar
+                                                                          9/21/2024
+
+
+
+      Deliverable Products
+                                  Table 2: Deliverable product projection information
+
+            Projections                     Horizontal Datum        Vertical Datum              Units
+
+        UTM Zone 4 and Zone 5                NAD83 (2011)         NAVD88 (GEOID12B)            Meters
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                 Page 2
+                      Table 3: Products delivered to NOAA for the Coastal Communities sites
+
+                Product Type        File Type                          Product Details
+
+                   Points        LAZ v.1.4 (*.laz)      All Classified Returns
+
+                               0.5 meter GeoTIFFs       Hydroflattened Bare Earth Model (DEM)
+                  Rasters
+                                     (*.tif)            Intensity Images
+
+                                1 meter GeoTIFFs        Swath Separation Images
+                   Raster
+                                     (*.tif)            Maximum Surface Height Rasters
+
+                                                        Defined Project Area
+                                                        Master Tile Index
+
+                                    ESRI File           Flightline Index
+                  Vectors         Geodatabase           Flightline Swaths
+                                     (*.gdb)            Hydro-Breaklines
+                                                        Ground Survey Points
+                                                        Snow Polygons
+
+                               Extensible Markup
+                 Metadata                               Metadata
+                                Language (*.xml)
+
+                                 Adobe Acrobat          Lidar Technical Data Report
+                  Reports
+                                    (*.pdf)             Ground Survey Report
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                  Page 3
+                                                                           Figure 1: Location map of the Coastal Communities site in Alaska
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project   Page 4
+                                                                                ACQUISITION
+
+
+       DOWL’s ground acquisition equipment
+       set up in the Coastal Communities Lidar
+       study area.
+
+
+
+
+      Planning
+      In preparation for data collection, NV5 reviewed the project areas and developed a specialized flight plan
+      to ensure complete coverage of the Coastal Communities lidar study areas at the target point density of
+      ≥8.0 points/m2. Acquisition parameters including orientation relative to terrain, flight altitude, pulse rate,
+      scan angle, and ground speed were adapted to optimize flight paths and flight times while meeting all
+      contract specifications. Figure 2 shows these optimized flight paths and dates.
+
+      Factors such as satellite constellation availability and weather windows must be considered during the
+      planning stage. Any weather hazards or conditions affecting the flights were continuously monitored due
+      to their potential impact on the daily success of airborne and ground operations. In addition, logistical
+      considerations including private property access and potential air space restrictions were reviewed.
+
+                                                   Table 4: Flight Date Table
+
+                                                                            Start Time        End Time
+                        UTM               Date       Flight Line Number
+                                                                          (Adjusted GPS)   (Adjusted GPS)
+
+                       Zone 5           8/1/2023          101 - 117         374944715       374954049
+
+                       Zone 5           8/2/2023          205 - 221         374969254       374978526
+
+                       Zone 5           8/2/2023          300 - 315         375033858       375042881
+
+                       Zone 5          6/15/2024         1300 - 1316        402527364       402538471
+
+                       Zone 5          6/16/2024         1400 - 1410        402612775       402618184
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                         Page 5
+                                                                        Start Time        End Time
+                      UTM            Date        Flight Line Number
+                                                                      (Adjusted GPS)   (Adjusted GPS)
+
+                     Zone 5        6/17/2024        1410 - 1424        402617776        402625000
+
+                     Zone 5        9/21/2024        1900 - 1902        410981666        410982793
+
+                     Zone 4        10/2/2023        1200 - 1210        380309129        380314250
+
+                     Zone 4        7/31/2024        1500 - 1506        380309129        406501709
+
+                     Zone 4        8/20/2024        1600 - 1608        408154792        408159292
+
+                     Zone 4        9/22/2024        2000 - 2016        411004846        411010537
+
+                     Zone 4        9/21/2024        2100 - 2110        410991745        410996311
+
+
+
+      Airborne Survey
+      Lidar
+      The lidar survey was accomplished using a Riegl VQ-1560ii-S system mounted in a Cessna Conquest II, and
+      a Riegl VQ-780ii-S system mounted in a Cessna Grand Caravan. Table 5 summarizes the settings used to
+      yield an average pulse density of 8 pulses/m2 over the Coastal Communities project areas. The Riegl VQ-
+      1560ii-S and Riegl VQ-780ii-S laser system can record unlimited range measurements (returns) per pulse,
+      however a maximum of 15 returns can be stored due to LAS v1.4 file limitations. The typical number of
+      returns digitized from a single pulse range from 1 to 9 for the Riegl VQ-1560ii-S, and 1 to 12 for
+      Riegl VQ 780ii-S for the Coastal Communities project areas. It is not uncommon for some types of surfaces
+      (e.g., dense vegetation or water) to return fewer pulses to the lidar sensor than the laser originally
+      emitted. The discrepancy between first return and overall delivered density will vary depending on terrain,
+      land cover, and the prevalence of water bodies. All discernible laser returns were processed for the output
+      dataset. Figure 2 shows the flightlines acquired using these lidar specifications.
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                     Page 6
+                                 Table 5: Lidar specifications and aerial survey settings
+
+                           Parameter              NIR Laser                          NIR Laser
+                                                8/1-2/2023 &                 10/2/2023, 6/15-17/2024,
+                   Acquisition Dates
+                                                9/21-22/2024                  7/31/2024 & 8/20/2024
+                       Aircraft Used        Cessna Grand Caravan               Cessna Grand Caravan
+                              Sensor                 Riegl                              Riegl
+                      Laser Channel              VQ-1560ii-S                         VQ-780ii-S
+                 Maximum Returns                       9                                 12
+                 Resolution/Density          Average 8 points/m²                Average 8 points/m²
+             Nominal Pulse Spacing                  0.35 m                             0.35 m
+              Survey Altitude (AGL)                2478 m                             2058 m
+                       Survey speed               160 knots                          145 knots
+                       Field of View                58.5°                              58.5°
+                   Mirror Scan Rate         Uniform Point Spacing              Uniform Point Spacing
+                   Target Pulse Rate               829 kHz                           1285 kHz
+                        Pulse Length                 3 ns                               3 ns
+               Laser Pulse Footprint
+                                                    57 cm                             47.3 cm
+                           Diameter
+                Central Wavelength                 1064 nm                            1064 nm
+                         Pulse Mode     Multiple Times Around (MTA)        Multiple Times Around (MTA)
+                   Beam Divergence                0.23 mrad                          0.23 mrad
+                       Swath Width                 2775 m                             2305 m
+                     Swath Overlap                   57%                                57%
+                            Intensity               16-bit                             16-bit
+
+
+      All areas were surveyed with an opposing flight line side-lap of ≥50% (≥100% overlap) to reduce laser
+      shadowing and increase surface laser painting. To accurately solve laser point position (geographic
+      coordinates x, y, and z), the positional coordinates of the airborne sensor and the orientation of the
+      aircraft to the horizon (attitude) were recorded continuously throughout the lidar data collection mission.
+      Position of the aircraft was measured twice per second (2 Hz) by an onboard differential GPS unit, and
+      aircraft attitude was measured 200 times per second (200 Hz) as pitch, roll, and yaw (heading) from an
+      onboard inertial measurement unit (IMU). To allow for post-processing correction and calibration, aircraft
+      and sensor position and attitude data are indexed by GPS time.
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                     Page 7
+                                                                           Figure 2: Flightlines map
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project   Page 8
+      Ground Survey
+      Ground control surveys, including monumentation and ground survey points (GSPs), Non-vegetated
+      Vertical Accuracy (NVA) points, and Vegetated Vertical Accuracy (VVA) points were conducted by DOWL
+      to support NV5’s airborne acquisition (Figure 4). Ground control data was used to geospatially correct the
+      aircraft positional coordinate data and to perform quality assurance checks on final lidar data. Please
+      reference DOWL’s ground survey reports (Appendix B - Ground Survey Reports) for more detailed
+      information on how the survey was conducted and controlled.
+
+      Base station locations were selected by DOWL with consideration for satellite visibility, field crew safety,
+      and optimal location for GSP coverage. Table 6 and Figure 4 show the location of each base station.
+
+
+
+
+                   Figure 3: Photo of ground survey base station Qunihagak-401 taken by DOWL
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                      Page 9
+         Table 6: Base station positions for the Coastal Communities acquisition. Coordinates are on the
+                                       NAD83 (2011) datum, epoch 2010.00
+
+            Monument ID                  Latitude                 Longitude            Ellipsoid (meters)
+
+            Dillingham-411          59° 14' 10.03021"        -158° 39' 58.15282"            59.562
+
+            Aleknagik-412           59° 04' 41.32448"        -158° 35' 10.58851"            62.599
+
+              Ekwok-413             59° 21' 08.82551"        -157° 28' 25.44266"            49.077
+
+            Koliganek-414           59° 43' 34.00243"        -157° 16' 00.30985"            83.722
+
+            Manokotak-415           58° 58' 30.85932"        -159° 03' 03.34850"            26.923
+
+           Clark's Point-416        58° 50' 11.55197"        -158° 31' 45.60747"            31.111
+
+          New Stuyakok-417          59° 27' 23.51430"        -157° 22' 32.91190"           126.885
+
+          KEK A (PID DK2876)        59° 21' 07.10402"        -157° 28' 38.78147"            48.053
+
+          JZZ A (PID DP6584)        59° 43' 34.65294"        -157° 15' 47.71846"            85.174
+
+          MBA B (PID DL7269)        58° 56' 01.88055"        -158° 53' 45.75903"            44.090
+
+        CLARK AZ (PID UV7281)       58° 50' 35.46064"        -158° 33' 16.11370"            19.389
+
+        1277-3-84 (PID BBBJ80)      59° 02' 14.75487"        -158° 28' 31.26293"            20.543
+
+               TWIN-1               59° 04' 25.61810"         -160 16' 37.93640"            33.639
+
+               EEK-401              60° 12' 53.84677"        -162° 02' 28.73977"            17.894
+
+           GOODNEWS-401             59° 07' 17.73812"        -161° 34' 22.23699"            51.252
+
+              NELSON-1              56° 00' 24.21454"        -161° 10' 00.54450"            17.788
+
+           QUNIHAGAK-401            59° 44' 53.93521"        -161° 52' 46.95128"            21.318
+
+             TOGIAK-551             59° 03' 10.65380"        -160° 23' 42.11974"            18.177
+
+           NANWALEK-401             59° 21' 17.18126"        -151° 55' 19.79701"            17.483
+
+          PORT GRAHAM-402            59° 20 42.80205"        -151° 49' 32.35612"            31.518
+
+          PORT GRAHAM-403           59° 17' 23.51534"        -151° 40' 41.99750"            88.262
+
+            SELDOVIA-404            59° 26' 21.56169"        -151° 42' 59.82336"            27.181
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                 Page 10
+      Land Cover Class
+      In addition to ground survey points, land cover class checkpoints were collected by DOWL throughout the
+      study areas to evaluate vertical accuracy. Vertical accuracy statistics were calculated for all land cover
+      types to assess confidence in the lidar derived ground models across land cover classes (Table 7, see Lidar
+      Accuracy Assessments, page 26).
+
+                                    Table 7: Land Cover Types and Descriptions
+
+                                                                                                     Accuracy
+        Land cover
+                     Land cover code                Example                     Description         Assessment
+           type
+                                                                                                       Type
+
+
+                                                                            Areas of bare soil,
+                                                                             sand, and rocks
+        Bare Earth          BE                                              where there is little      NVA
+                                                                              or no natural
+                                                                               vegetation
+
+
+
+
+          Shrub             SH                                               Low growth shrub          VVA
+
+
+
+
+                                                                               Herbaceous
+                                                                               grasslands in
+        Tall Grass          TG                                                                         VVA
+                                                                            advanced stages of
+                                                                                  growth
+
+
+
+
+          Forest            FR                                                Forested areas           VVA
+
+
+
+
+                                                                              Terrain with low-
+                                                                            lying vegetation like
+          Tundra            TU                                                 mosses, lichens,        VVA
+                                                                              small shrubs, and
+                                                                                    herbs
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                     Page 11
+                                                                            Figure 4: Ground survey location map
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project   Page 12
+                                                                           PROCESSING
+                                                                               This 2 meter lidar cross section shows a
+                                                                               view of the river that runs alongside the
+                                                                               Twin Hills community in the Togiak AOI,
+                                                                               colored by point classification.
+
+
+
+
+      NIR Lidar Data
+      Upon completion of data acquisition, NV5 processing staff initiated a suite of automated and manual
+      techniques to process the data into the requested deliverables. Processing tasks included GPS control
+      computations, smoothed best estimate trajectory (SBET) calculations, kinematic corrections, calculation
+      of laser point position, sensor and data calibration for optimal relative and absolute accuracy, and lidar
+      point classification (Table 8). Processing methodologies were tailored for the landscape. Brief descriptions
+      of these tasks are shown in Table 9.
+
+              Table 8: ASPRS LAS classification standards applied to the Coastal Communities dataset
+
+        Classification
+                         Classification Name          Point Count                 Classification Description
+           Number
+
+                                                                            Laser returns that are not included in
+                                                                            the ground class, composed of
+              1          Default/Unclassified       14,275,311,357
+                                                                            vegetation and anthropogenic
+                                                                            features
+
+                                                                            Laser returns that are determined to
+              2                Ground                5,600,824,856          be ground using automated and
+                                                                            manual cleaning algorithms
+
+              5              Vegetation             11,062,141,857          2-meter height threshold
+
+                                                                            Permanent roofed structures larger
+              6               Buildings                5,465,122
+                                                                            than 100 ft2
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                        Page 13
+        Classification
+                         Classification Name        Point Count          Classification Description
+           Number
+
+                                                                   Laser returns that are often associated
+                                                                   with birds, scattering from reflective
+             7W                Noise                85,457,574
+                                                                   surfaces, or artificial points below the
+                                                                   ground surface
+
+                                                                   Laser returns that are determined to
+              9                Water                163,385,045    be water using automated and
+                                                                   manual cleaning algorithms
+
+             17                Bridge                 82,917       Bridge decks
+
+                                                                   Laser returns that are often associated
+            18W              High Noise             15,067,886     with birds, scattering from reflective
+                                                                   surfaces.
+
+                                                                   Ground points proximate to water’s
+             20           Ignored Ground             2,756,754     edge breaklines; ignored for correct
+                                                                   model creation
+
+                                                                   Laser returns in the presence of
+             21                Snow                1,246,460,203
+                                                                   identifiable snow.
+
+                                                                   Laser returns that are determined to
+                                                                   be due to temporal differences in
+             22          Temporal Exclusion         422,464,433
+                                                                   flightlines and are excluded from
+                                                                   model creation.
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                               Page 14
+                                             Table 9: Lidar processing workflow
+
+                                 Lidar Processing Step                                         Software Used
+
+      Resolve kinematic corrections for aircraft position data using kinematic
+      aircraft GPS and static ground GPS data. Develop a smoothed best
+      estimate of trajectory (SBET) file that blends post-processed aircraft                  POSPac MMS v.9.1
+      position with sensor head position and attitude recorded throughout the
+      survey.
+
+      Calculate laser point position by associating SBET position to each laser
+      point return time, scan angle, intensity, etc. Create raw laser point cloud
+                                                                                                RiUnite v.1.0.5
+      data for the entire survey in *.las (ASPRS v. 1.4) format. Convert data to
+      orthometric elevations by applying a geoid correction.
+
+      Import raw laser points into manageable blocks to perform manual
+      relative accuracy calibration and filter erroneous points. Classify ground             TerraScan v.19.005
+      points for individual flight lines.
+
+      Using ground classified points per each flight line, test the relative
+      accuracy. Perform automated line-to-line calibrations for system attitude
+      parameters (pitch, roll, heading), mirror flex (scale) and GPS/IMU drift.
+                                                                                               StripAlign v.2.24
+      Calculate calibrations on ground classified points from paired flight lines
+      and apply results to all points in a flight line. Use every flight line for
+      relative accuracy calibration.
+
+      Classify resulting data to ground and other client designated ASPRS                    TerraScan v.19.005
+      classifications (Table 8). Assess statistical absolute accuracy via direct
+      comparisons of ground classified points to ground control survey data.                TerraModeler v.19.003
+
+      Generate bare earth models as triangulated surfaces. Generate Maximum
+      Surface Height Rasters as a surface expression of all classified points.             LAS Product Creator 4.0
+      Export all surface models as Cloud Optimized GeoTIFFs at a meter pixel                  (NV5 proprietary)
+      resolution.
+
+      Export ground surface classified points as point shapefiles to derive TIN              Las Monkey v.2.6.9
+      models                                                                                  (NV5 proprietary)
+
+
+                                                                                      Las Monkey 2.6.9 (NV5 proprietary)
+      Correct intensity values for variability and export intensity images as Cloud
+      Optimized GeoTIFFs at a 0.5 meter pixel resolution.                                  LAS Product Creator 4.0
+                                                                                              (NV5 proprietary)
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                             Page 15
+      Feature Extraction
+      Hydroflattening and Water’s Edge Breaklines
+      Water bodies within the project area were flattened to levels consistent with heights observed during
+      collection. These include lakes and other closed-bodies with a surface area greater than 2 acres, streams
+      and rivers nominally wider than 30 meters, all non-tidal and tidal waters bordering the project, and select
+      smaller bodies of water as feasible. The hydroflattening process eliminates artifacts in the digital terrain
+      model caused by both increased variability in ranges and dropouts in laser returns due to the low
+      reflectivity of water.
+
+      Hydroflattening was performed through a combination of automated and manual detection and
+      adjustment techniques designed to identify water boundaries and water levels. Boundary polygons were
+      developed using an algorithm which weights lidar-derived slopes, intensities, and return densities to
+      detect the water’s edge. The water edges were then manually reviewed and edited as necessary. Specific
+      care was taken to not hydroflatten wetland and marsh habitat found throughout the study site.
+
+      Once polygons were developed, the initial ground classified points falling within water polygons were
+      reclassified as water points to omit them from the final ground model. Elevations were then obtained
+      from the filtered lidar returns to create the final breaklines. Lakes were assigned a consistent elevation
+      for an entire polygon while rivers were assigned consistent elevations on opposing banks and smoothed
+      to ensure downstream flow through the entire river channel. Coastal waters were assigned elevations
+      optimized for maximal shoreline exposure. In areas with extreme tidal variation, including Kachemak Bay
+      (>4.5m mean range), this consideration can lead to visible “breaks” in the interpolated water surface.
+
+      Water boundary breaklines were then incorporated into the hydroflattened DEM by enforcing triangle
+      edges (adjacent to the breakline) to the elevation values of the breakline. This implementation corrected
+      interpolation along the hard edge. Water surfaces were obtained from a TIN of the 3-D water edge
+      breaklines resulting in the final hydroflattened model (Figure 5).
+
+
+
+
+                  Figure 5: Example of hydroflattening in the Coastal Communities Lidar dataset
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                      Page 16
+      Intensity Image Processing
+      Intensity images represent reflectivity values collected by the lidar sensor during acquisition. NV5
+      Geospatial proprietary software generates intensity images using all valid first returns and excluding those
+      flagged with a withheld bit. Intensity images are linearly scaled to a value range specific to the project
+      area and sensor to standardize the images and reduce differences between individual flightlines.
+      Appropriate horizontal projection information as well as applicable header values are written during
+      product generation.
+
+
+
+
+                            Figure 6: Example of intensity image viewing the Togiak AOI
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                      Page 17
+      Swath Separation Raster Processing
+      Swath Separation Images are rasters that represent the interswath alignment between flight lines and
+      provide a qualitative evaluation of the positional quality of the point cloud. NV5 Geospatial proprietary
+      software generated 1 meter raster images in GeoTIFF format using all returns from all the classes
+      (Figure 7), excluding temporal classification and points flagged with the withheld bit, and using a grid
+      based average algorithm. Images are generated with 50% intensity opacity and four absolute 8 cm
+      intervals (see Figure 7 below for interval coloring). Intensity images are linearly scaled to a value range
+      specific to the project area and sensor to standardize the images and reduce differences between
+      individual flightlines. Appropriate horizontal projection information as well as applicable header values
+      are written to the file during product generation.
+
+
+
+
+           Figure 7: Swath separation raster color ramp values used in the Coastal Communities project
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                     Page 18
+      Maximum Surface Height Raster (MSHR) Processing
+      MSHRs (topographic) represent a lidar-derived product illustrating natural and built-up features. NV5
+      proprietary software was used to take all valid classified lidar points, excluding those flagged with a
+      withheld bit, and create a raster on a tile-by-tile basis. A 32-bit floating point GeoTIFF was generated for
+      each tile with a pixel size of 1 meter, which meets the requirements set by USGS that states that the
+      resolution of the MSRH be twice that of the bare earth DEM. NV5 proprietary software was used to write
+      appropriate horizontal and vertical projection information as well as applicable header values into the file
+      during product generation. Each maximum surface height raster is reviewed in ESRI ArcGIS Pro to check
+      for any anomalies and to ensure a seamless dataset.
+
+
+
+
+          Figure 8: Example of MSHR model viewing the Kachemak AOI with Sadie Peak at 1,317 meters
+                                         elevation to the southeast
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                      Page 19
+      Buildings
+      Anthropogenic feature classification was performed through a combination of automated algorithms and
+      manual classification. Typically, manual editing of the buildings and other anthropogenic feature
+      classification was necessary where dense canopy was immediately proximate to a given feature. All
+      anthropogenic features > 2m above the surface were classified into the building category (Figure 9).
+
+
+
+
+      Figure 9: Sample image of building classification on the west Ismailof Island in Halibut Cove part of the
+                                              Kachemak AOI dataset
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                   Page 20
+                                                                             RESULTS & DISCUSSION
+
+    This 2 meter Lidar cross section shows a
+    view of vegetation and bare ground in the
+    Kachemak AOI, colored by point laser
+    echo.
+
+
+
+
+      Lidar Density
+      The acquisition parameters were designed to acquire an average first-return density of 8 points/m 2. First
+      return density describes the density of pulses emitted from the laser that return at least one echo to the
+      system. Multiple returns from a single pulse were not considered in first return density analysis. Some
+      types of surfaces (e.g., breaks in terrain, water and steep slopes) may have returned fewer pulses than
+      originally emitted by the laser.
+      First returns typically reflect off the highest feature on the landscape within the footprint of the pulse. In
+      forested or urban areas, the highest feature could be a tree, building, or power line, while in areas of
+      unobstructed ground, the first return will be the only echo and represents the bare earth surface.
+      The density of ground-classified lidar returns was also analyzed for this project. Terrain character, land
+      cover, and ground surface reflectivity all influenced the density of ground surface returns. In vegetated
+      areas, fewer pulses may penetrate the canopy, resulting in lower ground density.
+      The average first-return density of lidar data for UTM Zone 4 of the Coastal Communities project was
+      11.25 points/m2 while the average ground classified density was 3.92 points/m 2 (Table 10). The statistical
+      and spatial distributions of first return densities and classified ground return densities per 100 m x 100 m
+      cell are portrayed in Figure 10 through Figure 12.
+      The average first-return density of lidar data for UTM Zone 5 of the Coastal Communities project was
+      18.25 points/m2 while the average ground classified density was 4.71 points/m 2 (Table 11). The statistical
+      and spatial distributions of first return densities and classified ground return densities per 100 m x 100 m
+      cell are portrayed in Figure 13 through Figure 15.
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                       Page 21
+                              Table 10: Average lidar point densities for UTM Zone 4
+
+                                           Classification          Point Density
+
+                                            First-Return          11.25 points/m2
+
+                                       Ground Classified          3.92 points/m2
+
+
+
+
+             Figure 10: Frequency distribution of first return point density for UTM Zone 4 values per
+                                                  100 x 100 m cell
+
+
+
+
+       Figure 11: Frequency distribution of ground-classified return point density values for UTM Zone 4 per
+                                                 100 x 100 m cell
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                  Page 22
+Lidar Technical Data Report – Coastal Communities Lidar Project
+
+
+
+
+Page 23
+
+
+                                                                  Figure 12: First return and ground-classified point density map of UTM Zone 4 for the Coastal Communities project
+                                                                                                                  (100 m x 100 m cells)
+                              Table 11: Average lidar point densities for UTM Zone 5
+
+                                           Classification          Point Density
+
+                                            First-Return          18.25 points/m2
+
+                                       Ground Classified          4.71 points/m2
+
+
+
+
+             Figure 13: Frequency distribution of first return point density values for UTM Zone 5 per
+                                                  100 x 100 m cell
+
+
+
+
+       Figure 14: Frequency distribution of ground-classified return point density values for UTM Zone 5 per
+                                                 100 x 100 m cell
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                  Page 24
+         Figure 15: First return and ground-classified point density map for the Coastal Communities site
+                                               (100 m x 100 m cells)
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                 Page 25
+      Lidar Accuracy Assessments
+      The accuracy of the lidar data collection can be described in terms of absolute accuracy (the consistency
+      of the data with external data sources) and relative accuracy (the consistency of the dataset with itself).
+      See Appendix A for further information on sources of error and operational measures used to improve
+      relative accuracy.
+
+      Lidar Non-Vegetated Vertical Accuracy
+      Absolute accuracy was assessed using Non-Vegetated Vertical Accuracy (NVA) reporting designed to meet
+      guidelines presented in the FGDC National Standard for Spatial Data Accuracy1. NVA compares known
+      ground check point data that were withheld from the calibration and post-processing of the lidar point
+      cloud to the triangulated surface generated by the classified lidar point cloud as well as the derived
+      gridded bare earth DEM. NVA is a measure of the accuracy of lidar point data in open areas where the
+      lidar system has a high probability of measuring the ground surface and is evaluated at the 95% confidence
+      interval (1.96 * RMSE). For the Coastal Communities project, NVA statistics were calculated separately for
+      each project site (Table 12) and again for each UTM zone (Table 13 and Table 14).
+
+      The mean and standard deviation (sigma, ) of divergence of the ground surface model from quality
+      assurance point coordinates are also considered during accuracy assessment. The number of points
+      evaluated for NVA is large enough that the error for x, y, and z is approximately normally distributed. The
+      skew and kurtosis of distributions are also considered when evaluating error statistics in order to better
+      evaluate the magnitude and distribution of the estimated error.
+
+      For the Coastal Communities UTM Zone 4 survey, 101 ground checkpoints were withheld from the
+      calibration and post processing of the lidar point cloud, with resulting non-vegetated vertical accuracy of
+      0.061 meters as compared to classified LAS, and 0.060 meters as compared to the bare earth DEM, with
+      95% confidence (Figure 16, Figure 17).
+
+      For the Coastal Communities UTM Zone 5 survey, 43 ground checkpoints were withheld from the
+      calibration and post processing of the lidar point cloud, with resulting non-vegetated vertical accuracy of
+      0.089 meters as compared to classified LAS, and 0.095 meters as compared to the bare earth DEM, with
+      95% confidence (Figure 18, Figure 19).
+
+      NV5 also assessed absolute accuracy using 15 ground control points for UTM Zone 4 and 17 ground control
+      points for UTM Zone 5. Although these points were used in the calibration and post-processing of the lidar
+      point cloud, they still provide a good indication of the overall accuracy of the lidar dataset, and therefore
+      have been provided in Figure 20 for UTM Zone 4 and Figure 21 for UTM Zone 5.
+
+
+
+
+      1
+       Federal Geographic Data Committee, ASPRS POSITIONAL ACCURACY STANDARDS FOR DIGITAL GEOSPATIAL DATA
+      EDITION 1, Version 1.0, NOVEMBER 2014.
+      https://www.asprs.org/a/society/committees/standards/Positional_Accuracy_Standards.pdf.
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                             Page 26
+        Table 12: Non vegetated vertical accuracy results as compared to the classified LAS per project site
+
+                                          Number of           95%
+                                                                                                                Standard
+         UTM          Project Site         Sample          Confidence      Average    Median        RMSE
+                                                                                                                Deviation
+                                            Points        (1.96*RMSE)
+
+        Zone 4              Eek               20            0.046 m        -0.017 m   -0.017 m     0.023 m        0.017 m
+
+        Zone 4        Quinhagak               20            0.077 m        0.008 m    0.012 m      0.039 m        0.039 m
+
+        Zone 4      Goodnews Bay              20            0.032 m        -0.008 m   -0.006 m     0.016 m        0.015 m
+
+        Zone 4             Togiak             21            0.074 m        -0.010 m   -0.006 m     0.038 m        0.037 m
+
+        Zone 4      Nelson Lagoon             20            0.063 m        0.027 m    0.029 m      0.032 m        0.017 m
+
+        Zone 5        Kachemak                43            0.089 m        0.003 m    0.010 m      0.046 m        0.046 m
+
+
+
+                                       Table 13: Absolute accuracy results for UTM Zone 4
+
+                                    NVA, as compared to        NVA, as compared to bare
+            Parameter                                                                        Ground Control Points
+                                       classified LAS                 earth DEM
+
+                 Sample                 101 points                      101 points                   15 points
+
+       95% Confidence
+                                         0.061 m                         0.060 m                      0.036 m
+         (1.96*RMSE)
+
+                 Average                 0.000 m                         0.000 m                      0.001 m
+
+                 Median                  0.003 m                         0.000 m                      0.003 m
+
+                   RMSE                  0.031 m                         0.030 m                      0.018 m
+
+
+
+                                       Table 14: Absolute accuracy results for UTM Zone 5
+
+                                  NVA, as compared to           NVA, as compared to bare
+            Parameter                                                                           Ground Control Points
+                                     classified LAS                    earth DEM
+
+                 Sample                  43 points                      43 points                     17 points
+
+        95% Confidence
+                                         0.089 m                         0.095 m                      0.087 m
+          (1.96*RMSE)
+
+                 Average                 0.003 m                         0.004 m                      -0.003 m
+
+                 Median                  0.010 m                         0.012 m                      0.010 m
+
+                   RMSE                  0.046 m                         0.048 m                      0.044 m
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                              Page 27
+             Figure 16: UTM Zone 4 histogram for lidar classified LAS deviation from NVA check points
+
+
+
+
+         Figure 17: UTM Zone 4 histogram for the lidar bare earth DEM surface deviation from NVA check
+                                                     points
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                Page 28
+             Figure 18: UTM Zone 5 histogram for lidar classified LAS deviation from NVA check points
+
+
+
+
+       Figure 19: UTM Zone 5 histogram for the lidar bare earth DEM surface deviation from ground check
+                                                     points
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                Page 29
+           Figure 20: UTM Zone 4 histogram for the lidar surface deviation from ground control points
+
+
+
+
+           Figure 21: UTM Zone 5 histogram for the lidar surface deviation from ground control points
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                               Page 30
+      Lidar Vegetated Vertical Accuracies
+      NV5 also assessed vertical accuracy using Vegetated Vertical Accuracy (VVA) reporting. VVA compares
+      known ground check point data collected over vegetated surfaces using land class descriptions to the
+      triangulated ground surface generated by the ground classified lidar points. Unlike in non-vegetated
+      areas, the errors associated with data collected in vegetated areas cannot be assumed to approximate a
+      normal distribution. Therefore, accuracy in vegetated areas is evaluated using the 95 th percentile (the
+      value for which 95% of absolute values of errors will be less than or equal to) rather than the 95%
+      confidence level.
+      For the Coastal Communities survey for UTM Zone 4, 26 vegetated checkpoints were collected, with
+      resulting vegetated vertical accuracy of 0.257 meters as compared to the classified LAS, and 0.254 meters
+      as compared to the bare earth DEM evaluated at the 95th percentile (Table 15, Figure 22, and Figure 23).
+      For the Coastal Communities survey for UTM Zone 5, 19 vegetated checkpoints were collected, with
+      resulting vegetated vertical accuracy of 0.229 meters as compared to the classified LAS, and 0.258 meters
+      as compared to the bare earth DEM evaluated at the 95th percentile (Table 16, Figure 24, and Figure 25).
+                           Table 15: Vegetated vertical accuracy results for UTM Zone 4
+
+                                               VVA, as compared to      VVA, as compared to bare
+                                 Parameter
+                                                  classified LAS               earth DEM
+
+                                    Sample           26 points                  26 points
+
+                             95th Percentile         0.257 m                    0.254 m
+
+                                   Average           0.086 m                    0.090 m
+
+                                    Median           0.058 m                    0.060 m
+
+                                      RMSE           0.122 m                    0.126 m
+
+                    Standard Deviation (1σ)          0.088 m                    0.090 m
+
+
+                           Table 16: Vegetated vertical accuracy results for UTM Zone 5
+
+                                               VVA, as compared to      VVA, as compared to bare
+                                 Parameter
+                                                  classified LAS               earth DEM
+
+                                    Sample           19 points                  19 points
+
+                             95th Percentile         0.229 m                    0.258 m
+
+                                   Average           0.101 m                    0.098 m
+
+                                    Median           0.108 m                    0.115 m
+
+                                      RMSE           0.123 m                    0.129 m
+
+                    Standard Deviation (1σ)          0.072 m                    0.086 m
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                    Page 31
+       Figure 22: Frequency histogram for the lidar surface deviation from all land cover class point values
+                                             (VVA) for UTM Zone 4
+
+
+
+
+        Figure 23: Frequency histogram for the lidar bare earth DEM deviation from vegetated check point
+                                          values (VVA) for UTM Zone 4
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                  Page 32
+       Figure 24: Frequency histogram for the lidar surface deviation from all land cover class point values
+                                             (VVA) for UTM Zone 5
+
+
+
+
+        Figure 25: Frequency histogram for the lidar bare earth DEM deviation from vegetated check point
+                                          values (VVA) for UTM Zone 5
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                  Page 33
+      Lidar Relative Vertical Accuracy
+      Relative vertical accuracy refers to the internal consistency of the data set as a whole: the ability to place
+      an object in the same location given multiple flight lines, GPS conditions, and aircraft attitudes. When the
+      lidar system is well calibrated, the swath-to-swath vertical divergence is low (<0.10 meters). The relative
+      vertical accuracy was computed by comparing the ground surface model of each individual flight line with
+      its neighbors in overlapping regions. The average (mean) line to line relative vertical accuracy for
+      UTM Zone 4 of the Coastal Communities Lidar project was 0.032 meters (Table 17, Figure 26). The average
+      (mean) line to line relative vertical accuracy for UTM Zone 5 of the Coastal Communities Lidar project was
+      0.036 meters (Table 18, Figure 27).
+
+                                 Table 17: Relative accuracy results for UTM Zone 4
+
+                                                Parameter         Relative Accuracy
+
+                                                   Sample       60 flight line surfaces
+
+                                                   Average             0.032 m
+
+                                                   Median              0.027 m
+
+                                                     RMSE              0.030 m
+
+                                   Standard Deviation (1σ)             0.007 m
+
+                                                     1.96σ             0.014 m
+
+
+
+
+            Figure 26: Frequency plot for relative vertical accuracy between flight lines for UTM Zone 4
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                       Page 34
+                                Table 18: Relative accuracy results for UTM Zone 5
+
+                                              Parameter       Relative Accuracy
+
+                                                 Sample      86 flight line surfaces
+
+                                                 Average            0.036 m
+
+                                                 Median             0.041 m
+
+                                                   RMSE             0.044 m
+
+                                  Standard Deviation (1σ)           0.014 m
+
+                                                   1.96σ            0.028 m
+
+
+
+
+            Figure 27: Frequency plot for relative vertical accuracy between flight lines for UTM Zone 5
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                  Page 35
+      Lidar Horizontal Accuracy
+      Lidar horizontal accuracy is a function of Global Navigation Satellite System (GNSS) derived positional
+      error, flying altitude, and INS derived attitude error. The obtained RMSEr value is multiplied by a
+      conversion factor of 1.7308 to yield the horizontal component of the National Standards for Spatial Data
+      Accuracy (NSSDA) reporting standard where a theoretical point will fall within the obtained radius
+      95 percent of the time. Based on a flying altitude of 2478 meters for UTM Zone 4, an IMU error of
+      0.013 decimal degrees, and a GNSS positional error of 0.027 meters, this project was produced to meet
+      1.742 meters horizontal accuracy at the 95% confidence level (Table 19). Based on a flying altitude of
+      2478 meters for UTM Zone 5, an IMU error of 0.003 decimal degrees, and a GNSS positional error of
+      0.023 meters, this project was produced to meet 0.200 m horizontal accuracy at the 95% confidence level
+      (Table 19).
+
+                                          Table 19: Horizontal Accuracy
+                                                Horizontal Accuracy   Horizontal Accuracy
+                                   Parameter
+                                                  for UTM Zone 4        for UTM Zone 5
+                                       RMSEr          1.006 m               0.233 m
+
+                                         ACCr         1.742 m               0.404 m
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                  Page 36
+                                                                           CERTIFICATIONS
+
+      NV5 provided lidar services for the Coastal Communities project as described in this report.
+
+      I, Andrew Herbst, have reviewed the attached report for completeness and hereby state that it is a
+      complete and accurate report of this project.
+
+
+
+
+         Andrew Herbst
+      Andrew Herbst (Mar 21, 2025 10:22 AKDT)
+                                                   Mar 21, 2025
+
+      Andrew Herbst
+      Project Manager
+      NV5
+
+
+
+
+      I, Evon P. Silvia, PLS, being duly registered as a Professional Land Surveyor in and by the state of Alaska,
+      hereby certify that the methodologies, static GNSS occupations used during airborne flights, and ground
+      survey point collection were performed using commonly accepted Standard Practices. Field work for the
+      airborne survey was performed August 1-2,2023; October 2, 2023; June 15-17, 2024; July 31, 2024; and
+      September 21-22, 2024. Fieldwork for the ground survey to support this work was conducted by DOWL
+      and under the supervision of their survey staff.
+
+      Accuracy statistics shown in the Accuracy Section of this Report have been reviewed by me and found to
+      meet the “National Standard for Spatial Data Accuracy”.
+
+
+
+
+                                                  Mar 21, 2025
+
+      Evon P. Silvia, PLS
+      NV5
+      Corvallis, OR 97330                                                   Signed: Mar 21, 2025
+                                                                            COA: 125659
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                      Page 37
+Lidar Technical Data Report – Coastal Communities Lidar Project
+
+
+
+
+                                                                                                                                                                     SELECTED IMAGES
+
+Page 38
+
+
+                                                                  Figure 28: View looking southeast over Kachemak AOI created by the Maximum Surface Height Raster
+                                                                                             GLOSSARY
+
+      1-sigma (σ) Absolute Deviation: Value for which the data are within one standard deviation (approximately 68 th percentile) of a
+      normally distributed data set.
+      1.96 * RMSE Absolute Deviation: Value for which the data are within two standard deviations (approximately 95 th percentile) of
+      a normally distributed data set, based on the FGDC standards for Non-vegetated Vertical Accuracy (NVA) reporting.
+      Accuracy: The statistical comparison between known (surveyed) points and laser points. Typically measured as the standard
+      deviation (sigma ) and root mean square error (RMSE).
+            Absolute Accuracy: The vertical accuracy of lidar data is described as the mean and standard deviation (sigma σ) of
+            divergence of lidar point coordinates from ground survey point coordinates. To provide a sense of the model predictive
+            power of the dataset, the root mean square error (RMSE) for vertical accuracy is also provided. These statistics assume the
+            error distributions for x, y and z are normally distributed, and thus we also consider the skew and kurtosis of distributions
+            when evaluating error statistics. When the distribution of the positional error is normal, the skewness of the distribution is
+            zero and positive errors are equal in magnitude and likelihood to negative errors. The excess kurtosis of a distribution
+            approximating the normal distribution will be near zero, indicating a lack of weight in the tails of the distribution. Here, this
+            means a low frequency of outliers that have high positional error.
+            Relative Accuracy: Relative accuracy refers to the internal consistency of the data set; i.e., the ability to place a laser point
+            in the same location over multiple flight lines, GPS conditions and aircraft attitudes. Affected by system attitude offsets,
+            scale and GPS/IMU drift, internal consistency is measured as the divergence between points from different flight lines
+            within an overlapping area. Divergence is most apparent when flight lines are opposing. When the lidar system is well
+            calibrated, the line-to-line divergence is low (<10 cm).
+            Root Mean Square Error (RMSE): A statistic used to approximate the difference between real-world points and the lidar
+            points. It is calculated by squaring each error (the distance between an observed and known value), taking the average of
+            these squared errors, and finally taking the square root of this average.
+      Data Density: A common measure of lidar resolution, measured as points per square meter.
+      Digital Elevation Model (DEM): File or database made from surveyed points, containing elevation points over a contiguous area.
+      Digital terrain models (DTM) and digital surface models (DSM) are types of DEMs. DTMs consist solely of the bare earth surface
+      (ground points), while DSMs include information about all surfaces, including vegetation and man-made structures.
+      Intensity Values: The peak power ratio of the laser return to the emitted laser, calculated as a function of surface reflectivity.
+      Nadir: A single point or locus of points on the surface of the earth directly below a sensor as it progresses along its flight line.
+      Overlap: The area shared between flight lines, typically measured in percent. 100% overlap is essential to ensure complete
+      coverage and reduce laser shadows.
+      Pulse Rate (PR): The rate at which laser pulses are emitted from the sensor; typically measured in thousands of pulses per second
+      (kHz).
+      Pulse Returns: For every laser pulse emitted, the number of wave forms (i.e., echoes) reflected back to the sensor. Portions of
+      the wave form that return first are the highest element in multi-tiered surfaces such as vegetation. Portions of the wave form
+      that return last are the lowest element in multi-tiered surfaces.
+      Real-Time Kinematic (RTK) Survey: A type of surveying conducted with a GPS base station deployed over a known monument
+      with a radio connection to a GPS rover. Both the base station and rover receive differential GPS data and the baseline correction
+      is solved between the two. This type of ground survey is accurate to 1.5 cm or less.
+      Post-Processed Kinematic (PPK) Survey: GPS surveying is conducted with a GPS rover collecting concurrently with a GPS base
+      station set up over a known monument. Differential corrections and precisions for the GNSS baselines are computed and applied
+      after the fact during processing. This type of ground survey is accurate to 1.5 cm or less.
+      Scan Angle: The angle from nadir to the edge of the scan, measured in degrees. Laser point accuracy typically decreases as scan
+      angles increase.
+      Native Lidar Density: The number of pulses emitted by the lidar system, commonly expressed as pulses per square meter.
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                                             Page 39
+                                                                         APPENDIX A - ACCURACY CONTROLS
+
+      Relative Accuracy Calibration Methodology:
+      Manual System Calibration: Calibration procedures for each mission require solving geometric relationships that relate measured
+      swath-to-swath deviations to misalignments of system attitude parameters. Corrected scale, pitch, roll and heading offsets were
+      calculated and applied to resolve misalignments. The raw divergence between lines was computed after the manual calibration
+      was completed and reported for each survey area.
+      Automated Attitude Calibration: All data were tested and calibrated using TerraMatch automated sampling routines. Ground
+      points were classified for each individual flight line and used for line-to-line testing. System misalignment offsets (pitch, roll and
+      heading) and scale were solved for each individual mission and applied to respective mission datasets. The data from each mission
+      were then blended when imported together to form the entire area of interest.
+      Automated Z Calibration: Ground points per line were used to calculate the vertical divergence between lines caused by vertical
+      GPS drift. Automated Z calibration was the final step employed for relative accuracy calibration.
+      Lidar accuracy error sources and solutions:
+
+                                    Source                   Type                 Post Processing Solution
+                                Long Base Lines               GPS                            None
+                          Poor Satellite Constellation        GPS                            None
+                            Poor Antenna Visibility          GPS                    Reduce Visibility Mask
+                            Poor System Calibration         System       Recalibrate IMU and sensor offsets/settings
+                               Inaccurate System            System                         None
+                               Poor Laser Timing          Laser Noise                      None
+                             Poor Laser Reception         Laser Noise                      None
+                                Poor Laser Power          Laser Noise                      None
+                             Irregular Laser Shape        Laser Noise                      None
+      Operational measures taken to improve relative accuracy:
+      Low Flight Altitude: Terrain following was employed to maintain a constant above ground level (AGL). Laser horizontal errors are
+      a function of flight altitude above ground (about 1/3000 th AGL flight altitude).
+      Focus Laser Power at narrow beam footprint: A laser return must be received by the system above a power threshold to
+      accurately record a measurement. The strength of the laser return (i.e., intensity) is a function of laser emission power, laser
+      footprint, flight altitude and the reflectivity of the target. While surface reflectivity cannot be controlled, laser power can be
+      increased and low flight altitudes can be maintained.
+      Reduced Scan Angle: Edge-of-scan data can become inaccurate. The scan angle was reduced to a maximum of ±29.25 o from
+      nadir, creating a narrow swath width and greatly reducing laser shadows from trees and buildings.
+      Quality GPS: Flights took place during optimal GPS conditions (e.g., 6 or more satellites and PDOP [Position Dilution of Precision]
+      less than 3.0). Before each flight, the PDOP was determined for the survey day.
+      Ground Survey: Ground survey point accuracy (<1.5 cm RMSE) occurs during optimal PDOP ranges and targets a minimal baseline
+      distance of 4 miles between GPS rover and base. Robust statistics are, in part, a function of sample size (n) and distribution.
+      Ground survey points are distributed to the extent possible throughout multiple flight lines and across the survey area.
+      50% Side-Lap (100% Overlap): Overlapping areas are optimized for relative accuracy testing. Laser shadowing is minimized to
+      help increase target acquisition from multiple scan angles. Ideally, with a 50% side-lap, the nadir portion of one flight line
+      coincides with the swath edge portion of overlapping flight lines. A minimum of 50% side-lap with terrain-followed acquisition
+      prevents data gaps.
+      Opposing Flight Lines: All overlapping flight lines have opposing directions. Pitch, roll and heading errors are amplified by a factor
+      of two relative to the adjacent flight line(s), making misalignments easier to detect and resolve.
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project                                                             Page 40
+                                                    APPENDIX B – GROUND SURVEY REPORT
+
+
+
+
+                        See the Attached Ground Survey Report
+
+
+
+
+Lidar Technical Data Report – Coastal Communities Lidar Project              Page 41
+ NOAA COMMUNITIES MAPPING
+        EEK, ALASKA
+
+SURVEYING AND MAPPING REPORT
+
+
+
+
+              Prepared for:
+
+                  NV5
+         2014 Merrill Field Drive
+         Anchorage, Alaska 99501
+
+
+
+
+               Prepared by:
+
+                 DOWL
+       5015 Business Park Boulevard
+         Anchorage, Alaska 99503
+             (907) 562-2000
+
+
+
+
+    DOWL Project Number: 1182.63789.01
+
+
+
+
+    Field Project dates: August 30, 2024
+
+
+  REPORT DATA SEPTEMBER 09, 2024
+                                     NOAA COMMUNITIES MAPPING SUPPORT
+
+                                                       TABLE OF CONTENTS
+                                                                                                                                                Page
+
+1.0        INTRODUCTION....................................................................................................................2
+
+2.0        HORIZONTAL CONTROL SUMMARY ............................................................................2
+
+3.0        HORIZONTAL CONTROL STATEMENT.........................................................................2
+
+4.0        VERTICAL CONTROL STATEMENT ...............................................................................2
+
+5.0        QUALITY ASSURANCE .......................................................................................................2
+
+6.0        SURVEYOR CERTIFICATION ...........................................................................................3
+
+
+
+
+LIST OF ACRONYMS
+
+AOI ................................................................................................................................ Area of Interest
+CA ..........................................................................................................................................Calibration
+GNSS .............................................................................................. Global Navigation Satellite System
+NGS................................................................................................................ National Geodetic Survey
+NVA ................................................................................................... Non-vegetated Vertical Accuracy
+OPUS ................................................................................................... Online Positioning User Service
+QC .................................................................................................................................. Quality Control
+TBC .................................................................................................................. Trimble Business Center
+VVA .......................................................................................................... Vegetated Vertical Accuracy
+
+
+
+
+                                                                      Page 1
+                           NOAA COMMUNITIES MAPPING SUPPORT
+
+
+HORIZONTAL & VERTICAL CONTROL SUMMARY
+1.0       INTRODUCTION
+
+This project consists of surveying selected locations within the Areas of Interest (AOI) to support
+aerial LiDAR mapping. Three different classifications of data were collected, Calibration (CA) Points,
+Non-vegetated Vertical Accuracy (NVA) Points and Vegetated Vertical Accuracy (VVA) Points.
+Incidental to the collection of CA and Quality Control (QC) points, Survey control was both
+established and recovered for use during this project. DOWL was hired by NV5 as the independent
+subconsultant to perform these services. NV5 provided DOWL with a general area of the requested
+data collection, and efforts were made to collect data in those areas. Limited changes were made to
+their plan.
+
+
+2.0       HORIZONTAL CONTROL SUMMARY
+
+A field survey was performed by DOWL August 30, 2024, under the field supervision of A. William
+Stoll, PLS #12041. Before mobilizing to the field, Willie performed a robust search of the NGS record
+and OPUS Shared record. No existing on site control was utilized as a secondary check to the local
+OPUS solutions performed while on site.
+
+3.0       HORIZONTAL CONTROL STATEMENT
+
+COORDINATE SYSTEM:
+Coordinates are UTM Zone 3 North expressed in US Survey Feet. Coordinates are based on the
+OPUS derived solution for on-site control.
+
+4.0       VERTICAL CONTROL SUMMARY
+Elevations are Geoid12B derived orthometric heights expressed in US Survey Feet. Elevations are
+based on the OPUS derived solution for on-site control.
+
+5.0       QUALITY ASSURANCE
+
+Quality Assurance (QA) methods and procedures outlined in the statement of services were reviewed
+with our staff and adhered to. Some examples of QA methods include the following:
+
+         All equipment utilized during this project was checked for accuracy, and adjusted when
+          necessary, prior to commencing any work.
+
+         Redundant distance measurements were made in feet and meters.
+
+         Tripods with optical plummet tribrachs or laser plummet tribrachs were used to set up over the
+          points while measuring all control.
+
+
+                                                 Page 2
+                        NOAA COMMUNITIES MAPPING SUPPORT
+
+
+6.0    SURVEYOR’S CERTIFICATION
+
+I, A. William Stoll, Alaska Land Surveyor #12041, do hereby certify that the information contained
+herein is the result of work performed by me or by others working under my direct supervision.
+
+
+
+
+_____________________________________
+A. William Stoll, PLS
+Alaska Professional Land Surveyor No. 12041
+
+_______________
+Date
+
+
+
+
+                                              Page 3
+ NOAA COMMUNITIES MAPPING
+    GOODNEWS, ALASKA
+
+SURVEYING AND MAPPING REPORT
+
+
+
+
+              Prepared for:
+
+                  NV5
+         2014 Merrill Field Drive
+         Anchorage, Alaska 99501
+
+
+
+
+               Prepared by:
+
+                DOWL
+      5015 Business Park Boulevard
+        Anchorage, Alaska 99503
+            (907) 562-2000
+
+
+
+
+    DOWL Project Number: 1182.63789.01
+
+
+
+
+   Field Project dates: August 29th, 2024
+
+
+  REPORT DATA SEPTEMBER 09, 2024
+                                     NOAA COMMUNITIES MAPPING SUPPORT
+
+                                                       TABLE OF CONTENTS
+                                                                                                                                                Page
+
+1.0        INTRODUCTION....................................................................................................................2
+
+2.0        HORIZONTAL CONTROL SUMMARY ............................................................................2
+
+3.0        HORIZONTAL CONTROL STATEMENT.........................................................................2
+
+4.0        VERTICAL CONTROL STATEMENT ...............................................................................2
+
+5.0        QUALITY ASSURANCE .......................................................................................................2
+
+6.0        SURVEYOR CERTIFICATION ...........................................................................................3
+
+
+
+
+LIST OF ACRONYMS
+
+AOI ................................................................................................................................ Area of Interest
+CA ..........................................................................................................................................Calibration
+GNSS .............................................................................................. Global Navigation Satellite System
+NGS................................................................................................................ National Geodetic Survey
+NVA ................................................................................................... Non-vegetated Vertical Accuracy
+OPUS ................................................................................................... Online Positioning User Service
+QC .................................................................................................................................. Quality Control
+TBC .................................................................................................................. Trimble Business Center
+VVA .......................................................................................................... Vegetated Vertical Accuracy
+
+
+
+
+                                                                      Page 1
+                           NOAA COMMUNITIES MAPPING SUPPORT
+
+
+HORIZONTAL & VERTICAL CONTROL SUMMARY
+1.0       INTRODUCTION
+
+This project consists of surveying selected locations within the Areas of Interest (AOI) to support
+aerial LiDAR mapping. Three different classifications of data were collected, Calibration (CA) Points,
+Non-vegetated Vertical Accuracy (NVA) Points and Vegetated Vertical Accuracy (VVA) Points.
+Incidental to the collection of CA and Quality Control (QC) points, Survey control was both
+established and recovered for use during this project. DOWL was hired by NV5 as the independent
+subconsultant to perform these services. NV5 provided DOWL with a general area of the requested
+data collection, and efforts were made to collect data in those areas. Limited changes were made to
+their plan.
+
+
+2.0       HORIZONTAL CONTROL SUMMARY
+
+A field survey was performed by DOWL August 29th, 2024, under the field supervision of A. William
+Stoll, PLS #12041. Before mobilizing to the field, Willie performed a robust search of the NGS record
+and OPUS Shared record. No existing on site control was utilized as a secondary check to the local
+OPUS solutions performed while on site.
+
+
+3.0       HORIZONTAL CONTROL STATEMENT
+
+COORDINATE SYSTEM:
+Coordinates are UTM Zone 4 North expressed in US Survey Feet. Coordinates are based on the
+OPUS derived solution for on-site control.
+
+4.0       VERTICAL CONTROL SUMMARY
+Elevations are Geoid12B derived orthometric heights expressed in US Survey Feet. Elevations are
+based on the OPUS derived solution for on-site control.
+
+5.0       QUALITY ASSURANCE
+
+Quality Assurance (QA) methods and procedures outlined in the statement of services were reviewed
+with our staff and adhered to. Some examples of QA methods include the following:
+
+         All equipment utilized during this project was checked for accuracy, and adjusted when
+          necessary, prior to commencing any work.
+
+         Redundant distance measurements were made in feet and meters.
+
+         Tripods with optical plummet tribrachs or laser plummet tribrachs were used to set up over the
+          points while measuring all control.
+                                                 Page 2
+                        NOAA COMMUNITIES MAPPING SUPPORT
+
+
+6.0    SURVEYOR’S CERTIFICATION
+
+I, A. William Stoll, Alaska Land Surveyor #12041, do hereby certify that the information contained
+herein is the result of work performed by me or by others working under my direct supervision.
+
+
+
+
+_____________________________________
+A. William Stoll, PLS
+Alaska Professional Land Surveyor No. 12041
+
+_______________
+Date
+
+
+
+
+                                              Page 3
+ NOAA COMMUNITIES MAPPING
+
+SURVEYING AND MAPPING REPORT
+
+
+
+
+              Prepared for:
+
+                  NV5
+         2014 Merrill Field Drive
+         Anchorage, Alaska 99501
+
+
+
+
+               Prepared by:
+
+                DOWL
+      5015 Business Park Boulevard
+        Anchorage, Alaska 99503
+            (907) 562-2000
+
+
+
+
+    DOWL Project Number: 1182.63789.01
+
+
+
+
+    Field Project dates: August 28, 2024
+
+
+  REPORT DATA SEPTEMBER 09, 2024
+                                     NOAA COMMUNITIES MAPPING SUPPORT
+
+                                                       TABLE OF CONTENTS
+                                                                                                                                                Page
+
+1.0        INTRODUCTION....................................................................................................................2
+
+2.0        HORIZONTAL CONTROL SUMMARY ............................................................................2
+
+3.0        HORIZONTAL CONTROL STATEMENT.........................................................................2
+
+4.0        VERTICAL CONTROL STATEMENT ...............................................................................2
+
+5.0        QUALITY ASSURANCE .......................................................................................................2
+
+6.0        SURVEYOR CERTIFICATION ...........................................................................................3
+
+
+
+
+LIST OF ACRONYMS
+
+AOI ................................................................................................................................ Area of Interest
+CA ..........................................................................................................................................Calibration
+GNSS .............................................................................................. Global Navigation Satellite System
+NGS................................................................................................................ National Geodetic Survey
+NVA ................................................................................................... Non-vegetated Vertical Accuracy
+OPUS ................................................................................................... Online Positioning User Service
+QC .................................................................................................................................. Quality Control
+TBC .................................................................................................................. Trimble Business Center
+VVA .......................................................................................................... Vegetated Vertical Accuracy
+
+
+
+
+                                                                      Page 1
+                           NOAA COMMUNITIES MAPPING SUPPORT
+
+
+HORIZONTAL & VERTICAL CONTROL SUMMARY
+1.0       INTRODUCTION
+
+This project consists of surveying selected locations within the Areas of Interest (AOI) to support
+aerial LiDAR mapping. Three different classifications of data were collected, Calibration (CA) Points,
+Non-vegetated Vertical Accuracy (NVA) Points and Vegetated Vertical Accuracy (VVA) Points.
+Incidental to the collection of CA and Quality Control (QC) points, Survey control was both
+established and recovered for use during this project. DOWL was hired by NV5 as the independent
+subconsultant to perform these services. NV5 provided DOWL with a general area of the requested
+data collection, and efforts were made to collect data in those areas. Limited changes were made to
+their plan.
+
+
+2.0       HORIZONTAL CONTROL SUMMARY
+
+A field survey was performed by DOWL on August 28th, 2024, by A. William Stoll, PLS #12041.
+Before mobilizing to the field, Willie performed a robust search of the NGS record and did not find
+and NGS Control points or NGS OPUS Shared points as a secondary check to the local OPUS
+solutions performed while on site.
+
+
+3.0       HORIZONTAL CONTROL STATEMENT
+
+COORDINATE SYSTEM:
+Coordinates are UTM Zone 4 North expressed in US Survey Feet. Coordinates are based on the
+OPUS derived solution for on-site control.
+
+4.0       VERTICAL CONTROL SUMMARY
+Elevations are Geoid12B derived orthometric heights expressed in US Survey Feet. Elevations are
+based on the OPUS derived solution for on-site control.
+
+5.0       QUALITY ASSURANCE
+
+Quality Assurance (QA) methods and procedures outlined in the statement of services were reviewed
+with our staff and adhered to. Some examples of QA methods include the following:
+
+         All equipment utilized during this project was checked for accuracy, and adjusted when
+          necessary, prior to commencing any work.
+
+         Redundant distance measurements were made in feet and meters.
+
+         Tripods with optical plummet tribrachs or laser plummet tribrachs were used to set up over the
+          points while measuring all control.
+                                                 Page 2
+                        NOAA COMMUNITIES MAPPING SUPPORT
+
+
+6.0    SURVEYOR’S CERTIFICATION
+
+I, A. William Stoll, Alaska Land Surveyor #12041, do hereby certify that the information contained
+herein is the result of work performed by me or by others working under my direct supervision.
+
+
+
+
+_____________________________________
+A. William Stoll, PLS
+Alaska Professional Land Surveyor No. 12041
+
+_______________
+Date
+
+
+
+
+                                              Page 3
+ NOAA COMMUNITIES MAPPING
+    QUINHAGAK, ALASKA
+
+SURVEYING AND MAPPING REPORT
+
+
+
+
+               Prepared for:
+
+                  NV5
+         2014 Merrill Field Drive
+         Anchorage, Alaska 99501
+
+
+
+
+               Prepared by:
+
+                 DOWL
+       5015 Business Park Boulevard
+         Anchorage, Alaska 99503
+             (907) 562-2000
+
+
+
+
+    DOWL Project Number: 1182.63789.01
+
+
+
+
+   Field Project dates: August 30-31, 2024
+
+
+  REPORT DATA SEPTEMBER 09, 2024
+                                     NOAA COMMUNITIES MAPPING SUPPORT
+
+                                                       TABLE OF CONTENTS
+                                                                                                                                                Page
+
+1.0        INTRODUCTION....................................................................................................................2
+
+2.0        HORIZONTAL CONTROL SUMMARY ............................................................................2
+
+3.0        HORIZONTAL CONTROL STATEMENT.........................................................................2
+
+4.0        VERTICAL CONTROL STATEMENT ...............................................................................2
+
+5.0        QUALITY ASSURANCE .......................................................................................................2
+
+6.0        SURVEYOR CERTIFICATION ...........................................................................................3
+
+
+
+
+LIST OF ACRONYMS
+
+AOI ................................................................................................................................ Area of Interest
+CA ..........................................................................................................................................Calibration
+GNSS .............................................................................................. Global Navigation Satellite System
+NGS................................................................................................................ National Geodetic Survey
+NVA ................................................................................................... Non-vegetated Vertical Accuracy
+OPUS ................................................................................................... Online Positioning User Service
+QC .................................................................................................................................. Quality Control
+TBC .................................................................................................................. Trimble Business Center
+VVA .......................................................................................................... Vegetated Vertical Accuracy
+
+
+
+
+                                                                      Page 1
+                           NOAA COMMUNITIES MAPPING SUPPORT
+
+
+HORIZONTAL & VERTICAL CONTROL SUMMARY
+1.0       INTRODUCTION
+
+This project consists of surveying selected locations within the Areas of Interest (AOI) to support
+aerial LiDAR mapping. Three different classifications of data were collected, Calibration (CA) Points,
+Non-vegetated Vertical Accuracy (NVA) Points and Vegetated Vertical Accuracy (VVA) Points.
+Incidental to the collection of CA and Quality Control (QC) points, Survey control was both
+established and recovered for use during this project. DOWL was hired by NV5 as the independent
+subconsultant to perform these services. NV5 provided DOWL with a general area of the requested
+data collection, and efforts were made to collect data in those areas. Limited changes were made to
+their plan.
+
+
+2.0       HORIZONTAL CONTROL SUMMARY
+
+A field survey was performed by DOWL August 30-31, 2024, under the field supervision of A.
+William Stoll, PLS #12041. Before mobilizing to the field, Willie performed a robust search of the
+NGS record and OPUS Shared record. No existing on site control was utilized as a secondary check
+to the local OPUS solutions performed while on site.
+
+3.0       HORIZONTAL CONTROL STATEMENT
+
+COORDINATE SYSTEM:
+Coordinates are UTM Zone 4 North expressed in US Survey Feet. Coordinates are based on the
+OPUS derived solution for on-site control.
+
+4.0       VERTICAL CONTROL SUMMARY
+Elevations are Geoid12B derived orthometric heights expressed in US Survey Feet. Elevations are
+based on the OPUS derived solution for on-site control.
+
+5.0       QUALITY ASSURANCE
+
+Quality Assurance (QA) methods and procedures outlined in the statement of services were reviewed
+with our staff and adhered to. Some examples of QA methods include the following:
+
+         All equipment utilized during this project was checked for accuracy, and adjusted when
+          necessary, prior to commencing any work.
+
+         Redundant distance measurements were made in feet and meters.
+
+         Tripods with optical plummet tribrachs or laser plummet tribrachs were used to set up over the
+          points while measuring all control.
+
+
+                                                 Page 2
+                        NOAA COMMUNITIES MAPPING SUPPORT
+
+
+6.0    SURVEYOR’S CERTIFICATION
+
+I, A. William Stoll, Alaska Land Surveyor #12041, do hereby certify that the information contained
+herein is the result of work performed by me or by others working under my direct supervision.
+
+
+
+
+_____________________________________
+A. William Stoll, PLS
+Alaska Professional Land Surveyor No. 12041
+
+_______________
+Date
+
+
+
+
+                                              Page 3
+ NOAA COMMUNITIES MAPPING
+      TOGIAK, ALASKA
+
+SURVEYING AND MAPPING REPORT
+
+
+
+
+               Prepared for:
+
+                  NV5
+         2014 Merrill Field Drive
+         Anchorage, Alaska 99501
+
+
+
+
+               Prepared by:
+
+                DOWL
+      5015 Business Park Boulevard
+        Anchorage, Alaska 99503
+            (907) 562-2000
+
+
+
+
+    DOWL Project Number: 1182.63789.01
+
+
+
+
+     Field Project dates: June 2nd, 2024
+
+
+  REPORT DATA SEPTEMBER 09, 2024
+                                     NOAA COMMUNITIES MAPPING SUPPORT
+
+                                                       TABLE OF CONTENTS
+                                                                                                                                                Page
+
+1.0        INTRODUCTION....................................................................................................................2
+
+2.0        HORIZONTAL CONTROL SUMMARY ............................................................................2
+
+3.0        HORIZONTAL CONTROL STATEMENT.........................................................................2
+
+4.0        VERTICAL CONTROL STATEMENT ...............................................................................2
+
+5.0        QUALITY ASSURANCE .......................................................................................................2
+
+6.0        SURVEYOR CERTIFICATION ...........................................................................................3
+
+
+
+
+LIST OF ACRONYMS
+
+AOI ................................................................................................................................ Area of Interest
+CA ..........................................................................................................................................Calibration
+GNSS .............................................................................................. Global Navigation Satellite System
+NGS................................................................................................................ National Geodetic Survey
+NVA ................................................................................................... Non-vegetated Vertical Accuracy
+OPUS ................................................................................................... Online Positioning User Service
+QC .................................................................................................................................. Quality Control
+TBC .................................................................................................................. Trimble Business Center
+VVA .......................................................................................................... Vegetated Vertical Accuracy
+
+
+
+
+                                                                      Page 1
+                           NOAA COMMUNITIES MAPPING SUPPORT
+
+
+HORIZONTAL & VERTICAL CONTROL SUMMARY
+1.0       INTRODUCTION
+
+This project consists of surveying selected locations within the Areas of Interest (AOI) to support
+aerial LiDAR mapping. Three different classifications of data were collected, Calibration (CA) Points,
+Non-vegetated Vertical Accuracy (NVA) Points and Vegetated Vertical Accuracy (VVA) Points.
+Incidental to the collection of CA and Quality Control (QC) points, Survey control was both
+established and recovered for use during this project. DOWL was hired by NV5 as the independent
+subconsultant to perform these services. NV5 provided DOWL with a general area of the requested
+data collection, and efforts were made to collect data in those areas. Limited changes were made to
+their plan.
+
+
+2.0       HORIZONTAL CONTROL SUMMARY
+
+A field survey was performed by DOWL June 2nd, 2024, by A. William Stoll, PLS #12041. Before
+mobilizing to the field, Willie performed a robust search of the NGS record and utilized an NGS
+Control points as a secondary check to the local OPUS solutions performed while on site.
+
+
+3.0       HORIZONTAL CONTROL STATEMENT
+
+COORDINATE SYSTEM:
+Coordinates are UTM Zone 4 North expressed in US Survey Feet. Coordinates are based on the
+OPUS derived solution for on-site control.
+
+4.0       VERTICAL CONTROL SUMMARY
+Elevations are Geoid12B derived orthometric heights expressed in US Survey Feet. Elevations are
+based on the OPUS derived solution for on-site control.
+
+5.0       QUALITY ASSURANCE
+
+Quality Assurance (QA) methods and procedures outlined in the statement of services were reviewed
+with our staff and adhered to. Some examples of QA methods include the following:
+
+         All equipment utilized during this project was checked for accuracy, and adjusted when
+          necessary, prior to commencing any work.
+
+         Redundant distance measurements were made in feet and meters.
+
+         Tripods with optical plummet tribrachs or laser plummet tribrachs were used to set up over the
+          points while measuring all control.
+
+
+                                                 Page 2
+                        NOAA COMMUNITIES MAPPING SUPPORT
+
+
+6.0    SURVEYOR’S CERTIFICATION
+
+I, A. William Stoll, Alaska Land Surveyor #12041, do hereby certify that the information contained
+herein is the result of work performed by me or by others working under my direct supervision.
+
+
+
+
+_____________________________________
+A. William Stoll, PLS
+Alaska Professional Land Surveyor No. 12041
+
+_______________
+Date
+
+
+
+
+                                              Page 3
+ NOAA COMMUNITIES MAPPING
+   KACHEMAK BAY, ALASKA
+
+SURVEYING AND MAPPING REPORT
+
+
+
+
+                Prepared for:
+
+                   NV5
+          2014 Merrill Field Drive
+          Anchorage, Alaska 99501
+
+
+
+
+                Prepared by:
+
+                 DOWL
+       5015 Business Park Boulevard
+         Anchorage, Alaska 99503
+             (907) 562-2000
+
+
+
+
+    DOWL Project Number: 1182.63789.01
+
+
+
+
+  Field Project dates: July 17- July 20, 2024
+
+
+  REPORT DATA SEPTEMBER 09, 2024
+                                     NOAA COMMUNITIES MAPPING SUPPORT
+
+                                                       TABLE OF CONTENTS
+                                                                                                                                                Page
+
+1.0        INTRODUCTION....................................................................................................................2
+
+2.0        HORIZONTAL CONTROL SUMMARY ............................................................................2
+
+3.0        HORIZONTAL CONTROL STATEMENT.........................................................................2
+
+4.0        VERTICAL CONTROL STATEMENT ...............................................................................2
+
+5.0        QUALITY ASSURANCE .......................................................................................................2
+
+6.0        SURVEYOR CERTIFICATION ...........................................................................................3
+
+
+
+
+LIST OF ACRONYMS
+
+AOI ................................................................................................................................ Area of Interest
+CA ..........................................................................................................................................Calibration
+GNSS .............................................................................................. Global Navigation Satellite System
+NGS................................................................................................................ National Geodetic Survey
+NVA ................................................................................................... Non-vegetated Vertical Accuracy
+OPUS ................................................................................................... Online Positioning User Service
+QC .................................................................................................................................. Quality Control
+TBC .................................................................................................................. Trimble Business Center
+VVA .......................................................................................................... Vegetated Vertical Accuracy
+
+
+
+
+                                                                      Page 1
+                           NOAA COMMUNITIES MAPPING SUPPORT
+
+
+HORIZONTAL & VERTICAL CONTROL SUMMARY
+1.0       INTRODUCTION
+
+This project consists of surveying selected locations within the Areas of Interest (AOI) to support
+aerial LiDAR mapping. Three different classifications of data were collected, Calibration (CA) Points,
+Non-vegetated Vertical Accuracy (NVA) Points and Vegetated Vertical Accuracy (VVA) Points.
+Incidental to the collection of CA and Quality Control (QC) points, Survey control was both
+established and recovered for use during this project. DOWL was hired by NV5 as the independent
+subconsultant to perform these services. NV5 provided DOWL with a general area of the requested
+data collection, and efforts were made to collect data in those areas. Limited changes were made to
+their plan.
+
+
+2.0       HORIZONTAL CONTROL SUMMARY
+
+A field survey was performed by DOWL between July 17 and the 20th, 2024, by A. William Stoll,
+PLS #12041. Before mobilizing to the field, Willie performed a robust search of the NGS record and
+did not find and NGS Control points but was able to utilize an NGS OPUS Shared points as a
+secondary check to the local OPUS solutions performed while on site.
+
+
+3.0       HORIZONTAL CONTROL STATEMENT
+
+COORDINATE SYSTEM:
+Coordinates are UTM Zone 5 North expressed in US Survey Feet. Coordinates are based on the
+OPUS derived solution for on-site control.
+
+4.0       VERTICAL CONTROL SUMMARY
+Elevations are Geoid12B derived orthometric heights expressed in US Survey Feet. Elevations are
+based on the OPUS derived solution for on-site control.
+
+5.0       QUALITY ASSURANCE
+
+Quality Assurance (QA) methods and procedures outlined in the statement of services were reviewed
+with our staff and adhered to. Some examples of QA methods include the following:
+
+         All equipment utilized during this project was checked for accuracy, and adjusted when
+          necessary, prior to commencing any work.
+
+         Redundant distance measurements were made in feet and meters.
+
+         Tripods with optical plummet tribrachs or laser plummet tribrachs were used to set up over the
+          points while measuring all control.
+                                                 Page 2
+                        NOAA COMMUNITIES MAPPING SUPPORT
+
+
+6.0    SURVEYOR’S CERTIFICATION
+
+I, A. William Stoll, Alaska Land Surveyor #12041, do hereby certify that the information contained
+herein is the result of work performed by me or by others working under my direct supervision.
+
+
+
+
+_____________________________________
+A. William Stoll, PLS
+Alaska Professional Land Surveyor No. 12041
+
+_______________
+Date
+
+
+
+
+                                              Page 3
+
