@@ -42,6 +42,8 @@ vanish depending on which way you light them.
   .val { float: right; color: #666; font-variant-numeric: tabular-nums; }
   #status { margin-top: 10px; color: #666; font-size: 11px; }
   .stackhint { color: #777; font-size: 11px; margin-bottom: 2px; }
+  .veglegend { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 11px; margin: 4px 0; }
+  .veglegend span i { display: inline-block; width: 12px; height: 10px; margin-right: 3px; vertical-align: -1px; border: 1px solid #0002; }
   /* Difference legend: the PRGn ramp itself, so the reader never has to
      remember which end is which. */
   .dfbar { height: 10px; border-radius: 2px; margin: 4px 0 2px;
@@ -104,6 +106,16 @@ vanish depending on which way you light them.
     {% endif %}
   </div>
 
+  <h2>Basemap</h2>
+  <select id="bm" style="width:100%"></select>
+  <label>Basemap opacity <span class="val" id="bopv">0.55</span></label>
+  <input type="range" id="bop" min="0" max="100" value="55">
+  <label>Lidar opacity <span class="val" id="opv">1.00</span></label>
+  <input type="range" id="op" min="0" max="100" value="100">
+  <div class="stackhint">The same collection as /inventory/ (basemaps.js), plus any shared
+    QMS layers you can see there. <b>Lidar opacity</b> fades the whole lidar stack --
+    shading, drape, vegetation height and difference -- so the basemap shows through.</div>
+
   <h2>Datasets</h2>
   <label><input type="checkbox" id="inview"> Only surveys in view</label>
   <div id="datasets">loading catalog…</div>
@@ -118,6 +130,18 @@ vanish depending on which way you light them.
       together: the shading gives the form, the imagery gives the ground
       cover, and at around half you can see which boulders on the hillshade
       are bare rock and which are vegetated.</div>
+  </div>
+
+  <div id="veg-box" style="display:none">
+    <h2>Vegetation height</h2>
+    <label><input type="checkbox" id="veg"> Show what this surface treats as vegetation</label>
+    <label>Opacity <span class="val" id="vopv">0.70</span></label>
+    <input type="range" id="vop" min="0" max="100" value="70">
+    <div id="veglegend" class="veglegend"></div>
+    <div class="stackhint">Highest return in each 1&nbsp;m cell minus <em>this</em>
+      surface: everything the classification put above the ground. Switch
+      surfaces to compare what each one removed. Magenta is the surface sitting
+      ABOVE every return, which ground cannot do: an invented feature.</div>
   </div>
 
   <h2>Layer stack</h2>
@@ -175,16 +199,6 @@ vanish depending on which way you light them.
     <input type="range" id="as" min="0" max="100" value="0">
   </div>
 
-  {% comment %}
-    Layer opacity fades the whole shaded surface towards the basemap, which is
-    only a useful thing to do when there is imagery draped over it to fade
-    between. On a survey with no ortho it just dims everything, so it is not
-    offered there.
-  {% endcomment %}
-  <div id="oprow" style="display:none">
-    <label>Layer opacity <span class="val" id="opv">1.00</span></label>
-    <input type="range" id="op" min="0" max="100" value="100">
-  </div>
 
   <h2>Difference</h2>
   <select id="df"><option value="">— off —</option></select>
@@ -252,6 +266,7 @@ vanish depending on which way you light them.
 </script>
 <script src="{% static 'inventory/js/vendor/maplibre-gl-demshade.iife.js' %}"></script>
 <script src="{% static 'inventory/js/dem_shade_bridge.js' %}"></script>
+<script src="{% static 'inventory/js/basemaps.js' %}"></script>
 <script>
 (function () {
   'use strict';
@@ -279,8 +294,8 @@ vanish depending on which way you light them.
   // that a link reproduces what the sender was looking at, which means the
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
-  var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop'];
-  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'fog', 'inview', 'preslope', 'ortho'];
+  var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop', 'vop', 'bop'];
+  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'fog', 'inview', 'preslope', 'ortho', 'veg'];
   // [checkbox, slider, row, default-when-first-ticked] for the optional ramps.
   // Declared HERE, beside the other boot tables, because syncVisRows() runs
   // during restore: `var` hoists the name but not the value, so leaving this
@@ -314,30 +329,117 @@ vanish depending on which way you light them.
     bearing: qnum('b', 0),
     pitch: qnum('p', 0),
     maxPitch: 85,
+    // quadkey / subdomain / QMS tile templates are rewritten per tile here (basemaps.js);
+    // it only touches its own placeholder URLs, so the lidar and PMTiles requests pass through.
+    transformRequest: LSBasemaps.transformRequest,
     style: {
       version: 8,
       // USGS Topo, as on the main map. NOT tile.openstreetmap.org: OSM's
       // tile usage policy bars sites like this one from its servers and it
       // now answers with a "blocked" tile (osm.wiki/blocked). The USGS
       // basemap is public domain and needs no key.
-      sources: {
-        base: {
-          type: 'raster',
-          tiles: ['https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}'],
-          tileSize: 256, maxzoom: 16,
-          attribution: 'USGS The National Map'
-        }
-      },
-      layers: [
-        { id: 'base', type: 'raster', source: 'base',
-          paint: { 'raster-opacity': 0.55 } }
-      ]
+      sources: {},
+      layers: []
     }
   });
   // Exposed for the browser test harness (the page's `map` is closure-local;
   // the bare global `map` is the <div id="map"> element).
   window.lidarMap = map;
+  LSBasemaps.registerProtocols();            // EPSG:3395 reprojection for Yandex-style layers
+
+  // ---- basemap: ONE raster layer (+ optional labels) at the bottom of the stack ----------
+  // /inventory/ switches basemaps with map.setStyle(); here that would wipe the shading,
+  // drape, vegetation, difference and terrain layers, so only the 'base' source is swapped.
+  // Vector-style entries (Streets, Blank White) cannot be one raster layer and are left out.
+  var BASEMAPS = LSBasemaps.DEFAULTS.filter(function (b) { return !b.style && b.tiles; });
+  var wantBm = Q.get('bm') || 'usgs-topo';   // requested (a shared QMS id may only exist after the fetch)
+  var shownBm = null;                          // what is actually on the map
+  function fillBasemaps() {
+    var sel = document.getElementById('bm'), groups = {};
+    sel.innerHTML = '';
+    BASEMAPS.forEach(function (b) {
+      var g = groups[b.category || 'Other'];
+      if (!g) { g = groups[b.category || 'Other'] = document.createElement('optgroup'); g.label = b.category || 'Other'; sel.appendChild(g); }
+      var o = document.createElement('option'); o.value = b.id; o.textContent = b.label; g.appendChild(o);
+    });
+    if (BASEMAPS.some(function (b) { return b.id === wantBm; })) sel.value = wantBm;
+  }
+  function setBasemap(id) {
+    var bm = BASEMAPS.filter(function (b) { return b.id === id; })[0];
+    if (!bm) return;
+    ['base-labels', 'base'].forEach(function (k) {
+      if (map.getLayer(k)) map.removeLayer(k);
+      if (map.getSource(k)) map.removeSource(k);
+    });
+    var st = LSBasemaps.buildRasterStyle(bm);
+    var layers = map.getStyle().layers;
+    var bottom = layers.length ? layers[0].id : undefined;
+    map.addSource('base', st.sources.basemap);
+    map.addLayer({ id: 'base', type: 'raster', source: 'base',
+                   paint: { 'raster-opacity': V('bop') / 100 } }, bottom);
+    if (st.sources.labels) {
+      map.addSource('base-labels', st.sources.labels);
+      map.addLayer({ id: 'base-labels', type: 'raster', source: 'base-labels',
+                     paint: { 'raster-opacity': V('bop') / 100 } }, bottom);
+      map.moveLayer('base-labels', bottom);       // labels directly above the imagery
+      map.moveLayer('base', 'base-labels');
+    }
+    wantBm = shownBm = id;
+  }
+  fillBasemaps();
+  map.on('load', function () {
+    // A requested shared-QMS id is not in the list yet: show the default until it arrives.
+    setBasemap(document.getElementById('bm').value || 'usgs-topo');
+    if (Q.get('bm')) wantBm = Q.get('bm');
+    // Shared QMS layers, as on /inventory/ (scoped to who is looking).
+    fetch('/inventory/api/qms/promoted/').then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        var extra = d && (d.layers || d.results || (Array.isArray(d) ? d : null));
+        if (!extra || !extra.length) return;
+        BASEMAPS = BASEMAPS.concat(extra.filter(function (b) { return b.tiles; }));
+        fillBasemaps();                                  // re-selects wantBm if it is one of these
+        if (shownBm !== wantBm && document.getElementById('bm').value === wantBm) setBasemap(wantBm);
+      }).catch(function () {});
+  });
+  document.getElementById('bm').addEventListener('change', function () {
+    setBasemap(this.value); syncUrl();
+  });
+  document.getElementById('bop').addEventListener('input', function () {
+    document.getElementById('bopv').textContent = (V('bop') / 100).toFixed(2);
+    ['base', 'base-labels'].forEach(function (k) {
+      if (map.getLayer(k)) map.setPaintProperty(k, 'raster-opacity', V('bop') / 100);
+    });
+    syncUrl();
+  });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
+
+  // Right-click (Ctrl-click on Mac) anywhere on the map copies "lat, lon" to the
+  // clipboard, as on /inventory/ (map.js) -- same format, same toast. This page has
+  // no click tools yet; if it gains one that uses right-click, guard this handler
+  // the way map.js does with LSTools.blocked().
+  map.on('contextmenu', function (e) {
+    e.preventDefault();
+    var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
+    var done = function () { coordToast(txt + ' copied'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(done, function () { coordToast(txt); });
+    } else { coordToast(txt); }
+  });
+  function coordToast(msg) {
+    var t = document.getElementById('_coord-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = '_coord-toast';
+      t.style.cssText = 'position:absolute;bottom:24px;left:50%;transform:translateX(-50%);' +
+        'background:rgba(20,20,20,.88);color:#fff;padding:6px 12px;border-radius:4px;' +
+        'font-size:13px;z-index:5;pointer-events:none;transition:opacity .3s;opacity:0;';
+      (document.getElementById('map') || document.body).appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(t._h);
+    t._h = setTimeout(function () { t.style.opacity = '0'; }, 1600);
+  }
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }));
 
   var status = document.getElementById('status');
@@ -450,9 +552,24 @@ vanish depending on which way you light them.
                  'raster-fade-duration': 0 }
       }, 'fp-fill');
     }
+    // Vegetation height (catalogue `veg_url`: pre-coloured PNG PMTiles of highest
+    // return minus this surface). Above the drape, below the footprints.
+    if (p.veg_url && !map.getLayer('veg-' + p.id)) {
+      map.addSource('veg-' + p.id, {
+        type: 'raster', tiles: ['pmtiles://' + p.veg_url + '/{z}/{x}/{y}'],
+        tileSize: 256, minzoom: p.min_zoom, maxzoom: p.max_zoom, attribution: p.title
+      });
+      map.addLayer({
+        id: 'veg-' + p.id, type: 'raster', source: 'veg-' + p.id,
+        paint: { 'raster-opacity': 0, 'raster-resampling': 'nearest',
+                 'raster-opacity-transition': { duration: 0, delay: 0 },
+                 'raster-fade-duration': 0 }
+      }, 'fp-fill');
+    }
     // Insertion order is the only thing keeping the drape above its shading,
     // and order depends on the history of what was added when. Assert it.
     if (map.getLayer('ortho-' + p.id)) map.moveLayer('ortho-' + p.id, 'fp-fill');
+    if (map.getLayer('veg-' + p.id)) map.moveLayer('veg-' + p.id, 'fp-fill');
   }
 
   // Every survey the viewer can see, with who made it. Sorted by source so
@@ -516,6 +633,10 @@ vanish depending on which way you light them.
           map.removeLayer('ortho-' + id);
           map.removeSource('ortho-' + id);
         }
+        if (map.getLayer('veg-' + id)) {
+          map.removeLayer('veg-' + id);
+          map.removeSource('veg-' + id);
+        }
       }
     });
     applyOpacity();
@@ -532,27 +653,43 @@ vanish depending on which way you light them.
         map.setPaintProperty('shade-' + id, 'raster-opacity',
                              id === active ? op : 0);
       }
+      // 'op' is the LIDAR stack opacity: every lidar-derived layer is scaled by it,
+      // so the basemap (e.g. imagery) can be read through the whole stack.
       if (map.getLayer('ortho-' + id)) {
         map.setPaintProperty('ortho-' + id, 'raster-opacity',
-                             id === active ? drape : 0);
+                             id === active ? drape * op : 0);
+      }
+      if (map.getLayer('veg-' + id)) {
+        map.setPaintProperty('veg-' + id, 'raster-opacity',
+                             id === active && document.getElementById('veg').checked ? V('vop') / 100 * op : 0);
       }
     });
+    // the difference layer is part of the lidar stack too (DIFF_LAYER may be undefined during early restore)
+    if (typeof DIFF_LAYER !== 'undefined' && map.getLayer(DIFF_LAYER))
+      map.setPaintProperty(DIFF_LAYER, 'raster-opacity', V('dop') / 100 * op);
   }
 
   // The whole Imagery block exists only for a survey with imagery from its
   // own flight -- which is most of them not having any, so it stays out of
   // the way rather than sitting there disabled.
+  function syncVegControl() {
+    var p = props4[active];
+    var has = !!(p && p.veg_url);
+    document.getElementById('veg-box').style.display = has ? '' : 'none';
+    var lg = document.getElementById('veglegend');
+    lg.innerHTML = has && p.veg_legend ? p.veg_legend.map(function (b) {
+      return '<span><i style="background:' + esc(b[0]) + '"></i>' + esc(b[1]) + '</span>';
+    }).join('') : '';
+  }
+
   function syncOrthoControl() {
+    syncVegControl();
     var p = props4[active];
     var has = !!(p && p.ortho_url);
     document.getElementById('imagery-box').style.display = has ? '' : 'none';
     document.getElementById('imgview').style.display = has ? '' : 'none';
-    document.getElementById('oprow').style.display = has ? '' : 'none';
     if (!has) {
       document.getElementById('ortho').checked = false;
-      // Leaving it faded on a survey with nothing to fade between would hide
-      // the surface with no visible control to bring it back.
-      document.getElementById('op').value = 100;
     }
   }
 
@@ -965,7 +1102,7 @@ vanish depending on which way you light them.
         paint: { 'raster-opacity': 0, 'raster-opacity-transition': { duration: 0, delay: 0 }, 'raster-fade-duration': 0 }
       }, 'fp-fill');
     }
-    map.setPaintProperty(DIFF_LAYER, 'raster-opacity', V('dop') / 100);
+    map.setPaintProperty(DIFF_LAYER, 'raster-opacity', V('dop') / 100 * V('op') / 100);   // scaled by the lidar opacity
     // The drape stays the top of the render stack. The difference layer is
     // added before 'fp-fill' too, so without this it lands above the imagery
     // and you would be reading a colour ramp through a photograph.
@@ -1004,6 +1141,8 @@ vanish depending on which way you light them.
     urlTimer = setTimeout(function () {
       var c = map.getCenter();
       var p = new URLSearchParams();
+      if (Q.get('catalog') === 'dev') p.set('catalog', 'dev');   // keep the dev catalogue across reloads
+      if (wantBm) p.set('bm', wantBm);
       if (active) p.set('ds', active);
       p.set('z', map.getZoom().toFixed(3));
       p.set('lat', c.lat.toFixed(6));
@@ -1065,6 +1204,13 @@ vanish depending on which way you light them.
   });
 
   document.getElementById('ortho').addEventListener('change', function () {
+    applyOpacity(); syncUrl();
+  });
+  document.getElementById('veg').addEventListener('change', function () {
+    applyOpacity(); syncUrl();
+  });
+  document.getElementById('vop').addEventListener('input', function () {
+    document.getElementById('vopv').textContent = (V('vop') / 100).toFixed(2);
     applyOpacity(); syncUrl();
   });
   // Opacity is a paint property, so this is instant and needs no retile.
@@ -1202,6 +1348,8 @@ vanish depending on which way you light them.
     showDmax();
     document.getElementById('dopv').textContent = (V('dop') / 100).toFixed(2);
     document.getElementById('oopv').textContent = (V('oop') / 100).toFixed(2);
+    document.getElementById('vopv').textContent = (V('vop') / 100).toFixed(2);
+    document.getElementById('bopv').textContent = (V('bop') / 100).toFixed(2);
 
     // Opacity is a paint property — instant, no refetch.
     applyOpacity();
@@ -1254,8 +1402,11 @@ vanish depending on which way you light them.
     // has its own boot, so merging them in map.js did nothing for it -- which
     // is how the Corax surveys came to be built, gated and serving correctly
     // and still absent from the list here.
-    var _pubCat = fetch('/lidar/catalog.geojson').then(function (r) { return r.json(); });
-    var _gatedCat = {% if can_view_restricted %}
+    // ?catalog=dev swaps in the dev-only research surfaces (lidar_serve.dev_catalog,
+    // 404 unless DEBUG) -- e.g. the KBay reclassification comparison.
+    var _devCat = new URLSearchParams(location.search).get('catalog') === 'dev';
+    var _pubCat = fetch(_devCat ? '/lidar/dev/catalog.geojson' : '/lidar/catalog.geojson').then(function (r) { return r.json(); });
+    var _gatedCat = _devCat ? Promise.resolve(null) : {% if can_view_restricted %}
       fetch('/lidar/catalog-gated.geojson')
         .then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; })
@@ -1361,7 +1512,11 @@ vanish depending on which way you light them.
         applyNorthUp();
         syncUrl();
       })
-      .catch(function (e) { status.textContent = 'catalog failed: ' + e; });
+      .catch(function (e) {
+        status.textContent = 'catalog failed: ' + e;
+        // Say so where the list would be, too: otherwise it sits on "loading catalog..." forever.
+        document.getElementById('datasets').textContent = 'Catalogue failed to load: ' + e;
+      });
   });
 
   // minimal bbox walker (avoids pulling turf in for one function)

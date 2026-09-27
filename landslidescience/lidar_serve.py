@@ -24,6 +24,7 @@ building multipart/byteranges bodies for no benefit. A multi-range request
 falls back to a normal 200 with the whole body, which is a permitted response.
 """
 
+import os
 import re
 
 from django.conf import settings
@@ -312,6 +313,61 @@ def catalog_gated(request):
         raise Http404
     return serve_ranged(request, GATED_CATALOG,
                         'application/geo+json', 'private, max-age=60')
+
+
+# Dev-only comparison surfaces (research builds, e.g. the KBay reclassification test).
+# Deliberately OUTSIDE data/lidar/: tools/lidar/RESUME.md's redeploy rsync copies
+# all of data/lidar/ to the droplet, and nothing here is meant to leave this machine.
+# Both views 404 unless DEBUG, so the routes are inert even if they were deployed.
+DEV_DIR = settings.BASE_DIR / 'data' / 'lidar_dev'
+
+
+def dev_catalog(request):
+    """Read-then-send, not serve_ranged: Docker Desktop's macOS file sharing can report a
+    stale size for a file rewritten on the host, and a ranged response built from that
+    stat sends the new bytes cut to the old length -- invalid JSON, and /lidar/ then sat
+    on "loading catalog..." (2026-09-25). The catalogue is small, so send what was read."""
+    if not settings.DEBUG:
+        raise Http404
+    try:
+        body = (DEV_DIR / 'catalog.geojson').read_bytes()
+    except OSError:
+        # After the build swaps the file in with a rename, Docker Desktop's file sharing can
+        # report it missing until the directory is listed again (seen 2026-09-26: a steady
+        # 404 that cleared the moment `ls` ran in the container). List, then try once more.
+        try:
+            os.listdir(DEV_DIR)
+            body = (DEV_DIR / 'catalog.geojson').read_bytes()
+        except OSError:
+            raise Http404
+    resp = HttpResponse(body, content_type='application/geo+json')
+    resp['Cache-Control'] = 'no-store'
+    return resp
+
+
+def dev_pmtiles(request, dataset_id):
+    if not settings.DEBUG:
+        raise Http404
+    path = _checked(DEV_DIR / 'pmtiles', dataset_id, '.pmtiles')
+    # Same Docker file-sharing staleness as dev_catalog: viewer_build deletes and rewrites
+    # every pyramid under the same names, and the container can go on reporting a rewritten
+    # file missing (seen 2026-09-26: 500s, FileNotFoundError on open, for files present on the
+    # host). Listing the directory refreshes the view; then try once more.
+    for attempt in (0, 1):
+        try:
+            if path.is_file():
+                return serve_ranged(request, path, 'application/vnd.pmtiles', 'no-store')
+        except FileNotFoundError:
+            pass
+        if attempt == 0:
+            try:
+                # stat every entry, as `ls -la` does: a bare listdir did not clear it here,
+                # `ls -la` in the container did
+                for e in os.scandir(path.parent):
+                    e.stat()
+            except OSError:
+                break
+    raise Http404
 
 
 def preview(request):

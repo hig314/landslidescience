@@ -167,6 +167,10 @@ urlpatterns = [
             lidar_serve.pmtiles),
     re_path(r'^lidar/cog/(?P<dataset_id>[a-z0-9_]+)\.tif$',
             lidar_serve.cog),
+    # Dev-only research surfaces (404 unless DEBUG); /lidar/?catalog=dev loads them.
+    path('lidar/dev/catalog.geojson', lidar_serve.dev_catalog),
+    re_path(r'^lidar/dev/pmtiles/(?P<dataset_id>[a-z0-9_]+)\.pmtiles$',
+            lidar_serve.dev_pmtiles),
     # `dggs` joins lw/n10: same directory layout, same pre-coloured PNGs, built
     # by tools/build_dggs_susc_tiles.sh from the recovered 20 m class raster.
     re_path(r'^tiles/susc/(?P<model>lw|n10|dggs)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
