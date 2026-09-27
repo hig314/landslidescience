@@ -104,6 +104,7 @@ pushing untested code to GH.
 | `/inventory/export/` | public | Download zip of GeoJSON + QGIS .qml styles |
 | `/lidar/` | public | Standalone lidar/bathymetry viewer + the ranged `pmtiles`/`cog`/catalogue routes |
 | `/lidar/audit/` | data admins | Publish-state check: for every survey, built / on R2 / in the catalogue / what the gate does |
+| `/lidar/?catalog=dev` | dev only | Same viewer over research surfaces in `data/lidar_dev/` (`lidar/dev/*` routes 404 unless DEBUG). Kept OUTSIDE `data/lidar/` because the redeploy rsync in `tools/lidar/RESUME.md` copies all of `data/lidar/` to the droplet. |
 | `/inventory/manage/import/` | inventory_editors + Hig | Upload zip/.geojson; preview diff; confirm to apply |
 | `/s/t.js`, `/s/api/send` | public | First-party analytics beacon, forwarded to Umami (`landslidescience/analytics.py`) |
 | `/traffic/` | superusers + site_admins | Signs the current Django user into the Umami dashboard (Umami's own login is disabled) |
@@ -113,10 +114,11 @@ pushing untested code to GH.
 
 ## Auth & permissions
 
-Two non-superuser groups (created/maintained idempotently by `python manage.py init_groups`):
+Three non-superuser groups (created/maintained idempotently by `python manage.py init_groups`; the role list is `ROLE_GROUPS` in `inventory/auth.py`):
 
 | Group | What they can do | Where they work |
 |---|---|---|
+| `data_users` | Read-only access to the restricted surfaces (non-public QMS layers, trace imagery, gated lidar). **Every new account joins it automatically** (`inventory/signals.py`, creation only). Renamed from `inventory_viewers` by migration `inventory/0006`. | the public site, signed in |
 | `inventory_editors` | Edit landslide records via custom UI | `/inventory/manage/` |
 | `site_admins` | Edit Page content (homepage, /tracyarm2025/) + manage `HostedFile`s (`/files/`) | `/admin/` |
 
@@ -125,11 +127,20 @@ Adding a user (do this via `/admin/auth/user/`):
 2. For inventory editors: add to the `inventory_editors` group. They sign in at
    **`/inventory/login/`** and go straight to `/inventory/manage/`. `is_staff` is
    NOT needed and should not be set — it only grants Django-admin access.
-3. For view-only collaborators: add to `inventory_viewers`. Same sign-in page.
+3. View-only collaborators need nothing more: new accounts start in
+   `data_users` (`manage.py add_data_user` does the same from the shell).
 4. For site admins: add to the `site_admins` group **and** set `is_staff=True`,
    because their work is in `/admin/` and that form admits staff only.
 
 Hig (superuser) bypasses all role checks.
+
+**No role = a banner, not a silent downgrade.** A signed-in, non-superuser
+account in none of the role groups (`has_no_role`) sees only the public site,
+so both base templates include `_no_role_banner.html` telling them to contact
+an admin. The Django admin's User list has a **Roles** column and a role
+filter with a `(no role)` option (`inventory/admin.py`) to find such accounts.
+Existing accounts were not backfilled into `data_users` when the default
+arrived; only new ones get it.
 
 **Sessions are rolling** — `SESSION_SAVE_EVERY_REQUEST = True` (settings.py) resets the 2-week `SESSION_COOKIE_AGE` clock on every request, so an actively-used editor session doesn't lapse mid-work; an idle one still expires after two weeks (that's expected, not a bug — distinct from the *fleet-wide* logout that only a `DJANGO_SECRET_KEY` change causes). When a session does expire, the manage endpoints 302-redirect to the login page; the in-app draw flow (`_drawPost` in `map.js`) detects that redirect / non-JSON response and shows a clear "log in again" message instead of choking on the login HTML with `Unexpected token '<' … is not valid JSON`. Staged draw components live server-side (`provisional_polygons`), so they survive the re-login.
 

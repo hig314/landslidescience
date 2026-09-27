@@ -1,16 +1,18 @@
 """Authorization helpers for the inventory app.
 
 Three roles:
-- inventory_viewers: members see the restricted READ-ONLY surfaces (non-public
-  QMS layers, baked imagery tiles) but cannot edit anything. For collaborators
-  who need the proprietary layers and the data, not the keys.
+- data_users: members see the restricted READ-ONLY surfaces (non-public
+  QMS layers, baked imagery tiles, gated lidar) but cannot edit anything. For
+  collaborators who need the proprietary layers and the data, not the keys.
+  Every newly created account joins it automatically (signals.py); it was
+  called inventory_viewers until migration 0006 renamed it.
 - inventory_editors: members can use /inventory/manage/* to edit landslide records
 - site_admins: members can use Django /admin/ to edit Page content (need is_staff=True too)
 
 Superusers bypass every check.
 
 NOTE `is_staff` is NOT an inventory role and is not consulted here. It controls
-Django admin access only. A viewer needs no staff flag: they sign in at
+Django admin access only. A data user needs no staff flag: they sign in at
 /inventory/login/, not at /admin/login/ (which rejects non-staff by design --
 that is why an "active but not staff" account appeared unable to log in at all
 before this login view existed).
@@ -22,7 +24,7 @@ from django.shortcuts import redirect
 from django.urls import reverse
 
 
-GROUP_INVENTORY_VIEWERS = 'inventory_viewers'
+GROUP_DATA_USERS = 'data_users'
 GROUP_INVENTORY_EDITORS = 'inventory_editors'
 GROUP_SITE_ADMINS = 'site_admins'
 
@@ -47,12 +49,27 @@ def can_view_restricted(user):
     """May this user see the restricted read-only surfaces?
 
     Viewers and editors both may; editors get it implicitly because every
-    editor is trusted with at least as much as a viewer. Gate READ-ONLY
+    editor is trusted with at least as much as a data user. Gate READ-ONLY
     proprietary content on this, never on is_inventory_editor -- conflating the
     two is what left browsing and editing as a single indivisible privilege.
     """
-    return (_user_in_group(user, GROUP_INVENTORY_VIEWERS)
+    return (_user_in_group(user, GROUP_DATA_USERS)
             or is_inventory_editor(user))
+
+
+ROLE_GROUPS = (GROUP_DATA_USERS, GROUP_INVENTORY_EDITORS, GROUP_SITE_ADMINS)
+
+
+def has_no_role(user):
+    """Signed in, but holding none of the site's roles.
+
+    Such an account sees exactly what an anonymous visitor sees, which looks
+    like a broken login unless something says why. Superusers always have a
+    role. Membership in some unrelated group does not count.
+    """
+    if not user.is_authenticated or user.is_superuser:
+        return False
+    return not user.groups.filter(name__in=ROLE_GROUPS).exists()
 
 
 def inventory_editor_required(view_func):

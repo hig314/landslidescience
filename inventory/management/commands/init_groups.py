@@ -1,4 +1,4 @@
-"""Idempotently provision the inventory_viewers, inventory_editors and
+"""Idempotently provision the data_users, inventory_editors and
 site_admins Groups.
 
 Usage:
@@ -11,23 +11,24 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 
 from files.models import HostedFile
-from inventory.auth import (GROUP_INVENTORY_EDITORS, GROUP_INVENTORY_VIEWERS,
+from inventory.auth import (GROUP_INVENTORY_EDITORS, GROUP_DATA_USERS,
                             GROUP_SITE_ADMINS)
 from pages.models import Page
 
 
 class Command(BaseCommand):
-    help = 'Create the inventory_viewers, inventory_editors and site_admins Groups (idempotent).'
+    help = 'Create the data_users, inventory_editors and site_admins Groups (idempotent).'
 
     def handle(self, *args, **options):
-        # inventory_viewers: read-only access to the restricted surfaces (the
+        # data_users: read-only access to the restricted surfaces (the
         # non-public QMS layers and the baked imagery tiles). No Django built-in
         # permissions and no is_staff: membership is checked directly by
         # can_view_restricted(). Editors satisfy that check implicitly, so a
-        # user never needs to be in both.
-        viewers, vc = Group.objects.get_or_create(name=GROUP_INVENTORY_VIEWERS)
+        # user never needs to be in both. New accounts join it automatically
+        # (inventory/signals.py).
+        data_users, vc = Group.objects.get_or_create(name=GROUP_DATA_USERS)
         self.stdout.write(
-            f"  {GROUP_INVENTORY_VIEWERS}: {'created' if vc else 'already exists'}"
+            f"  {GROUP_DATA_USERS}: {'created' if vc else 'already exists'}"
         )
 
         # inventory_editors: no Django built-in permissions; the custom
@@ -63,7 +64,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('Done.'))
         self.stdout.write(
             '\nTo add a user to a group, use the Django admin (/admin/auth/group/), '
-            'the shell, or `manage.py add_viewer` for the view-only case.\n'
+            'the shell, or `manage.py add_data_user` for the view-only case.\n'
             '\nLOGIN: collaborators sign in at /inventory/login/ and do NOT need '
             'is_staff. Only site_admins need is_staff=True, because only they use '
             '/admin/. (Before the /inventory/login/ view existed, /admin/login/ was '
