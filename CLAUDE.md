@@ -1271,8 +1271,8 @@ answers instead, in this order:
   actually does) and names any that disagree. Read it first.
 - **`tools/lidar/RESUME.md`** — the hosting stream's state of play and the
   publishing recipe, plus the incidents behind it (BAG extraction modes,
-  rclone filters, the overnight uploader). 43 public and 7 gated as of
-  2026-09-24, which is the number `/lidar/audit/` will confirm or correct.
+  rclone filters, the overnight uploader). 46 public and 7 gated as of
+  2026-09-27 (Taan Fiord 2016 lidar, SfM + ortho, and bathymetry added), which is the number `/lidar/audit/` will confirm or correct.
 
 **Gating is by manifest flag and enforced on the BYTES.** `"gated": true` on
 a dataset keeps it out of `catalog.geojson` and into the companion

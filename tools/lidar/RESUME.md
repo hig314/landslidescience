@@ -76,7 +76,7 @@ only because a second survey covered the same seabed.
 | Gated surveys | droplet `data/lidar/{pmtiles,cog}/` only — **never** R2 | 8 (Corax x4, Hoonah, Lituya 2023, Pedersen SfM, Grewingk sonar) |
 | Catalogue | `data/lidar/catalog.geojson` | build with `--verify-r2` for anything going to prod |
 | Archive COGs | `/Volumes/Nunatak/lidar_build/cog/` + R2 `cog/` | |
-| Built, NOT published | pow_2018 (62.8 GB), resurrection_2016, resurrection_2024 | awaiting Hig |
+| Built, NOT published | (none as of 2026-09-27) | — |
 | Paused InSAR kinematics | branch `insar-kinematics` | dev-only |
 
 Tag `archive/main-2026-09-06-kinematics-plus-lidar` marks what `main` looked
@@ -464,3 +464,23 @@ sharing a ~1.1 MB/s uplink halves each and lengthens every connection, which
 is precisely the condition that produced the broken pipes. The chain script
 waits on `pgrep -f 'r2_publish_overnight.sh pow_2018'` and then starts the
 next survey.
+
+## 2026-09-26 22:39: Taan Fiord 2016 published (three surveys) -- 46 public
+
+Hig approved the three Taan datasets and the upload ran queued through
+`r2_publish_overnight.sh taan_2016 taan_bathy_2016 taan_sfm_2016` (started
+20:05, finished 22:39; 9.8 GB in all, 16 MB parts, zero broken pipes). Every
+product verified byte-exact on the bucket: lidar (pyramid, slope, COG),
+bathymetry (same), SfM (pyramid, slope, ORTHO, COG -- the ortho is the third
+render option in /inventory/). Catalogues rebuilt with `--verify-r2` and
+`--gated-only`, the droplet's copies backed up as
+`catalog{,-gated}.geojson.bak.20260927-064430`, installed, and the audit reads
+`ok` on every seam for all three: **46 public, 7 gated**. All ten advertised
+URLs answer 206 to a ranged request.
+
+The manifest entries and the two tools behind them (`geoid_to_navd88.py`,
+`build_ortho.py --direct`) went to GitHub in 92583dd earlier the same
+evening; no site code changed for this publish, so no image rebuild was
+needed for it.
+
+Still open: hoonah_2015's bytes on public R2 (unchanged, Hig's decision).
