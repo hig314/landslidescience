@@ -844,6 +844,13 @@
         var bId = map.getLayer('measure-fill') ? 'measure-fill' : undefined;
         _provLayerDefs().forEach(function (def) {
             if (!map.getLayer(def.id)) map.addLayer(def, bId);
+            // Re-seat on every call: this runs on style.load BEFORE
+            // initDataLayers, so the first add lands at the bottom of the
+            // stack and every raster inserted "below the data" (lidar, trace
+            // imagery: _rasterBeforeId) then covers the staged polygons. The
+            // staged work is the thing being drawn; it sits on top of all of
+            // it (Hig, 2026-09-26). initDataLayers calls back here for that.
+            map.moveLayer(def.id, bId);
         });
         // (Name labels intentionally omitted — symbol layers depend on a glyph
         // server that varies by basemap and 404s; the queue panel shows names.)
@@ -2654,6 +2661,9 @@
         // Imagery added BEFORE these layers existed ended up on top of them;
         // put it back underneath now that they do.
         _traceReseat();
+        // And the staged (uncommitted) polygons, added on style.load before
+        // any of this, go back on top of it all.
+        if (map.getLayer('prov-fill')) ensureProvLayers();
     }
 
     // Traced imagery belongs at the BOTTOM of the data stack -- it is what the
