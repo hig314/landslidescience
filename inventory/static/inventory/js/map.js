@@ -1718,6 +1718,23 @@
     // maxzoom 14 is THEIR limit, not a choice: the layer carries
     // maxScale 36000 and z15 comes back blank. Declaring it makes MapLibre
     // overzoom the z14 tile instead of requesting empties.
+    // Statewide bedrock geology: the USGS Geologic Map of Alaska (Wilson,
+    // Hults, Mull & Karl 2015, SIM 3340, 1:1,584,000, public domain) as
+    // served by Macrostrat's carto tiles (CC-BY 4.0, CORS open, CDN cached;
+    // verified 2026-09-26). It is the rock-strength input to the DGGS
+    // susceptibility model beside it in the list. Macrostrat draws age
+    // colours, not the USGS unit colours; the click popup names the unit.
+    // 512 px tiles; z14 is where the service stops producing new detail.
+    var GEOLOGY_ATTR = '<a href="https://doi.org/10.3133/sim3340" target="_blank" rel="noopener">USGS SIM 3340</a> via ' +
+                       '<a href="https://macrostrat.org" target="_blank" rel="noopener">Macrostrat</a>';
+    function _geologySourceDef() {
+        return {
+            type: 'raster',
+            tiles: ['https://tiles.macrostrat.org/carto/{z}/{x}/{y}.png'],
+            tileSize: 512, minzoom: 2, maxzoom: 14,
+            attribution: GEOLOGY_ATTR
+        };
+    }
     function _dggsSuscSourceDef() {
         return {
             type: 'raster',
@@ -2257,6 +2274,13 @@
           label: 'Susceptibility — DGGS',
           sub: 'Alaska DGGS PIR 2025-3 · rock strength × slope · 20 m',
           sourceDef: function () { return _dggsSuscSourceDef(); }, defOpacity: 0.8 },
+        { id: 'geology', layerId: 'ov-geology', sourceId: 'ov-geology-src',
+          label: 'Bedrock geology',
+          sub: 'USGS Geologic Map of Alaska (Wilson et al. 2015, 1:1.58M) · Macrostrat tiles · click for the unit',
+          sourceDef: function () { return _geologySourceDef(); }, defOpacity: 0.6,
+          keyNote: 'Colours follow the international chronostratigraphic chart (age, not rock type). ' +
+                   'Click the map for the unit name, age and lithology. Unit boundaries are ' +
+                   'kilometre-scale at this map scale.' },
         { id: 'opera-asc',  layerId: 'ov-opera-asc',    sourceId: 'ov-opera-asc-src',
           label: 'OPERA velocity — ascending', sub: 'InSAR, ±30 mm/yr · NASA/JPL + ASF',
           sourceDef: function () { return _operaSourceDef('asc'); }, defOpacity: 0.75 },
@@ -3460,6 +3484,11 @@
         det.addEventListener('toggle', function () {
             if (!det.open || filled) return;
             filled = true;
+            if (ov.keyNote) {   // a layer whose key is a sentence, not a ramp
+                body.textContent = ov.keyNote;
+                body.style.cssText += 'font-size:10px;color:#666;line-height:1.35;';
+                return;
+            }
             _loadRamps().then(function (ramps) {
                 var r = ramps[_rampKey(ov, ramps)];
                 if (!r) { body.textContent = 'no key available'; return; }
@@ -6805,6 +6834,62 @@
     // DGGS QFF (name/age/slip), the USGS 2021 ArcticDEM traces (fault/feature/
     // slip sense, and whether it revises or adds to the QFFD), and the NSHM
     // 2023 sections (rate, dip, rake).
+    // Bedrock geology is a raster, so the entry has no layers: `test` says
+    // whether the overlay is under the click (left pane, or the right pane
+    // when the wiper is on and the click is right of the divider). Lowest
+    // reference priority: a fault, a scarp or a staged polygon under the same
+    // click is the more specific thing to answer about.
+    LSTools.clicks.register({ id: 'geology', kind: 'reference', priority: 5,
+        test: function (e) {
+            var ov = OVERLAYS.filter(function (o) { return o.id === 'geology'; })[0];
+            if (!ov || !map.getLayer(ov.layerId)) return false;
+            if (_ovVisible(ov, false)) return true;
+            if (!_swipe.on || !_ovVisible(ov, true)) return false;
+            return e.point.x > map.getContainer().clientWidth * _swipe.x / 100;
+        },
+        handler: function (f, e) {
+            var ll = e.lngLat;
+            var box = '<div style="font:12px/1.4 system-ui,sans-serif; max-width:270px;">';
+            var foot = '<div style="margin-top:4px; color:#aaa; font-size:10px;">Geologic Map of Alaska ' +
+                '(Wilson, Hults, Mull &amp; Karl 2015, USGS SIM 3340, 1:1,584,000) · unit lookup by ' +
+                '<a href="https://macrostrat.org/map/#x=' + ll.lng.toFixed(4) + '&y=' + ll.lat.toFixed(4) + '&z=11" ' +
+                'target="_blank" rel="noopener">Macrostrat</a></div></div>';
+            var popup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
+                .setLngLat(ll).setHTML(box + '<div style="color:#888;">Looking up the unit…</div>' + foot).addTo(map);
+            LSTools.popup.show(popup);
+            var url = 'https://macrostrat.org/api/v2/geologic_units/map?lat=' + ll.lat.toFixed(5) +
+                      '&lng=' + ll.lng.toFixed(5) + '&format=json';
+            fetch(url).then(function (r) { return r.json(); }).then(function (j) {
+                if (!popup.isOpen()) return;
+                var units = (j && j.success && j.success.data) || [];
+                // The service stacks every map it holds for the point; take
+                // the Alaska map itself (source 21), else the finest scale.
+                var rank = { large: 0, medium: 1, small: 2, tiny: 3 };
+                var u = units.filter(function (x) { return x.source_id === 21; })[0] ||
+                        units.sort(function (a, b) { return (rank[a.scale] || 9) - (rank[b.scale] || 9); })[0];
+                if (!u) { popup.setHTML(box + '<div style="color:#888;">No mapped unit here.</div>' + foot); return; }
+                function row(lbl, val) {
+                    if (!val) return '';
+                    return '<div style="margin:1px 0;"><span style="color:#888;">' + lbl + ':</span> ' + esc(String(val)) + '</div>';
+                }
+                var age = [u.b_int_name, u.t_int_name].filter(Boolean);
+                age = (age[0] === age[1] ? age[0] : age.join(' – ')) +
+                      (u.b_age != null && u.t_age != null ? ' (' + u.b_age + '–' + u.t_age + ' Ma)' : '');
+                var descrip = u.descrip ? (u.descrip.length > 260 ? u.descrip.slice(0, 260) + '…' : u.descrip) : '';
+                popup.setHTML(box +
+                    '<div style="font-weight:600; color:#5d4037; margin-bottom:3px;">' +
+                        esc(u.strat_name || u.name || 'Unnamed unit') + '</div>' +
+                    (u.strat_name && u.name && u.strat_name !== u.name ? row('Map unit', u.name) : '') +
+                    row('Age', age) + row('Lithology', u.lith) + row('Description', descrip) +
+                    (u.source_id !== 21 ? '<div style="color:#a05a00; font-size:10px; margin-top:3px;">From a coarser ' +
+                        'compilation (' + esc(u.scale || '') + ' scale): the Alaska map has no unit here.</div>' : '') +
+                    foot);
+            }).catch(function () {
+                if (popup.isOpen()) popup.setHTML(box + '<div style="color:#a05a00;">Unit lookup failed (Macrostrat unreachable).</div>' + foot);
+            });
+        }
+    });
+
     LSTools.clicks.register({ id: 'faults', kind: 'reference', priority: 30,
                               layers: ['faults-line'], handler: function (f, e) {
         var p = f.properties || {};

@@ -66,7 +66,11 @@
  *              wins, and it may run ALONGSIDE a record — that is the declared
  *              co-activation. There is one popup slot, so a new reference
  *              popup closes the previous one; two from one click would sit on
- *              top of each other with the lower unreadable.
+ *              top of each other with the lower unreadable. A reference with
+ *              no `layers` and a `test(e)` predicate is a RASTER reference
+ *              (bedrock geology): it has no features to hit, so it is in the
+ *              contest whenever its test says the raster is under the click,
+ *              and its handler gets (null, e, []).
  *
  * Cursor: two owners, `tool` and `hover`; tool outranks hover. A layer's
  * mouseenter/mouseleave can set and clear its pointer unconditionally,
@@ -197,13 +201,15 @@ window.LSTools = (function () {
                 if (!owner[id] && map.getLayer(id)) { owner[id] = en; wanted.push(id); }
             });
         });
-        if (!wanted.length) return;
-        var hits = map.queryRenderedFeatures(e.point, { layers: wanted });
-        if (!hits || !hits.length) return;
+        var hits = wanted.length ? (map.queryRenderedFeatures(e.point, { layers: wanted }) || []) : [];
         // Group by entry. Query order is render order, topmost first, so the
         // first feature an entry sees is its topmost — that is the one its
         // handler gets.
         var byEntry = [];
+        entries.forEach(function (en) {
+            if (en.kind === 'reference' && typeof en.test === 'function' &&
+                !layersOf(en).length && en.test(e)) byEntry.push({ en: en, hits: [] });
+        });
         hits.forEach(function (f) {
             var en = owner[f.layer && f.layer.id];
             if (!en) return;
@@ -220,12 +226,13 @@ window.LSTools = (function () {
             });
             return b;
         }
+        if (!byEntry.length) return;
         var nav = best('navigate');
         if (nav) { nav.en.handler(nav.hits[0], e, nav.hits); return; }
         var rec = best('record');
         if (rec) rec.en.handler(rec.hits[0], e, rec.hits);
         var ref = best('reference');
-        if (ref) ref.en.handler(ref.hits[0], e, ref.hits);
+        if (ref) ref.en.handler(ref.hits[0] || null, e, ref.hits);
     }
     var clicks = {
         register: function (en) {
