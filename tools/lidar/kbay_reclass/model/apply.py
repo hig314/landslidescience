@@ -78,7 +78,15 @@ def _train_ground():
 mdl = cached_model('ground', _train_ground)
 P, X, lab, names, vend = L.load(s); prob = mdl.predict_proba(X)[:, 1].astype(np.float32); np.save(f'{d}/prob.npy', prob)
 ok = ~np.isin(P['cls'], EXCL)
-L.dtm_from(P, vend & (prob >= 0.5) & ok, S, d, 'drop50')
+_sel = vend & (prob >= 0.5) & ok
+if int(_sel.sum()) < 50:
+    # Too little ground to triangulate: a sliver that is essentially all water
+    # (u_563_6588, 2026-09-27: 4 vendor ground points against 49,641 water).
+    # Same outcome as the no-ground guard in step 1: DONE, empty, no surface.
+    open(f'{d}/EMPTY', 'w').write(f'only {int(_sel.sum())} model ground points in unit: too few to triangulate\n')
+    print(f'EMPTY unit: only {int(_sel.sum())} model ground points; nothing to model', flush=True)
+    sys.exit(0)
+L.dtm_from(P, _sel, S, d, 'drop50')
 TICK('3 ground model predict + drop50 TIN'); print('ground model done', flush=True)
 
 # 4. zones: cell features (target not used), model on all six
