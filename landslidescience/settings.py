@@ -72,6 +72,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'inventory.middleware.CacheStampMiddleware',   # cross-worker cache invalidation
 ]
 
 # Where @login_required and friends send anonymous users. Points at the

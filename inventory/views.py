@@ -25,6 +25,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST, require_safe
 
 from . import planet
+from . import cache_stamp
 from .auth import inventory_editor_required
 
 # ---------------------------------------------------------------------------
@@ -90,10 +91,27 @@ LANDSLIDE_POLYGONS_SQL = """
 
 
 def _invalidate(*keys):
-    global _data_version
+    global _data_version, _stamp_seen
     for k in keys + _ALWAYS_INVALIDATE:
         _cache.pop(k, None)
     _data_version = str(int(time.time()))
+    # Tell the OTHER workers (see cache_stamp.py); record the value so this
+    # one does not clear itself again on its next request.
+    _stamp_seen = cache_stamp.bump() or _stamp_seen
+
+
+_stamp_seen = cache_stamp.current()
+
+
+def _sync_cache_stamp():
+    """Called by CacheStampMiddleware on every request: drop this process's
+    cache if another process invalidated since we last looked."""
+    global _data_version, _stamp_seen
+    s = cache_stamp.current()
+    if s != _stamp_seen:
+        _cache.clear()
+        _data_version = str(int(time.time()))
+        _stamp_seen = s
 
 
 # ---------------------------------------------------------------------------

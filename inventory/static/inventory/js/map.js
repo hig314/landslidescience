@@ -975,6 +975,15 @@
         }
         nameEl.focus();
         nameEl.select();
+        // Enter anywhere in the popup is Add (Hig, 2026-09-26): the hands are
+        // already on the keyboard from finishing the polygon. Stopped at the
+        // overlay so neither Terra Draw's Enter-to-finish nor the tool
+        // Escape/Enter policy on document sees a keystroke meant for the form.
+        ov.addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return;
+            e.preventDefault(); e.stopPropagation();
+            ov.querySelector('#idp-ok').click();
+        });
         function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
         function discard() { if (_td) { _td.removeFeatures([fid]); _td.setMode('polygon'); } map.__drawPolyOpen = false; close(); }
         ov.querySelector('#idp-cancel').addEventListener('click', discard);
@@ -6991,6 +7000,7 @@
                 // runs behind it, because the rule cascade may also have moved
                 // the centroid, area and size class that other layers show.
                 _reviseSplicePolygons(res.polygons);
+                _reviseSplicePoint(res.derived);
                 _reviseRefreshData();
             }).catch(function (e) {
                 say(e && e.message ? e.message : 'Save failed.', 'rv-bad');
@@ -7048,6 +7058,33 @@
         var src = map.getSource('polygons');
         if (src) src.setData(_polygonsData);
         if (typeof _swipeSetPolygons === 'function') _swipeSetPolygons(_polygonsData);
+    }
+
+    // The landslide DOT is the stored centroid, and the points source is
+    // fetched once at load (initLayers), never by onMoveEnd -- so after the
+    // cascade moved the centroid the outline redrew and the dot stayed put
+    // until a reload (the "centroids don't recalculate" report, 2026-09-26).
+    // The save response carries the recomputed columns; apply them to this
+    // one feature the way _patchFeatureProp does, geometry included.
+    function _reviseSplicePoint(derived) {
+        var cur = LSRevise.current();
+        if (!derived || !cur || !_featuresData || !_featuresData.features) return;
+        var lid = String(cur.id);
+        var f = _featuresData.features.find(function (x) {
+            return x.properties && String(x.properties.id) === lid;
+        });
+        if (!f) return;
+        if (derived.centroid_lon != null && derived.centroid_lat != null) {
+            f.geometry = { type: 'Point', coordinates: [+derived.centroid_lon, +derived.centroid_lat] };
+        }
+        var props = { area_src: derived.area_source, area_dep: derived.area_deposit,
+                      size_inclusion: derived.size_inclusion, landslide_class: derived.landslide_class };
+        Object.keys(props).forEach(function (k) {
+            if (props[k] !== undefined) f.properties[k] = props[k];
+        });
+        if (map.getSource('landslides')) map.getSource('landslides').setData(_featuresData);
+        _swipeSetFeatures(_featuresData);
+        if (typeof buildFilter === 'function') buildFilter();
     }
 
     // -----------------------------------------------------------------------
