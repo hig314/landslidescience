@@ -7,7 +7,7 @@ routes = [ { pattern = "tiles.landslidescience.org", custom_domain = true } ]
 
 [vars]
 # Mirrors the R2 bucket's CORS allowlist.
-ALLOWED_ORIGINS = "https://landslidescience.org,https://www.landslidescience.org,http://localhost:8001"
+ALLOWED_ORIGINS = "https://landslidescience.org,https://www.landslidescience.org,http://localhost:8001,https://trailgeek.org,https://www.trailgeek.org,http://localhost:8002"
 
 [[r2_buckets]]
 binding = "BUCKET"
