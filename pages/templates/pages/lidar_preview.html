@@ -232,17 +232,29 @@ vanish depending on which way you light them.
   <label>Terrain exaggeration <span class="val" id="exv">1.0</span></label>
   <input type="range" id="ex" min="0" max="40" value="10">
   <label><input type="checkbox" id="ctx" checked> USGS 3DEP outside the survey</label>
+  <label><input type="checkbox" id="ctxlive"> Live 3DEP beyond the baked context (slow)</label>
+  <label>Terrain mesh
+    <select id="tmesh">
+      <option value="512">fast (512 px tiles, quarter the meshes)</option>
+      <option value="256">fine (256 px tiles)</option>
+    </select></label>
   <label><input type="checkbox" id="fog" checked> Fade into the distance (pitched views)</label>
   <div class="stackhint">Without context a survey stands on a flat plane as a
-    block of towers. Context is USGS 3DEP, fetched live per tile (slow on first
-    view); in Alaska that is 2010 IfSAR, so retreated glaciers still show as
-    ice and the survey steps off them with a cliff. It fills only around the
-    survey: water and other voids inside one stay voids, at 0 m, rather than
-    being painted with a regional DEM's guess at the sea surface. The fog
-    spares the renderer the far field, and applies only once the view is
-    pitched: looking straight down there is no far field, and on a deep
-    bathymetric survey the fog reads depth as distance and washes the seabed
-    out past a certain contour.</div>
+    block of towers. Context is USGS 3DEP from a pre-baked pyramid around the
+    surveys, and it fills right up to the survey's boundary, not just the
+    tiles the survey lacks -- so the last partial tile at the edge no longer
+    drops to a 0 m shelf. Water and other voids inside the boundary stay
+    voids, at 0 m, rather than being painted with a regional DEM's guess at
+    the sea surface. In Alaska 3DEP is 2010 IfSAR, so retreated glaciers still
+    show as ice and the survey steps off them with a cliff. Beyond the bake
+    the ground is flat unless the live service is ticked: that is a second or
+    two per tile from someone else's server, and at a steep pitch the horizon
+    asks for dozens. The fast mesh samples the same posts through tiles twice
+    the size, one zoom coarser: a quarter of the terrain meshes to build and
+    draw. The fog applies only once the view is pitched: looking straight
+    down there is no far field, and on a deep bathymetric survey the fog
+    reads depth as distance and washes the seabed out past a certain
+    contour.</div>
 
   <details class="grp" id="srcgrp">
     <summary>Sources &amp; credits <span class="cnt" id="srccount"></span></summary>
@@ -283,19 +295,24 @@ vanish depending on which way you light them.
   var CTX_ID = 'usgs3dep';
   DemShade.addImageServer(CTX_ID,
     'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer');
-  // What each survey composites over. Once the catalog advertises the baked
-  // context (bake_context.py: the same 3DEP data, one PMTiles archive on R2,
-  // z5-z13, over-zoomed above), that comes first and the live service only
-  // answers where the bake has no data -- far past every survey.
-  var ctxFill = CTX_ID;
+  // What each survey composites over: the baked context (bake_context.py:
+  // the same 3DEP data, one PMTiles archive on R2, z5-z13, over-zoomed
+  // above), registered twice at catalog load -- alone, and with the live
+  // service underneath for where the bake has no data. Those are the two
+  // ids here; without a baked context both fall back to the live service.
+  // The live chain used to be the only one, and at a steep pitch the far
+  // field is exactly where the bake ends: dozens of 1-2 s exports per view,
+  // gated four at a time, for ground the fog was about to hide.
+  var ctxFill = CTX_ID, ctxFillLive = CTX_ID, ctxMinZoom = 0;
+  function ctxLive() { return document.getElementById('ctxlive').checked; }
 
   // ---- shareable state --------------------------------------------------
   // MapLibre's built-in `hash` only carries the camera. The whole point here is
   // that a link reproduces what the sender was looking at, which means the
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
-  var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop', 'vop', 'bop'];
-  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'fog', 'inview', 'preslope', 'ortho', 'veg'];
+  var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop', 'vop', 'bop', 'tmesh'];
+  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'ctxlive', 'fog', 'inview', 'preslope', 'ortho', 'veg'];
   // [checkbox, slider, row, default-when-first-ticked] for the optional ramps.
   // Declared HERE, beside the other boot tables, because syncVisRows() runs
   // during restore: `var` hoists the name but not the value, so leaving this
@@ -487,9 +504,30 @@ vanish depending on which way you light them.
   var props4 = {};        // id -> catalog properties
   var bboxOf = {};        // id -> [w, s, e, n]
 
-  // Two registrations per survey: the archive alone (shading, and terrain
-  // without context) and the archive over 3DEP (terrain with context).
-  function ctxId(p) { return p.id + '_ctx'; }
+  // Registrations per survey: the archive alone (shading, and terrain
+  // without context), and the archive over 3DEP (terrain with context) --
+  // one per context chain, made when first asked for.
+  function ctxId(p) { return p.id + (ctxLive() ? '_ctxl' : '_ctx'); }
+  function ensureCtxReg(p) {
+    var id = ctxId(p);
+    if (ctxRegs[id]) return id;
+    ctxRegs[id] = true;
+    // fillMode 'outside': the context supplies ground outside the survey's
+    // BOUNDARY (its footprint's outer rings) and nothing inside it. The
+    // older 'missing' drew that line at tile edges instead, so the last
+    // partial tile along the survey's edge fell to a 0 m shelf before the
+    // context resumed. Patching a 10 m regional DEM into a hole in a 1 m
+    // coastal survey invents a surface out of whatever that DEM believed
+    // the water was, which is worse than an honest void (Hig, 2026-09-14) --
+    // so holes inside the boundary stay holes. A manifest fill_mode
+    // (e.g. 'holes' for an SfM surface) still overrides.
+    DemShade.addDataset(id, p.pmtiles_url,
+                        DemShade.catalogOpts(p, { fill: ctxLive() ? ctxFillLive : ctxFill,
+                                                  fillMode: p.fill_mode || 'outside',
+                                                  footprint: outerOf[p.id] || null }));
+    return id;
+  }
+  var ctxRegs = {};
   // Which registration feeds the shade layer: the pre-baked slope one by
   // default, the gradient-only twin when the checkbox is off (for comparing).
   function shadeId(id) {
@@ -504,13 +542,7 @@ vanish depending on which way you light them.
     // per tile), otherwise the archives directly; the slope pyramid if built.
     DemShade.addDataset(p.id, p.pmtiles_url, DemShade.catalogOpts(p));
     DemShade.addDataset(p.id + '_grad', p.pmtiles_url, DemShade.catalogOpts(p, { slope: null, slopeTiles: null }));
-    // fillMode 'missing': the context supplies ground OUTSIDE the survey and
-    // nothing inside it. Patching a 10 m regional DEM into a hole in a 1 m
-    // coastal survey invents a surface out of whatever that DEM believed the
-    // water was, which is worse than an honest void (Hig, 2026-09-14).
-    DemShade.addDataset(ctxId(p), p.pmtiles_url,
-                        DemShade.catalogOpts(p, { fill: ctxFill,
-                                                  fillMode: p.fill_mode || 'missing' }));
+    ensureCtxReg(p);
     map.addSource('shade-' + p.id, {
       type: 'raster',
       tiles: [DemShade.url(shadeId(p.id), readOpts())],
@@ -614,11 +646,20 @@ vanish depending on which way you light them.
 
   // Bring up (and keep warm) every dataset covering the current view, so the
   // first flip is instant too — not just the ones after it.
+  var warmPending = false;
   function syncLayers() {
     var warm = document.getElementById('warm').checked;
+    // In 3D the warm surveys wait for the map to go idle. Each one is a
+    // raster source loading (and shading, in the worker) every tile of a
+    // pitched view at opacity 0, and with five or six surveys over Kachemak
+    // Bay that was the active survey's tiles queued behind everyone else's
+    // during every gesture. The layers still come; they just come after.
+    var defer = !!map.getTerrain();
+    var deferred = false;
     Object.keys(props4).forEach(function (id) {
       var want = (id === active) || (warm && overlapsView(id));
       if (want) {
+        if (defer && id !== active && !map.getLayer('shade-' + id)) { deferred = true; return; }
         ensureLayer(props4[id]);
       } else if (map.getLayer('shade-' + id)) {
         map.removeLayer('shade-' + id);
@@ -639,6 +680,10 @@ vanish depending on which way you light them.
         }
       }
     });
+    if (deferred && !warmPending) {
+      warmPending = true;
+      map.once('idle', function () { warmPending = false; syncLayers(); });
+    }
     applyOpacity();
   }
 
@@ -736,15 +781,22 @@ vanish depending on which way you light them.
   // MapLibre's own decoder makes of a transparent pixel.
   function rebuildDem(p) {
     var ctx = document.getElementById('ctx').checked;
+    var size = document.getElementById('tmesh').value === '512' ? 512 : 256;
     var was = !!map.getTerrain();
     if (map.getSource('dem')) { map.setTerrain(null); map.removeSource('dem'); }
+    // 512: each terrain tile is the four z+1 tiles assembled (the posts the
+    // shading already decoded, so no extra fetch), and MapLibre's terrain
+    // cache, which sizes its mesh grid from the source's tileSize, builds a
+    // quarter as many meshes. Its maxzoom is one less, since z+1 must exist.
+    // minzoom: the bake's, with context -- below it there is no ground to
+    // ask for, and the old 0 sent the live service a request per world tile.
     map.addSource('dem', {
       type: 'raster-dem',
-      tiles: [DemShade.demUrl(ctx ? ctxId(p) : p.id)],
+      tiles: [DemShade.demUrl(ctx ? ensureCtxReg(p) : p.id, size)],
       encoding: 'mapbox',          // the passthrough always writes Mapbox terrain-RGB
-      tileSize: 256,
-      minzoom: ctx ? 0 : p.min_zoom,
-      maxzoom: p.max_zoom
+      tileSize: size,
+      minzoom: ctx ? ctxMinZoom : p.min_zoom,
+      maxzoom: size === 512 ? Math.max(p.min_zoom, p.max_zoom - 1) : p.max_zoom
     });
     if (was) setTerrain(true);
   }
@@ -795,10 +847,15 @@ vanish depending on which way you light them.
   // field of a PITCHED view. Looking straight down there is no far field, so
   // the fog can only take away. Below FOG_MIN_PITCH it is simply off.
   var FOG_MIN_PITCH = 20;
+  var skyOn = null;
   function applySky() {
     var want = document.getElementById('fog').checked &&
                document.getElementById('t3d').checked &&
                map.getPitch() >= FOG_MIN_PITCH;
+    // Only on a change: this runs on every moveend, and setSky is a style
+    // change that repaints everything whether or not anything differed.
+    if (want === skyOn) return;
+    skyOn = want;
     map.setSky(want ? FOG : null);
   }
 
@@ -875,12 +932,19 @@ vanish depending on which way you light them.
       // zooming in DROPS detail and stays coarse, and rotation pivots about a
       // point in the air. The package samples the surface under the centre
       // only after each gesture and once tiles settle, and eases to it.
+      // Threshold scaled to the camera's height (2 %, never under 0.5 m):
+      // the fixed 0.25 m default re-solved after nearly every gesture over
+      // rough ground, and each re-solve re-chooses every source's tiles --
+      // the settle-and-reload hitch after each drag.
       if (!untrackTerrain && DemShade && DemShade.trackTerrainCenter) {
-        untrackTerrain = DemShade.trackTerrainCenter(map);
+        untrackTerrain = DemShade.trackTerrainCenter(map, {
+          threshold: DemShade.relativeThreshold ? DemShade.relativeThreshold(0.02, 0.5) : undefined
+        });
       }
     } else {
       map.setTerrain(null);
       map.setSky(null);
+      skyOn = false;
       if (untrackTerrain) { untrackTerrain(); untrackTerrain = null; }
     }
   }
@@ -896,6 +960,7 @@ vanish depending on which way you light them.
   // for the pair in that link. The first mode sync must not snap it away.
   var pendingDmax = pendingDf !== '' && Q.get('dmax') !== null && Q.get('dmax') !== '';
   var geomOf = {};            // id -> footprint rings, for the overlap test
+  var outerOf = {};           // id -> OUTER rings only, the boundary for fillMode 'outside'
   var diffReg = {};           // demshade ids registered for differencing
 
   function bboxOverlap(a, b) {
@@ -1334,6 +1399,7 @@ vanish depending on which way you light them.
   });
 
   var retileTimer = null;
+  var lastEx = null, terrainRaf = null;
   function render() {
     var o = readOpts();
     document.getElementById('azv').textContent = o.az + '°';
@@ -1353,7 +1419,17 @@ vanish depending on which way you light them.
 
     // Opacity is a paint property — instant, no refetch.
     applyOpacity();
-    if (map.getTerrain()) setTerrain(true);
+    // Terrain only when the exaggeration moved, and once per frame: this
+    // runs on every input event of every slider, and setTerrain rebuilds
+    // the terrain for each of them -- a sun-angle drag used to re-set the
+    // terrain per pixel of travel.
+    if (map.getTerrain() && V('ex') !== lastEx) {
+      lastEx = V('ex');
+      if (!terrainRaf) terrainRaf = requestAnimationFrame(function () {
+        terrainRaf = null;
+        if (map.getTerrain()) setTerrain(true);
+      });
+    }
 
     // Everything else is baked into the tile, so it changes the tile URL.
     // Debounced: dragging a slider would otherwise re-request on every pixel.
@@ -1386,9 +1462,11 @@ vanish depending on which way you light them.
     updateDiff();
     syncUrl();
   });
-  document.getElementById('ctx').addEventListener('change', function () {
-    if (active && props4[active]) rebuildDem(props4[active]);
-    syncUrl();
+  ['ctx', 'ctxlive', 'tmesh'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', function () {
+      if (active && props4[active]) rebuildDem(props4[active]);
+      syncUrl();
+    });
   });
   document.getElementById('fog').addEventListener('change', function () {
     if (map.getTerrain()) applySky();
@@ -1425,8 +1503,12 @@ vanish depending on which way you light them.
         catalog = fc;
         if (fc.context) {
           DemShade.addDataset(fc.context.id, fc.context.pmtiles_url,
+                              DemShade.catalogOpts(fc.context, { overzoom: true }));
+          DemShade.addDataset(fc.context.id + '_live', fc.context.pmtiles_url,
                               DemShade.catalogOpts(fc.context, { overzoom: true, fill: CTX_ID }));
           ctxFill = fc.context.id;
+          ctxFillLive = fc.context.id + '_live';
+          ctxMinZoom = fc.context.min_zoom || 0;
         }
         addFootprints(fc);
         fillSources(fc);
@@ -1462,6 +1544,7 @@ vanish depending on which way you light them.
           bboxOf[p.id] = [bb[0][0], bb[0][1], bb[1][0], bb[1][1]];
           var cs = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates];
           geomOf[p.id] = cs.reduce(function (acc, poly) { return acc.concat(poly); }, []);
+          outerOf[p.id] = cs.map(function (poly) { return poly[0]; });
           var div = document.createElement('div');
           div.className = 'ds';
           div.dataset.id = p.id;

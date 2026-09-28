@@ -330,7 +330,14 @@ ssh root@143.198.140.54 'cd /opt/landslidescience && git pull && \
 # 2. catalogues (NOT in git -- data/ is gitignored). The public one must be
 #    built with --verify-r2 so a survey whose bytes are absent cannot be
 #    listed; that is what keeps pow_2018 and both Resurrection surveys out.
-env -u PROJ_LIB -u PROJ_DATA python tools/lidar/make_catalog.py \
+#    LIDAR_TILES_PUBLIC_BASE puts the tile Worker's edge-cached per-tile URLs
+#    (tiles_url / slope_tiles_url, versioned by each archive's R2 ETag) into
+#    the catalogue. Without it every client reads the archives by range
+#    request instead. It was missing from this recipe from 2026-09-21 to
+#    2026-09-28, so every catalogue installed in that window shipped without
+#    tile URLs; the Worker itself stayed deployed and answering.
+env -u PROJ_LIB -u PROJ_DATA LIDAR_TILES_PUBLIC_BASE=https://tiles.landslidescience.org/t \
+  python tools/lidar/make_catalog.py \
     --verify-r2 --out /tmp/catalog_prod.geojson
 env -u PROJ_LIB -u PROJ_DATA \
   LIDAR_PMTILES_PUBLIC_BASE=/lidar/pmtiles LIDAR_COG_PUBLIC_BASE=/lidar/cog \
