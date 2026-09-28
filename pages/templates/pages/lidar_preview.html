@@ -336,7 +336,8 @@ vanish depending on which way you light them.
   // AND its box ticked, not on with the box clear.
   syncVisRows();
   CHECKS.forEach(function (id) {
-    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'fog' || id === 'preslope');
+    // 3D on by default (Hig, 2026-09-28); a link's own t3d=0 still wins.
+    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'fog' || id === 'preslope' || id === 't3d');
   });
 
   var map = new maplibregl.Map({
@@ -344,7 +345,9 @@ vanish depending on which way you light them.
     center: [qnum('lon', -151.5), qnum('lat', 59.65)],
     zoom: qnum('z', 10),
     bearing: qnum('b', 0),
-    pitch: qnum('p', 0),
+    // A fresh load in 3D starts pitched, as ticking the box does; a link
+    // carries its own pitch.
+    pitch: qnum('p', document.getElementById('t3d').checked ? 60 : 0),
     maxPitch: 85,
     // quadkey / subdomain / QMS tile templates are rewritten per tile here (basemaps.js);
     // it only touches its own placeholder URLs, so the lidar and PMTiles requests pass through.
