@@ -772,6 +772,7 @@ vanish depending on which way you light them.
     // alone, so 3D keeps working over ground with no survey at all.
     rebuildDem(null);
     syncLayers();          // drops every layer no longer wanted
+    syncActiveStyling();
     syncOrthoControl();
     updateInView();        // the row stops being "kept" once nothing is active
     syncUrl();
@@ -787,6 +788,7 @@ vanish depending on which way you light them.
     rebuildDem(p);
 
     syncLayers();
+    syncActiveStyling();
     syncOrthoControl();
     fillDiffOptions();
     updateDiff();
@@ -832,6 +834,23 @@ vanish depending on which way you light them.
                             'raster-opacity-transition': { duration: 0, delay: 0 },
                             'raster-fade-duration': 0 } },
                  lowestLidarLayer());
+    syncActiveStyling();
+  }
+  // Around the ACTIVE survey (Hig, 2026-09-28): the context is faded -- lower
+  // contrast, brighter -- so the survey reads as the subject and the ground
+  // around it as setting; with no survey active the context is shown at full
+  // strength, since then it IS the subject. And the survey's own footprint
+  // loses its green fill: that tint (drawn above the shading, on purpose, as
+  // a where-is-there-data cue) only muddied the survey you are looking at.
+  // Other surveys keep their fill, and every outline stays.
+  var CTX_FADE = { 'raster-brightness-min': 0.35, 'raster-contrast': -0.3 };
+  var CTX_FULL = { 'raster-brightness-min': 0, 'raster-contrast': 0 };
+  function syncActiveStyling() {
+    if (map.getLayer('fp-fill')) map.setFilter('fp-fill', active ? ['!=', ['get', 'id'], active] : null);
+    if (map.getLayer(CTX_SHADE)) {
+      var v = active ? CTX_FADE : CTX_FULL;
+      Object.keys(v).forEach(function (k) { map.setPaintProperty(CTX_SHADE, k, v[k]); });
+    }
   }
   // The context goes UNDER every survey layer. Surveys are inserted just
   // below the footprints, so 'fp-fill' is not enough on its own: the context
