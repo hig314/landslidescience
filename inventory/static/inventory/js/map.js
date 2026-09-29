@@ -1264,6 +1264,15 @@
     // A two-item menu beside the pencil. Click away or Escape closes it;
     // clicking the pencil again while it is open closes it too.
     DrawModeControl.prototype.choose = function () {
+        // Menu icons as inline SVG, not Unicode shapes: U+25B0 (parallelogram) and
+        // U+2571 (diagonal) are missing from some system fonts and showed as '?'
+        // on production (Hig, 2026-09-29). Colours match the layers they draw.
+        var _DRAW_ICON_POLY = '<svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true" ' +
+            'style="vertical-align:-1px"><polygon points="1,11 4,1 13,3 11,10" fill="#00b3a4" fill-opacity=".45" ' +
+            'stroke="#00897b" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+        var _DRAW_ICON_SCARP = '<svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true" ' +
+            'style="vertical-align:-1px"><path d="M1 10 L6 5 L13 2" fill="none" stroke="#7b3fa0" ' +
+            'stroke-width="1.8" stroke-dasharray="3 2" stroke-linecap="round"/></svg>';
         var self = this;
         if (this._menu) { this._closeMenu(); return; }
         var m = document.createElement('div');
@@ -1271,9 +1280,9 @@
         m.setAttribute('role', 'menu');
         m.innerHTML =
             '<div class="inv-draw-choice-hd">Draw</div>' +
-            '<button type="button" data-kind="poly">▰ Landslide polygons</button>' +
+            '<button type="button" data-kind="poly">' + _DRAW_ICON_POLY + ' Landslide polygons</button>' +
             (typeof LSScarps !== 'undefined'
-                ? '<button type="button" data-kind="scarp">╱ Scarp traces</button>' : '');
+                ? '<button type="button" data-kind="scarp">' + _DRAW_ICON_SCARP + ' Scarp traces</button>' : '');
         var r = this._btn.getBoundingClientRect();
         m.style.left = Math.round(r.right + 8) + 'px';
         m.style.top = Math.round(r.top - 4) + 'px';
