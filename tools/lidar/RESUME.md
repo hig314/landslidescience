@@ -491,3 +491,14 @@ evening; no site code changed for this publish, so no image rebuild was
 needed for it.
 
 Still open: hoonah_2015's bytes on public R2 (unchanged, Hig's decision).
+
+## 2026-09-28 23:13: KBay reclassification published -- 47 public
+
+`kbay_2023_reclass` (the full reclassified mosaic, tools/lidar/kbay_reclass) is live beside
+`kbay_2023`, which stays published and is now titled "(NOAA vendor ground classification)".
+Archive = the verified mosaic COG itself (3.2 GB, hard-linked into lidar_build/cog/); pyramids built
+by model/viewer_build_mosaic.py with build_lidar's own functions (hard-linked from data/lidar_dev/
+into data/lidar/pmtiles/). Uploaded 21:14-23:07 (~0.9 MB/s), all three files verified; catalogues
+rebuilt with LIDAR_TILES_PUBLIC_BASE, backups `catalog{,-gated}.geojson.bak.20260929-071327`;
+audit `ok` for all 47. Its notes carry two KNOWN ISSUES (structures as ground; returns above
+water) -- fixes in tools/lidar/kbay_reclass/README.md.
