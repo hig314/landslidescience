@@ -762,8 +762,9 @@ vanish depending on which way you light them.
     active = null;
     var checked = document.querySelector('#datasets input[name="ds"]:checked');
     if (checked) checked.checked = false;
-    if (map.getTerrain()) map.setTerrain(null);
-    if (map.getSource('dem')) map.removeSource('dem');
+    // The terrain does not go with the survey: it falls back to the context
+    // alone, so 3D keeps working over ground with no survey at all.
+    rebuildDem(null);
     syncLayers();          // drops every layer no longer wanted
     syncOrthoControl();
     updateInView();        // the row stops being "kept" once nothing is active
@@ -795,11 +796,37 @@ vanish depending on which way you light them.
   // a 0 m plane (minzoom drops to 0 because the context exists at every
   // zoom). Without context, no-data is 0 m rather than the -10 km pit that
   // MapLibre's own decoder makes of a transparent pixel.
+  // With no survey active (p null) the terrain is the context on its own:
+  // bake then Mapterhorn by default, the bake alone with the global layer
+  // off, and none with context off. Before this, 3D had no terrain at all
+  // until a survey was picked -- Iceland in a pitched view was a flat map
+  // (Hig, 2026-09-28).
+  function contextDemId() {
+    if (!document.getElementById('ctx').checked) return null;
+    return ctxLive() ? ctxFillLive : ctxFill;
+  }
   function rebuildDem(p) {
     var ctx = document.getElementById('ctx').checked;
     var size = document.getElementById('tmesh').value === '512' ? 512 : 256;
-    var was = !!map.getTerrain();
+    var was = !!map.getTerrain() || (!p && document.getElementById('t3d').checked);
     if (map.getSource('dem')) { map.setTerrain(null); map.removeSource('dem'); }
+    if (!p) {
+      var cid = contextDemId();
+      if (!cid) { if (map.getTerrain()) map.setTerrain(null); return; }
+      map.addSource('dem', {
+        type: 'raster-dem',
+        tiles: [DemShade.demUrl(cid, size)],
+        attribution: ctxLive() ? GLOBAL_ATTR : undefined,
+        encoding: 'mapbox',
+        tileSize: size,
+        // Mapterhorn exists at every zoom; the bake alone from its own minzoom.
+        minzoom: ctxLive() ? 0 : ctxMinZoom,
+        // Context tops out at z13 (512 px) / z14 (256 px); MapLibre overzooms past it.
+        maxzoom: size === 512 ? 13 : 14
+      });
+      if (was) setTerrain(true);
+      return;
+    }
     // 512: each terrain tile is the four z+1 tiles assembled (the posts the
     // shading already decoded, so no extra fetch), and MapLibre's terrain
     // cache, which sizes its mesh grid from the source's tileSize, builds a
@@ -1481,7 +1508,7 @@ vanish depending on which way you light them.
   });
   ['ctx', 'ctxlive', 'tmesh'].forEach(function (id) {
     document.getElementById(id).addEventListener('change', function () {
-      if (active && props4[active]) rebuildDem(props4[active]);
+      rebuildDem(active && props4[active] ? props4[active] : null);
       syncUrl();
     });
   });
@@ -1608,6 +1635,8 @@ vanish depending on which way you light them.
           var radio = host.querySelector('input[value="' + want + '"]');
           if (radio) radio.checked = true;
           showDataset(f.properties);
+        } else {
+          rebuildDem(null);      // no survey: 3D stands on the context alone
         }
         applyNorthUp();
         syncUrl();
