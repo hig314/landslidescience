@@ -831,7 +831,18 @@ vanish depending on which way you light them.
                    paint: { 'raster-opacity': V('op') / 100,
                             'raster-opacity-transition': { duration: 0, delay: 0 },
                             'raster-fade-duration': 0 } },
-                 map.getLayer('fp-fill') ? 'fp-fill' : undefined);
+                 lowestLidarLayer());
+  }
+  // The context goes UNDER every survey layer. Surveys are inserted just
+  // below the footprints, so 'fp-fill' is not enough on its own: the context
+  // is added after a restored survey at boot, and placed below the footprints
+  // it landed ON TOP of that survey and hid it (Hig, 2026-09-28).
+  function lowestLidarLayer() {
+    var ls = map.getStyle().layers;
+    for (var i = 0; i < ls.length; i++) {
+      if (/^(shade-|ortho-|veg-)/.test(ls[i].id) || ls[i].id === DIFF_LAYER) return ls[i].id;
+    }
+    return map.getLayer('fp-fill') ? 'fp-fill' : undefined;
   }
   function contextDemId() {
     if (!document.getElementById('ctx').checked) return null;
