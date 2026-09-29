@@ -512,3 +512,28 @@ Launch / resume (both safe to repeat; each skips what is finished):
     /opt/anaconda3/bin/python model/fullrun.py --status
 After all units: mosaic full/out/*/dtm_final.tif (EPSG:6334) and run fill_holes on the MOSAIC for
 holes cut by unit edges (not yet written).
+
+## 2026-09-28 — KNOWN ISSUE, not fixed: structures are classified as ground
+
+Hig, reviewing the full mosaic in the dev viewer: buildings (and presumably bridges) survive into
+`dtm_final` as ground. Not holding publication for it, but it is the first thing to fix next time.
+
+**Why it happens.** `EXCL = (7, 18, 21, 22)` in apply.py, sitekit.py, v2.py and blend.py keeps
+noise, high noise, snow and temporal exclusion out of ground. The vendor's structure classes are NOT
+in it: **6 (building)** and **17 (bridge deck)** reach the ground model as ordinary candidates. A
+roof is flat, smooth and single-return, which is exactly what the ground model and especially the
+rock rule (rock.py: "in dark, all-single-return cells whose vendor surface sits > 0.3 m below every
+return, every return is ground") accept. The vendor TIN goes under the roof; ours goes over it.
+
+**Suggested fix (Hig's idea: override with the vendor's structure classification).**
+1. Add 6 and 17 to `EXCL` in all four modules (and check class 19 / 20 in this delivery). Then a
+   roof return is never ground and the vendor-TIN-like surface under it is what remains.
+2. Rerun ONLY the units that contain class 6/17 points. The COPC headers give class counts
+   cheaply (`pdal info --stats --filters.stats.count=Classification`), so list affected units from
+   the tile index first; `fullrun.py` reruns a unit once its `full/out/<unit>` is moved aside.
+3. Re-mosaic (`model/mosaic.py`, ~3 min) and rebuild the dev entry (`model/viewer_build_mosaic.py`).
+4. Check: difference against the vendor surface over a few towns (Homer, Seldovia, Anchor Point)
+   should lose its building-shaped positive blobs; nothing else should change.
+
+The surface as built on 2026-09-28 (full/mosaic/) has this defect; say so in its notes wherever it
+is published.

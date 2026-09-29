@@ -28,6 +28,7 @@ from rasterio.warp import transform_bounds
 
 VENDOR_TITLE = 'Kachemak Bay 2023 lidar DEM (NOAA vendor ground classification)'
 ID = 'kbay_2023_reclass'
+KNOWN_ISSUE = (" KNOWN ISSUE (2026-09-28): structures are classified as ground -- buildings and bridges stand up in this surface where the vendor surface goes under them. The vendor's building (6) and bridge (17) classes were not excluded from ground; the fix is recorded in tools/lidar/kbay_reclass/README.md.")
 
 
 def main():
@@ -57,7 +58,7 @@ def main():
                    notes='Full-survey reclassification (tools/lidar/kbay_reclass): 1,350 1 km units, 27 empty edge '
                          'slivers; ground model + zone solver + learned blend + rock/cliff faces; enclosed holes '
                          'harmonically filled per unit and across unit seams (fill_mask 2). Water is what the data '
-                         'shows: no hydroflattening.')}
+                         'shows: no hydroflattening.' + KNOWN_ISSUE)}
     pub = json.loads((REPO / 'data' / 'lidar' / 'catalog.geojson').read_text())
     vend = next(f for f in pub['features'] if f['properties']['id'] == 'kbay_2023')
     vend = json.loads(json.dumps(vend))
