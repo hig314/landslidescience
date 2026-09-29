@@ -39,7 +39,9 @@ window.DemShade = (function () {
         // Per-tile URLs through the tile Worker (edge-cached). No archive
         // header to read, so zooms and footprint come from the catalog.
         spec = { tiles: new URL(opts.tiles, location.href).href.replace(/%7B/g, '{').replace(/%7D/g, '}'),
-                 encoding: 'mapbox' };
+                 encoding: opts.encoding || 'mapbox' };
+        // 512 px publisher tiles (Mapterhorn), split into four by the package.
+        if (opts.tileSize) spec.tileSize = opts.tileSize;
         if (opts.minzoom !== undefined) spec.minzoom = opts.minzoom;
         if (opts.maxzoom !== undefined) spec.maxzoom = opts.maxzoom;
         if (opts.bounds) spec.bounds = opts.bounds;

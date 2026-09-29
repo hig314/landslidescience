@@ -232,7 +232,7 @@ vanish depending on which way you light them.
   <label>Terrain exaggeration <span class="val" id="exv">1.0</span></label>
   <input type="range" id="ex" min="0" max="40" value="10">
   <label><input type="checkbox" id="ctx" checked> USGS 3DEP outside the survey</label>
-  <label><input type="checkbox" id="ctxlive"> Live 3DEP beyond the baked context (slow)</label>
+  <label><input type="checkbox" id="ctxlive" checked> Global terrain beyond the bake (Mapterhorn)</label>
   <label>Terrain mesh
     <select id="tmesh">
       <option value="512">fast (512 px tiles, quarter the meshes)</option>
@@ -247,9 +247,10 @@ vanish depending on which way you light them.
     voids, at 0 m, rather than being painted with a regional DEM's guess at
     the sea surface. In Alaska 3DEP is 2010 IfSAR, so retreated glaciers still
     show as ice and the survey steps off them with a cliff. Beyond the bake
-    the ground is flat unless the live service is ticked: that is a second or
-    two per tile from someone else's server, and at a steep pitch the horizon
-    asks for dozens. The fast mesh samples the same posts through tiles twice
+    the ground comes from Mapterhorn's global terrain: the same 3DEP data
+    everywhere in Alaska (it matches the bake to a median of 0 m), Copernicus
+    30 m in Canada, served from a CDN. Untick it for the bake alone, flat
+    beyond. The fast mesh samples the same posts through tiles twice
     the size, one zoom coarser: a quarter of the terrain meshes to build and
     draw. The fog applies only once the view is pitched: looking straight
     down there is no far field, and on a deep bathymetric survey the fog
@@ -288,22 +289,34 @@ vanish depending on which way you light them.
   var protocol = new pmtiles.Protocol();
   maplibregl.addProtocol('pmtiles', protocol.tile);
   DemShade.register(maplibregl);
-  // Context DEM: USGS 3DEP, live float32 exports per tile. In Alaska this is
-  // 2010 IfSAR, so a glacier that has since retreated still shows as ice;
-  // where a survey has newer data the composite steps off it with a cliff.
-  // That is deliberate: an honest artifact beats a masked one.
-  var CTX_ID = 'usgs3dep';
-  DemShade.addImageServer(CTX_ID,
-    'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer');
-  // What each survey composites over: the baked context (bake_context.py:
-  // the same 3DEP data, one PMTiles archive on R2, z5-z13, over-zoomed
-  // above), registered twice at catalog load -- alone, and with the live
-  // service underneath for where the bake has no data. Those are the two
-  // ids here; without a baked context both fall back to the live service.
-  // The live chain used to be the only one, and at a steep pitch the far
-  // field is exactly where the bake ends: dozens of 1-2 s exports per view,
-  // gated four at a time, for ground the fog was about to hide.
-  var ctxFill = CTX_ID, ctxFillLive = CTX_ID, ctxMinZoom = 0;
+  // Context DEM, in two layers. First our own bake (bake_context.py: USGS
+  // 3DEP 1/3 arc-second around the surveys, one PMTiles archive on R2,
+  // z5-z13, over-zoomed above). Beyond it, Mapterhorn's global terrain
+  // (https://mapterhorn.com): in Alaska the same 3DEP data statewide --
+  // checked against the bake at Homer, the Kachemak glaciers and Seward,
+  // median difference 0 m -- and Copernicus GLO-30 in Canada, as 512 px
+  // terrarium WebP from a CDN (CORS open). It replaced the live USGS
+  // ImageServer, which cost 1-2 s per export, four at a time, exactly where
+  // a pitched view's horizon crosses the edge of the bake (2026-09-28).
+  // In Alaska this is 2010 IfSAR, so a glacier that has since retreated
+  // still shows as ice; where a survey has newer data the composite steps
+  // off it with a cliff. That is deliberate: an honest artifact beats a
+  // masked one.
+  var GLOBAL_ID = 'mapterhorn';
+  DemShade.addDataset(GLOBAL_ID, null, {
+    tiles: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
+    encoding: 'terrarium', tileSize: 512,
+    // 13 is its deepest zoom anywhere in Alaska (3DEP 1/3 arc-second);
+    // over-zoomed above, so the finest survey zooms still have ground.
+    minzoom: 0, maxzoom: 13, overzoom: true
+  });
+  var GLOBAL_ATTR = 'Terrain beyond the surveys: <a href="https://mapterhorn.com/attribution" target="_blank" ' +
+                    'rel="noopener">Mapterhorn</a> (USGS 3DEP; Copernicus DEM © DLR e.V. 2010-2014 and © Airbus ' +
+                    'Defence and Space GmbH 2014-2018, provided under COPERNICUS by the EU and ESA)';
+  // What each survey composites over, registered at catalog load: the bake
+  // alone, and the bake with Mapterhorn beyond it (the default). Without a
+  // bake in the catalogue, Mapterhorn is the whole context.
+  var ctxFill = null, ctxFillLive = GLOBAL_ID, ctxMinZoom = 0;
   function ctxLive() { return document.getElementById('ctxlive').checked; }
 
   // ---- shareable state --------------------------------------------------
@@ -337,7 +350,7 @@ vanish depending on which way you light them.
   syncVisRows();
   CHECKS.forEach(function (id) {
     // 3D on by default (Hig, 2026-09-28); a link's own t3d=0 still wins.
-    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'fog' || id === 'preslope' || id === 't3d');
+    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'ctxlive' || id === 'fog' || id === 'preslope' || id === 't3d');
   });
 
   var map = new maplibregl.Map({
@@ -796,6 +809,7 @@ vanish depending on which way you light them.
     map.addSource('dem', {
       type: 'raster-dem',
       tiles: [DemShade.demUrl(ctx ? ensureCtxReg(p) : p.id, size)],
+      attribution: ctx && ctxLive() ? GLOBAL_ATTR : undefined,
       encoding: 'mapbox',          // the passthrough always writes Mapbox terrain-RGB
       tileSize: size,
       minzoom: ctx ? ctxMinZoom : p.min_zoom,
@@ -1508,7 +1522,7 @@ vanish depending on which way you light them.
           DemShade.addDataset(fc.context.id, fc.context.pmtiles_url,
                               DemShade.catalogOpts(fc.context, { overzoom: true }));
           DemShade.addDataset(fc.context.id + '_live', fc.context.pmtiles_url,
-                              DemShade.catalogOpts(fc.context, { overzoom: true, fill: CTX_ID }));
+                              DemShade.catalogOpts(fc.context, { overzoom: true, fill: GLOBAL_ID }));
           ctxFill = fc.context.id;
           ctxFillLive = fc.context.id + '_live';
           ctxMinZoom = fc.context.min_zoom || 0;
