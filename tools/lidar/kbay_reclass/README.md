@@ -537,3 +537,16 @@ return, every return is ground") accept. The vendor TIN goes under the roof; our
 
 The surface as built on 2026-09-28 (full/mosaic/) has this defect; say so in its notes wherever it
 is published.
+
+## 2026-09-28 — KNOWN ISSUE, not fixed: bad returns above water survive as ground
+
+Hig, reviewing the full mosaic: in places, spurious returns ABOVE water surfaces are kept as ground,
+and more work removing them would clean the surface up. Example: **59.45329, -151.71004** (UTM 5N
+573132 E, 6591237 N, unit **u_573_6591**; in a 200 m box around it the surface runs 3.6 / 5.1 /
+12.2 m at p5 / median / p95, 3% harmonically filled). No action yet (Hig).
+
+Where to start next time: the water policy is "what the data shows" (no hydroflattening, 2026-09-26),
+so the target is not flattening but rejecting returns that sit above the local water level with
+nothing solid under them -- e.g. single returns over class 9 / below-water class 22 neighbourhoods,
+or a height-above-water-level test using the kept water level that admit_low_tide already computes
+(sitekit.admit_low_tide). Check the example unit's classes and return numbers before choosing.

@@ -29,6 +29,7 @@ from rasterio.warp import transform_bounds
 VENDOR_TITLE = 'Kachemak Bay 2023 lidar DEM (NOAA vendor ground classification)'
 ID = 'kbay_2023_reclass'
 KNOWN_ISSUE = (" KNOWN ISSUE (2026-09-28): structures are classified as ground -- buildings and bridges stand up in this surface where the vendor surface goes under them. The vendor's building (6) and bridge (17) classes were not excluded from ground; the fix is recorded in tools/lidar/kbay_reclass/README.md.")
+KNOWN_ISSUE += ' KNOWN ISSUE (2026-09-28): in places spurious returns above water are kept as ground (e.g. 59.45329, -151.71004); see the README.'
 
 
 def main():
