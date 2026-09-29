@@ -233,6 +233,7 @@ vanish depending on which way you light them.
   <input type="range" id="ex" min="0" max="40" value="10">
   <label><input type="checkbox" id="ctx" checked> USGS 3DEP outside the survey</label>
   <label><input type="checkbox" id="ctxlive" checked> Global terrain beyond the bake (Mapterhorn)</label>
+  <label><input type="checkbox" id="ctxshade" checked> Shade the context (hillshade outside the surveys)</label>
   <label>Terrain mesh
     <select id="tmesh">
       <option value="512">fast (512 px tiles, quarter the meshes)</option>
@@ -325,7 +326,7 @@ vanish depending on which way you light them.
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
   var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop', 'vop', 'bop', 'tmesh'];
-  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'ctxlive', 'fog', 'inview', 'preslope', 'ortho', 'veg'];
+  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'ctxlive', 'ctxshade', 'fog', 'inview', 'preslope', 'ortho', 'veg'];
   // [checkbox, slider, row, default-when-first-ticked] for the optional ramps.
   // Declared HERE, beside the other boot tables, because syncVisRows() runs
   // during restore: `var` hoists the name but not the value, so leaving this
@@ -350,7 +351,7 @@ vanish depending on which way you light them.
   syncVisRows();
   CHECKS.forEach(function (id) {
     // 3D on by default (Hig, 2026-09-28); a link's own t3d=0 still wins.
-    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'ctxlive' || id === 'fog' || id === 'preslope' || id === 't3d');
+    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'ctxlive' || id === 'ctxshade' || id === 'fog' || id === 'preslope' || id === 't3d');
   });
 
   var map = new maplibregl.Map({
@@ -705,6 +706,7 @@ vanish depending on which way you light them.
 
   function applyOpacity() {
     var op = +document.getElementById('op').value / 100;
+    if (map.getLayer(CTX_SHADE)) map.setPaintProperty(CTX_SHADE, 'raster-opacity', op);
     // The drape is all-or-nothing against the shading: at full opacity the
     // photograph replaces the hillshade, which is what you want for reading
     // ground cover, and unticking it puts the shading back for reading form.
@@ -801,6 +803,32 @@ vanish depending on which way you light them.
   // off, and none with context off. Before this, 3D had no terrain at all
   // until a survey was picked -- Iceland in a pitched view was a flat map
   // (Hig, 2026-09-28).
+  // Context SHADING. The terrain mesh is far too coarse to carry detail, so
+  // without this the ground outside a survey was just the basemap draped on
+  // a smooth surface -- Mapterhorn's own viewer looked far more detailed at
+  // the same place because it hillshades the same tiles (Hig, 2026-09-28).
+  // Same shading stack and sliders as the surveys, drawn beneath them
+  // (below the footprints), and scaled by the lidar opacity like the rest.
+  var CTX_SHADE = 'ctxshade', ctxShadeId = null;
+  function syncContextShade() {
+    var cid = document.getElementById('ctxshade').checked ? contextDemId() : null;
+    if (cid !== ctxShadeId && map.getLayer(CTX_SHADE)) {
+      map.removeLayer(CTX_SHADE); map.removeSource(CTX_SHADE);
+    }
+    ctxShadeId = cid;
+    if (!cid || map.getLayer(CTX_SHADE)) return;
+    map.addSource(CTX_SHADE, {
+      type: 'raster', tiles: [DemShade.url(cid, readOpts())], tileSize: 256,
+      minzoom: ctxLive() ? 0 : ctxMinZoom,
+      maxzoom: 14,                         // the context's depth; MapLibre overzooms past it
+      attribution: ctxLive() ? GLOBAL_ATTR : undefined
+    });
+    map.addLayer({ id: CTX_SHADE, type: 'raster', source: CTX_SHADE,
+                   paint: { 'raster-opacity': V('op') / 100,
+                            'raster-opacity-transition': { duration: 0, delay: 0 },
+                            'raster-fade-duration': 0 } },
+                 map.getLayer('fp-fill') ? 'fp-fill' : undefined);
+  }
   function contextDemId() {
     if (!document.getElementById('ctx').checked) return null;
     return ctxLive() ? ctxFillLive : ctxFill;
@@ -1487,6 +1515,7 @@ vanish depending on which way you light them.
         var src = map.getSource('shade-' + id);
         if (src) src.setTiles([DemShade.url(shadeId(id), o)]);
       });
+      if (ctxShadeId && map.getSource(CTX_SHADE)) map.getSource(CTX_SHADE).setTiles([DemShade.url(ctxShadeId, o)]);
       updateDiff();
     }, 160);
   }
@@ -1506,9 +1535,10 @@ vanish depending on which way you light them.
     updateDiff();
     syncUrl();
   });
-  ['ctx', 'ctxlive', 'tmesh'].forEach(function (id) {
+  ['ctx', 'ctxlive', 'tmesh', 'ctxshade'].forEach(function (id) {
     document.getElementById(id).addEventListener('change', function () {
-      rebuildDem(active && props4[active] ? props4[active] : null);
+      if (id !== 'ctxshade') rebuildDem(active && props4[active] ? props4[active] : null);
+      if (catalog) syncContextShade();
       syncUrl();
     });
   });
@@ -1638,6 +1668,7 @@ vanish depending on which way you light them.
         } else {
           rebuildDem(null);      // no survey: 3D stands on the context alone
         }
+        syncContextShade();
         applyNorthUp();
         syncUrl();
       })
