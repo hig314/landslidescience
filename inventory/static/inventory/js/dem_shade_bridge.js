@@ -56,6 +56,8 @@ window.DemShade = (function () {
       // 'outside' needs the survey boundary: the footprint's OUTER rings.
       if (opts.footprint) spec.footprint = opts.footprint;
       if (opts.overzoom) spec.overzoom = true;
+      // Background DEMs write the sea as a flat 0 m; 0 here makes it a void.
+      if (opts.nodataAtOrBelow !== undefined && opts.nodataAtOrBelow !== null) spec.nodataAtOrBelow = opts.nodataAtOrBelow;
       // Pre-baked slope pyramid (build_lidar.py --stage slope): the slope ramp
       // reads true slope from the float32 archive instead of a gradient of
       // the 0.1 m-quantised tiles, which staircases on gentle ground.
