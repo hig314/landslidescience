@@ -58,7 +58,7 @@
     },
     {
       "id": "kbay_2023",
-      "title": "Kachemak Bay 2023 lidar DEM",
+      "title": "Kachemak Bay 2023 lidar DEM (NOAA vendor ground classification)",
       "src": "/Volumes/Powder/Alaska GIS/Raster/AK_lidar/KBay_2023/Final_KBay_2023/tiles/kbay_2024_cog_final.tif",
       "target_epsg": 6334,
       "native_res_m": 0.5,
