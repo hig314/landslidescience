@@ -163,12 +163,17 @@ def build(site, final_tag):
 if __name__ == '__main__':
     tag = sys.argv[1]; sites = sys.argv[2:] or ['patch1', 'alder', 'island', 'bare_gentle']
     cat = REPO / 'data' / 'lidar_dev' / 'catalog.geojson'
-    fc = {'type': 'FeatureCollection', 'features': []}          # fresh each run: no accumulation (Hig)
+    # Fresh each run for the TEST PATCHES only (rc_*; no accumulation, Hig). Anything else in
+    # the dev catalogue -- the full mosaic and the vendor survey from viewer_build_mosaic.py --
+    # is kept, and its archives are never deleted here (2026-09-28).
+    fc = {'type': 'FeatureCollection',
+          'features': [f for f in (json.loads(cat.read_text())['features'] if cat.exists() else [])
+                       if not f['properties']['id'].startswith('rc_')]}
     # 3D terrain outside a survey comes from the catalogue's `context` (the baked Alaska 3DEP
     # archive). Without it the page fell back to the live ImageServer and the ground around
     # each patch sat flat (Hig, 2026-09-26) -- carry the public catalogue's context over.
     fc['context'] = json.loads((REPO / 'data' / 'lidar' / 'catalog.geojson').read_text()).get('context')
-    for old in (REPO / 'data' / 'lidar_dev' / 'pmtiles').glob('*.pmtiles'): old.unlink()
+    for old in (REPO / 'data' / 'lidar_dev' / 'pmtiles').glob('rc_*.pmtiles'): old.unlink()
     for s in sites:
         new = build(s, tag)
         ids = {f['properties']['id'] for f in new}
