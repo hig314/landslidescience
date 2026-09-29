@@ -75,6 +75,24 @@
       "source_url": "https://www.fisheries.noaa.gov/inport/item/77562"
     },
     {
+      "id": "kbay_2023_reclass",
+      "title": "Kachemak Bay 2023 lidar DTM, reclassified (calibrated on Grewingk 2021)",
+      "src": "/Volumes/Nunatak/lidar_build/kbay_reclass_test/full/mosaic/dtm_final.tif",
+      "target_epsg": 6334,
+      "native_res_m": 1.0,
+      "center_lat": 59.4,
+      "min_zoom": 8,
+      "max_zoom": 17,
+      "year": 2023,
+      "product": "DTM (bare earth, reclassified from the point cloud)",
+      "archive_mode": "copy",
+      "vertical_datum": "NAVD88 (GEOID12B)",
+      "region": "Kenai Peninsula",
+      "source": "NOAA Office for Coastal Management 2023/24 Kachemak Bay point cloud (NV5, dataset 10418), reclassified by landslidescience.org",
+      "source_url": "https://www.fisheries.noaa.gov/inport/item/77562",
+      "notes": "The same NOAA 2023/24 Kachemak Bay point cloud as kbay_2023 (the vendor's own ground classification, kept published beside this one), re-classified here because the vendor ground is weak under canopy. Method: tools/lidar/kbay_reclass (README is the running log): a ground model calibrated leave-one-site-out on the DGGS Grewingk 2021 lidar, a zone solver, a learned blend with guards, and a rock/cliff-face surface; 1,350 1 km units with 60 m buffers (27 empty edge slivers), mosaicked at 1 m. Enclosed no-data holes are harmonically filled, per unit and across unit seams; fill_mask.tif marks them (2 = filled), 3.7 km2 of seam fills, the largest being lakes and a tidal lagoon filled near-flat at their shore level. Water is what the data shows: no hydroflattening; class 22 returns admitted below the kept water level (low tide). ARCHIVE: the mosaic COG itself (DEFLATE, overviews), not re-warped; tiles built by build_lidar's own per-zoom functions (model/viewer_build_mosaic.py). KNOWN ISSUES (2026-09-28, recorded for the next pass, not fixed): (1) structures are classified as ground -- buildings and bridges stand up where the vendor surface goes under them, because the vendor's building (6) and bridge (17) classes were not excluded; (2) in places spurious returns above water are kept as ground, e.g. 59.45329, -151.71004. Fixes are outlined in tools/lidar/kbay_reclass/README.md."
+    },
+    {
       "id": "matsu_2019",
       "title": "Matanuska Valley 2019 bare-earth DEM",
       "src": "/Volumes/Nunatak/lidar_build/matsu_2019/source_masked.tif",
