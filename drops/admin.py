@@ -19,7 +19,7 @@ class DropAdminForm(forms.ModelForm):
 
     class Meta:
         model = Drop
-        fields = ['title', 'note', 'created_by', 'expires_at', 'closed']
+        fields = ['title', 'note', 'expires_at', 'closed']
 
     def save(self, commit=True):
         d = super().save(commit=False)
@@ -39,10 +39,16 @@ class DropAdmin(admin.ModelAdmin):
                     'closed', 'passphrase_set')
     list_filter = ('closed',)
     search_fields = ('title', 'slug')
-    readonly_fields = ('slug', 'upload_path', 'created_at', 'passphrase_set')
-    fields = ('title', 'note', 'created_by', 'expires_at', 'closed',
+    readonly_fields = ('slug', 'upload_path', 'created_by', 'created_at', 'passphrase_set')
+    fields = ('title', 'note', 'expires_at', 'closed',
               'passphrase', 'clear_passphrase', 'passphrase_set',
-              'slug', 'upload_path', 'created_at')
+              'slug', 'upload_path', 'created_by', 'created_at')
+
+    def save_model(self, request, obj, form, change):
+        # Whoever saves a new drop made it; not a pulldown to pick anyone.
+        if not change or obj.created_by_id is None:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     @admin.display(boolean=True, description='Passphrase set')
     def passphrase_set(self, obj):
