@@ -1,5 +1,8 @@
+import threading
+
 from django import forms
 from django.contrib import admin
+from django.utils.html import format_html
 
 from .models import Drop, DropFile
 
@@ -45,9 +48,21 @@ class DropAdmin(admin.ModelAdmin):
     def passphrase_set(self, obj):
         return obj.has_passphrase()
 
+    # The absolute link needs the request's host; admin.display methods only
+    # get the object, so changeform_view parks the base URL per thread.
+    _tl = threading.local()
+
+    def changeform_view(self, request, *args, **kwargs):
+        self._tl.base = request.build_absolute_uri('/').rstrip('/')
+        return super().changeform_view(request, *args, **kwargs)
+
     @admin.display(description='Upload link')
     def upload_path(self, obj):
-        return f'/drops/{obj.slug}/' if obj.pk else '(saved first)'
+        if not obj.pk:
+            return '(appears once saved)'
+        url = f'{getattr(self._tl, "base", "")}/drops/{obj.slug}/'
+        return format_html('<a href="{0}" target="_blank" rel="noopener" '
+                           'style="font-family:monospace">{0}</a>', url)
 
 
 @admin.register(DropFile)
