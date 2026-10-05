@@ -21,6 +21,8 @@ from django.views.static import serve as static_serve
 #                space and would burn crawl budget and bandwidth for nothing
 #   unlisted     /files/ — hosted files are reachable only by someone given
 #                the link; indexing them would undo that
+#                /drops/ — upload links are the credential; the rest is
+#                login-gated
 #   provisional  /glaciers/ — still experimental; not something to surface in
 #                search yet
 #
@@ -44,6 +46,7 @@ Disallow: /tiles/
 Disallow: /lidar/
 Disallow: /inventory/planet/
 Disallow: /files/
+Disallow: /drops/
 Disallow: /glaciers/
 """
 
@@ -189,5 +192,6 @@ urlpatterns = [
     path('inventory/', include('inventory.urls')),
     path('glaciers/', include('glaciers.urls')),
     path('files/', include('files.urls')),
+    path('drops/', include('drops.urls')),
     path('', include('pages.urls')),
 ]

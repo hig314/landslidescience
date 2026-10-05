@@ -30,6 +30,15 @@ UMAMI_PUBLIC_URL = os.environ.get('UMAMI_PUBLIC_URL', '')
 UMAMI_BRIDGE_USER = os.environ.get('UMAMI_BRIDGE_USER', '')
 UMAMI_BRIDGE_PASSWORD = os.environ.get('UMAMI_BRIDGE_PASSWORD', '')
 
+# Photo drops (drops/): a PRIVATE Cloudflare R2 bucket the browser uploads to
+# directly with URLs the app presigns. Needs its own token — the lidar token in
+# ~/.r2.env is scoped to the public lidar bucket only. All four empty = drops
+# can be created but uploads refuse with a clear message.
+DROPS_R2_ENDPOINT = os.environ.get('DROPS_R2_ENDPOINT', '')
+DROPS_R2_ACCESS_KEY_ID = os.environ.get('DROPS_R2_ACCESS_KEY_ID', '')
+DROPS_R2_SECRET_ACCESS_KEY = os.environ.get('DROPS_R2_SECRET_ACCESS_KEY', '')
+DROPS_R2_BUCKET = os.environ.get('DROPS_R2_BUCKET', '')
+
 # Trust X-Forwarded-Proto from Caddy so Django knows the request was HTTPS.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
@@ -61,6 +70,7 @@ INSTALLED_APPS = [
     'inventory',
     'files',
     'glaciers',
+    'drops',
 ]
 
 MIDDLEWARE = [

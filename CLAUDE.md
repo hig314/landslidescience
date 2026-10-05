@@ -110,6 +110,9 @@ pushing untested code to GH.
 | `/traffic/` | superusers + site_admins | Signs the current Django user into the Umami dashboard (Umami's own login is disabled) |
 | `/traffic/optout/` | public | Per-browser analytics opt-out (signed-in browsing is excluded automatically) |
 | `/files/<name>` | public *(unlisted)* | Serves an admin-uploaded `HostedFile` by its URL token (no auth). |
+| `/drops/` | inventory_editors + Hig | Photo drops: create upload links, see what arrived |
+| `/drops/<slug>/` | anyone with the link (+ optional passphrase) | Folder uploader — browser → private R2 directly, nothing through the droplet |
+| `/drops/<slug>/files/` | any signed-in account | Gallery of a drop; `links.txt` = presigned URLs for bulk download |
 | `/admin/` | site_admins (Page + HostedFile perms) + Hig | Django admin — Page + HostedFile models + User/Group management |
 
 ## Auth & permissions
@@ -159,6 +162,49 @@ The `files` app hosts arbitrary admin-uploaded files at stable, human-readable p
 - **Fully public, unlisted.** No auth. Nothing links to the files, so they're reachable only by someone who knows the URL, and `robots.txt` keeps `/files/` disallowed so indexing can't undo that.
 - **Storage: `MEDIA_ROOT = data/media/`** (`upload_to='hosted_files/'`). `data/` is volume-mounted in dev and prod and gitignored, so uploads **persist across deploys** and are never committed or baked into the image. There is **no `/media/` static route** — the only way out is the `/files/<name>` view.
 - **Permissions** are granted in `init_groups` (HostedFile CRUD → `site_admins`), so **re-run `init_groups` after deploying** if the group needs the perms (as with any group change).
+
+## Photo drops — `/drops/`
+
+A link you send a collaborator so they can upload a **folder** of photos
+(the first use: a game camera on a slow landslide, thousands of JPEGs). App
+`drops/` (SQLite models `Drop` + `DropFile`), design note at the top of
+`drops/models.py`.
+
+- **The bytes never touch the droplet** — it has ~7 GB of disk. The browser
+  uploads straight to a **private** Cloudflare R2 bucket (`DROPS_R2_*` in
+  `.env`; its own token, the lidar token is bucket-scoped) using URLs Django
+  presigns (`drops/r2.py`, boto3 imported lazily). Reads are presigned GETs
+  too, so the gallery page is the only thing gunicorn serves. Key layout:
+  `drops/<slug>/<relative path as dropped>`; server thumbnails under
+  `drops/<slug>/.thumbs/`.
+- **The link is the credential.** `slug` is a 12-char random token; an
+  optional passphrase (hashed) is a second lock, held in the session. No
+  account needed to upload. Viewing needs any site account — every account
+  is a known collaborator. Creating/closing drops is editor-only.
+- **Uploader** = Uppy **4.13.3** from the Transloadit CDN with our own
+  callbacks (`drops/static/drops/upload.js`); Uppy 5+ dropped those for its
+  "Companion" server protocol, so do not bump the major without rewriting
+  the API. Single presigned PUT under 100 MB, S3 multipart above. **Resume
+  is "drop the folder again"**: the client fetches `{path: size}` of what
+  the server has and skips matches — simpler and more robust for a folder
+  than IndexedDB state. Completion is recorded only after the server HEADs
+  the object (`api_record`), so a row always means real bytes.
+- **Bucket CORS is required** (origin + `ExposeHeaders: ETag`, which
+  multipart completion needs). `manage.py drops_setup_bucket` applies it, or
+  prints the JSON for the dashboard if the token lacks bucket-admin rights.
+- **Processing is two-tier.** Light, on the droplet: `drops/thumbs.py`
+  makes a 400 px thumbnail + reads EXIF `taken_at` (the hook a future
+  time-lapse type hangs off), one object in memory at a time, in a per-process
+  worker thread that claims rows with an atomic conditional UPDATE (two
+  gunicorn workers); `manage.py drops_thumbs [--drop slug] [--retry-errors]
+  [--stalled]` is the synchronous equivalent after a restart. Heavy, on the
+  Mac: `tools/drops/r2_pull.sh <slug>` mirrors a drop to
+  `/Volumes/Nunatak/Landslides/drops/<slug>/` (rclone `copy`, never deletes;
+  credentials in `~/.r2_drops.env`) — that mirror is also the backup; R2 is
+  otherwise the only copy.
+- **Nothing in the UI deletes bytes.** Close a drop to refuse uploads;
+  deleting is rclone + Django admin, on purpose.
+- Robots: `/drops/` disallowed and every template is `noindex`.
 
 ## Field photos
 

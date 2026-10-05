@@ -1,0 +1,123 @@
+{% extends "inventory/base.html" %}
+{% block robots %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+{% block title %}Photo drops — Landslide Science{% endblock %}
+{% block page_title %}Photo drops{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div style="max-width: 980px; margin: 30px auto; padding: 0 20px;">
+  <h2 style="font-size: 19px; margin-bottom: 6px;">Photo drops</h2>
+  <p style="color:#555; line-height:1.55; max-width: 720px;">
+    A drop is a link you send someone so they can upload a folder of photos.
+    Files go straight from their browser to private object storage (never
+    through this server), anyone with a site account can browse what arrived,
+    and <code>tools/drops/r2_pull.sh &lt;slug&gt;</code> mirrors a drop to Nunatak
+    for processing and backup.
+  </p>
+
+  {% if not configured %}
+  <div style="background:#fff3e0; border:1px solid #f0c08a; padding:10px 14px; border-radius:4px; margin:14px 0; font-size:13px;">
+    <b>Storage is not configured.</b> Set <code>DROPS_R2_ENDPOINT</code>,
+    <code>DROPS_R2_ACCESS_KEY_ID</code>, <code>DROPS_R2_SECRET_ACCESS_KEY</code> and
+    <code>DROPS_R2_BUCKET</code> in <code>.env</code>, then
+    <code>docker compose up -d web</code> and run
+    <code>manage.py drops_setup_bucket</code>. Drops can be created now; uploads
+    will refuse until then.
+  </div>
+  {% endif %}
+
+  <form method="post" style="margin: 22px 0 30px; padding: 14px 16px; background:#f7f5f2; border-radius:6px; display:grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; max-width: 760px;">
+    {% csrf_token %}
+    <label style="grid-column: 1 / -1; font-size:13px; color:#555;">Title
+      <input name="title" required maxlength="200" placeholder="e.g. Barry Arm game cam, Jun–Sep 2026"
+             style="display:block; width:100%; padding:7px 9px; font-size:14px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; margin-top:4px;">
+    </label>
+    <label style="grid-column: 1 / -1; font-size:13px; color:#555;">Note to the uploader <span style="color:#999;">(optional)</span>
+      <textarea name="note" rows="2" placeholder="Drop the whole camera folder — leave the card structure as it is."
+                style="display:block; width:100%; padding:7px 9px; font-size:13px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; margin-top:4px;"></textarea>
+    </label>
+    <label style="font-size:13px; color:#555;">Passphrase <span style="color:#999;">(optional, second lock on the link)</span>
+      <input name="passphrase" autocomplete="off"
+             style="display:block; width:100%; padding:7px 9px; font-size:14px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; margin-top:4px;">
+    </label>
+    <label style="font-size:13px; color:#555;">Uploads close after <span style="color:#999;">(days; blank = never)</span>
+      <input name="expires_days" inputmode="numeric" pattern="[0-9]*" placeholder="30"
+             style="display:block; width:100%; padding:7px 9px; font-size:14px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; margin-top:4px;">
+    </label>
+    <div style="grid-column: 1 / -1;">
+      <button type="submit" style="padding:8px 20px; background:#5D4037; color:#fff; border:none; border-radius:4px; font-size:14px; cursor:pointer;">Create drop</button>
+    </div>
+  </form>
+
+  {% if rows %}
+  <table style="width:100%; border-collapse:collapse; font-size:13px;">
+    <thead>
+      <tr style="text-align:left; color:#666; border-bottom:1px solid #ddd;">
+        <th style="padding:6px 8px;">Drop</th>
+        <th style="padding:6px 8px;">Received</th>
+        <th style="padding:6px 8px;">Uploads</th>
+        <th style="padding:6px 8px;">Links</th>
+        <th style="padding:6px 8px;"></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr style="border-bottom:1px solid #eee; vertical-align:top;">
+        <td style="padding:8px;">
+          <b>{{ r.drop.title }}</b><br>
+          <span style="color:#888; font-size:12px;">
+            {{ r.drop.slug }} · created {{ r.drop.created_at|date:"j M Y" }}{% if r.drop.created_by %} by {{ r.drop.created_by.username }}{% endif %}{% if r.drop.has_passphrase %} · passphrase{% endif %}
+          </span>
+          {% if r.drop.note %}<div style="color:#666; font-size:12px; margin-top:3px; white-space:pre-line;">{{ r.drop.note }}</div>{% endif %}
+        </td>
+        <td style="padding:8px; white-space:nowrap;">{{ r.n }} file{{ r.n|pluralize }}<br><span style="color:#888;">{{ r.bytes|filesizeformat }}</span></td>
+        <td style="padding:8px; white-space:nowrap;">
+          {% if r.drop.closed %}<span style="color:#b00020;">closed</span>
+          {% elif r.drop.is_expired %}<span style="color:#b00020;">expired {{ r.drop.expires_at|date:"j M Y" }}</span>
+          {% elif r.drop.expires_at %}open until {{ r.drop.expires_at|date:"j M Y" }}
+          {% else %}open{% endif %}
+        </td>
+        <td style="padding:8px; font-size:12px;">
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input readonly value="{{ r.upload_url }}" onclick="this.select()"
+                   style="width:260px; font-size:12px; padding:3px 6px; border:1px solid #ddd; border-radius:3px; color:#444;">
+            <button type="button" data-copy="{{ r.upload_url }}" class="drop-copy"
+                    style="font-size:12px; padding:3px 8px; cursor:pointer;">Copy</button>
+          </div>
+          <div style="margin-top:4px;">
+            <a href="{{ r.files_url }}">Browse files</a> ·
+            <a href="{{ r.drop.slug }}/">Open upload page</a>
+          </div>
+        </td>
+        <td style="padding:8px; white-space:nowrap;">
+          <form method="post" action="{% url 'drops:toggle' r.drop.slug %}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" style="font-size:12px; padding:3px 8px; cursor:pointer;">
+              {% if r.drop.closed %}Reopen{% else %}Close{% endif %}
+            </button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#888;">No drops yet.</p>
+  {% endif %}
+
+  <p style="color:#888; font-size:12px; margin-top:28px; line-height:1.55; max-width:720px;">
+    Closing a drop refuses new uploads but keeps the files viewable. Deleting
+    one is deliberate and manual: remove the objects with rclone, then delete
+    the row in Django admin — nothing here deletes bytes.
+  </p>
+</div>
+<script>
+  document.querySelectorAll('.drop-copy').forEach(function (b) {
+    b.addEventListener('click', function () {
+      navigator.clipboard.writeText(b.dataset.copy).then(function () {
+        var t = b.textContent; b.textContent = 'Copied'; setTimeout(function () { b.textContent = t; }, 1200);
+      });
+    });
+  });
+</script>
+{% endblock %}
