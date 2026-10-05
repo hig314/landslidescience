@@ -5231,6 +5231,24 @@
             var title = document.createElement('div');
             title.style.cssText = 'font-size:11px;font-weight:600;color:#444;display:flex;' +
                                   'align-items:center;gap:5px;';
+            // One box for the whole source when it has several layers (DGGS
+            // ships five), so turning all of it on is one click, not five.
+            // Tri-state: indeterminate while only some of its layers are on.
+            var rows = [];
+            var all = null;
+            if (s.layers.length > 1) {
+                all = document.createElement('input');
+                all.type = 'checkbox';
+                all.title = 'Show or hide every layer of this inventory';
+                all.style.margin = '0';
+                title.appendChild(all);
+            }
+            function syncAll() {
+                if (!all) return;
+                var on = rows.filter(function (r) { return r.cb.checked; }).length;
+                all.checked = on === rows.length;
+                all.indeterminate = on > 0 && on < rows.length;
+            }
             var sw = document.createElement('span');
             sw.style.cssText = 'width:9px;height:9px;border-radius:50%;flex:none;background:' +
                                s.colour + ';border:1px solid #fff;box-shadow:0 0 0 1px #bbb;';
@@ -5260,26 +5278,49 @@
                 var st = document.createElement('span');
                 st.id = 'extnote-' + k.replace('/', '__');
                 st.style.cssText = 'display:block;margin-left:18px;color:#888;font-size:10px;';
+                var row = { k: k, L: L, cb: cb, st: st };
+                rows.push(row);
                 cb.addEventListener('change', function () {
-                    if (cb.checked) {
-                        _extActive[k] = true;
-                        _extEnsure(k, L.geom, s.colour, map);
-                        if (_swipe && _swipe.map) _extEnsure(k, L.geom, s.colour, _swipe.map);
-                        _extRefresh();
-                    } else {
-                        delete _extActive[k];
-                        delete _extNote[k];
-                        _extRemove(k, L.geom, map);
-                        if (_swipe && _swipe.map) _extRemove(k, L.geom, _swipe.map);
-                        st.textContent = '';
-                    }
+                    _extToggle(row, s, cb.checked);
+                    syncAll();
+                    _extRefresh();
                     if (window.LSTrack) LSTrack.event('overlay', { which: 'ext:' + k });
                 });
                 lab.appendChild(st);
                 box.appendChild(lab);
             });
+            if (all) {
+                syncAll();
+                all.addEventListener('change', function () {
+                    var on = all.checked;
+                    rows.forEach(function (r) {
+                        if (r.cb.checked === on) return;
+                        r.cb.checked = on;
+                        _extToggle(r, s, on);
+                    });
+                    syncAll();
+                    _extRefresh();   // once, for every layer just switched on
+                    if (window.LSTrack) LSTrack.event('overlay', { which: 'ext:' + s.id + '/*' });
+                });
+            }
             host.appendChild(box);
         });
+    }
+
+    // Switch one mirrored layer on or off on both panes. The caller refreshes,
+    // so turning a whole source on fetches once rather than once per layer.
+    function _extToggle(r, s, on) {
+        if (on) {
+            _extActive[r.k] = true;
+            _extEnsure(r.k, r.L.geom, s.colour, map);
+            if (_swipe && _swipe.map) _extEnsure(r.k, r.L.geom, s.colour, _swipe.map);
+        } else {
+            delete _extActive[r.k];
+            delete _extNote[r.k];
+            _extRemove(r.k, r.L.geom, map);
+            if (_swipe && _swipe.map) _extRemove(r.k, r.L.geom, _swipe.map);
+            r.st.textContent = '';
+        }
     }
 
     function _extFetchRegistry() {
