@@ -10,7 +10,7 @@ This file is the deep per-feature reference. **Two work streams run in
 parallel in separate worktrees — read [WORKSTREAMS.md](WORKSTREAMS.md)
 before touching anything under `tools/lidar/`.**
 
-## State of play (2026-09-24) — the one dated snapshot in this file
+## State of play (2026-10-05) — the one dated snapshot in this file
 
 Everything else here describes how things work and should stay true.
 **This section is a snapshot and will rot**; correct it or delete it rather
@@ -27,6 +27,10 @@ written down anywhere — read `/lidar/audit/`.
   one-record-at-a-time promotion into our review queue.
 - **Lidar/bathymetry hosting** — public surveys on Cloudflare R2 with gated
   companions, SfM orthomosaics as a third render option in `/inventory/`.
+- **Photo drops** (`/drops/`, 2026-10-05) — send a collaborator a link, they
+  upload a whole folder of photos straight to a private R2 bucket; signed-in
+  accounts browse a thumbnail gallery. First use: a game-cam set on a slow
+  landslide. See *Photo drops* below.
 
 **Open threads**, in no particular order:
 
@@ -83,6 +87,7 @@ pushing untested code to GH.
 | `pages` | Editable site content (homepage, `/tracyarm2025/`). `Page` model in SQLite, edited via `/admin/`. |
 | `inventory` | Public landslide inventory map. Reads `tethys_db.landslides` (PostGIS) over the shared Docker network via raw psycopg2 — no Django ORM models for landslide data. The only Django model in this app is `LandslideEditMeta` (audit log, in SQLite). |
 | `files` | Admin-managed public file hosting. `HostedFile` model in SQLite; bytes stored under `data/media/`; served (unlisted) at `/files/<name>`. See *Hosted files* below. |
+| `drops` | Photo drops: upload links for folders of photos. `Drop`/`DropFile` in SQLite; bytes in a **private R2 bucket**, never on the droplet. See *Photo drops* below. |
 
 ## URL map
 
@@ -168,7 +173,14 @@ The `files` app hosts arbitrary admin-uploaded files at stable, human-readable p
 A link you send a collaborator so they can upload a **folder** of photos
 (the first use: a game camera on a slow landslide, thousands of JPEGs). App
 `drops/` (SQLite models `Drop` + `DropFile`), design note at the top of
-`drops/models.py`.
+`drops/models.py`. **Live on production since 2026-10-05.**
+
+**Making one:** the Django admin (`/admin/drops/drop/add/`) is the full
+editor — title, note shown to the uploader, expiry, a **write-only
+passphrase** field (hashed; *Clear passphrase* removes it), `created_by`
+set to whoever saves, and the full upload URL as a live link once saved.
+`/drops/` (**☰ → Photo drops**) is the quick version: create, copy link,
+file counts, close/reopen. Both land in the same table.
 
 - **The bytes never touch the droplet** — it has ~7 GB of disk. The browser
   uploads straight to a **private** Cloudflare R2 bucket (`DROPS_R2_*` in
@@ -190,8 +202,17 @@ A link you send a collaborator so they can upload a **folder** of photos
   than IndexedDB state. Completion is recorded only after the server HEADs
   the object (`api_record`), so a row always means real bytes.
 - **Bucket CORS is required** (origin + `ExposeHeaders: ETag`, which
-  multipart completion needs). `manage.py drops_setup_bucket` applies it, or
-  prints the JSON for the dashboard if the token lacks bucket-admin rights.
+  multipart completion needs), and **it lives in the Cloudflare dashboard**
+  (bucket → Settings → CORS policy), set by hand on 2026-10-05 for
+  `https://landslidescience.org` and `http://127.0.0.1:8001`. Reason: an R2
+  *Admin* token cannot be bucket-scoped and an *Object* token cannot set
+  CORS, and a bucket-scoped token was the right trade. So `manage.py
+  drops_setup_bucket` fails against the real token by design and prints the
+  JSON to paste. The token is an **Account** API token (not User — it must
+  outlive any one login), Object Read & Write, scoped to
+  `landslidescience-drops`; its four values sit in the repo `.env` (dev),
+  `/opt/landslidescience/.env` (prod) and `~/.r2_drops.env` (Mac, for the
+  mirror script).
 - **Processing is two-tier.** Light, on the droplet: `drops/thumbs.py`
   makes a 400 px thumbnail + reads EXIF `taken_at` (the hook a future
   time-lapse type hangs off), one object in memory at a time, in a per-process
@@ -386,7 +407,7 @@ ssh root@143.198.140.54 'cd /opt/landslidescience && \
 
 After a deploy that adds new migrations or new groups: run `python manage.py migrate` and/or `python manage.py init_groups` once via `docker exec landslidescience-web ...` (migrations also auto-run on container startup via `entrypoint.sh`, so usually only `init_groups` is needed).
 
-Production `.env` lives at `/opt/landslidescience/.env`, mode 600, never committed. DB credentials in there mirror the monitoring stack's `.env`.
+Production `.env` lives at `/opt/landslidescience/.env`, mode 600, never committed. DB credentials in there mirror the monitoring stack's `.env`; the `DROPS_R2_*` block (photo drops) was added 2026-10-05 and has no dev/prod difference — same bucket, same token.
 
 ### Collaborator data drop (write-only staging)
 

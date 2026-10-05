@@ -47,6 +47,23 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
   `hoonah_2015` (COG + both pyramids) sat on public R2 while the audit called
   it "gated, served from the droplet". `/lidar/audit/` now reports **GATED BUT
   ON PUBLIC R2** instead. Removing such bytes is a manual `rclone delete`.
+- **Large uploads never go through the droplet** — it has ~7 GB of disk and
+  shares 4 GB of RAM. The pattern is `drops/`: presign URLs to a private R2
+  bucket, let the browser PUT, record after a server-side HEAD. Reuse
+  `drops/r2.py`; do not add a streaming upload view.
+
+- **R2 token scoping is a trade, not a setting.** An *Admin* R2 token cannot
+  be limited to one bucket; an *Object* token cannot change bucket CORS. We
+  chose bucket-scoped, so the drops bucket's CORS lives in the Cloudflare
+  dashboard and `manage.py drops_setup_bucket` fails by design (it prints
+  the JSON to paste). Use **Account** tokens, not User tokens — a User token
+  dies with the login that made it.
+
+- **Uppy is pinned to 4.x on purpose.** v5+ replaced the `getUploadParameters`
+  / `signPart` / `completeMultipartUpload` callbacks with its "Companion"
+  server protocol; bumping the major silently breaks `drops/static/drops/
+  upload.js` against our API.
+
 - **gunicorn kills requests at ~30 s.** Long work (tile bakes, MP4
   downloads) runs in background threads with a status column the UI polls
   (`trace_views._spawn_bake` is the pattern). Never do slow work inline.
