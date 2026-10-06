@@ -81,7 +81,9 @@ def stamp_one(src, dst, delta, prefix, quality):
         margin = round(size * 0.6)
         x0, y0, x1, y1 = draw.textbbox((0, 0), label, font=font)
         x = w - margin - (x1 - x0)
-        y = margin
+        # one line-height down from the top: QuickTime's title bar covers the
+        # top stripe of the frame in some states
+        y = margin + size
         draw.text((x, y), label, font=font, fill='white',
                   stroke_width=max(2, size // 12), stroke_fill='black')
         dst.parent.mkdir(parents=True, exist_ok=True)
