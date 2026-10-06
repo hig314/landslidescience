@@ -269,6 +269,7 @@
         var c = map.getCenter(), z = map.getZoom();
         var parts = ['map=' + z.toFixed(2) + '/' + c.lat.toFixed(4) + '/' + c.lng.toFixed(4)];
         if (_currentBasemap && _currentBasemap !== DEFAULT_BASEMAP_ID) parts.push('base=' + _currentBasemap);
+        else if (_pendingBase) parts.push('base=' + _pendingBase);   // still waiting on the shared-layer list
         if (_swipe.on && _swipe.basemapId) {
             parts.push('swipe=' + _swipe.basemapId);
             parts.push('sx=' + Math.round(_swipe.x));
@@ -690,6 +691,14 @@
     var _initialBasemapId = (_initialHash.base && findBasemap(_initialHash.base))
                             ? _initialHash.base : DEFAULT_BASEMAP_ID;
     var _initialBasemap   = findBasemap(_initialBasemapId);
+    // A base= that names a shared QMS layer cannot resolve yet: those arrive
+    // with api/qms/promoted, after the map exists. Held here and applied once
+    // that list is in (_applyPendingBase) -- the same wait the wiper's basemap
+    // gets. Without it a cold load of a link naming a shared layer fell back
+    // to the default basemap for everyone, and the first moveend then wrote
+    // the fallback over the link.
+    var _pendingBase = (_initialHash.base && !findBasemap(_initialHash.base))
+                       ? _initialHash.base : null;
 
     // ---------------------------------------------------------------------------
     // Map initialisation
@@ -1588,6 +1597,7 @@
             _pendingDetailId = null;
             writeHashState();   // strips id= now that the panel is open
         }
+        _applyPendingBase();   // shared-layer base= from the URL, if its list is already in
     }
 
     // 'load' fires once on initial render; we use 'once' so setStyle() re-fires don't hit this.
@@ -3036,7 +3046,11 @@
                 d.layers.forEach(function (l) { if (!findBasemap(l.id)) BASEMAPS.push(l); });
                 rebuildBasemapUI();
             }).catch(function () {})
-            .then(function () { _applyPendingSwipe(); });  // hash wiper on a now-merged shared layer
+            .then(function () {   // hash wiper / basemap on a now-merged shared layer
+                _promotedSettled = true;
+                _applyPendingSwipe();
+                _applyPendingBase();
+            });
     }
 
     // Popup off a shared card's scope tag: re-scope an already-shared layer.
@@ -3379,6 +3393,19 @@
         _swipeSetX(x);
         _swipeEnable(bm.id);
         _syncSwipeUI();
+    }
+    // The basemap counterpart, for a base= naming a shared layer. Waits for
+    // both the promoted list and the first layer init: setBasemap before the
+    // palette exists would have its idle handler build data layers without one.
+    // A visitor who picked another basemap in the meantime keeps their choice,
+    // and a layer this visitor cannot see is dropped from the URL.
+    var _promotedSettled = false;
+    function _applyPendingBase() {
+        if (!_pendingBase || !_promotedSettled || !_layersInitialized) return;
+        var id = _pendingBase;
+        _pendingBase = null;
+        if (_currentBasemap === DEFAULT_BASEMAP_ID && findBasemap(id)) setBasemap(id);
+        else writeHashState();
     }
 
     // ---------------------------------------------------------------------------
