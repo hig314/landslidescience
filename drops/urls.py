@@ -11,6 +11,7 @@ urlpatterns = [
     path('', views.index, name='index'),
     re_path(rf'^{S}/$', views.upload, name='upload'),
     re_path(rf'^{S}/toggle/$', views.toggle, name='toggle'),
+    re_path(rf'^{S}/reconcile/$', views.reconcile_view, name='reconcile'),
     re_path(rf'^{S}/files/$', views.files, name='files'),
     re_path(rf'^{S}/files/links\.txt$', views.manifest, name='manifest'),
     # Upload API, called by drops/static/drops/upload.js.
@@ -18,6 +19,7 @@ urlpatterns = [
     re_path(rf'^{S}/api/status/$', views.api_status),
     re_path(rf'^{S}/api/sign/$', views.api_sign),
     re_path(rf'^{S}/api/record/$', views.api_record),
+    re_path(rf'^{S}/api/reconcile/$', views.api_reconcile),
     re_path(rf'^{S}/api/multipart/create/$', views.api_mp_create),
     re_path(rf'^{S}/api/multipart/sign/$', views.api_mp_sign),
     re_path(rf'^{S}/api/multipart/list/$', views.api_mp_list),

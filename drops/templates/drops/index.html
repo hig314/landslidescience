@@ -15,6 +15,10 @@
     for processing and backup.
   </p>
 
+  {% if notice %}
+  <div style="background:#e8f4ea; border:1px solid #9fcfa8; padding:10px 14px; border-radius:4px; margin:14px 0; font-size:13px;">{{ notice }}</div>
+  {% endif %}
+
   {% if not configured %}
   <div style="background:#fff3e0; border:1px solid #f0c08a; padding:10px 14px; border-radius:4px; margin:14px 0; font-size:13px;">
     <b>Storage is not configured.</b> Set <code>DROPS_R2_ENDPOINT</code>,
@@ -94,6 +98,13 @@
             {% csrf_token %}
             <button type="submit" style="font-size:12px; padding:3px 8px; cursor:pointer;">
               {% if r.drop.closed %}Reopen{% else %}Close{% endif %}
+            </button>
+          </form>
+          <form method="post" action="{% url 'drops:reconcile' r.drop.slug %}" style="display:inline; margin-left:4px;">
+            {% csrf_token %}
+            <button type="submit" style="font-size:12px; padding:3px 8px; cursor:pointer;"
+                    title="List this drop in storage and add rows for any file the upload page failed to record">
+              Check storage
             </button>
           </form>
         </td>

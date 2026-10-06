@@ -200,7 +200,16 @@ file counts, close/reopen. Both land in the same table.
   is "drop the folder again"**: the client fetches `{path: size}` of what
   the server has and skips matches — simpler and more robust for a folder
   than IndexedDB state. Completion is recorded only after the server HEADs
-  the object (`api_record`), so a row always means real bytes.
+  the object (`api_record`), so a row always means real bytes — but **the
+  reverse did not hold** until 2026-10-06: that record call is a second
+  request after the bytes are safe, and on a flaky link it was lost (37 of
+  the Portage game cam's 5,183 files were in the bucket with no row). Now
+  `record/` retries with backoff, every finished batch calls `reconcile/`,
+  and `drops/reconcile.py` lists the drop's prefix and adds rows for any
+  object without one (also refreshes rows whose object changed; reports,
+  and only with `--prune` deletes, rows whose object is gone). Same code
+  behind the editor's **Check storage** button on `/drops/` and
+  `manage.py drops_reconcile [--drop slug] [--dry-run] [--prune]`.
 - **Bucket CORS is required** (origin + `ExposeHeaders: ETag`, which
   multipart completion needs), and **it lives in the Cloudflare dashboard**
   (bucket → Settings → CORS policy), set by hand on 2026-10-05 for

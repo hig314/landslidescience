@@ -26,6 +26,7 @@ from inventory.auth import inventory_editor_required, is_inventory_editor
 
 from . import r2, thumbs
 from .models import Drop, DropFile, PathError
+from .reconcile import reconcile
 
 # Files above this go up in parts (resumable, parallel); below it one PUT.
 # Game-cam JPEGs are a few MB, so nearly everything takes the single PUT.
@@ -95,6 +96,7 @@ def index(request):
         'rows': rows,
         'configured': r2.configured(),
         'bucket': r2.bucket(),
+        'notice': request.session.pop('drops_notice', ''),
     })
 
 
@@ -104,6 +106,28 @@ def toggle(request, slug):
     d = get_object_or_404(Drop, slug=slug)
     d.closed = not d.closed
     d.save(update_fields=['closed'])
+    return redirect('drops:index')
+
+
+@inventory_editor_required
+@require_POST
+def reconcile_view(request, slug):
+    """Editor's 'Check against storage' button: rows for any object the
+    upload flow failed to record, and a note about rows with no object."""
+    d = get_object_or_404(Drop, slug=slug)
+    if not r2.configured():
+        request.session['drops_notice'] = 'Storage is not configured; nothing checked.'
+        return redirect('drops:index')
+    r = reconcile(d)
+    msg = (f'{d.title}: {r["objects"]} objects in storage — {r["added"]} added, '
+           f'{r["updated"]} refreshed')
+    if r['missing']:
+        msg += (f'; {len(r["missing"])} row{"s" if len(r["missing"]) != 1 else ""} '
+                f'with no object behind {"them" if len(r["missing"]) != 1 else "it"} '
+                f'(e.g. {r["missing"][0]}) — remove with manage.py drops_reconcile --prune')
+    if not (r['added'] or r['updated'] or r['missing']):
+        msg += '; everything already matched.'
+    request.session['drops_notice'] = msg
     return redirect('drops:index')
 
 
@@ -210,6 +234,18 @@ def api_record(request, slug):
     if body.get('size') is not None and int(body['size']) != row.size:
         return _err(f'size mismatch: browser {body["size"]}, stored {row.size}', 409)
     return JsonResponse(dict(_totals(d), ok=True, id=row.pk))
+
+
+@require_POST
+def api_reconcile(request, slug):
+    """Called by the uploader when its batch finishes: anything whose
+    `record/` call was lost on the way gets its row now, from the bucket
+    listing. Cheap (one list request per 1,000 objects) and idempotent."""
+    d, bad = _api_drop(request, slug)
+    if bad:
+        return bad
+    r = reconcile(d)
+    return JsonResponse(dict(_totals(d), ok=True, added=r['added'], updated=r['updated']))
 
 
 @require_POST

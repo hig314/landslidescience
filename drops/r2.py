@@ -76,6 +76,16 @@ def head(key):
             'content_type': r.get('ContentType', '')}
 
 
+def list_prefix(prefix):
+    """Yield {'key', 'size', 'etag', 'modified'} for every object under a
+    prefix, paging through list_objects_v2 (1000 per request)."""
+    paginator = client().get_paginator('list_objects_v2')
+    for page in paginator.paginate(Bucket=bucket(), Prefix=prefix):
+        for o in page.get('Contents', []):
+            yield {'key': o['Key'], 'size': o['Size'],
+                   'etag': o.get('ETag', '').strip('"'), 'modified': o.get('LastModified')}
+
+
 def get_bytes(key):
     return client().get_object(Bucket=bucket(), Key=key)['Body'].read()
 

@@ -59,6 +59,15 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
   the JSON to paste). Use **Account** tokens, not User tokens — a User token
   dies with the login that made it.
 
+- **A drop's file count is only as good as its last reconcile.** Rows are
+  written by a *second* request after the bytes are in R2, and that request
+  is the one a flaky uplink drops: the Portage game cam arrived with 37 of
+  5,183 files stored but unrecorded, so the gallery, `links.txt` and every
+  count were short while `r2_pull.sh` quietly mirrored the lot. The uploader
+  now retries and calls `reconcile/` at the end of a batch, but if a count
+  ever looks low, trust the bucket: **Check storage** on `/drops/` or
+  `manage.py drops_reconcile --dry-run`.
+
 - **Uppy is pinned to 4.x on purpose.** v5+ replaced the `getUploadParameters`
   / `signPart` / `completeMultipartUpload` callbacks with its "Companion"
   server protocol; bumping the major silently breaks `drops/static/drops/

@@ -100,16 +100,52 @@
 
   // The multipart path records server-side on completion; the single-PUT
   // path is confirmed here (the server HEADs the object before trusting it).
+  //
+  // That confirmation is a second request after the bytes are already safe,
+  // and on a flaky connection it is the one that gets lost: the Portage
+  // game-cam drop arrived with 37 of 5,183 files stored but never recorded.
+  // So it is retried with backoff, and when the batch ends the server lists
+  // the bucket itself (`reconcile/`) and adds rows for anything still missing.
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let unrecorded = 0;
+  async function record(file) {
+    const body = { path: file.meta.relpath, size: file.size, type: file.type };
+    const delays = [0, 1500, 4000, 10000, 20000];
+    for (let i = 0; i < delays.length; i++) {
+      if (delays[i]) await sleep(delays[i]);
+      try {
+        const t = await api('record/', body);
+        existing[file.meta.relpath] = file.size;
+        showTotals(t);
+        return;
+      } catch (e) {
+        if (i === delays.length - 1) {
+          unrecorded++;
+          errEl.textContent = 'Stored but not yet recorded: ' + file.meta.relpath + ' (' + e.message + ') — will be picked up when the batch finishes.';
+        }
+      }
+    }
+  }
   uppy.on('upload-success', (file) => {
     if (!file || file.size > cfg.multipartThreshold) return;
-    api('record/', { path: file.meta.relpath, size: file.size, type: file.type })
-      .then((t) => { existing[file.meta.relpath] = file.size; showTotals(t); })
-      .catch((e) => {
-        errEl.textContent = 'Stored but not recorded: ' + file.meta.relpath + ' (' + e.message + ') — drop the folder again later and it will be picked up.';
-      });
+    record(file);
   });
 
-  uppy.on('complete', () => {
+  uppy.on('complete', async () => {
+    // Settle the server's view against storage, whatever happened above.
+    for (let i = 0; i < 3; i++) {
+      try {
+        const t = await api('reconcile/', {});
+        showTotals(t);
+        if (t.added) errEl.textContent = t.added + ' file' + (t.added === 1 ? '' : 's') + ' recorded from storage.';
+        else if (unrecorded) errEl.textContent = '';
+        unrecorded = 0;
+        return;
+      } catch (e) {
+        if (i === 2) errEl.textContent = 'Could not confirm the count with the server (' + e.message + ') — reload this page to check.';
+        await sleep(3000 * (i + 1));
+      }
+    }
     api('status/').then(showTotals).catch(() => {});
   });
 
