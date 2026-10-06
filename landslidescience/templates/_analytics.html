@@ -9,6 +9,12 @@ stack running emits nothing at all.
                       would otherwise mint a brand-new "page". Pageviews stay
                       as clean paths; what happens inside a page is recorded
                       as a named custom event instead (window.LSTrack).
+  data-exclude-search The inventory map keeps its FILTERS in the query string
+                      (?t=…&c=…&yr=…), rewritten with replaceState on every
+                      change. Without this each filter click was a pageview
+                      and the filter settings themselves went to the
+                      dashboard, against the stance that only which control
+                      was used is ever recorded (added 2026-10-06).
   data-do-not-track   Honour the browser's DNT signal without us doing
                       anything server-side.
 
@@ -21,6 +27,7 @@ an excluded visit makes no analytics request rather than one filtered later.
   <script defer src="/s/t.js"
           data-website-id="{{ ANALYTICS_SITE_ID }}"
           data-exclude-hash="true"
+          data-exclude-search="true"
           data-do-not-track="true"></script>
   <script>
     /* One tiny shim so call sites never have to care whether analytics is

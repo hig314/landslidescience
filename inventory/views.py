@@ -260,6 +260,9 @@ _SLUG_ZOOM = 13
 # Per-landslide curated default view (landslides.default_map_view, added by
 # migrate_default_view): a URL-hash view-state string with no leading '#' —
 #     map=<zoom>/<lat>/<lon>&base=<id>[&swipe=<id>&sx=<pct>][&ov=…][&tab=…][&an=…]
+#     [&li=…][&ext=…][&im=…][&ref=…]   (the grammar is specified once, above
+#     parseHashState in map.js; ov/li/ext/im/ref may be present and EMPTY,
+#     which means "none of these" rather than "leave alone")
 # Set by editors from the map's detail panel; consumed by slug deep-links and
 # snapshot slug stubs. Conservative charset because the value is emitted into
 # a redirect Location header and a snapshot HTML attribute — anything that

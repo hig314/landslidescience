@@ -121,6 +121,22 @@
     // makes a mirrored layer survive a reload and travel in a shared link,
     // which it did not at first -- and a layer you have to re-tick after every
     // refresh is one you stop using.
+    // Additions of 2026-10-06, all ADDITIVE -- a link written before them
+    // parses exactly as it did:
+    //   `ref=<name>,…`  reference vector layers that are on (faults | circles),
+    //       same present/absent rule: present fully describes the set (an
+    //       empty `ref=` is "none"), absent leaves them alone. Written only
+    //       when the set differs from the page default (faults on).
+    //   `ov=<id>~<date>.…`  a `~YYYY-MM-DD` or `~all` flag on an overlay that
+    //       carries a date stepper (surface disturbance) pins the date. Written
+    //       only for a date the user chose; absent leaves the date alone.
+    //   `li=<id>.<p>l<pct><q>r<pct>`  a second shading code before the `r`
+    //       pane when the wiper's right pane shades the survey differently.
+    //       Written only when the panes differ, so the common case keeps the
+    //       one-code form older readers understand.
+    // A stored default view (_currentViewString) writes ov/li/ext/im/ref even
+    // when empty, because "nothing on" is part of a curated view; the address
+    // bar omits empty ones to stay short.
     var LIDAR_PRESET_CODE = { hillshade: 'h', preset: 'p', ortho: 'o' };
     // 'k' is the retired KBSP code, kept as a read-only alias so links and
     // saved views made before 2026-09-20 still resolve. Nothing writes it.
@@ -178,6 +194,9 @@
                         // so the spec keys by the bare overlay id.
                         var idBits = m[1].split('~');
                         if (idBits.indexOf('s') > 0) e.smooth = true;
+                        idBits.slice(1).forEach(function (bit) {
+                            if (/^(\d{4}-\d\d-\d\d|all)$/.test(bit)) e.date = bit;
+                        });
                         ovOut[idBits[0]] = e;
                     }
                 });
@@ -190,13 +209,16 @@
                     // view saved with that shading since has silently dropped
                     // its survey on restore -- the writer emitted a code the
                     // reader refused. 'o' is the orthomosaic.
-                    var lm = /^([A-Za-z0-9_]+)\.([hkpo])((?:[lr]\d+)+)$/.exec(ent);
+                    // A code may also precede a later pane (`hl100pr80`): it
+                    // applies from there on, so the one-code form reads as before.
+                    var lm = /^([A-Za-z0-9_]+)\.([hkpo])((?:[hkpo]?[lr]\d+)+)$/.exec(ent);
                     if (!lm) return;
-                    var le = { preset: LIDAR_CODE_PRESET[lm[2]] };
-                    lm[3].replace(/([lr])(\d+)/g, function (_, sideCh, pct) {
+                    var le = { preset: LIDAR_CODE_PRESET[lm[2]] }, lcode = lm[2];
+                    lm[3].replace(/([hkpo]?)([lr])(\d+)/g, function (_, code, sideCh, pct) {
+                        if (code) lcode = code;
                         var o = Math.min(100, Math.max(0, parseInt(pct, 10))) / 100;
-                        if (sideCh === 'l') { le.left = true; le.opLeft = o; }
-                        else                { le.right = true; le.opRight = o; }
+                        if (sideCh === 'l') { le.left = true; le.opLeft = o; le.preset = LIDAR_CODE_PRESET[lcode]; }
+                        else                { le.right = true; le.opRight = o; le.presetR = LIDAR_CODE_PRESET[lcode]; }
                         return '';
                     });
                     if (le.left || le.right) liOut[lm[1]] = le;
@@ -220,6 +242,12 @@
                     imOut[im[1]] = Math.min(100, Math.max(0, parseInt(im[2], 10))) / 100;
                 });
                 out.im = imOut;   // present (even if empty) whenever the param exists
+            } else if (k === 'ref') {
+                var refOut = {};
+                v.split(',').forEach(function (name) {
+                    if (/^[a-z]+$/.test(name)) refOut[name] = true;
+                });
+                out.ref = refOut;   // present (even if empty) whenever the param exists
             } else if (k === 'tab') {
                 if (/^[a-z]+$/.test(v)) out.tab = v;   // validated against real tabs on apply
             } else if (k === 'an') {
@@ -263,7 +291,10 @@
     var _pendingExt = _initialHash.ext || null;
     // Imagery overlays wait on the trace-raster list the same way lidar waits
     // on the catalog: the ids mean nothing until the rows are in.
-    var _pendingIm = _initialHash.im || null;
+    // An EMPTY im= (a default view saying "no imagery") has nothing to resolve,
+    // and must not make a visitor fetch a list they would otherwise never ask for.
+    var _pendingIm = (_initialHash.im && Object.keys(_initialHash.im).length)
+                     ? _initialHash.im : null;
 
     function writeHashState() {
         var c = map.getCenter(), z = map.getZoom();
@@ -282,6 +313,7 @@
         if (exh) parts.push('ext=' + exh);
         var imh = _imEncodeHash();
         if (imh) parts.push('im=' + imh);
+        if (!_refIsDefault()) parts.push('ref=' + _refEncode());
         var tab = _activeSidebarTab();
         if (tab !== 'inventory') parts.push('tab=' + tab);
         var an = _anEncodeHash();
@@ -2437,7 +2469,7 @@
     }
     // Encode the visible overlays for the URL hash: `<id>.l<pct>r<pct>` per
     // overlay, comma-joined; '' when nothing is visible (param omitted).
-    function _ovEncodeHash() {
+    function _ovEncodeHash(pinDates) {
         var parts = [];
         OVERLAYS.forEach(function (ov) {
             var st = _ovState[ov.id];
@@ -2448,6 +2480,14 @@
             // Active data-variant travels as a `~s` id suffix so shared URLs
             // and saved default views reproduce it (parseHashState splits it).
             var idTok = ov.id + (ov.variant && ov.variant.get() ? '~s' : '');
+            // A date the user chose travels with the overlay. One the row is
+            // merely tracking ("latest") does not, or reloading your own saved
+            // view would freeze it there -- except in a stored default view
+            // (pinDates), which should keep showing what its editor saw.
+            if (ov.stepper && (pinDates || !ov.stepper.isTracking())) {
+                var dTok = ov.stepper.get();
+                if (/^(\d{4}-\d\d-\d\d|all)$/.test(dTok)) idTok += '~' + dTok;
+            }
             parts.push(idTok + '.' + spec);
         });
         return parts.join(',');
@@ -2471,6 +2511,20 @@
                     ov.variant.set(want);
                     if (map.getLayer(ov.layerId)) _ovSwapSource(ov);
                 }
+            }
+            // A date in the hash is a deliberate choice, like picking it in
+            // the row. No date leaves the row alone (every link made before
+            // dates travelled says nothing about them). `all` only where the
+            // stepper offers it, and -- once the date list is in -- only a date
+            // the list actually has, so a mistyped link cannot park the row on
+            // an empty layer.
+            var dList = ov.stepper ? ov.stepper.list() : [];
+            if (ov.stepper && s && s.date &&
+                    (s.date !== 'all' || ov.stepper.kind === 'select') &&
+                    (s.date === 'all' || !dList.length || dList.indexOf(s.date) >= 0) &&
+                    (s.date !== ov.stepper.get() || ov.stepper.isTracking())) {
+                ov.stepper.set(s.date);
+                if (map.getLayer(ov.layerId)) _ovSwapSource(ov);
             }
         });
     }
@@ -3426,18 +3480,19 @@
             parts.push('swipe=' + _swipe.basemapId);
             parts.push('sx=' + Math.round(_swipe.x));
         }
-        var ovh = _ovEncodeHash();
-        if (ovh) parts.push('ov=' + ovh);
-        var lih = _liEncodeHash();
-        if (lih) parts.push('li=' + lih);
-        var exh = _extEncode();
-        if (exh) parts.push('ext=' + exh);
+        // The layer lists are written even when EMPTY: absent means "leave
+        // alone", so a view curated with nothing on would otherwise open over
+        // whatever the visitor last had on. Views stored before 2026-10-06
+        // lack the empty ones and keep behaving as they did.
+        parts.push('ov=' + _ovEncodeHash(true));   // true: pin a stepper's date
+        parts.push('li=' + _liEncodeHash());
+        parts.push('ext=' + _extEncode());
+        parts.push('ref=' + _refEncode());
         // Imagery overlays. This builder is SEPARATE from writeHashState and
         // has to be kept in step with it by hand: adding `im` to the hash
         // alone left every stored default view silently without its imagery,
         // which looked like a serving bug and was not (2026-09-16).
-        var imh = _imEncodeHash();
-        if (imh) parts.push('im=' + imh);
+        parts.push('im=' + _imEncodeHash());
         var tab = _activeSidebarTab();
         if (tab !== 'inventory') parts.push('tab=' + tab);
         var an = _anEncodeHash();
@@ -3474,6 +3529,7 @@
         if (s.li) _liApplyHashSpec(s.li);
         if (s.ext) { if (_extSources) _extApply(s.ext); else _extPending = s.ext; }
         if (s.im) _imApplyHashSpec(s.im);
+        if (s.ref) _refApply(s.ref);
         if (s.tab) _setSidebarTab(s.tab);
         if (s.an) _anApplyHashSpec(s.an);
         _syncSwipeUI();
@@ -3658,6 +3714,7 @@
                 note.textContent = ''; note.title = '';
                 _ovSwapSource(ov);           // both panes; the date is global
                 _ovSyncUI();                 // repaint the twin pane's row
+                if (_mapReady) writeHashState();   // the chosen date travels in ov=
             };
 
             if (step.kind === 'select') {
@@ -4129,6 +4186,9 @@
     // editor-only upload must still open for a visitor, just without it.
     function _imApplyHashSpec(spec) {
         if (!_traceRasters.length) {
+            // An empty spec with no list loaded has nothing to turn off, and
+            // is no reason to fetch the list for a visitor.
+            if (!spec || !Object.keys(spec).length) { _pendingIm = null; return; }
             // Not in yet. For an editor the boot load is already on its way;
             // for a visitor nothing would ever fetch it, so ask now.
             _pendingIm = spec;
@@ -4669,9 +4729,14 @@
         Object.keys(ids).sort().forEach(function (id) {
             var L = _lidarActive[id], R = _lidarActiveR[id];
             var spec = '';
+            var lead = LIDAR_PRESET_CODE[(L || R).preset] || 'h';
             if (L) spec += 'l' + Math.round(L.opacity * 100);
-            if (R) spec += 'r' + Math.round(R.opacity * 100);
-            parts.push(id + '.' + (LIDAR_PRESET_CODE[(L || R).preset] || 'h') + spec);
+            if (R) {
+                // Second code only when the right pane shades it differently.
+                var rc = LIDAR_PRESET_CODE[R.preset] || 'h';
+                spec += (L && rc !== lead ? rc : '') + 'r' + Math.round(R.opacity * 100);
+            }
+            parts.push(id + '.' + lead + spec);
         });
         return parts.join(',');
     }
@@ -4695,7 +4760,7 @@
                 delete _lidarActive[id];
             }
             if (e && e.right) {
-                _lidarActiveR[id] = { preset: e.preset || 'hillshade',
+                _lidarActiveR[id] = { preset: e.presetR || e.preset || 'hillshade',
                                       opacity: e.opRight != null ? e.opRight : 1 };
             } else if (_lidarActiveR[id]) {
                 if (_swipe.map && _swipe.map.__lsStyleReady) _lidarRemoveLayer(id, _swipe.map);
@@ -6285,6 +6350,7 @@
             } else {
                 apply();
             }
+            if (_mapReady) writeHashState();
         });
     }
 
@@ -6347,8 +6413,36 @@
             if (map.getLayer('faults-line')) map.setLayoutProperty('faults-line', 'visibility', vis);
             _swipeAlso(function (m) { if (m.getLayer('faults-line')) m.setLayoutProperty('faults-line', 'visibility', vis); });
             if (cbFaults.checked) loadFaults();
+            if (_mapReady) writeHashState();
         });
     }
+
+    // Reference vector layers in the URL (`ref=`). The checkbox IS the state;
+    // a name here is what the link calls it. Order is the order written.
+    // Scarp traces are absent because they have no show/hide control yet --
+    // add the name here when they get one.
+    var _REF_LAYERS = [['faults', cbFaults], ['circles', cbSurveyCircles]];
+    function _refEncode() {
+        return _REF_LAYERS.filter(function (r) { return r[1] && r[1].checked; })
+                          .map(function (r) { return r[0]; }).join(',');
+    }
+    // The page's own default (the checkbox markup), not a second copy of it.
+    function _refIsDefault() {
+        return _REF_LAYERS.every(function (r) { return !r[1] || r[1].checked === r[1].defaultChecked; });
+    }
+    // Listed layers go on, unlisted ones off, through the checkbox's own
+    // change handler so the lazy fetch and the wiper mirror stay in one place.
+    function _refApply(spec) {
+        _REF_LAYERS.forEach(function (r) {
+            var cb = r[1], want = !!(spec && spec[r[0]]);
+            if (!cb || cb.checked === want) return;
+            cb.checked = want;
+            cb.dispatchEvent(new Event('change'));
+        });
+    }
+    // From the URL / saved view. Runs before the data layers are built, which
+    // read these checkboxes for their starting visibility.
+    if (_initialHash.ref) _refApply(_initialHash.ref);
 
     var histDaysSlider = document.getElementById('hist-days-slider');
     var histDaysLabel  = document.getElementById('hist-days-label');
@@ -6427,6 +6521,8 @@
         encodeDual(depAreaDual, 'da');
         encodeDual(volDual,     'vol');
         encodeDual(yearDual,    'yr');
+        encodeDual(suscN10Dual, 'n10');
+        encodeDual(suscLwDual,  'lw');
 
         // Limit counts to view
         if (cbLimitView && cbLimitView.checked) params.set('lv', '1'); else params.delete('lv');
@@ -6506,6 +6602,8 @@
         hydrateDual(depAreaDual, 'da');
         hydrateDual(volDual,     'vol');
         hydrateDual(yearDual,    'yr');
+        hydrateDual(suscN10Dual, 'n10');
+        hydrateDual(suscLwDual,  'lw');
 
         // Limit counts to view
         if (cbLimitView && params.get('lv') === '1') cbLimitView.checked = true;
@@ -9969,6 +10067,7 @@
         if (s.li) _liApplyHashSpec(s.li);
         if (s.ext) { if (_extSources) _extApply(s.ext); else _extPending = s.ext; }
         if (s.im) _imApplyHashSpec(s.im);
+        if (s.ref) _refApply(s.ref);
         if (s.tab) _setSidebarTab(s.tab);
         if (s.an) _anApplyHashSpec(s.an);
         if (s.lat != null && s.lon != null && s.zoom != null) {

@@ -4,8 +4,11 @@
  *   map=<zoom>/<lat>/<lon> & base=<id> & swipe=<id> & sx=<pct>
  *   & ov=<id>[~s].l<pct>r<pct>,…   (~s = data-variant flag, e.g. smoothed
  *                                   thinning; l/r = pane visibility+opacity)
- *   & li=<id>.<p>l<pct>r<pct>,…    (lidar DEM overlays; p = shading preset
- *                                   h hillshade | k KBSP; l/r as for ov)
+ *   & li=<id>.<p>l<pct>[<q>]r<pct>,… (lidar overlays; p = what to draw:
+ *                                   h hillshade | p preset | o orthomosaic,
+ *                                   k a retired read-only alias for p; an
+ *                                   optional second code <q> before the r
+ *                                   pane when it differs; l/r as for ov)
  *   & im=<id>.l<pct>,…             (imagery overlays: uploaded scenes and
  *                                   Sentinel-2 windows. Main pane only, which
  *                                   is why there is no r<pct> -- these have
@@ -23,6 +26,9 @@
  */
 (function () {
     'use strict';
+
+    var LI_CODE = { h: 'hillshade', p: 'preset', k: 'preset', o: 'ortho' };
+    var LI_PRESET = { hillshade: 'h', preset: 'p', ortho: 'o' };
 
     function parse(hash) {
         var out = { extras: {} };
@@ -68,17 +74,17 @@
             } else if (k === 'li') {
                 var liOut = {};
                 v.split(',').forEach(function (ent) {
-                    // [hpk]: h hillshade, p the converged preset, k its
-                    // retired KBSP spelling (read-only, see LIDAR_CODE_PRESET).
-                    var m3 = /^([A-Za-z0-9_]+)\.([hpk])((?:[lr]\d+)+)$/.exec(ent);
+                    // Same grammar as map.js parseHashState: h hillshade, p
+                    // preset (k its retired spelling, read-only), o orthomosaic;
+                    // a code may also precede a later pane and applies from there.
+                    var m3 = /^([A-Za-z0-9_]+)\.([hkpo])((?:[hkpo]?[lr]\d+)+)$/.exec(ent);
                     if (!m3) return;
-                    // 'k' is the retired KBSP code; it now resolves to the
-                    // converged 'preset' so old links keep working.
-                    var e3 = { preset: (m3[2] === 'p' || m3[2] === 'k') ? 'preset' : 'hillshade' };
-                    m3[3].replace(/([lr])(\d+)/g, function (_, sideCh, pct) {
+                    var e3 = { preset: LI_CODE[m3[2]] }, code3 = m3[2];
+                    m3[3].replace(/([hkpo]?)([lr])(\d+)/g, function (_, code, sideCh, pct) {
+                        if (code) code3 = code;
                         var o = Math.min(100, Math.max(0, parseInt(pct, 10))) / 100;
-                        if (sideCh === 'l') { e3.left = true; e3.opLeft = o; }
-                        else                { e3.right = true; e3.opRight = o; }
+                        if (sideCh === 'l') { e3.left = true; e3.opLeft = o; e3.preset = LI_CODE[code3]; }
+                        else                { e3.right = true; e3.opRight = o; e3.presetR = LI_CODE[code3]; }
                         return '';
                     });
                     if (e3.left || e3.right) liOut[m3[1]] = e3;
@@ -131,9 +137,12 @@
             Object.keys(o.li).forEach(function (id) {
                 var e = o.li[id];
                 var spec = '';
+                var lead = LI_PRESET[e.preset] || 'h';
+                var rc = LI_PRESET[e.presetR || e.preset] || 'h';
                 if (e.left)  spec += 'l' + Math.round((e.opLeft != null ? e.opLeft : 1) * 100);
-                if (e.right) spec += 'r' + Math.round((e.opRight != null ? e.opRight : 1) * 100);
-                if (spec) lip.push(id + '.' + (e.preset === 'preset' ? 'p' : 'h') + spec);
+                if (e.right) spec += (e.left && rc !== lead ? rc : '') +
+                                     'r' + Math.round((e.opRight != null ? e.opRight : 1) * 100);
+                if (spec) lip.push(id + '.' + (e.left ? lead : rc) + spec);
             });
             if (lip.length) parts.push('li=' + lip.join(','));
         }
