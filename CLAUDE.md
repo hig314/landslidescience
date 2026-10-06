@@ -220,9 +220,17 @@ file counts, close/reopen. Both land in the same table.
   gunicorn workers); `manage.py drops_thumbs [--drop slug] [--retry-errors]
   [--stalled]` is the synchronous equivalent after a restart. Heavy, on the
   Mac: `tools/drops/r2_pull.sh <slug>` mirrors a drop to
-  `/Volumes/Nunatak/Landslides/drops/<slug>/` (rclone `copy`, never deletes;
+  `/Volumes/Nunatak/landslidescience/drops/<slug>/` (rclone `copy`, never deletes;
   credentials in `~/.r2_drops.env`) — that mirror is also the backup; R2 is
   otherwise the only copy.
+  **Never edit the mirror in place** (rclone re-copies any file whose size
+  changed, so an EXIF edit there is undone by the next pull); processed
+  output goes to a sibling folder. `tools/drops/gamecam_fix_clock.py`
+  (2026-10-05) is the first such processor: it corrects a game camera's
+  unset clock by one constant offset, stamps the corrected time on a copy
+  of each frame and records the raw value in EXIF `UserComment`; its
+  docstring records how the Portage offset was estimated from the
+  night-mode switch.
 - **Nothing in the UI deletes bytes.** Close a drop to refuse uploads;
   deleting is rclone + Django admin, on purpose.
 - Robots: `/drops/` disallowed and every template is `noindex`.

@@ -2,7 +2,7 @@
 # Mirror one photo drop from R2 to the Nunatak volume — the backup copy, and
 # where any real processing (time-lapse assembly, SfM) runs.
 #
-#   tools/drops/r2_pull.sh <slug>                       # -> /Volumes/Nunatak/Landslides/drops/<slug>/
+#   tools/drops/r2_pull.sh <slug>                       # -> /Volumes/Nunatak/landslidescience/drops/<slug>/
 #   tools/drops/r2_pull.sh <slug> /some/other/dir
 #   tools/drops/r2_pull.sh --list                        # drops present in the bucket
 #
@@ -30,7 +30,7 @@ if [ "${1:-}" = "--list" ]; then
   exit 0
 fi
 SLUG="${1:?usage: r2_pull.sh <slug> [dest]}"
-DEST="${2:-/Volumes/Nunatak/Landslides/drops/$SLUG}"
+DEST="${2:-/Volumes/Nunatak/landslidescience/drops/$SLUG}"
 mkdir -p "$DEST"
 echo "r2drops:$DROPS_R2_BUCKET/drops/$SLUG/  ->  $DEST"
 rclone copy "r2drops:$DROPS_R2_BUCKET/drops/$SLUG/" "$DEST" \
