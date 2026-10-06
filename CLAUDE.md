@@ -10,7 +10,7 @@ This file is the deep per-feature reference. **Two work streams run in
 parallel in separate worktrees — read [WORKSTREAMS.md](WORKSTREAMS.md)
 before touching anything under `tools/lidar/`.**
 
-## State of play (2026-10-05) — the one dated snapshot in this file
+## State of play (2026-10-06) — the one dated snapshot in this file
 
 Everything else here describes how things work and should stay true.
 **This section is a snapshot and will rot**; correct it or delete it rather
@@ -29,10 +29,18 @@ written down anywhere — read `/lidar/audit/`.
   companions, SfM orthomosaics as a third render option in `/inventory/`.
 - **Photo drops** (`/drops/`, 2026-10-05) — send a collaborator a link, they
   upload a whole folder of photos straight to a private R2 bucket; signed-in
-  accounts browse a thumbnail gallery. First use: a game-cam set on a slow
-  landslide. See *Photo drops* below.
+  accounts browse a thumbnail gallery. First use (2026-10-05): the Portage
+  game cam, 5,183 frames / 28 GB, which arrived with 37 files stored but
+  unrecorded — the **reconcile** fix for that shipped 2026-10-06. See
+  *Photo drops* below, including *The first drop*.
 
 **Open threads**, in no particular order:
+
+- **A corrected online copy of the Portage drop.** The time-corrected,
+  stamped frames exist only on Nunatak. Hig's call (2026-10-06): a second
+  drop holding them (pushed with rclone, rows via `drops_reconcile`) is the
+  right shape, and it is **on hold**. Viewing stays login-gated, decided the
+  same day.
 
 - **Rule-based derivation from mirrored inventories.** Promotion today seeds
   provenance and two fields, then the editor types the rest. `external.py`'s
@@ -243,6 +251,37 @@ file counts, close/reopen. Both land in the same table.
 - **Nothing in the UI deletes bytes.** Close a drop to refuse uploads;
   deleting is rclone + Django admin, on purpose.
 - Robots: `/drops/` disallowed and every template is `noindex`.
+
+**The first drop — Portage game cam (slug `RZsJDoXqWe74`, 2026-10-05).** A
+Braun SC1320WS4KDS on the slope above Portage Glacier, one frame every 30
+min around the clock for 109 days, 5,183 files / 28 GB. What it taught:
+
+- **Its clock was unset** (reset to 2022-01-01), so every EXIF date is one
+  constant offset from the truth. The offset was recovered from the data:
+  the camera's IR night mode writes 3840×2160 frames and daylight writes
+  8416×4736, so each night's length is known to ±30 min; fitted to solar
+  altitude at the site, the first frame is **2026-06-15 09:03:49 AKDT**
+  (date ±1 week, time of day ±10 min; the camera ran 5 h 46 min ahead of
+  AKDT). The correction is **+1625 days 18:14:00**. If the real deployment
+  date surfaces, only that one parameter changes.
+- **`tools/drops/gamecam_fix_clock.py`** applies it on the Mac: a stamped
+  copy of each frame ("Est. corrected datetime: …", upper right, one
+  line-height down so QuickTime's bar clears it) with EXIF dates shifted,
+  UTC offset set, and the raw value plus the basis of the estimate in
+  `UserComment`. The raw mirror is never edited (see above).
+- **Where things live on Nunatak** (`/Volumes/Nunatak/landslidescience/drops/`):
+  `RZsJDoXqWe74/` raw mirror (every size verified against the bucket),
+  `RZsJDoXqWe74_corrected/` stamped set, `RZsJDoXqWe74_timelapse/` a
+  one-frame-per-day video (109 noon frames, 4K + 1080p) with
+  `frames_daily.tsv` naming the frames. Rain on the lens ruins many frames;
+  picking each day's clearest frame by scoring the 400 px `.thumbs/` is the
+  obvious refinement, not done.
+- **Pulling 28 GB over the Homer link took ~12 h** at 0.3–2 MiB/s (the link,
+  not R2); `--bwlimit` is only settable at rclone start, so throttling means
+  stop-and-resume. Processing a subset never needs the full mirror: `rclone
+  copy --files-from` fetched the 109 noon frames (0.8 GB) in two minutes.
+- Only IM_04987 never reached the bucket; the collaborator's card is the
+  only place it could come from.
 
 ## Field photos
 
