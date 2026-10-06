@@ -82,14 +82,24 @@ def compute_creep_behavior(row):
       1. planet_labs_patchy_creep   → 'Patchy obvious creep'
          (more specific call; supersedes plain obvious when both are set)
       2. planet_labs_creep          → 'Obvious creep'
-      3. insar_creep                → 'Subtle creep'
-      4. other_subtle_creep is set  → 'Subtle creep'
-      5. geomorph_creep             → 'Geomorph creep'
-      6. creep_evaluated is TRUE    → 'Cryptic'
+      3. its_live_creep             → 'Obvious creep'
+      4. insar_creep                → 'Subtle creep'
+      5. other_subtle_creep is set  → 'Subtle creep'
+      6. geomorph_creep             → 'Geomorph creep'
+      7. creep_evaluated is TRUE    → 'Cryptic'
          (record was reviewed for precursors and none were found — a
          deliberate null finding, distinct from records where
          creep_evaluated is FALSE which simply means no review yet)
-      7. otherwise                  → None
+      8. otherwise                  → None
+
+    `its_live_creep` (added 2026-10-06, Hig) says the motion shows in the
+    ITS_LIVE feature-tracking velocity fields, and qualifies the landslide
+    as 'Obvious creep' — a second, independent route to that label beside
+    `planet_labs_creep`, not a label of its own. The patchy flag still
+    wins over it, exactly as it does over the plain Planet flag. That
+    ordering was not asked for; it is the reading that leaves the existing
+    override alone (patchy is the more specific statement about how much
+    of the feature moves). Swap steps 1 and 3 if ITS_LIVE should outrank it.
 
     Feeds into `landslide_class`, which prefixes the label with 'Slow '
     or 'Catastrophic '. The `creep_evaluated` boolean is human-set in
@@ -97,7 +107,7 @@ def compute_creep_behavior(row):
     """
     if row.get('planet_labs_patchy_creep'):
         return 'Patchy obvious creep'
-    if row.get('planet_labs_creep'):
+    if row.get('planet_labs_creep') or row.get('its_live_creep'):
         return 'Obvious creep'
     if row.get('insar_creep'):
         return 'Subtle creep'
@@ -113,13 +123,15 @@ compute_creep_behavior.target_table  = 'landslides'
 compute_creep_behavior.target_column = 'creep_behavior'
 compute_creep_behavior.inputs        = ('planet_labs_patchy_creep',
                                         'planet_labs_creep',
+                                        'its_live_creep',
                                         'insar_creep',
                                         'other_subtle_creep',
                                         'geomorph_creep',
                                         'creep_evaluated')
-compute_creep_behavior.summary       = ('Creep-evidence label. Patchy '
-                                        'overrides plain obvious when '
-                                        'both Planet flags are set; '
+compute_creep_behavior.summary       = ('Creep-evidence label. Planet '
+                                        'or ITS_LIVE motion is obvious '
+                                        'creep; the Planet patchy flag '
+                                        'overrides plain obvious; '
                                         '"Cryptic" when creep_evaluated=TRUE '
                                         'with no positive evidence.')
 

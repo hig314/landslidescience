@@ -13,7 +13,7 @@ and autosave rely on.
 {% endcomment %}
 {% if field.field.widget.input_type == 'checkbox' %}
   <div class="ls-field ls-check {{ vis }}" data-field="{{ field.name }}">
-    <label for="{{ field.id_for_label }}">
+    <label for="{{ field.id_for_label }}"{% if field.field.tip %} title="{{ field.field.tip }}"{% endif %}>
       {{ field }}<span>{{ field.label }}</span>
     </label>
     {% if field.help_text %}

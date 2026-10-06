@@ -265,7 +265,7 @@ _PRESETS = {
     'creep': ['unique_name', 'landslide_class', 'creep_evaluated',
               'creep_behavior', 'insar_creep', 'insar_schaefer', 'insar_kim',
               'insar_opera', 'insar_other', 'planet_labs_creep',
-              'planet_labs_patchy_creep', 'geomorph_creep',
+              'planet_labs_patchy_creep', 'its_live_creep', 'geomorph_creep',
               'post_2012_activity_increase', 'creeping_permafrost_mass',
               'glacier_contact'],
     'volume': ['unique_name', 'landslide_type', 'landslide_class',

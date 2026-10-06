@@ -1840,7 +1840,7 @@ _EDIT_FIELD_GROUPS = [
             'insar_schaefer', 'insar_kim', 'insar_opera', 'insar_other']},
         {'block': 'Optical & geomorphic evidence', 'fields': [
             'planet_labs_creep', 'planet_labs_patchy_creep',
-            'geomorph_creep']},
+            'its_live_creep', 'geomorph_creep']},
         {'block': 'Slow-mass attributes', 'fields': [
             'post_2012_activity_increase', 'creeping_permafrost_mass',
             'glacier_contact']},

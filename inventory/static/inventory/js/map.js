@@ -7545,6 +7545,7 @@
             flag(d.insar_schaefer,'InSAR (Schaefer)'), flag(d.insar_kim,'InSAR (Kim)'),
             flag(d.insar_opera,'InSAR (OPERA)'), flag(d.insar_other,'InSAR (other)'),
             flag(d.planet_labs_creep,'Planet Labs creep'), flag(d.planet_labs_patchy_creep,'Planet patchy creep'),
+            flag(d.its_live_creep,'ITS_LIVE'),
             flag(d.geomorph_creep,'Geomorphic'), flag(d.insar_creep,'InSAR creep'),
             flag(d.precursory_headscarp,'Precursory headscarp'), flag(d.molards,'Molards'),
             flag(d.exclusively_supraglacial,'Supraglacial runout'),

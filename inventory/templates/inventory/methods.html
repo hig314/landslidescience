@@ -779,11 +779,17 @@
   Conceptually obvious creep is the broader assertion (the whole
   feature is moving), but the patchy flag, when set, <em>overrides</em>
   that to mean &ldquo;actually it&rsquo;s only patchy&rdquo; &mdash; so in
-  the compositional rule the patchy flag wins:
+  the compositional rule the patchy flag wins. A third flag,
+  <code>its_live_creep</code>, records motion that shows in the
+  <a href="https://its-live.jpl.nasa.gov/" target="_blank" rel="noopener">ITS_LIVE</a>
+  feature-tracking velocity fields. It is a second, independent route to
+  <strong>Obvious creep</strong> rather than a label of its own, and the
+  patchy flag overrides it just as it overrides the plain Planet flag:
 </p>
 <ol style="font-size:13px; margin-left:1em;">
   <li><code>planet_labs_patchy_creep</code> &rarr; <strong>Patchy obvious creep</strong></li>
   <li><code>planet_labs_creep</code> &rarr; <strong>Obvious creep</strong></li>
+  <li><code>its_live_creep</code> &rarr; <strong>Obvious creep</strong></li>
   <li><code>insar_creep</code> &rarr; <strong>Subtle creep</strong></li>
   <li><code>other_subtle_creep</code> (any non-empty value) &rarr; <strong>Subtle creep</strong></li>
   <li><code>geomorph_creep</code> &rarr; <strong>Geomorph creep</strong></li>
