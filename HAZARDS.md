@@ -126,9 +126,10 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
   identifiers are declared; JS parses (osascript JXA — there is no node).
 - **Single sources of truth**: basemaps only in `basemaps.js`, symbology
   only in `ls_colors.js`, glacier overlays only in `ls_overlays.js`,
-  hash codec in `ls_hash.js` (note: map.js still carries its own embedded
-  hash parser with identical grammar — change both or neither until the
-  planned migration lands), EPSG:3413 in `ls_proj.js`, PNG export in
+  hash codec in `ls_hash.js` (map.js parses and writes through it since
+  2026-10-06; which params exist and how each is collected and applied is
+  the `_VIEW_PARAMS` table at the end of map.js — to make something travel
+  in a link add a row there, never a line in a writer), EPSG:3413 in `ls_proj.js`, PNG export in
   `ls_export.js`. Duplicated registries drift; that's why these exist.
 - **Pointer policy only in `ls_tools.js`.** Do not add a `map.on('click')`,
   a hand-rolled pointer-capture drag, a direct `canvas.style.cursor` write or

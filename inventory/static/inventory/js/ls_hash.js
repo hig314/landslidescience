@@ -1,34 +1,55 @@
-/* Shared URL-hash view-state codec — ONE grammar for /inventory/ and
- * /glaciers/:
+/* Shared URL-hash view-state codec — THE grammar for /inventory/ and
+ * /glaciers/. Both pages parse and write through this module; nothing else
+ * may read or build a hash by hand. (Until 2026-10-06 map.js carried its own
+ * copy of the parser and the two drifted — this one had lost the ortho lidar
+ * code and never learned `ext`.) The server-side validator charset
+ * (views.py _VIEW_STATE_RE) is the one other party to keep in step.
  *
  *   map=<zoom>/<lat>/<lon> & base=<id> & swipe=<id> & sx=<pct>
- *   & ov=<id>[~s].l<pct>r<pct>,…   (~s = data-variant flag, e.g. smoothed
- *                                   thinning; l/r = pane visibility+opacity)
- *   & li=<id>.<p>l<pct>[<q>]r<pct>,… (lidar overlays; p = what to draw:
- *                                   h hillshade | p preset | o orthomosaic,
- *                                   k a retired read-only alias for p; an
- *                                   optional second code <q> before the r
- *                                   pane when it differs; l/r as for ov)
- *   & im=<id>.l<pct>,…             (imagery overlays: uploaded scenes and
- *                                   Sentinel-2 windows. Main pane only, which
- *                                   is why there is no r<pct> -- these have
- *                                   never been offered in the wiper's right
- *                                   pane. <id> is the TraceRaster row id.)
- *   & <extras…>                    (app-specific params pass through:
- *                                   inventory id/ids/tab/an, glaciers site/t)
+ *   & ov=<id>[~s][~<date>].l<pct>r<pct>,…
+ *         raster overlays. l/r = which pane it is visible in, with opacity
+ *         0–100. `~s` = data-variant flag (smoothed thinning). `~YYYY-MM-DD`
+ *         or `~all` pins the date of an overlay that has a date stepper
+ *         (surface disturbance); no date = leave the date alone.
+ *   & li=<id>.<p>l<pct>[<q>]r<pct>,…
+ *         lidar overlays. <p> = what to draw: h hillshade | p preset |
+ *         o orthomosaic (k = retired read-only alias for p). An optional
+ *         second code <q> before the r pane when the wiper's right pane
+ *         draws the survey differently.
+ *   & ext=<source>/<layer>,…   mirrored third-party inventory layers
+ *   & im=<id>.l<pct>,…         imagery overlays (uploaded scenes, Sentinel-2
+ *                              windows; <id> = TraceRaster row id). Main pane
+ *                              only, hence no r<pct>.
+ *   & ref=<name>,…             reference vector layers (faults | circles)
+ *   & <extras…>                app-specific params, passed through untouched
+ *                              as strings: inventory sc / filters / tab / an /
+ *                              id / ids, glaciers site / t.
  *
- * /glaciers/ consumes this module directly. map.js still carries its own
- * embedded parser with the IDENTICAL grammar (migration onto this module is
- * the planned next inventory-touching step — see CLAUDE.md); until that
- * lands, any grammar change MUST be made in both places. The server-side
- * validator charset (views.py _VIEW_STATE_RE) is the third party to keep
- * in sync.
+ * LIST PARAMS (ov, li, ext, im, ref): PRESENT fully describes the set —
+ * anything unlisted is off, and present-but-empty means "none". ABSENT means
+ * "leave alone". parse() therefore returns the key whenever the param exists,
+ * even empty, and encode() writes it whenever the caller passes it, even
+ * empty; pass null/undefined to leave it out.
+ *
+ * Additive only. Stored default views, snapshots and shared links hold these
+ * strings for good, so an existing form must keep its meaning: new state gets
+ * a new key or a new optional flag, never a new reading of an old token.
  */
 (function () {
     'use strict';
 
     var LI_CODE = { h: 'hillshade', p: 'preset', k: 'preset', o: 'ortho' };
     var LI_PRESET = { hillshade: 'h', preset: 'p', ortho: 'o' };
+    var DATE_RE = /^(\d{4}-\d\d-\d\d|all)$/;
+
+    function panes(specStr, e) {      // 'l75r40' -> e.left/opLeft/right/opRight
+        specStr.replace(/([lr])(\d+)/g, function (_, sideCh, pct) {
+            var o = Math.min(100, Math.max(0, parseInt(pct, 10))) / 100;
+            if (sideCh === 'l') { e.left = true; e.opLeft = o; }
+            else                { e.right = true; e.opRight = o; }
+            return '';
+        });
+    }
 
     function parse(hash) {
         var out = { extras: {} };
@@ -58,15 +79,16 @@
                     var m2 = /^(.+)\.((?:[lr]\d+)+)$/.exec(ent);
                     if (!m2) return;
                     var e = {};
-                    m2[2].replace(/([lr])(\d+)/g, function (_, sideCh, pct) {
-                        var o = Math.min(100, Math.max(0, parseInt(pct, 10))) / 100;
-                        if (sideCh === 'l') { e.left = true; e.opLeft = o; }
-                        else                { e.right = true; e.opRight = o; }
-                        return '';
-                    });
+                    panes(m2[2], e);
                     if (e.left || e.right) {
+                        // `~` flags on the id: s = smoothed variant, a date
+                        // pins a stepper. Unknown flags are ignored, so a
+                        // reader older than a flag still finds the overlay.
                         var idBits = m2[1].split('~');
-                        if (idBits.indexOf('s') > 0) e.smooth = true;
+                        idBits.slice(1).forEach(function (bit) {
+                            if (bit === 's') e.smooth = true;
+                            else if (DATE_RE.test(bit)) e.date = bit;
+                        });
                         ovOut[idBits[0]] = e;
                     }
                 });
@@ -74,9 +96,9 @@
             } else if (k === 'li') {
                 var liOut = {};
                 v.split(',').forEach(function (ent) {
-                    // Same grammar as map.js parseHashState: h hillshade, p
-                    // preset (k its retired spelling, read-only), o orthomosaic;
-                    // a code may also precede a later pane and applies from there.
+                    // A code may also precede a later pane (`hl100pr80`) and
+                    // applies from there on, so the one-code form reads as it
+                    // always did.
                     var m3 = /^([A-Za-z0-9_]+)\.([hkpo])((?:[hkpo]?[lr]\d+)+)$/.exec(ent);
                     if (!m3) return;
                     var e3 = { preset: LI_CODE[m3[2]] }, code3 = m3[2];
@@ -90,6 +112,13 @@
                     if (e3.left || e3.right) liOut[m3[1]] = e3;
                 });
                 out.li = liOut;
+            } else if (k === 'ext') {
+                var extOut = {};
+                v.split(',').forEach(function (ent) {
+                    var em = /^([a-z0-9_]+)\/([a-z0-9_]+)$/.exec(ent);
+                    if (em) extOut[em[1] + '/' + em[2]] = true;
+                });
+                out.ext = extOut;
             } else if (k === 'im') {
                 var imOut = {};
                 v.split(',').forEach(function (ent) {
@@ -98,6 +127,12 @@
                     imOut[m4[1]] = Math.min(100, Math.max(0, parseInt(m4[2], 10))) / 100;
                 });
                 out.im = imOut;
+            } else if (k === 'ref') {
+                var refOut = {};
+                v.split(',').forEach(function (name) {
+                    if (/^[a-z]+$/.test(name)) refOut[name] = true;
+                });
+                out.ref = refOut;
             } else {
                 out.extras[k] = v;
             }
@@ -105,11 +140,17 @@
         return out;
     }
 
+    function pct(op) { return Math.round((op != null ? op : 1) * 100); }
+
     /* o: { zoom, lat, lon, base, swipe, sx,
-     *      ov: {id: {left, right, opLeft, opRight, smooth}},
-     *      li: {id: {preset, left, right, opLeft, opRight}}, extras: {…} }
-     * Omit/null any part to leave it out of the hash. Number formats match
-     * the inventory writer exactly (zoom 2dp, lat/lon 4dp). */
+     *      ov:  {id: {left, right, opLeft, opRight, smooth, date}},
+     *      li:  {id: {preset, presetR, left, right, opLeft, opRight}},
+     *      ext: {'source/layer': true}, im: {id: opacity}, ref: {name: true},
+     *      extras: {key: string} }
+     * Omit/null any part to leave it out of the hash; a list part that is
+     * passed is written even when empty (see LIST PARAMS above). Entries are
+     * written in the object's own key order, so the caller decides it.
+     * Number formats: zoom 2dp, lat/lon 4dp. */
     function encode(o) {
         var parts = [];
         if (o.zoom != null && o.lat != null && o.lon != null) {
@@ -126,11 +167,12 @@
             Object.keys(o.ov).forEach(function (id) {
                 var e = o.ov[id];
                 var spec = '';
-                if (e.left)  spec += 'l' + Math.round((e.opLeft != null ? e.opLeft : 1) * 100);
-                if (e.right) spec += 'r' + Math.round((e.opRight != null ? e.opRight : 1) * 100);
-                if (spec) ovp.push(id + (e.smooth ? '~s' : '') + '.' + spec);
+                if (e.left)  spec += 'l' + pct(e.opLeft);
+                if (e.right) spec += 'r' + pct(e.opRight);
+                if (spec) ovp.push(id + (e.smooth ? '~s' : '') +
+                                   (e.date && DATE_RE.test(e.date) ? '~' + e.date : '') + '.' + spec);
             });
-            if (ovp.length) parts.push('ov=' + ovp.join(','));
+            parts.push('ov=' + ovp.join(','));
         }
         if (o.li) {
             var lip = [];
@@ -139,12 +181,15 @@
                 var spec = '';
                 var lead = LI_PRESET[e.preset] || 'h';
                 var rc = LI_PRESET[e.presetR || e.preset] || 'h';
-                if (e.left)  spec += 'l' + Math.round((e.opLeft != null ? e.opLeft : 1) * 100);
-                if (e.right) spec += (e.left && rc !== lead ? rc : '') +
-                                     'r' + Math.round((e.opRight != null ? e.opRight : 1) * 100);
+                if (e.left)  spec += 'l' + pct(e.opLeft);
+                // Second code only when the right pane draws it differently.
+                if (e.right) spec += (e.left && rc !== lead ? rc : '') + 'r' + pct(e.opRight);
                 if (spec) lip.push(id + '.' + (e.left ? lead : rc) + spec);
             });
-            if (lip.length) parts.push('li=' + lip.join(','));
+            parts.push('li=' + lip.join(','));
+        }
+        if (o.ext) {
+            parts.push('ext=' + Object.keys(o.ext).filter(function (k) { return o.ext[k]; }).join(','));
         }
         if (o.im) {
             var imp = [];
@@ -152,7 +197,10 @@
                 var op = o.im[id];
                 if (op != null) imp.push(id + '.l' + Math.round(op * 100));
             });
-            if (imp.length) parts.push('im=' + imp.join(','));
+            parts.push('im=' + imp.join(','));
+        }
+        if (o.ref) {
+            parts.push('ref=' + Object.keys(o.ref).filter(function (k) { return o.ref[k]; }).join(','));
         }
         if (o.extras) {
             Object.keys(o.extras).forEach(function (k) {

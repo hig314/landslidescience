@@ -76,6 +76,10 @@ window.LSScarps = (function () {
   var wired = false;
   function ensureLayers() {
     if (map.getSource(SRC)) return;
+    addLayers();
+    if (!visible) setVisible(false);
+  }
+  function addLayers() {
     // A basemap switch (setStyle) drops the source and layers; they are put
     // back on style.load (init below). The layer-scoped click handlers are
     // kept by the map across styles, so they are wired once, not per style.
@@ -245,7 +249,12 @@ window.LSScarps = (function () {
       });
   }
 
+  // Remembered, not just applied: a basemap switch rebuilds the layers, and
+  // the host may set this before init has a map at all.
+  var visible = true;
   function setVisible(on) {
+    visible = !!on;
+    if (!map) return;
     [LINE, HIT, SEL].forEach(function (id) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
     });

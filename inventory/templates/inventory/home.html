@@ -66,8 +66,12 @@
       <label class="nav-filter-label small" style="display:inline-flex; margin-right:10px;">
         <input type="checkbox" class="filter-type" value="slow" checked> Slow
       </label>
-      <label class="nav-filter-label small" style="display:inline-flex;">
+      <label class="nav-filter-label small" style="display:inline-flex; margin-right:10px;">
         <input type="checkbox" class="filter-type" value="catastrophic" checked> Catastrophic
+      </label>
+      <label class="nav-filter-label small" style="display:inline-flex;"
+             title="Scarp traces: working observations of scarps that are not landslide headwalls (purple dashed lines). Not a fault map.">
+        <input type="checkbox" id="cb-scarps" checked> Scarps
       </label>
     </div>
     {% comment %}
@@ -607,5 +611,6 @@
 <script src="{% static 'inventory/js/basemaps.js' %}"></script>
 <script src="{% static 'inventory/js/ls_overlays.js' %}"></script>
 <script src="{% static 'inventory/js/ls_export.js' %}"></script>
+<script src="{% static 'inventory/js/ls_hash.js' %}"></script>
 <script src="{% static 'inventory/js/map.js' %}"></script>
 {% endblock %}
