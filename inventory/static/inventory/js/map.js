@@ -7636,15 +7636,12 @@
             flag(d.insar_opera,'InSAR (OPERA)'), flag(d.insar_other,'InSAR (other)'),
             flag(d.planet_labs_creep,'Planet Labs creep'), flag(d.planet_labs_patchy_creep,'Planet patchy creep'),
             flag(d.its_live_creep,'ITS_LIVE'),
-            flag(d.geomorph_creep,'Geomorphic'), flag(d.insar_creep,'InSAR creep'),
-            flag(d.precursory_headscarp,'Precursory headscarp'), flag(d.molards,'Molards'),
-            flag(d.exclusively_supraglacial,'Supraglacial runout'),
-            flag(d.post_2012_activity_increase,'Post-2012 increase'),
-            flag(d.creeping_permafrost_mass,'Creeping permafrost'),
-            flag(d.tsunamigenic,'Tsunamigenic'),
-            flag(d.super_elevated_deposits,'Super-elevated deposits'),
-            flag(d.glacier_contact,'Glacier contact')
-        ].filter(Boolean);
+            flag(d.geomorph_creep,'Geomorphic'), flag(d.insar_creep,'InSAR creep')
+        ].concat(
+            // Landslide features, by value (the ", "-joined column).
+            String(d.features || '').split(',').map(function (v) { return v.trim(); })
+                .filter(Boolean).map(function (v) { return flag(true, v); })
+        ).filter(Boolean);
 
         if (evidence.length) {
             html += '<div class="detail-section"><div class="detail-section-title">Detection / evidence</div>' +

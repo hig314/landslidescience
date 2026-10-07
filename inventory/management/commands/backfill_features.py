@@ -33,6 +33,12 @@ class Command(BaseCommand):
         conn = _get_conn()
         try:
             cur = conn.cursor()
+            cur.execute("SELECT count(*) FROM information_schema.columns "
+                        "WHERE table_name = 'landslides' AND column_name = ANY(%s)", (cols,))
+            if cur.fetchone()[0] != len(cols):
+                self.stdout.write("The boolean columns are gone (drop_feature_mirrors has run): "
+                                  "nothing to backfill from.")
+                return
             where = '' if opts['force'] else 'WHERE features IS NULL'
             cur.execute(f"SELECT id, unique_name, {', '.join(cols)} FROM landslides {where} ORDER BY id")
             rows = cur.fetchall()

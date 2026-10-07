@@ -35,12 +35,11 @@ LIA_END_YEAR = 1850
 
 # landslides.features (2026-10-06) is the multi-valued "Landslide features"
 # column: ", "-joined values from a short vocabulary (metadata in
-# inventory.models.FeatureVocab). It replaced eight boolean columns as the
-# thing editors set. Those columns remain as RULE OUTPUTS -- each is TRUE
-# exactly when its value is in `features` -- so every filter, export,
-# snapshot and shared URL that names a boolean keeps its meaning while
-# nothing is reading `features` yet. Drop them (and this block) once that
-# is no longer so. Mapping: legacy column -> feature value.
+# inventory.models.FeatureVocab). It replaced eight boolean columns, which
+# were kept for one day as rule outputs mirroring it and DROPPED on
+# 2026-10-07 (drop_feature_mirrors) once nothing read them. This mapping
+# (legacy column -> feature value) is what the transition commands and the
+# old f= URL bits still translate through; the mirror rules are gone.
 FEATURE_MIRRORS = {
     'molards':                     'Molards',
     'exclusively_supraglacial':    'Exclusively supraglacial',
@@ -58,7 +57,7 @@ def split_features(text):
     return [p.strip() for p in (text or '').split(',') if p.strip()]
 
 
-def _feature_mirror_rule(column, value):
+def _feature_mirror_rule(column, value):   # kept for backfill_features (historical)
     def compute(row):
         # NULL features = this record has not been through backfill_features
         # (or arrived from an import that predates the column): leave the
@@ -80,6 +79,12 @@ def _feature_mirror_rule(column, value):
 
 FEATURE_MIRROR_RULES = {col: _feature_mirror_rule(col, val)
                         for col, val in FEATURE_MIRRORS.items()}
+
+# SQL test for one feature value on the landslides row aliased `l`, for the
+# SQL rules (polygon_volume). Trimmed split of the ", "-joined column.
+def feature_sql(value, alias='l'):
+    return (f"EXISTS (SELECT 1 FROM unnest(string_to_array({alias}.features, ',')) fx "
+            f"WHERE btrim(fx) = '{value}')")
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +458,7 @@ def compute_polygon_volume():
     """Per-polygon estimated volume (m³).
 
     Branches on parent landslide + polygon role:
-      - creeping_permafrost_mass=True   →  PERMAFROST_THICKNESS_M × area
+      - "Creeping permafrost mass" in features →  PERMAFROST_THICKNESS_M × area
                                            (uniform thickness regardless of role)
       - landslide_type='slow', role='body'           →  0.1 × area^1.5
       - landslide_type='catastrophic', role='source' →  0.1 × area^1.5
@@ -465,10 +470,10 @@ def compute_polygon_volume():
     independently; the per-role SUMs are taken in the volume_source/deposit
     rules below.
     """
-    return """
+    return f"""
         SELECT p.id,
                CASE
-                 WHEN l.creeping_permafrost_mass THEN
+                 WHEN {feature_sql('Creeping permafrost mass')} THEN
                    ROUND(20 * p.area)::bigint
                  WHEN l.landslide_type = 'slow' AND p.role = 'body' THEN
                    ROUND(0.1 * POWER(p.area, 1.5))::bigint
@@ -486,7 +491,7 @@ def compute_polygon_volume():
 compute_polygon_volume.is_sql        = True
 compute_polygon_volume.target_table  = 'landslide_polygons'
 compute_polygon_volume.target_column = 'polygon_volume'
-compute_polygon_volume.inputs        = ('landslides.creeping_permafrost_mass',
+compute_polygon_volume.inputs        = ('landslides.features',
                                         'landslides.landslide_type',
                                         'landslide_polygons.role',
                                         'landslide_polygons.area')
@@ -772,9 +777,6 @@ compute_volume_method.summary       = ('Canonical label for auto-estimated '
 # page lists them in this order so an editor can click through top-to-bottom.
 
 RULES = {
-    # The eight legacy feature booleans, mirrored from `features`. First,
-    # because creeping_permafrost_mass feeds polygon_volume below.
-    **FEATURE_MIRROR_RULES,
     # Geometry → per-polygon area
     'polygon_area':       compute_polygon_area,
     # Per-polygon area → landslide role aggregates

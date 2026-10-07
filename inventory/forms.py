@@ -38,8 +38,6 @@ _TEXTAREA_COLS = {'description', 'notes', 'seismic_note', 'seismic_credit',
 # most columns but loses hyphenation and domain capitalization. Only list
 # columns whose derived label is actually wrong — the default is good.
 _FIELD_LABELS = {
-    'super_elevated_deposits': 'Super-elevated deposits',
-    'post_2012_activity_increase': 'Post-2012 activity increase',
     'insar_schaefer': 'InSAR (Schaefer)',
     'insar_kim': 'InSAR (Kim)',
     'insar_opera': 'InSAR (OPERA)',
@@ -54,8 +52,6 @@ _FIELD_LABELS = {
 # Short hints shown under a field. Kept for flags whose meaning is not
 # self-evident from the label alone.
 _FIELD_HELP = {
-    'super_elevated_deposits': 'Deposit runs up the outer bank of a bend — '
-                               'evidence of high flow velocity.',
 }
 
 
@@ -97,10 +93,6 @@ _FIELD_TIPS = {
     'features': 'Observed features of this landslide: pick any that apply, '
                 'or add a value. The list shows the features that apply to '
                 'this record\'s type.',
-    'post_2012_activity_increase': 'Activity has increased since 2012.',
-    'creeping_permafrost_mass': 'A creeping permafrost mass. Its volume is '
-                                'estimated with a uniform 20 m thickness.',
-    'glacier_contact': 'The moving mass is in contact with a glacier.',
 }
 
 

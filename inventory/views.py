@@ -680,22 +680,13 @@ _FILTER_PROPS_SQL = """
                             WHEN l.date_min IS NOT NULL THEN EXTRACT(YEAR FROM l.date_min)::int
                             ELSE NULL
                         END,
-                        'molards',                     l.molards,
-                        'tsunamigenic',                l.tsunamigenic,
-                        'super_elevated_deposits',     l.super_elevated_deposits,
-                        'glacier_contact',             l.glacier_contact,
                         'stream_damming',              l.stream_damming,
-                        'precursory_headscarp',        l.precursory_headscarp,
                         'has_site_specific_volume',   (l.volume_site_specific IS NOT NULL),
-                        'exclusively_supraglacial',    l.exclusively_supraglacial,
-                        'creeping_permafrost_mass',    l.creeping_permafrost_mass,
                         'has_seismic',                (l.seismic_datetime IS NOT NULL),
                         'has_time_bracket',           (l.date_min IS NOT NULL AND l.date_max IS NOT NULL),
-                        'post_2012_activity_increase', l.post_2012_activity_increase,
                         'flagged',                     COALESCE(l.flagged, false),
                         -- Landslide features as a JSON array of values, for the
-                        -- three-way feature filter (must / neutral / exclude);
-                        -- the booleans above mirror it and stay for old links.
+                        -- three-way feature filter (must / neutral / exclude).
                         'features', COALESCE((SELECT json_agg(btrim(x))
                                               FROM unnest(string_to_array(l.features, ',')) x
                                               WHERE btrim(x) <> ''), '[]'::json)"""
@@ -1089,10 +1080,7 @@ def api_timed_events(request):
             l.landslide_type,
             l.landslide_class,
             l.volume_preferred,
-            l.molards,
             l.stream_damming,
-            l.exclusively_supraglacial,
-            l.creeping_permafrost_mass,
             l.centroid_lat AS lat,
             l.centroid_lon AS lon,
             CASE
@@ -1122,11 +1110,7 @@ def api_timed_events(request):
             END AS event_year,
             CASE WHEN l.landslide_type = 'slow' THEN l.area_body ELSE l.area_source END AS area_src,
             CASE WHEN l.landslide_type = 'catastrophic' THEN l.area_deposit ELSE NULL END AS area_dep,
-            l.precursory_headscarp,
             (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume,
-            l.tsunamigenic,
-            l.glacier_contact,
-            l.super_elevated_deposits,
             l.features
         FROM landslides l
         WHERE (l.seismic_datetime IS NOT NULL
@@ -1151,25 +1135,18 @@ def api_timed_events(request):
         events.append({
             'id': r[0], 'ls_type': r[1], 'cls': r[2],
             'vol': r[3],
-            'molards':      bool(r[4]) if r[4] is not None else False,
-            'stream_dam':   r[5] or '',
-            'supraglacial': bool(r[6]) if r[6] is not None else False,
-            'permafrost':   bool(r[7]) if r[7] is not None else False,
-            'lat': float(r[8]), 'lon': float(r[9]),
-            'year_num': r[10],
-            'timing': r[11],
-            'doy':     int(r[12]) if r[12] is not None else None,
-            'doy_end': int(r[13]) if r[13] is not None else None,
-            'span':    int(r[14]) if r[14] is not None else 1,
-            'year':    int(r[15]) if r[15] is not None else 2000,
-            'area_src': float(r[16]) if r[16] is not None else None,
-            'area_dep': float(r[17]) if r[17] is not None else None,
-            'headscarp':       bool(r[18]) if r[18] is not None else False,
-            'has_site_volume': bool(r[19]) if r[19] is not None else False,
-            'tsunamigenic':    bool(r[20]) if r[20] is not None else False,
-            'glacier_contact': bool(r[21]) if r[21] is not None else False,
-            'super_elevated_deposits': bool(r[22]) if r[22] is not None else False,
-            'features': _split_features(r[23]),
+            'stream_dam':   r[4] or '',
+            'lat': float(r[5]), 'lon': float(r[6]),
+            'year_num': r[7],
+            'timing': r[8],
+            'doy':     int(r[9]) if r[9] is not None else None,
+            'doy_end': int(r[10]) if r[10] is not None else None,
+            'span':    int(r[11]) if r[11] is not None else 1,
+            'year':    int(r[12]) if r[12] is not None else 2000,
+            'area_src': float(r[13]) if r[13] is not None else None,
+            'area_dep': float(r[14]) if r[14] is not None else None,
+            'has_site_volume': bool(r[15]) if r[15] is not None else False,
+            'features': _split_features(r[16]),   # the three-way feature filter reads these
         })
     _cache['timed_events'] = events
     resp = JsonResponse({'events': events})
@@ -1193,11 +1170,7 @@ def api_timeline_events(request):
             l.landslide_type,
             l.landslide_class,
             l.volume_preferred,
-            l.molards,
             l.stream_damming,
-            l.exclusively_supraglacial,
-            l.creeping_permafrost_mass,
-            l.post_2012_activity_increase,
             (l.seismic_datetime IS NOT NULL) AS has_seismic,
             l.centroid_lat AS lat,
             l.centroid_lon AS lon,
@@ -1218,11 +1191,7 @@ def api_timeline_events(request):
             to_char(l.date_max, 'YYYY-MM-DD') AS tl_d1,
             CASE WHEN l.landslide_type = 'slow' THEN l.area_body ELSE l.area_source END AS area_src,
             CASE WHEN l.landslide_type = 'catastrophic' THEN l.area_deposit ELSE NULL END AS area_dep,
-            l.precursory_headscarp,
             (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume,
-            l.tsunamigenic,
-            l.glacier_contact,
-            l.super_elevated_deposits,
             l.features
         FROM landslides l
         WHERE l.centroid_lat IS NOT NULL
@@ -1241,7 +1210,7 @@ def api_timeline_events(request):
 
     events = []
     for r in rows:
-        yn = r[12]
+        yn = r[8]
         if yn is None:
             continue
         events.append({
@@ -1249,26 +1218,18 @@ def api_timeline_events(request):
             'ls_type':     r[1],
             'cls':         r[2],
             'vol':         r[3],
-            'molards':     bool(r[4]) if r[4] is not None else False,
-            'stream_dam':  r[5] or '',
-            'supraglacial':bool(r[6]) if r[6] is not None else False,
-            'permafrost':  bool(r[7]) if r[7] is not None else False,
-            'post_2012':   bool(r[8]) if r[8] is not None else False,
-            'has_seismic': bool(r[9]),
-            'lat':         float(r[10]),
-            'lon':         float(r[11]),
+            'stream_dam':  r[4] or '',
+            'has_seismic': bool(r[5]),
+            'lat':         float(r[6]),
+            'lon':         float(r[7]),
             'year_num':    int(yn),
-            'tl_pt':    r[13],
-            'tl_d0':    r[14],
-            'tl_d1':    r[15],
-            'area_src': float(r[16]) if r[16] is not None else None,
-            'area_dep': float(r[17]) if r[17] is not None else None,
-            'headscarp':       bool(r[18]) if r[18] is not None else False,
-            'has_site_volume': bool(r[19]) if r[19] is not None else False,
-            'tsunamigenic':    bool(r[20]) if r[20] is not None else False,
-            'glacier_contact': bool(r[21]) if r[21] is not None else False,
-            'super_elevated_deposits': bool(r[22]) if r[22] is not None else False,
-            'features': _split_features(r[23]),
+            'tl_pt':    r[9],
+            'tl_d0':    r[10],
+            'tl_d1':    r[11],
+            'area_src': float(r[12]) if r[12] is not None else None,
+            'area_dep': float(r[13]) if r[13] is not None else None,
+            'has_site_volume': bool(r[14]) if r[14] is not None else False,
+            'features': _split_features(r[15]),   # the three-way feature filter reads these
         })
     _cache['timeline_events'] = events
     resp = JsonResponse({'events': events})
@@ -1850,8 +1811,7 @@ _EDIT_FIELD_GROUPS = [
     # character" and "Slow-mass attributes" (molards, tsunamigenic, creeping
     # permafrost mass, …). The picker shows the values that apply to the
     # record's type (FeatureVocab.applies_to) and lets an editor add one.
-    # The booleans still exist as rule outputs (derived.FEATURE_MIRRORS) and
-    # sit in the Computed group below.
+    # The eight booleans were dropped on 2026-10-07 (drop_feature_mirrors).
     # Stream damming rides here rather than in the catastrophic event group:
     # a slow landslide dams and diverts streams too (27 slow records carried a
     # value with no form field to show it, 2026-10-06).
@@ -1897,12 +1857,6 @@ _EDIT_FIELD_GROUPS = [
     {'key': 'computed', 'title': 'Computed (auto-filled — override only if needed)',
      'collapsed': True, 'fields': [
         'landslide_class', 'size_inclusion', 'creep_behavior', 'insar_creep',
-        # The feature mirrors: set from `features` by the cascade, kept for
-        # filters / exports / snapshots that name them (derived.FEATURE_MIRRORS).
-        {'block': 'Feature mirrors (set from Landslide features)', 'fields': [
-            'molards', 'exclusively_supraglacial', 'super_elevated_deposits',
-            'tsunamigenic', 'precursory_headscarp', 'post_2012_activity_increase',
-            'creeping_permafrost_mass', 'glacier_contact']},
         'volume_preferred', 'volume_method', 'volume_estimated',
         'area_body', 'area_source', 'area_deposit',
         'volume_body', 'volume_source', 'volume_deposit',
@@ -2164,7 +2118,10 @@ def manage_edit(request, landslide_id, review_mode=False):
             set_clause = ', '.join(f"{f} = %s" for f in col_names)
             values = [data.get(f) for f in col_names]
             values.append(landslide_id)
-            update_sql = f"UPDATE landslides SET {set_clause} WHERE id = %s"
+            # updated_at is server-managed (excluded from the form) and was never
+            # stamped by the editor until 2026-10-07; LandslideEditMeta was the
+            # only record of an edit.
+            update_sql = f"UPDATE landslides SET {set_clause}, updated_at = NOW() WHERE id = %s"
 
             conn = _get_conn()
             try:
@@ -3297,7 +3254,7 @@ def manage_edit_field(request, landslide_id):
             old_story_url = r0[0] if r0 else None
 
         # name is whitelisted from information_schema (not user-supplied SQL).
-        cur.execute(f"UPDATE landslides SET {name} = %s WHERE id = %s", (val, landslide_id))
+        cur.execute(f"UPDATE landslides SET {name} = %s, updated_at = NOW() WHERE id = %s", (val, landslide_id))
         if cur.rowcount == 0:
             conn.rollback()
             return JsonResponse({'ok': False, 'error': 'Record not found.'}, status=404)
@@ -3311,7 +3268,7 @@ def manage_edit_field(request, landslide_id):
             _DERIVED_COLS = ['area_body', 'area_source', 'area_deposit', 'size_inclusion',
                              'landslide_class', 'creep_behavior', 'insar_creep',
                              'volume_estimated', 'volume_preferred', 'volume_method',
-                             'centroid_lat', 'centroid_lon'] + list(_derived.FEATURE_MIRRORS)
+                             'centroid_lat', 'centroid_lon']
             cur.execute(f"SELECT {', '.join(_DERIVED_COLS)} FROM landslides WHERE id = %s",
                         (landslide_id,))
             row = cur.fetchone()

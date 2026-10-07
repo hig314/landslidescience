@@ -231,7 +231,7 @@
   shows). Tiles are pre-rendered from the project's source rasters; colors
   are baked, so the ramps live in the repository
   (<code>tools/itslive_color_*.txt</code>). These layers are most relevant
-  to slow landslides carrying the <code>glacier_contact</code> flag.
+  to slow landslides carrying the <em>Glacier contact</em> feature.
   Velocity data generated using auto-RIFT (Gardner et&nbsp;al., 2018) and
   provided by the NASA MEaSUREs ITS_LIVE project (Gardner et&nbsp;al., 2025,
   doi:10.5067/JQ6337239C96).
@@ -256,7 +256,7 @@
   fixed 2000&ndash;2019 analysis &mdash; no updating successor at comparable
   resolution exists as of 2026 &mdash; so treat it as a two-decade average,
   not current conditions. Paired with the velocity overlays it frames the
-  glacier-dynamics context of <code>glacier_contact</code> landslides:
+  glacier-dynamics context of <em>Glacier contact</em> landslides:
   thinning rate, flow speed, its seasonality, and its trend.
 </p>
 
@@ -296,11 +296,11 @@
 </p>
 
 <p>
-  Two observational flags were added in 2026:
-  <code>tsunamigenic</code> (catastrophic records &mdash; the failure
-  generated a displacement wave) and <code>glacier_contact</code> (slow
-  records &mdash; the moving mass is in contact with a glacier). Both are
-  editor-set booleans, shown in the detail panel's Detection/evidence list
+  Two observations were added in 2026, now values of the <em>Landslide
+  features</em> field: <em>Tsunamigenic</em> (catastrophic records &mdash;
+  the failure generated a displacement wave) and <em>Glacier contact</em>
+  (slow records &mdash; the moving mass is in contact with a glacier). Both
+  are editor-set, shown in the detail panel's Detection/evidence list
   when set; coverage is being populated progressively, so absence of the
   flag does not yet imply absence of the phenomenon.
 </p>
@@ -561,7 +561,7 @@
 <table class="methods-table">
   <tr><th>Condition</th><th>Formula</th><th>Rationale</th></tr>
   <tr>
-    <td><code>creeping_permafrost_mass = TRUE</code></td>
+    <td><em>Creeping permafrost mass</em> among the landslide features</td>
     <td><code>20 &times; area</code></td>
     <td>Uniform 20 m thickness assumed for permafrost masses, regardless of role</td>
   </tr>
@@ -1055,18 +1055,21 @@
   &ldquo;exclude&rdquo; keeps every record on which nobody noted it.
 </p>
 <p style="font-size:13px;">
-  <strong>Landslide features (since 2026-10-06).</strong> Eight of these
-  attributes &mdash; molards, exclusively supraglacial, super-elevated
-  deposits, tsunamigenic, precursory headscarp, post-2012 activity
-  increase, creeping permafrost mass, glacier contact &mdash; are now
-  recorded in one multi-valued column, <code>features</code>, as a
-  comma-separated list of values from a short vocabulary that editors can
-  extend (each value applies to slow landslides, catastrophic ones, or
-  both). The eight boolean columns still exist and still mean what they
-  meant, but each is now a derived value &mdash; TRUE exactly when its
-  feature is listed &mdash; so the filters, the explorer, the GeoJSON
-  export and published snapshots that name them are unaffected. A feature
-  added later has no boolean; it lives only in <code>features</code>.
+  <strong>Landslide features (since 2026-10-06).</strong> Eight former
+  boolean columns &mdash; <code>molards</code>,
+  <code>exclusively_supraglacial</code>, <code>super_elevated_deposits</code>,
+  <code>tsunamigenic</code>, <code>precursory_headscarp</code>,
+  <code>post_2012_activity_increase</code>,
+  <code>creeping_permafrost_mass</code>, <code>glacier_contact</code>
+  &mdash; are now recorded in one multi-valued column,
+  <code>features</code>, as a comma-separated list of values from a short
+  vocabulary that editors can extend (each value applies to slow
+  landslides, catastrophic ones, or both). The boolean columns were dropped
+  on 2026-10-07 after a record-by-record check against a pre-transition
+  copy of the table; exports made before then carry them, exports made
+  since carry <code>features</code> instead, and importing an older export
+  ignores the old columns with a warning. Snapshots published before the
+  change keep their own columns.
 </p>
 
 <h4>Area, volume, and age sliders</h4>
@@ -1112,8 +1115,8 @@
     records are filterable via the "Site-specific volume" checkbox.
   </li>
   <li>
-    <strong>Permafrost thickness is assumed.</strong> Landslides flagged
-    <code>creeping_permafrost_mass</code> get a uniform 20 m thickness in
+    <strong>Permafrost thickness is assumed.</strong> Landslides carrying the
+    <em>Creeping permafrost mass</em> feature get a uniform 20 m thickness in
     the volume formula. Real permafrost mass thicknesses are not measured
     here.
   </li>
