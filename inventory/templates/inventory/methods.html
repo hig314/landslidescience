@@ -791,7 +791,11 @@
   <li><code>planet_labs_creep</code> &rarr; <strong>Obvious creep</strong></li>
   <li><code>its_live_creep</code> &rarr; <strong>Obvious creep</strong></li>
   <li><code>insar_creep</code> &rarr; <strong>Subtle creep</strong></li>
-  <li><code>other_subtle_creep</code> (any non-empty value) &rarr; <strong>Subtle creep</strong></li>
+  <li><code>other_subtle_creep</code> (any non-empty value) &rarr; <strong>Subtle creep</strong>
+      &mdash; one or more observations from a short vocabulary (fine ground
+      cracking, post-AHAP change, recurrent failures, lidar change, post-Maxar
+      change, post-LIA change, an OPERA coherence gap, in-situ
+      instrumentation, &hellip;), comma-separated when several apply</li>
   <li><code>geomorph_creep</code> &rarr; <strong>Geomorph creep</strong></li>
   <li>none of the above, but <code>creep_evaluated</code> is TRUE &rarr;
       <strong>Cryptic</strong> &mdash; a deliberate null finding (the
@@ -1050,6 +1054,20 @@
   &ldquo;not recorded&rdquo; rather than &ldquo;observed absent&rdquo; &mdash;
   filtering on one narrows to positively-noted records, not to the complete
   population that has the attribute.
+</p>
+<p style="font-size:13px;">
+  <strong>Landslide features (since 2026-10-06).</strong> Eight of these
+  attributes &mdash; molards, exclusively supraglacial, super-elevated
+  deposits, tsunamigenic, precursory headscarp, post-2012 activity
+  increase, creeping permafrost mass, glacier contact &mdash; are now
+  recorded in one multi-valued column, <code>features</code>, as a
+  comma-separated list of values from a short vocabulary that editors can
+  extend (each value applies to slow landslides, catastrophic ones, or
+  both). The eight boolean columns still exist and still mean what they
+  meant, but each is now a derived value &mdash; TRUE exactly when its
+  feature is listed &mdash; so the filters, the explorer, the GeoJSON
+  export and published snapshots that name them are unaffected. A feature
+  added later has no boolean; it lives only in <code>features</code>.
 </p>
 
 <h4>Area, volume, and age sliders</h4>

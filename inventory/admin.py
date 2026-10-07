@@ -30,6 +30,16 @@ class RoleFilter(admin.SimpleListFilter):
         return queryset
 
 
+from .models import FeatureVocab
+
+
+@admin.register(FeatureVocab)
+class FeatureVocabAdmin(admin.ModelAdmin):
+    list_display = ('value', 'applies_to', 'sort_order', 'legacy_column', 'description')
+    list_editable = ('applies_to', 'sort_order', 'description')
+    ordering = ('sort_order', 'value')
+
+
 @admin.register(User)
 class RoleUserAdmin(UserAdmin):
     list_display = ('username', 'email', 'first_name', 'last_name',

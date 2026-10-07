@@ -30,6 +30,59 @@ LIA_END_YEAR = 1850
 
 
 # ---------------------------------------------------------------------------
+# Rules: the legacy feature booleans, mirrored from `features`
+# ---------------------------------------------------------------------------
+
+# landslides.features (2026-10-06) is the multi-valued "Landslide features"
+# column: ", "-joined values from a short vocabulary (metadata in
+# inventory.models.FeatureVocab). It replaced eight boolean columns as the
+# thing editors set. Those columns remain as RULE OUTPUTS -- each is TRUE
+# exactly when its value is in `features` -- so every filter, export,
+# snapshot and shared URL that names a boolean keeps its meaning while
+# nothing is reading `features` yet. Drop them (and this block) once that
+# is no longer so. Mapping: legacy column -> feature value.
+FEATURE_MIRRORS = {
+    'molards':                     'Molards',
+    'exclusively_supraglacial':    'Exclusively supraglacial',
+    'super_elevated_deposits':     'Super-elevated deposits',
+    'tsunamigenic':                'Tsunamigenic',
+    'precursory_headscarp':        'Precursory headscarp',
+    'post_2012_activity_increase': 'Post-2012 activity increase',
+    'creeping_permafrost_mass':    'Creeping permafrost mass',
+    'glacier_contact':             'Glacier contact',
+}
+
+
+def split_features(text):
+    """The values in a ", "-joined features string, trimmed, order kept."""
+    return [p.strip() for p in (text or '').split(',') if p.strip()]
+
+
+def _feature_mirror_rule(column, value):
+    def compute(row):
+        # NULL features = this record has not been through backfill_features
+        # (or arrived from an import that predates the column): leave the
+        # boolean as it is rather than clearing it. Backfill writes '' for a
+        # record with no features, so '' means "none", NULL means "unknown".
+        if row.get('features') is None:
+            return row.get(column)
+        return value in split_features(row['features'])
+    compute.__name__ = f'compute_{column}'
+    compute.__doc__ = (f'TRUE when "{value}" is one of the record\'s landslide '
+                       f'features; the editable field is `features`, this '
+                       f'column mirrors it for filters, exports and snapshots.')
+    compute.target_table = 'landslides'
+    compute.target_column = column
+    compute.inputs = ('features', column)
+    compute.summary = f'Mirror of "{value}" in features.'
+    return compute
+
+
+FEATURE_MIRROR_RULES = {col: _feature_mirror_rule(col, val)
+                        for col, val in FEATURE_MIRRORS.items()}
+
+
+# ---------------------------------------------------------------------------
 # Rule: insar_creep
 # ---------------------------------------------------------------------------
 
@@ -719,6 +772,9 @@ compute_volume_method.summary       = ('Canonical label for auto-estimated '
 # page lists them in this order so an editor can click through top-to-bottom.
 
 RULES = {
+    # The eight legacy feature booleans, mirrored from `features`. First,
+    # because creeping_permafrost_mass feeds polygon_volume below.
+    **FEATURE_MIRROR_RULES,
     # Geometry → per-polygon area
     'polygon_area':       compute_polygon_area,
     # Per-polygon area → landslide role aggregates

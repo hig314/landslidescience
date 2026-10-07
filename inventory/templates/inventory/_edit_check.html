@@ -4,7 +4,11 @@ blocks built by _field_groups.html. The full-width renderer puts the label
 on its own line above the input, which is right for text fields and wasteful
 for a boolean.
 
-Context: field (bound field), vis (per-type visibility class).
+Context: field (bound field), vis (per-type visibility class), sub (optional
+list of {'field','vis'} rendered indented under this box as its sub-boxes --
+a refinement that only means something while the parent is ticked, e.g.
+"Patchy only" under Planet Labs creep; _field_groups.html keeps them
+disabled otherwise).
 
 Non-checkbox fields fall through to the full-width renderer, so putting a
 text column in a block degrades gracefully instead of rendering a mangled
@@ -22,7 +26,14 @@ and autosave rely on.
     {% if field.errors %}
       <p style="font-size:12px; color:#b00020; margin:2px 0 0 22px;">{{ field.errors|join:", " }}</p>
     {% endif %}
+    {% if sub %}
+      <div class="cb-sub" data-parent="{{ field.id_for_label }}">
+        {% for s in sub %}
+          {% include 'inventory/_edit_check.html' with field=s.field vis=s.vis sub=None %}
+        {% endfor %}
+      </div>
+    {% endif %}
   </div>
 {% else %}
-  {% include 'inventory/_edit_field.html' with field=field vis=vis %}
+  {% include 'inventory/_edit_field.html' with field=field vis=vis cell=cell %}
 {% endif %}

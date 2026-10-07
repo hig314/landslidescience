@@ -5,12 +5,14 @@ One landslide edit-form field. Context:
            'creep-gate', 'creep-detail', 'creep-slow-only')
 Imagery suggestions + the class datalist are inherited from the parent context.
 {% endcomment %}
-<div class="ls-field {{ vis }}" data-field="{{ field.name }}" style="margin-bottom: 14px;">
+<div class="ls-field {{ vis }}{% if cell %} cb-cell{% endif %}" data-field="{{ field.name }}" style="margin-bottom: 14px;">
   <label for="{{ field.id_for_label }}"{% if field.field.tip %} title="{{ field.field.tip }}"{% endif %} style="display:block; font-size:13px; color:#555; margin-bottom:3px;">
     {{ field.label }}
     {% if field.field.required %}<span style="color:#b00020;">*</span>{% endif %}
   </label>
-  {% if field.name == 'landslide_class' %}
+  {% if field.field.picker %}
+    {% include 'inventory/_vocab_picker.html' with field=field vocab=field.field.picker %}
+  {% elif field.name == 'landslide_class' %}
     <input type="text" name="{{ field.name }}" id="{{ field.id_for_label }}"
            value="{{ field.value|default_if_none:'' }}" list="class-options" maxlength="200"
            style="width:100%; padding:6px 9px; font-size:13px; border:1px solid #ccc; border-radius:3px; box-sizing:border-box;">

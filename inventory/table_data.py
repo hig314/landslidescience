@@ -103,6 +103,8 @@ _UNITS = {
 # for a table header.
 _EXTRA_LABELS = {
     'id': 'ID',
+    'planet_labs_patchy_creep': 'Planet Labs patchy creep',   # the form nests it as "Patchy only"
+    'planet_labs_creep': 'Planet Labs creep',
     'unique_name': 'Name',
     'landslide_type': 'Type',
     'landslide_class': 'Class',
@@ -211,15 +213,9 @@ _META_COLS = {'id', 'created_at', 'updated_at', 'reviewed_at',
 
 
 def _flatten_group_fields(group):
-    """_EDIT_FIELD_GROUPS entries nest `{'block': title, 'fields': [...]}`
-    dicts inside their field list — flatten to plain column names."""
-    out = []
-    for f in group['fields']:
-        if isinstance(f, dict):
-            out.extend(f.get('fields', []))
-        else:
-            out.append(f)
-    return out
+    """Column names of one _EDIT_FIELD_GROUPS entry, through every nesting
+    the form allows (views.group_field_names owns the list of those)."""
+    return views.group_field_names(group['fields'])
 
 
 def _group_of_column():

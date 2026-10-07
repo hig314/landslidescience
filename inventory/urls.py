@@ -34,6 +34,7 @@ urlpatterns = [
     path('api/qms/', views.api_qms_search, name='api_qms_search'),
     path('api/qms/promoted/', views.api_qms_promoted, name='api_qms_promoted'),
     path('api/qms/promote/', views.api_qms_promote, name='api_qms_promote'),
+    path('api/features/vocab/add/', views.api_feature_vocab_add, name='api_feature_vocab_add'),
     path('api/qms/<int:qms_id>/', views.api_qms_detail, name='api_qms_detail'),
     path('api/qms/<int:qms_id>/unpromote/', views.api_qms_unpromote, name='api_qms_unpromote'),
     path('api/qms/<int:qms_id>/scope/', views.api_qms_set_scope, name='api_qms_set_scope'),

@@ -1820,31 +1820,41 @@ _EDIT_FIELD_GROUPS = [
     {'key': 'core', 'title': '', 'fields': [
         'unique_name', 'landslide_type', 'description', 'notes',
         'noted_by', 'owner', 'country', 'ongoing_work']},
+    # Landslide features (2026-10-06): one multi-valued picker in place of
+    # the eight booleans that used to be scattered as "Failure & deposit
+    # character" and "Slow-mass attributes" (molards, tsunamigenic, creeping
+    # permafrost mass, …). The picker shows the values that apply to the
+    # record's type (FeatureVocab.applies_to) and lets an editor add one.
+    # The booleans still exist as rule outputs (derived.FEATURE_MIRRORS) and
+    # sit in the Computed group below.
+    {'key': 'features', 'title': 'Landslide features', 'fields': ['features']},
     {'key': 'event', 'title': 'Catastrophic event & timing', 'fields': [
         'year_text', 'date_min', 'date_max',
-        # Failure/deposit character: what the deposit itself records about
-        # how the failure moved. super_elevated_deposits and tsunamigenic are
-        # both velocity/energy indicators, molards a thaw indicator.
-        # stream_damming is a categorical STRING, not a flag, but it belongs
-        # with these as deposit character rather than off in site history.
-        # A non-checkbox inside a block spans the full grid width and sits
-        # after the checkboxes (see _field_groups.html).
-        {'block': 'Failure & deposit character', 'fields': [
-            'precursory_headscarp', 'exclusively_supraglacial',
-            'molards', 'super_elevated_deposits', 'tsunamigenic',
-            'stream_damming']},
+        # What the deposit did to the stream it reached -- a vocabulary
+        # column with its own picker (VOCAB_COLUMNS), catastrophic-only
+        # like the rest of this group.
+        'stream_damming',
         'seismic_datetime', 'seismic_note', 'seismic_credit']},
+    # The creep blocks run weakest evidence to strongest, the order of the
+    # creep_behavior rule ladder read upwards (Hig, 2026-10-06). Inside a
+    # block: a {'field', 'sub'} entry renders its sub-boxes indented under
+    # the parent and enabled only while the parent is ticked (Planet creep is
+    # read as landslide-wide unless "Patchy only" says otherwise); a
+    # {'group', 'fields'} entry is a titled box inside the block, taking one
+    # grid cell; a {'field', 'cell': True} entry keeps a non-checkbox field
+    # in one cell instead of spanning the row, so the subtle-evidence picker
+    # sits beside the InSAR box (_field_groups.html, _edit_check.html).
     {'key': 'creep', 'title': 'Creep / slow-movement detection', 'fields': [
         'creep_evaluated',
-        {'block': 'InSAR evidence', 'fields': [
-            'insar_schaefer', 'insar_kim', 'insar_opera', 'insar_other']},
-        {'block': 'Optical & geomorphic evidence', 'fields': [
-            'planet_labs_creep', 'planet_labs_patchy_creep',
-            'its_live_creep', 'geomorph_creep']},
-        {'block': 'Slow-mass attributes', 'fields': [
-            'post_2012_activity_increase', 'creeping_permafrost_mass',
-            'glacier_contact']},
-        'other_subtle_creep']},
+        {'block': 'Geomorphic creep evidence', 'fields': ['geomorph_creep']},
+        {'block': 'Subtle creep evidence', 'fields': [
+            {'group': 'InSAR', 'fields': [
+                'insar_schaefer', 'insar_kim', 'insar_opera', 'insar_other']},
+            {'field': 'other_subtle_creep', 'cell': True}]},
+        {'block': 'Obvious creep evidence', 'fields': [
+            'its_live_creep',
+            {'field': 'planet_labs_creep', 'sub': ['planet_labs_patchy_creep']}]},
+        ]},
     {'key': 'extent', 'title': 'Volume & site history', 'fields': [
         'volume_site_specific',
         # a slow landslide's history of catastrophic failures — relevant to both
@@ -1863,6 +1873,12 @@ _EDIT_FIELD_GROUPS = [
     {'key': 'computed', 'title': 'Computed (auto-filled — override only if needed)',
      'collapsed': True, 'fields': [
         'landslide_class', 'size_inclusion', 'creep_behavior', 'insar_creep',
+        # The feature mirrors: set from `features` by the cascade, kept for
+        # filters / exports / snapshots that name them (derived.FEATURE_MIRRORS).
+        {'block': 'Feature mirrors (set from Landslide features)', 'fields': [
+            'molards', 'exclusively_supraglacial', 'super_elevated_deposits',
+            'tsunamigenic', 'precursory_headscarp', 'post_2012_activity_increase',
+            'creeping_permafrost_mass', 'glacier_contact']},
         'volume_preferred', 'volume_method', 'volume_estimated',
         'area_body', 'area_source', 'area_deposit',
         'volume_body', 'volume_source', 'volume_deposit',
@@ -1874,8 +1890,101 @@ _EDIT_FIELD_GROUPS = [
 # glacier_contact rides here for its slow-only visibility (it's a slow-mass
 # attribute, not creep evidence — its catastrophic counterpart is the
 # tsunamigenic flag in the event group).
-_CREEP_SLOW_ONLY = {'post_2012_activity_increase', 'creeping_permafrost_mass',
-                    'glacier_contact'}
+_CREEP_SLOW_ONLY = set()   # the slow-mass attributes moved into `features` (2026-10-06)
+
+
+def group_field_names(entries):
+    """Every column name in an _EDIT_FIELD_GROUPS field list, in order, through
+    every nesting the list allows: a plain name; a block or group
+    ({'block'|'group', 'fields': [...]}); a parent with sub-boxes
+    ({'field', 'sub': [...]}); a one-cell field ({'field', 'cell'}). The
+    explorer's column grouping (table_data) reads the same list through
+    this, so a new nesting form must be added here, not there."""
+    out = []
+    for e in entries:
+        if isinstance(e, str):
+            out.append(e)
+        elif 'fields' in e:
+            out.extend(group_field_names(e['fields']))
+        else:
+            out.append(e['field'])
+            out.extend(e.get('sub', []))
+    return out
+
+
+# Vocabulary columns: free text holding one or more values from a short
+# controlled vocabulary, ", "-joined. The edit form renders each as a
+# multi-select of the values in use (most common first) with "add a value"
+# (_vocab_picker.html). The vocabulary IS the data, so a value added on one
+# record is offered on the next and nothing has to be registered; spellings
+# were unified by merge_vocab_values (2026-10-06). Everything downstream --
+# rules, explorer, export -- still sees the plain string. Add a column here
+# and in merge_vocab_values.CANON to give it the same treatment.
+VOCAB_COLUMNS = ('other_subtle_creep', 'stream_damming', 'features')
+
+
+def _value_vocab(column):
+    """[{value, n, applies, tip}] for one VOCAB_COLUMNS column, most common
+    first. `features` also carries each value's FeatureVocab metadata (which
+    type it applies to, its tooltip), and lists vocabulary rows not yet used
+    by any record (n = 0) so a freshly added value is offered everywhere."""
+    assert column in VOCAB_COLUMNS, column
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT btrim(t) AS v, count(*) AS n
+            FROM landslides, unnest(string_to_array({column}, ',')) AS t
+            WHERE deprecated_at IS NULL AND btrim(t) <> ''
+            GROUP BY 1 ORDER BY 2 DESC, 1
+        """)
+        out = [{'value': v, 'n': n, 'applies': 'both', 'tip': ''} for v, n in cur.fetchall()]
+    except Exception:
+        conn.rollback()
+        out = []
+    finally:
+        _put_conn(conn)
+    if column == 'features':
+        from .models import FeatureVocab
+        meta = {r.value: r for r in FeatureVocab.objects.all()}
+        seen = set()
+        for o in out:
+            seen.add(o['value'])
+            m = meta.get(o['value'])
+            if m:
+                o['applies'] = m.applies_to
+                o['tip'] = m.description
+        for v, m in meta.items():
+            if v not in seen:
+                out.append({'value': v, 'n': 0, 'applies': m.applies_to, 'tip': m.description})
+    return out
+
+
+@inventory_editor_required
+@require_POST
+def api_feature_vocab_add(request):
+    """The picker's "add a value" for `features`: register a new vocabulary
+    value with the editor's applies-to choice (slow | catastrophic | both).
+    Body: {value, applies_to}. Returns the row; an existing value (compared
+    case-insensitively) is returned rather than duplicated, so a retyped
+    value never becomes a second spelling."""
+    from .models import FeatureVocab
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+        value = ' '.join(str(payload.get('value', '')).replace(',', ' ').split())
+        applies = str(payload.get('applies_to', 'both'))
+    except (ValueError, AttributeError):
+        return JsonResponse({'error': 'bad request'}, status=400)
+    if not value or len(value) > 120:
+        return JsonResponse({'error': 'value required (max 120 chars)'}, status=400)
+    if applies not in ('slow', 'catastrophic', 'both'):
+        return JsonResponse({'error': 'applies_to must be slow, catastrophic or both'}, status=400)
+    row = FeatureVocab.objects.filter(value__iexact=value).first()
+    if row is None:
+        row = FeatureVocab.objects.create(value=value, applies_to=applies,
+                                          created_by=request.user)
+    return JsonResponse({'ok': True, 'value': row.value, 'applies': row.applies_to,
+                         'tip': row.description})
 
 
 def _group_edit_fields(form):
@@ -1909,10 +2018,27 @@ def _group_edit_fields(form):
             if isinstance(entry, dict):          # checkbox block
                 sub = []
                 for name in entry['fields']:
+                    kids, cell = [], False
+                    if isinstance(name, dict) and 'group' in name:   # titled box in a cell
+                        inner = [{'field': form[k], 'vis': vis_for(g, k)}
+                                 for k in name['fields'] if k in form.fields]
+                        seen.update(k for k in name['fields'] if k in form.fields)
+                        if inner:
+                            sub.append({'group': name['group'], 'items': inner,
+                                        'vis': inner[0]['vis']})
+                        continue
+                    if isinstance(name, dict):      # a parent box with sub-boxes / a cell
+                        for k in name.get('sub', []):
+                            if k in form.fields:
+                                seen.add(k)
+                                kids.append({'field': form[k], 'vis': vis_for(g, k)})
+                        cell = bool(name.get('cell'))
+                        name = name['field']
                     if name not in form.fields:
                         continue
                     seen.add(name)
-                    sub.append({'field': form[name], 'vis': vis_for(g, name)})
+                    sub.append({'field': form[name], 'vis': vis_for(g, name), 'sub': kids,
+                                'cell': cell})
                 if sub:
                     items.append({'block': entry.get('block', ''), 'items': sub})
                 continue
@@ -2275,6 +2401,11 @@ def manage_edit(request, landslide_id, review_mode=False):
         delete_impact = {'polygons': pc, 'history': hc, 'subsets': sc,
                          'planet_stories': plc, 'superseding_ptrs': supc}
 
+    # Vocabulary columns render as a multi-select; the list rides on the
+    # field object (read in _edit_field.html as field.field.picker).
+    for col in VOCAB_COLUMNS:
+        if col in form.fields:
+            form.fields[col].picker = _value_vocab(col)
     template = 'inventory/manage_review.html' if review_mode else 'inventory/manage_edit.html'
     return render(request, template, {
         'form':              form,
@@ -3156,7 +3287,7 @@ def manage_edit_field(request, landslide_id):
             _DERIVED_COLS = ['area_body', 'area_source', 'area_deposit', 'size_inclusion',
                              'landslide_class', 'creep_behavior', 'insar_creep',
                              'volume_estimated', 'volume_preferred', 'volume_method',
-                             'centroid_lat', 'centroid_lon']
+                             'centroid_lat', 'centroid_lon'] + list(_derived.FEATURE_MIRRORS)
             cur.execute(f"SELECT {', '.join(_DERIVED_COLS)} FROM landslides WHERE id = %s",
                         (landslide_id,))
             row = cur.fetchone()

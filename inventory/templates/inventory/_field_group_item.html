@@ -13,7 +13,19 @@ treatment, which is how a lone boolean avoids a full-width label row.
     {% if item.block %}<legend>{{ item.block }}</legend>{% endif %}
     <div class="cb-grid">
       {% for sub in item.items %}
-        {% include 'inventory/_edit_check.html' with field=sub.field vis=sub.vis %}
+        {% if sub.group %}
+          {# a titled box inside the block, one grid cell (e.g. the InSAR studies) #}
+          <fieldset class="cb-group {{ sub.vis }}">
+            <legend>{{ sub.group }}</legend>
+            <div class="cb-grid">
+              {% for s in sub.items %}
+                {% include 'inventory/_edit_check.html' with field=s.field vis=s.vis sub=None %}
+              {% endfor %}
+            </div>
+          </fieldset>
+        {% else %}
+          {% include 'inventory/_edit_check.html' with field=sub.field vis=sub.vis sub=sub.sub cell=sub.cell %}
+        {% endif %}
       {% endfor %}
     </div>
   </fieldset>

@@ -45,8 +45,10 @@ _FIELD_LABELS = {
     'insar_opera': 'InSAR (OPERA)',
     'insar_other': 'InSAR (other)',
     'planet_labs_creep': 'Planet Labs creep',
-    'planet_labs_patchy_creep': 'Planet Labs patchy creep',
+    'planet_labs_patchy_creep': 'Patchy only',   # nested under Planet Labs creep in the form
     'its_live_creep': 'ITS_LIVE',
+    'other_subtle_creep': 'Other subtle creep evidence',
+    'features': 'Features',   # under the 'Landslide features' group heading
 }
 
 # Short hints shown under a field. Kept for flags whose meaning is not
@@ -77,16 +79,24 @@ _FIELD_TIPS = {
     'insar_other': 'Creep detected by InSAR from any other source — counts '
                    'as subtle creep.',
     'planet_labs_creep': 'Creep is apparent in Planet imagery — counts as '
-                         'obvious creep.',
-    'planet_labs_patchy_creep': 'The creep seen in Planet imagery is patchy, '
-                                'not uniform across the feature — counts as '
-                                'patchy obvious creep, and overrides plain '
-                                'obvious creep.',
+                         'obvious creep, taken to be landslide-wide unless '
+                         '"Patchy only" is ticked.',
+    'planet_labs_patchy_creep': 'The creep seen in Planet imagery is confined '
+                                'to parts of the feature — counts as patchy '
+                                'obvious creep instead of landslide-wide.',
     'its_live_creep': 'Motion shows in the ITS_LIVE velocity fields — counts '
                       'as obvious creep.',
     'geomorph_creep': 'Geomorphic indicators of past or very slow creep '
                       '(e.g. lobate morphology) — counts as geomorph creep '
                       'when no stronger evidence is ticked.',
+    'other_subtle_creep': 'Subtle creep evidence other than InSAR: pick any '
+                          'that apply, or add a value. Any value counts as '
+                          'subtle creep.',
+    'stream_damming': 'What the deposit did to the stream it reached: pick '
+                      'any that apply, or add a value.',
+    'features': 'Observed features of this landslide: pick any that apply, '
+                'or add a value. The list shows the features that apply to '
+                'this record\'s type.',
     'post_2012_activity_increase': 'Activity has increased since 2012.',
     'creeping_permafrost_mass': 'A creeping permafrost mass. Its volume is '
                                 'estimated with a uniform 20 m thickness.',
