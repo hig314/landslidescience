@@ -697,6 +697,23 @@ body.inv-article-body {
 .nav-filter-label input { flex-shrink: 0; cursor: pointer; }
 .nav-filter-label.small { font-size: 11px; padding: 1px 15px; }
 
+/* Landslide features: three-way filter rows (must / neutral / exclude) */
+#ft-filter .ft-group { font-size: 10px; color: #8a7a68; text-transform: uppercase;
+                       letter-spacing: .04em; margin: 6px 0 2px; }
+#ft-filter .ft-group:first-child { margin-top: 2px; }
+#ft-filter .ft-row { display: flex; align-items: center; justify-content: space-between;
+                     gap: 6px; font-size: 11px; color: #444; padding: 1px 0; }
+#ft-filter .ft-row.ft-must .ft-label { color: #1a5e20; font-weight: 600; }
+#ft-filter .ft-row.ft-excl .ft-label { color: #b00020; text-decoration: line-through; }
+#ft-filter .ft-tri { display: inline-flex; flex: none; border: 1px solid #ccc; border-radius: 3px; overflow: hidden; }
+#ft-filter .ft-tri button { border: none; background: #fff; color: #bbb; width: 20px; height: 16px;
+                            font-size: 10px; line-height: 16px; padding: 0; cursor: pointer; }
+#ft-filter .ft-tri button + button { border-left: 1px solid #ddd; }
+#ft-filter .ft-tri button:hover { background: #f0ebe9; color: #666; }
+#ft-filter .ft-tri button.on[data-s="must"]    { background: #2e7d32; color: #fff; }
+#ft-filter .ft-tri button.on[data-s="neutral"] { background: #e8e4de; color: #666; }
+#ft-filter .ft-tri button.on[data-s="excl"]    { background: #c62828; color: #fff; }
+
 /* Sliders and "include only" controls */
 .filter-control {
     padding: 2px 15px 6px;

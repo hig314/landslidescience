@@ -106,9 +106,10 @@
     //   an=<key>,…    open analysis panels (hist | timing | scatter | opera)
     //   sc=0|1        scarp traces shown; written as sc=0 when hidden, absent
     //                 = leave alone (they are on by default)
-    //   ty c f sa da vol yr n10 lw lv pm
+    //   ty c f ft sa da vol yr n10 lw lv pm
     //                 the FILTERS (types, classes and attribute flags as
-    //                 bitmasks, the range sliders as lo,hi, limit-to-view,
+    //                 bitmasks; ft = landslide features by NAME, see
+    //                 _ftEncode; the range sliders as lo,hi, limit-to-view,
     //                 chart modes). Written only when off-default. Until
     //                 2026-10-06 these lived in the query string (?t=…&c=…);
     //                 that form is still read on load and rewritten here --
@@ -117,7 +118,7 @@
     // the end of this file: one row per param, and nothing else writes or
     // applies view state.
     // ---------------------------------------------------------------------------
-    var _FILTER_KEYS = ['ty', 'c', 'f', 'sa', 'da', 'vol', 'yr', 'n10', 'lw', 'lv', 'pm'];
+    var _FILTER_KEYS = ['ty', 'c', 'f', 'ft', 'sa', 'da', 'vol', 'yr', 'n10', 'lw', 'lv', 'pm'];
     function parseHashState(hashStr) {
         var p = window.LSHash.parse(hashStr != null ? hashStr : (location.hash || ''));
         var x = p.extras, out = {};
@@ -6132,19 +6133,104 @@
     var suscLwDual  = _setupDual('susc-lw',  fmtSuscRange);
     var yearDual    = _setupDual('year',     fmtYearRange);
 
-    var cbMolards      = document.getElementById('cb-molards');
+    // The "include only" boxes that are NOT landslide features. The eight
+    // feature boxes (molards, tsunamigenic, …) became the three-way feature
+    // filter below (_ft*) on 2026-10-06.
     var cbStream       = document.getElementById('cb-stream');
-    var cbHeadscarp    = document.getElementById('cb-headscarp');
     var cbSiteVolume   = document.getElementById('cb-site-volume');
-    var cbSupraglacial = document.getElementById('cb-supraglacial');
-    var cbPermafrost   = document.getElementById('cb-permafrost');
     var cbTimed        = document.getElementById('cb-timed');
     var cbSeismic      = document.getElementById('cb-seismic');
-    var cbPost2012     = document.getElementById('cb-post2012');
-    var cbTsunamigenic = document.getElementById('cb-tsunamigenic');
-    var cbGlacierContact = document.getElementById('cb-glacier-contact');
-    var cbSuperElevated = document.getElementById('cb-super-elevated');
     var cbFlagged      = document.getElementById('cb-flagged');   // editor-only
+
+    // ---- Landslide features: three-way filter -----------------------------
+    // One row per vocabulary value (rendered by home.html from the same
+    // vocabulary the edit form offers): must have / neutral / exclude. State
+    // is {value: 'must'|'excl'} (neutral = absent). A record's features
+    // arrive as an array property (`features`, in _FILTER_PROPS_SQL on both
+    // the points and the polygons source, and on the chart events), so a
+    // value added in the form is filterable without a column anywhere.
+    var _ftState = {};
+    var _ftRows = Array.prototype.slice.call(document.querySelectorAll('#ft-filter .ft-row'));
+    function _ftSlug(v) {   // URL token for a value: lower-case, runs of non-alphanumerics -> '-'
+        return String(v).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    }
+    function _ftValueOf(slug) {
+        for (var i = 0; i < _ftRows.length; i++) {
+            if (_ftSlug(_ftRows[i].dataset.value) === slug) return _ftRows[i].dataset.value;
+        }
+        return null;
+    }
+    function _ftPaint() {
+        _ftRows.forEach(function (row) {
+            var st = _ftState[row.dataset.value] || 'neutral';
+            row.classList.toggle('ft-must', st === 'must');
+            row.classList.toggle('ft-excl', st === 'excl');
+            row.querySelectorAll('.ft-tri button').forEach(function (b) {
+                b.classList.toggle('on', b.dataset.s === st);
+            });
+        });
+    }
+    function _ftSet(value, st) {
+        if (st === 'neutral') delete _ftState[value]; else _ftState[value] = st;
+    }
+    _ftRows.forEach(function (row) {
+        row.querySelectorAll('.ft-tri button').forEach(function (b) {
+            b.addEventListener('click', function () {
+                _ftSet(row.dataset.value, b.dataset.s);
+                _ftPaint();
+                window.LSTrack && LSTrack.event('explore_filter', { column: 'features' });
+                buildFilter();
+            });
+        });
+    });
+    // ft=<slug>,!<slug>,…  listed = must have, !-prefixed = exclude, unlisted =
+    // neutral. Present fully describes the set. Values travel by name so the
+    // vocabulary can grow without a bit table; a slug naming a value this
+    // page does not know is ignored.
+    function _ftEncode() {
+        var out = [];
+        _ftRows.forEach(function (row) {
+            var st = _ftState[row.dataset.value];
+            if (st === 'must') out.push(_ftSlug(row.dataset.value));
+            else if (st === 'excl') out.push('!' + _ftSlug(row.dataset.value));
+        });
+        return out.join(',');
+    }
+    function _ftApply(spec) {
+        _ftState = {};
+        String(spec || '').split(',').forEach(function (tok) {
+            tok = tok.trim();
+            if (!tok) return;
+            var excl = tok.charAt(0) === '!';
+            var v = _ftValueOf(excl ? tok.slice(1) : tok);
+            if (v) _ftState[v] = excl ? 'excl' : 'must';
+        });
+        _ftPaint();
+    }
+    // The feature bits of the retired f= bitmask (written until 2026-10-06),
+    // read as "must have" so old links keep their meaning. Never written.
+    var _FT_LEGACY_BITS = [[1, 'Molards'], [4, 'Exclusively supraglacial'],
+                           [8, 'Creeping permafrost mass'], [64, 'Post-2012 activity increase'],
+                           [128, 'Precursory headscarp'], [512, 'Tsunamigenic'],
+                           [1024, 'Glacier contact'], [2048, 'Super-elevated deposits']];
+    // The filter expression: an array `in` test per non-neutral value.
+    function _ftExpressions() {
+        var out = [];
+        Object.keys(_ftState).forEach(function (v) {
+            var test = ['in', v, ['coalesce', ['get', 'features'], ['literal', []]]];
+            out.push(_ftState[v] === 'must' ? test : ['!', test]);
+        });
+        return out;
+    }
+    // Same test for the chart events (plain JS arrays).
+    function _ftPass(features) {
+        var fl = features || [];
+        for (var v in _ftState) {
+            var has = fl.indexOf(v) >= 0;
+            if (_ftState[v] === 'must' ? !has : has) return false;
+        }
+        return true;
+    }
     var cbLimitView    = document.getElementById('cb-limit-view');
 
     // Explorer hand-off notice: shows how many records the #ids= selection
@@ -6159,7 +6245,7 @@
         writeHashState();       // and drop &ids= now, not on the next pan
     });
 
-    [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012, cbTsunamigenic, cbGlacierContact, cbSuperElevated, cbFlagged].forEach(function (cb) {
+    [cbStream, cbSiteVolume, cbTimed, cbSeismic, cbFlagged].forEach(function (cb) {
         if (cb) cb.addEventListener('change', buildFilter);
     });
 
@@ -6330,12 +6416,11 @@
     // new flags at the top and never renumber an existing one.
     // (Functions, not tables: _filterColdApply runs above this point in the
     // file, before a `var` here would have been assigned.)
+    // Bits 1, 4, 8, 64, 128, 512, 1024 and 2048 were the feature boxes, now
+    // the ft= filter; they are still READ (_FT_LEGACY_BITS) and never written.
     function _flagBits() {
         return [
-            [cbMolards, 1], [cbStream, 2], [cbSupraglacial, 4], [cbPermafrost, 8],
-            [cbTimed, 16], [cbSeismic, 32], [cbPost2012, 64], [cbHeadscarp, 128],
-            [cbSiteVolume, 256], [cbTsunamigenic, 512], [cbGlacierContact, 1024],
-            [cbSuperElevated, 2048],
+            [cbStream, 2], [cbTimed, 16], [cbSeismic, 32], [cbSiteVolume, 256],
             [cbFlagged, 4096]      // editor-only box: the bit is ignored where it does not exist
         ];
     }
@@ -6366,6 +6451,8 @@
         var f = 0;
         _flagBits().forEach(function (b) { if (b[0] && b[0].checked) f |= b[1]; });
         if (f) out.f = String(f);
+        var ft = _ftEncode();
+        if (ft) out.ft = ft;
 
         // Either handle off its default -> both ends written, so the URL
         // captures the exact range.
@@ -6402,7 +6489,17 @@
             cb.checked = (idx < 0) ? true : !!(c & (1 << idx));
         });
         var f = bits('f');
-        if (f != null) _flagBits().forEach(function (b) { if (b[0]) b[0].checked = !!(f & b[1]); });
+        if (f != null) {
+            _flagBits().forEach(function (b) { if (b[0]) b[0].checked = !!(f & b[1]); });
+            // Feature bits from an old link: must-have, unless the link also
+            // carries ft=, which then says it all.
+            if (v.ft == null) {
+                _ftState = {};
+                _FT_LEGACY_BITS.forEach(function (b) { if (f & b[0]) _ftState[b[1]] = 'must'; });
+                _ftPaint();
+            }
+        }
+        if (v.ft != null) _ftApply(v.ft);
         // "lo,hi"; a single value is the pre-dual form, a min-only restriction.
         _filterDuals().forEach(function (d) {
             var dual = d[0], raw = v[d[1]];
@@ -6536,19 +6633,12 @@
                 f.push(yParts.length === 1 ? yParts[0] : ['all'].concat(yParts));
             }
         }
-        if (cbMolards      && cbMolards.checked)      f.push(['==', ['get', 'molards'], true]);
         if (cbStream       && cbStream.checked)        f.push(['!=', ['coalesce', ['get', 'stream_damming'], ''], '']);
-        if (cbHeadscarp    && cbHeadscarp.checked)     f.push(['==', ['get', 'precursory_headscarp'], true]);
         if (cbSiteVolume   && cbSiteVolume.checked)    f.push(['==', ['get', 'has_site_specific_volume'], true]);
-        if (cbSupraglacial && cbSupraglacial.checked)  f.push(['==', ['get', 'exclusively_supraglacial'], true]);
-        if (cbPermafrost   && cbPermafrost.checked)    f.push(['==', ['get', 'creeping_permafrost_mass'], true]);
         if (cbTimed        && cbTimed.checked)         f.push(['==', ['get', 'has_time_bracket'], true]);
         if (cbSeismic      && cbSeismic.checked)       f.push(['==', ['get', 'has_seismic'], true]);
-        if (cbPost2012     && cbPost2012.checked)      f.push(['==', ['get', 'post_2012_activity_increase'], true]);
-        if (cbTsunamigenic && cbTsunamigenic.checked)  f.push(['==', ['get', 'tsunamigenic'], true]);
-        if (cbGlacierContact && cbGlacierContact.checked) f.push(['==', ['get', 'glacier_contact'], true]);
-        if (cbSuperElevated && cbSuperElevated.checked) f.push(['==', ['get', 'super_elevated_deposits'], true]);
         if (cbFlagged      && cbFlagged.checked)       f.push(['==', ['get', 'flagged'], true]);
+        Array.prototype.push.apply(f, _ftExpressions());   // landslide features, three-way
 
         _applyLandslideFilter(map, f);
         _swipeFilter = f;            // remember so a newly-enabled swipe map can apply it
@@ -8263,18 +8353,11 @@
             maxVol:     dualHi(volDual,     volToValue),
             minYear:    dualYearLo(),
             maxYear:    dualYearHi(),
-            molards:      cbMolards      && cbMolards.checked,
             stream:       cbStream       && cbStream.checked,
-            headscarp:    cbHeadscarp    && cbHeadscarp.checked,
             siteVolume:   cbSiteVolume   && cbSiteVolume.checked,
-            supraglacial: cbSupraglacial && cbSupraglacial.checked,
-            permafrost:   cbPermafrost   && cbPermafrost.checked,
             timed:        cbTimed        && cbTimed.checked,
             seismic:      cbSeismic      && cbSeismic.checked,
-            post2012:     cbPost2012     && cbPost2012.checked,
-            tsunamigenic: cbTsunamigenic && cbTsunamigenic.checked,
-            glacierContact: cbGlacierContact && cbGlacierContact.checked,
-            superElevated: cbSuperElevated && cbSuperElevated.checked,
+            // landslide features: tested with _ftPass against ev.features
         };
     }
 
@@ -8310,15 +8393,9 @@
                 if (fs.minYear !== null && yn < fs.minYear) return;
                 if (fs.maxYear !== null && yn > fs.maxYear) return;
             }
-            if (fs.molards      && !ev.molards)         return;
             if (fs.stream       && !ev.stream_dam)      return;
-            if (fs.headscarp    && !ev.headscarp)       return;
             if (fs.siteVolume   && !ev.has_site_volume) return;
-            if (fs.supraglacial && !ev.supraglacial)    return;
-            if (fs.permafrost   && !ev.permafrost)   return;
-            if (fs.tsunamigenic && !ev.tsunamigenic) return;
-            if (fs.glacierContact && !ev.glacier_contact) return;
-            if (fs.superElevated && !ev.super_elevated_deposits) return;
+            if (!_ftPass(ev.features))                  return;
             if (fs.seismic && ev.timing !== 'point')  return;
             if (fs.timed   && ev.timing === 'point')  return;
 
@@ -8687,17 +8764,10 @@
                 if (fs.minYear !== null && yn < fs.minYear) return;
                 if (fs.maxYear !== null && yn > fs.maxYear) return;
             }
-            if (fs.molards      && !ev.molards)         return;
             if (fs.stream       && !ev.stream_dam)      return;
-            if (fs.headscarp    && !ev.headscarp)       return;
             if (fs.siteVolume   && !ev.has_site_volume) return;
-            if (fs.supraglacial && !ev.supraglacial)    return;
-            if (fs.permafrost   && !ev.permafrost)   return;
-            if (fs.tsunamigenic && !ev.tsunamigenic) return;
-            if (fs.glacierContact && !ev.glacier_contact) return;
-            if (fs.superElevated && !ev.super_elevated_deposits) return;
+            if (!_ftPass(ev.features))                  return;
             if (fs.seismic      && !ev.has_seismic)  return;
-            if (fs.post2012     && !ev.post_2012)    return;
 
             total++;
             var hasVol = ev.vol !== null && ev.vol > 0;

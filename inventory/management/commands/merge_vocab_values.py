@@ -54,7 +54,9 @@ CANON['other_subtle_creep'] = {
     'thrusting in an active beach': 'Thrusting in an active beach',
     'thrusting in an active beach.': 'Thrusting in an active beach',
     'active sinkholes':             'Active sinkholes',
-    'deflected river':              'Deflected river',
+    'deflected river':              'Stream diversion',   # the damming vocabulary's general term (Hig, 2026-10-06)
+    'deflected stream':             'Stream diversion',
+    'stream diversion':             'Stream diversion',
     'muddy discharge':              'Muddy discharge',
     'normal scarp crossing talus':  'Normal scarp crossing talus',
     'tilted trees':                 'Tilted trees',

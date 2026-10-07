@@ -1025,35 +1025,34 @@
   them out entirely.
 </p>
 
-<h4>Include-only checkboxes</h4>
+<h4>Landslide features and include-only checkboxes</h4>
 <p>
-  When checked, these restrict the display to landslides having a specific
-  attribute. Multiple checked boxes are AND'd. Current options:
+  Each landslide feature in the vocabulary (grouped by the type it applies
+  to) has a three-way control: <strong>must have</strong>, <strong>no
+  preference</strong>, or <strong>exclude</strong>. Settings are AND'd, so
+  &ldquo;molards, not tsunamigenic&rdquo; is one filter. A record with no
+  features recorded counts as having none. The list grows with the
+  vocabulary: a feature added on the edit form is a filter on the next load.
+  In the URL it travels by name &mdash; <code>ft=molards,!tsunamigenic</code>
+  &mdash; and links written before 2026-10-06 with the old bitmask still
+  read as &ldquo;must have.&rdquo;
+</p>
+<p>
+  The remaining include-only checkboxes restrict the display to records
+  having an attribute that is not a feature; checked boxes are AND'd:
 </p>
 <ul>
-  <li><strong>Molards</strong> &mdash; <code>molards = TRUE</code></li>
   <li><strong>Dammed streams</strong> &mdash; <code>stream_damming</code> is a non-empty string</li>
-  <li><strong>Precursory headscarp</strong> &mdash; <code>precursory_headscarp = TRUE</code></li>
   <li><strong>Site-specific volume</strong> &mdash; <code>volume_site_specific</code> is set</li>
-  <li><strong>Exclusively supraglacial</strong> &mdash; <code>exclusively_supraglacial = TRUE</code></li>
-  <li><strong>Creeping permafrost mass</strong> &mdash; <code>creeping_permafrost_mass = TRUE</code></li>
   <li><strong>Time bracketed</strong> &mdash; both <code>date_min</code> and <code>date_max</code> are set</li>
   <li><strong>Seismic detection</strong> &mdash; <code>seismic_datetime</code> is set</li>
-  <li><strong>Post-2012 activity increase</strong> &mdash; <code>post_2012_activity_increase = TRUE</code></li>
-  <li><strong>Tsunamigenic</strong> &mdash; <code>tsunamigenic = TRUE</code>; the
-      failure generated a tsunami or displacement wave</li>
-  <li><strong>Super-elevated deposits</strong> &mdash;
-      <code>super_elevated_deposits = TRUE</code>; deposit runs up the outer
-      bank of a bend, recording flow fast enough to bank around it &mdash; read
-      as a velocity indicator</li>
-  <li><strong>Glacier contact</strong> &mdash; <code>glacier_contact = TRUE</code>;
-      the moving mass is in contact with a glacier</li>
 </ul>
 <p style="font-size:13px; color:#666;">
-  These are editor-set observations, so an unchecked box means
-  &ldquo;not recorded&rdquo; rather than &ldquo;observed absent&rdquo; &mdash;
-  filtering on one narrows to positively-noted records, not to the complete
-  population that has the attribute.
+  These are editor-set observations, so an unchecked box or an unlisted
+  feature means &ldquo;not recorded&rdquo; rather than &ldquo;observed
+  absent&rdquo; &mdash; &ldquo;must have&rdquo; narrows to positively-noted
+  records, not to the complete population that has the attribute, and
+  &ldquo;exclude&rdquo; keeps every record on which nobody noted it.
 </p>
 <p style="font-size:13px;">
   <strong>Landslide features (since 2026-10-06).</strong> Eight of these

@@ -68,7 +68,9 @@ from .forms import _FIELD_LABELS
 # if their cardinality is low today — they're prose or per-record identifiers,
 # so a value picker would be useless and the dict would just bloat the payload.
 _FORCE_TEXT = {
-    'unique_name', 'description', 'notes', 'other_subtle_creep',
+    'unique_name', 'description', 'notes',
+    # other_subtle_creep left this set on 2026-10-06: it is a vocabulary column
+    # now (views.VOCAB_COLUMNS), split into values like Subsets.
     'ongoing_work', 'seismic_note', 'seismic_credit', 'flag_reason',
     'default_map_view',
 }
@@ -320,9 +322,16 @@ def _build_payload(editor):
         # `subsets` computed column is the truth. Showing both invites the
         # wrong one being used in an analysis.
         db_cols = [c for c in db_cols if c[0] != 'inventory_subset']
+        # The vocabulary columns hold ", "-joined values (features, subtle
+        # creep evidence, stream damming): split them into arrays so each
+        # value is its own checkbox in the filter, like Subsets.
+        db_cols = [(n, 'multi' if n in views.VOCAB_COLUMNS else t) for n, t in db_cols]
 
         where = '' if editor else f'WHERE {views.public_landslide_filter("l")}'
-        select_cols = ', '.join(f'l.{name}' for name, _t in db_cols)
+        select_cols = ', '.join(
+            (f"(SELECT array_agg(btrim(x)) FROM unnest(string_to_array(l.{name}, ',')) x "
+             f"WHERE btrim(x) <> '') AS {name}") if t == 'multi' else f'l.{name}'
+            for name, t in db_cols)
         cur.execute(f"""
             SELECT {select_cols}, {_COMPUTED_SQL}
             FROM landslides l
@@ -345,7 +354,9 @@ def _build_payload(editor):
         raw = [r[col_idx] for r in rows]
 
         ctype = base_type
-        if name in _FORCE_LINK:
+        if base_type == 'multi':
+            pass                      # a vocabulary column, already split into values
+        elif name in _FORCE_LINK:
             ctype = 'link'
         elif name in _FORCE_TEXT:
             ctype = 'text'

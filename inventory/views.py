@@ -25,6 +25,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST, require_safe
 
 from . import planet
+from .derived import split_features as _split_features
 from . import cache_stamp
 from .auth import inventory_editor_required
 
@@ -616,7 +617,21 @@ def home(request):
         "small_cat_swatch":   _SMALL_CAT_SWATCH,
         "patchy_center":      _C_PATCHY_DOT,
         "incomplete_color":   _C_INCOMPLETE,
+        # The three-way feature filter mirrors the edit form's picker: every
+        # value in the vocabulary, grouped by which type it applies to.
+        "feature_groups":     _feature_filter_groups(),
     })
+
+
+def _feature_filter_groups():
+    vocab = _value_vocab('features')
+    groups = [('catastrophic', 'Catastrophic'), ('slow', 'Slow'), ('both', 'Either type')]
+    out = []
+    for key, title in groups:
+        items = [v for v in vocab if v['applies'] == key]
+        if items:
+            out.append({'key': key, 'title': title, 'items': items})
+    return out
 
 
 def methods(request):
@@ -677,7 +692,13 @@ _FILTER_PROPS_SQL = """
                         'has_seismic',                (l.seismic_datetime IS NOT NULL),
                         'has_time_bracket',           (l.date_min IS NOT NULL AND l.date_max IS NOT NULL),
                         'post_2012_activity_increase', l.post_2012_activity_increase,
-                        'flagged',                     COALESCE(l.flagged, false)"""
+                        'flagged',                     COALESCE(l.flagged, false),
+                        -- Landslide features as a JSON array of values, for the
+                        -- three-way feature filter (must / neutral / exclude);
+                        -- the booleans above mirror it and stay for old links.
+                        'features', COALESCE((SELECT json_agg(btrim(x))
+                                              FROM unnest(string_to_array(l.features, ',')) x
+                                              WHERE btrim(x) <> ''), '[]'::json)"""
 
 def api_features(request):
     """
@@ -1105,7 +1126,8 @@ def api_timed_events(request):
             (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume,
             l.tsunamigenic,
             l.glacier_contact,
-            l.super_elevated_deposits
+            l.super_elevated_deposits,
+            l.features
         FROM landslides l
         WHERE (l.seismic_datetime IS NOT NULL
                OR (l.date_min IS NOT NULL AND l.date_max IS NOT NULL
@@ -1147,6 +1169,7 @@ def api_timed_events(request):
             'tsunamigenic':    bool(r[20]) if r[20] is not None else False,
             'glacier_contact': bool(r[21]) if r[21] is not None else False,
             'super_elevated_deposits': bool(r[22]) if r[22] is not None else False,
+            'features': _split_features(r[23]),
         })
     _cache['timed_events'] = events
     resp = JsonResponse({'events': events})
@@ -1199,7 +1222,8 @@ def api_timeline_events(request):
             (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume,
             l.tsunamigenic,
             l.glacier_contact,
-            l.super_elevated_deposits
+            l.super_elevated_deposits,
+            l.features
         FROM landslides l
         WHERE l.centroid_lat IS NOT NULL
           -- public-only (keep in sync with public_landslide_filter('l')):
@@ -1244,6 +1268,7 @@ def api_timeline_events(request):
             'tsunamigenic':    bool(r[20]) if r[20] is not None else False,
             'glacier_contact': bool(r[21]) if r[21] is not None else False,
             'super_elevated_deposits': bool(r[22]) if r[22] is not None else False,
+            'features': _split_features(r[23]),
         })
     _cache['timeline_events'] = events
     resp = JsonResponse({'events': events})
@@ -1827,13 +1852,12 @@ _EDIT_FIELD_GROUPS = [
     # record's type (FeatureVocab.applies_to) and lets an editor add one.
     # The booleans still exist as rule outputs (derived.FEATURE_MIRRORS) and
     # sit in the Computed group below.
-    {'key': 'features', 'title': 'Landslide features', 'fields': ['features']},
+    # Stream damming rides here rather than in the catastrophic event group:
+    # a slow landslide dams and diverts streams too (27 slow records carried a
+    # value with no form field to show it, 2026-10-06).
+    {'key': 'features', 'title': 'Landslide features', 'fields': ['features', 'stream_damming']},
     {'key': 'event', 'title': 'Catastrophic event & timing', 'fields': [
         'year_text', 'date_min', 'date_max',
-        # What the deposit did to the stream it reached -- a vocabulary
-        # column with its own picker (VOCAB_COLUMNS), catastrophic-only
-        # like the rest of this group.
-        'stream_damming',
         'seismic_datetime', 'seismic_note', 'seismic_credit']},
     # The creep blocks run weakest evidence to strongest, the order of the
     # creep_behavior rule ladder read upwards (Hig, 2026-10-06). Inside a
