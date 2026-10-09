@@ -35,6 +35,8 @@ window.LSProfile = (function () {
   var line = null;              // finished line, [[lng, lat], …]
   var result = null;            // {points: [{d, lon, lat}], series: [{id, title, color, z: []}]}
   var locked = true;            // 1:1 aspect
+  var sel = null;               // brushed window along the line: {d0, d1} metres
+  var brushing = false;
   var lastClick = 0, lastX = 0, lastY = 0;
   var el = {};                  // panel elements
   var tileCache = {};           // key -> Promise<{w, h, data: Float32Array}>
@@ -106,7 +108,7 @@ window.LSProfile = (function () {
       lastClick = 0; finish(); return;
     }
     lastClick = now; lastX = e.point.x; lastY = e.point.y;
-    if (line) { line = null; result = null; }          // a new line replaces the old
+    if (line) { line = null; result = null; sel = null; }   // a new line replaces the old
     active.push([e.lngLat.lng, e.lngLat.lat]);
     render();
   }
@@ -301,6 +303,11 @@ window.LSProfile = (function () {
       parts.push('<line x1="' + ox + '" y1="' + Y(z) + '" x2="' + (ox + cw) + '" y2="' + Y(z) + '" stroke="#eee"/>');
       parts.push('<text x="' + (ox - 4) + '" y="' + (Y(z) + 3) + '" font-size="10" text-anchor="end" fill="#555">' + Math.round(z) + '</text>');
     }
+    if (sel) {
+      var sx0 = X(Math.max(0, Math.min(sel.d0, sel.d1))), sx1 = X(Math.min(L, Math.max(sel.d0, sel.d1)));
+      parts.push('<rect x="' + sx0 + '" y="' + oy + '" width="' + Math.max(0, sx1 - sx0) + '" height="' + ch +
+                 '" fill="#5D4037" fill-opacity="0.10" stroke="#5D4037" stroke-opacity="0.6"/>');
+    }
     parts.push('<rect x="' + ox + '" y="' + oy + '" width="' + cw + '" height="' + ch + '" fill="none" stroke="#999"/>');
     parts.push('<text x="' + (ox - 36) + '" y="' + (oy + ch / 2) + '" font-size="10" fill="#555" text-anchor="middle" transform="rotate(-90 ' + (ox - 36) + ' ' + (oy + ch / 2) + ')">elevation (m)</text>');
     // lines: a gap where there is no data
@@ -331,13 +338,14 @@ window.LSProfile = (function () {
     el.svg.setAttribute('width', W); el.svg.setAttribute('height', H);
     el.svg.innerHTML = parts.join('');
     el.svg._geom = { ox: ox, sx: sx, L: L, cw: cw };
+    paintStats();
     status(fmtD(L) + ' · ' + series.length + ' DEM' + (series.length === 1 ? '' : 's') +
            (result.pending ? ' · reading ' + result.pending + ' more…' : '') +
            ' · ' + result.points.length + ' samples every ' + (result.step < 10 ? result.step.toFixed(1) : Math.round(result.step)) + ' m');
   }
   function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
   function onChartMove(e) {
-    if (!result || !el.svg._geom) return;
+    if (!result || !el.svg._geom || brushing) return;
     var g = el.svg._geom, r = el.svg.getBoundingClientRect();
     var x = (e.clientX - r.left) * (el.svg.viewBox.baseVal.width / r.width);
     var d = (x - g.ox) / g.sx;
@@ -373,6 +381,94 @@ window.LSProfile = (function () {
     if (el.tip) el.tip.style.display = 'none';
   }
 
+  // ---- brushed window: summary statistics per DEM -------------------------
+  // Mean elevation of the samples in the window; slope as the least-squares
+  // line through them (signed along the drawn direction, degrees and %);
+  // curvature as twice the quadratic coefficient of a least-squares parabola
+  // (1/km, positive = concave up). Fits rather than finite differences, so
+  // the 0.1 m terrain-RGB step does not dominate a short window.
+  function windowStats(series) {
+    if (!sel || !result) return null;
+    var d0 = Math.min(sel.d0, sel.d1), d1 = Math.max(sel.d0, sel.d1);
+    var xs = [], ys = [];
+    result.points.forEach(function (q, k) {
+      var v = series.z[k];
+      if (q.d >= d0 && q.d <= d1 && !isNaN(v)) { xs.push(q.d - d0); ys.push(v); }
+    });
+    var n = xs.length;
+    if (n < 2) return { n: n };
+    var mean = ys.reduce(function (a, b) { return a + b; }, 0) / n;
+    // linear fit
+    var mx = xs.reduce(function (a, b) { return a + b; }, 0) / n, sxx = 0, sxy = 0;
+    for (var i = 0; i < n; i++) { sxx += (xs[i] - mx) * (xs[i] - mx); sxy += (xs[i] - mx) * (ys[i] - mean); }
+    var b1 = sxx > 0 ? sxy / sxx : 0;
+    // quadratic fit (normal equations on centred x)
+    var a2 = NaN;
+    if (n >= 3 && sxx > 0) {
+      var S = [0, 0, 0, 0, 0], T = [0, 0, 0];
+      for (i = 0; i < n; i++) {
+        var x = xs[i] - mx, x2 = x * x;
+        S[0] += 1; S[1] += x; S[2] += x2; S[3] += x2 * x; S[4] += x2 * x2;
+        T[0] += ys[i]; T[1] += ys[i] * x; T[2] += ys[i] * x2;
+      }
+      // solve [[S0,S1,S2],[S1,S2,S3],[S2,S3,S4]] [c,b,a] = T  (Cramer)
+      var det = function (m) {
+        return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+      };
+      var M = [[S[0], S[1], S[2]], [S[1], S[2], S[3]], [S[2], S[3], S[4]]], D = det(M);
+      if (Math.abs(D) > 1e-9) {
+        var Ma = [[S[0], S[1], T[0]], [S[1], S[2], T[1]], [S[2], S[3], T[2]]];
+        a2 = det(Ma) / D;
+      }
+    }
+    return { n: n, length: d1 - d0, mean: mean, slopeDeg: Math.atan(b1) * 180 / Math.PI, slopePct: b1 * 100,
+             curvature: isNaN(a2) ? NaN : 2 * a2 * 1000 };
+  }
+  function paintStats() {
+    if (!el.stats) return;
+    if (!sel || !result || !result.series.length) { el.stats.style.display = 'none'; el.stats.innerHTML = ''; return; }
+    var d0 = Math.min(sel.d0, sel.d1), d1 = Math.max(sel.d0, sel.d1);
+    var h = '<div class="profile-stats-head">Window ' + fmtD(d0) + ' – ' + fmtD(d1) + ' (' + fmtD(d1 - d0) + ')' +
+            '<button type="button" class="profile-stats-x" title="Clear the window">×</button></div>' +
+            '<table><thead><tr><th>DEM</th><th title="Arithmetic mean of the samples in the window">mean z (m)</th>' +
+            '<th title="Least-squares line through the samples, signed along the drawn direction">slope</th>' +
+            '<th title="Twice the quadratic coefficient of a least-squares parabola; positive = concave up">curvature (1/km)</th><th>n</th></tr></thead><tbody>';
+    result.series.forEach(function (s) {
+      var st = windowStats(s);
+      h += '<tr><td><span class="profile-tip-sw" style="background:' + s.color + '"></span>' + esc(s.id) + '</td>';
+      if (!st || st.n < 2) { h += '<td colspan="3" class="profile-stats-none">no data in window</td><td>' + (st ? st.n : 0) + '</td></tr>'; return; }
+      h += '<td>' + st.mean.toFixed(1) + '</td><td>' + st.slopeDeg.toFixed(1) + '° (' + st.slopePct.toFixed(1) + ' %)</td>' +
+           '<td>' + (isNaN(st.curvature) ? '—' : st.curvature.toFixed(3)) + '</td><td>' + st.n + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    el.stats.innerHTML = h;
+    el.stats.style.display = 'block';
+    el.stats.querySelector('.profile-stats-x').addEventListener('click', function () { sel = null; draw(); });
+  }
+  function chartD(clientX) {       // distance along the line under a client x
+    var g = el.svg._geom, r = el.svg.getBoundingClientRect();
+    var x = (clientX - r.left) * (el.svg.viewBox.baseVal.width / r.width);
+    return Math.max(0, Math.min(g.L, (x - g.ox) / g.sx));
+  }
+  function initBrush() {
+    LSTools.drag(el.svg, {
+      onStart: function (e) {
+        if (!result || !el.svg._geom || e.button !== 0) return false;
+        brushing = true;
+        sel = { d0: chartD(e.clientX), d1: chartD(e.clientX) };
+        if (el.tip) el.tip.style.display = 'none';
+      },
+      onMove: function (e) { if (brushing) { sel.d1 = chartD(e.clientX); draw(); } },
+      onEnd: function (e, info) {
+        if (!brushing) return;
+        brushing = false;
+        // A click (no real drag) clears the window instead of making a sliver.
+        if (!e || Math.abs(e.clientX - info.startX) < 3) sel = null;
+        draw();
+      }
+    });
+  }
+
   // ---- downloads ---------------------------------------------------------
   function stamp() { return new Date().toISOString().slice(0, 10).replace(/-/g, ''); }
   function download(name, mime, text) {
@@ -401,6 +497,14 @@ window.LSProfile = (function () {
       rows.push(r.join(','));
     });
     rows.push('# ' + result.series.map(function (s) { return s.id + ': ' + s.title + ' (z' + s.zoom + ')'; }).join('; '));
+    if (sel) {
+      var d0 = Math.min(sel.d0, sel.d1), d1 = Math.max(sel.d0, sel.d1);
+      rows.push('# window ' + d0.toFixed(1) + '-' + d1.toFixed(1) + ' m: id, n, mean_m, slope_deg, slope_pct, curvature_per_km (least-squares line / parabola)');
+      result.series.forEach(function (s) {
+        var st = windowStats(s);
+        if (st && st.n >= 2) rows.push('# ' + [s.id, st.n, st.mean.toFixed(2), st.slopeDeg.toFixed(2), st.slopePct.toFixed(2), isNaN(st.curvature) ? '' : st.curvature.toFixed(3)].join(', '));
+      });
+    }
     download('profile_' + stamp() + '.csv', 'text/csv', rows.join('\n') + '\n');
   }
 
@@ -414,6 +518,7 @@ window.LSProfile = (function () {
     el.svg = panel.querySelector('svg');
     el.status = panel.querySelector('.profile-status');
     el.read = panel.querySelector('.profile-read');
+    el.stats = panel.querySelector('.profile-stats');
     el.tip = document.createElement('div');
     el.tip.className = 'profile-tip';
     el.body.appendChild(el.tip);
@@ -427,12 +532,20 @@ window.LSProfile = (function () {
     el.lock.classList.add('active');
     panel.querySelector('.profile-svg').addEventListener('click', downloadSvg);
     panel.querySelector('.profile-csv').addEventListener('click', downloadCsv);
+    initBrush();
     el.svg.addEventListener('mousemove', onChartMove);
     el.svg.addEventListener('mouseleave', onChartLeave);
     panelApi = opts.makePanel(panel, {
       handle: panel.querySelector('.float-header'),
       close: panel.querySelector('.profile-close'),
       onResize: draw
+    });
+    // The line belongs to the panel: closing the panel takes the line, the
+    // vertices and the hover marker off the map too. Leaving the tool does
+    // not -- the chart is still open and still hoverable.
+    panel.querySelector('.profile-close').addEventListener('click', function () {
+      line = null; result = null; active = []; sel = null;
+      setPreview([]); setCursor(null); render();
     });
 
     // As with measure: the mode claims the map itself (claim releases
