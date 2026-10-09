@@ -460,6 +460,23 @@
       </div>
     </div>
 
+    {% comment %}
+    Elevation profile (profile.js): draw a line with the ∿ tool, read every
+    DEM that covers it. 1:1 locks the vertical scale to the horizontal one;
+    SVG / CSV download what is drawn.
+    {% endcomment %}
+    <div id="profile-panel" class="float-panel hidden">
+      <div class="float-header profile-header">
+        <span class="profile-status">Elevation profile</span>
+        <button type="button" class="profile-lock" title="True aspect (1:1). Click to let the profile fill the panel.">1:1</button>
+        <button type="button" class="profile-svg" title="Download the chart as SVG">SVG</button>
+        <button type="button" class="profile-csv" title="Download the samples as CSV">CSV</button>
+        <button type="button" class="profile-close" title="Close">&times;</button>
+      </div>
+      <div class="profile-body"><svg></svg></div>
+      <div class="profile-read">&nbsp;</div>
+    </div>
+
     <div id="hist-panel" class="float-panel hist-panel hidden">
       <div class="hist-header float-header">
         <span id="hist-subtitle">Computing…</span>
@@ -614,6 +631,7 @@
   built by map.js in the draw-panel idiom, and a click on a line is a popup.
 {% endcomment %}
 <script src="{% static 'inventory/js/scarps.js' %}"></script>
+<script src="{% static 'inventory/js/profile.js' %}"></script>
 {# Self-hosted lidar DEMs: PMTiles archives read over range requests, shaded #}
 {# client-side in a Web Worker by maplibre-gl-demshade (vendor/), behind the #}
 {# old DemShade API in dem_shade_bridge.js. Public (the /lidar/ routes are #}

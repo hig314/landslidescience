@@ -214,6 +214,29 @@ points) and the USGS boundary/tile index are the raw form; PDAL SMRF/PMF
 re-classification vs vendor class 2, gridded at 4 ft, density raster
 alongside. Disk budget fits on Nunatak as is.
 
+## 2026-10-08: anchorage_2015's PUBLISHED pyramid is the first build (heights x0.3048)
+
+Found by the new profile tool: Anchorage 2015 plotted at 0.31x the Portage
+surveys. The archive COG is right (367.7 m beside portage_2020's 361.8 m at
+-148.8131, 60.7486). The web pyramid is not: it is the 2026-09-12 overnight
+build's tiles, heights x0.3048 too small, kept by `gdal raster tile --resume`
+when the datum-fix chain rebuilt the archive that evening -- the stale-tile
+trap `drop_stale_tiles` was written for on 2026-09-14, two days AFTER that
+rebuild. Dev and R2 serve the same bytes (1664512283). The slope pyramid in
+data/lidar/pmtiles is 3.7 MB against the 2.9 GB the chain log reports, so it
+is suspect too.
+
+`tools/lidar/check_web_heights.py` now reads N random points from every
+published pyramid AND its archive and reports the median offset and ratio;
+run over all 46 on 2026-10-08, every other survey agrees to a few cm (ratio
+1.000) and anchorage_2015 alone reads ratio 0.305. Run it after any rebuild
+and before any publish -- nothing upstream of the tiles can show this.
+
+Fix: rebuild anchorage_2015's web + slope stages from the (correct) archive
+with the current build_lidar.py (the guard discards the stale tiles), then
+check_web_heights, then publish (R2 push + install in data/lidar/pmtiles).
+Waiting on Hig's OK; ~1.5 h on Nunatak.
+
 ## 2026-09-12 (evening): datum shift in eight archives, rebuild queued
 
 - **Bug found**: sources tagged generic NAD83 (EPSG:4269 / datum 6269) were

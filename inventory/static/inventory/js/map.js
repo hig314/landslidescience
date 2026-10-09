@@ -9565,6 +9565,12 @@
     // Scarp traces: the layer and the click popup for everyone; tracing
     // starts from the ✏ pencil (editors).
     _scarpInit();
+    // Elevation profile tool (profile.js): reads the lidar catalogue through a
+    // getter because it arrives after this runs.
+    if (typeof LSProfile !== 'undefined') {
+        LSProfile.init({ map: map, catalog: function () { return _lidarCatalog; },
+                         makePanel: makeFloatingPanel });
+    }
 
     // Mirrored third-party inventories: one click handler and the moveend
     // refetch. Registered once here rather than per layer, because the set of
