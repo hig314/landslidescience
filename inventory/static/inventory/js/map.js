@@ -106,6 +106,9 @@
     //   an=<key>,…    open analysis panels (hist | timing | scatter | opera)
     //   sc=0|1        scarp traces shown; written as sc=0 when hidden, absent
     //                 = leave alone (they are on by default)
+    //   pr=<lat>,<lon>,…  the elevation profile line (5 dp, lat first);
+    //   pw=<d0>,<d1>  its brushed window in metres along the line;
+    //   pve=0         the chart unlocked from 1:1. Absent pr = leave alone.
     //   ty c f ft sa da vol yr n10 lw lv pm
     //                 the FILTERS (types, classes and attribute flags as
     //                 bitmasks; ft = landslide features by NAME, see
@@ -135,6 +138,24 @@
         if (x.tab != null && /^[a-z]+$/.test(x.tab)) out.tab = x.tab;   // validated against real tabs on apply
         if (x.an != null) out.an = x.an.split(',').filter(function (k) { return /^[a-z]+$/.test(k); });
         if (x.sc === '0' || x.sc === '1') out.sc = x.sc === '1';
+        // Elevation profile: pr = flat lat,lon list (5 dp), pw = window along
+        // the line in metres (d0,d1), pve = 0 when the chart is unlocked
+        // from 1:1. pr absent = leave the profile alone.
+        if (x.pr != null) {
+            var nums = x.pr.split(',').map(parseFloat), pts = [];
+            for (var i = 0; i + 1 < nums.length; i += 2) {
+                if (isFinite(nums[i]) && isFinite(nums[i + 1]) && Math.abs(nums[i]) <= 90 && Math.abs(nums[i + 1]) <= 540) {
+                    pts.push([nums[i + 1], nums[i]]);          // stored lat,lon -> [lon, lat]
+                }
+            }
+            if (pts.length >= 2) {
+                out.pr = { line: pts, sel: null, locked: x.pve !== '0' };
+                if (x.pw != null) {
+                    var w = x.pw.split(',').map(parseFloat);
+                    if (w.length === 2 && isFinite(w[0]) && isFinite(w[1]) && w[0] >= 0 && w[1] >= 0) out.pr.sel = { d0: w[0], d1: w[1] };
+                }
+            }
+        }
         _FILTER_KEYS.forEach(function (k) {
             if (x[k] != null) (out.flt = out.flt || {})[k] = x[k];
         });
@@ -4453,6 +4474,7 @@
                 // resolvable only now. Unknown ids (a gated or retired survey)
                 // are simply skipped.
                 if (_pendingLi) { var pl = _pendingLi; _pendingLi = null; _liApplyHashSpec(pl); }
+                if (typeof LSProfile !== 'undefined') LSProfile.onCatalog();   // a profile from the URL waits for this
                 _rasterUiKey = '';
                 _rasterPanelRefresh();
             })
@@ -9569,7 +9591,8 @@
     // getter because it arrives after this runs.
     if (typeof LSProfile !== 'undefined') {
         LSProfile.init({ map: map, catalog: function () { return _lidarCatalog; },
-                         makePanel: makeFloatingPanel });
+                         makePanel: makeFloatingPanel,
+                         onChange: function () { if (_mapReady) writeHashState(); } });
     }
 
     // Mirrored third-party inventories: one click handler and the moveend
@@ -10046,6 +10069,20 @@
               if (how !== 'hash' || !s.flt) return;
               _filterApply(s.flt);
               buildFilter();
+          } },
+        // The elevation profile line (profile.js), its window and aspect lock,
+        // so a profile can be shared with the view it was drawn on.
+        { key: 'pr', cold: true,
+          collect: function (mode, o) {
+              if (typeof LSProfile === 'undefined') return;
+              var st = LSProfile.state();
+              if (!st) return;
+              o.extras.pr = st.line.map(function (c) { return c[1].toFixed(5) + ',' + c[0].toFixed(5); }).join(',');
+              if (st.sel) o.extras.pw = st.sel.d0.toFixed(1) + ',' + st.sel.d1.toFixed(1);
+              if (!st.locked) o.extras.pve = '0';
+          },
+          apply: function (s) {
+              if (s.pr && typeof LSProfile !== 'undefined') LSProfile.setState(s.pr);
           } },
         { key: 'tab', cold: true,
           collect: function (mode, o) {

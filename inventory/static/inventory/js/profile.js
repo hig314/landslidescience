@@ -30,6 +30,8 @@ window.LSProfile = (function () {
                  '#6d4c41', '#c0ca33', '#3949ab', '#e53935'];
 
   var map = null, catalog = function () { return null; }, panelApi = null;
+  var onChange = function () {};  // host callback: the URL hash records the profile
+  var pendingLine = null;         // a line from the URL, waiting for the catalogue
   var mode = 'idle';            // 'idle' | 'draw'
   var active = [];              // vertices of the line in progress
   var line = null;              // finished line, [[lng, lat], …]
@@ -131,11 +133,38 @@ window.LSProfile = (function () {
     line = active.slice(); active = []; setPreview([]); render();
     window.LSTrack && LSTrack.event('map_tool', { tool: 'profile' });
     sample(line);
+    onChange();
   }
   function clearAll() {
-    line = null; result = null; active = [];
+    line = null; result = null; active = []; sel = null; pendingLine = null;
     setPreview([]); setCursor(null); render();
     if (panelApi) panelApi.close();
+    onChange();
+  }
+
+  // ---- state for the URL hash (map.js _VIEW_PARAMS row 'pr') ---------------
+  // {line: [[lon, lat], …], sel: {d0, d1} | null, locked} or null when no line.
+  function state() {
+    if (!line) return null;
+    return { line: line.slice(), sel: sel ? { d0: Math.min(sel.d0, sel.d1), d1: Math.max(sel.d0, sel.d1) } : null,
+             locked: locked };
+  }
+  // Put a line (and optionally a window and the aspect lock) on the map and
+  // read it. Before the lidar catalogue is in, the line waits: reading it
+  // now would find only Mapterhorn and the surveys would never appear.
+  function setState(st) {
+    if (!st || !st.line || st.line.length < 2) return;
+    active = []; setPreview([]);
+    if (st.locked != null) { locked = !!st.locked; if (el.lock) el.lock.classList.toggle('active', locked); }
+    sel = st.sel ? { d0: st.sel.d0, d1: st.sel.d1 } : null;
+    line = st.line.slice(); render();
+    if (!catalog()) { pendingLine = line; return; }
+    pendingLine = null;
+    sample(line);
+  }
+  // map.js calls this when the catalogue arrives.
+  function onCatalog() {
+    if (pendingLine) { var l = pendingLine; pendingLine = null; sample(l); }
   }
 
   // ---- sampling ----------------------------------------------------------
@@ -443,7 +472,7 @@ window.LSProfile = (function () {
     h += '</tbody></table>';
     el.stats.innerHTML = h;
     el.stats.style.display = 'block';
-    el.stats.querySelector('.profile-stats-x').addEventListener('click', function () { sel = null; draw(); });
+    el.stats.querySelector('.profile-stats-x').addEventListener('click', function () { sel = null; draw(); onChange(); });
   }
   function chartD(clientX) {       // distance along the line under a client x
     var g = el.svg._geom, r = el.svg.getBoundingClientRect();
@@ -465,6 +494,7 @@ window.LSProfile = (function () {
         // A click (no real drag) clears the window instead of making a sliver.
         if (!e || Math.abs(e.clientX - info.startX) < 3) sel = null;
         draw();
+        onChange();
       }
     });
   }
@@ -512,6 +542,7 @@ window.LSProfile = (function () {
   function init(opts) {
     map = opts.map;
     catalog = opts.catalog || catalog;
+    onChange = opts.onChange || onChange;
     var panel = document.getElementById('profile-panel');
     if (!panel) return;
     el.body = panel.querySelector('.profile-body');
@@ -528,6 +559,7 @@ window.LSProfile = (function () {
       el.lock.classList.toggle('active', locked);
       el.lock.title = locked ? 'True aspect (1:1). Click to let the profile fill the panel.' : 'Vertically exaggerated to fill the panel. Click for 1:1.';
       draw();
+      onChange();
     });
     el.lock.classList.add('active');
     panel.querySelector('.profile-svg').addEventListener('click', downloadSvg);
@@ -544,8 +576,9 @@ window.LSProfile = (function () {
     // vertices and the hover marker off the map too. Leaving the tool does
     // not -- the chart is still open and still hoverable.
     panel.querySelector('.profile-close').addEventListener('click', function () {
-      line = null; result = null; active = []; sel = null;
+      line = null; result = null; active = []; sel = null; pendingLine = null;
       setPreview([]); setCursor(null); render();
+      onChange();
     });
 
     // As with measure: the mode claims the map itself (claim releases
@@ -565,5 +598,5 @@ window.LSProfile = (function () {
     if (map.isStyleLoaded()) ensureLayers();
   }
 
-  return { init: init, clear: clearAll };
+  return { init: init, clear: clearAll, state: state, setState: setState, onCatalog: onCatalog };
 })();

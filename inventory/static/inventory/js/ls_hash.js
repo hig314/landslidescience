@@ -23,7 +23,8 @@
  *   & ref=<name>,…             reference vector layers (faults | circles)
  *   & <extras…>                app-specific params, passed through untouched
  *                              as strings: inventory sc / filters / tab / an /
- *                              id / ids, glaciers site / t.
+ *                              id / ids / pr,pw,pve (elevation profile:
+ *                              line, window, aspect lock), glaciers site / t.
  *
  * LIST PARAMS (ov, li, ext, im, ref): PRESENT fully describes the set —
  * anything unlisted is off, and present-but-empty means "none". ABSENT means
