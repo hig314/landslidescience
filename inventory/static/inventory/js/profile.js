@@ -355,8 +355,10 @@ window.LSProfile = (function () {
     var need = series.length * 13 + 6, below = (H - m.b - (oy + ch)) > need + 18;
     var ly = below ? oy + ch + 30 : oy + 12, lx = ox + 8;
     series.forEach(function (s) {
-      parts.push('<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 18) + '" y2="' + ly + '" stroke="' + s.color + '" stroke-width="2"/>');
-      parts.push('<text x="' + (lx + 22) + '" y="' + (ly + 3) + '" font-size="10" fill="#333">' + esc(s.title) + '</text>');
+      // Same stroke as the line it stands for (Mapterhorn is dashed).
+      parts.push('<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 22) + '" y2="' + ly + '" stroke="' + s.color +
+                 '" stroke-width="2"' + (s.id === 'mapterhorn' ? ' stroke-dasharray="4 3"' : '') + '/>');
+      parts.push('<text x="' + (lx + 26) + '" y="' + (ly + 3) + '" font-size="10" fill="#333">' + esc(s.title) + '</text>');
       ly += 13;
     });
     parts.push('<text x="' + (ox + cw - 4) + '" y="' + (oy - 2) + '" font-size="10" text-anchor="end" fill="#333">' +

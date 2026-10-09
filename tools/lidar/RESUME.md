@@ -214,6 +214,34 @@ points) and the USGS boundary/tile index are the raw form; PDAL SMRF/PMF
 re-classification vs vendor class 2, gridded at 4 ft, density raster
 alongside. Disk budget fits on Nunatak as is.
 
+## 2026-10-08 (later): anchorage_2015's ARCHIVE carries the geoid (+6.5..+10.9 m)
+
+Second finding the same evening, from Hig looking at the corrected profile:
+Anchorage 2015 sits a clean constant above every neighbour on gentle ground
+(check_vertical_consistency.py, MAD 0.2-0.4 m): +8.59 vs glen_alps_2024,
++9.26 vs eagle_river_2024, +9.56 vs matsu_core_2011, +9.75 vs matsu_2019,
++10.9 vs portage_2020. Against its own SOURCE at four points the archive is
++6.54..+10.93 m high, varying smoothly across the city -- the geoid
+separation. Cause: the archive warp handed PROJ the compound source CRS
+(State Plane ftUS + NAVD88 ftUS) and a 2-D target, and PROJ converted the
+unit AND added the NAVD88 -> ellipsoid shift. The 2026-09-12 "fix" that
+dropped vertical_scale left exactly this in. Fix in build_lidar.py:
+`horizontal_crs()` -- the archive warp now gets the horizontal CRS alone and
+-novshift, heights pass through in the source unit, and the unit factor read
+from the VERTCRS is applied explicitly (verified on a 400 m window: old warp
+614.34 m, new 1988.83 ftUS -> 606.19 m, source 606.04 m). Rebuild chain
+`logs/anchorage_datum_fix.sh` (all stages + checks, NO publish) started
+22:26; the geoid-shifted products are kept as superseded/*.ellipsoidal.*.
+Publishing = r2_sync.sh (cog + --pmtiles), make_catalog.py --verify-r2,
+install the catalog on the droplet (z_min/z_max change) -- after Hig's OK.
+
+`check_vertical_consistency.py` over every overlapping pair (41 pairs, 150
+points each, slope < 5 deg): 21 agree within 0.5 m; the large-MAD flags are
+real ground change (bathy vs topo, SfM surface vs bare earth, Pedersen and
+Taan glaciers, Lituya); two TIGHT offsets besides Anchorage deserve a look:
+juneau_thane_2019 vs juneau_2012 +2.99 m (MAD 0.61, n=150) and seward_2023
+vs kenai_2008 +15.5 m (MAD 1.2, but only n=18 gentle shared points).
+
 ## 2026-10-08: anchorage_2015's PUBLISHED pyramid is the first build (heights x0.3048)
 
 Found by the new profile tool: Anchorage 2015 plotted at 0.31x the Portage
@@ -232,10 +260,13 @@ run over all 46 on 2026-10-08, every other survey agrees to a few cm (ratio
 1.000) and anchorage_2015 alone reads ratio 0.305. Run it after any rebuild
 and before any publish -- nothing upstream of the tiles can show this.
 
-Fix: rebuild anchorage_2015's web + slope stages from the (correct) archive
-with the current build_lidar.py (the guard discards the stale tiles), then
-check_web_heights, then publish (R2 push + install in data/lidar/pmtiles).
-Waiting on Hig's OK; ~1.5 h on Nunatak.
+RESOLVED the same evening (Hig's OK 19:40): `logs/anchorage_pyramid_fix.sh`
+rebuilt web + slope from the archive (the guard started the tiles afresh),
+check_web_heights read 60 points at median -0.00 m / ratio 1.000, and
+r2_sync pushed both (2.6 GB + 2.9 GB, 67 min at ~1.4 MiB/s; done 21:32).
+R2 and data/lidar/pmtiles hold the same bytes; a live tile read off R2 at
+-148.8131, 60.7486 gives the archive's 367.7 m. The wrong files are kept
+as superseded/anchorage_2015*.x0.3048.pmtiles.
 
 ## 2026-09-12 (evening): datum shift in eight archives, rebuild queued
 
