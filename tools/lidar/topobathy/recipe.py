@@ -49,6 +49,28 @@ class Recipe:
     def paint_path(self, layer_name) -> Path:
         return self.work_dir / "masks" / f"{layer_name}_paint.tif"
 
+    def obs_paint_path(self, layer_name, axis) -> Path:
+        """Hand corrections to an observation's class or quality (axis =
+        "class" | "sigma"); they belong to the observation, not the composite."""
+        return self.work_dir / "obs" / layer_name / f"{axis}_paint.tif"
+
+    def paint_paths(self):
+        """Every paint file this recipe can read, for the provenance stamp."""
+        ps = []
+        for L in self.layers:
+            ps.append(self.paint_path(L["name"]))
+            ps += [self.obs_paint_path(L["name"], ax) for ax in ("class", "sigma")]
+        return ps
+
+    @property
+    def out_dir(self) -> Path:
+        return self.work_dir / "out"
+
+    @property
+    def sha(self) -> str:
+        import hashlib
+        return hashlib.sha256(self.path.read_bytes()).hexdigest()[:16]
+
     def resolve(self, p) -> Path:
         p = Path(p)
         return p if p.is_absolute() else self.root / p

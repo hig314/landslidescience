@@ -1,6 +1,11 @@
 {
  "id": "portage_axes",
- "note": "Revision-2 structure: every layer is a dated observation with a class raster and a sigma raster; masks come from state_rules (gate -> expected error -> winner), then despeckle + feather. No hand masks. Dates for IfSAR and Whittier are ASSUMED (see notes) - correct them.",
+ "dataset_id": "portage_topobathy_2026",
+ "title": "Portage Lake topobathy composite (as of January 2026)",
+ "region": "Turnagain Arm and Prince William Sound",
+ "vertical_datum": "NAVD88 (as the sources)",
+ "source": "landslidescience.org composite: AK IfSAR, Anchorage 2015 lidar, Whittier topobathy lidar, Portage 2020 lidar (DGGS RDF 2024-7), Portage Lake sonar 2026-01-04 (Higman)",
+ "note": "Revision-2 structure: every layer is a dated observation with a class raster and a sigma raster; masks come from state_rules (gate -> expected error -> winner), then despeckle + feather. No hand masks. Dates for IfSAR and Whittier are ASSUMED (see notes) - correct them. GRID: the five legacy crops' lattice (EPSG:32606, WGS 84 / UTM 6N as tagged by the crops, 1 m), stacked by pixel index; a re-gridded build from datasets.json sources would sit on NAD83(2011)/UTM 6N and differ by sub-pixel resampling.",
  "root": "/Volumes/Nunatak/Landslides/Portage/Portage_topobathy/Crops",
  "legacy_output": "Topobathy_merge/Portage_topobathy_merge.tif",
  "grid": {

@@ -38,7 +38,9 @@ class Session:
         self.win = parse_window(window, self.grid)
         self.sub = self.grid.sub(self.win)
         t = time.time()
-        self.out, self.layers = build_window(self.recipe, self.grid, self.win, verbose=True)
+        # obs_paint=False: the session holds the class / sigma paint itself (below) and applies it
+        # through eff_class / eff_sigma, so erasing paint in the tool really restores the raw raster
+        self.out, self.layers = build_window(self.recipe, self.grid, self.win, verbose=True, obs_paint=False)
         self.names = [L["name"] for L in self.layers]
         h, w = self.out.shape
         self.shape = (h, w)
@@ -64,14 +66,28 @@ class Session:
                 print(f"reference raster loaded: {rp.name} ({align})")
         self.has_axes = "cls" in self.layers[0]
         self.target = self.recipe.d.get("target")
-        # per-axis hand paint: class (value = class code / 8) and sigma (value = band index / 8)
-        self.cpaint = {L["name"]: [np.zeros(self.shape, np.float32), np.zeros(self.shape, np.float32)] for L in self.layers}
-        self.spaint = {L["name"]: [np.zeros(self.shape, np.float32), np.zeros(self.shape, np.float32)] for L in self.layers}
+        # per-axis hand paint: class (value = class code / 8) and sigma (value = band index / 8),
+        # loaded from the observation's paint files so a restarted session shows what the build applies
+        from topobathy.masks import read_paint
+        self.cpaint, self.spaint = {}, {}
+        for axis, store in (("class", self.cpaint), ("sigma", self.spaint)):
+            for L in self.layers:
+                p = self.recipe.obs_paint_path(L["name"], axis)
+                if p.exists():
+                    v, a = read_paint(p, self.grid, self.win)
+                else:
+                    v, a = np.zeros(self.shape, np.float32), np.zeros(self.shape, np.float32)
+                store[L["name"]] = [v, a]
         self.sel = np.zeros(self.shape, bool)
         # session-only view toggles: dem = whole layer, auto = generated/file mask, paint = hand paint
         self.enabled = {L["name"]: {"dem": True, "auto": True, "paint": True} for L in self.layers}
         self.undo = []
         self.version = 0
+        if self.has_axes and any((st[L["name"]][1] > 0).any() for st in (self.cpaint, self.spaint) for L in self.layers):
+            self.recompute_rules()          # saved class / sigma paint shapes the masks from the start
+            self.out = None
+            for L in self.layers:
+                self.out = self.layer_z(L).copy() if self.out is None else fold_step(self.out, L["z"], self.effective(L))
         self.below = self._folds_below()
         allz = np.concatenate([L["z"][np.isfinite(L["z"])][::97] for L in self.layers])
         self.zrange = (float(np.percentile(allz, 1)), float(np.percentile(allz, 99)))
@@ -104,22 +120,13 @@ class Session:
             out = self.layer_z(L).copy() if out is None else fold_step(out, L["z"], self.effective(L))
         return below
 
-    SIGMA_BANDS = [0.1, 0.5, 2.0, 99.0]      # good / ok / poor / veto
+    SIGMA_BANDS = AX.SIGMA_BANDS             # good / ok / poor / veto, shared with the build
 
     def eff_class(self, L):
-        v, a = self.cpaint[L["name"]]
-        c = L["cls"].copy()
-        on = a > 0.5
-        c[on] = np.rint(v[on] * 8).astype(np.uint8)
-        return c
+        return AX.apply_class_paint(L["cls"], *self.cpaint[L["name"]])
 
     def eff_sigma(self, L):
-        v, a = self.spaint[L["name"]]
-        sg = L["sigma"].copy()
-        on = a > 0.5
-        band = np.clip(np.rint(v[on] * 8), 0, 3).astype(int)
-        sg[on] = np.array(self.SIGMA_BANDS, np.float32)[band]
-        return sg
+        return AX.apply_sigma_paint(L["sigma"], *self.spaint[L["name"]])
 
     def recompute_rules(self):
         """Class or sigma changed: rerun state_rules and the post ops -> new auto masks."""
@@ -662,34 +669,28 @@ def undo():
 
 @app.post("/api/save")
 def save():
-    """Write masks/<layer>_paint.tif (value, alpha as 8-bit) over this
-    window's domain box for every layer with any paint."""
+    """Write this window's paint into the full-grid paint files (created
+    sparse on first save, windowed `r+` writes after): masks/<layer>_paint.tif
+    for weight, obs/<layer>/{class,sigma}_paint.tif for the observation
+    axes.  Cells outside this window are left as they were, so several
+    sessions on different windows build up one record."""
+    from topobathy.paint import write_paint
     written = []
     with LOCK:
         for L in S.layers[1:]:
             v, a = S.paint[L["name"]]
-            if not (a > 0).any():
+            p = S.recipe.paint_path(L["name"])
+            if not (a > 0).any() and not p.exists():
                 continue
-            box = L["box"] or (0, S.shape[0], 0, S.shape[1])
-            r0, r1, c0, c1 = box
-            from rasterio.windows import Window
-            import rasterio
-            sub = S.grid.sub(Window(S.win.col_off + c0, S.win.row_off + r0, c1 - c0, r1 - r0))
-            p = S.recipe.paint_path(L["name"]); p.parent.mkdir(parents=True, exist_ok=True)
-            with rasterio.open(p, "w", **sub.profile("uint8", None, count=2, predictor=2)) as ds:
-                ds.write(to_uint8(v[r0:r1, c0:c1]), 1); ds.write(to_uint8(a[r0:r1, c0:c1]), 2)
+            write_paint(p, S.grid, S.win, v, a)
             written.append(str(p))
-        # class / sigma corrections belong to the observation: obs/<layer>/{class,sigma}_paint.tif
         for axis, store in (("class", S.cpaint), ("sigma", S.spaint)):
             for L in S.layers:
                 v, a = store[L["name"]]
-                if not (a > 0).any(): continue
-                from rasterio.windows import Window
-                import rasterio
-                sub = S.grid.sub(S.win)
-                p = S.recipe.work_dir / "obs" / L["name"] / f"{axis}_paint.tif"; p.parent.mkdir(parents=True, exist_ok=True)
-                with rasterio.open(p, "w", **sub.profile("uint8", None, count=2, predictor=2)) as ds:
-                    ds.write(to_uint8(v), 1); ds.write(to_uint8(a), 2)
+                p = S.recipe.obs_paint_path(L["name"], axis)
+                if not (a > 0).any() and not p.exists():
+                    continue
+                write_paint(p, S.grid, S.win, v, a)
                 written.append(str(p))
     return jsonify(written=written)
 

@@ -1,15 +1,93 @@
 # Topobathy compositing: tools and interface
 
-## State of play (2026-09-20) and how to resume
+## State of play (2026-10-09) and how to resume
 
-**Nothing is built.** This document is the agreed design, reviewed by Hig
-over four drafts on 2026-09-20; the decisions below are his, not proposals.
-A fresh session should read this file top to bottom. **Revision 2** (next
+**The pipeline runs end to end on Portage.** Review of 2026-10-09 (two
+weeks idle, 59 commits behind `main`, merged clean): the decision model
+and the mask tool had outrun the plumbing — every recipe was a Portage
+test window, nothing could write a deliverable DEM. Hig's call: finish
+step 1 of the revised order before any more physical awareness (glacier
+thinning, seasonal water levels — see "Deferred: physical awareness" at
+the end of this section). Done the same day:
+
+- **Streaming full-grid build** (`composite.py build recipe.json`, no
+  `--window`): tiles of 2048² built with the existing halo, in `--jobs`
+  forked workers (6 workers: 193 s for the 30000 × 20000 mask recipe,
+  ~9 min for the axes recipe), written into tiled sparse GeoTIFFs under
+  `<work_dir>/` — `out/<id>.tif` (archive COG, ZSTD, overviews,
+  `-mo vertical_shift_m=0 composite_recipe=<sha> composite_paint=<sha>`),
+  `out/source_index.tif`, `masks/<layer>.tif` + `<layer>_auto.tif`, and
+  for axes recipes `out/{class_now,winner,date_now,sigma,fallback}.tif`
+  (`--diag` adds per-layer class/σ). **Verified bit-identical** to a direct
+  window build over the same cells; the legacy regression stays bit-exact.
+- **Water levels are pinned once per grid.** A coarse pre-pass (1/12
+  sample) estimates every `"auto"` level over the whole grid and writes it
+  into the step, so tiles cannot disagree about where the water is.
+  `--pin` gives a window build the same levels. Note the mask recipe's
+  single level under the sonar came out **28.99 m** over the whole lake
+  against 29.21 on the test window — the lidar surveys hold the lake at
+  different levels (28.9–29.2) and the whole-footprint mode picks the
+  commonest; the axes recipes detect each survey's own level, which is
+  the better model.
+- **`out/report.json`**: per layer valid/shown/feathered km², class
+  fractions, tile-median info; composite area by source; **per overlap
+  pair** (every layer against every lower layer, by class of the upper
+  one) n, median, NMAD, p16/p84 from a 2 cm histogram over ±250 m, and
+  **`rate_m_per_yr` = median dz / Δt** where both are dated. This is the
+  glacier-thinning readout: measure before modelling.
+- **Class / σ paint is read back at build time** (`axes.apply_class_paint`
+  / `apply_sigma_paint`, shared with the tool) — before this, a saved class
+  correction changed nothing in a build.
+- **Paint files cover the full grid, sparse** (`topobathy/paint.py`):
+  first save creates the file, later saves are windowed `r+` writes, old
+  domain-box files migrate on first touch. Several windows accumulate into
+  one record; the tool reloads all three kinds on restart.
+- **`import-mask` / `export-mask`** (the Photoshop round trip) and
+  **`publish`** (prints, or `--write`s, the `datasets.json` entry:
+  `archive_mode: copy`, `dev_only: true`, zooms from the grid).
+
+Next (in order): the hosting side runs `build_lidar.py <id>` + the dev
+catalogue so the composite shows on `/lidar/` (WORKSTREAMS boundary);
+then **Lituya** as the first recipe from `datasets.json` ids (needs
+`stack.read_layer` to resolve an id → archive COG with
+`build_lidar` helpers; checks the offset report against 0.13 m); then
+Seward and the intertidal fill. The rule set is frozen until a named
+site fails.
+
+### Deferred: physical awareness (decided 2026-10-09)
+
+Hig asked how far to go toward a physically aware merge — glacier
+thinning rates from overlapping DEMs of different age to put a glacier
+at one epoch; seasonal water levels. Decision: **not now, and nothing
+needs to change in the engine for later.**
+
+- Thinning is a **derived layer** (shift an ice observation to `as_of` by
+  a rate raster, σ growing with the gap) — the slot already exists
+  (`plane_shift`, "local dh/dt from the glacier apps" reserved). Current
+  behaviour on ice — newest observation wins, a feathered step at each
+  seam of ~rate × age gap — is an honest picture of what the data knows,
+  and `date_now.tif` makes it legible. The trigger to build the layer is
+  a product that fails without it (the ice-dam flotation analysis, where
+  a 10 m surface step is ~9 m of water level); the first implementation
+  should use a **published** rate field (Hugonnet et al. 2021 100 m dh/dt
+  grids, 2000–2019, include Alaska — not verified in session) or a dated
+  ArcticDEM strip, not our own estimator. Self-estimating from overlaps
+  mixes thinning with season, snow, IfSAR penetration and co-registration,
+  and needs rates where there is no overlap — a geodetic mass-balance
+  pipeline. `report.json`'s `rate_m_per_yr` tells whether the seam step
+  at a site is 2 m or 30 m before anything is modelled.
+- Seasonal water: each survey's water is detected at its own level and a
+  ground observation outranks a water one, so the lowest-water survey
+  already wins the shore band. What remains is one product level per
+  waterbody (to flatten stand-in water) and the tide level at sea sites —
+  recipe scalars, not a model.
+
+(Previous state of play, 2026-09-20/21, for the record:) This document
+is the agreed design, reviewed by Hig over four drafts on 2026-09-20;
+the decisions below are his, not proposals. **Revision 2** (next
 section) and the dated sections at the end supersede the original where
 they conflict; the "Revised order of work" in Revision 2 is current. The
-Portage regression (its step 1) is done and bit-exact. **Current focus
-(2026-09-21): the topo DEM merge and surface classification** — phase-1
-engine remainder and observation packages; the sparse-point
+Portage regression (its step 1) is done and bit-exact. The sparse-point
 interpolation is paused with its own state-of-play section below.
 
 Decisions taken, in the order they were made:
@@ -199,7 +277,8 @@ the glacier apps, a date raster for mosaics.
 
 1. Finish the phase-1 engine: streaming full-grid builds, `datasets.json`
    sources, snapped grid, import/export-mask, COG write + catalogue entry,
-   `report.json`. Unchanged.
+   `report.json`. **Done 2026-10-09 except `datasets.json` sources and the
+   snapped grid**, which belong to the first non-Portage recipe (Lituya).
 2. Observation packages, minimal: date and σ from `datasets.json`, class
    from product default + flat-water detector + glacier-outline polygons;
    `state_rules` with gate → expected error → winner; the "why" readout.

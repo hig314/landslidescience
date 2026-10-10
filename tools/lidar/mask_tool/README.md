@@ -37,10 +37,21 @@ footprint), paint = hand paint.
   (value, alpha) in the recipe's work dir, on this window's domain box.
 
 ## Where paint goes and how it comes back
-`$LIDAR_BUILD/composite/<id>/masks/<layer>_paint.tif` (default
-`/Volumes/Nunatak/lidar_build/composite/<id>/`). `layer_mask` reads it by
-convention, so both a restarted tool session and
-`composite.py build composites/<id>/recipe.json --window …` apply it.
+`$LIDAR_BUILD/composite/<id>/masks/<layer>_paint.tif` for weight paint,
+`obs/<layer>/{class,sigma}_paint.tif` for class and quality corrections
+(default root `/Volumes/Nunatak/lidar_build/composite/<id>/`). Every paint
+file covers the **full composite grid** as a sparse, tiled GeoTIFF: the
+first save creates it (a few hundred kB however big the grid), later saves
+are windowed writes, so sessions on different windows accumulate into one
+record and a save never discards what another window painted. A restarted
+session reads all three kinds back for its window. Both the tool and
+`composite.py build` (windowed or full) apply them through the same
+functions (`axes.apply_class_paint` / `apply_sigma_paint`,
+`masks.effective`), so what you see is what the build does.
+
 The auto mask is regenerated every time; the paint is the record.
-Photoshop round trip: edit the exported 8-bit mask, then `import-mask`
-(phase 1, not yet written) folds the difference into the same paint file.
+Photoshop / QGIS round trip: `composite.py export-mask … --layer X --out
+x.tif` (the effective or auto mask as plain 8-bit), edit it, then
+`composite.py import-mask … --layer X x.tif [--align pixel]` paints every
+cell that differs from the auto mask and clears earlier paint where the
+edited file agrees with it. A full `build` then applies it.

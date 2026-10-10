@@ -1032,6 +1032,24 @@
       "source": "U.S. Geological Survey -- R/V Alaskan Gyre, Reson SeaBat T50-P, summer 2016 (Haeussler et al. 2018)",
       "source_url": "https://doi.org/10.1029/2018JF004608",
       "notes": "Multibeam bathymetry of Taan Fiord from the USGS R/V Alaskan Gyre (Reson SeaBat T50-P), summer 2016, 7-10 months after the 17 October 2015 landslide and tsunami, gridded at 1 m (Haeussler et al. 2018, JGR Earth Surface, doi:10.1029/2018JF004608). Gyre only (Hig). The original public repository is broken, hence rehosting. Source bathy/Taan_DEM_052917.tiff, WGS 84 / UTM 7N, band 'Depth' with positive-up heights (-136.4 to +3.5 m). VERTICAL: no datum statement survives with the file, and it shares no dry ground with the lidar. vertical_shift_m -1.386 follows Peter Haeussler's own merge (Hig's call, 2026-09-26): his Data Set S1 topobathy is exactly lidar(NAVD88 GEOID12B) - 1.634 m on land (plane fit, no trend) and exactly this grid - 3.02 m in the fiord (mode, constant from 10 to 100 m depth; only the deep southern band toward Icy Bay departs, where his legend shows other sources), so in NAVD88 this grid is -3.02 + 1.634 = -1.386 m. It is only as good as his shoreline tie. HORIZONTAL: as for taan_2016. GEOID CAVEAT (Hig, 2026-09-26): the geoid-ellipsoid separation may be unusually poorly modelled in Taan Fiord, so absolute NAVD88 heights here carry more uncertainty than the conversion itself suggests; heights between the three Taan 2016 datasets are consistent with each other by construction."
+    },
+    {
+      "id": "portage_topobathy_2026",
+      "title": "Portage Lake topobathy composite (as of January 2026)",
+      "src": "/Volumes/Nunatak/lidar_build/composite/portage_axes/out/portage_axes.tif",
+      "target_epsg": 32606,
+      "native_res_m": 1.0,
+      "center_lat": 60.781,
+      "min_zoom": 8,
+      "max_zoom": 17,
+      "year": 2026,
+      "product": "Topobathy composite",
+      "archive_mode": "copy",
+      "vertical_datum": "NAVD88 (as the sources)",
+      "region": "Turnagain Arm and Prince William Sound",
+      "source": "landslidescience.org composite: AK IfSAR, Anchorage 2015 lidar, Whittier topobathy lidar, Portage 2020 lidar (DGGS RDF 2024-7), Portage Lake sonar 2026-01-04 (Higman)",
+      "dev_only": true,
+      "notes": "Revision-2 structure: every layer is a dated observation with a class raster and a sigma raster; masks come from state_rules (gate -> expected error -> winner), then despeckle + feather. No hand masks. Dates for IfSAR and Whittier are ASSUMED (see notes) - correct them. GRID: the five legacy crops' lattice (EPSG:32606, WGS 84 / UTM 6N as tagged by the crops, 1 m), stacked by pixel index; a re-gridded build from datasets.json sources would sit on NAD83(2011)/UTM 6N and differ by sub-pixel resampling. COMPOSITE built 2026-10-09T22:39:39 by tools/lidar/composite.py from tools/lidar/composites/portage_axes/recipe.json (sha f41d50d9ef4a3735, paint e3b0c44298fc1c14); fold order ifsar (2012), anc2015 (2015-09-01), whittier (2019-07-01), portage2020 (2020-10-05), bathy2026 (2026-01-04). Target ground_current as of 2026-01-04. Composite area by source: ifsar 405.4 km2; anc2015 123.4 km2; whittier 59.5 km2; portage2020 6.5 km2; bathy2026 5.2 km2; none 0.0 km2. source_index.tif and report.json beside the COG say which layer won where and what was decided."
     }
   ]
 }

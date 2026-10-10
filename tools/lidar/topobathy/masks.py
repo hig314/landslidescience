@@ -151,12 +151,15 @@ def invert(m):
 OPS = {"blur": blur, "erode": erode, "dilate": dilate, "feather": feather}
 
 
-def run_auto(steps, valid, res_m, z=None, below=None, info=None):
+def run_auto(steps, valid, res_m, z=None, below=None, info=None, level_default="auto"):
     """Apply a list like ["footprint", {"water": {"level": "auto"}},
     {"despeckle": {"min_area_m2": 2000}}, {"feather": {"width_m": 20}}]
     and return the auto mask.  `z` is this layer, `below` the fold of the
     layers beneath it (needed by water / lowest).  `info` collects what
-    the generators decided (e.g. the water level) for the report."""
+    the generators decided (e.g. the water level) for the report.
+    `level_default` is the water level a `water` step uses when it does not
+    name one: "auto" (estimate from this window) or a number pinned for the
+    whole grid by the build's pre-pass."""
     m = None
     for step in steps:
         if step == "footprint":
@@ -166,7 +169,7 @@ def run_auto(steps, valid, res_m, z=None, below=None, info=None):
             if name in ("water", "lowest") and (z is None or below is None):
                 raise ValueError(f"'{name}' needs the layer and the fold below it")
             if name == "water":
-                m, level = water(z, valid, below, kw.get("level", "auto"), kw.get("tol_m", 0.5))
+                m, level = water(z, valid, below, kw.get("level", level_default), kw.get("tol_m", 0.5))
                 if info is not None:
                     info["water_level_m"] = level
                 continue
@@ -261,7 +264,8 @@ def layer_mask(spec, recipe, grid: Grid, win: Window, valid, lower_valid=None, z
                                     ms.get("align", spec.get("align", "geo")))
         auto = np.where(inside & covered, m, fp)
     elif "auto" in ms:
-        auto = np.where(inside, run_auto(ms["auto"], valid, grid.res, z, below, info), fp)
+        auto = np.where(inside, run_auto(ms["auto"], valid, grid.res, z, below, info,
+                                         spec.get("water_level_m", "auto")), fp)
     else:                               # no mask spec: footprint (legacy full overlay)
         auto = fp
     paint = None

@@ -43,6 +43,30 @@ TARGETS = {
 DEFAULT_RATES = {"ground": 0.01, "water": 0.0, "bed": 0.02, "ice": 3.0,
                  "subglacial": 0.0, "canopy": 0.3, "built": 0.1, "void": 0.0, "modelled": 0.0, "snow": 0.0}
 SNOW_SIGMA_M = 1.5             # a snow surface is ground plus an unknown 0..few m: treated as this much error
+SIGMA_BANDS = [0.1, 0.5, 2.0, 99.0]      # hand quality paint: good / ok / poor / veto (metres)
+
+# Hand corrections to an observation's class and quality are two-band paint
+# rasters like the weight paint (value, alpha), stored beside the observation
+# in <work_dir>/obs/<layer>/{class,sigma}_paint.tif.  Value encodes the class
+# code / 8, or the SIGMA_BANDS index / 8, so the same 8-bit files and the same
+# tools serve all three axes.  Both the build and the mask tool apply them
+# through these two functions, so they cannot disagree.
+
+def apply_class_paint(cls, value, alpha):
+    on = alpha > 0.5
+    if on.any():
+        cls = cls.copy()
+        cls[on] = np.rint(value[on] * 8).astype(np.uint8)
+    return cls
+
+
+def apply_sigma_paint(sigma, value, alpha):
+    on = alpha > 0.5
+    if on.any():
+        sigma = sigma.copy()
+        band = np.clip(np.rint(value[on] * 8), 0, len(SIGMA_BANDS) - 1).astype(int)
+        sigma[on] = np.array(SIGMA_BANDS, np.float32)[band]
+    return sigma
 
 
 def years(d) -> float:
