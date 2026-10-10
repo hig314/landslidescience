@@ -222,6 +222,11 @@ CLAUDE.md §/glaciers:
   mask is the weighted *fraction* of valid cells, never a count; a
   "minimum summed weight" gate written against it rejected every cell.
   Multiply by 2πσ² for the cells-equivalent.
+- **`cmd | grep -v Warning && mv …` skips the `mv` whenever nothing was
+  printed** — `grep` exits 1 on no matches, so a clean run is the one that
+  fails the chain. The 60 m re-mask (2026-10-10) left its outputs as `.tmp`
+  and a full bake ran on the old grids before anyone noticed. Use `;`, or
+  filter the log afterwards, never gate a step on a filter's exit status.
 - **Gruber's `.hdr` cellsize is truncated** (0.008333 for 1/120°); trust
   the stated 43200×18000 grid and pin `-a_ullr -180 90 180 -60` instead
   or the raster drifts 1 km per 10° of longitude.
