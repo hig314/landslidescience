@@ -1,6 +1,6 @@
 """Reading layers onto the grid: float32 with NaN where invalid, plus a
-valid mask.  A layer source is a local raster path for now; datasets.json
-ids and derived layers are phase 1 / phase 2 work."""
+valid mask.  A layer source is a datasets.json id (its archive COG) or a
+local raster path; derived layers are phase 2 work."""
 from __future__ import annotations
 import numpy as np
 import rasterio
@@ -53,7 +53,20 @@ def read_layer(spec, recipe, grid: Grid, win: Window):
     src = spec["source"]
     if isinstance(src, dict):
         raise NotImplementedError(f"derived layer {src.get('derive')} (phase 2)")
-    path = recipe.resolve(src)
+    path = recipe.source_path(spec)
     if spec.get("align", "geo") == "pixel":
-        return read_pixel(path, grid, win)
-    return read_geo(path, grid, win, spec.get("resample", "nearest"))
+        z, valid = read_pixel(path, grid, win)
+    else:
+        z, valid = read_geo(path, grid, win, spec.get("resample", "nearest"))
+    return apply_shift(spec, z), valid
+
+
+def apply_shift(spec, z):
+    """`shift_m`: a measured vertical offset applied on read, stated in the
+    recipe.  A datum error belongs in the source's vertical_shift_m in
+    datasets.json (rebuild the archive); this is the explicit, reported
+    stop-gap until that is done - never silent."""
+    dz = float(spec.get("shift_m", 0) or 0)
+    if dz:
+        z = z + np.float32(dz)
+    return z

@@ -168,8 +168,40 @@ def class_raster(spec, z, valid, below, res_m, info, others=None, grid=None, win
                 continue
             sn = snow_detect(z, valid, ref, rv, res_m, kw.get("dz_m", 0.5), kw.get("smooth_m", 50.0),
                              kw.get("rough_ratio", 0.7), kw.get("min_area_m2", 2000.0))
-            c[sn & (c == CLASSES["ground"])] = CLASSES["snow"]
-            info["snow_fraction"] = float(sn[valid].mean()) if valid.any() else 0.0
+            # the same detector classes a lidar's sea surface over a known bed: {"snow_vs": {"ref": "bathy",
+            # "dz_m": 1.5, "rough_ratio": 1.0, "as": "water"}} - higher than the reference, flat
+            as_ = CLASSES[kw.get("as", "snow")]
+            c[sn & (c == CLASSES["ground"])] = as_
+            info["snow_fraction" if as_ == CLASSES["snow"] else CLASS_NAMES[as_] + "_vs_fraction"] = float(sn[valid].mean()) if valid.any() else 0.0
+        elif name == "flat_below":
+            # water surfaces at SEVERAL levels (a lidar flown over the sea on different tides): flat
+            # (roughness < rough_m over win_m) and below max_level_m, opened, blobs >= min_area_m2.
+            # Kachemak 2026-10-10: KBay 2023 holds the sea at -3.0..-1.9 m on different lines, exactly
+            # flat (roughness ~0.00-0.02); low land 1-4 m is ~0.6 m rough, so the two separate.
+            r = roughness(z, valid, res_m, kw.get("win_m", 10.0))
+            w = valid & (r < kw.get("rough_m", 0.1)) & (z < kw["max_level_m"])
+            if kw.get("only", "ground"):
+                w &= c == CLASSES[kw.get("only", "ground")]
+            w = ndimage.binary_opening(w, iterations=int(kw.get("open_px", 2)))
+            lab, n = ndimage.label(w)
+            if n:
+                px = int(kw.get("min_area_m2", 2000.0) / (res_m * res_m))
+                sizes = ndimage.sum(np.ones_like(lab), lab, np.arange(1, n + 1))
+                w[np.isin(lab, np.flatnonzero(sizes < px) + 1)] = False
+            c[w] = CLASSES[kw.get("as", "water")]
+            info["flat_below_fraction"] = float(w[valid].mean()) if valid.any() else 0.0
+        elif name == "raster":
+            # class from a categorical raster that travels with the observation, e.g. the KBay reclass's
+            # fill_mask.tif (2 = harmonic fill across holes = a modelled surface, not an observation):
+            # {"raster": {"path": ..., "map": {"2": "modelled"}}}
+            if grid is None or win is None:
+                continue
+            from .stack import read_geo
+            rr, rvv = read_geo(kw["path"], grid, win, "nearest")
+            for val, cname in kw["map"].items():
+                sel = valid & rvv & (np.rint(rr) == float(val))
+                c[sel] = CLASSES[cname]
+                info[f"raster_{cname}_fraction"] = float(sel[valid].mean()) if valid.any() else 0.0
         elif name == "polygons":
             # class from a vector file (glacier outlines, drawn lakes): {"polygons": {"path": ..., "as": "ice"}}
             import json as _json, subprocess as _sp
@@ -308,7 +340,8 @@ def state_rules_sequential(obs, target="ground_current", as_of=None, rates=None,
             ((gate_i == gate_run) & (st < run_sig - margin_m)))         # 3: better expected error
         if o.get("name") in lowest:                                     # 4: opt-in lowest, region scale
             tol = float(lowest[o["name"]].get("tol_m", 0.3)); win_m = float(lowest[o["name"]].get("smooth_m", 50))
-            close = dated & (gate_i == gate_run) & (gate_i > 0) & (np.abs(st - run_sig) <= tol)
+            with np.errstate(invalid="ignore"):                       # inf - inf where nothing is shown yet
+                close = dated & (gate_i == gate_run) & (gate_i > 0) & (np.abs(st - run_sig) <= tol)
             dz = np.where(np.isfinite(run_z) & o["valid"], o["z"] - run_z, 0.0).astype(np.float32)
             k = max(int(win_m), 3)
             dz_s = ndimage.uniform_filter(dz, k) / np.maximum(ndimage.uniform_filter((np.isfinite(run_z) & o["valid"]).astype(np.float32), k), 1e-3)

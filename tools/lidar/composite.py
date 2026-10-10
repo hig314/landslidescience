@@ -121,7 +121,7 @@ def _build_window(recipe, grid, win, verbose=True, obs_paint=True):
                     step["raster"]["path"] = str(recipe.resolve(step["raster"]["path"])); step["raster"]["_grid"] = grid; step["raster"]["_win"] = win
             L["sigma"] = axes.sigma_raster(L["spec"], L["z"], L["valid"], grid.res, L["info"])
             if obs_paint: _obs_sigma_paint(recipe, L, grid, win)
-            L["date"] = axes.years(L["spec"].get("date", L["spec"].get("year")))
+            L["date"] = axes.years(recipe.layer_date(L["spec"]))
             if "class_sigma_max" in L["spec"]: L["class_sigma_max"] = float(L["spec"]["class_sigma_max"])
             prov = L["z"].copy() if prov is None else fold_step(prov, L["z"], footprint(L["valid"]))
         if recipe.d.get("rules", "sequential") == "global":
@@ -190,11 +190,12 @@ def _coarse_grid(grid, f):
 def _read_coarse(spec, recipe, grid, f):
     """One layer decimated by f (nearest), on the coarse lattice."""
     from rasterio.enums import Resampling
-    from topobathy.stack import read_geo, _valid
+    from topobathy.stack import read_geo, _valid, apply_shift
     cg = _coarse_grid(grid, f)
-    path = recipe.resolve(spec["source"])
+    path = recipe.source_path(spec)
     if spec.get("align", "geo") != "pixel":
-        return read_geo(path, cg, cg.full(), spec.get("resample", "nearest"))
+        z, v = read_geo(path, cg, cg.full(), spec.get("resample", "nearest"))
+        return apply_shift(spec, z), v
     out = np.full((cg.height, cg.width), np.nan, np.float32)
     with rasterio.open(path) as ds:
         w, h = min(grid.width, ds.width), min(grid.height, ds.height)
@@ -203,7 +204,7 @@ def _read_coarse(spec, recipe, grid, f):
         out[:sub.shape[0], :sub.shape[1]] = sub
         nodata = ds.nodata
     valid = _valid(out, nodata); out[~valid] = np.nan
-    return out, valid
+    return apply_shift(spec, out), valid
 
 
 def water_level_pins(recipe, grid, f=None, verbose=True):
@@ -367,7 +368,7 @@ def _report(recipe, grid, acc, layers_meta, pins, seconds, axes_mode):
                                           "none": round(float(acc["source"][len(names)]) * res2, 4)}),
                layers=[], overlaps=[])
     for i, (spec, a) in enumerate(zip(recipe.layers, acc["layers"])):
-        d = dict(name=spec["name"], date=spec.get("date", spec.get("year")), sigma_m=spec.get("sigma_m"),
+        d = dict(name=spec["name"], date=recipe.layer_date(spec), sigma_m=spec.get("sigma_m"), shift_m=spec.get("shift_m", 0),
                  valid_km2=round(a["valid"] * res2, 4), shown_km2=round(a["shown"] * res2, 4),
                  feathered_km2=round(a["partial"] * res2, 4))
         if "classes" in a:
@@ -515,7 +516,7 @@ def build_full(recipe, grid, tile=2048, jobs=4, diag=False, cog=True, verbose=Fa
     finally:
         outputs.close()
     from topobathy import axes
-    layers_meta = [dict(date=axes.years(L.get("date", L.get("year")))) for L in recipe.layers]
+    layers_meta = [dict(date=axes.years(recipe.layer_date(L))) for L in recipe.layers]
     rep = _report(recipe, grid, acc, layers_meta, pins, time.time() - t0, axes_mode)
     final = recipe.out_dir / f"{recipe.id}.tif"
     if cog:
@@ -690,7 +691,7 @@ def dataset_entry(recipe, grid, rep=None):
     ground_z0 = 2 * math.pi * 6378137 / 256 * math.cos(math.radians(lat))
     max_zoom = int(math.ceil(math.log2(ground_z0 / grid.res)))
     d = recipe.d
-    layers = ", ".join(f"{L['name']} ({L.get('date', L.get('year', 'undated'))})" for L in d["layers"])
+    layers = ", ".join(f"{L['name']} ({recipe.layer_date(L) or 'undated'})" for L in d["layers"])
     rep = rep or (json.loads((recipe.out_dir / "report.json").read_text()) if (recipe.out_dir / "report.json").exists() else {})
     km = rep.get("composite", {}).get("source_km2", {})
     src_note = "; ".join(f"{k} {v:.1f} km2" for k, v in km.items() if v) if km else ""

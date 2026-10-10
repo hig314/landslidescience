@@ -46,13 +46,72 @@ the end of this section). Done the same day:
   **`publish`** (prints, or `--write`s, the `datasets.json` entry:
   `archive_mode: copy`, `dev_only: true`, zooms from the grid).
 
-Next (in order): the hosting side runs `build_lidar.py <id>` + the dev
-catalogue so the composite shows on `/lidar/` (WORKSTREAMS boundary);
-then **Lituya** as the first recipe from `datasets.json` ids (needs
-`stack.read_layer` to resolve an id → archive COG with
-`build_lidar` helpers; checks the offset report against 0.13 m); then
-Seward and the intertidal fill. The rule set is frozen until a named
-site fails.
+Next: the hosting side runs `build_lidar.py <id>` + the dev catalogue
+for the two dev_only entries so they show on `/lidar/` (WORKSTREAMS
+boundary). Hig redirected the second site from Lituya to **Kachemak Bay**
+(next section). The rule set is frozen until a named site fails.
+
+### Kachemak test: Peterson Bay – China Poot Bay – Halibut Cove (2026-10-10)
+
+`composites/kachemak_pedersen/recipe.json`, Hig's choice of a setting with
+several datasets, partial overlap and real gaps, centred on
+59.57368 N, −151.30133 W. **First recipe from `datasets.json` ids on a
+stated grid**: `source` is a dataset id (→ archive COG, already NAVD88
+with its `vertical_shift_m`), `grid` is `{"epsg": 6334, "res_m": 1,
+"bounds": [...]}` snapped outward to whole metres (x 595–606 km, y
+6602–6610 km, 88 Mcells; a full build is **54 s**). Layers in fold
+order: `kachemak_bathy_2009` (Hydropalooza, class `bed`, no TIN hull to
+reject), `grewingk_2021`, `kbay_2023_reclass` (the reclass, not the
+vendor DEM: that one's compound NAVD88 CRS trips the gdalwarp geoid
+shift). The three-way overlap is around Halibut Cove; China Poot Bay is
+lidar + bathymetry only. Outputs and 1/8-scale previews in
+`$LIDAR_BUILD/composite/kachemak_pedersen/out/`; entry
+`kachemak_pedersen_topobathy` (dev_only) in `datasets.json`.
+
+What the site taught, in order of importance:
+
+1. **Grewingk 2021 sits ~0.36 m LOW in the collection's frame.** On bare
+   smooth flat ground (both DTMs < 0.05 m rough, slope < 3°, 2–20 m)
+   KBay − Grewingk = **+0.36 m, NMAD 0.06** (n 108k at 2 m); KBay −
+   Seldovia 2019 NCMP topobathy (the survey the bathymetry's datum was
+   tied to) = +0.014 m, NMAD 0.048; the reclass equals the vendor DEM to
+   1 cm. Two independent products against one; no third overlaps it
+   (Homer 2019, Lower Kenai have no data over Grewingk). Both say
+   NAVD88 (GEOID12B) — the [[reference_navd88_geoid_model_trap]] again.
+   Applied in the recipe as an explicit, reported per-layer **`shift_m`
+   +0.36** (new; the stop-gap the plan allows: "applied only if the recipe
+   says so"); **the real fix is `vertical_shift_m` on `grewingk_2021` in
+   `datasets.json` + an archive rebuild, which is hosting's call after
+   its own check.** With it, KBay − Grewingk on all ground overlap falls
+   from +0.51 to +0.15 m (NMAD 0.41 — canopy and change, `lowest`'s job).
+2. **A lidar's sea surface comes at several tide levels.** KBay holds the
+   water at −3.0…−1.9 m NAVD88 on different lines (exactly flat,
+   roughness 0.00–0.02 over the deep bay) and the reclass's own harmonic
+   fill of the lagoons at +0.8 m (flagged in its `fill_mask.tif`, 2 =
+   filled). The single-mode `water_level` detector cannot see that, so
+   two class steps were added, each because this site failed without it:
+   **`flat_below`** (flat below a level cap, opened, min area — low land
+   at 1–4 m is ~0.6 m rough, water ~0.02, so they separate) and
+   **`raster`** (class from a categorical raster that travels with the
+   observation: the fill → `modelled`). The existing `snow_vs` detector
+   gained an `as` option so it also classes a lidar surface that is
+   > 1.5 m above a known bed as water. Result: KBay 86 % ground, 9 %
+   water, 5 % modelled; the bay is bed, the channels and shore band
+   water, the lagoons modelled with the Hydropalooza lines showing
+   through as bed.
+3. **Equal-quality surveys need `margin_m`** or the newer one wins
+   everywhere by its 0.001 m smaller σ_t and `lowest` never decides.
+   `margin_m: 0.05` in the recipe; with it Grewingk keeps ~30 km² and
+   KBay replaces it only where lower by > 0.3 m at 50 m scale.
+4. **The two things still visibly wrong are the two things the plan
+   has not built yet**, now with a real site to build them on: the
+   **intertidal gap** (the composite shows the lidar's water surface as a
+   flat shelf at the flight tide, stepping down to the 2009 bed — the
+   Seward "ghost shoreline", here with 1.98 km² flagged `fallback`), and
+   the **lagoon fill** (a flat modelled surface at +0.8 m cut by sparse
+   sounding lines — the sparse-point interpolation's case, paused). Both
+   are honest in the diagnostics (`fallback.tif`, `class_now`), neither is
+   hidden by a blend.
 
 ### Deferred: physical awareness (decided 2026-10-09)
 
