@@ -291,7 +291,8 @@ def main():
         # resolves, the map asks for tiles, and the reader gets nothing with
         # no way to tell that publication is simply mid-flight. Checked here
         # so it cannot depend on whoever runs this remembering the order.
-        if verify_r2 and not ds.get("gated") and not ds.get("dev_only"):
+        verify_here = verify_r2 and not ds.get("gated") and not ds.get("dev_only")
+        if verify_here:
             url = f"{PMTILES_PUBLIC_BASE}/{ds['id']}.pmtiles"
             if not _on_bucket(url):
                 print(f"  SKIP {ds['id']}: pyramid not on the bucket yet ({url})",
@@ -333,6 +334,24 @@ def main():
         slope_bytes = slope_pm.stat().st_size if slope_pm.exists() else None
         ortho_pm = PM_DIR / f"{did}_ortho.pmtiles"
         ortho_bytes = ortho_pm.stat().st_size if ortho_pm.exists() else None
+        # The companion products were decided by the LOCAL file alone, so a
+        # survey whose main pyramid had reached the bucket but whose slope or
+        # ortho had not was listed advertising a URL that 404s -- the exact
+        # thing the main-pyramid check above exists to prevent, just applied
+        # to one of three products. pow_2018 sat in that state for 31 hours
+        # while its slope pyramid failed to upload. Drop only the URL: the
+        # client falls back to its in-browser gradient with no slope_url, and
+        # simply offers no ortho option without ortho_url, so a survey missing
+        # a companion degrades instead of breaking.
+        if verify_here:
+            if slope_bytes and not _on_bucket(f"{PMTILES_PUBLIC_BASE}/{did}_slope.pmtiles"):
+                print(f"  {did}: slope pyramid not on the bucket yet -- omitting slope_url",
+                      file=sys.stderr)
+                slope_bytes = None
+            if ortho_bytes and not _on_bucket(f"{PMTILES_PUBLIC_BASE}/{did}_ortho.pmtiles"):
+                print(f"  {did}: ortho not on the bucket yet -- omitting ortho_url",
+                      file=sys.stderr)
+                ortho_bytes = None
         features.append({
             "type": "Feature",
             "geometry": geom,

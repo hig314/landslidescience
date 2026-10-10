@@ -1,0 +1,204 @@
+{% comment %}
+Multi-select for a vocabulary column (views.VOCAB_COLUMNS). Context: field,
+vocab = [{value, n, applies, tip}] from views._value_vocab — the values in
+use, most common first. Instances are keyed by field name, so several can
+share a form.
+
+The column stays free text holding ", "-joined values, and Django's own
+textarea for it is still here (hidden): it is the thing autosave watches
+and the full-form POST submits, and this control only writes to it and fires
+a change event. Chips show the chosen values; "Add…" opens the list, most
+common first so the singular cases trail at the bottom without burying the
+common ones (Hig, 2026-10-06); a new value typed at the foot of the list
+joins the record now and the list on the next form. The list's controls
+carry no name attribute, so autosave ignores them.
+
+For `features` each value applies to slow, catastrophic or both
+(FeatureVocab.applies_to): the list shows the ones for the record's current
+type (following the type select live), the tooltip is the value's
+description, and adding a value asks which type it applies to and registers
+it through api/features/vocab/add/ before putting it on the record.
+{% endcomment %}
+<div class="osc" id="osc-{{ field.name }}" data-column="{{ field.name }}">
+  <div class="osc-chips"></div>
+  <details class="osc-menu">
+    <summary>＋ Add…</summary>
+    <div class="osc-list">
+      {% for v in vocab %}
+        <button type="button" class="osc-opt" data-value="{{ v.value }}" data-applies="{{ v.applies }}"{% if v.tip %} title="{{ v.tip }}"{% endif %}>
+          <span class="osc-tick">✓</span>{{ v.value }}<span class="osc-n">{{ v.n }}</span>
+        </button>
+      {% endfor %}
+      <div class="osc-new">
+        <input type="text" placeholder="New value…" maxlength="120">
+        {% if field.name == 'features' %}
+          <select class="osc-applies" title="Which landslide type the new feature applies to">
+            <option value="both">both types</option>
+            <option value="slow">slow</option>
+            <option value="catastrophic">catastrophic</option>
+          </select>
+        {% endif %}
+        <button type="button">Add</button>
+      </div>
+    </div>
+  </details>
+  {{ field }}
+</div>
+<style>
+  .osc { font-size: 12px; }
+  .osc > textarea, .osc > input[type="text"] { display: none; }
+  .osc-chips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 22px; margin-bottom: 4px; }
+  .osc-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px 2px 8px;
+              background: #efe9df; border: 1px solid #ddd3c4; border-radius: 12px; color: #444; }
+  .osc-chip button { border: none; background: none; cursor: pointer; color: #8a7a68;
+                     font-size: 13px; line-height: 1; padding: 0 2px; }
+  .osc-chip button:hover { color: #b00020; }
+  .osc-menu { position: relative; }
+  .osc-menu > summary { cursor: pointer; color: #1a73e8; list-style: none; display: inline-block;
+                        padding: 2px 4px; user-select: none; }
+  .osc-menu > summary::-webkit-details-marker { display: none; }
+  .osc-list { position: absolute; z-index: 20; left: 0; top: 100%; min-width: 260px; max-height: 300px;
+              overflow-y: auto; background: #fff; border: 1px solid #ccc; border-radius: 4px;
+              box-shadow: 0 2px 8px rgba(0,0,0,.18); padding: 4px 0; }
+  .osc-opt { display: flex; align-items: center; width: 100%; text-align: left; border: none;
+             background: none; padding: 4px 10px 4px 6px; font-size: 12px; cursor: pointer; color: #333; }
+  .osc-opt:hover { background: #f0ebe9; }
+  .osc-opt.off { display: none; }           /* applies to the other landslide type */
+  .osc-opt .osc-tick { width: 14px; color: #1a73e8; visibility: hidden; margin-right: 4px; }
+  .osc-opt.on .osc-tick { visibility: visible; }
+  .osc-opt .osc-n { margin-left: auto; padding-left: 10px; color: #aaa; font-size: 10px; }
+  .osc-new { display: flex; gap: 4px; padding: 6px 8px 4px; border-top: 1px solid #eee; margin-top: 4px; }
+  /* width:auto — the form's own stylesheet makes every input and select 100% wide */
+  .osc .osc-new input { flex: 1 1 120px; width: auto; min-width: 0; font-size: 12px; padding: 3px 5px; border: 1px solid #ccc; border-radius: 3px; }
+  .osc .osc-new select { flex: 0 0 auto; width: auto; font-size: 11px; padding: 2px; }
+  .osc-new button { font-size: 11px; padding: 2px 8px; cursor: pointer; }
+  .osc .ls-save-status { margin-left: 6px; }
+</style>
+<script>
+  (function () {
+    var root = document.getElementById('osc-{{ field.name }}');
+    if (!root) return;
+    var input = root.querySelector('[name="{{ field.name }}"]');   // Django renders text columns as a textarea
+    var chips = root.querySelector('.osc-chips');
+    var menu  = root.querySelector('.osc-menu');
+    var list  = root.querySelector('.osc-list');
+    var newIn = root.querySelector('.osc-new input');
+    var newBt = root.querySelector('.osc-new button');
+    var newAp = root.querySelector('.osc-applies');
+    var typeSel = document.getElementById('id_landslide_type');
+    function csrf() {   // the form's own token (the edit page defines no global)
+      var el = document.querySelector('input[name="csrfmiddlewaretoken"]');
+      return el ? el.value : (window.CSRF_TOKEN || '');
+    }
+
+    function values() {
+      return input.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    }
+    function write(vals) {
+      var v = vals.join(', ');
+      if (v === input.value) return;
+      input.value = v;
+      input.dispatchEvent(new Event('change', { bubbles: true }));   // autosave
+    }
+    // Values for the other landslide type are hidden from the list, not
+    // removed from the record: a chip already on the record stays and can
+    // still be taken off.
+    function applyType() {
+      var t = typeSel ? typeSel.value : '';
+      list.querySelectorAll('.osc-opt').forEach(function (b) {
+        var a = b.dataset.applies || 'both';
+        b.classList.toggle('off', !!(t && a !== 'both' && a !== t));
+      });
+      if (newAp && t && !newAp.dataset.touched) newAp.value = t;
+    }
+    function paint() {
+      var vals = values();
+      chips.innerHTML = '';
+      vals.forEach(function (v) {
+        var c = document.createElement('span');
+        c.className = 'osc-chip';
+        var opt = optFor(v);
+        if (opt && opt.title) c.title = opt.title;
+        c.appendChild(document.createTextNode(v));
+        var x = document.createElement('button');
+        x.type = 'button'; x.textContent = '×'; x.title = 'Remove';
+        x.addEventListener('click', function () {
+          write(vals.filter(function (w) { return w !== v; })); paint();
+        });
+        c.appendChild(x);
+        chips.appendChild(c);
+      });
+      list.querySelectorAll('.osc-opt').forEach(function (b) {
+        b.classList.toggle('on', vals.indexOf(b.dataset.value) >= 0);
+      });
+    }
+    function optFor(v) {
+      var hit = null;
+      list.querySelectorAll('.osc-opt').forEach(function (b) {
+        if (b.dataset.value.toLowerCase() === v.toLowerCase()) hit = b;
+      });
+      return hit;
+    }
+    function toggle(v) {
+      var vals = values(), i = vals.indexOf(v);
+      if (i >= 0) vals.splice(i, 1); else vals.push(v);
+      write(vals); paint();
+    }
+    function makeOpt(v, applies, tip) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'osc-opt'; b.dataset.value = v;
+      b.dataset.applies = applies || 'both';
+      if (tip) b.title = tip;
+      b.innerHTML = '<span class="osc-tick">✓</span>';
+      b.appendChild(document.createTextNode(v));
+      b.addEventListener('click', function () { toggle(v); });
+      list.insertBefore(b, root.querySelector('.osc-new'));
+      return b;
+    }
+    list.querySelectorAll('.osc-opt').forEach(function (b) {
+      b.addEventListener('click', function () { toggle(b.dataset.value); });
+    });
+    function addNew() {
+      var v = newIn.value.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();   // commas are the separator
+      if (!v) return;
+      // Case-insensitive match against the list, so a retyped value does not
+      // become a second spelling.
+      var hit = optFor(v);
+      var done = function (opt) {
+        if (values().indexOf(opt.dataset.value) < 0) toggle(opt.dataset.value); else paint();
+        newIn.value = '';
+      };
+      if (hit) { done(hit); return; }
+      if (!newAp) { done(makeOpt(v)); return; }
+      // features: register the value (with its applies-to) first.
+      newBt.disabled = true;
+      fetch('{% url "inventory:api_feature_vocab_add" %}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+        body: JSON.stringify({ value: v, applies_to: newAp.value })
+      }).then(function (r) { return r.json(); })
+        .then(function (j) {
+          newBt.disabled = false;
+          if (!j || !j.ok) { alert((j && j.error) || 'could not add the value'); return; }
+          var opt = optFor(j.value) || makeOpt(j.value, j.applies, j.tip);
+          applyType();
+          done(opt);
+        }).catch(function () { newBt.disabled = false; alert('could not add the value'); });
+    }
+    newBt.addEventListener('click', addNew);
+    newIn.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); addNew(); }
+    });
+    if (newAp) newAp.addEventListener('change', function () { newAp.dataset.touched = '1'; });
+    if (typeSel) typeSel.addEventListener('change', applyType);
+    // Close the list on a click elsewhere.
+    document.addEventListener('click', function (e) {
+      if (menu.open && !menu.contains(e.target)) menu.open = false;
+    });
+    // The value may be rewritten by the server (autosave echoes it back) or
+    // by a paste; keep the chips in step.
+    input.addEventListener('change', paint);
+    applyType();
+    paint();
+  }());
+</script>

@@ -1,0 +1,57 @@
+{% extends "inventory/base.html" %}
+{% load static %}
+{% block robots %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+{% block title %}{{ drop.title }} — upload{% endblock %}
+{% block page_title %}Photo upload{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+{% block extra_styles %}
+  {% if config %}<link rel="stylesheet" href="https://releases.transloadit.com/uppy/v{{ config.uppy }}/uppy.min.css">{% endif %}
+  <style>
+    .drop-wrap { max-width: 860px; margin: 28px auto; padding: 0 20px; }
+    .drop-wrap h2 { font-size: 19px; margin: 0 0 6px; }
+    .drop-note { color:#555; line-height:1.55; white-space: pre-line; margin: 0 0 14px; }
+    .drop-how { color:#666; font-size:13px; line-height:1.6; margin: 0 0 16px; padding-left: 18px; }
+    .drop-status { font-size:13px; color:#444; margin: 12px 0 0; display:flex; gap:18px; flex-wrap:wrap; }
+    .drop-status b { font-weight:600; }
+    .drop-status .muted { color:#888; }
+    .drop-closed { background:#fff3e0; border:1px solid #f0c08a; padding:12px 14px; border-radius:4px; }
+    .uppy-Dashboard-inner { border-color: #ddd !important; }
+  </style>
+{% endblock %}
+
+{% block body %}
+<div class="drop-wrap">
+  <h2>{{ drop.title }}</h2>
+  {% if drop.note %}<p class="drop-note">{{ drop.note }}</p>{% endif %}
+
+  {% if closed %}
+    <div class="drop-closed">
+      This drop is no longer accepting uploads.
+      {% if totals.n %}{{ totals.n }} file{{ totals.n|pluralize }} ({{ totals.bytes|filesizeformat }}) were received.{% endif %}
+      {% if can_view %}<a href="files/">Browse the files</a>.{% endif %}
+    </div>
+  {% elif not configured %}
+    <div class="drop-closed">Uploads are not switched on for this server yet. Please try again later.</div>
+  {% else %}
+    <ol class="drop-how">
+      <li>Drag the <b>whole folder</b> from your camera card or computer into the box below (or <i>browse folders</i>). Thousands of files are fine; the folder structure is kept.</li>
+      <li>Click <b>Upload</b> and leave this tab open. Files go straight to secure storage, several at a time.</li>
+      <li>If it is interrupted — laptop closed, connection dropped — come back to this same link and drop the folder again. Files already received are skipped automatically.</li>
+    </ol>
+
+    <div id="uppy"></div>
+
+    <p class="drop-status">
+      <span>Received so far: <b id="drop-n">{{ totals.n }}</b> file{{ totals.n|pluralize }}, <b id="drop-bytes">{{ totals.bytes|filesizeformat }}</b></span>
+      <span class="muted" id="drop-skipped" hidden></span>
+      <span class="muted" id="drop-err" style="color:#b00020;"></span>
+    </p>
+    {% if can_view %}<p style="font-size:13px; margin-top:10px;"><a href="files/">Browse what has arrived</a></p>{% endif %}
+    {{ config|json_script:"drop-config" }}
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+  {% if config %}<script type="module" src="{% static 'drops/upload.js' %}"></script>{% endif %}
+{% endblock %}

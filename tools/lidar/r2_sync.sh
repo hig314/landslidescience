@@ -39,15 +39,29 @@ export RCLONE_CONFIG_R2_TYPE=s3 \
        RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
        RCLONE_CONFIG_R2_ENDPOINT="$R2_ENDPOINT" \
        RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
-# Caller flags go FIRST: rclone applies filter rules in command-line order and
-# the first match wins, so an --exclude passed after our --include '*.tif'
-# would never fire (2026-09-08: that re-queued a 48 GB archive we had set aside).
-# Gated datasets ("gated": true in datasets.json) never go to the public bucket.
+# EVERY selection rule here is a --filter, never --include/--exclude. rclone
+# keeps those two in SEPARATE lists and, when any --include is present, the
+# --exclude list is dropped outright. It is not an ordering problem, so putting
+# the excludes first does not help. Measured against rclone 1.75 on 2026-09-21:
+# `--exclude g.pmtiles --include '*.pmtiles'` copies g.pmtiles, in either
+# order. --filter rules ARE one ordered list, first match wins, which is the
+# behaviour this script needs. (The 2026-09-08 note that used to sit here read
+# the same symptom as an ordering bug and moved the caller flags to the front;
+# that was the wrong diagnosis, and the exclusions below never fired once.)
+#
+# Gated datasets ("gated": true in datasets.json) never go to the public
+# bucket. EVERY product of a gated survey must be listed here -- the ortho was
+# missing as well, and the ortho is the more revealing of the two products, so
+# a gate that leaks it is a gate in name only. A new product kind needs a line
+# here at the same time it gets a builder. Ours are prepended, so a caller
+# cannot accidentally out-rank them; pass `--filter '- foo.tif'` rather than
+# `--exclude foo.tif`, or it will be ignored exactly as described above.
 for id in $(python3 -c "import json;print(' '.join(d['id'] for d in json.load(open('$ROOT/tools/lidar/datasets.json'))['datasets'] if d.get('gated')))"); do
-  set -- --exclude "$id.tif" --exclude "$id.pmtiles" --exclude "${id}_slope.pmtiles" "$@"
+  set -- --filter "- $id.tif" --filter "- $id.pmtiles" \
+         --filter "- ${id}_slope.pmtiles" --filter "- ${id}_ortho.pmtiles" "$@"
 done
 exec rclone copy "$SRC" "r2:$R2_BUCKET/$DEST_PREFIX/" \
      "$@" \
-     --include "$PATTERN" \
+     --filter "+ $PATTERN" --filter "- *" \
      --s3-chunk-size 64M --s3-upload-concurrency 4 --transfers 2 \
      --progress --stats 60s --stats-one-line

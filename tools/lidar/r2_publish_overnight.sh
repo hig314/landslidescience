@@ -29,7 +29,10 @@ TRIES=${TRIES:-6}
 COG_DIR=${LIDAR_COG_OUT:-/Volumes/Nunatak/lidar_build/cog}
 PM_DIR=${LIDAR_PM_OUT:-$ROOT/data/lidar/pmtiles}
 
-say() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG"; }
+# tee's own error is suppressed: when the log volume is the thing that went
+# missing, every say() would otherwise print a "No such file" line of its own
+# and bury the abort message that actually explains what happened.
+say() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG" 2>/dev/null; }
 
 # HEAD, with a User-Agent: Cloudflare answers 403 to some default agents, and a
 # verifier that reports absence for everything would retry for ever.
@@ -69,12 +72,42 @@ missing_for() {
   done
 }
 
+# The build volume can disappear mid-run. On 2026-09-21 Nunatak unmounted
+# three hours into pow_2018, and TWO things then went wrong quietly -- both
+# worse than simply stopping:
+#
+#   - expected() lists a file only when it exists locally, so an unreachable
+#     volume drops it from the work list instead of failing. The archive was
+#     never re-attempted and was never reported missing. Worse, had ALL of a
+#     survey's products been on that volume, expected() would return nothing,
+#     missing_for() would be empty, and the run would log "all files verified
+#     on the bucket" and write "ok" to the status file having uploaded not one
+#     byte. A publish tool that reports success for an absent disk is the one
+#     failure this script must never have.
+#   - `>> $LOG` pointing into the missing volume makes the redirect itself
+#     fail, so r2_put never runs at all and the whole retry budget burns in
+#     thirty seconds.
+#
+# So refuse to start unless every directory we read from or write to is
+# actually there, and re-check before each attempt rather than once, because
+# the point is that it vanishes MID-RUN.
+preflight() {
+  for d in "$COG_DIR" "$PM_DIR" "$(dirname "$LOG")" "$(dirname "$STATUS")"; do
+    if [ ! -d "$d" ]; then
+      echo "[$(date '+%F %T')] ABORT: $d is not there -- unmounted volume?" >&2
+      exit 2
+    fi
+  done
+}
+
 run() {
+  preflight
   say "=== starting: $*"
   : > "$STATUS"
   for id in "$@"; do
     n=0
     while [ "$n" -lt "$TRIES" ]; do
+      preflight
       miss=$(missing_for "$id")
       if [ -z "$miss" ]; then
         say "$id: all files verified on the bucket"

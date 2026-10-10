@@ -1,0 +1,7 @@
+# Glacier covered area, Alaska 2020 (NSIDC G10040): 1 = ice (pale cyan fill), 2 = outline (dark cyan).
+# Written as pairs so gdaldem interpolation yields hard classes.
+nv 0 0 0 0
+0.99 0 0 0 0
+1 180 235 245 150
+1.99 180 235 245 150
+2 0 120 150 255

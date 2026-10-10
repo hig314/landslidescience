@@ -6,7 +6,7 @@
 > `topobathy-compositing` in its own worktree. See `../../WORKSTREAMS.md`
 > for the split and the boundary rules.
 
-**38 public surveys on production**, 8 gated, all archive COGs in Cloudflare R2
+**43 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
 behind `lidar.landslidescience.org/cog/<id>.tif`. `/lidar/audit/` is the live
 answer to "where is everything" — it checks the four seams (built / on R2 / in
 the catalogue / what the gate does) and is the thing to read first, not this
@@ -76,7 +76,7 @@ only because a second survey covered the same seabed.
 | Gated surveys | droplet `data/lidar/{pmtiles,cog}/` only — **never** R2 | 8 (Corax x4, Hoonah, Lituya 2023, Pedersen SfM, Grewingk sonar) |
 | Catalogue | `data/lidar/catalog.geojson` | build with `--verify-r2` for anything going to prod |
 | Archive COGs | `/Volumes/Nunatak/lidar_build/cog/` + R2 `cog/` | |
-| Built, NOT published | pow_2018 (62.8 GB), resurrection_2016, resurrection_2024 | awaiting Hig |
+| Built, NOT published | (none as of 2026-09-27) | — |
 | Paused InSAR kinematics | branch `insar-kinematics` | dev-only |
 
 Tag `archive/main-2026-09-06-kinematics-plus-lidar` marks what `main` looked
@@ -214,6 +214,68 @@ points) and the USGS boundary/tile index are the raw form; PDAL SMRF/PMF
 re-classification vs vendor class 2, gridded at 4 ft, density raster
 alongside. Disk budget fits on Nunatak as is.
 
+## 2026-10-08 (later): anchorage_2015's ARCHIVE carries the geoid (+6.5..+10.9 m)
+
+Second finding the same evening, from Hig looking at the corrected profile:
+Anchorage 2015 sits a clean constant above every neighbour on gentle ground
+(check_vertical_consistency.py, MAD 0.2-0.4 m): +8.59 vs glen_alps_2024,
++9.26 vs eagle_river_2024, +9.56 vs matsu_core_2011, +9.75 vs matsu_2019,
++10.9 vs portage_2020. Against its own SOURCE at four points the archive is
++6.54..+10.93 m high, varying smoothly across the city -- the geoid
+separation. Cause: the archive warp handed PROJ the compound source CRS
+(State Plane ftUS + NAVD88 ftUS) and a 2-D target, and PROJ converted the
+unit AND added the NAVD88 -> ellipsoid shift. The 2026-09-12 "fix" that
+dropped vertical_scale left exactly this in. Fix in build_lidar.py:
+`horizontal_crs()` -- the archive warp now gets the horizontal CRS alone and
+-novshift, heights pass through in the source unit, and the unit factor read
+from the VERTCRS is applied explicitly (verified on a 400 m window: old warp
+614.34 m, new 1988.83 ftUS -> 606.19 m, source 606.04 m). Rebuild chain
+`logs/anchorage_datum_fix.sh` (all stages + checks, NO publish) started
+22:26; the geoid-shifted products are kept as superseded/*.ellipsoidal.*.
+Rebuild done 23:14: source vs archive -0.03/-0.03/+0.27/+0.58 m at the four
+points (the two larger on steep ground), pyramid vs archive +0.00 m, and
+against neighbours on gentle ground -0.27 (glen_alps_2024), -0.02
+(eagle_river_2024), +0.02 (matsu_core_2011), +0.06 m (matsu_2019).
+PUBLISHED 2026-10-09 02:41 (Hig's OK): `logs/anchorage_datum_publish.sh`
+pushed the COG (7.0 GB) and both pyramids to R2 (byte counts verified),
+regenerated the catalogue with --verify-r2 (z_min -121.4, z_max 2129.1)
+and installed it on the droplet (backup catalog.geojson.pre-anchorage-datum)
+and in dev. A live tile off R2 reads NAVD88 metres. Anyone who downloaded
+the Anchorage COG before 2026-10-09 has ellipsoidal heights.
+
+`check_vertical_consistency.py` over every overlapping pair (41 pairs, 150
+points each, slope < 5 deg): 21 agree within 0.5 m; the large-MAD flags are
+real ground change (bathy vs topo, SfM surface vs bare earth, Pedersen and
+Taan glaciers, Lituya); two TIGHT offsets besides Anchorage deserve a look:
+juneau_thane_2019 vs juneau_2012 +2.99 m (MAD 0.61, n=150) and seward_2023
+vs kenai_2008 +15.5 m (MAD 1.2, but only n=18 gentle shared points).
+
+## 2026-10-08: anchorage_2015's PUBLISHED pyramid is the first build (heights x0.3048)
+
+Found by the new profile tool: Anchorage 2015 plotted at 0.31x the Portage
+surveys. The archive COG is right (367.7 m beside portage_2020's 361.8 m at
+-148.8131, 60.7486). The web pyramid is not: it is the 2026-09-12 overnight
+build's tiles, heights x0.3048 too small, kept by `gdal raster tile --resume`
+when the datum-fix chain rebuilt the archive that evening -- the stale-tile
+trap `drop_stale_tiles` was written for on 2026-09-14, two days AFTER that
+rebuild. Dev and R2 serve the same bytes (1664512283). The slope pyramid in
+data/lidar/pmtiles is 3.7 MB against the 2.9 GB the chain log reports, so it
+is suspect too.
+
+`tools/lidar/check_web_heights.py` now reads N random points from every
+published pyramid AND its archive and reports the median offset and ratio;
+run over all 46 on 2026-10-08, every other survey agrees to a few cm (ratio
+1.000) and anchorage_2015 alone reads ratio 0.305. Run it after any rebuild
+and before any publish -- nothing upstream of the tiles can show this.
+
+RESOLVED the same evening (Hig's OK 19:40): `logs/anchorage_pyramid_fix.sh`
+rebuilt web + slope from the archive (the guard started the tiles afresh),
+check_web_heights read 60 points at median -0.00 m / ratio 1.000, and
+r2_sync pushed both (2.6 GB + 2.9 GB, 67 min at ~1.4 MiB/s; done 21:32).
+R2 and data/lidar/pmtiles hold the same bytes; a live tile read off R2 at
+-148.8131, 60.7486 gives the archive's 367.7 m. The wrong files are kept
+as superseded/anchorage_2015*.x0.3048.pmtiles.
+
 ## 2026-09-12 (evening): datum shift in eight archives, rebuild queued
 
 - **Bug found**: sources tagged generic NAD83 (EPSG:4269 / datum 6269) were
@@ -273,3 +335,232 @@ alongside. Disk budget fits on Nunatak as is.
   1.4 m spacing, NAD83(CORS96)/GEOID06, flown 2008-05-21..23, 06-05/06, 09-22.
   Skyhub (AGO catalog, services1.arcgis.com/7HDiw78fcUiM2BWn/.../Alaska_Skyhub_Database)
   has Homer 2019 DTM/DSM on geoportal.alaska.gov/public_data/elevation/ but no LAZ.
+
+## 2026-09-21: pedersen_sfm_2024 ungated; two gate leaks found in the publish path
+
+- **pedersen_sfm_2024 is public.** Hig established that the NPS publishes this
+  same survey openly, which settles the "cannot be further distributed in its
+  original form" stamp on the copy delivered to us: IRMA DataStore reference
+  2310424, doi:10.57830/2310424, issued 21 May 2025, `licenseType: Public
+  Domain`, visibility and fileAccess both Public, carrying the four DSM tiles
+  and fourteen orthomosaic tiles this survey was built from. Checked against
+  `irmaservices.nps.gov/datastore/v7/rest/Profile/2310424`, which is where to
+  re-check if the terms are ever questioned; the web profile page is
+  JavaScript-rendered and tells you nothing. Manifest: `gated` removed,
+  `source_url` set to the DOI, note rewritten (and a factual slip fixed -- the
+  flight was two days after the tsunami, not a year). COG + DEM + slope + ortho
+  (1.79 GB) pushed to R2 and verified publicly readable. The first ranged
+  request against the fresh 1.03 GB COG returned **206 / DYNAMIC**, so the
+  zone's over-512 MB bypass-cache rule is still doing its job -- an object that
+  has already been requested cannot re-test that, so this was the chance.
+- **`r2_sync.sh` never once excluded a gated dataset.** rclone discards the
+  entire `--exclude` list whenever any `--include` is present. It is not an
+  ordering problem, so the 2026-09-08 "caller flags go first" change fixed
+  nothing; measured both orders against rclone 1.75. Now expressed as ordered
+  `--filter` rules (`- id.*`, then `+ pattern`, then `- *`) and re-verified by
+  dry run. That also covers `_ortho.pmtiles`, which was never in the list at
+  all -- the next `--pmtiles` run would have published three gated Corax
+  orthomosaics. `r2_put.sh` was already written around this ambiguity and is
+  the safer per-dataset publish path; prefer it.
+- **`hoonah_2015`'s bytes are on public R2** -- archive COG and both pyramids,
+  fetchable anonymously at a guessable URL. Pushed 2026-09-12, gated about a
+  week later, and `rclone copy` only ever adds, so gating afterwards did
+  nothing and the droplet's gate does not cover the bucket. `publish_audit.py`
+  now says **GATED BUT ON PUBLIC R2 (...)** where it used to say "gated, served
+  from the droplet", which is why this sat unnoticed. **Open decision for Hig:**
+  purge the three objects to make the gate real, or ungate hoonah if its
+  provenance is now settled.
+
+### Shipped 2026-09-21. The recipe, for the next ungating
+
+Hig validated the data and approved production; `git push` 9a60686, droplet
+`git pull` + prod `build` + `up -d --force-recreate`, then both catalogues
+installed. Verified after: public catalogue **39 surveys** with
+pedersen_sfm_2024 listed, all four advertised URLs answering 206, the gated
+catalogue still 403 to anonymous, the six other restricted surveys still 403
+on the droplet routes, and the audit reading `public PsoC PsoC yes yes ok`.
+Prior catalogues on the droplet are backed up as
+`catalog{,-gated}.geojson.bak.20260922-021631`.
+
+```bash
+# 1. code: the manifest change (and here, the sync/audit fixes)
+git push origin main
+ssh root@143.198.140.54 'cd /opt/landslidescience && git pull && \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml build && \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate'
+
+# 2. catalogues (NOT in git -- data/ is gitignored). The public one must be
+#    built with --verify-r2 so a survey whose bytes are absent cannot be
+#    listed; that is what keeps pow_2018 and both Resurrection surveys out.
+#    LIDAR_TILES_PUBLIC_BASE puts the tile Worker's edge-cached per-tile URLs
+#    (tiles_url / slope_tiles_url, versioned by each archive's R2 ETag) into
+#    the catalogue. Without it every client reads the archives by range
+#    request instead. It was missing from this recipe from 2026-09-21 to
+#    2026-09-28, so every catalogue installed in that window shipped without
+#    tile URLs; the Worker itself stayed deployed and answering.
+env -u PROJ_LIB -u PROJ_DATA LIDAR_TILES_PUBLIC_BASE=https://tiles.landslidescience.org/t \
+  python tools/lidar/make_catalog.py \
+    --verify-r2 --out /tmp/catalog_prod.geojson
+env -u PROJ_LIB -u PROJ_DATA \
+  LIDAR_PMTILES_PUBLIC_BASE=/lidar/pmtiles LIDAR_COG_PUBLIC_BASE=/lidar/cog \
+  python tools/lidar/make_catalog.py --gated-only --out /tmp/catalog_gated.geojson
+scp /tmp/catalog_prod.geojson  root@143.198.140.54:/opt/landslidescience/data/lidar/catalog.geojson
+scp /tmp/catalog_gated.geojson root@143.198.140.54:/opt/landslidescience/data/lidar/catalog-gated.geojson
+
+# 3. confirm: survey count up by one, it is listed, gated still refuses anon
+env -u PROJ_LIB -u PROJ_DATA python tools/lidar/publish_audit.py
+```
+
+Local `data/lidar/catalog.geojson` is the **dev** build (droplet-relative
+URLs) and must not be rsynced to prod as-is; prod's copy is the `--verify-r2`
+build with `lidar.landslidescience.org` URLs.
+
+**Back up the droplet's catalogues before scp'ing over them** (`cp -p` with a
+timestamp suffix). They are the only copy of what prod is actually serving:
+the local `catalog.geojson` is a dev build, so a bad install cannot be undone
+from the working tree. Note also that no pyramid rsync is needed for a survey
+published this way — the prod catalogue points at R2, so the droplet's own
+`/lidar/pmtiles/` copy is only a fallback and never enters the path.
+
+**Still open:** `hoonah_2015`'s bytes on public R2 (decision above). Hig chose
+on 2026-09-21 to leave those where they are for now.
+
+## 2026-09-21 18:21: Resurrection Bay published; pow_2018 in flight
+
+Hig approved publishing all three of the built-but-unpushed surveys.
+
+- **resurrection_2016 and resurrection_2024 are live** (41 surveys). Both are
+  small, 0.20 and 0.13 GB, so they were queued FIRST and verified within six
+  minutes; the catalogue was installed for them immediately rather than waiting
+  on pow_2018. Both NOAA Office of Coast Survey, public domain, F00683 and
+  E01001. Byte integrity checked on the bucket: PMTiles v3 magic on all four
+  pyramids, BigTIFF magic on both archives.
+- **pow_2018 is UPLOADING and is NOT yet published.** 58.5 GB in three files
+  (archive 31.5, terrain pyramid 11.3, slope pyramid 15.7) at about 1.1 MB/s,
+  so roughly 12 hours from 18:27. Run via
+  `tools/lidar/r2_publish_overnight.sh`, which holds sleep off and verifies
+  each file by byte count. **When it finishes, the catalogue must be rebuilt
+  and installed again** with the recipe above; `--verify-r2` deliberately
+  refuses to list it until its pyramid is on the bucket, so until then prod is
+  correct at 41 and simply does not mention it.
+- Progress and outcome without reading a transcript:
+  `/Volumes/Nunatak/lidar_build/logs/r2_overnight.{log,status}`. Re-running the
+  script is cheap and idempotent, so a died-overnight run just gets run again.
+
+## 2026-09-21 21:43: pow_2018 FAILED -- Nunatak dropped off the bus
+
+**pow_2018 is NOT published and nothing of it reached the bucket.** Production
+is correct at 41 surveys; `--verify-r2` never listed it, so nothing advertises
+bytes that 404. Verified: no `pow_2018` object under `cog/` or `pmtiles/`, and
+`rclone backend list-multipart-uploads` returns empty, so no half-finished
+upload is accruing storage.
+
+**The volume is gone, not merely unmounted.** `diskutil list` shows disk0
+(internal), disk3 (synthesized) and disk5 (Powder) only -- the disk4 that
+carried Nunatak is absent from the device tree, so this wants a physical
+reconnect, not a `diskutil mount`. It disappeared about three hours into the
+31.5 GiB archive upload, which had been running fine.
+
+**What survived:** both pow_2018 pyramids are on the INTERNAL disk
+(`data/lidar/pmtiles/`, 12.1 GB and 16.9 GB) and are intact. Only the archive
+COG lives on Nunatak. Nunatak also holds every other survey's archive, so if
+the drive is actually failing that matters far beyond this upload -- though R2
+already holds a copy of all but the gated ones, which is the backup that was
+never called that.
+
+**Then the uplink degraded.** With the drive back, the 31.5 GiB archive and
+the 11.3 GiB pyramid went up fine (verified byte-exact on the bucket), and the
+16.9 GiB slope pyramid then spent **31 hours** failing on `broken pipe` write
+errors. Cause was the transfer shape, not the file: `r2_put.sh` used 64 MB
+parts four at a time, and at the ~1.1 MB/s this machine gets that holds each
+connection open about four minutes, which a NAT or edge reset kills. Defaults
+are now **16 MB parts, 2 concurrent**, with `--low-level-retries 20`; a fast
+link can raise them with `R2_CHUNK=64M R2_CONC=4`. If a large upload starts
+failing this way, look at the part size before the file.
+
+**`--verify-r2` only ever checked the MAIN pyramid**, so a survey whose slope
+or ortho had not reached the bucket was published advertising a URL that 404s
+-- the exact thing that check exists to prevent, applied to one product of
+three. It now checks all three and drops just the missing URL, because both
+companions degrade cleanly: no `slope_url` means the client uses its
+in-browser gradient, no `ortho_url` means the viewer offers no ortho option.
+
+**To resume once the drive is back:**
+
+```bash
+env -u PROJ_LIB -u PROJ_DATA sh tools/lidar/r2_publish_overnight.sh pow_2018
+# then rebuild + install the catalogue per the recipe above; it should go to 42
+```
+
+**Two bugs this earned, both now fixed in the script.** They are why the
+failure was quiet rather than loud:
+
+- `expected()` lists a file only when it exists locally, so an unreachable
+  volume DROPS it from the work list instead of failing. The archive was
+  therefore never retried and never reported missing. The dangerous version is
+  worse than what happened: had every product of a survey been on that volume,
+  `expected()` would return nothing, `missing_for()` would be empty, and the run
+  would log "all files verified on the bucket" and write `ok` to the status
+  file having uploaded nothing at all.
+- `>> "$LOG"` pointing into the missing volume makes the redirect itself fail,
+  so `r2_put.sh` never ran and all six retries burned in thirty seconds.
+
+Now a `preflight()` checks every directory the run reads from or writes to,
+both before starting AND before each attempt, since the whole point is that it
+vanishes mid-run; it aborts with exit 2 naming the directory. `say()` also
+suppresses tee's own error, which otherwise printed a "No such file" line per
+message and buried the abort.
+
+## 2026-09-23 22:57: pow_2018 published; wrangell_2023 uploading
+
+**pow_2018 is live** -- 42 public surveys. The slope pyramid that had failed
+for 31 hours on 64 MB parts went up in **3h50m** on 16 MB parts with **zero**
+broken pipes, which settles that the transfer shape was the fault and not the
+file or the link. All three products verified byte-exact on the bucket, and
+the companion check added the same day is what let the catalogue carry
+`slope_url` only once the slope was actually there.
+
+**wrangell_2023 is live too** (2026-09-24 00:39) -- 43 public surveys, 569.1
+km2. It started by itself the moment pow_2018's run ended, took 1h41m for 7.8
+GB and threw zero broken pipes. All three products byte-exact on the bucket.
+
+The queue worked exactly as intended: three consecutive surveys (the pow_2018
+slope, then all of wrangell) moved without a single failed part once the parts
+were 16 MB, against seven failures and 31 wasted hours before.
+
+**Queueing rather than parallelising is deliberate.** Two large transfers
+sharing a ~1.1 MB/s uplink halves each and lengthens every connection, which
+is precisely the condition that produced the broken pipes. The chain script
+waits on `pgrep -f 'r2_publish_overnight.sh pow_2018'` and then starts the
+next survey.
+
+## 2026-09-26 22:39: Taan Fiord 2016 published (three surveys) -- 46 public
+
+Hig approved the three Taan datasets and the upload ran queued through
+`r2_publish_overnight.sh taan_2016 taan_bathy_2016 taan_sfm_2016` (started
+20:05, finished 22:39; 9.8 GB in all, 16 MB parts, zero broken pipes). Every
+product verified byte-exact on the bucket: lidar (pyramid, slope, COG),
+bathymetry (same), SfM (pyramid, slope, ORTHO, COG -- the ortho is the third
+render option in /inventory/). Catalogues rebuilt with `--verify-r2` and
+`--gated-only`, the droplet's copies backed up as
+`catalog{,-gated}.geojson.bak.20260927-064430`, installed, and the audit reads
+`ok` on every seam for all three: **46 public, 7 gated**. All ten advertised
+URLs answer 206 to a ranged request.
+
+The manifest entries and the two tools behind them (`geoid_to_navd88.py`,
+`build_ortho.py --direct`) went to GitHub in 92583dd earlier the same
+evening; no site code changed for this publish, so no image rebuild was
+needed for it.
+
+Still open: hoonah_2015's bytes on public R2 (unchanged, Hig's decision).
+
+## 2026-09-28 23:13: KBay reclassification published -- 47 public
+
+`kbay_2023_reclass` (the full reclassified mosaic, tools/lidar/kbay_reclass) is live beside
+`kbay_2023`, which stays published and is now titled "(NOAA vendor ground classification)".
+Archive = the verified mosaic COG itself (3.2 GB, hard-linked into lidar_build/cog/); pyramids built
+by model/viewer_build_mosaic.py with build_lidar's own functions (hard-linked from data/lidar_dev/
+into data/lidar/pmtiles/). Uploaded 21:14-23:07 (~0.9 MB/s), all three files verified; catalogues
+rebuilt with LIDAR_TILES_PUBLIC_BASE, backups `catalog{,-gated}.geojson.bak.20260929-071327`;
+audit `ok` for all 47. Its notes carry two KNOWN ISSUES (structures as ground; returns above
+water) -- fixes in tools/lidar/kbay_reclass/README.md.

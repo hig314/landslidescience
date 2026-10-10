@@ -22,6 +22,12 @@ tile, or gzip before shipping, and ask before pushing anything >100 MB
 
 ## Uploading (collaborator)
 
+> **Photos, not data products?** Use a *photo drop* instead (`/drops/` →
+> create, send the link). It needs no SSH key, takes a whole folder from a
+> browser, and the bytes go to object storage rather than the droplet. This
+> rsync path is for built display products that the site itself serves.
+
+
 One-time setup: send your SSH public key (the one line in
 `~/.ssh/id_ed25519.pub`; `ssh-keygen -t ed25519` if you don't have one) to
 Hig. It gets installed on a restricted account.

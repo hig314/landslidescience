@@ -93,6 +93,11 @@ def main():
     ap.add_argument("--gamma", type=float, default=None,
                     help="applied after the stretch; <1 lifts the midtones")
     ap.add_argument("--out", default=None, help="PMTiles output directory")
+    ap.add_argument("--direct", action="store_true",
+                    help="tile straight from the source, no intermediate COG: only for a source "
+                         "that is already square-block tiled with overviews (e.g. a VRT of tiled "
+                         "GeoTIFFs). Taan Fiord 2016: 40 GB of such tiles, where the COG would have "
+                         "cost ~30 GB of scratch and hours for nothing.")
     a = ap.parse_args()
 
     src = Path(a.src)
@@ -110,7 +115,12 @@ def main():
 
     t0 = time.time()
     cog = WORK / f"{a.id}_cog.tif"
-    if cog.is_file():
+    if a.direct:
+        if a.scale or a.srs != "keep":
+            sys.exit("--direct needs --srs keep and no --scale (both are applied in the COG step)")
+        print("  --direct: tiling from the source itself", flush=True)
+        cog = src
+    elif cog.is_file():
         print(f"  reusing {cog.name}", flush=True)
     else:
         print("  converting to a tiled COG (the source is stripe-blocked)", flush=True)
@@ -169,7 +179,7 @@ def main():
     bl.run([bl.PMTILES, "convert", str(mb), str(pm)])
     mb.unlink(missing_ok=True)
     shutil.rmtree(tiles, ignore_errors=True)
-    if not a.keep_cog:
+    if not a.keep_cog and not a.direct:
         cog.unlink(missing_ok=True)
     print(f"== done: {pm} ({pm.stat().st_size/1e9:.2f} GB, {n} tiles, "
           f"{(time.time()-t0)/60:.1f} min)", flush=True)

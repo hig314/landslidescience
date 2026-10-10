@@ -1,0 +1,92 @@
+{% extends "inventory/base.html" %}
+{% block robots %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+{% block title %}{{ drop.title }} — files{% endblock %}
+{% block page_title %}Photo drop{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+{% block extra_styles %}
+  <style>
+    .df-wrap { max-width: 1240px; margin: 24px auto; padding: 0 20px; }
+    .df-head { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom: 6px; }
+    .df-head h2 { font-size: 19px; margin: 0; }
+    .df-meta { color:#666; font-size:13px; }
+    .df-tools { font-size:13px; margin: 6px 0 16px; color:#555; display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+    .df-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+    .df-item { background:#f4f2ef; border-radius:5px; overflow:hidden; font-size:11.5px; color:#444; }
+    .df-item a.img { display:block; aspect-ratio: 4 / 3; background:#e6e2dc; }
+    .df-item img { width:100%; height:100%; object-fit:cover; display:block; }
+    .df-item .ph { width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#999; font-size:12px; text-align:center; padding:8px; box-sizing:border-box; }
+    .df-item .cap { padding:5px 7px 6px; display:flex; justify-content:space-between; gap:6px; }
+    .df-item .cap .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .df-item .cap .dt { color:#888; white-space:nowrap; }
+    .df-item .cap a { color:#7a736d; text-decoration:none; }
+    .df-pages { margin: 18px 0; font-size:13px; display:flex; gap:10px; align-items:center; color:#666; }
+    .df-pages a { color:#5D4037; }
+    code.df-cmd { background:#f4f2ef; padding:2px 6px; border-radius:3px; font-size:12px; }
+  </style>
+{% endblock %}
+
+{% block body %}
+<div class="df-wrap">
+  <div class="df-head">
+    <h2>{{ drop.title }}</h2>
+    <span class="df-meta">{{ totals.n }} file{{ totals.n|pluralize }} · {{ totals.bytes|filesizeformat }}{% if not can_upload %} · uploads closed{% endif %}</span>
+  </div>
+  {% if drop.note %}<p class="df-meta" style="white-space:pre-line; margin:0 0 8px;">{{ drop.note }}</p>{% endif %}
+
+  <div class="df-tools">
+    <a href="links.txt" title="One download link per file, valid 12 hours — feed it to aria2c -i or wget -i">⬇ Download links (all files)</a>
+    {% if can_upload %}<a href="../">Upload page</a>{% endif %}
+    {% if is_editor %}
+      <span>· Mirror to Nunatak: <code class="df-cmd">tools/drops/r2_pull.sh {{ drop.slug }}</code></span>
+      <a href="{% url 'drops:index' %}">All drops</a>
+    {% endif %}
+    {% if thumbs_pending %}<span style="color:#888;">· {{ thumbs_pending }} thumbnail{{ thumbs_pending|pluralize }} still processing — reload in a bit</span>{% endif %}
+  </div>
+
+  {% if page and page.paginator.num_pages > 1 %}
+  <div class="df-pages">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">← newer</a>{% endif %}
+    <span>page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">older →</a>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if unconfigured %}
+  <p style="color:#b00020;">Storage is not configured on this server, so files cannot be listed.</p>
+  {% elif items %}
+  <div class="df-grid">
+    {% for it in items %}
+    <div class="df-item" title="{{ it.f.path }}{% if it.f.taken_at %} · {{ it.f.taken_at|date:'Y-m-d H:i:s' }}{% endif %}{% if it.f.width %} · {{ it.f.width }}×{{ it.f.height }}{% endif %} · {{ it.f.size|filesizeformat }}">
+      <a class="img" href="{{ it.url }}" target="_blank" rel="noopener">
+        {% if it.thumb_url %}<img src="{{ it.thumb_url }}" alt="" loading="lazy">
+        {% elif it.f.thumb_state == 'pending' or it.f.thumb_state == 'working' %}<span class="ph">thumbnail pending</span>
+        {% elif it.f.thumb_state == 'skip' %}<span class="ph">{{ it.f.name|slice:"-18:" }}</span>
+        {% else %}<span class="ph">no preview</span>{% endif %}
+      </a>
+      <div class="cap">
+        <span class="nm">{{ it.f.name }}</span>
+        <span class="dt">{% if it.f.taken_at %}{{ it.f.taken_at|date:"j M Y H:i" }}{% endif %}
+          <a href="{{ it.dl_url }}" title="download">⬇</a></span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% elif not unconfigured %}
+  <p style="color:#888;">Nothing has been uploaded yet.</p>
+  {% endif %}
+
+  {% if page and page.paginator.num_pages > 1 %}
+  <div class="df-pages">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">← newer</a>{% endif %}
+    <span>page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">older →</a>{% endif %}
+  </div>
+  {% endif %}
+
+  <p style="color:#888; font-size:12px; margin-top:22px; line-height:1.55; max-width:760px;">
+    Ordered by the camera's own timestamp where the file carries one, then by
+    name. Image links are valid for two hours from loading this page; reload
+    for fresh ones. Full-size files open directly from storage.
+  </p>
+</div>
+{% endblock %}

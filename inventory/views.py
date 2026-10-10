@@ -25,6 +25,8 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST, require_safe
 
 from . import planet
+from .derived import split_features as _split_features
+from . import cache_stamp
 from .auth import inventory_editor_required
 
 # ---------------------------------------------------------------------------
@@ -90,10 +92,27 @@ LANDSLIDE_POLYGONS_SQL = """
 
 
 def _invalidate(*keys):
-    global _data_version
+    global _data_version, _stamp_seen
     for k in keys + _ALWAYS_INVALIDATE:
         _cache.pop(k, None)
     _data_version = str(int(time.time()))
+    # Tell the OTHER workers (see cache_stamp.py); record the value so this
+    # one does not clear itself again on its next request.
+    _stamp_seen = cache_stamp.bump() or _stamp_seen
+
+
+_stamp_seen = cache_stamp.current()
+
+
+def _sync_cache_stamp():
+    """Called by CacheStampMiddleware on every request: drop this process's
+    cache if another process invalidated since we last looked."""
+    global _data_version, _stamp_seen
+    s = cache_stamp.current()
+    if s != _stamp_seen:
+        _cache.clear()
+        _data_version = str(int(time.time()))
+        _stamp_seen = s
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +261,9 @@ _SLUG_ZOOM = 13
 # Per-landslide curated default view (landslides.default_map_view, added by
 # migrate_default_view): a URL-hash view-state string with no leading '#' —
 #     map=<zoom>/<lat>/<lon>&base=<id>[&swipe=<id>&sx=<pct>][&ov=…][&tab=…][&an=…]
+#     [&li=…][&ext=…][&im=…][&ref=…]   (the grammar is specified once, above
+#     parseHashState in map.js; ov/li/ext/im/ref may be present and EMPTY,
+#     which means "none of these" rather than "leave alone")
 # Set by editors from the map's detail panel; consumed by slug deep-links and
 # snapshot slug stubs. Conservative charset because the value is emitted into
 # a redirect Location header and a snapshot HTML attribute — anything that
@@ -595,7 +617,21 @@ def home(request):
         "small_cat_swatch":   _SMALL_CAT_SWATCH,
         "patchy_center":      _C_PATCHY_DOT,
         "incomplete_color":   _C_INCOMPLETE,
+        # The three-way feature filter mirrors the edit form's picker: every
+        # value in the vocabulary, grouped by which type it applies to.
+        "feature_groups":     _feature_filter_groups(),
     })
+
+
+def _feature_filter_groups():
+    vocab = _value_vocab('features')
+    groups = [('catastrophic', 'Catastrophic'), ('slow', 'Slow'), ('both', 'Either type')]
+    out = []
+    for key, title in groups:
+        items = [v for v in vocab if v['applies'] == key]
+        if items:
+            out.append({'key': key, 'title': title, 'items': items})
+    return out
 
 
 def methods(request):
@@ -644,19 +680,16 @@ _FILTER_PROPS_SQL = """
                             WHEN l.date_min IS NOT NULL THEN EXTRACT(YEAR FROM l.date_min)::int
                             ELSE NULL
                         END,
-                        'molards',                     l.molards,
-                        'tsunamigenic',                l.tsunamigenic,
-                        'super_elevated_deposits',     l.super_elevated_deposits,
-                        'glacier_contact',             l.glacier_contact,
                         'stream_damming',              l.stream_damming,
-                        'precursory_headscarp',        l.precursory_headscarp,
                         'has_site_specific_volume',   (l.volume_site_specific IS NOT NULL),
-                        'exclusively_supraglacial',    l.exclusively_supraglacial,
-                        'creeping_permafrost_mass',    l.creeping_permafrost_mass,
                         'has_seismic',                (l.seismic_datetime IS NOT NULL),
                         'has_time_bracket',           (l.date_min IS NOT NULL AND l.date_max IS NOT NULL),
-                        'post_2012_activity_increase', l.post_2012_activity_increase,
-                        'flagged',                     COALESCE(l.flagged, false)"""
+                        'flagged',                     COALESCE(l.flagged, false),
+                        -- Landslide features as a JSON array of values, for the
+                        -- three-way feature filter (must / neutral / exclude).
+                        'features', COALESCE((SELECT json_agg(btrim(x))
+                                              FROM unnest(string_to_array(l.features, ',')) x
+                                              WHERE btrim(x) <> ''), '[]'::json)"""
 
 def api_features(request):
     """
@@ -1047,10 +1080,7 @@ def api_timed_events(request):
             l.landslide_type,
             l.landslide_class,
             l.volume_preferred,
-            l.molards,
             l.stream_damming,
-            l.exclusively_supraglacial,
-            l.creeping_permafrost_mass,
             l.centroid_lat AS lat,
             l.centroid_lon AS lon,
             CASE
@@ -1080,11 +1110,8 @@ def api_timed_events(request):
             END AS event_year,
             CASE WHEN l.landslide_type = 'slow' THEN l.area_body ELSE l.area_source END AS area_src,
             CASE WHEN l.landslide_type = 'catastrophic' THEN l.area_deposit ELSE NULL END AS area_dep,
-            l.precursory_headscarp,
             (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume,
-            l.tsunamigenic,
-            l.glacier_contact,
-            l.super_elevated_deposits
+            l.features
         FROM landslides l
         WHERE (l.seismic_datetime IS NOT NULL
                OR (l.date_min IS NOT NULL AND l.date_max IS NOT NULL
@@ -1108,24 +1135,18 @@ def api_timed_events(request):
         events.append({
             'id': r[0], 'ls_type': r[1], 'cls': r[2],
             'vol': r[3],
-            'molards':      bool(r[4]) if r[4] is not None else False,
-            'stream_dam':   r[5] or '',
-            'supraglacial': bool(r[6]) if r[6] is not None else False,
-            'permafrost':   bool(r[7]) if r[7] is not None else False,
-            'lat': float(r[8]), 'lon': float(r[9]),
-            'year_num': r[10],
-            'timing': r[11],
-            'doy':     int(r[12]) if r[12] is not None else None,
-            'doy_end': int(r[13]) if r[13] is not None else None,
-            'span':    int(r[14]) if r[14] is not None else 1,
-            'year':    int(r[15]) if r[15] is not None else 2000,
-            'area_src': float(r[16]) if r[16] is not None else None,
-            'area_dep': float(r[17]) if r[17] is not None else None,
-            'headscarp':       bool(r[18]) if r[18] is not None else False,
-            'has_site_volume': bool(r[19]) if r[19] is not None else False,
-            'tsunamigenic':    bool(r[20]) if r[20] is not None else False,
-            'glacier_contact': bool(r[21]) if r[21] is not None else False,
-            'super_elevated_deposits': bool(r[22]) if r[22] is not None else False,
+            'stream_dam':   r[4] or '',
+            'lat': float(r[5]), 'lon': float(r[6]),
+            'year_num': r[7],
+            'timing': r[8],
+            'doy':     int(r[9]) if r[9] is not None else None,
+            'doy_end': int(r[10]) if r[10] is not None else None,
+            'span':    int(r[11]) if r[11] is not None else 1,
+            'year':    int(r[12]) if r[12] is not None else 2000,
+            'area_src': float(r[13]) if r[13] is not None else None,
+            'area_dep': float(r[14]) if r[14] is not None else None,
+            'has_site_volume': bool(r[15]) if r[15] is not None else False,
+            'features': _split_features(r[16]),   # the three-way feature filter reads these
         })
     _cache['timed_events'] = events
     resp = JsonResponse({'events': events})
@@ -1149,11 +1170,7 @@ def api_timeline_events(request):
             l.landslide_type,
             l.landslide_class,
             l.volume_preferred,
-            l.molards,
             l.stream_damming,
-            l.exclusively_supraglacial,
-            l.creeping_permafrost_mass,
-            l.post_2012_activity_increase,
             (l.seismic_datetime IS NOT NULL) AS has_seismic,
             l.centroid_lat AS lat,
             l.centroid_lon AS lon,
@@ -1174,11 +1191,8 @@ def api_timeline_events(request):
             to_char(l.date_max, 'YYYY-MM-DD') AS tl_d1,
             CASE WHEN l.landslide_type = 'slow' THEN l.area_body ELSE l.area_source END AS area_src,
             CASE WHEN l.landslide_type = 'catastrophic' THEN l.area_deposit ELSE NULL END AS area_dep,
-            l.precursory_headscarp,
             (l.volume_site_specific IS NOT NULL) AS has_site_specific_volume,
-            l.tsunamigenic,
-            l.glacier_contact,
-            l.super_elevated_deposits
+            l.features
         FROM landslides l
         WHERE l.centroid_lat IS NOT NULL
           -- public-only (keep in sync with public_landslide_filter('l')):
@@ -1196,7 +1210,7 @@ def api_timeline_events(request):
 
     events = []
     for r in rows:
-        yn = r[12]
+        yn = r[8]
         if yn is None:
             continue
         events.append({
@@ -1204,25 +1218,18 @@ def api_timeline_events(request):
             'ls_type':     r[1],
             'cls':         r[2],
             'vol':         r[3],
-            'molards':     bool(r[4]) if r[4] is not None else False,
-            'stream_dam':  r[5] or '',
-            'supraglacial':bool(r[6]) if r[6] is not None else False,
-            'permafrost':  bool(r[7]) if r[7] is not None else False,
-            'post_2012':   bool(r[8]) if r[8] is not None else False,
-            'has_seismic': bool(r[9]),
-            'lat':         float(r[10]),
-            'lon':         float(r[11]),
+            'stream_dam':  r[4] or '',
+            'has_seismic': bool(r[5]),
+            'lat':         float(r[6]),
+            'lon':         float(r[7]),
             'year_num':    int(yn),
-            'tl_pt':    r[13],
-            'tl_d0':    r[14],
-            'tl_d1':    r[15],
-            'area_src': float(r[16]) if r[16] is not None else None,
-            'area_dep': float(r[17]) if r[17] is not None else None,
-            'headscarp':       bool(r[18]) if r[18] is not None else False,
-            'has_site_volume': bool(r[19]) if r[19] is not None else False,
-            'tsunamigenic':    bool(r[20]) if r[20] is not None else False,
-            'glacier_contact': bool(r[21]) if r[21] is not None else False,
-            'super_elevated_deposits': bool(r[22]) if r[22] is not None else False,
+            'tl_pt':    r[9],
+            'tl_d0':    r[10],
+            'tl_d1':    r[11],
+            'area_src': float(r[12]) if r[12] is not None else None,
+            'area_dep': float(r[13]) if r[13] is not None else None,
+            'has_site_volume': bool(r[14]) if r[14] is not None else False,
+            'features': _split_features(r[15]),   # the three-way feature filter reads these
         })
     _cache['timeline_events'] = events
     resp = JsonResponse({'events': events})
@@ -1270,6 +1277,19 @@ _RAMP_SPECS = {
     'ice-dhdt':  {'file': 'hugonnet_color_dhdt.txt', 'label': 'Glacier thinning', 'units': 'm/yr'},
     'ice-dhdt~s': {'file': 'hugonnet_color_dhdt_smooth.txt',
                    'label': 'Glacier thinning (smoothed)', 'units': 'm/yr'},
+    # Permafrost (tools/permafrost/, 2026-10-09): three products, three
+    # quantities, three hues -- PZI, probability and near-surface probability
+    # are not the same thing and must not share a ramp.
+    'glac-outline-2020': {'file': 'permafrost/glac_color_outline.txt', 'label': 'Glacier covered area, Alaska 2020', 'units': 'ice (fill) · outline · NSIDC G10040, Landsat, 30 m'},
+    'pf-gruber-maat':   {'file': 'permafrost/pf_color_maat.txt', 'label': 'Mean annual air temperature (Gruber 2012)', 'units': '°C · 1 km'},
+    'pf-gruber-maat60': {'file': 'permafrost/pf_color_maat.txt', 'label': 'Mean annual air temperature, terrain-downscaled', 'units': '°C · 60 m'},
+    'pf-gruber-pzi':   {'file': 'permafrost/pf_color_pzi.txt', 'label': 'Permafrost zonation index (Gruber 2012)', 'units': 'PZI, 0-1 · 1 km'},
+    'pf-gruber-pzi60': {'file': 'permafrost/pf_color_pzi.txt', 'label': 'Permafrost zonation index, terrain-downscaled', 'units': 'PZI, 0-1 · 60 m, from Gruber MAAT + elevation'},
+    'pf-obu-prob':     {'file': 'permafrost/pf_color_prob.txt', 'label': 'Permafrost probability (Obu 2019)', 'units': 'probability, 0-1 · 1 km'},
+    'pf-obu-prob60':   {'file': 'permafrost/pf_color_prob.txt', 'label': 'Permafrost probability, terrain-downscaled', 'units': 'probability, 0-1 · 60 m, from Obu MAGT + elevation + aspect'},
+    'pf-obu-magt':     {'file': 'permafrost/pf_color_magt.txt', 'label': 'Ground temperature at permafrost top (Obu 2019)', 'units': '°C · 1 km'},
+    'pf-obu-magt60':   {'file': 'permafrost/pf_color_magt.txt', 'label': 'Ground temperature, terrain-downscaled', 'units': '°C · 60 m'},
+    'pf-pastick-nsp':  {'file': 'permafrost/pf_color_nsp.txt', 'label': 'Near-surface permafrost probability (Pastick 2015)', 'units': 'probability of permafrost within 1 m, 0-1 · 30 m, Alaska'},
     'coh-summer': {'file': 'coherence_color_coh.txt',
                    'label': 'Radar coherence (summer)', 'units': '% (12-day, VV)'},
     'ice-thick': {'file': 'iceboost_color_thickness.txt',
@@ -1799,31 +1819,39 @@ _EDIT_FIELD_GROUPS = [
     {'key': 'core', 'title': '', 'fields': [
         'unique_name', 'landslide_type', 'description', 'notes',
         'noted_by', 'owner', 'country', 'ongoing_work']},
+    # Landslide features (2026-10-06): one multi-valued picker in place of
+    # the eight booleans that used to be scattered as "Failure & deposit
+    # character" and "Slow-mass attributes" (molards, tsunamigenic, creeping
+    # permafrost mass, …). The picker shows the values that apply to the
+    # record's type (FeatureVocab.applies_to) and lets an editor add one.
+    # The eight booleans were dropped on 2026-10-07 (drop_feature_mirrors).
+    # Stream damming rides here rather than in the catastrophic event group:
+    # a slow landslide dams and diverts streams too (27 slow records carried a
+    # value with no form field to show it, 2026-10-06).
+    {'key': 'features', 'title': 'Landslide features', 'fields': ['features', 'stream_damming']},
     {'key': 'event', 'title': 'Catastrophic event & timing', 'fields': [
         'year_text', 'date_min', 'date_max',
-        # Failure/deposit character: what the deposit itself records about
-        # how the failure moved. super_elevated_deposits and tsunamigenic are
-        # both velocity/energy indicators, molards a thaw indicator.
-        # stream_damming is a categorical STRING, not a flag, but it belongs
-        # with these as deposit character rather than off in site history.
-        # A non-checkbox inside a block spans the full grid width and sits
-        # after the checkboxes (see _field_groups.html).
-        {'block': 'Failure & deposit character', 'fields': [
-            'precursory_headscarp', 'exclusively_supraglacial',
-            'molards', 'super_elevated_deposits', 'tsunamigenic',
-            'stream_damming']},
         'seismic_datetime', 'seismic_note', 'seismic_credit']},
+    # The creep blocks run weakest evidence to strongest, the order of the
+    # creep_behavior rule ladder read upwards (Hig, 2026-10-06). Inside a
+    # block: a {'field', 'sub'} entry renders its sub-boxes indented under
+    # the parent and enabled only while the parent is ticked (Planet creep is
+    # read as landslide-wide unless "Patchy only" says otherwise); a
+    # {'group', 'fields'} entry is a titled box inside the block, taking one
+    # grid cell; a {'field', 'cell': True} entry keeps a non-checkbox field
+    # in one cell instead of spanning the row, so the subtle-evidence picker
+    # sits beside the InSAR box (_field_groups.html, _edit_check.html).
     {'key': 'creep', 'title': 'Creep / slow-movement detection', 'fields': [
         'creep_evaluated',
-        {'block': 'InSAR evidence', 'fields': [
-            'insar_schaefer', 'insar_kim', 'insar_opera', 'insar_other']},
-        {'block': 'Optical & geomorphic evidence', 'fields': [
-            'planet_labs_creep', 'planet_labs_patchy_creep',
-            'geomorph_creep']},
-        {'block': 'Slow-mass attributes', 'fields': [
-            'post_2012_activity_increase', 'creeping_permafrost_mass',
-            'glacier_contact']},
-        'other_subtle_creep']},
+        {'block': 'Geomorphic creep evidence', 'fields': ['geomorph_creep']},
+        {'block': 'Subtle creep evidence', 'fields': [
+            {'group': 'InSAR', 'fields': [
+                'insar_schaefer', 'insar_kim', 'insar_opera', 'insar_other']},
+            {'field': 'other_subtle_creep', 'cell': True}]},
+        {'block': 'Obvious creep evidence', 'fields': [
+            'its_live_creep',
+            {'field': 'planet_labs_creep', 'sub': ['planet_labs_patchy_creep']}]},
+        ]},
     {'key': 'extent', 'title': 'Volume & site history', 'fields': [
         'volume_site_specific',
         # a slow landslide's history of catastrophic failures — relevant to both
@@ -1853,8 +1881,101 @@ _EDIT_FIELD_GROUPS = [
 # glacier_contact rides here for its slow-only visibility (it's a slow-mass
 # attribute, not creep evidence — its catastrophic counterpart is the
 # tsunamigenic flag in the event group).
-_CREEP_SLOW_ONLY = {'post_2012_activity_increase', 'creeping_permafrost_mass',
-                    'glacier_contact'}
+_CREEP_SLOW_ONLY = set()   # the slow-mass attributes moved into `features` (2026-10-06)
+
+
+def group_field_names(entries):
+    """Every column name in an _EDIT_FIELD_GROUPS field list, in order, through
+    every nesting the list allows: a plain name; a block or group
+    ({'block'|'group', 'fields': [...]}); a parent with sub-boxes
+    ({'field', 'sub': [...]}); a one-cell field ({'field', 'cell'}). The
+    explorer's column grouping (table_data) reads the same list through
+    this, so a new nesting form must be added here, not there."""
+    out = []
+    for e in entries:
+        if isinstance(e, str):
+            out.append(e)
+        elif 'fields' in e:
+            out.extend(group_field_names(e['fields']))
+        else:
+            out.append(e['field'])
+            out.extend(e.get('sub', []))
+    return out
+
+
+# Vocabulary columns: free text holding one or more values from a short
+# controlled vocabulary, ", "-joined. The edit form renders each as a
+# multi-select of the values in use (most common first) with "add a value"
+# (_vocab_picker.html). The vocabulary IS the data, so a value added on one
+# record is offered on the next and nothing has to be registered; spellings
+# were unified by merge_vocab_values (2026-10-06). Everything downstream --
+# rules, explorer, export -- still sees the plain string. Add a column here
+# and in merge_vocab_values.CANON to give it the same treatment.
+VOCAB_COLUMNS = ('other_subtle_creep', 'stream_damming', 'features')
+
+
+def _value_vocab(column):
+    """[{value, n, applies, tip}] for one VOCAB_COLUMNS column, most common
+    first. `features` also carries each value's FeatureVocab metadata (which
+    type it applies to, its tooltip), and lists vocabulary rows not yet used
+    by any record (n = 0) so a freshly added value is offered everywhere."""
+    assert column in VOCAB_COLUMNS, column
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT btrim(t) AS v, count(*) AS n
+            FROM landslides, unnest(string_to_array({column}, ',')) AS t
+            WHERE deprecated_at IS NULL AND btrim(t) <> ''
+            GROUP BY 1 ORDER BY 2 DESC, 1
+        """)
+        out = [{'value': v, 'n': n, 'applies': 'both', 'tip': ''} for v, n in cur.fetchall()]
+    except Exception:
+        conn.rollback()
+        out = []
+    finally:
+        _put_conn(conn)
+    if column == 'features':
+        from .models import FeatureVocab
+        meta = {r.value: r for r in FeatureVocab.objects.all()}
+        seen = set()
+        for o in out:
+            seen.add(o['value'])
+            m = meta.get(o['value'])
+            if m:
+                o['applies'] = m.applies_to
+                o['tip'] = m.description
+        for v, m in meta.items():
+            if v not in seen:
+                out.append({'value': v, 'n': 0, 'applies': m.applies_to, 'tip': m.description})
+    return out
+
+
+@inventory_editor_required
+@require_POST
+def api_feature_vocab_add(request):
+    """The picker's "add a value" for `features`: register a new vocabulary
+    value with the editor's applies-to choice (slow | catastrophic | both).
+    Body: {value, applies_to}. Returns the row; an existing value (compared
+    case-insensitively) is returned rather than duplicated, so a retyped
+    value never becomes a second spelling."""
+    from .models import FeatureVocab
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+        value = ' '.join(str(payload.get('value', '')).replace(',', ' ').split())
+        applies = str(payload.get('applies_to', 'both'))
+    except (ValueError, AttributeError):
+        return JsonResponse({'error': 'bad request'}, status=400)
+    if not value or len(value) > 120:
+        return JsonResponse({'error': 'value required (max 120 chars)'}, status=400)
+    if applies not in ('slow', 'catastrophic', 'both'):
+        return JsonResponse({'error': 'applies_to must be slow, catastrophic or both'}, status=400)
+    row = FeatureVocab.objects.filter(value__iexact=value).first()
+    if row is None:
+        row = FeatureVocab.objects.create(value=value, applies_to=applies,
+                                          created_by=request.user)
+    return JsonResponse({'ok': True, 'value': row.value, 'applies': row.applies_to,
+                         'tip': row.description})
 
 
 def _group_edit_fields(form):
@@ -1888,10 +2009,27 @@ def _group_edit_fields(form):
             if isinstance(entry, dict):          # checkbox block
                 sub = []
                 for name in entry['fields']:
+                    kids, cell = [], False
+                    if isinstance(name, dict) and 'group' in name:   # titled box in a cell
+                        inner = [{'field': form[k], 'vis': vis_for(g, k)}
+                                 for k in name['fields'] if k in form.fields]
+                        seen.update(k for k in name['fields'] if k in form.fields)
+                        if inner:
+                            sub.append({'group': name['group'], 'items': inner,
+                                        'vis': inner[0]['vis']})
+                        continue
+                    if isinstance(name, dict):      # a parent box with sub-boxes / a cell
+                        for k in name.get('sub', []):
+                            if k in form.fields:
+                                seen.add(k)
+                                kids.append({'field': form[k], 'vis': vis_for(g, k)})
+                        cell = bool(name.get('cell'))
+                        name = name['field']
                     if name not in form.fields:
                         continue
                     seen.add(name)
-                    sub.append({'field': form[name], 'vis': vis_for(g, name)})
+                    sub.append({'field': form[name], 'vis': vis_for(g, name), 'sub': kids,
+                                'cell': cell})
                 if sub:
                     items.append({'block': entry.get('block', ''), 'items': sub})
                 continue
@@ -1959,7 +2097,14 @@ def manage_edit(request, landslide_id, review_mode=False):
     # them by default. They can override before saving.
     if 'owner' in col_names and not initial.get('owner') and request.user.username:
         initial['owner'] = request.user.username
-    if 'noted_by' in col_names and not initial.get('noted_by'):
+    # NOT for a promoted record. Everywhere else a blank noted_by fills with
+    # the person at the keyboard, because they are the one who noticed it. On a
+    # record promoted out of somebody else's inventory they are not, and a
+    # blank there is a deliberate answer set by inventory/external.py's
+    # promotion rules -- re-suggesting the editor would quietly undo it every
+    # time they opened the form.
+    _promoted = bool(initial.get('external_source'))
+    if 'noted_by' in col_names and not initial.get('noted_by') and not _promoted:
         _full = (request.user.get_full_name() or '').strip()
         if _full:
             initial['noted_by'] = _full
@@ -1986,7 +2131,10 @@ def manage_edit(request, landslide_id, review_mode=False):
             set_clause = ', '.join(f"{f} = %s" for f in col_names)
             values = [data.get(f) for f in col_names]
             values.append(landslide_id)
-            update_sql = f"UPDATE landslides SET {set_clause} WHERE id = %s"
+            # updated_at is server-managed (excluded from the form) and was never
+            # stamped by the editor until 2026-10-07; LandslideEditMeta was the
+            # only record of an edit.
+            update_sql = f"UPDATE landslides SET {set_clause}, updated_at = NOW() WHERE id = %s"
 
             conn = _get_conn()
             try:
@@ -2247,6 +2395,11 @@ def manage_edit(request, landslide_id, review_mode=False):
         delete_impact = {'polygons': pc, 'history': hc, 'subsets': sc,
                          'planet_stories': plc, 'superseding_ptrs': supc}
 
+    # Vocabulary columns render as a multi-select; the list rides on the
+    # field object (read in _edit_field.html as field.field.picker).
+    for col in VOCAB_COLUMNS:
+        if col in form.fields:
+            form.fields[col].picker = _value_vocab(col)
     template = 'inventory/manage_review.html' if review_mode else 'inventory/manage_edit.html'
     return render(request, template, {
         'form':              form,
@@ -3114,7 +3267,7 @@ def manage_edit_field(request, landslide_id):
             old_story_url = r0[0] if r0 else None
 
         # name is whitelisted from information_schema (not user-supplied SQL).
-        cur.execute(f"UPDATE landslides SET {name} = %s WHERE id = %s", (val, landslide_id))
+        cur.execute(f"UPDATE landslides SET {name} = %s, updated_at = NOW() WHERE id = %s", (val, landslide_id))
         if cur.rowcount == 0:
             conn.rollback()
             return JsonResponse({'ok': False, 'error': 'Record not found.'}, status=404)

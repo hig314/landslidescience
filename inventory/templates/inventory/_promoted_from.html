@@ -1,0 +1,92 @@
+{% comment %}
+"Promoted from" card -- the mirrored record this landslide was created from.
+
+Sits OUTSIDE #ls-edit-form, like _photos_card.html, so autosave.js does not
+claim anything inside it. Nothing here is an input: it is the source record,
+shown verbatim beside our own fields so the editor can read their reading
+while forming ours. Copying a value is a deliberate act of typing it, which
+is the whole point of promotion being separate from mirroring.
+
+Renders nothing at all when the record was mapped here, which is almost every
+record.
+
+NOTE: {% comment %}, not {# #}. Django's {# #} is SINGLE-LINE ONLY -- a
+multi-line one is not a comment at all, and this whole block rendered as
+visible text on the review form until it was changed.
+{% endcomment %}
+<div id="promoted-from" style="display:none;"></div>
+
+<script>
+(function () {
+  var host = document.getElementById('promoted-from');
+  if (!host) return;
+  // Read the provenance off the form's own inputs rather than a separate
+  // context variable. external_source / external_id are ordinary columns, so
+  // _discover_editable_columns already renders them as fields; taking the
+  // values from there means there is one source of truth on the page and the
+  // card cannot disagree with what the form is about to save.
+  var f = document.querySelector('[name="external_source"]');
+  var g = document.querySelector('[name="external_id"]');
+  var sid = f && f.value ? f.value.trim() : '';
+  var extId = g && g.value ? g.value.trim() : '';
+  if (!sid || !extId) return;
+
+  // The layer is not stored: a promotion always comes from the source's
+  // primary layer (its points), and storing a third column to say so would be
+  // a column that can disagree with reality. Ask the registry instead.
+  fetch('/inventory/api/external/')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d) return null;
+      var s = (d.sources || []).filter(function (x) { return x.id === sid; })[0];
+      if (!s) return null;
+      return fetch('/inventory/api/external/' + sid + '/' + s.primary_layer +
+                   '/record/' + encodeURIComponent(extId) + '/')
+             .then(function (r) { return r.ok ? r.json() : null; });
+    })
+    .then(function (rec) {
+      if (!rec) return;
+      var esc = function (t) {
+        return String(t).replace(/[&<>"]/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+        });
+      };
+      var rows = '';
+      (rec.order || []).forEach(function (c) {
+        var v = rec.properties[c];
+        if (v === undefined || v === null || v === '') return;
+        rows += '<div style="display:flex;gap:8px;margin:1px 0;">' +
+                '<span style="color:#888;flex:0 0 42%;">' + esc(rec.labels[c] || c) + '</span>' +
+                '<span style="flex:1;">' + esc(v) + '</span></div>';
+      });
+      host.style.display = '';
+      host.style.cssText = 'display:block;margin:14px 0;border:1px solid #e0dcd8;' +
+        'border-left:5px solid ' + rec.source.colour + ';border-radius:4px;background:#fff;';
+      host.innerHTML =
+        '<div style="padding:8px 12px;border-bottom:1px solid #eee;display:flex;' +
+        'justify-content:space-between;align-items:baseline;gap:10px;">' +
+          '<div style="font-weight:600;font-size:13px;">Promoted from ' +
+            esc(rec.source.short) + '</div>' +
+          '<button type="button" id="pf-toggle" style="font-size:11px;">show fields</button>' +
+        '</div>' +
+        '<div style="padding:6px 12px;font-size:11px;color:#666;">' +
+          'Their record <code>' + esc(extId) + '</code>. Shown for reference only — ' +
+          'no value here was copied into the fields below, and editing this ' +
+          'landslide does not change theirs.' +
+        '</div>' +
+        '<div id="pf-fields" style="display:none;padding:2px 12px 10px;font-size:12px;' +
+        'max-height:320px;overflow:auto;">' + (rows || '<em>no populated fields</em>') + '</div>' +
+        '<div style="padding:6px 12px 9px;font-size:10px;color:#aaa;border-top:1px solid #f0f0f0;">' +
+          esc(rec.source.citation) + ' <a href="' + esc(rec.source.url) +
+          '" target="_blank" rel="noopener">source</a>' +
+        '</div>';
+      var btn = document.getElementById('pf-toggle'), box = document.getElementById('pf-fields');
+      btn.addEventListener('click', function () {
+        var open = box.style.display !== 'none';
+        box.style.display = open ? 'none' : 'block';
+        btn.textContent = open ? 'show fields' : 'hide fields';
+      });
+    })
+    .catch(function (e) { console.error('promoted-from card failed', e); });
+})();
+</script>

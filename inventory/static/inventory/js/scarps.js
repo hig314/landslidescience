@@ -76,6 +76,10 @@ window.LSScarps = (function () {
   var wired = false;
   function ensureLayers() {
     if (map.getSource(SRC)) return;
+    addLayers();
+    if (!visible) setVisible(false);
+  }
+  function addLayers() {
     // A basemap switch (setStyle) drops the source and layers; they are put
     // back on style.load (init below). The layer-scoped click handlers are
     // kept by the map across styles, so they are wired once, not per style.
@@ -94,20 +98,44 @@ window.LSScarps = (function () {
       paint: { 'line-color': '#ffb300', 'line-width': 4 } });
     if (wired) return;
     wired = true;
-    map.on('click', HIT, function (e) {
-      if (mode === 'draw') return;      // mid-trace clicks belong to Terra Draw
-      var hit = e.features && e.features[0];
+    // Hand back OUR feature (full notes, not the map's flattened copy) and
+    // let the host decide what to do with it.
+    function picked(hit, lngLat) {
       if (!hit) return;
-      // Hand back OUR feature (full notes, not the map's flattened copy) and
-      // let the host decide: select for editing, or show a popup.
       var f = features.features.filter(function (x) {
         return x.properties.id === hit.properties.id;
       })[0];
       if (!f) return;
-      if (onPick) onPick(f, e.lngLat); else select(f.properties.id);
+      if (onPick) onPick(f, lngLat); else select(f.properties.id);
+    }
+    if (window.LSTools && LSTools.clicks) {
+      // A REFERENCE entry on the host's dispatcher: highest priority of the
+      // reference layers, so a scarp under the cursor wins over a fault or a
+      // mirror, and it is blocked whenever any tool holds the map -- mid-trace
+      // clicks belong to Terra Draw, and a scarp popup during a measure or an
+      // InSAR sample was never wanted either.
+      LSTools.clicks.register({ id: 'scarps', kind: 'reference', priority: 40,
+                                layers: [HIT],
+                                handler: function (f, e) { picked(f, e.lngLat); } });
+    } else {
+      // Standalone (no LSTools on the page): the old direct handler.
+      map.on('click', HIT, function (e) {
+        if (mode === 'draw') return;
+        picked(e.features && e.features[0], e.lngLat);
+      });
+    }
+    // Through the cursor owner model, so hovering a trace mid-measure can no
+    // longer replace the tool's crosshair with a pointer and then clear it to
+    // nothing on leave -- the one path that used to stomp an active tool.
+    // typeof-guarded so this module still loads on a page without LSTools.
+    map.on('mouseenter', HIT, function () {
+      if (window.LSTools) LSTools.cursor.set('hover', 'pointer');
+      else map.getCanvas().style.cursor = 'pointer';
     });
-    map.on('mouseenter', HIT, function () { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', HIT, function () { map.getCanvas().style.cursor = ''; });
+    map.on('mouseleave', HIT, function () {
+      if (window.LSTools) LSTools.cursor.clear('hover');
+      else map.getCanvas().style.cursor = '';
+    });
   }
 
   function redraw() {
@@ -221,7 +249,12 @@ window.LSScarps = (function () {
       });
   }
 
+  // Remembered, not just applied: a basemap switch rebuilds the layers, and
+  // the host may set this before init has a map at all.
+  var visible = true;
   function setVisible(on) {
+    visible = !!on;
+    if (!map) return;
     [LINE, HIT, SEL].forEach(function (id) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
     });

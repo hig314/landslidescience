@@ -10,6 +10,68 @@ This file is the deep per-feature reference. **Two work streams run in
 parallel in separate worktrees — read [WORKSTREAMS.md](WORKSTREAMS.md)
 before touching anything under `tools/lidar/`.**
 
+## State of play (2026-10-06) — the one dated snapshot in this file
+
+Everything else here describes how things work and should stay true.
+**This section is a snapshot and will rot**; correct it or delete it rather
+than working around it. For lidar publishing state, do not trust any number
+written down anywhere — read `/lidar/audit/`.
+
+**Recently shipped to production**, all tested in dev and approved first:
+
+- **Pointer policy** (`inventory/static/inventory/js/ls_tools.js`) — one click
+  dispatcher, declared kinds and priorities, cursor ownership, safe drags,
+  two-step Escape. Verified in dev against a 28-scenario matrix.
+- **External landslide inventories** — Alaska DGGS DDS 23 and the Preliminary
+  Canadian Landslide Database mirrored as overlays (77,142 features), plus
+  one-record-at-a-time promotion into our review queue.
+- **Lidar/bathymetry hosting** — public surveys on Cloudflare R2 with gated
+  companions, SfM orthomosaics as a third render option in `/inventory/`.
+- **Photo drops** (`/drops/`, 2026-10-05) — send a collaborator a link, they
+  upload a whole folder of photos straight to a private R2 bucket; signed-in
+  accounts browse a thumbnail gallery. First use (2026-10-05): the Portage
+  game cam, 5,183 frames / 28 GB, which arrived with 37 files stored but
+  unrecorded — the **reconcile** fix for that shipped 2026-10-06. See
+  *Photo drops* below, including *The first drop*.
+
+**Open threads**, in no particular order:
+
+- **A corrected online copy of the Portage drop.** The time-corrected,
+  stamped frames exist only on Nunatak. Hig's call (2026-10-06): a second
+  drop holding them (pushed with rclone, rows via `drops_reconcile`) is the
+  right shape, and it is **on hold**. Viewing stays login-gated, decided the
+  same day.
+
+- **A generalised analysis tool** — overlays as axes, the map as the
+  sampler, the susceptibility / permafrost / OPERA panels folded into one.
+  Hig's framing and the proposed phasing are in
+  [ANALYSIS_TOOL_PLAN.md](ANALYSIS_TOOL_PLAN.md) (2026-10-09); the permafrost
+  panel is the prototype.
+- **Rule-based derivation from mirrored inventories.** Promotion today seeds
+  provenance and two fields, then the editor types the rest. `external.py`'s
+  docstring anticipates a `derive` step with per-field rules (how to read
+  their movement category, their size class, their timing). Bulk adoption is
+  deliberately absent and should stay a decision, not a default.
+- **Induction Phase 2–3** (supersede/merge UI for `block`/`review`
+  collisions) — see *Induction safety & collision detection*.
+- **Transient-overlay Escape stack.** The photo lightbox and the draw-choice
+  menu still keep their own Escape listeners outside `ls_tools.js`; they are
+  modal overlays rather than tools, and want a small stack of their own.
+- **`/lidar/` has no pointer handlers at all** — no elevation readout on an
+  elevation page. When it gains a profile or pick tool, it loads
+  `ls_tools.js` rather than growing its own policy (that is why the module
+  is a module).
+
+**Two pre-existing bugs found 2026-09-24 and deliberately left alone**, so
+nobody rediscovers them as regressions:
+
+- The wiper's second map adds `survey-circles-label` and `insar-click-label`
+  without a style `glyphs` property, logging two console errors whenever the
+  wiper is enabled.
+- Double-clicking a landslide emits `landslide_open` three times (the
+  default-view path re-renders the panel). Analytics counts are inflated for
+  double-clicked records.
+
 ## Development workflow — **dev → test → (revise → test) → GH + production**
 
 This is a load-bearing principle, not a default. **Never push to GitHub or
@@ -38,6 +100,7 @@ pushing untested code to GH.
 | `pages` | Editable site content (homepage, `/tracyarm2025/`). `Page` model in SQLite, edited via `/admin/`. |
 | `inventory` | Public landslide inventory map. Reads `tethys_db.landslides` (PostGIS) over the shared Docker network via raw psycopg2 — no Django ORM models for landslide data. The only Django model in this app is `LandslideEditMeta` (audit log, in SQLite). |
 | `files` | Admin-managed public file hosting. `HostedFile` model in SQLite; bytes stored under `data/media/`; served (unlisted) at `/files/<name>`. See *Hosted files* below. |
+| `drops` | Photo drops: upload links for folders of photos. `Drop`/`DropFile` in SQLite; bytes in a **private R2 bucket**, never on the droplet. See *Photo drops* below. |
 
 ## URL map
 
@@ -51,24 +114,32 @@ pushing untested code to GH.
 | `/inventory/methods/` | public | Methods doc |
 | `/inventory/<slug>/` | public | Slug deep-link → map at the named landslide |
 | `/inventory/api/*` | public | GeoJSON / JSON endpoints used by the map |
+| `/inventory/api/external/*` | public (read) | Mirrored third-party inventories; `.../promote/<id>/` is editor-only |
 | `/inventory/manage/` | inventory_editors + Hig | Searchable list of all records |
 | `/inventory/manage/<id>/` | inventory_editors + Hig | Edit form for non-geometry fields |
 | `/inventory/manage/<id>/delete/` | **superusers only** (POST) | Permanent hard-delete (Danger zone); distinct from deprecate |
 | `/inventory/manage/settings/` | inventory_editors + Hig | Map display settings (colors, point sizes) |
 | `/inventory/export/` | public | Download zip of GeoJSON + QGIS .qml styles |
+| `/lidar/` | public | Standalone lidar/bathymetry viewer + the ranged `pmtiles`/`cog`/catalogue routes |
+| `/lidar/audit/` | data admins | Publish-state check: for every survey, built / on R2 / in the catalogue / what the gate does |
+| `/lidar/?catalog=dev` | dev only | Same viewer over research surfaces in `data/lidar_dev/` (`lidar/dev/*` routes 404 unless DEBUG). Kept OUTSIDE `data/lidar/` because the redeploy rsync in `tools/lidar/RESUME.md` copies all of `data/lidar/` to the droplet. |
 | `/inventory/manage/import/` | inventory_editors + Hig | Upload zip/.geojson; preview diff; confirm to apply |
 | `/s/t.js`, `/s/api/send` | public | First-party analytics beacon, forwarded to Umami (`landslidescience/analytics.py`) |
 | `/traffic/` | superusers + site_admins | Signs the current Django user into the Umami dashboard (Umami's own login is disabled) |
 | `/traffic/optout/` | public | Per-browser analytics opt-out (signed-in browsing is excluded automatically) |
 | `/files/<name>` | public *(unlisted)* | Serves an admin-uploaded `HostedFile` by its URL token (no auth). |
+| `/drops/` | inventory_editors + Hig | Photo drops: create upload links, see what arrived |
+| `/drops/<slug>/` | anyone with the link (+ optional passphrase) | Folder uploader — browser → private R2 directly, nothing through the droplet |
+| `/drops/<slug>/files/` | any signed-in account | Gallery of a drop; `links.txt` = presigned URLs for bulk download |
 | `/admin/` | site_admins (Page + HostedFile perms) + Hig | Django admin — Page + HostedFile models + User/Group management |
 
 ## Auth & permissions
 
-Two non-superuser groups (created/maintained idempotently by `python manage.py init_groups`):
+Three non-superuser groups (created/maintained idempotently by `python manage.py init_groups`; the role list is `ROLE_GROUPS` in `inventory/auth.py`):
 
 | Group | What they can do | Where they work |
 |---|---|---|
+| `data_users` | Read-only access to the restricted surfaces (non-public QMS layers, trace imagery, gated lidar). **Every new account joins it automatically** (`inventory/signals.py`, creation only). Renamed from `inventory_viewers` by migration `inventory/0006`. | the public site, signed in |
 | `inventory_editors` | Edit landslide records via custom UI | `/inventory/manage/` |
 | `site_admins` | Edit Page content (homepage, /tracyarm2025/) + manage `HostedFile`s (`/files/`) | `/admin/` |
 
@@ -77,11 +148,20 @@ Adding a user (do this via `/admin/auth/user/`):
 2. For inventory editors: add to the `inventory_editors` group. They sign in at
    **`/inventory/login/`** and go straight to `/inventory/manage/`. `is_staff` is
    NOT needed and should not be set — it only grants Django-admin access.
-3. For view-only collaborators: add to `inventory_viewers`. Same sign-in page.
+3. View-only collaborators need nothing more: new accounts start in
+   `data_users` (`manage.py add_data_user` does the same from the shell).
 4. For site admins: add to the `site_admins` group **and** set `is_staff=True`,
    because their work is in `/admin/` and that form admits staff only.
 
 Hig (superuser) bypasses all role checks.
+
+**No role = a banner, not a silent downgrade.** A signed-in, non-superuser
+account in none of the role groups (`has_no_role`) sees only the public site,
+so both base templates include `_no_role_banner.html` telling them to contact
+an admin. The Django admin's User list has a **Roles** column and a role
+filter with a `(no role)` option (`inventory/admin.py`) to find such accounts.
+Existing accounts were not backfilled into `data_users` when the default
+arrived; only new ones get it.
 
 **Sessions are rolling** — `SESSION_SAVE_EVERY_REQUEST = True` (settings.py) resets the 2-week `SESSION_COOKIE_AGE` clock on every request, so an actively-used editor session doesn't lapse mid-work; an idle one still expires after two weeks (that's expected, not a bug — distinct from the *fleet-wide* logout that only a `DJANGO_SECRET_KEY` change causes). When a session does expire, the manage endpoints 302-redirect to the login page; the in-app draw flow (`_drawPost` in `map.js`) detects that redirect / non-JSON response and shows a clear "log in again" message instead of choking on the login HTML with `Unexpected token '<' … is not valid JSON`. Staged draw components live server-side (`provisional_polygons`), so they survive the re-login.
 
@@ -100,6 +180,113 @@ The `files` app hosts arbitrary admin-uploaded files at stable, human-readable p
 - **Fully public, unlisted.** No auth. Nothing links to the files, so they're reachable only by someone who knows the URL, and `robots.txt` keeps `/files/` disallowed so indexing can't undo that.
 - **Storage: `MEDIA_ROOT = data/media/`** (`upload_to='hosted_files/'`). `data/` is volume-mounted in dev and prod and gitignored, so uploads **persist across deploys** and are never committed or baked into the image. There is **no `/media/` static route** — the only way out is the `/files/<name>` view.
 - **Permissions** are granted in `init_groups` (HostedFile CRUD → `site_admins`), so **re-run `init_groups` after deploying** if the group needs the perms (as with any group change).
+
+## Photo drops — `/drops/`
+
+A link you send a collaborator so they can upload a **folder** of photos
+(the first use: a game camera on a slow landslide, thousands of JPEGs). App
+`drops/` (SQLite models `Drop` + `DropFile`), design note at the top of
+`drops/models.py`. **Live on production since 2026-10-05.**
+
+**Making one:** the Django admin (`/admin/drops/drop/add/`) is the full
+editor — title, note shown to the uploader, expiry, a **write-only
+passphrase** field (hashed; *Clear passphrase* removes it), `created_by`
+set to whoever saves, and the full upload URL as a live link once saved.
+`/drops/` (**☰ → Photo drops**) is the quick version: create, copy link,
+file counts, close/reopen. Both land in the same table.
+
+- **The bytes never touch the droplet** — it has ~7 GB of disk. The browser
+  uploads straight to a **private** Cloudflare R2 bucket (`DROPS_R2_*` in
+  `.env`; its own token, the lidar token is bucket-scoped) using URLs Django
+  presigns (`drops/r2.py`, boto3 imported lazily). Reads are presigned GETs
+  too, so the gallery page is the only thing gunicorn serves. Key layout:
+  `drops/<slug>/<relative path as dropped>`; server thumbnails under
+  `drops/<slug>/.thumbs/`.
+- **The link is the credential.** `slug` is a 12-char random token; an
+  optional passphrase (hashed) is a second lock, held in the session. No
+  account needed to upload. Viewing needs any site account — every account
+  is a known collaborator. Creating/closing drops is editor-only.
+- **Uploader** = Uppy **4.13.3** from the Transloadit CDN with our own
+  callbacks (`drops/static/drops/upload.js`); Uppy 5+ dropped those for its
+  "Companion" server protocol, so do not bump the major without rewriting
+  the API. Single presigned PUT under 100 MB, S3 multipart above. **Resume
+  is "drop the folder again"**: the client fetches `{path: size}` of what
+  the server has and skips matches — simpler and more robust for a folder
+  than IndexedDB state. Completion is recorded only after the server HEADs
+  the object (`api_record`), so a row always means real bytes — but **the
+  reverse did not hold** until 2026-10-06: that record call is a second
+  request after the bytes are safe, and on a flaky link it was lost (37 of
+  the Portage game cam's 5,183 files were in the bucket with no row). Now
+  `record/` retries with backoff, every finished batch calls `reconcile/`,
+  and `drops/reconcile.py` lists the drop's prefix and adds rows for any
+  object without one (also refreshes rows whose object changed; reports,
+  and only with `--prune` deletes, rows whose object is gone). Same code
+  behind the editor's **Check storage** button on `/drops/` and
+  `manage.py drops_reconcile [--drop slug] [--dry-run] [--prune]`.
+- **Bucket CORS is required** (origin + `ExposeHeaders: ETag`, which
+  multipart completion needs), and **it lives in the Cloudflare dashboard**
+  (bucket → Settings → CORS policy), set by hand on 2026-10-05 for
+  `https://landslidescience.org` and `http://127.0.0.1:8001`. Reason: an R2
+  *Admin* token cannot be bucket-scoped and an *Object* token cannot set
+  CORS, and a bucket-scoped token was the right trade. So `manage.py
+  drops_setup_bucket` fails against the real token by design and prints the
+  JSON to paste. The token is an **Account** API token (not User — it must
+  outlive any one login), Object Read & Write, scoped to
+  `landslidescience-drops`; its four values sit in the repo `.env` (dev),
+  `/opt/landslidescience/.env` (prod) and `~/.r2_drops.env` (Mac, for the
+  mirror script).
+- **Processing is two-tier.** Light, on the droplet: `drops/thumbs.py`
+  makes a 400 px thumbnail + reads EXIF `taken_at` (the hook a future
+  time-lapse type hangs off), one object in memory at a time, in a per-process
+  worker thread that claims rows with an atomic conditional UPDATE (two
+  gunicorn workers); `manage.py drops_thumbs [--drop slug] [--retry-errors]
+  [--stalled]` is the synchronous equivalent after a restart. Heavy, on the
+  Mac: `tools/drops/r2_pull.sh <slug>` mirrors a drop to
+  `/Volumes/Nunatak/landslidescience/drops/<slug>/` (rclone `copy`, never deletes;
+  credentials in `~/.r2_drops.env`) — that mirror is also the backup; R2 is
+  otherwise the only copy.
+  **Never edit the mirror in place** (rclone re-copies any file whose size
+  changed, so an EXIF edit there is undone by the next pull); processed
+  output goes to a sibling folder. `tools/drops/gamecam_fix_clock.py`
+  (2026-10-05) is the first such processor: it corrects a game camera's
+  unset clock by one constant offset, stamps the corrected time on a copy
+  of each frame and records the raw value in EXIF `UserComment`; its
+  docstring records how the Portage offset was estimated from the
+  night-mode switch.
+- **Nothing in the UI deletes bytes.** Close a drop to refuse uploads;
+  deleting is rclone + Django admin, on purpose.
+- Robots: `/drops/` disallowed and every template is `noindex`.
+
+**The first drop — Portage game cam (slug `RZsJDoXqWe74`, 2026-10-05).** A
+Braun SC1320WS4KDS on the slope above Portage Glacier, one frame every 30
+min around the clock for 109 days, 5,183 files / 28 GB. What it taught:
+
+- **Its clock was unset** (reset to 2022-01-01), so every EXIF date is one
+  constant offset from the truth. The offset was recovered from the data:
+  the camera's IR night mode writes 3840×2160 frames and daylight writes
+  8416×4736, so each night's length is known to ±30 min; fitted to solar
+  altitude at the site, the first frame is **2026-06-15 09:03:49 AKDT**
+  (date ±1 week, time of day ±10 min; the camera ran 5 h 46 min ahead of
+  AKDT). The correction is **+1625 days 18:14:00**. If the real deployment
+  date surfaces, only that one parameter changes.
+- **`tools/drops/gamecam_fix_clock.py`** applies it on the Mac: a stamped
+  copy of each frame ("Est. corrected datetime: …", upper right, one
+  line-height down so QuickTime's bar clears it) with EXIF dates shifted,
+  UTC offset set, and the raw value plus the basis of the estimate in
+  `UserComment`. The raw mirror is never edited (see above).
+- **Where things live on Nunatak** (`/Volumes/Nunatak/landslidescience/drops/`):
+  `RZsJDoXqWe74/` raw mirror (every size verified against the bucket),
+  `RZsJDoXqWe74_corrected/` stamped set, `RZsJDoXqWe74_timelapse/` a
+  one-frame-per-day video (109 noon frames, 4K + 1080p) with
+  `frames_daily.tsv` naming the frames. Rain on the lens ruins many frames;
+  picking each day's clearest frame by scoring the 400 px `.thumbs/` is the
+  obvious refinement, not done.
+- **Pulling 28 GB over the Homer link took ~12 h** at 0.3–2 MiB/s (the link,
+  not R2); `--bwlimit` is only settable at rclone start, so throttling means
+  stop-and-resume. Processing a subset never needs the full mirror: `rclone
+  copy --files-from` fetched the 109 noon frames (0.8 GB) in two minutes.
+- Only IM_04987 never reached the bucket; the collaborator's card is the
+  only place it could come from.
 
 ## Field photos
 
@@ -151,7 +338,8 @@ behind that same gate rather than inventing a second switch.
 - **Shared-module discipline**: basemaps from `basemaps.js`, glacier
   overlays from `ls_overlays.js` (single source of truth with the inventory
   map — add/change glacier overlays ONLY there). Planned convergence
-  (in order): shared hash codec (`ls_hash.js`), shared overlay framework
+  (in order): shared hash codec (`ls_hash.js` — **done 2026-10-06**, map.js
+  parses and writes through it), shared overlay framework
   (state/rows/ov= codec into ls_overlays.js), shared wiper (`ls_swipe.js`)
   — each extracted behavior-identical from map.js with the inventory as the
   regression baseline, then consumed by /glaciers.
@@ -281,7 +469,7 @@ ssh root@143.198.140.54 'cd /opt/landslidescience && \
 
 After a deploy that adds new migrations or new groups: run `python manage.py migrate` and/or `python manage.py init_groups` once via `docker exec landslidescience-web ...` (migrations also auto-run on container startup via `entrypoint.sh`, so usually only `init_groups` is needed).
 
-Production `.env` lives at `/opt/landslidescience/.env`, mode 600, never committed. DB credentials in there mirror the monitoring stack's `.env`.
+Production `.env` lives at `/opt/landslidescience/.env`, mode 600, never committed. DB credentials in there mirror the monitoring stack's `.env`; the `DROPS_R2_*` block (photo drops) was added 2026-10-05 and has no dev/prod difference — same bucket, same token.
 
 ### Collaborator data drop (write-only staging)
 
@@ -398,7 +586,9 @@ Geometry can be created/edited in-browser via **Terra Draw** (loaded from CDN, e
 - **Scarp traces** — line tracing under the same ✏ pencil (kind *Scarp traces*), same Terra Draw plumbing and `pointerDistance` tightening; see *Scarp traces* below.
 - **Provisional (pending) records on the map** — editors see them in **magenta** (`api/provisional/`, editor-only, not cached; `pending-*` layers in `map.js`), click → review form. Public never sees pending. The map also restores the last view (localStorage) when you return with no hash, and the edit/review forms have a **↩ Map** link, so you can bounce between mapping and form-filling.
 
-**Migrations (run on prod at deploy, idempotent, like `migrate_deprecated`):** `migrate_polygon_history`, `migrate_provisional_polygons`, `migrate_flag_review` (adds `flagged` + `flag_reason`), `migrate_default_view` (adds `default_map_view`), `migrate_regions` (adds `subsets.kind`/`region_geom`, `landslides.country`, `countries` table; follow with `load_countries` + the `load_region_geometry` runs — see *Subsets* section). (The standalone `/manage/new/` draw page was superseded by the main-map tool and is now unused — safe to retire.)
+**Migrations (run on prod at deploy, idempotent, like `migrate_deprecated`):** `migrate_polygon_history`, `migrate_provisional_polygons`, `migrate_flag_review` (adds `flagged` + `flag_reason`), `migrate_default_view` (adds `default_map_view`), `migrate_regions` (adds `subsets.kind`/`region_geom`, `landslides.country`, `countries` table; follow with `load_countries` + the `load_region_geometry` runs — see *Subsets* section). `migrate_features` + `backfill_features` + `check_features` (2026-10-06, see *Landslide features* below; add the column by psql first). `migrate_its_live` (2026-10-06) adds `landslides.its_live_creep`, a nullable boolean beside `planet_labs_creep`: motion that shows in the ITS_LIVE velocity fields, which the `creep_behavior` rule reads as **Obvious creep** (the Planet patchy flag still overrides it, as it overrides the plain Planet flag — that ordering was the conservative reading, not something Hig specified). **Run it right after the deploy that names the column**: the rule cascade SELECTs every rule input by name, so until the column exists a review-save fails on `creep_behavior`. Nothing else needed telling — the edit form, the explorer and the GeoJSON round-trip all discover columns from the database; the hand-kept places are the rule (`derived.py`), the label and hint (`forms.py`), the form block (`_EDIT_FIELD_GROUPS`), the explorer's creep preset, the detail panel's evidence list (`map.js`) and the Methods page. **Landslide features (2026-10-06/07, all three phases done).** `landslides.features` is a multi-valued text column (`", "`-joined values) that replaced the eight feature booleans as the thing editors set: molards, exclusively_supraglacial, super_elevated_deposits, tsunamigenic, precursory_headscarp (catastrophic) and post_2012_activity_increase, creeping_permafrost_mass, glacier_contact (slow). **The eight booleans were kept for one day as rule outputs mirroring `features` and dropped on 2026-10-07** (`drop_feature_mirrors`: refuses unless every boolean agrees with `features`, then drops the `landslide_overview` view that named five of them, the columns, and re-creates the view without them; `derived.FEATURE_MIRRORS` remains as the legacy-column → value map that the transition commands and the old `f=` URL bits translate through). The volume rule now tests `features` directly (`derived.feature_sql('Creeping permafrost mass')`); on dev the rule diff agreed with every stored polygon volume under the new test (1,827 polygons, 0 changes). Exports made before the drop carry the booleans, which an import ignores with a warning — **Phase 2 (same day) moved the map filters onto `features` itself**: the sidebar's *Landslide features* section is one three-way control per vocabulary value (must have / neutral / exclude, grouped by the type it applies to, rendered by `home` from `_feature_filter_groups()` so a value added in the form is a filter on the next load); it travels as `ft=<slug>,!<slug>` (by name, so no bit table to extend; `_ftSlug` in map.js), the eight feature bits of the old `f=` bitmask are read as must-have and never written, `features` rides `_FILTER_PROPS_SQL` as a JSON array on both map sources and on the two chart-event payloads (`_ftPass`), and the explorer splits every `VOCAB_COLUMNS` column into values like Subsets. The remaining *Include only* boxes (dammed streams, site-specific volume, time bracketed, seismic, flagged) still use `f=`. **Also found on the way (fixed 2026-10-07): `landslides.updated_at` was never stamped by the editor** — neither the full-form save nor the per-field autosave touched it, so the audit log (`LandslideEditMeta.last_edited_at`) was the only record of an edit; both now set `updated_at = NOW()`, and `check_features` reads "edited since the backup" from the audit log rather than trusting the column for anything earlier. A record whose `features` is NULL has not been backfilled (or came from an older import) and its booleans are left alone; `''` means "no features". Per-value metadata — applies to slow / catastrophic / both, a tooltip, order, the legacy column — is `inventory.models.FeatureVocab` in SQLite (Django admin; config like `QmsLayer`); the values themselves are the data, and the picker's "add" registers a new one with an applies-to choice via `api/features/vocab/add/`. **Transition commands, run in this order once per environment** (dev done 2026-10-06; on prod `ALTER TABLE landslides ADD COLUMN IF NOT EXISTS features text` by psql *before* the deploy, because the new rules SELECT it): `migrate_features` (column; `landslides_backup_20261006` copy of the table — the thing to validate against, drop by hand after Phase 3; seeds the 8 vocabulary rows), `backfill_features --dry-run` then live (fills `features` from the booleans for NULL rows only; mirror pass turns NULL booleans into FALSE — 9,406 cells in dev, visible as 0 rather than blank in the explorer and `false` rather than `null` in exports), `check_features` (proves mirrors ⇔ features ⇔ backup, record by record; exit 1 on any disagreement). The form: a *Landslide features* group after the core fields with one picker that shows the values for the record's type (following the type select live) and the mirrors in the collapsed Computed group; the old *Failure & deposit character* and *Slow-mass attributes* blocks are gone, stream damming stays in the event group. `_EDIT_FIELD_GROUPS` nesting forms are enumerated by `views.group_field_names`, which the explorer's column grouping also uses — a new nesting form goes there, or `/inventory/api/table/` 500s (it did, in dev).
+
+**`merge_vocab_values`** (2026-10-06, `--dry-run` first, once per environment; `--column` for one) unified `other_subtle_creep`'s 28 spellings into 14 values ("change" not "creep" for post-AHAP / post-Maxar / post-LIA; one "OPERA coherence gap"; rockfall folded into recurrent failures — Hig's calls). The column stays free text holding `", "`-joined values; the edit form renders it as a multi-select of the values in use, most common first, with "add a value" (`_vocab_picker.html`, vocabulary from `views._value_vocab`) — the data is the vocabulary, nothing is registered. **`stream_damming` is the second such column** (same day; the picker and the merge command are generic — `views.VOCAB_COLUMNS` + a `CANON` table in `merge_vocab_values` give any text column the treatment). The creep section itself is now ordered weakest to strongest: Geomorphic → Subtle (InSAR box beside the picker) → Obvious (ITS_LIVE; Planet Labs creep ▸ Patchy only) → Slow-mass attributes; `_EDIT_FIELD_GROUPS` block entries support `{'field','sub'}`, `{'group','fields'}` and `{'field','cell':True}` for that (see the comment there). (The standalone `/manage/new/` draw page was superseded by the main-map tool and is now unused — safe to retire.)
 
 **Permanent delete (superuser-only).** The edit/review forms carry a "Danger zone" (`_danger_zone.html`) that **hard-deletes** a landslide and everything keyed to it — polygons, polygon edit-history, subset memberships, Planet-Story links, the SQLite `LandslideEditMeta`, and clears any inbound `superseded_by` pointers — in one transaction via `manage_delete` (`POST manage/<id>/delete/`), then invalidates caches and redirects to the list with a banner. Itemizes the impact counts up front, gated behind an "I understand" checkbox **and** a `confirm()`. Distinct from **deprecation** (the soft, provenance-keeping retire); data editors only deprecate — hard delete is restricted to superusers (in-view `is_superuser` check, not just the editor decorator).
 
@@ -455,11 +645,15 @@ Tooling to find and fix non-conforming names without page reloads:
 - **Rename collision block:** `manage_edit_field` (the per-field autosave endpoint behind both the inline pinned-field editor *and* the edit/review form) refuses a `unique_name` rename that matches another non-deprecated record (normalized case/whitespace, the import/draw `name_key`) with a 409 — the rename-side counterpart to the draw-commit attach hard-block. Without it a rename to an existing name slipped through silently (it's a generic UPDATE). It blocks duplicate *naming*, not a merge — two same-named rows were never actually merged here.
 - **Naming page:** the standard above is reader-facing at `/inventory/naming/` (`naming` view + `naming.html`), linked from **Methods** §1. 
 
-**Right-click → copy coords:** right-click (Ctrl-click on Mac) anywhere on the main map *or* the edit preview map copies `lat, lon` to the clipboard (for pasting into Planet etc.) with a brief toast. Suppressed while a draw/measure/Terra-Draw session is active (there right-click deletes a vertex; `__drawActive`/`__measureActive`/`__lsTdActive` flags).
+**Elevation profile tool (mock-up, 2026-10-08; `inventory/static/inventory/js/profile.js`).** The ∿ mode in the LSTools group: click vertices, double-click or Enter finishes, Esc cancels the line then exits (two-step, like measure); it claims and releases the map through `LSTools.claim/release` like the measure control, so draw and InSAR take over cleanly. On finish the line is sampled every max(0.5 m, min(50 m, length/400)) and read at those points from **every lidar/bathymetry survey in the catalogue whose footprint it crosses** — terrain-RGB PMTiles read directly with pmtiles.js at the survey's deepest useful zoom and decoded in the page (bilinear; alpha-0 pixels are voids) — plus **Mapterhorn** (3DEP 1/3″ in Alaska, terrarium z13, sea = 0 masked) as the reference everywhere. Nothing goes through the server. The floating `#profile-panel` draws one SVG line per DEM (gaps where a survey has no data), **1:1** locks the vertical scale to the horizontal (the profile fits the panel at equal scales, legend moves below the thin band), unlocked fills the panel and labels the exaggeration (`VE ×N`); **SVG** serialises the drawing, **CSV** writes `distance_m, lon, lat, <id>_m…` with a trailing `#` line naming the DEMs and zooms; hovering the chart marks the position on the map. Not yet: the sample spacing and zoom choice are heuristics; slope/aspect, a second profile for comparison, and `/lidar/` (which has no pointer handlers) are open.
+
+**Right-click → copy coords:** right-click (Ctrl-click on Mac) anywhere on the main map *or* the edit preview map copies `lat, lon` to the clipboard (for pasting into Planet etc.) with a brief toast. Suppressed while any tool holds the map — measure, draw, InSAR or the outline reviser (there right-click deletes a vertex); the guard is `LSTools.blocked()` on the main map and `__lsTdActive` on the edit preview map. **Pointer policy — who owns a click, a drag, the cursor and Escape — is declared once in `inventory/static/inventory/js/ls_tools.js`** (header comment is the spec): one `map.on('click')` dispatcher, every clickable thing registers with a kind (`action` / `navigate` / `record` / `reference`) and a priority; a `record` and the highest `reference` may both fire (the declared co-activation), one reference popup slot, tool cursor outranks hover, `LSTools.drag` ends a gesture exactly once, Escape is two-step (cancel, then exit). Add a clickable layer by registering it, never with another `map.on('click')`.
+
+**Reviser saves move the dot too.** The landslide points source is fetched once at load (`initLayers`), never by `onMoveEnd`, so after a save the reviser splices the response's recomputed centroid/areas/class into that one feature (`_reviseSplicePoint`) as well as the polygons; without it the outline redrew and the dot stayed put until a reload. In the draw tool's name popup, Enter is Add.
 
 ## Trace rasters — editor-uploaded GeoTIFF overlays
 
-Editors upload a georeferenced image from the map (Reference maps tab → **Traced imagery (uploads)**), it renders as an overlay under the landslide layers, and they trace geometry over it with the existing ✏ draw tool — no GIS round-trip. The upload row doubles as the provenance record (image, capture date = date-bracketing evidence, source note, uploader, optional link to the landslide it produced — set via "⚲ link" while that landslide's info panel is open). Plan: `~/.claude/plans/geotiff-trace-overlays.md`.
+Editors upload a georeferenced image from the map (Reference maps tab → **Traced imagery (uploads)**), it renders as an overlay under the landslide layers, and they trace geometry over it with the existing ✏ draw tool — no GIS round-trip. The upload row doubles as the provenance record (image, capture date = date-bracketing evidence, source note, uploader, optional link to the landslide it produced — set via "⚲ link" while that landslide's info panel is open). (The design plan this was built from is gone; the shipped behaviour below is the record.)
 
 - **Pipeline** (`inventory/raster_tiles.py`): validate (must carry CRS + real geotransform; instant 400 otherwise) → `WarpedVRT` to EPSG:3857 snapped to the max-zoom tile grid covering the **min-zoom tile range** (tile grids nest, so every tile at every zoom is an exact pixel-aligned window — WarpedVRT forbids boundless reads, and a partial window + `out_shape` silently stretches pixels) → **render mode** (`TraceRaster.render`, 2026-09-07): `auto` = false colour NIR–R–G whenever a 4th band exists, natural RGB for 3 bands, grey otherwise (Hig's call: false colour is the default for landslide/glacier scenes — bright ice, dark rubble, red vegetation; revisit if a case argues otherwise). Band roles come from the file's ColorInterp (PlanetScope is B,G,R,NIR), NIR = the last non-alpha band. Non-8-bit or false-colour output is **contrast-limited histogram-equalised** per band from a decimated sample (1024 bins between the 0.5/99.5 % tails, each bin capped at 4× its fair share with the excess spread evenly — `_equalise_edges`). Plain equalisation was tried first and failed on a scene that was mostly dark sea: the sea's noise took nearly all 256 levels and the island crushed to white. The cap keeps glacier and rubble contrast whatever surrounds them, and a **gamma 0.8** lift on the output ramp (`DEFAULT_GAMMA`) brightens shadows a little — chosen by Hig on the Jan Mayen scenes; a water-masked stretch sample (`--water-mask`) exists but is off, it shifted colour balance without helping the dark end. Plain 8-bit RGB passes through untouched → **Pre-bake locally instead (preferred, 2026-09-07):** `tools/imagery/bake_trace.py scene.tif --render nrg` runs the identical bake on the Mac (Django stubbed) into WebP **q95** tiles (q80 visibly smoothed the native grain — lossy WebP also halves colour resolution, which in false colour is the signal; q95 keeps it at ~1/7 the lossless size) with **cubic** resampling, packed as ONE PMTiles archive per mode, `<stem>.<mode>.pmtiles`, written next to the source with a JSON sidecar. A 400 MB Planet scene: 245 MB of PNG on the droplet vs 46 MB WebP, 40 s here vs minutes of droplet CPU; a mostly-sea scene is ~2 MB. `--max-zoom N` downsamples (Planet at native 3 m is soft; z13 halves the resolution and quarters the size — not the default). The upload form accepts the `.pmtiles` (the mode comes from the name, bounds/zooms/tile count from the archive's 127-byte header via `read_pmtiles_header`, no sidecar needed), registers it **ready** with no bake, and the map reads it as a `pmtiles://` source through the editor-gated ranged route `tiles/trace/<id>/<mode>.pmtiles` (`_tiles_for` in `_row_json` tells the client which kind it is). Another mode = bake locally + upload that file; the row's rebuild refuses with a message pointing at the tool. Planet imagery is licensed → these stay on the droplet behind the editor gate, never in the public R2 bucket. Server-side: **one pyramid per mode** under `data/trace_tiles/<id>/<mode>/` with `.started`/`.complete` markers, so switching modes reuses a finished bake instantly (the selector re-bakes on change; tile URLs carry `?v=<bake mtime>` because tiles are served immutable) → 256 px RGBA PNGs via GDAL's PNG driver (alpha from the warp mask / `add_alpha`; fully-transparent tiles skipped; `.aux.xml` sidecars removed). Zoom range from native GSD +1 headroom, clamped by a ~6000-tile budget. Storage: originals `data/media/trace_rasters/originals/` (kept verbatim → always re-bakeable), tiles `data/trace_tiles/<id>/` — both volume-mounted, gitignored, survive deploys.
 - **Bakes run in a background thread** (`trace_views._spawn_bake`) because gunicorn runs 2 workers (timeout raised to 600 s on 2026-09-07 after a 67 MB upload over a slow uplink was killed at the 30 s default — the upload itself, not the bake); the row always ends in a terminal `status` (`ready`/`error` + message) and the map polls `status/` every 2.5 s. A container restart mid-bake leaves `processing` — rows whose bake started more than 30 min ago (`.started` marker; upload time as fallback) surface as **stalled** with a ⟳ re-bake button; `python manage.py rebuild_trace_rasters --stalled|--id N|--all` is the CLI equivalent (synchronous, idempotent).
@@ -517,6 +711,106 @@ is always valid; country is NULL until `load_countries` runs. This is the
 universal floor beneath the region layer: a site outside every region still
 carries its nationality.
 
+## External landslide inventories — mirrored, not merged
+
+Other people's landslide inventories, shown on the map as their own overlays
+and mirrored verbatim into their own tables. **Live on production since
+2026-09-24** (77,142 features). Server code is self-contained in
+`inventory/external.py` (registry, fetch, API, promotion); the fetcher is
+`python manage.py fetch_external_inventory`; client code is the `_ext*`
+block in `map.js`.
+
+| Source id | What | Licence / attribution |
+|---|---|---|
+| `ak_dggs_dds23` | Alaska DGGS DDS 23 (Nicolazzo & Larsen 2025, doi:10.14509/31697) — 5 layers: points, deposits, flanks, scarps, toes | DGGS: name the source, describe modifications |
+| `canada_pcld` | Preliminary Canadian Landslide Database (Brideau and others 2026, doi:10.5281/zenodo.20371365) — points, from a CSV | CC BY 4.0, credit required |
+
+**One table per source layer, columns from the publisher** (`ext_<sid>__<layer>`).
+Hig's framing, and the reason the design is what it is: *"view these as distinct
+datasets from ours … as an overlay it's just some data that you can click on to
+see whatever fields they populated it with."* DGGS classifies by material
+crossed with movement category, Canada by type/material/size class, we classify
+by slow-versus-catastrophic plus creep behaviour and a resolvable age. There is
+no honest way to push one into another without deciding, per record, things the
+source never said. So nothing is translated on the way in, and adding a third
+inventory is a registry entry plus a fetch rather than a schema negotiation.
+
+- **Columns are discovered, never declared.** `ensure_table` builds the table
+  from whatever the service or CSV header declares at fetch time and adds
+  columns it has not seen before, so a publisher's v15 column widens the
+  mirror instead of being silently dropped by hand-written DDL. Publisher
+  field labels (the ArcGIS *alias*, e.g. `movement_category` for `mvmt_categ`)
+  are stored as **column comments** and are what the popup shows.
+- **A refetch is a REPLACE, inside one transaction** — not an upsert by their
+  id. These publishers revise, retire and renumber between releases (Canada
+  ships a `Modified_in_version` column for exactly that), so an upsert would
+  accumulate rows the current release no longer contains and the mirror would
+  stop being a mirror. The ArcGIS path also asks the service for its own
+  record count first and **refuses to write a layer whose fetched total does
+  not match**, because a mirror that is quietly two-thirds complete is worse
+  than none: nothing downstream can tell.
+- **CSV columns are all text, on purpose.** A service declares its types so we
+  use them; a CSV declares nothing, and sniffing is where faithfulness dies
+  (a volume of `">1000"` becomes a parse error or a silent null). Text keeps
+  what the publisher wrote; interpretation belongs in promotion.
+- **ArcGIS Dates arrive as epoch milliseconds** despite being declared Date,
+  so they are converted on insert (`to_timestamp(%s/1000.0)`) rather than
+  stored as integers nobody will think to decode.
+- **Endpoints** (`inventory/urls.py`): `api/external/` (registry + field
+  labels + counts), `api/external/<sid>/<layer>/` (**bbox required**, limited),
+  `.../record/<ext_id>/`, `.../promote/<ext_id>/` (editor-only, 403 otherwise).
+  The map fetches per viewport on `moveend`; active layers persist per-browser
+  and ride the URL hash as `ext=<sid>/<layer>`.
+
+### Promotion — one record at a time, deliberately
+
+Hig: *"the promotion … should be singular — some way of selecting a single
+item, and promoting it to the main dataset … a natural flow that allows
+creation of a polygon, then manipulation of the fields."* So there is **no
+bulk adopt**. Clicking a mirrored feature opens its popup; an editor sees a
+**Promote into the inventory** button, which creates one of our records seeded
+from that point, stamps provenance, and drops the editor into the draw flow to
+trace geometry and then the review form. It lands in the **pending queue**
+like any other induction, never straight onto the public map.
+
+- **Provenance** is two nullable columns on `landslides` (schema:
+  `migrate_external_promotion`, run once per environment): `external_source`
+  (registry id) + `external_id` (**the publisher's own id, not our mirror row
+  id** — the mirror is replaced on every refetch, so our row ids do not
+  survive it). Indexed, **not unique**: two of our records may legitimately
+  derive from one of theirs, and forbidding the more careful reading would be
+  backwards.
+- **Per-source promotion rules** live in the registry's `promote` dict
+  (`promote_values()`, fields in `PROMOTE_FIELDS`). Two rules today:
+  `ongoing_work` always records where the observation came from ("Noted in the
+  Alaska Landslide Inventory Database…"), and `noted_by` is **cleared, not
+  filled with the editor who promoted it** — everywhere else a blank
+  `noted_by` auto-fills with the editor, which here would credit them with
+  noticing something somebody else noticed. `canada_pcld` overrides it to
+  `Marc-Andre Brideau`, who built that inventory. Add a source-specific rule
+  in the registry, not at the call site.
+- **The "Promoted from" card** (`_promoted_from.html`, included by both the
+  edit and review forms) shows the source record's fields verbatim beside our
+  own, read from the form's own `external_source`/`external_id` inputs so the
+  card cannot disagree with what is about to be saved. Nothing in it is an
+  input: copying a value is a deliberate act of typing it, which is the whole
+  point of promotion being separate from mirroring.
+
+### Refetching, and what a new source costs
+
+```bash
+python manage.py fetch_external_inventory --list          # the registry
+python manage.py fetch_external_inventory ak_dggs_dds23   # one source
+python manage.py fetch_external_inventory --all --dry-run # fetch, report, write nothing
+```
+
+Runs **once per environment** like every other PostGIS command (dev and prod
+are separate databases). A new source is: one `SOURCES` entry (title, short,
+citation, url, licence, colour, fetch spec, `id_field`, `primary_layer`,
+optional `promote` rules), then the fetch. No schema work, no client change —
+the overlay list, the popup field order and the legend all come from the
+registry.
+
 ## Inventory induction workflow
 
 New landslides enter the inventory via upload at `/inventory/manage/import/`. The flow:
@@ -549,7 +843,7 @@ On review-save, `derived.apply_rules_for_landslide(cur, ls_id)` runs the full ru
 
 Each collision gets a `resolution` (one source of truth for preview + apply): **`update`** — polygons identical (IoU ≥ `COLLISION_IDENTICAL_IOU` = 0.999): the same landslide re-applied (master-file workflow) → `apply_import` UPDATEs the existing record in place, keeping its id/history (matched-updated count on the done page); **`block`** — name-exact dup with non-identical geometry: would violate the `landslides_unique_name_key` UNIQUE constraint, so apply refuses up front with an actionable message (never the raw 500 it used to throw — and any other DB error during apply is also caught → clean message, full rollback); **`review`** — case/whitespace name dup or a near (non-identical) overlap: inserts as new, surfaced for the editor. The preview's collision block shows the per-row action.
 
-**Still to build (Phase 2–3, task #61):** the supersede/merge UI for `block`/`review` collisions that aren't simple identical re-imports — keep the improved upload, deprecate the original (`deprecated_at`/`superseded_by`), carry valuable linked data (Planet stories, subsets, null-only fields) forward via an explicit picker; plus a `[Place][Letter][year]` name suggester for distinct-location name clashes. Plan: `~/.claude/plans/temporal-toasting-jellyfish.md`.
+**Still to build (Phase 2–3, task #61):** the supersede/merge UI for `block`/`review` collisions that aren't simple identical re-imports — keep the improved upload, deprecate the original (`deprecated_at`/`superseded_by`), carry valuable linked data (Planet stories, subsets, null-only fields) forward via an explicit picker; plus a `[Place][Letter][year]` name suggester for distinct-location name clashes. **The plan file for this is gone** — whoever picks it up writes a fresh one rather than hunting for it; the paragraph above is what survived.
 
 ## GeoJSON round-trip
 
@@ -764,6 +1058,87 @@ wet-snow coast. Consequence worth stating plainly: this layer does **not**
 give a route to talus activity — 93 m is too coarse for it, and the terrain is
 radar-dark besides. Its value is the active-landslide flagging above.
 
+## Permafrost overlays — three products and a terrain downscale
+
+Ten overlays across the reorganised categories (`_OV_CATS` in `map.js`,
+order per Hig 2026-10-09: **Climate · Surface change · Landslide
+susceptibility · Glaciers · Subsurface**): Gruber 2012 MAAT + PZI (1 km),
+Obu 2019 MAGT + probability (1 km), each as published; our 60 m terrain
+downscale of all four; Pastick 2015 near-surface probability (30 m, as
+published); and the **Glacier covered area 2020** outline (NSIDC G10040,
+Roberts-Pierel & others 2022, Landsat, RGI ids carried) in the Glaciers
+category. Built 2026-10-09; **dev only until Hig approves**. Methods §1
+*Permafrost overlays* is the reader-facing account; this is the plumbing.
+
+- **Three quantities, three hues, never one ramp.** PZI is a fraction of
+  the cell expected to hold permafrost, Obu's probability is the ensemble
+  share with MAGT < 0 °C, Pastick's is the probability of permafrost in the
+  top metre. MAAT and MAGT share one diverging ramp on purpose (they sit
+  together in Climate). Ramps in `tools/permafrost/*_color_*.txt`,
+  registered in `views._RAMP_SPECS` as `permafrost/<file>`.
+- **Baked PMTiles, served like the lidar pyramids.** `/overlays/<id>.pmtiles`
+  (`lidar_serve.overlay_pmtiles`, ranged, CORS, `[a-z0-9_]` ids) serves a
+  local copy from `data/overlays/` where mounted (dev), else 302s to R2
+  `lidar.landslidescience.org/overlays/`. `robots.txt` disallows
+  `/overlays/`. 1 km products to z9 (PNG), 60 m to z11 and Pastick to z12
+  (**lossy WebP, `BAKE_FMT=webp`** — Pastick as PNG was 10 GB, as WebP 2.8;
+  the 60 m layers ~200 MB each). **Not on R2 yet.**
+- **Pipeline, `tools/permafrost/`**, data on Nunatak (`permafrost_src/`
+  sources incl. `glaciers/`, `permafrost_build/` working grids, EPSG:3338,
+  `-te -1041000 443000 1665000 2622000`): `fetch_mapterhorn*.sh` →
+  `mapterhorn_mosaic.py` → `terrain60.sh` (elev/slope/aspect/northness at
+  60 m + 1 km means) → **`kernel_fit.py`** → **`apply_downscale.py`** →
+  `rastercalc.py pastick` + 60 m average → `validate_pastick.py` →
+  **`patch.py --lon --lat [--radius 10]`** (the site-by-site check: 1 km
+  cells vs the 60 m cloud and the fitted lapse/curve, CSV + PNG into
+  `permafrost_build/patches/`) → `bake_overlay.py`. The glacier outline is
+  `gdal_rasterize` fill=1 + boundary=2 at 30 m → the same bake.
+- **The method (replaced the 10 km block fits the same day, at Hig's
+  request).** `kernel_fit.py` regresses the product on elevation (Obu: +
+  northness) at EVERY 1 km cell with Gaussian weights (σ 15 km) by
+  convolving the weighted moments (`scipy.ndimage.gaussian_filter` —
+  **it normalises its kernel**, so the summed weight is G(w)·2πσ², not
+  G(w)); too little relief under the kernel (sd < 75 m) → the σ 50 km fit,
+  else the domain median; coefficients clipped to physical ranges. The
+  60 m field is **anchored on the published 1 km value**: T60 = T1k +
+  b(e60 − e1k) [+ c(n60 − n1k)], all 1 km fields bilinear to 60 m, so the
+  product's own numbers are preserved. Land mask = Gruber MAAT validity
+  (defined over every glacier). **Obu is inpainted**, not masked: the
+  kernel's own fitted value stands in for MAGT/STD where Obu has none
+  (118 k cells, 5 % of land), and the 60 m layers are written over ice —
+  the glacier outline makes that honest. **PZI(MAAT)** is Gruber's own
+  normal CDF (T₀ −4.75, σ 2.55 reproduce his values to 0.002 rms) rescaled
+  to reach 0 at 0 °C and refitted to his ≥ 0.1 cells (T₀ −4.58, σ 2.67;
+  `kfit/pzi_curve.json`) — his published index floors at 0.01 below 0.1,
+  which put a step in every elevation profile.
+- **The Analysis panel (`permafrost.js`, Analysis tab → "Permafrost: Obu ×
+  Gruber"; Hig's ask, 2026-10-09).** Panel A: the terrain joint density of
+  a pair (PZI × probability, MAAT × MAGT; 1 km published or 60 m
+  downscaled) as a log backdrop with every landslide as a point (hover
+  names it, click opens it) — the susceptibility scatter's idea applied to
+  permafrost. Data: `pf_density.json` + `pf_values.json` in
+  `inventory/static/inventory/`, built by `tools/permafrost/export_web.py`
+  (sampled at `data/landslide_centroids_3338.json`, like `sample_susc.py`;
+  **regenerate when landslides are added**). The **Sample** button (or the
+  ◎ toolbar mode, `LSTools` id `pfpatch`) reads a circle on the map two
+  ways: the published 1 km cells from `api/permafrost/patch/`
+  (`inventory/permafrost.py`, memory-mapped `.npy` grids in
+  `data/permafrost/`, 11 × 22.5 MB, written by `export_web.py --grids` and
+  **rsynced to the droplet with the rest of `data/`**) and the 60 m
+  downscale from **value PMTiles** `/overlays/pfv_<field>.pmtiles`
+  (`bake_values.py`: terrain-RGB of value × scale at z10 only, scale table
+  duplicated in `permafrost.js` `SCALE`; precision is plot precision — 1 m,
+  0.1 °C, 0.001 — because a finer low byte is noise PNG cannot compress).
+  Panel B draws `patch.py`'s four plots in the browser (CSV + PNG), the
+  patch's points light up on Panel A, and the circle rides the URL as
+  `pp=lat,lon,r` (parsed in `parseHashState`, row in `_VIEW_PARAMS`).
+- **Source traps** in HAZARDS.md §Raster sources (Obu NaN inshore, Pastick
+  codes 101–105, Gruber `.hdr` cellsize, Homebrew `gdal_calc.py`).
+- **Licences / attribution**: Gruber 2012 (cite the paper), Obu 2019
+  (PANGAEA, CC BY 4.0), Pastick 2015 (USGS, public domain), G10040 (NSIDC,
+  cite); `PF_ATTR` / `GLAC_ATTR` in map.js ride the sources. Downscaled
+  layers are ours and say so in their row text ("our inference").
+
 ## OPERA DIST — surface disturbance overlay
 
 One overlay on the inventory map, **Surface disturbance — annual**
@@ -918,6 +1293,8 @@ into the session id and resolves to a country) and the **`x-umami-*` headers**
 `{cache, disabled}` off the response; break either direction and every visit
 fragments into one-hit sessions). Cookies are deliberately not forwarded.
 Any upstream failure returns a quiet 204 — analytics must never break a page.
+
+**`data-exclude-search="true"` sits beside it (2026-10-06).** The map keeps its filters in the query string and rewrites it with `replaceState` on every change; the tracker hooks `replaceState`, so until this was set each filter click counted as a pageview and the filter settings went to the dashboard.
 
 **`data-exclude-hash="true"` is load-bearing.** The map and the explorer keep
 their entire state in the URL fragment, so without it every pan, filter and
@@ -1075,11 +1452,25 @@ thickness) yet; no "only records in the current map view" spatial filter; the
 
 The sidebar at `/inventory/` is a three-tab layout with a pinned strip on top:
 
-- **Pinned strip** (always visible above the tabs): the slow/catastrophic type checkboxes only. (The basemap quick-select was removed 2026-08 as redundant with the Reference maps tab, which owns basemap choice; "Limit counts to map view" moved into the Inventory tab because it scopes that tab's counts + the analysis charts, not anything universal.)
+- **Pinned strip** (always visible above the tabs): the slow/catastrophic type checkboxes and the **Scarps** show/hide box (2026-10-06). (The basemap quick-select was removed 2026-08 as redundant with the Reference maps tab, which owns basemap choice; "Limit counts to map view" moved into the Inventory tab because it scopes that tab's counts + the analysis charts, not anything universal.)
 - **Inventory tab**: "Limit counts to map view" toggle, class checkboxes + dot-color legend + record count breakdown. Every class group header carries scoped all/none links (`.sg-all`/`.sg-none` + `data-sg` rows); the top "Class all/none" pair is global. In-view counting uses the shared `makeViewportTest()` predicate (see HAZARDS.md §globe) — not `queryRenderedFeatures`.
 - **Reference maps tab**: categorized basemap cards (Imagery / Topo / Historical / Other) with thumbnails, Windy.com-style. "Reference layers" section for toggleable vector references (faults, survey circles), an **Overlays** section for semi-transparent rasters (see *Raster overlays* below), plus Compare (swipe) and, for editors, Traced imagery. A **＋ Add wiper** button (Compare section; replaces the old pull-down) adds a second, view-synced basemap on the right half of the map behind a draggable vertical divider, and opens a **floating right-pane panel** over the map's right side with its own basemap cards + overlay toggles — the sidebar controls the left pane, the panel controls the right (`_wiperPanelRefresh`/`_syncSwipeUI`; the panel sits at z-index 9, under the detail panel). The wiper starts with both panes on the current basemap — `#swipe-map` is a second `maplibregl.Map` (pointer-events:none, clipped via `clip-path`) carrying the **same data stack in the same draw order** as the main map, so the display reads seamlessly across the divider. `_swipeAddData` builds it from **shared def builders** (`_landslideLayerDefs`, `_suscSourceDef`/`_suscLayerDef`, `_faultsLayerDef`, `_polygonHoverDef`, `_surveyCircleLayerDefs`, `_pendingLayerDefs` — one def = identical paint on both panes; also consumed by `initDataLayers`/`ensurePendingLayers`), in the main map's bottom→top order: pending magenta → susceptibility rasters → faults → points → patchy → polygon fill/outline → hover → survey circles → pin-label. Every toggle/data/hover site mirrors via `_swipeAlso` (susc + faults + survey-circle visibility & data, `polygon-hover` filter via `_setPolygonHover`, `_patchFeatureProp` live edits, `ensurePinLabel`), and the active filter applies to both sides (`_applyLandslideFilter` registry). Only interaction-tool layers (measure, draw draft) are deliberately not mirrored. `_swipeAddData` bails until `initLayers` sets the palette (a hash-restored wiper can create the swipe map first); `initLayers` re-invokes it. Available to everyone; works with any basemap (reprojected Yandex / QMS / AHAP). Toggle classes off for a clean image-only compare.
 
-**Full view state in the URL + per-landslide default views.** The URL hash carries the wiper (`…&swipe=<basemapId>&sx=<divider %>`), the raster overlays (`ov=<id>.l<pct>r<pct>,…` — per-pane visibility + opacity; an explicit `ov=` fully describes the visible set, absence leaves overlay state alone), the active sidebar tab (`tab=refmaps|analysis`, written only when not the inventory default), and the open analysis panels (`an=hist,timing,scatter,opera`) alongside the existing `map=zoom/lat/lon&base=…&id=…`, written on swipe enable/disable/divider-drag and restored on load (also via the `ls_map_view` localStorage view, and re-tried after `api/qms/promoted` merges in case the wiper's basemap is a shared QMS layer). That same hash string (no leading `#`) is the format of **`landslides.default_map_view`** (schema: `migrate_default_view`, idempotent, run per environment) — a curated per-landslide view. Editors set/update/clear it from the map detail panel ("Set default view" saves the *current* center/zoom/basemap/wiper via the `manage_edit_field` autosave endpoint, which validates the string's charset/shape because `slug_redirect` emits it into a Location header); anyone sees a "⌖ Default view" button when one is stored (`applyViewString` in map.js — sets basemap, enables/disables the wiper, flies to the view). Consumed by: slug deep-links (`slug_redirect` prefers it over the centroid+zoom-13 fallback), in-app permalink clicks (`data-view` attr), snapshot slug stubs (`build_snapshot`), and **double-clicking a landslide on the map** (`_dblclickDefaultView` — applies the stored view incl. basemap + wiper, or plain centroid zoom-13 when none is stored; suppresses the map's own double-click zoom on features). Since 2026-09-13 the hash also carries the lidar DEM overlays (`li=<id>.<p>l<pct>r<pct>,…`, p = h hillshade | k KBSP; same present/absent semantics as `ov`), written on every lidar toggle/preset/opacity change so a default view reproduces the surveys an editor had on; `applyViewString`/hashchange apply it, and `_lidarFetch` applies a `li=` that arrived before the catalog. **Default views are public**, so `manage_edit_field` rejects (`view_state_private_layers`) one whose `base=`/`swipe=` is a browser-local QMS layer (`qms-…`) or a shared QMS layer with `public=False`, or whose `li=` names a survey outside the public lidar catalog; the client pre-checks the basemaps (`_viewPrivateLayers`) and shows why. QMS sharing defaults to admins-only (`QmsLayer.public=False`); editors re-scope an already-shared layer from the card's admins/everyone tag (`_showScopeMenu` → `POST api/qms/<id>/scope/`). Older default views that reference a layer visitors lack still degrade gracefully — unknown `base=` is ignored, unknown `swipe=` renders no wiper.
+**Full view state in the URL + per-landslide default views.** The URL hash carries the wiper (`…&swipe=<basemapId>&sx=<divider %>`), the raster overlays (`ov=<id>.l<pct>r<pct>,…` — per-pane visibility + opacity; an explicit `ov=` fully describes the visible set, absence leaves overlay state alone), the active sidebar tab (`tab=refmaps|analysis`, written only when not the inventory default), and the open analysis panels (`an=hist,timing,scatter,opera`) alongside the existing `map=zoom/lat/lon&base=…&id=…`, written on swipe enable/disable/divider-drag and restored on load (also via the `ls_map_view` localStorage view, and re-tried after `api/qms/promoted` merges in case the wiper's basemap is a shared QMS layer — `base=` gets the same wait via `_pendingBase`/`_applyPendingBase`, added 2026-10-06 after a cold load of a link naming a shared layer was found to fall back to the default basemap for everyone). That same hash string (no leading `#`) is the format of **`landslides.default_map_view`** (schema: `migrate_default_view`, idempotent, run per environment) — a curated per-landslide view. Editors set/update/clear it from the map detail panel ("Set default view" saves the *current* center/zoom/basemap/wiper via the `manage_edit_field` autosave endpoint, which validates the string's charset/shape because `slug_redirect` emits it into a Location header); anyone sees a "⌖ Default view" button when one is stored (`applyViewString` in map.js — sets basemap, enables/disables the wiper, flies to the view). Consumed by: slug deep-links (`slug_redirect` prefers it over the centroid+zoom-13 fallback), in-app permalink clicks (`data-view` attr), snapshot slug stubs (`build_snapshot`), and **double-clicking a landslide on the map** (`_dblclickDefaultView` — applies the stored view incl. basemap + wiper, or plain centroid zoom-13 when none is stored; suppresses the map's own double-click zoom on features). Since 2026-09-13 the hash also carries the lidar overlays (`li=<id>.<p>l<pct>r<pct>,…`, p = what to draw: h hillshade | p preset | o ortho, with k a retired read-only alias for preset; same present/absent semantics as `ov`), written on every lidar toggle/preset/opacity change so a default view reproduces the surveys an editor had on; `applyViewString`/hashchange apply it, and `_lidarFetch` applies a `li=` that arrived before the catalog. **How the URL is organised (consolidated 2026-10-06).** One grammar, one table:
+
+- **`ls_hash.js` is the grammar** (parse + encode, shared with `/glaciers/`); its header is the specification. `map.js` no longer has a parser or a writer of its own. The rule for the list params `ov`/`li`/`ext`/`im`/`ref`: **present fully describes the set** (unlisted = off, present-but-empty = none), **absent = leave alone**.
+- **`_VIEW_PARAMS` (end of `map.js`) is the one table**: a row per param with `collect(mode, o)` and `apply(s, how)`. Both writers are `_viewStateString(mode)` — `'url'` the address bar, `'saved'` the per-browser last view, `'view'` a stored default view — and both runtime appliers (hashchange, `applyViewString`) are `_applyViewState`. **To make something travel in a link, add a row.** Each row also names where it is consumed on a cold load: `cold: true` goes through the same `apply()`, a string names the place that reads `_initialHash` instead, for the params that are needed while the map is being built or that wait on a fetch (basemap, wiper, overlays, lidar, external layers, imagery, filters). Cold-load timing is real and was left where it is; the table records it rather than hiding it.
+- **Filters are in the hash**, with the same value encodings they had in the query string: `ty` types, `c` classes, `f` attribute flags (bitmasks; `f` gained bit 4096 = Flagged, editor-only), `sa`/`da`/`vol`/`yr`/`n10`/`lw` sliders as `lo,hi`, `lv` limit-to-view, `pm` chart modes. A legacy `?t=1&c=5&yr=…` link is still read on load (`_filterColdApply`, same reader), and the first `writeHashState` rewrites it into the hash and drops the old query keys (`?subset=` and anything else stays). `ty` was `t` in the query; it was renamed because `/glaciers/` already uses `t` for time. `?hist=1`/`?timing=1` are read as the old spelling of `an=hist,timing` and no longer written.
+- **Filters and the explorer selection are in the address bar only.** They are not saved to `ls_map_view` (a filter must not become the map someone finds days later with most of its records missing) and never written into or applied from a default view (it is permanent and public; a filter in it would hide other records from a visitor who never chose to).
+- **`sc=0|1` is the scarp-trace toggle** — the **Scarps** box in the pinned strip beside Slow / Catastrophic (`cb-scarps` → `LSScarps.setVisible`, which now remembers its state across basemap switches). Written as `sc=0` when hidden; a default view writes it either way. It is its own key rather than a name in `ref=` because scarps are on by default and `ref=` links already in the wild list what is on — adding a name to that set would have hidden scarps on every one of them. Starting a scarp trace from the pencil turns the layer back on.
+- **Other params**: `ref=<name>,…` reference vectors (`faults`, `circles`), written only when off the page default of faults-on; a `~YYYY-MM-DD` / `~all` flag on an `ov` entry pins a date-stepper overlay's date (written only for a date the user chose, so a saved view never freezes a row tracking "latest"; a default view always pins it); `li` takes a second shading code before the `r` pane when the panes differ (`homer_2019.hl100pr80`).
+- **A stored default view writes `ov`/`li`/`ext`/`im`/`ref` even when empty** and always pins the basemap; views stored before 2026-10-06 lack the empty ones and behave as they always did until re-saved.
+- **Additive only.** Stored default views, snapshots and shared links hold these strings for good. Every change above was checked by running the previously deployed parser against the new one over production's stored default views plus hand-written legacy forms (identical on all), and the codec round-trips them. Do the same before the next grammar change.
+- **`pr=` carries the elevation profile** (2026-10-08): the line as a flat `lat,lon` list at 5 dp, `pw=d0,d1` its brushed window in metres along the line, `pve=0` when the chart is unlocked from 1:1; absent = leave alone. One `_VIEW_PARAMS` row reads `LSProfile.state()` / calls `LSProfile.setState()`; a line arriving before the lidar catalogue waits for it (`LSProfile.onCatalog`), or it would be read against Mapterhorn alone. It rides in saved views and default views like the overlays.
+- **`pp=lat,lon,r_km` is the permafrost patch circle** (2026-10-09, `permafrost.js`): parsed in `parseHashState`, one `_VIEW_PARAMS` row, applied on cold load and hashchange; `an=pf` opens the panel like the other analysis panels.
+- Not in the URL, by choice so far: scatter axes and proportion mode, the histogram day window, the pinned label field.
+
+**Default views are public**, so `manage_edit_field` rejects (`view_state_private_layers`) one whose `base=`/`swipe=` is a browser-local QMS layer (`qms-…`) or a shared QMS layer with `public=False`, or whose `li=` names a survey outside the public lidar catalog; the client pre-checks the basemaps (`_viewPrivateLayers`) and shows why. QMS sharing defaults to admins-only (`QmsLayer.public=False`); editors re-scope an already-shared layer from the card's admins/everyone tag (`_showScopeMenu` → `POST api/qms/<id>/scope/`). Older default views that reference a layer visitors lack still degrade gracefully — unknown `base=` is ignored, unknown `swipe=` renders no wiper.
 - **Analysis tab**: triggers for the seasonal histogram, time-series chart, and the lw × n10 susceptibility scatter — each opens as a floating, draggable, resizable panel (see *Floating analysis panels* below). The histogram + time-series respect the Limit toggle.
 
 (The n10/lw susceptibility range sliders live in the **Inventory** filter panel alongside the source-area / deposit-area / volume / age dual-range filters.)
@@ -1090,11 +1481,46 @@ There is no on-map legend or floating basemap-picker — those got removed in fa
 
 **Basemap thumbnails** ship as committed static assets at `inventory/static/inventory/img/basemap-thumbs/*.{png,jpg}` (~180 KB total). The HTML template injects a `basemapThumbs` dict into `LS_CONFIG` via `{% static %}` → WhiteNoise serves them with content-hashed filenames + `Cache-Control: max-age=315360000, public, immutable`. The snapshot build sets `staticBase: './static/'` so the same machinery works in the offline bundle.
 
-**Raster overlays — one framework** (`OVERLAYS` registry + `_ovEnsure`/`_ovApply`/`_overlayRow` in map.js): the two USGS susceptibility models AND the two OPERA InSAR velocity mosaics. Per-overlay state is `{left, right, opLeft, opRight}` persisted per-browser (`localStorage['ls_overlays']`; migrates the short-lived `pane` form and the retired shared-`opacity` form, seeding both sides): the sidebar's Overlays section carries an on/off checkbox + opacity slider for the **left (main) pane**, the wiper's floating panel carries the same rows for the **right pane** — opacity is fully independent per pane. So ESRI can sit on both sides of the wiper with ASCENDING velocity left and DESCENDING right — each side configured on its own panel, no combined selector. Overlays are imagery-like and therefore **per-pane by design** — the pane-parity rule applies to landslide DATA only (which stays mirrored); this replaced the old mutually-exclusive susc checkboxes and the unconditional susc mirroring in `_swipeAddData`. Layers occupy the old susceptibility stack slot (above basemap/trace/pending, below faults + data); susc layer ids are unchanged so the trace-raster insertion chain still works.
+**Raster overlays — one framework** (`OVERLAYS` registry + `_ovEnsure`/`_ovApply`/`_overlayRow` in map.js): the two USGS susceptibility models AND the two OPERA InSAR velocity mosaics. **Bedrock geology** (2026-09-26) is the USGS Geologic Map of Alaska (SIM 3340, 1:1.58M) as Macrostrat's carto tiles (CC-BY 4.0, CORS open, no proxy, no bake); a click looks the unit up at Macrostrat's point API. It is the first RASTER click target: `ls_tools.js` accepts a `reference` entry with no `layers` and a `test(e)` predicate for exactly this (lowest priority, so faults/scarps/staged win under the same click). `keyNote` on an overlay renders a sentence in the key instead of a ramp. Per-overlay state is `{left, right, opLeft, opRight}` persisted per-browser (`localStorage['ls_overlays']`; migrates the short-lived `pane` form and the retired shared-`opacity` form, seeding both sides): the sidebar's Overlays section carries an on/off checkbox + opacity slider for the **left (main) pane**, the wiper's floating panel carries the same rows for the **right pane** — opacity is fully independent per pane. So ESRI can sit on both sides of the wiper with ASCENDING velocity left and DESCENDING right — each side configured on its own panel, no combined selector. Overlays are imagery-like and therefore **per-pane by design** — the pane-parity rule applies to landslide DATA only (which stays mirrored); this replaced the old mutually-exclusive susc checkboxes and the unconditional susc mirroring in `_swipeAddData`. Layers occupy the old susceptibility stack slot (above basemap/trace/pending, below faults + data); susc layer ids are unchanged so the trace-raster insertion chain still works.
 
-**OPERA velocity overlays.** ASF's displacement portal serves its OPERA DISP-S1 velocity mosaics as a public CloudFront pyramid of **VALUE tiles** (8-bit gray 1–255 ≙ ±30 mm/yr from their `extent.json` scale_range, alpha = coverage, maxZoom 12; the portal colors client-side — verified 2026-07-14, plan `~/.claude/plans/opera-overlays.md`). CloudFront CORS is locked to ASF's origin, so `inventory/opera.py` proxies raw tiles same-origin at `/inventory/tiles/opera/<asc|desc>/z/x/y.png` with a disk cache (`data/opera_tiles/`, upstream 404s cached as `.404` markers); the `operacolor` protocol in map.js canvas-decodes and applies **ASF's exact ramp** (extracted from their bundle) client-side — same-origin tiles make canvas reads legal, and later phases (view-scoped histograms, centroid sampling) read the same cached value tiles. When ASF refreshes the mosaic: `python manage.py purge_opera_tiles` + bump `OPERA_TILE_V` in map.js. Caveats (documented in Methods): 8-bit quantization ≈ 0.24 mm/yr steps, values clip at ±30 mm/yr (fast slides saturate) — visualization/exploration grade, not publication numbers; the upgrade path is DISP-S1 GeoTIFFs via Earthdata. Attribution: OPERA DISP-S1 © NASA/JPL; mosaic service ASF.
+**OPERA velocity overlays.** ASF's displacement portal serves its OPERA DISP-S1 velocity mosaics as a public CloudFront pyramid of **VALUE tiles** (8-bit gray 1–255 ≙ ±30 mm/yr from their `extent.json` scale_range, alpha = coverage, maxZoom 12; the portal colors client-side — verified 2026-07-14). CloudFront CORS is locked to ASF's origin, so `inventory/opera.py` proxies raw tiles same-origin at `/inventory/tiles/opera/<asc|desc>/z/x/y.png` with a disk cache (`data/opera_tiles/`, upstream 404s cached as `.404` markers); the `operacolor` protocol in map.js canvas-decodes and applies **ASF's exact ramp** (extracted from their bundle) client-side — same-origin tiles make canvas reads legal, and later phases (view-scoped histograms, centroid sampling) read the same cached value tiles. When ASF refreshes the mosaic: `python manage.py purge_opera_tiles` + bump `OPERA_TILE_V` in map.js. Caveats (documented in Methods): 8-bit quantization ≈ 0.24 mm/yr steps, values clip at ±30 mm/yr (fast slides saturate) — visualization/exploration grade, not publication numbers; the upgrade path is DISP-S1 GeoTIFFs via Earthdata. Attribution: OPERA DISP-S1 © NASA/JPL; mosaic service ASF.
 
-**Self-hosted lidar DEMs.** Nineteen Alaska surveys (Homer 2019, Lower Kenai, Kachemak Bay 2023, Mat-Su 2019, Matanuska 2011, Seward 2023, Glen Alps 2024, South Fork Eagle River 2024, Columbia Glacier 2022, Sitka 2018–19, Goodwin Glacier 2023, Ketchikan 2023 and 2024, Dickason Highlands 2024, Grewingk 2021, Portage 2020, Maynard Mountain 2022, Barry Arm 2023, Glacier Bay 2019–20 [USGS 3DEP, all 6,728 tiles via a gdalbuildvrt mosaic, published at 1 m]) hosted as **two products each**, built by `tools/lidar/build_lidar.py` from the manifest `tools/lidar/datasets.json`. Status as of 2026-09-06: built and running on dev; **branch `lidar-hosting`, not merged to `main`, not deployed.**
+**Self-hosted lidar DEMs and bathymetry.** Alaska elevation surveys hosted as
+**two products each** (archive COG + web PMTiles), built by
+`tools/lidar/build_lidar.py` from the manifest `tools/lidar/datasets.json`.
+**Live on production.**
+
+**Do not look for the survey list here.** It changes every time one is
+published and a list in this file would be wrong within the week. Two live
+answers instead, in this order:
+
+- **`/lidar/audit/`** (`publish_audit`, **signed-in data admins only** — it
+  names gated surveys, whose existence is not public) — the authoritative
+  state, checked rather than remembered: for every manifest entry it tests the four seams
+  (built locally / present on R2 / present in the catalogue / what the gate
+  actually does) and names any that disagree. Read it first.
+- **`tools/lidar/RESUME.md`** — the hosting stream's state of play and the
+  publishing recipe, plus the incidents behind it (BAG extraction modes,
+  rclone filters, the overnight uploader). 47 public and 7 gated as of
+  2026-09-29 (KBay reclassification added beside the vendor surface), which is the number `/lidar/audit/` will confirm or correct.
+
+**Gating is by manifest flag and enforced on the BYTES.** `"gated": true` on
+a dataset keeps it out of `catalog.geojson` and into the companion
+`catalog-gated.geojson` (`make_catalog.py --gated-only`), which
+`lidar_serve.gated_ids()` reads as the one list — so the pyramid, the COG
+route and the listing all refuse together rather than merely hiding a row.
+Gated surveys are served `private` cache headers and are **not** pushed to
+public R2. Two traps worth knowing: gating is **not retroactive** (`rclone
+copy` never deletes, so a survey gated *after* an upload keeps its bytes on
+the public bucket until they are removed by hand — `publish_audit` reports
+this as `GATED BUT ON PUBLIC R2`), and a gated survey's **orthomosaic is a
+separate archive** that has to be gated with it.
+
+**Orthomosaics** (`"ortho": …` in the manifest, SfM flights only) publish
+beside the DEM and surface as the third render option in `/inventory/`
+(see *In `/inventory/`* below). A lidar DTM has no imagery, so most surveys
+carry none and the option is offered only where the catalogue has
+`ortho_url`.
 
 - **Archive**: a COG in the correct local UTM zone (NAD83(2011)), on `/Volumes/Nunatak/lidar_build/cog/` (~54 GB, *not* in git and *not* on the droplet). Public copy in **Cloudflare R2**, bucket `landslidescience-lidar`, key `cog/<id>.tif`, served through the bucket's custom domain `https://lidar.landslidescience.org/cog/<id>.tif` (Cloudflare CDN, bucket CORS exposes ETag/Content-Range for browser range reads). Pushed with `tools/lidar/r2_sync.sh`, credentials in `~/.r2.env` (never in the repo). R2 was chosen over a DO Space because egress is free and the bucket is no farther from a browser in Homer than the droplet is; no login gate is needed because the droplet never touches the bytes. **Cloudflare edge gotcha (2026-09-08):** on the FIRST ranged request for an object over 512 MB at a given edge, Cloudflare tries to cache-fill, gives up (`cf-cache-status: BYPASS`) and returns a **200 full body** to that request; every later request gets a correct 206. Small archives get 206 from the start. A GDAL `/vsicurl` first-open could therefore pull a whole 13 GB file. Fixed by a Cache Rule on the zone (host `lidar.landslidescience.org` + path starts with `/cog/` → **Bypass cache**), added 2026-09-08 and **verified against a fresh 700 MB object**: the very first ranged request returned 206 with `cf-cache-status: DYNAMIC`. Re-verify the same way if the rule ever changes — an object that has already been requested will not reproduce the fault. Readable over `/vsicurl`, so QGIS opens one straight off a URL; that is the point of hosting them, since the public sources are awkward to get data out of.
 - **Web**: one Mapbox terrain-RGB `.pmtiles` per survey in `data/lidar/pmtiles/` (~7.2 GB total, ~28,700 km²), read by MapLibre as a `raster-dem`/`raster` source over HTTP range requests. One file per survey rather than ~10⁵ loose PNGs, which matters for both rsync and object-storage cost.
@@ -1118,7 +1544,9 @@ There is no on-map legend or floating basemap-picker — those got removed in fa
 - Slope needs neighbours, so each tile is built from a 258×258 grid lifted off the 3×3 tile neighbourhood; without that halo every tile border grows a false ridge.
 - **Two caches, two distinct costs**: finished PNGs keyed by full request URL (makes flipping between two DEMs over the same ground ~1 ms vs ~250 ms cold), and decoded elevations keyed by tile (makes slider drags pure recompute). The elevation cache stores **in-flight promises, not results** — a 4×4 tile block requests 144 neighbours covering only 36 distinct tiles, and they all start together, so caching resolved values let every one of them miss and decode redundantly (measured 0 hits / 144 misses before the fix, 108 / 36 after).
 
-**In `/inventory/`.** Lidar and editor GeoTIFF uploads share one zoom-gated section ("Elevation & imagery overlays"), built by `_buildRasterUI` in `map.js`. Below `RASTER_UI_ZOOM` (10) only footprints are offered — a 0.5 m survey at z8 is a smudge and listing every Alaskan survey is noise; above it, the surveys **covering the current view**. Footprints persist at all zooms, fading from fill to a thin edge line, because zoomed out they answer "where is there data?" and zoomed in "am I tracing off the edge?". Lidar is **public**; uploads stay editor-only inside the same section. Two fixed presets (Hillshade / KBSP) and an opacity slider — no sun sliders, no 3D. The wiper's right pane gets the same lidar list (`_lidarActiveR`) so two surveys can be compared across the divider; uploads remain main-pane-only, which is the pre-existing deliberate choice. **Inactive layers sit at `raster-opacity: 0`, never `visibility: 'none'`** — a hidden layer marks its source unused and MapLibre then evicts exactly the tiles we want warm. `raster-opacity-transition` and `raster-fade-duration` are both zeroed, or switching surveys cross-fades through the basemap.
+**Terrain context in `/lidar/` (2026-09-28).** 3D terrain composites the active survey over two context layers: our own 3DEP bake (`ctx_3dep`, around the surveys) and, beyond it, **Mapterhorn**'s global terrain (`tiles.mapterhorn.com`, 512 px terrarium WebP, CORS open, Cloudflare-hosted, no key or stated limits). In Alaska Mapterhorn is the same 3DEP 1/3 arc-second data statewide -- median difference 0 m against the bake at Homer, the Kachemak glaciers and Seward -- with Copernicus GLO-30 in Canada; its 1 m 3DEP does not reach Alaska. It replaced the live USGS ImageServer as the fill beyond the bake. The survey itself fills to its boundary with `fillMode 'outside'` (footprint outer rings), so voids inside a survey stay voids. Attribution (Mapterhorn + USGS + Copernicus) rides the terrain source. The package reads 512 px XYZ sources and, with overzoom, falls back to the parent tile where the publisher's depth runs out (z12 in Yukon). Should the service go, Mapterhorn publishes PMTiles for self-hosting an Alaska extract. The context is also the terrain when no survey is active, and it is **hillshaded** with the surveys' own shading stack beneath them (`ctxshade` layer, below the footprints): the terrain mesh alone is too coarse to show detail, which is why Mapterhorn's viewer looked sharper than ours over the same tiles.
+
+**In `/inventory/`.** Lidar and editor GeoTIFF uploads share one zoom-gated section ("Elevation & imagery overlays"), built by `_buildRasterUI` in `map.js`. Below `RASTER_UI_ZOOM` (10) only footprints are offered — a 0.5 m survey at z8 is a smudge and listing every Alaskan survey is noise; above it, the surveys **covering the current view**. Footprints persist at all zooms, fading from fill to a thin edge line, because zoomed out they answer "where is there data?" and zoomed in "am I tracing off the edge?". Lidar is **public**; uploads stay editor-only inside the same section. Three fixed render options per survey and an opacity slider — no sun sliders, no 3D. **Hillshade** and **Preset** are client-side shadings of the DEM tiles (`dem_shade.js`); **Ortho (imagery)** is the orthomosaic from the same flight, a plain `pmtiles://` raster with no shading pipeline, offered only where the catalogue carries `ortho_url` (today the SfM flights — a lidar DTM has no imagery). All three share ONE layer per survey, one state field and one `li=` code, so the ortho is a different thing to draw rather than a second overlay competing for stack position; a stored view naming `ortho` for a survey that has none falls back to hillshade. The wiper's right pane gets the same lidar list (`_lidarActiveR`) so two surveys can be compared across the divider; uploads remain main-pane-only, which is the pre-existing deliberate choice. **Inactive layers sit at `raster-opacity: 0`, never `visibility: 'none'`** — a hidden layer marks its source unused and MapLibre then evicts exactly the tiles we want warm. `raster-opacity-transition` and `raster-fade-duration` are both zeroed, or switching surveys cross-fades through the basemap.
 
 **Susceptibility tiles** (self-hosted): USGS Slope-Relief Threshold models (Belair et al. 2024, 90 m). **Alaska coverage** — this is why they're self-hosted rather than the old `tiles.arcgis.com/.../US_Landslide_Susceptibility` MapServer, which is conterminous-US only.
 
@@ -1184,4 +1612,4 @@ Tracking this as "deferred but anticipated" so when we get to it, the UI design 
 - WhiteNoise serves static files in production; runserver serves them in dev.
 - Caddy auto-issues Let's Encrypt certs; non-canonical domains 301 to canonical.
 - Audit log lives in landslidescience SQLite (`LandslideEditMeta`), not in PostGIS, so the Tethys schema stays clean.
-- After editing a landslide record, the inventory caches (`features`, `home_counts`, `timed_events`, `timeline_events`, `slug_map`) are invalidated automatically. No manual cache flush needed.
+- After editing a landslide record, the inventory caches (`features`, `home_counts`, `timed_events`, `timeline_events`, `slug_map`) are invalidated automatically. No manual cache flush needed. **The cache is a per-process dict and production runs two gunicorn workers**, so `_invalidate` also bumps a stamp file (`data/.inventory_cache_stamp`, `inventory/cache_stamp.py`) and `CacheStampMiddleware` clears any worker whose copy predates it. Before that (fixed 2026-09-26) an edit cleared only the worker that handled it, and a map reload showed the old centroid or the new one depending on which worker answered.

@@ -1,6 +1,6 @@
 """Create (or update) a view-only collaborator account.
 
-    python manage.py add_viewer <username> [--email a@b.c] [--password ...]
+    python manage.py add_data_user <username> [--email a@b.c] [--password ...]
 
 Grants: browse everything including the restricted QMS layers and baked
 imagery, plus the data download (which is public anyway). Grants no edit
@@ -16,7 +16,7 @@ import getpass
 from django.contrib.auth.models import Group, User
 from django.core.management.base import BaseCommand, CommandError
 
-from inventory.auth import GROUP_INVENTORY_VIEWERS
+from inventory.auth import GROUP_DATA_USERS
 
 
 class Command(BaseCommand):
@@ -30,10 +30,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **o):
         try:
-            group = Group.objects.get(name=GROUP_INVENTORY_VIEWERS)
+            group = Group.objects.get(name=GROUP_DATA_USERS)
         except Group.DoesNotExist:
             raise CommandError(
-                f'Group "{GROUP_INVENTORY_VIEWERS}" does not exist. '
+                f'Group "{GROUP_DATA_USERS}" does not exist. '
                 'Run `manage.py init_groups` first.')
 
         user, created = User.objects.get_or_create(
@@ -49,7 +49,7 @@ class Command(BaseCommand):
         if o['email']:
             user.email = o['email']
         user.is_active = True
-        # Explicitly NOT staff: a viewer has no business in /admin/, and
+        # Explicitly NOT staff: a data user has no business in /admin/, and
         # is_staff is not what grants inventory access.
         user.is_staff = False
         user.is_superuser = False
@@ -57,7 +57,7 @@ class Command(BaseCommand):
         user.groups.add(group)
 
         self.stdout.write(self.style.SUCCESS(
-            f'{"Created" if created else "Updated"} viewer "{user.username}"'
+            f'{"Created" if created else "Updated"} data user "{user.username}"'
             f'{" (password set)" if pw else ""}.'))
         self.stdout.write(
             f'  groups: {", ".join(g.name for g in user.groups.all())}\n'

@@ -17,3 +17,6 @@ numpy>=1.26,<3
 # derivatives; pillow-heif adds iPhone HEIC support to Pillow.
 Pillow>=10,<12
 pillow-heif>=0.16,<2
+# Photo drops (drops/r2.py): presigned uploads/downloads against Cloudflare
+# R2's S3 API. Imported lazily, so a broken wheel breaks only /drops/.
+boto3>=1.36,<2

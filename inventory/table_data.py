@@ -68,7 +68,9 @@ from .forms import _FIELD_LABELS
 # if their cardinality is low today — they're prose or per-record identifiers,
 # so a value picker would be useless and the dict would just bloat the payload.
 _FORCE_TEXT = {
-    'unique_name', 'description', 'notes', 'other_subtle_creep',
+    'unique_name', 'description', 'notes',
+    # other_subtle_creep left this set on 2026-10-06: it is a vocabulary column
+    # now (views.VOCAB_COLUMNS), split into values like Subsets.
     'ongoing_work', 'seismic_note', 'seismic_credit', 'flag_reason',
     'default_map_view',
 }
@@ -103,6 +105,8 @@ _UNITS = {
 # for a table header.
 _EXTRA_LABELS = {
     'id': 'ID',
+    'planet_labs_patchy_creep': 'Planet Labs patchy creep',   # the form nests it as "Patchy only"
+    'planet_labs_creep': 'Planet Labs creep',
     'unique_name': 'Name',
     'landslide_type': 'Type',
     'landslide_class': 'Class',
@@ -211,15 +215,9 @@ _META_COLS = {'id', 'created_at', 'updated_at', 'reviewed_at',
 
 
 def _flatten_group_fields(group):
-    """_EDIT_FIELD_GROUPS entries nest `{'block': title, 'fields': [...]}`
-    dicts inside their field list — flatten to plain column names."""
-    out = []
-    for f in group['fields']:
-        if isinstance(f, dict):
-            out.extend(f.get('fields', []))
-        else:
-            out.append(f)
-    return out
+    """Column names of one _EDIT_FIELD_GROUPS entry, through every nesting
+    the form allows (views.group_field_names owns the list of those)."""
+    return views.group_field_names(group['fields'])
 
 
 def _group_of_column():
@@ -259,15 +257,12 @@ _PRESETS = {
                 'noted_by', 'subsets', 'n_polygons'],
     'events': ['unique_name', 'landslide_type', 'landslide_class', 'year_num',
                'year_text', 'date_min', 'date_max', 'seismic_datetime',
-               'tsunamigenic', 'molards', 'super_elevated_deposits',
-               'stream_damming', 'precursory_headscarp',
-               'exclusively_supraglacial', 'volume_preferred'],
+               'features', 'stream_damming', 'volume_preferred'],
     'creep': ['unique_name', 'landslide_class', 'creep_evaluated',
               'creep_behavior', 'insar_creep', 'insar_schaefer', 'insar_kim',
               'insar_opera', 'insar_other', 'planet_labs_creep',
-              'planet_labs_patchy_creep', 'geomorph_creep',
-              'post_2012_activity_increase', 'creeping_permafrost_mass',
-              'glacier_contact'],
+              'planet_labs_patchy_creep', 'its_live_creep', 'geomorph_creep',
+              'features'],
     'volume': ['unique_name', 'landslide_type', 'landslide_class',
                'size_inclusion', 'area_source', 'area_body', 'area_deposit',
                'area_total', 'volume_source', 'volume_body', 'volume_deposit',
@@ -324,9 +319,16 @@ def _build_payload(editor):
         # `subsets` computed column is the truth. Showing both invites the
         # wrong one being used in an analysis.
         db_cols = [c for c in db_cols if c[0] != 'inventory_subset']
+        # The vocabulary columns hold ", "-joined values (features, subtle
+        # creep evidence, stream damming): split them into arrays so each
+        # value is its own checkbox in the filter, like Subsets.
+        db_cols = [(n, 'multi' if n in views.VOCAB_COLUMNS else t) for n, t in db_cols]
 
         where = '' if editor else f'WHERE {views.public_landslide_filter("l")}'
-        select_cols = ', '.join(f'l.{name}' for name, _t in db_cols)
+        select_cols = ', '.join(
+            (f"(SELECT array_agg(btrim(x)) FROM unnest(string_to_array(l.{name}, ',')) x "
+             f"WHERE btrim(x) <> '') AS {name}") if t == 'multi' else f'l.{name}'
+            for name, t in db_cols)
         cur.execute(f"""
             SELECT {select_cols}, {_COMPUTED_SQL}
             FROM landslides l
@@ -349,7 +351,9 @@ def _build_payload(editor):
         raw = [r[col_idx] for r in rows]
 
         ctype = base_type
-        if name in _FORCE_LINK:
+        if base_type == 'multi':
+            pass                      # a vocabulary column, already split into values
+        elif name in _FORCE_LINK:
             ctype = 'link'
         elif name in _FORCE_TEXT:
             ctype = 'text'

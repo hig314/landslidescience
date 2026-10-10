@@ -94,118 +94,77 @@
     window.addEventListener('resize', function () { sizeMap(); map.resize(); onHistResize(); onTimingResize(); });
 
     // ---------------------------------------------------------------------------
-    // URL hash state — `#map=zoom/lat/lon&base=<id>&id=<n>` plus optional
-    // `ids=<n,n,…>` (a record selection handed over by the explorer at
-    // /inventory/table/ — show only these; absent = no such constraint) and
-    // `swipe=<id>&sx=<pct>` (wiper) and `ov=<id>.<spec>,…` (raster overlays,
-    // spec = `l<pct>` / `r<pct>` per visible pane, pct = opacity 0–100, e.g.
-    // `ov=opera-asc.l75r40,susc-lw.r100`). An `ov` param fully describes
-    // overlay visibility (unlisted overlays are off); URLs without one leave
-    // overlay state alone (pre-`ov` links, permalink clicks). `tab=<key>`
-    // records the active sidebar tab (inventory | refmaps | analysis) so a
-    // shared wiper comparison can land with Reference maps open; written only
-    // when not the inventory default, and absent = leave alone. `an=<key>,…`
-    // records the open analysis panels (hist | timing | scatter | opera) the
-    // same way: written only when at least one is open, absent = leave alone.
-    // `li=<id>.<p>l<pct>r<pct>,…` records the lidar DEM overlays exactly as
-    // `ov` does raster overlays: <id> is the catalog survey id, <p> the shading
-    // preset (h hillshade | k KBSP), l/r the main / wiper pane with opacity.
-    // Present = fully describes the visible surveys (unlisted = off); absent =
-    // leave lidar alone. This is what makes a stored default view reproduce
-    // the lidar an editor had on when they set it (Hig, 2026-09-13).
+    // URL hash state. The GRAMMAR lives in ls_hash.js (shared with /glaciers/)
+    // and is specified in that file's header; this is only the inventory's own
+    // params on top of it, which the codec passes through as strings:
+    //   id=<n>        open this record (consumed once, then stripped)
+    //   ids=<n,n,…>   a record selection handed over by the explorer at
+    //                 /inventory/table/ -- show only these; absent = no such
+    //                 constraint
+    //   tab=<key>     active sidebar tab (inventory | refmaps | analysis),
+    //                 written only when not the inventory default
+    //   an=<key>,…    open analysis panels (hist | timing | scatter | opera)
+    //   sc=0|1        scarp traces shown; written as sc=0 when hidden, absent
+    //                 = leave alone (they are on by default)
+    //   pr=<lat>,<lon>,…  the elevation profile line (5 dp, lat first);
+    //   pw=<d0>,<d1>  its brushed window in metres along the line;
+    //   pve=0         the chart unlocked from 1:1. Absent pr = leave alone.
+    //   ty c f ft sa da vol yr n10 lw lv pm
+    //                 the FILTERS (types, classes and attribute flags as
+    //                 bitmasks; ft = landslide features by NAME, see
+    //                 _ftEncode; the range sliders as lo,hi, limit-to-view,
+    //                 chart modes). Written only when off-default. Until
+    //                 2026-10-06 these lived in the query string (?t=…&c=…);
+    //                 that form is still read on load and rewritten here --
+    //                 see _filterColdApply. `ty` was `t` there.
+    // WHERE each param is collected and applied is the _VIEW_PARAMS table near
+    // the end of this file: one row per param, and nothing else writes or
+    // applies view state.
     // ---------------------------------------------------------------------------
-    var LIDAR_PRESET_CODE = { hillshade: 'h', preset: 'p' };
-    // 'k' is the retired KBSP code, kept as a read-only alias so links and
-    // saved views made before 2026-09-20 still resolve. Nothing writes it.
-    var LIDAR_CODE_PRESET = { h: 'hillshade', p: 'preset', k: 'preset' };
+    var _FILTER_KEYS = ['ty', 'c', 'f', 'ft', 'sa', 'da', 'vol', 'yr', 'n10', 'lw', 'lv', 'pm'];
     function parseHashState(hashStr) {
-        var h = hashStr != null ? hashStr : (location.hash || '');
-        if (h.charAt(0) === '#') h = h.substring(1);
-        var out = {};
-        h.split('&').forEach(function (kv) {
-            if (!kv) return;
-            var i = kv.indexOf('=');
-            if (i < 0) return;
-            var k = kv.substring(0, i), v = kv.substring(i + 1);
-            if (k === 'map') {
-                var p = v.split('/');
-                if (p.length === 3) {
-                    var z = parseFloat(p[0]), la = parseFloat(p[1]), lo = parseFloat(p[2]);
-                    if (isFinite(z) && isFinite(la) && isFinite(lo)) {
-                        out.zoom = z; out.lat = la; out.lon = lo;
-                    }
-                }
-            } else if (k === 'base') {
-                out.base = v;
-            } else if (k === 'swipe') {
-                if (v) out.swipe = v;
-            } else if (k === 'sx') {
-                var x = parseFloat(v);
-                if (isFinite(x) && x >= 0 && x <= 100) out.sx = x;
-            } else if (k === 'id') {
-                var n = parseInt(v, 10);
-                if (n > 0) out.id = n;
-            } else if (k === 'ids') {
-                // Explicit record selection handed over from the explorer
-                // (/inventory/table/): show ONLY these ids. Additive to every
-                // other filter — absent means "no such constraint", which is
-                // what every pre-existing link says.
-                var ids = v.split(',').map(function (t) { return parseInt(t, 10); })
+        var p = window.LSHash.parse(hashStr != null ? hashStr : (location.hash || ''));
+        var x = p.extras, out = {};
+        ['zoom', 'lat', 'lon', 'base', 'swipe', 'sx', 'ov', 'li', 'ext', 'im', 'ref'].forEach(function (k) {
+            if (p[k] != null) out[k] = p[k];
+        });
+        var n = parseInt(x.id, 10);
+        if (n > 0) out.id = n;
+        if (x.ids != null) {
+            var ids = x.ids.split(',').map(function (t) { return parseInt(t, 10); })
                            .filter(function (t) { return t > 0; });
-                if (ids.length) out.ids = ids;
-            } else if (k === 'ov') {
-                var ovOut = {};
-                v.split(',').forEach(function (ent) {
-                    var m = /^(.+)\.((?:[lr]\d+)+)$/.exec(ent);
-                    if (!m) return;
-                    var e = {};
-                    m[2].replace(/([lr])(\d+)/g, function (_, sideCh, pct) {
-                        var o = Math.min(100, Math.max(0, parseInt(pct, 10))) / 100;
-                        if (sideCh === 'l') { e.left = true; e.opLeft = o; }
-                        else                { e.right = true; e.opRight = o; }
-                        return '';
-                    });
-                    if (e.left || e.right) {
-                        // `~`-suffixed flags on the id carry data-variant state
-                        // (e.g. `ice-dhdt~s` = smoothed build) — split them off
-                        // so the spec keys by the bare overlay id.
-                        var idBits = m[1].split('~');
-                        if (idBits.indexOf('s') > 0) e.smooth = true;
-                        ovOut[idBits[0]] = e;
-                    }
-                });
-                out.ov = ovOut;   // present (even if empty) whenever the param exists
-            } else if (k === 'li') {
-                var liOut = {};
-                v.split(',').forEach(function (ent) {
-                    var lm = /^([A-Za-z0-9_]+)\.([hk])((?:[lr]\d+)+)$/.exec(ent);
-                    if (!lm) return;
-                    var le = { preset: LIDAR_CODE_PRESET[lm[2]] };
-                    lm[3].replace(/([lr])(\d+)/g, function (_, sideCh, pct) {
-                        var o = Math.min(100, Math.max(0, parseInt(pct, 10))) / 100;
-                        if (sideCh === 'l') { le.left = true; le.opLeft = o; }
-                        else                { le.right = true; le.opRight = o; }
-                        return '';
-                    });
-                    if (le.left || le.right) liOut[lm[1]] = le;
-                });
-                out.li = liOut;   // present (even if empty) whenever the param exists
-            } else if (k === 'im') {
-                // Imagery overlays (uploaded scenes and Sentinel-2 windows),
-                // main pane only -- they have never been offered in the
-                // wiper's right pane, so the spec carries no r<pct>.
-                var imOut = {};
-                v.split(',').forEach(function (ent) {
-                    var im = /^(\d+)\.l(\d+)$/.exec(ent);
-                    if (!im) return;
-                    imOut[im[1]] = Math.min(100, Math.max(0, parseInt(im[2], 10))) / 100;
-                });
-                out.im = imOut;   // present (even if empty) whenever the param exists
-            } else if (k === 'tab') {
-                if (/^[a-z]+$/.test(v)) out.tab = v;   // validated against real tabs on apply
-            } else if (k === 'an') {
-                out.an = v.split(',').filter(function (x) { return /^[a-z]+$/.test(x); });
+            if (ids.length) out.ids = ids;
+        }
+        if (x.tab != null && /^[a-z]+$/.test(x.tab)) out.tab = x.tab;   // validated against real tabs on apply
+        if (x.an != null) out.an = x.an.split(',').filter(function (k) { return /^[a-z]+$/.test(k); });
+        if (x.sc === '0' || x.sc === '1') out.sc = x.sc === '1';
+        // Permafrost patch circle: pp = lat,lon,r_km (permafrost.js).
+        if (x.pp != null) {
+            var pp = x.pp.split(',').map(parseFloat);
+            if (pp.length === 3 && pp.every(isFinite) && Math.abs(pp[0]) <= 90 && Math.abs(pp[1]) <= 540 && pp[2] > 0 && pp[2] <= 30) {
+                out.pp = { lat: pp[0], lon: pp[1], r: pp[2] };
             }
+        }
+        // Elevation profile: pr = flat lat,lon list (5 dp), pw = window along
+        // the line in metres (d0,d1), pve = 0 when the chart is unlocked
+        // from 1:1. pr absent = leave the profile alone.
+        if (x.pr != null) {
+            var nums = x.pr.split(',').map(parseFloat), pts = [];
+            for (var i = 0; i + 1 < nums.length; i += 2) {
+                if (isFinite(nums[i]) && isFinite(nums[i + 1]) && Math.abs(nums[i]) <= 90 && Math.abs(nums[i + 1]) <= 540) {
+                    pts.push([nums[i + 1], nums[i]]);          // stored lat,lon -> [lon, lat]
+                }
+            }
+            if (pts.length >= 2) {
+                out.pr = { line: pts, sel: null, locked: x.pve !== '0' };
+                if (x.pw != null) {
+                    var w = x.pw.split(',').map(parseFloat);
+                    if (w.length === 2 && isFinite(w[0]) && isFinite(w[1]) && w[0] >= 0 && w[1] >= 0) out.pr.sel = { d0: w[0], d1: w[1] };
+                }
+            }
+        }
+        _FILTER_KEYS.forEach(function (k) {
+            if (x[k] != null) (out.flt = out.flt || {})[k] = x[k];
         });
         return out;
     }
@@ -241,172 +200,56 @@
     // Lidar overlays from the URL / saved view: applied once the catalog is in
     // (_lidarFetch), since the ids mean nothing before then.
     var _pendingLi = _initialHash.li || null;
+    var _pendingExt = _initialHash.ext || null;
     // Imagery overlays wait on the trace-raster list the same way lidar waits
     // on the catalog: the ids mean nothing until the rows are in.
-    var _pendingIm = _initialHash.im || null;
+    // An EMPTY im= (a default view saying "no imagery") has nothing to resolve,
+    // and must not make a visitor fetch a list they would otherwise never ask for.
+    var _pendingIm = (_initialHash.im && Object.keys(_initialHash.im).length)
+                     ? _initialHash.im : null;
 
+    // The view as a hash string (no leading '#'), collected from the
+    // _VIEW_PARAMS table. mode:
+    //   'url'    the address bar -- everything, as short as it can be
+    //   'saved'  the per-browser last view (ls_map_view) -- the same minus the
+    //            explorer selection and the filters: a one-off selection or
+    //            filter must not become the map someone finds days later with
+    //            most of its records missing and no memory of why
+    //   'view'   a landslide's stored default view -- see _currentViewString
+    function _viewStateString(mode) {
+        var o = { extras: {} };
+        _VIEW_PARAMS.forEach(function (p) { if (p.collect) p.collect(mode, o); });
+        return window.LSHash.encode(o).substring(1);
+    }
+    // Filters used to live in the query string. Once they are in the hash the
+    // old copy has to go, or the URL says the same thing twice and the stale
+    // half wins on the next load. Anything else in the query (?subset=) stays.
+    var _LEGACY_QUERY = { t: 'ty', c: 'c', f: 'f', sa: 'sa', da: 'da', vol: 'vol', yr: 'yr',
+                          n10: 'n10', lw: 'lw', lv: 'lv', pm: 'pm', hist: null, timing: null };
+    function _queryWithoutLegacy() {
+        var q = new URLSearchParams(location.search), hit = false;
+        Object.keys(_LEGACY_QUERY).forEach(function (k) {
+            if (q.has(k)) { q.delete(k); hit = true; }
+        });
+        if (!hit) return location.search;      // untouched, not re-encoded
+        var qs = q.toString();
+        return qs ? '?' + qs : '';
+    }
     function writeHashState() {
-        var c = map.getCenter(), z = map.getZoom();
-        var parts = ['map=' + z.toFixed(2) + '/' + c.lat.toFixed(4) + '/' + c.lng.toFixed(4)];
-        if (_currentBasemap && _currentBasemap !== DEFAULT_BASEMAP_ID) parts.push('base=' + _currentBasemap);
-        if (_swipe.on && _swipe.basemapId) {
-            parts.push('swipe=' + _swipe.basemapId);
-            parts.push('sx=' + Math.round(_swipe.x));
+        try { localStorage.setItem('ls_map_view', '#' + _viewStateString('saved')); } catch (e) {}
+        var newHash = '#' + _viewStateString('url'), qs = _queryWithoutLegacy();
+        if (location.hash !== newHash || location.search !== qs) {
+            history.replaceState(null, '', location.pathname + qs + newHash);
         }
-        var ovh = _ovEncodeHash();
-        if (ovh) parts.push('ov=' + ovh);
-        var lih = _liEncodeHash();
-        if (lih) parts.push('li=' + lih);
-        var imh = _imEncodeHash();
-        if (imh) parts.push('im=' + imh);
-        var tab = _activeSidebarTab();
-        if (tab !== 'inventory') parts.push('tab=' + tab);
-        var an = _anEncodeHash();
-        if (an) parts.push('an=' + an);
-        // Re-emit the explorer selection so panning/zooming doesn't silently
-        // drop it (and so the link stays shareable). Deliberately NOT saved to
-        // localStorage below: a one-off selection must not become the view the
-        // map restores days later.
-        var newHash = '#' + parts.join('&');
-        try { localStorage.setItem('ls_map_view', newHash); } catch (e) {}
-        if (_idsFilter) newHash += '&ids=' + _idsFilter.join(',');
-        if (location.hash !== newHash) history.replaceState(null, '', newHash);
     }
 
 
     // ---------------------------------------------------------------------------
-    // LSTools — the map-click tools, as ONE control with radio semantics.
-    //
-    // Measure (distance / area), Draw and InSAR all claim map clicks, so at
-    // most one can be live at a time. They used to be three separate control
-    // groups policing each other by hand, and doing it inconsistently:
-    //   - Draw alerted "Exit the measure tool first."
-    //   - InSAR alerted "Exit the measure/draw tool first."
-    //   - Measure SILENTLY refused to start while Draw was on — a dead button
-    //     with no explanation.
-    //   - Measure never checked InSAR at all, so measuring while InSAR was
-    //     live left two tools fighting over the same click.
-    // Three different answers to one question, and a real bug in the fourth
-    // corner. Hig, 2026-09-10: they are "similar in type but mutually
-    // exclusive since they both respond to click-on-map" — so make that one
-    // control, and make the exclusivity structural rather than policed.
-    //
-    // Now: one bordered group, so they read as alternatives; picking one
-    // RELEASES whichever was live instead of refusing; picking the live one
-    // again returns to plain inspect mode. An outgoing tool can object via
-    // `canRelease` (Draw does, when a polygon ring is still open), which is
-    // the one case where a switch should ask rather than just happen.
-    //
-    // `order` fixes the button sequence independently of registration order,
-    // because the tools register whenever their own setup code runs and two
-    // of them are conditional (turf, editor).
-    // ---------------------------------------------------------------------------
-    var LSTools = (function () {
-        var container = null, added = false;
-        var reg = {};              // id -> {onRelease, canRelease}
-        var activeId = null;
-
-        function ensure() {
-            if (container) return container;
-            container = document.createElement('div');
-            container.className = 'maplibregl-ctrl maplibregl-ctrl-group inv-tools-ctrl';
-            container.setAttribute('role', 'radiogroup');
-            container.setAttribute('aria-label', 'Map click tools');
-            return container;
-        }
-        function attach() {
-            if (added) return;
-            added = true;
-            var el = ensure();
-            map.addControl({
-                onAdd: function () { return el; },
-                onRemove: function () {}
-            }, 'top-left');
-        }
-        // Insert by `order` so the group always reads line, area, draw, InSAR,
-        // clear — whatever sequence the tools happened to register in.
-        function place(btn, order) {
-            var el = ensure();
-            btn.dataset.order = order;
-            var kids = el.children, before = null;
-            for (var i = 0; i < kids.length; i++) {
-                if ((+kids[i].dataset.order || 0) > order) { before = kids[i]; break; }
-            }
-            el.insertBefore(btn, before);
-            attach();
-        }
-        function mkBtn(o) {
-            var b = document.createElement('button');
-            b.type = 'button';
-            b.title = o.title;
-            b.setAttribute('aria-label', o.aria || o.title);
-            b.textContent = o.label;
-            if (o.className) b.className = o.className;
-            return b;
-        }
-        return {
-            // A mode button: selecting it releases whatever else was live.
-            mode: function (o) {
-                var b = mkBtn(o);
-                b.setAttribute('role', 'radio');
-                b.setAttribute('aria-checked', 'false');
-                reg[o.id] = { onRelease: o.onRelease, canRelease: o.canRelease };
-                b.addEventListener('click', function () {
-                    if (activeId === o.id) { o.onRelease(); }
-                    else { o.onSelect(); }
-                });
-                reg[o.id].btn = b;
-                place(b, o.order);
-                return b;
-            },
-            // A plain action (measure's clear) — never becomes the active mode.
-            action: function (o) {
-                var b = mkBtn(o);
-                b.addEventListener('click', o.onClick);
-                place(b, o.order);
-                return b;
-            },
-            // Claim the map. Returns false if the outgoing tool objected, in
-            // which case the caller must not proceed.
-            claim: function (id) {
-                if (activeId === id) return true;
-                if (activeId) {
-                    var cur = reg[activeId];
-                    if (cur && cur.canRelease && !cur.canRelease()) return false;
-                    var prev = activeId;
-                    activeId = null;          // before onRelease, so its own
-                    if (cur) cur.onRelease(); // release() call is a no-op
-                    if (reg[prev] && reg[prev].btn) {
-                        reg[prev].btn.classList.remove('active');
-                        reg[prev].btn.setAttribute('aria-checked', 'false');
-                    }
-                }
-                activeId = id;
-                if (reg[id] && reg[id].btn) {
-                    reg[id].btn.classList.add('active');
-                    reg[id].btn.setAttribute('aria-checked', 'true');
-                }
-                return true;
-            },
-            // Give the map back. No-op unless `id` currently holds it, so a
-            // tool's own deactivate() can call this unconditionally.
-            release: function (id) {
-                if (activeId !== id) return;
-                activeId = null;
-                if (reg[id] && reg[id].btn) {
-                    reg[id].btn.classList.remove('active');
-                    reg[id].btn.setAttribute('aria-checked', 'false');
-                }
-            },
-            active: function () { return activeId; },
-            // Called once, right after the navigation control, so the group's
-            // slot in the top-left stack is fixed rather than depending on
-            // which tool happens to register first — and so registration is
-            // never a re-entrant map.addControl from inside another control's
-            // onAdd. Idempotent; place() still calls it as a safety net.
-            attach: attach
-        };
-    })();
+    // LSTools — the map-click tools as ONE control with radio semantics, the
+    // click dispatcher, the cursor owner model, the drag helper and the
+    // Escape router — moved to ls_tools.js (2026-09-24) so /lidar/ can load
+    // the same policy. History and the policy statement live in that file's
+    // header. map.js only binds it: LSTools.init(map) below.
 
     // ---------------------------------------------------------------------------
     // MeasureControl — custom maplibre IControl for distance / area measurement.
@@ -436,15 +279,17 @@
         // is a release.
         this._btnLine = LSTools.mode({
             id: 'measure-line', order: 10, label: '━',
-            title: 'Measure distance (Esc to cancel)',
+            title: 'Measure distance (Esc cancels, Esc again exits)',
             onSelect: function () { self._setMode('line'); },
-            onRelease: function () { self._setMode('idle'); }
+            onRelease: function () { self._setMode('idle'); },
+            cancel: function () { self._cancel(); }
         });
         this._btnPoly = LSTools.mode({
             id: 'measure-area', order: 20, label: '▱',
-            title: 'Measure area (Esc to cancel)',
+            title: 'Measure area (Esc cancels, Esc again exits)',
             onSelect: function () { self._setMode('polygon'); },
-            onRelease: function () { self._setMode('idle'); }
+            onRelease: function () { self._setMode('idle'); },
+            cancel: function () { self._cancel(); }
         });
         this._btnClear = LSTools.action({
             id: 'measure-clear', order: 90, label: '✕',
@@ -464,11 +309,15 @@
         this._onClick   = this._onClick.bind(this);
         this._onMove    = this._onMove.bind(this);
         this._onLeave   = this._onLeave.bind(this);
-        this._onKey     = this._onKey.bind(this);
-        this._map.on('click', this._onClick);
+        // An ACTION entry: the dispatcher runs it only while one of these
+        // holders owns the map, and nothing else runs then. Replaces a global
+        // map.on('click') that fired on every click and returned when idle.
+        LSTools.clicks.register({
+            id: 'measure', kind: 'action', holders: ['measure-line', 'measure-area'],
+            handler: function (_f, e) { self._onClick(e); }
+        });
         this._map.on('mousemove', this._onMove);
         this._map.getContainer().addEventListener('mouseleave', this._onLeave);
-        document.addEventListener('keydown', this._onKey);
 
         // Layers must be re-created on every style.load (basemap switch wipes them).
         this._ensureLayers = this._ensureLayers.bind(this);
@@ -495,8 +344,7 @@
         if (this._mode !== 'idle') this._finalize();
         this._mode = mode;
         var drawing = mode !== 'idle';
-        this._map.__measureActive = drawing;   // flag for landslide click/hover handlers to skip
-        this._map.getCanvas().style.cursor = drawing ? 'crosshair' : '';
+        if (drawing) LSTools.cursor.set('tool', 'crosshair'); else LSTools.cursor.clear('tool');
         if (drawing) this._map.doubleClickZoom.disable();
         else         this._map.doubleClickZoom.enable();
         this._tooltip.style.display = 'none';
@@ -611,13 +459,21 @@
         this._tooltip.style.display = 'none';
     };
 
-    MeasureControl.prototype._onKey = function (e) {
-        if (e.key === 'Escape' && this._mode !== 'idle') {
+    // Escape, routed here by LSTools (Hig, 2026-09-24: two-step). With a shape
+    // in progress, Escape discards it and stays in the tool -- the old meaning.
+    // With nothing in progress, Escape exits the tool, which used to require
+    // the button and left Escape doing visibly nothing. InSAR already meant
+    // "exit"; now the two agree.
+    MeasureControl.prototype._cancel = function () {
+        if (this._mode === 'idle') return;
+        if (this._active.length) {
             this._active = [];
             this._setPreview([]);
             this._tooltip.style.display = 'none';
             this._render();
+            return;
         }
+        this._setMode('idle');
     };
 
     MeasureControl.prototype._setPreview = function (coords) {
@@ -664,10 +520,9 @@
         this._tooltip.style.display = 'none';
         if (this._mode !== 'idle') {
             this._mode = 'idle';
-            this._map.__measureActive = false;
             LSTools.release('measure-line');
             LSTools.release('measure-area');
-            this._map.getCanvas().style.cursor = '';
+            LSTools.cursor.clear('tool');
             this._map.doubleClickZoom.enable();
         }
         this._render();
@@ -783,6 +638,14 @@
     var _initialBasemapId = (_initialHash.base && findBasemap(_initialHash.base))
                             ? _initialHash.base : DEFAULT_BASEMAP_ID;
     var _initialBasemap   = findBasemap(_initialBasemapId);
+    // A base= that names a shared QMS layer cannot resolve yet: those arrive
+    // with api/qms/promoted, after the map exists. Held here and applied once
+    // that list is in (_applyPendingBase) -- the same wait the wiper's basemap
+    // gets. Without it a cold load of a link naming a shared layer fell back
+    // to the default basemap for everyone, and the first moveend then wrote
+    // the fallback over the link.
+    var _pendingBase = (_initialHash.base && !findBasemap(_initialHash.base))
+                       ? _initialHash.base : null;
 
     // ---------------------------------------------------------------------------
     // Map initialisation
@@ -825,7 +688,7 @@
     // The click-tool group sits directly under the zoom controls; the tools
     // themselves register into it as their own setup runs (two are
     // conditional — measure needs turf, draw needs an editor).
-    LSTools.attach();
+    LSTools.init(map);
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric'   }), 'bottom-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
 
@@ -937,6 +800,13 @@
         var bId = map.getLayer('measure-fill') ? 'measure-fill' : undefined;
         _provLayerDefs().forEach(function (def) {
             if (!map.getLayer(def.id)) map.addLayer(def, bId);
+            // Re-seat on every call: this runs on style.load BEFORE
+            // initDataLayers, so the first add lands at the bottom of the
+            // stack and every raster inserted "below the data" (lidar, trace
+            // imagery: _rasterBeforeId) then covers the staged polygons. The
+            // staged work is the thing being drawn; it sits on top of all of
+            // it (Hig, 2026-09-26). initDataLayers calls back here for that.
+            map.moveLayer(def.id, bId);
         });
         // (Name labels intentionally omitted — symbol layers depend on a glyph
         // server that varies by basemap and 404s; the queue panel shows names.)
@@ -1057,7 +927,26 @@
         document.body.appendChild(ov);
         var nameEl = ov.querySelector('#idp-name'), roleEl = ov.querySelector('#idp-role');
         var warnEl = ov.querySelector('#idp-warn');
+        // Promotion seeds the name from their record, as a starting point and
+        // not an answer -- their databases are not named to the standard at
+        // /inventory/naming/, so the editor is expected to edit this.
+        if (_promote) {
+            if (_promote.name) nameEl.value = _promote.name;
+            warnEl.style.color = '#666';
+            warnEl.textContent = 'From ' + _promote.short + ' · their id ' +
+                                 (_promote.extId || '—') + '. Rename to suit the standard.';
+        }
         nameEl.focus();
+        nameEl.select();
+        // Enter anywhere in the popup is Add (Hig, 2026-09-26): the hands are
+        // already on the keyboard from finishing the polygon. Stopped at the
+        // overlay so neither Terra Draw's Enter-to-finish nor the tool
+        // Escape/Enter policy on document sees a keystroke meant for the form.
+        ov.addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return;
+            e.preventDefault(); e.stopPropagation();
+            ov.querySelector('#idp-ok').click();
+        });
         function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
         function discard() { if (_td) { _td.removeFeatures([fid]); _td.setMode('polygon'); } map.__drawPolyOpen = false; close(); }
         ov.querySelector('#idp-cancel').addEventListener('click', discard);
@@ -1226,7 +1115,16 @@
         // needs_confirm) — the checkbox is the affordance, not the guard.
         _drawPost('commit/', { confirm_attach: Object.keys(_attachOk) })
             .then(function (res) {
-                if (res.ok && res.j.ok) { window.location.href = res.j.redirect; return; }
+                if (res.ok && res.j.ok) {
+                    if (_promote) {
+                        _promoteStamp(res.j.redirect).then(function () {
+                            window.location.href = res.j.redirect;
+                        });
+                    } else {
+                        window.location.href = res.j.redirect;
+                    }
+                    return;
+                }
                 if (res.j && res.j.needs_confirm === 'attach') {
                     window.__drawFlash('Tick the "add to existing landslide" box, or rename ✎, first.');
                     renderQueue();
@@ -1293,6 +1191,12 @@
             // two kinds, so the tool group's mutual exclusion covers both.
             onSelect: function () { self.choose(); },
             onRelease: function () { self.deactivate(); },
+            // Escape is Terra Draw's here (keyEvents.cancel discards the ring),
+            // and map.__drawPolyOpen updates synchronously inside its change
+            // event -- so a second listener racing it on the same keypress is
+            // exactly the bug the router exists to remove. No-op on purpose;
+            // exiting the tool stays on the button.
+            cancel: function () {},
             // The one switch that should ask rather than just happen: staged
             // components are held server-side and come back, but an unclosed
             // ring only exists inside Terra Draw and dies with it.
@@ -1316,6 +1220,15 @@
     // A two-item menu beside the pencil. Click away or Escape closes it;
     // clicking the pencil again while it is open closes it too.
     DrawModeControl.prototype.choose = function () {
+        // Menu icons as inline SVG, not Unicode shapes: U+25B0 (parallelogram) and
+        // U+2571 (diagonal) are missing from some system fonts and showed as '?'
+        // on production (Hig, 2026-09-29). Colours match the layers they draw.
+        var _DRAW_ICON_POLY = '<svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true" ' +
+            'style="vertical-align:-1px"><polygon points="1,11 4,1 13,3 11,10" fill="#00b3a4" fill-opacity=".45" ' +
+            'stroke="#00897b" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+        var _DRAW_ICON_SCARP = '<svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true" ' +
+            'style="vertical-align:-1px"><path d="M1 10 L6 5 L13 2" fill="none" stroke="#7b3fa0" ' +
+            'stroke-width="1.8" stroke-dasharray="3 2" stroke-linecap="round"/></svg>';
         var self = this;
         if (this._menu) { this._closeMenu(); return; }
         var m = document.createElement('div');
@@ -1323,9 +1236,9 @@
         m.setAttribute('role', 'menu');
         m.innerHTML =
             '<div class="inv-draw-choice-hd">Draw</div>' +
-            '<button type="button" data-kind="poly">▰ Landslide polygons</button>' +
+            '<button type="button" data-kind="poly">' + _DRAW_ICON_POLY + ' Landslide polygons</button>' +
             (typeof LSScarps !== 'undefined'
-                ? '<button type="button" data-kind="scarp">╱ Scarp traces</button>' : '');
+                ? '<button type="button" data-kind="scarp">' + _DRAW_ICON_SCARP + ' Scarp traces</button>' : '');
         var r = this._btn.getBoundingClientRect();
         m.style.left = Math.round(r.right + 8) + 'px';
         m.style.top = Math.round(r.top - 4) + 'px';
@@ -1370,13 +1283,6 @@
             alert('Scarp tracing is not available on this page.');
             return;
         }
-        // The reviser is not a tool-group mode (it is opened from a record's
-        // detail panel), so it has to be checked by hand, as _reviseStart
-        // checks this tool.
-        if (map.__reviseActive) {
-            alert('Close the reviser first.');
-            return;
-        }
         if (this._on && this._kind === kind) return;
         if (this._on) {
             // Switching kinds inside the mode: same question canRelease asks.
@@ -1390,7 +1296,7 @@
             return;
         }
         map.__drawActive = true; this._on = true; this._kind = kind;
-        map.getCanvas().style.cursor = 'crosshair';
+        LSTools.cursor.set('tool', 'crosshair');
         var self = this;
         // Open the panel first so any Terra Draw init error is visible (and the
         // catch below fully deactivates, so a failure never locks the map up).
@@ -1408,6 +1314,7 @@
                 };
             } else {
                 _scarpOpenPanel();
+                if (!_scarpsOn()) { _scarpsSet(true); writeHashState(); }
                 LSScarps.startDraw({ terraDraw: window.terraDraw,
                                      adapter: window.terraDrawMaplibreGlAdapter });
                 this._styleReload = function () {
@@ -1427,7 +1334,7 @@
     };
     // Undo whatever the current kind set up, without touching the tool group.
     DrawModeControl.prototype._teardown = function () {
-        map.getCanvas().style.cursor = '';
+        LSTools.cursor.clear('tool');
         if (this._styleReload) { map.off('style.load', this._styleReload); this._styleReload = null; }
         if (this._kind === 'scarp') {
             if (typeof LSScarps !== 'undefined') { LSScarps.stopDraw(); LSScarps.select(null); }
@@ -1566,32 +1473,42 @@
         // "what is this?" when clicked — otherwise they're an inert magenta
         // blob. Identify it and point at the tool that manages it. Skipped
         // while draw/measure own the cursor.
-        map.on('click', 'prov-fill', function (e) {
-            if (map.__measureActive || map.__drawActive || map.__insarActive) return;
-            var label = (e.features && e.features[0] && e.features[0].properties &&
-                         e.features[0].properties.label) || 'staged component';
-            new maplibregl.Popup({ closeButton: true })
+        // Reference, above external mirrors and below faults and scarps:
+        // staged work is ours, but it is not yet a record.
+        LSTools.clicks.register({ id: 'staged', kind: 'reference', priority: 20,
+                                  layers: ['prov-fill'], handler: function (f, e) {
+            var label = (f.properties && f.properties.label) || 'staged component';
+            LSTools.popup.show(new maplibregl.Popup({ closeButton: true })
                 .setLngLat(e.lngLat)
                 .setHTML('<div style="font-size:12px;line-height:1.45;">' +
                          '<b>Staged (not committed)</b><br>' +
                          String(label).replace(/[<>&]/g, '') +
                          '<br><span style="color:#666;">Open <b>✏ Draw</b> to name, ' +
                          'rename or commit it.</span></div>')
-                .addTo(map);
-        });
+                .addTo(map));
+        } });
         map.on('mouseenter', 'prov-fill', function () {
-            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer';
+            LSTools.cursor.set('hover', 'pointer');
         });
         map.on('mouseleave', 'prov-fill', function () {
-            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = '';
+            LSTools.cursor.clear('hover');
         });
 
-        function _openPending(id) { if (!map.__measureActive && !map.__drawActive && !map.__insarActive && id) window.location.href = '/inventory/manage/' + id + '/review/'; }
-        map.on('click', 'pending-pt',        function (e) { _openPending(e.features[0].properties.id); });
-        map.on('click', 'pending-poly-fill', function (e) { _openPending(e.features[0].properties.landslide_id); });
+        function _openPending(id) { if (id) window.location.href = '/inventory/manage/' + id + '/review/'; }
+        // 'navigate' outranks everything: a click that leaves the page must
+        // not also open a panel it will never show. Point over its own fill
+        // is one record, so one entry.
+        LSTools.clicks.register({
+            id: 'pending', kind: 'navigate', priority: 40,
+            layers: ['pending-pt', 'pending-poly-fill'],
+            handler: function (f) {
+                var p = f.properties || {};
+                _openPending(f.layer && f.layer.id === 'pending-pt' ? p.id : p.landslide_id);
+            }
+        });
         ['pending-pt', 'pending-poly-fill'].forEach(function (lyr) {
-            map.on('mouseenter', lyr, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer'; });
-            map.on('mouseleave', lyr, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = ''; });
+            map.on('mouseenter', lyr, function () { LSTools.cursor.set('hover', 'pointer'); });
+            map.on('mouseleave', lyr, function () { LSTools.cursor.clear('hover'); });
         });
 
         // Pin-field dropdown: restore the saved choice, relabel on change.
@@ -1628,6 +1545,7 @@
             _pendingDetailId = null;
             writeHashState();   // strips id= now that the panel is open
         }
+        _applyPendingBase();   // shared-layer base= from the URL, if its list is already in
     }
 
     // 'load' fires once on initial render; we use 'once' so setStyle() re-fires don't hit this.
@@ -1635,6 +1553,9 @@
         _mapReady = true;
         map.on('moveend', writeHashState);
         tryInit();
+        // A link that still carries its filters in the query string is
+        // rewritten into the hash form now, not at the first pan.
+        if (_legacyQuerySeen) writeHashState();
     });
 
     var DEFAULTS = {
@@ -1686,6 +1607,7 @@
                     _swipeSetFeatures(data);
                     if (map.getLayer('points')) buildFilter();
                     scatterDrawAll();
+                    if (typeof LSPermafrost !== 'undefined') LSPermafrost.redraw();   // its points come from this set
                 });
                 if (map.getSource('landslides')) map.getSource('landslides').setData(data);
                 _swipeSetFeatures(data);
@@ -1767,6 +1689,23 @@
     // maxzoom 14 is THEIR limit, not a choice: the layer carries
     // maxScale 36000 and z15 comes back blank. Declaring it makes MapLibre
     // overzoom the z14 tile instead of requesting empties.
+    // Statewide bedrock geology: the USGS Geologic Map of Alaska (Wilson,
+    // Hults, Mull & Karl 2015, SIM 3340, 1:1,584,000, public domain) as
+    // served by Macrostrat's carto tiles (CC-BY 4.0, CORS open, CDN cached;
+    // verified 2026-09-26). It is the rock-strength input to the DGGS
+    // susceptibility model beside it in the list. Macrostrat draws age
+    // colours, not the USGS unit colours; the click popup names the unit.
+    // 512 px tiles; z14 is where the service stops producing new detail.
+    var GEOLOGY_ATTR = '<a href="https://doi.org/10.3133/sim3340" target="_blank" rel="noopener">USGS SIM 3340</a> via ' +
+                       '<a href="https://macrostrat.org" target="_blank" rel="noopener">Macrostrat</a>';
+    function _geologySourceDef() {
+        return {
+            type: 'raster',
+            tiles: ['https://tiles.macrostrat.org/carto/{z}/{x}/{y}.png'],
+            tileSize: 512, minzoom: 2, maxzoom: 14,
+            attribution: GEOLOGY_ATTR
+        };
+    }
     function _dggsSuscSourceDef() {
         return {
             type: 'raster',
@@ -2306,6 +2245,63 @@
           label: 'Susceptibility — DGGS',
           sub: 'Alaska DGGS PIR 2025-3 · rock strength × slope · 20 m',
           sourceDef: function () { return _dggsSuscSourceDef(); }, defOpacity: 0.8 },
+        { id: 'geology', layerId: 'ov-geology', sourceId: 'ov-geology-src',
+          label: 'Bedrock geology',
+          sub: 'USGS Geologic Map of Alaska (Wilson et al. 2015, 1:1.58M) · Macrostrat tiles · click for the unit',
+          sourceDef: function () { return _geologySourceDef(); }, defOpacity: 0.6,
+          keyNote: 'Colours follow the international chronostratigraphic chart (age, not rock type). ' +
+                   'Click the map for the unit name, age and lithology. Unit boundaries are ' +
+                   'kilometre-scale at this map scale.' },
+        // Permafrost (2026-10-09, tools/permafrost/): three published products
+        // and our terrain downscale of the two 1 km ones. Baked PMTiles,
+        // served by /overlays/<id>.pmtiles (local in dev, R2 in production).
+        // Three quantities, three hues: PZI (Gruber, blues), permafrost
+        // probability and ground temperature (Obu, purples / diverging),
+        // near-surface permafrost probability (Pastick, greens).
+        // Glacier covered area 2020 (NSIDC G10040, Landsat-derived, RGI ids
+        // carried): the recent outline the permafrost downscale is read
+        // against, since the Obu-derived 60 m layers are interpolated THROUGH
+        // ice rather than masked. Rasterised fill + edge, baked like the rest.
+        { id: 'glac-outline-2020', layerId: 'ov-glac-outline-2020', sourceId: 'ov-glac-outline-2020-src',
+          label: 'Glacier covered area — 2020',
+          sub: 'Landsat-derived outlines, 30 m · NSIDC G10040 (1985–2020 series, 2020 epoch)',
+          sourceDef: function () { return _pfSourceDef('glac_outline_2020', 12, GLAC_ATTR); }, defOpacity: 0.9 },
+        { id: 'pf-gruber-maat', layerId: 'ov-pf-gruber-maat', sourceId: 'ov-pf-gruber-maat-src',
+          label: 'Mean annual air temperature — Gruber 2012',
+          sub: '°C, 1 km · the MAAT climatology Gruber derived PZI from',
+          sourceDef: function () { return _pfSourceDef('pf_gruber_maat', 9); }, defOpacity: 0.8 },
+        { id: 'pf-gruber-maat60', layerId: 'ov-pf-gruber-maat60', sourceId: 'ov-pf-gruber-maat60-src',
+          label: 'Mean annual air temperature — terrain-downscaled',
+          sub: '°C, 60 m · Gruber MAAT moved by a kernel-fitted local lapse onto 3DEP elevation (our inference)',
+          sourceDef: function () { return _pfSourceDef('pf_gruber_maat60', 11); }, defOpacity: 0.8 },
+        { id: 'pf-gruber-pzi', layerId: 'ov-pf-gruber-pzi', sourceId: 'ov-pf-gruber-pzi-src',
+          label: 'Permafrost zonation index — Gruber 2012',
+          sub: 'PZI 0–1, 1 km · fraction of the cell with permafrost, from MAAT',
+          sourceDef: function () { return _pfSourceDef('pf_gruber_pzi', 9); }, defOpacity: 0.8 },
+        { id: 'pf-gruber-pzi60', layerId: 'ov-pf-gruber-pzi60', sourceId: 'ov-pf-gruber-pzi60-src',
+          label: 'Permafrost zonation index — terrain-downscaled',
+          sub: 'PZI 0–1, 60 m · Gruber MAAT lapse-rate fit per 10 km, applied to 3DEP elevation (our inference)',
+          sourceDef: function () { return _pfSourceDef('pf_gruber_pzi60', 11); }, defOpacity: 0.8 },
+        { id: 'pf-obu-prob', layerId: 'ov-pf-obu-prob', sourceId: 'ov-pf-obu-prob-src',
+          label: 'Permafrost probability — Obu 2019',
+          sub: 'probability 0–1, 1 km · TTOP model on MODIS land-surface temperature, 2000–2016',
+          sourceDef: function () { return _pfSourceDef('pf_obu_prob', 9); }, defOpacity: 0.8 },
+        { id: 'pf-obu-prob60', layerId: 'ov-pf-obu-prob60', sourceId: 'ov-pf-obu-prob60-src',
+          label: 'Permafrost probability — terrain-downscaled',
+          sub: 'probability 0–1, 60 m · Obu MAGT fit on elevation + aspect per 10 km (our inference)',
+          sourceDef: function () { return _pfSourceDef('pf_obu_prob60', 11); }, defOpacity: 0.8 },
+        { id: 'pf-obu-magt', layerId: 'ov-pf-obu-magt', sourceId: 'ov-pf-obu-magt-src',
+          label: 'Ground temperature — Obu 2019',
+          sub: '°C at the permafrost top, 1 km · 0 °C is the permafrost boundary',
+          sourceDef: function () { return _pfSourceDef('pf_obu_magt', 9); }, defOpacity: 0.8 },
+        { id: 'pf-obu-magt60', layerId: 'ov-pf-obu-magt60', sourceId: 'ov-pf-obu-magt60-src',
+          label: 'Ground temperature — terrain-downscaled',
+          sub: '°C, 60 m · the downscaled Obu MAGT the probability above is derived from (our inference)',
+          sourceDef: function () { return _pfSourceDef('pf_obu_magt60', 11); }, defOpacity: 0.8 },
+        { id: 'pf-pastick-nsp', layerId: 'ov-pf-pastick-nsp', sourceId: 'ov-pf-pastick-nsp-src',
+          label: 'Near-surface permafrost probability — Pastick 2015',
+          sub: 'probability 0–1 of permafrost within 1 m, 30 m, Alaska only · field-trained; water, ice, barren, developed masked',
+          sourceDef: function () { return _pfSourceDef('pf_pastick_nsp', 12); }, defOpacity: 0.8 },
         { id: 'opera-asc',  layerId: 'ov-opera-asc',    sourceId: 'ov-opera-asc-src',
           label: 'OPERA velocity — ascending', sub: 'InSAR, ±30 mm/yr · NASA/JPL + ASF',
           sourceDef: function () { return _operaSourceDef('asc'); }, defOpacity: 0.75 },
@@ -2388,6 +2384,17 @@
     var COHERENCE_TILE_V = '1';
     var COHERENCE_ATTR = 'Sentinel-1 coherence: Kellndorfer et al. 2022 ' +
                          '(doi:10.1038/s41597-022-01189-6, CC BY 4.0)';
+    var PF_ATTR = 'Permafrost: Gruber 2012 (UZH); Obu et al. 2019 (CC-BY 3.0); Pastick et al. 2015 (USGS); ' +
+                  'downscaled layers © landslidescience.org on Mapterhorn / USGS 3DEP terrain';
+    var GLAC_ATTR = 'Glacier area 2020: Roberts-Pierel, Kirchner, Kilbride & Kennedy (2022), NSIDC G10040, doi:10.7265/8esq-w553';
+    function _pfSourceDef(id, maxzoom, attr) {
+        return {
+            type: 'raster',
+            tiles: ['pmtiles://' + location.origin + '/overlays/' + id + '.pmtiles/{z}/{x}/{y}'],
+            tileSize: 256, minzoom: 3, maxzoom: maxzoom,
+            attribution: attr || PF_ATTR
+        };
+    }
     function _coherenceSourceDef(season) {
         return {
             type: 'raster',
@@ -2443,20 +2450,22 @@
     }
     // Encode the visible overlays for the URL hash: `<id>.l<pct>r<pct>` per
     // overlay, comma-joined; '' when nothing is visible (param omitted).
-    function _ovEncodeHash() {
-        var parts = [];
+    // The overlays that are on, in the codec's shape (ls_hash.js).
+    function _ovSpec(pinDates) {
+        var out = {};
         OVERLAYS.forEach(function (ov) {
             var st = _ovState[ov.id];
             if (!st || (!st.left && !st.right)) return;
-            var spec = '';
-            if (st.left)  spec += 'l' + Math.round(st.opLeft * 100);
-            if (st.right) spec += 'r' + Math.round(st.opRight * 100);
-            // Active data-variant travels as a `~s` id suffix so shared URLs
-            // and saved default views reproduce it (parseHashState splits it).
-            var idTok = ov.id + (ov.variant && ov.variant.get() ? '~s' : '');
-            parts.push(idTok + '.' + spec);
+            var e = { left: !!st.left, right: !!st.right, opLeft: st.opLeft, opRight: st.opRight,
+                      smooth: !!(ov.variant && ov.variant.get()) };
+            // A date the user chose travels with the overlay. One the row is
+            // merely tracking ("latest") does not, or reloading your own saved
+            // view would freeze it there -- except in a stored default view
+            // (pinDates), which should keep showing what its editor saw.
+            if (ov.stepper && (pinDates || !ov.stepper.isTracking())) e.date = ov.stepper.get();
+            out[ov.id] = e;
         });
-        return parts.join(',');
+        return out;
     }
     // Overwrite visibility from a parsed `ov` spec (unlisted overlays go off);
     // opacities of unlisted sides keep their current values.
@@ -2477,6 +2486,20 @@
                     ov.variant.set(want);
                     if (map.getLayer(ov.layerId)) _ovSwapSource(ov);
                 }
+            }
+            // A date in the hash is a deliberate choice, like picking it in
+            // the row. No date leaves the row alone (every link made before
+            // dates travelled says nothing about them). `all` only where the
+            // stepper offers it, and -- once the date list is in -- only a date
+            // the list actually has, so a mistyped link cannot park the row on
+            // an empty layer.
+            var dList = ov.stepper ? ov.stepper.list() : [];
+            if (ov.stepper && s && s.date &&
+                    (s.date !== 'all' || ov.stepper.kind === 'select') &&
+                    (s.date === 'all' || !dList.length || dList.indexOf(s.date) >= 0) &&
+                    (s.date !== ov.stepper.get() || ov.stepper.isTracking())) {
+                ov.stepper.set(s.date);
+                if (map.getLayer(ov.layerId)) _ovSwapSource(ov);
             }
         });
     }
@@ -2680,6 +2703,7 @@
         // (2026-09-16) -- the layer appeared and was silently thrown away.
         _traceReplayLayers();
         _lidarReplayLayers();
+        _extReplayLayers(map);          // mirrors survive a basemap change
 
         map.addSource('landslides', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addSource('polygons',   { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -2709,6 +2733,9 @@
         // Imagery added BEFORE these layers existed ended up on top of them;
         // put it back underneath now that they do.
         _traceReseat();
+        // And the staged (uncommitted) polygons, added on style.load before
+        // any of this, go back on top of it all.
+        if (map.getLayer('prov-fill')) ensureProvLayers();
     }
 
     // Traced imagery belongs at the BOTTOM of the data stack -- it is what the
@@ -2875,6 +2902,7 @@
             // _buildRasterUI nests the (editor-only) upload UI inside itself.
             rm.appendChild(_buildRasterUI());
             _lidarFetch();
+            if (!_extSources) _extFetchRegistry();
         }
         // The wiper's right-pane panel lists the same basemaps — refresh it so
         // newly merged QMS/shared layers appear there too.
@@ -3047,7 +3075,11 @@
                 d.layers.forEach(function (l) { if (!findBasemap(l.id)) BASEMAPS.push(l); });
                 rebuildBasemapUI();
             }).catch(function () {})
-            .then(function () { _applyPendingSwipe(); });  // hash wiper on a now-merged shared layer
+            .then(function () {   // hash wiper / basemap on a now-merged shared layer
+                _promotedSettled = true;
+                _applyPendingSwipe();
+                _applyPendingBase();
+            });
     }
 
     // Popup off a shared card's scope tag: re-scope an already-shared layer.
@@ -3233,6 +3265,7 @@
         // data, overlays are imagery-like and deliberately not mirrored.
         _ovEnsure(cmap);
         _lidarReplayLayers();   // right-pane lidar, incl. li= state restored before the wiper existed
+        _extReplayLayers(_swipe.map);
         if (!cmap.getSource('faults'))
             cmap.addSource('faults', { type: 'geojson', data: _faultsData || { type: 'FeatureCollection', features: [] } });
         if (!cmap.getLayer('faults-line')) cmap.addLayer(_faultsLayerDef());
@@ -3304,16 +3337,19 @@
         divr.appendChild(handle);
         host.appendChild(divr);
         _swipe.divider = divr;
-        var dragging = false;
-        divr.addEventListener('pointerdown', function (e) { dragging = true; divr.setPointerCapture(e.pointerId); e.preventDefault(); });
-        divr.addEventListener('pointermove', function (e) {
-            if (!dragging) return;
-            var r = host.getBoundingClientRect();
-            _swipeSetX((e.clientX - r.left) / r.width * 100);
-        });
-        divr.addEventListener('pointerup', function () {
-            dragging = false;
-            if (_mapReady) writeHashState();   // capture the divider position (sx=)
+        // LSTools.drag ends the gesture on pointercancel and lostpointercapture
+        // as well as pointerup. The hand-rolled version ended only on pointerup,
+        // so a drag interrupted by a tab switch left `dragging` true and the
+        // divider glued to the next pointer that wandered past. onEnd runs on a
+        // cancel too: the position is already applied, so the hash should say so.
+        LSTools.drag(divr, {
+            onMove: function (e) {
+                var r = host.getBoundingClientRect();
+                _swipeSetX((e.clientX - r.left) / r.width * 100);
+            },
+            onEnd: function () {
+                if (_mapReady) writeHashState();   // capture the divider position (sx=)
+            }
         });
 
         var bm = findBasemap(_swipe.basemapId) || findBasemap(DEFAULT_BASEMAP_ID);
@@ -3387,40 +3423,35 @@
         _swipeEnable(bm.id);
         _syncSwipeUI();
     }
+    // The basemap counterpart, for a base= naming a shared layer. Waits for
+    // both the promoted list and the first layer init: setBasemap before the
+    // palette exists would have its idle handler build data layers without one.
+    // A visitor who picked another basemap in the meantime keeps their choice,
+    // and a layer this visitor cannot see is dropped from the URL.
+    var _promotedSettled = false;
+    function _applyPendingBase() {
+        if (!_pendingBase || !_promotedSettled || !_layersInitialized) return;
+        var id = _pendingBase;
+        _pendingBase = null;
+        if (_currentBasemap === DEFAULT_BASEMAP_ID && findBasemap(id)) setBasemap(id);
+        else writeHashState();
+    }
 
     // ---------------------------------------------------------------------------
     // View-state strings — the hash format (`map=z/lat/lon&base=…&swipe=…&sx=…`,
     // no leading '#') doubling as a landslide's stored default view.
     // ---------------------------------------------------------------------------
+    // What a default view holds differs from the address bar in three ways
+    // (the rows of _VIEW_PARAMS implement them): the basemap is always
+    // pinned, so the view survives a change of site default; the layer lists
+    // are written even when EMPTY, because absent means "leave alone" and a
+    // view curated with nothing on would otherwise open over whatever the
+    // visitor last had on (views stored before 2026-10-06 lack the empty ones
+    // and behave as they did); and it carries NO filters and no explorer
+    // selection -- a record's default view is permanent and public, and a
+    // filter in it would hide other records from a visitor who never chose to.
     function _currentViewString() {
-        var c = map.getCenter(), z = map.getZoom();
-        // Unlike writeHashState, always pin the basemap: a curated view should
-        // reproduce its imagery even if the site default changes later.
-        // Deliberately NO `ids=` here even when an explorer selection is
-        // active: a record's stored default view is a permanent property of
-        // that record, and a transient "these 40 rows" selection has no
-        // business surviving in it. Don't add it.
-        var parts = ['map=' + z.toFixed(2) + '/' + c.lat.toFixed(4) + '/' + c.lng.toFixed(4),
-                     'base=' + _currentBasemap];
-        if (_swipe.on && _swipe.basemapId) {
-            parts.push('swipe=' + _swipe.basemapId);
-            parts.push('sx=' + Math.round(_swipe.x));
-        }
-        var ovh = _ovEncodeHash();
-        if (ovh) parts.push('ov=' + ovh);
-        var lih = _liEncodeHash();
-        if (lih) parts.push('li=' + lih);
-        // Imagery overlays. This builder is SEPARATE from writeHashState and
-        // has to be kept in step with it by hand: adding `im` to the hash
-        // alone left every stored default view silently without its imagery,
-        // which looked like a serving bug and was not (2026-09-16).
-        var imh = _imEncodeHash();
-        if (imh) parts.push('im=' + imh);
-        var tab = _activeSidebarTab();
-        if (tab !== 'inventory') parts.push('tab=' + tab);
-        var an = _anEncodeHash();
-        if (an) parts.push('an=' + an);
-        return parts.join('&');
+        return _viewStateString('view');
     }
     // Basemaps named by a view string that non-admin visitors cannot see:
     // an editor's browser-local QMS layer, or a shared QMS layer still scoped
@@ -3440,23 +3471,7 @@
     // overlays (views predating the ov param leave them alone), then fly to
     // its center/zoom.
     function applyViewString(v) {
-        var s = parseHashState('#' + v);
-        if (s.base && s.base !== _currentBasemap && findBasemap(s.base)) setBasemap(s.base);
-        if (s.swipe && findBasemap(s.swipe)) {
-            if (s.sx != null) _swipeSetX(s.sx);
-            _swipeEnable(s.swipe);
-        } else {
-            _swipeDisable();
-        }
-        if (s.ov) _ovApplyHashSpec(s.ov);
-        if (s.li) _liApplyHashSpec(s.li);
-        if (s.im) _imApplyHashSpec(s.im);
-        if (s.tab) _setSidebarTab(s.tab);
-        if (s.an) _anApplyHashSpec(s.an);
-        _syncSwipeUI();
-        if (s.lat != null && s.lon != null && s.zoom != null) {
-            map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
-        }
+        _applyViewState(parseHashState('#' + v), 'view');
     }
 
     // One overlay row for either pane's panel: full wrapping label + subtitle,
@@ -3497,6 +3512,11 @@
         det.addEventListener('toggle', function () {
             if (!det.open || filled) return;
             filled = true;
+            if (ov.keyNote) {   // a layer whose key is a sentence, not a ramp
+                body.textContent = ov.keyNote;
+                body.style.cssText += 'font-size:10px;color:#666;line-height:1.35;';
+                return;
+            }
             _loadRamps().then(function (ramps) {
                 var r = ramps[_rampKey(ov, ramps)];
                 if (!r) { body.textContent = 'no key available'; return; }
@@ -3630,6 +3650,7 @@
                 note.textContent = ''; note.title = '';
                 _ovSwapSource(ov);           // both panes; the date is global
                 _ovSyncUI();                 // repaint the twin pane's row
+                if (_mapReady) writeHashState();   // the chosen date travels in ov=
             };
 
             if (step.kind === 'select') {
@@ -3794,19 +3815,27 @@
     // defaults open when any of its overlays is visible on either pane —
     // hiding an ACTIVE layer's controls would be worse than clutter — and an
     // explicit user toggle overrides that, persisted per browser.
+    // The "N on" COUNT is per-pane, which is a different question from
+    // whether to open the group: see _ovRenderGrouped.
     // -----------------------------------------------------------------------
+    // Order and grouping per Hig, 2026-10-09: climate first (air and ground
+    // temperature side by side, same ramp), then what the surface is doing,
+    // then our susceptibility models, then glaciers as one group, then what
+    // is under the surface (permafrost indices and bedrock).
     var _OV_CATS = [
-        { key: 'susc',  label: 'Landslide susceptibility',
-          ids: ['susc-lw', 'susc-n10', 'susc-dggs'] },
-        { key: 'insar', label: 'InSAR ground motion',
-          ids: ['opera-asc', 'opera-desc', 'coh-summer'] },
+        { key: 'clim',  label: 'Climate',
+          ids: ['pf-gruber-maat', 'pf-gruber-maat60', 'pf-obu-magt', 'pf-obu-magt60'] },
         // 'dist-alert' stays listed although it is retired: _ovRenderGrouped
         // filters ids that are not in OVERLAYS, so this needs no edit if
         // DIST_ALERT_ACTIVE is flipped back on.
-        { key: 'dist',  label: 'Surface disturbance (OPERA DIST)',
-          ids: ['dist-ann', 'dist-alert'] },
-        { key: 'gsurf', label: 'Glacier surface',          ids: ['ice-v', 'ice-amp', 'ice-dvdt', 'ice-dhdt'] },
-        { key: 'gbed',  label: 'Ice thickness & bed',      ids: ['ice-thick', 'ice-bed', 'ice-over'] },
+        { key: 'surf',  label: 'Surface change',
+          ids: ['opera-asc', 'opera-desc', 'coh-summer', 'dist-ann', 'dist-alert'] },
+        { key: 'susc',  label: 'Landslide susceptibility',
+          ids: ['susc-lw', 'susc-n10', 'susc-dggs'] },
+        { key: 'glac',  label: 'Glaciers',
+          ids: ['glac-outline-2020', 'ice-v', 'ice-amp', 'ice-dvdt', 'ice-dhdt', 'ice-thick', 'ice-bed', 'ice-over'] },
+        { key: 'sub',   label: 'Subsurface',
+          ids: ['pf-gruber-pzi', 'pf-gruber-pzi60', 'pf-obu-prob', 'pf-obu-prob60', 'pf-pastick-nsp', 'geology'] },
     ];
     var _ovCatPrefs = (function () {
         try { return JSON.parse(localStorage.getItem('ls_ov_cats') || '{}') || {}; }
@@ -3828,15 +3857,29 @@
 
         cats.forEach(function (c) {
             if (!c.ovs.length) return;
-            var active = c.ovs.filter(function (ov) {
+            // Two different questions, and they were being answered by one
+            // number. The COUNT has to describe THIS pane, because so does
+            // every checkbox under it: the sidebar section drives the left
+            // pane, the wiper's panel the right. Counting either pane made a
+            // group read "1 on" with all of its boxes unticked -- and with no
+            // wiper open, the right-pane state being counted was not on
+            // screen anywhere, so the label pointed at nothing at all.
+            var activeHere = c.ovs.filter(function (ov) {
+                var st = _ovState[ov.id];
+                return st && st[side];
+            }).length;
+            // Whether to OPEN the group still asks about either pane, which
+            // is deliberate (see the note above _OV_CATS): showing an empty
+            // section beats hiding the controls of something that is drawn.
+            var activeEither = c.ovs.filter(function (ov) {
                 var st = _ovState[ov.id];
                 return st && (st.left || st.right);
             }).length;
             var det = document.createElement('details');
-            det.open = (c.key in _ovCatPrefs) ? !!_ovCatPrefs[c.key] : active > 0;
+            det.open = (c.key in _ovCatPrefs) ? !!_ovCatPrefs[c.key] : activeEither > 0;
             var sum = document.createElement('summary');
             sum.className = 'refmaps-category ov-cat-summary';
-            sum.textContent = c.label + (active ? ' · ' + active + ' on' : '');
+            sum.textContent = c.label + (activeHere ? ' · ' + activeHere + ' on' : '');
             det.appendChild(sum);
             c.ovs.forEach(function (ov) { det.appendChild(_overlayRow(ov, side)); });
             det.addEventListener('toggle', function () {
@@ -4074,10 +4117,11 @@
         Object.keys(_traceActive).forEach(function (id) { _traceAddLayer(+id); });
     }
     // --- imagery overlays in the shareable view state (`im=`) ----------------
-    function _imEncodeHash() {
-        return Object.keys(_traceActive).sort(function (a, b) { return a - b; })
-            .map(function (id) { return id + '.l' + Math.round(_traceActive[id] * 100); })
-            .join(',');
+    function _imSpec() {
+        var out = {};
+        Object.keys(_traceActive).sort(function (a, b) { return a - b; })
+            .forEach(function (id) { out[id] = _traceActive[id]; });
+        return out;
     }
     // Overwrite imagery visibility from a parsed `im` spec: listed rows go on at
     // the given opacity, unlisted ones go off. Rows the viewer cannot see are
@@ -4085,6 +4129,9 @@
     // editor-only upload must still open for a visitor, just without it.
     function _imApplyHashSpec(spec) {
         if (!_traceRasters.length) {
+            // An empty spec with no list loaded has nothing to turn off, and
+            // is no reason to fetch the list for a visitor.
+            if (!spec || !Object.keys(spec).length) { _pendingIm = null; return; }
             // Not in yet. For an editor the boot load is already on its way;
             // for a visitor nothing would ever fetch it, so ask now.
             _pendingIm = spec;
@@ -4457,7 +4504,15 @@
         // which is most of a mod-5 base. Converged 2026-09-20 so the two
         // viewers mean the same thing by the same word.
         preset:    { label: 'Preset',
-                     opts: { hs: 1, sl: 0.6, md: 1, as: 0, az: 315, alt: 45, ve: 1, bl: 2 } }
+                     opts: { hs: 1, sl: 0.6, md: 1, as: 0, az: 315, alt: 45, ve: 1, bl: 2 } },
+        // Not a shading at all: the orthomosaic from the same flight, drawn
+        // as a plain raster. It lives in this table and in the same dropdown
+        // because that is what it is to the person using it -- another way to
+        // look at one survey -- and keeping it here buys one layer per survey,
+        // one state field and one hash code instead of a parallel set of each.
+        // Offered only where the catalogue advertises ortho_url, which today
+        // means the SfM flights; a lidar DTM has no imagery to show.
+        ortho:     { label: 'Ortho (imagery)', ortho: true }
     };
 
     function _lidarFetch() {
@@ -4494,6 +4549,7 @@
                 // resolvable only now. Unknown ids (a gated or retired survey)
                 // are simply skipped.
                 if (_pendingLi) { var pl = _pendingLi; _pendingLi = null; _liApplyHashSpec(pl); }
+                if (typeof LSProfile !== 'undefined') LSProfile.onCatalog();   // a profile from the URL waits for this
                 _rasterUiKey = '';
                 _rasterPanelRefresh();
             })
@@ -4552,8 +4608,18 @@
         if (!f) return;
         var p = f.properties;
         var st = state[id] || (state[id] = { preset: 'hillshade', opacity: 1 });
+        // A shared link or a stored default view can name a rendering this
+        // survey cannot do. Fall back rather than adding a source whose every
+        // tile 404s, which looks like a broken map rather than a missing product.
+        if (st.preset === 'ortho' && !p.ortho_url) st.preset = 'hillshade';
         var srcId = 'lidar-src-' + id, lyrId = _lidarLayerId(id);
-        var url = DemShade.url(id, LIDAR_PRESETS[st.preset].opts);
+        // The ortho is a photograph, not a surface, so it is a plain pmtiles
+        // raster with no shading pipeline. Same layer id and same slot in the
+        // stack as the shaded DEM: one overlay per survey that can draw
+        // different things, not a second overlay competing for position.
+        var url = st.preset === 'ortho'
+            ? 'pmtiles://' + new URL(p.ortho_url, location.href).href + '/{z}/{x}/{y}'
+            : DemShade.url(id, LIDAR_PRESETS[st.preset].opts);
         if (!m.getSource(srcId)) {
             m.addSource(srcId, {
                 type: 'raster', tiles: [url], tileSize: 256,
@@ -4599,19 +4665,18 @@
     // `<id>.<preset>l<pct>r<pct>` per survey (see the hash grammar comment at
     // the top). One preset per survey: the main pane's if it is on there,
     // else the wiper pane's.
-    function _liEncodeHash() {
+    function _liSpec() {
         var ids = {};
         Object.keys(_lidarActive).forEach(function (id) { ids[id] = 1; });
         Object.keys(_lidarActiveR).forEach(function (id) { ids[id] = 1; });
-        var parts = [];
+        var out = {};
         Object.keys(ids).sort().forEach(function (id) {
             var L = _lidarActive[id], R = _lidarActiveR[id];
-            var spec = '';
-            if (L) spec += 'l' + Math.round(L.opacity * 100);
-            if (R) spec += 'r' + Math.round(R.opacity * 100);
-            parts.push(id + '.' + (LIDAR_PRESET_CODE[(L || R).preset] || 'h') + spec);
+            out[id] = { preset: (L || R).preset, presetR: R ? R.preset : null,
+                        left: !!L, right: !!R,
+                        opLeft: L ? L.opacity : null, opRight: R ? R.opacity : null };
         });
-        return parts.join(',');
+        return out;
     }
     // Overwrite lidar visibility from a parsed `li` spec: listed surveys go on
     // with the given preset/opacity per pane, unlisted ones go off. Layers are
@@ -4633,7 +4698,7 @@
                 delete _lidarActive[id];
             }
             if (e && e.right) {
-                _lidarActiveR[id] = { preset: e.preset || 'hillshade',
+                _lidarActiveR[id] = { preset: e.presetR || e.preset || 'hillshade',
                                       opacity: e.opRight != null ? e.opRight : 1 };
             } else if (_lidarActiveR[id]) {
                 if (_swipe.map && _swipe.map.__lsStyleReady) _lidarRemoveLayer(id, _swipe.map);
@@ -4918,6 +4983,9 @@
         var sel = document.createElement('select');
         sel.style.cssText = 'font-size:11px;width:100%;margin-bottom:3px;';
         Object.keys(LIDAR_PRESETS).forEach(function (k) {
+            // The shadings are computed from tiles every survey has; the
+            // orthomosaic is a separate product only some flights produced.
+            if (k === 'ortho' && !p.ortho_url) return;
             var o = document.createElement('option');
             o.value = k; o.textContent = LIDAR_PRESETS[k].label;
             if (st && st.preset === k) o.selected = true;
@@ -4960,6 +5028,553 @@
             writeHashState();   // li= must track what is actually on
         });
         return row;
+    }
+
+
+    // -----------------------------------------------------------------------
+    // Other people's landslide inventories (inventory/external.py)
+    //
+    // These are MIRRORS, not our data: each publisher's table keeps their
+    // columns and their wording, and nothing here translates a record into
+    // our schema. The popup therefore shows whatever fields that row actually
+    // populated, labelled the way the publisher labels them -- which is the
+    // only thing we can honestly claim to know about their records.
+    //
+    // WHY THESE ARE FETCHED BY BBOX AND NOT SHIPPED WHOLE
+    // Our own inventory is ~1,500 features and ships once. These are 77,142
+    // across six layers, and Canada alone is 31,005 points with 28 attributes
+    // each. So the endpoint takes a bbox and a cap, and the layer refetches on
+    // moveend. A cap that is silently hit would look like sparse data, so the
+    // row says when it truncated rather than letting the map imply a gap.
+    //
+    // WHY A ZOOM FLOOR
+    // Below EXT_MIN_ZOOM a continental view would ask for every point in
+    // Alaska or Canada, hit the cap, and draw a smear that means nothing. The
+    // row stays visible and says to zoom in, because "no data here" and "too
+    // far out to ask" are different answers and the map should not conflate
+    // them.
+    // -----------------------------------------------------------------------
+    var EXT_MIN_ZOOM = 7;
+    var _extSources = null;     // registry from api/external/
+    var _extActive = {};        // "sid/layer" -> true
+    var _extData = {};          // "sid/layer" -> last FeatureCollection
+    var _extNote = {};          // "sid/layer" -> {n, truncated, far}
+    var _extTimer = null;
+    var _extSeq = 0;
+    var _extPending = null;    // ext= seen before the registry arrived
+
+    function _extKey(sid, layer) { return sid + '/' + layer; }
+    function _extSrcId(k) { return 'ext-src-' + k.replace('/', '__'); }
+    function _extLyrId(k, kind) { return 'ext-' + kind + '-' + k.replace('/', '__'); }
+
+    // One def builder per geometry kind, so the wiper's right pane can mirror
+    // these exactly as it mirrors faults and survey circles.
+    function _extLayerDefs(k, geom, colour) {
+        var src = _extSrcId(k);
+        if (geom === 'POINT') {
+            return [{
+                id: _extLyrId(k, 'circle'), type: 'circle', source: src,
+                paint: {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 2.5, 12, 4.5, 16, 7],
+                    'circle-color': colour,
+                    'circle-opacity': 0.85,
+                    'circle-stroke-width': 1,
+                    'circle-stroke-color': '#ffffff',
+                    'circle-stroke-opacity': 0.9
+                }
+            }];
+        }
+        if (geom === 'MULTIPOLYGON') {
+            return [
+                { id: _extLyrId(k, 'fill'), type: 'fill', source: src,
+                  paint: { 'fill-color': colour, 'fill-opacity': 0.18 } },
+                { id: _extLyrId(k, 'line'), type: 'line', source: src,
+                  paint: { 'line-color': colour, 'line-width': 1.2, 'line-opacity': 0.9 } }
+            ];
+        }
+        return [{
+            id: _extLyrId(k, 'line'), type: 'line', source: src,
+            paint: { 'line-color': colour, 'line-width': 2, 'line-opacity': 0.9,
+                     'line-dasharray': [3, 1.5] }
+        }];
+    }
+
+    function _extEnsure(k, geom, colour, m) {
+        m = m || map;
+        if (!m || !m.getStyle) return;
+        // Ticking the box before the style has finished loading used to return
+        // here and never come back: the fetch still ran and the row still said
+        // "N in view", so the count claimed data the map was not drawing. Wait
+        // for the style instead of dropping the request on the floor.
+        if (!m.isStyleLoaded || !m.isStyleLoaded()) {
+            m.once('idle', function () {
+                if (_extActive[k]) _extEnsure(k, geom, colour, m);
+            });
+            return;
+        }
+        var src = _extSrcId(k);
+        if (!m.getSource(src)) {
+            m.addSource(src, { type: 'geojson',
+                data: _extData[k] || { type: 'FeatureCollection', features: [] } });
+        }
+        // Below the landslide points so our own records always win a click,
+        // and so an external layer can never hide the inventory it sits beside.
+        var before = m.getLayer('points') ? 'points' : undefined;
+        _extLayerDefs(k, geom, colour).forEach(function (def) {
+            if (!m.getLayer(def.id)) m.addLayer(def, before);
+        });
+    }
+
+    function _extRemove(k, geom, m) {
+        m = m || map;
+        if (!m || !m.getStyle || !m.getStyle()) return;
+        _extLayerDefs(k, geom, '#000').forEach(function (def) {
+            if (m.getLayer(def.id)) m.removeLayer(def.id);
+        });
+        if (m.getSource(_extSrcId(k))) m.removeSource(_extSrcId(k));
+    }
+
+    function _extSetData(k, fc) {
+        // Cached first: a source created later reads _extData for its initial
+        // data, so an answer that arrives before the layer exists is kept
+        // rather than lost.
+        _extData[k] = fc;
+        [map, _swipe && _swipe.map].forEach(function (m) {
+            if (m && m.getSource && m.getSource(_extSrcId(k))) m.getSource(_extSrcId(k)).setData(fc);
+        });
+    }
+
+    function _extRefresh() {
+        var keys = Object.keys(_extActive);
+        if (!keys.length || !map) return;
+        var far = map.getZoom() < EXT_MIN_ZOOM;
+        var b = map.getBounds();
+        var bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
+                   .map(function (v) { return v.toFixed(5); }).join(',');
+        var seq = ++_extSeq;
+        keys.forEach(function (k) {
+            if (far) {
+                _extNote[k] = { far: true };
+                _extSetData(k, { type: 'FeatureCollection', features: [] });
+                _extRenderNotes();
+                return;
+            }
+            var parts = k.split('/');
+            fetch(API_BASE + 'api/external/' + parts[0] + '/' + parts[1] + '/?bbox=' + bbox)
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (fc) {
+                    // A slow response from a pan the user has already left
+                    // would repaint the previous view's features over the new
+                    // one, so late answers are dropped rather than drawn.
+                    if (!fc || seq !== _extSeq || !_extActive[k]) return;
+                    _extSetData(k, fc);
+                    _extNote[k] = { n: fc.features.length, truncated: !!fc.truncated };
+                    _extRenderNotes();
+                })
+                .catch(function (e) { console.error('external fetch failed', k, e); });
+        });
+    }
+
+    function _extRefreshSoon() {
+        if (_extTimer) clearTimeout(_extTimer);
+        _extTimer = setTimeout(_extRefresh, 250);
+    }
+
+    function _extRenderNotes() {
+        Object.keys(_extNote).forEach(function (k) {
+            var el = document.getElementById('extnote-' + k.replace('/', '__'));
+            if (!el) return;
+            var s = _extNote[k];
+            if (!_extActive[k]) { el.textContent = ''; return; }
+            el.textContent = s.far ? 'zoom in to load'
+                : s.truncated ? (s.n + ' shown — zoom in for the rest')
+                : (s.n + ' in view');
+        });
+    }
+
+    // Encode/apply, mirroring _lidarEncode / the li= applier. Only the layers
+    // actually on are listed; an empty set writes nothing, so a reader who has
+    // never touched these never sees the parameter.
+    function _extSpec() {
+        var out = {};
+        Object.keys(_extActive).sort().forEach(function (k) { out[k] = true; });
+        return out;
+    }
+
+    function _extApply(want) {
+        if (!want || !_extSources) return;
+        // Off first, so a link that names a different set does not leave the
+        // previous one drawn underneath it.
+        Object.keys(_extActive).forEach(function (k) {
+            if (want[k]) return;
+            var parts = k.split('/');
+            var s0 = _extSources.filter(function (x) { return x.id === parts[0]; })[0];
+            var L0 = s0 && s0.layers.filter(function (x) { return x.layer === parts[1]; })[0];
+            delete _extActive[k];
+            delete _extNote[k];
+            if (L0) {
+                _extRemove(k, L0.geom, map);
+                if (_swipe && _swipe.map) _extRemove(k, L0.geom, _swipe.map);
+            }
+        });
+        Object.keys(want).forEach(function (k) {
+            if (_extActive[k]) return;
+            var parts = k.split('/');
+            var s0 = _extSources.filter(function (x) { return x.id === parts[0]; })[0];
+            var L0 = s0 && s0.layers.filter(function (x) { return x.layer === parts[1]; })[0];
+            if (!L0) return;          // a source that is no longer mirrored
+            _extActive[k] = true;
+            _extEnsure(k, L0.geom, s0.colour, map);
+            if (_swipe && _swipe.map) _extEnsure(k, L0.geom, s0.colour, _swipe.map);
+        });
+        _extBuildUI();
+        _extRefresh();
+    }
+
+    function _extReplayLayers(m) {
+        if (!_extSources) return;
+        Object.keys(_extActive).forEach(function (k) {
+            var parts = k.split('/');
+            var s = _extSources.filter(function (x) { return x.id === parts[0]; })[0];
+            if (!s) return;
+            var L = s.layers.filter(function (x) { return x.layer === parts[1]; })[0];
+            if (L) _extEnsure(k, L.geom, s.colour, m);
+        });
+    }
+
+    function _extBuildUI() {
+        var host = document.getElementById('ext-inventories');
+        if (!host || !_extSources || !_extSources.length) return;
+        host.innerHTML = '';
+        var h = document.createElement('div');
+        h.style.cssText = 'font-size:11px;color:#666;text-transform:uppercase;' +
+                          'letter-spacing:0.5px;margin:10px 0 4px;';
+        h.textContent = 'Other landslide inventories';
+        host.appendChild(h);
+        var note = document.createElement('div');
+        note.style.cssText = 'font-size:10px;color:#999;margin-bottom:5px;line-height:1.35;';
+        note.textContent = 'Published by others and mirrored here unchanged. ' +
+                           'Click a feature to see the fields they recorded.';
+        host.appendChild(note);
+
+        _extSources.forEach(function (s) {
+            var box = document.createElement('div');
+            box.style.cssText = 'margin-bottom:6px;';
+            var title = document.createElement('div');
+            title.style.cssText = 'font-size:11px;font-weight:600;color:#444;display:flex;' +
+                                  'align-items:center;gap:5px;';
+            // One box for the whole source when it has several layers (DGGS
+            // ships five), so turning all of it on is one click, not five.
+            // Tri-state: indeterminate while only some of its layers are on.
+            var rows = [];
+            var all = null;
+            if (s.layers.length > 1) {
+                all = document.createElement('input');
+                all.type = 'checkbox';
+                all.title = 'Show or hide every layer of this inventory';
+                all.style.margin = '0';
+                title.appendChild(all);
+            }
+            function syncAll() {
+                if (!all) return;
+                var on = rows.filter(function (r) { return r.cb.checked; }).length;
+                all.checked = on === rows.length;
+                all.indeterminate = on > 0 && on < rows.length;
+            }
+            var sw = document.createElement('span');
+            sw.style.cssText = 'width:9px;height:9px;border-radius:50%;flex:none;background:' +
+                               s.colour + ';border:1px solid #fff;box-shadow:0 0 0 1px #bbb;';
+            title.appendChild(sw);
+            var a = document.createElement('a');
+            a.href = s.url; a.target = '_blank'; a.rel = 'noopener';
+            a.textContent = s.title;
+            a.style.cssText = 'color:#444;text-decoration:none;border-bottom:1px dotted #bbb;';
+            a.title = s.citation + '\n\n' + s.licence;
+            title.appendChild(a);
+            box.appendChild(title);
+
+            s.layers.forEach(function (L) {
+                var k = _extKey(s.id, L.layer);
+                var lab = document.createElement('label');
+                lab.className = 'nav-filter-label small';
+                lab.style.cssText = 'margin-left:14px;display:block;';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = !!_extActive[k];
+                lab.appendChild(cb);
+                lab.appendChild(document.createTextNode(' ' + L.label + ' '));
+                var cnt = document.createElement('span');
+                cnt.style.cssText = 'color:#999;font-size:10px;';
+                cnt.textContent = '(' + L.count.toLocaleString() + ')';
+                lab.appendChild(cnt);
+                var st = document.createElement('span');
+                st.id = 'extnote-' + k.replace('/', '__');
+                st.style.cssText = 'display:block;margin-left:18px;color:#888;font-size:10px;';
+                var row = { k: k, L: L, cb: cb, st: st };
+                rows.push(row);
+                cb.addEventListener('change', function () {
+                    _extToggle(row, s, cb.checked);
+                    syncAll();
+                    _extRefresh();
+                    if (window.LSTrack) LSTrack.event('overlay', { which: 'ext:' + k });
+                });
+                lab.appendChild(st);
+                box.appendChild(lab);
+            });
+            if (all) {
+                syncAll();
+                all.addEventListener('change', function () {
+                    var on = all.checked;
+                    rows.forEach(function (r) {
+                        if (r.cb.checked === on) return;
+                        r.cb.checked = on;
+                        _extToggle(r, s, on);
+                    });
+                    syncAll();
+                    _extRefresh();   // once, for every layer just switched on
+                    if (window.LSTrack) LSTrack.event('overlay', { which: 'ext:' + s.id + '/*' });
+                });
+            }
+            host.appendChild(box);
+        });
+    }
+
+    // Switch one mirrored layer on or off on both panes. The caller refreshes,
+    // so turning a whole source on fetches once rather than once per layer.
+    function _extToggle(r, s, on) {
+        if (on) {
+            _extActive[r.k] = true;
+            _extEnsure(r.k, r.L.geom, s.colour, map);
+            if (_swipe && _swipe.map) _extEnsure(r.k, r.L.geom, s.colour, _swipe.map);
+        } else {
+            delete _extActive[r.k];
+            delete _extNote[r.k];
+            _extRemove(r.k, r.L.geom, map);
+            if (_swipe && _swipe.map) _extRemove(r.k, r.L.geom, _swipe.map);
+            r.st.textContent = '';
+        }
+    }
+
+    function _extFetchRegistry() {
+        fetch(API_BASE + 'api/external/')
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                if (!d || !d.sources) return;
+                _extSources = d.sources;
+                _extBuildUI();
+                // A link or restored view may have named layers before the
+                // registry existed; apply it now that the ids mean something.
+                var want = _extPending || _pendingExt;
+                if (want) { _extApply(want); _extPending = null; _pendingExt = null; }
+            })
+            .catch(function (e) { console.error('external registry failed', e); });
+    }
+
+    // Click: show whatever fields this record actually carries, in the
+    // publisher's own words and their own column order. No curation beyond
+    // dropping empties -- deciding which of someone else's fields matter is
+    // the kind of judgement this whole design exists to postpone.
+    function _extPopup(e, s, L) {
+        var p = e.features[0].properties || {};
+        var rows = '';
+        (L.field_order || Object.keys(p)).forEach(function (c) {
+            var v = p[c];
+            if (v === undefined || v === null || v === '') return;
+            if (c === 'id' || c === 'fetched_at') return;
+            rows += '<div style="margin:1px 0;display:flex;gap:6px;">' +
+                    '<span style="color:#888;flex:none;">' + esc(L.fields[c] || c) + ':</span>' +
+                    '<span>' + esc(String(v)) + '</span></div>';
+        });
+        // Only the FIELD LIST scrolls. The heading says whose data this is and
+        // the footer carries the citation both licences require, so neither
+        // may scroll out of sight -- and a records-long panel that opened
+        // somewhere in its own middle was doing exactly that.
+        var html = '<div style="font:12px/1.4 system-ui,sans-serif;max-width:300px;">' +
+            '<div style="font-weight:600;color:' + s.colour + ';margin-bottom:3px;">' +
+                esc(s.short) + ' · ' + esc(L.label) + '</div>' +
+            '<div class="ext-fields" style="max-height:280px;overflow:auto;">' +
+                rows + '</div>' +
+            '<div style="margin-top:5px;color:#aaa;font-size:10px;border-top:1px solid #eee;' +
+            'padding-top:4px;">' + esc(s.citation) + ' <a href="' + esc(s.url) +
+            '" target="_blank" rel="noopener">source</a><br>Mirrored unmodified; ' +
+            'not part of this inventory.</div>' +
+            (window._isInventoryEditor
+                ? '<div style="margin-top:7px;border-top:1px solid #eee;padding-top:7px;">' +
+                  '<button type="button" class="ext-promote" style="font-size:11px;' +
+                  'padding:4px 9px;cursor:pointer;">＋ Promote into the inventory</button>' +
+                  '<div style="color:#999;font-size:10px;margin-top:3px;">Traces a new ' +
+                  'outline and opens the review form. Nothing is copied automatically.</div>' +
+                  '</div>'
+                // Say why the button is absent rather than just omitting it.
+                // A signed-out editor otherwise sees a popup identical to the
+                // one they expect minus the control, with nothing to explain
+                // the difference -- which cost real time the first time it
+                // happened. The same reasoning as the sign-in note in
+                // CLAUDE.md: a missing affordance should account for itself.
+                : '<div style="margin-top:7px;border-top:1px solid #eee;padding-top:7px;' +
+                  'color:#999;font-size:10px;">' +
+                  '<a href="/inventory/login/">Sign in</a> as an editor to promote ' +
+                  'this record into the inventory.</div>') +
+            '</div>';
+        // focusAfterOpen:false stops MapLibre focusing the close button, which
+        // the browser then scrolls into view; resetting scrollTop afterwards
+        // covers the case where something else has already moved it.
+        var pop = LSTools.popup.show(new maplibregl.Popup({ maxWidth: '330px', focusAfterOpen: false })
+            .setLngLat(e.lngLat).setHTML(html).addTo(map));
+        var box = pop.getElement().querySelector('.ext-fields');
+        if (box) box.scrollTop = 0;
+        var pbtn = pop.getElement().querySelector('.ext-promote');
+        if (pbtn) pbtn.addEventListener('click', function () {
+            _promoteStart(s, L, p);
+        });
+    }
+
+    // Every active mirror layer with the source/layer it belongs to. `layers`
+    // is a FUNCTION on the dispatcher entry because this set changes as the
+    // reader ticks boxes.
+    function _extActiveLayers() {
+        var out = [];
+        if (!_extSources) return out;
+        Object.keys(_extActive).forEach(function (k) {
+            var parts = k.split('/');
+            var s = _extSources.filter(function (x) { return x.id === parts[0]; })[0];
+            if (!s) return;
+            var L = s.layers.filter(function (x) { return x.layer === parts[1]; })[0];
+            if (!L) return;
+            _extLayerDefs(k, L.geom, s.colour).forEach(function (d) {
+                out.push({ id: d.id, s: s, L: L });
+            });
+        });
+        return out;
+    }
+    function _extWireClicks() {
+        // A REFERENCE entry, so it opens alongside our own record's panel and
+        // no longer depends on which of our layers the cursor is over. The old
+        // handler deferred to `points` but not to `polygon-fill`, so the same
+        // external point showed its popup inside one of our polygons and not
+        // on one of our dots -- the asymmetry that prompted this whole review.
+        LSTools.clicks.register({
+            id: 'external', kind: 'reference', priority: 10,
+            layers: function () { return _extActiveLayers().map(function (x) { return x.id; }); },
+            handler: function (f, e) {
+                var lid = f.layer && f.layer.id;
+                var m = _extActiveLayers().filter(function (x) { return x.id === lid; })[0];
+                if (m) _extPopup({ features: [f], lngLat: e.lngLat }, m.s, m.L);
+            }
+        });
+        map.on('moveend', _extRefreshSoon);
+    }
+
+
+    // -----------------------------------------------------------------------
+    // Promoting one mirrored record into this inventory.
+    //
+    // A promotion is NOT a copy. Their point says "something happened near
+    // here" and carries their reading of what; our inventory wants an outline
+    // and our own classification. So the flow is: their record supplies the
+    // prompt and the provenance, the editor supplies the geometry and every
+    // field, and the record lands in the review queue like any other new one.
+    //
+    // It deliberately reuses the existing draw tool rather than inventing a
+    // second creation path. Trace, name, commit, review is the flow editors
+    // already know, and everything hanging off it -- the name-collision block,
+    // the 5 km attach guard, the rule cascade, the audit log -- applies here
+    // for free. The only additions are a pre-filled name and a note of where
+    // the idea came from.
+    // -----------------------------------------------------------------------
+    var _promote = null;   // {sid, short, layer, extId, name, colour, props}
+
+    function _promoteSuggestName(s, L, p) {
+        // Their name if they gave one. Their databases are not named to our
+        // standard, so this is a starting point for the editor, never an
+        // answer: the naming rules at /inventory/naming/ still apply and the
+        // review form is where the name gets settled.
+        var nameCol = null;
+        Object.keys(L.fields || {}).forEach(function (c) {
+            if (!nameCol && /^name$/i.test(L.fields[c])) nameCol = c;
+        });
+        var n = nameCol ? p[nameCol] : null;
+        return (n && String(n).trim()) || '';
+    }
+
+    function _promoteIdOf(s, L, p) {
+        return p.ext_id || p.points_id || p.ls_id || p.objectid || '';
+    }
+
+    function _promoteStart(s, L, p) {
+        if (!window._isInventoryEditor) return;
+        _promote = {
+            sid: s.id, short: s.short, layer: L.layer, colour: s.colour,
+            extId: String(_promoteIdOf(s, L, p) || ''),
+            name: _promoteSuggestName(s, L, p),
+            props: p, fields: L.fields || {}, order: L.field_order || []
+        };
+        // Close any popup so the map is clear to trace on.
+        var pops = document.querySelectorAll('.maplibregl-popup');
+        for (var i = 0; i < pops.length; i++) pops[i].remove();
+        if (_drawCtrl) _drawCtrl.activate('poly');
+        _promoteBanner();
+    }
+
+    function _promoteCancel() {
+        _promote = null;
+        var b = document.getElementById('promote-banner');
+        if (b && b.parentNode) b.parentNode.removeChild(b);
+    }
+
+    function _promoteBanner() {
+        if (!_promote) return;
+        var old = document.getElementById('promote-banner');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+        var b = document.createElement('div');
+        b.id = 'promote-banner';
+        b.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);' +
+            'z-index:12;background:#fff;border:1px solid ' + _promote.colour + ';' +
+            'border-left:5px solid ' + _promote.colour + ';border-radius:4px;' +
+            'padding:7px 11px;font:12px/1.4 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.18);' +
+            'max-width:440px;';
+        b.innerHTML =
+            '<div style="font-weight:600;">Promoting from ' + esc(_promote.short) + '</div>' +
+            '<div style="color:#555;margin-top:2px;">' +
+              (_promote.name ? '“' + esc(_promote.name) + '” · ' : '') +
+              'their id ' + esc(_promote.extId || '—') + '</div>' +
+            '<div style="color:#666;margin-top:4px;">Trace the outline, press <b>Enter</b>, ' +
+              'then name it. Their fields travel with it for reference — none are copied.</div>' +
+            '<div style="text-align:right;margin-top:5px;">' +
+              '<button id="promote-cancel" type="button" style="font-size:11px;">Cancel promotion</button></div>';
+        map.getContainer().appendChild(b);
+        var c = document.getElementById('promote-cancel');
+        if (c) c.addEventListener('click', function () {
+            _promoteCancel();
+            if (_drawCtrl) _drawCtrl.deactivate();
+        });
+    }
+
+    // After the draw tool commits, the new landslide exists and we are about
+    // to land on its review form. Stamp the provenance first, through the same
+    // per-field endpoint the form's own autosave uses -- so there is exactly
+    // one way a column on `landslides` gets written from the browser.
+    function _promoteStamp(redirect) {
+        var m = /\/manage\/(?:review\/)?(\d+)/.exec(redirect || '');
+        if (!m || !_promote) return Promise.resolve();
+        var pr = _promote;
+        // One server call, not a field at a time. The rules live in the
+        // registry and one of them CLEARS a column -- the draw commit has
+        // already stamped this editor into noted_by, and a promotion has to
+        // undo that, because somebody else made the observation. Doing it
+        // field by field from here would leave the editor's name on another
+        // person's record whenever one call failed.
+        return fetch('/inventory/api/external/' + pr.sid + '/' + pr.layer +
+                     '/promote/' + encodeURIComponent(pr.extId) + '/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
+            body: JSON.stringify({ landslide_id: parseInt(m[1], 10) })
+        }).catch(function (e) {
+            // A failed stamp must not lose the landslide the editor just drew:
+            // the record is already committed and the redirect still happens.
+            // Provenance can be set by hand on the form.
+            console.error('promotion rules failed to apply', e);
+        });
     }
 
     // Planet scene ids lead with the capture timestamp: 20240712_115100_43_2459_3B_...
@@ -5407,7 +6022,6 @@
         });
 
         rebuildBasemapUI();
-        if (_initialHash.tab) _setSidebarTab(_initialHash.tab); // sidebar tab from the URL / saved view
         _applyPendingSwipe(); // wiper from the URL hash / saved view (built-in + local layers)
         _loadPromotedQms();   // merge admin-curated shared layers (public set for everyone)
         // Editor GeoTIFF overlays. Normally a no-op for the public -- but a
@@ -5616,19 +6230,104 @@
     var suscLwDual  = _setupDual('susc-lw',  fmtSuscRange);
     var yearDual    = _setupDual('year',     fmtYearRange);
 
-    var cbMolards      = document.getElementById('cb-molards');
+    // The "include only" boxes that are NOT landslide features. The eight
+    // feature boxes (molards, tsunamigenic, …) became the three-way feature
+    // filter below (_ft*) on 2026-10-06.
     var cbStream       = document.getElementById('cb-stream');
-    var cbHeadscarp    = document.getElementById('cb-headscarp');
     var cbSiteVolume   = document.getElementById('cb-site-volume');
-    var cbSupraglacial = document.getElementById('cb-supraglacial');
-    var cbPermafrost   = document.getElementById('cb-permafrost');
     var cbTimed        = document.getElementById('cb-timed');
     var cbSeismic      = document.getElementById('cb-seismic');
-    var cbPost2012     = document.getElementById('cb-post2012');
-    var cbTsunamigenic = document.getElementById('cb-tsunamigenic');
-    var cbGlacierContact = document.getElementById('cb-glacier-contact');
-    var cbSuperElevated = document.getElementById('cb-super-elevated');
     var cbFlagged      = document.getElementById('cb-flagged');   // editor-only
+
+    // ---- Landslide features: three-way filter -----------------------------
+    // One row per vocabulary value (rendered by home.html from the same
+    // vocabulary the edit form offers): must have / neutral / exclude. State
+    // is {value: 'must'|'excl'} (neutral = absent). A record's features
+    // arrive as an array property (`features`, in _FILTER_PROPS_SQL on both
+    // the points and the polygons source, and on the chart events), so a
+    // value added in the form is filterable without a column anywhere.
+    var _ftState = {};
+    var _ftRows = Array.prototype.slice.call(document.querySelectorAll('#ft-filter .ft-row'));
+    function _ftSlug(v) {   // URL token for a value: lower-case, runs of non-alphanumerics -> '-'
+        return String(v).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    }
+    function _ftValueOf(slug) {
+        for (var i = 0; i < _ftRows.length; i++) {
+            if (_ftSlug(_ftRows[i].dataset.value) === slug) return _ftRows[i].dataset.value;
+        }
+        return null;
+    }
+    function _ftPaint() {
+        _ftRows.forEach(function (row) {
+            var st = _ftState[row.dataset.value] || 'neutral';
+            row.classList.toggle('ft-must', st === 'must');
+            row.classList.toggle('ft-excl', st === 'excl');
+            row.querySelectorAll('.ft-tri button').forEach(function (b) {
+                b.classList.toggle('on', b.dataset.s === st);
+            });
+        });
+    }
+    function _ftSet(value, st) {
+        if (st === 'neutral') delete _ftState[value]; else _ftState[value] = st;
+    }
+    _ftRows.forEach(function (row) {
+        row.querySelectorAll('.ft-tri button').forEach(function (b) {
+            b.addEventListener('click', function () {
+                _ftSet(row.dataset.value, b.dataset.s);
+                _ftPaint();
+                window.LSTrack && LSTrack.event('explore_filter', { column: 'features' });
+                buildFilter();
+            });
+        });
+    });
+    // ft=<slug>,!<slug>,…  listed = must have, !-prefixed = exclude, unlisted =
+    // neutral. Present fully describes the set. Values travel by name so the
+    // vocabulary can grow without a bit table; a slug naming a value this
+    // page does not know is ignored.
+    function _ftEncode() {
+        var out = [];
+        _ftRows.forEach(function (row) {
+            var st = _ftState[row.dataset.value];
+            if (st === 'must') out.push(_ftSlug(row.dataset.value));
+            else if (st === 'excl') out.push('!' + _ftSlug(row.dataset.value));
+        });
+        return out.join(',');
+    }
+    function _ftApply(spec) {
+        _ftState = {};
+        String(spec || '').split(',').forEach(function (tok) {
+            tok = tok.trim();
+            if (!tok) return;
+            var excl = tok.charAt(0) === '!';
+            var v = _ftValueOf(excl ? tok.slice(1) : tok);
+            if (v) _ftState[v] = excl ? 'excl' : 'must';
+        });
+        _ftPaint();
+    }
+    // The feature bits of the retired f= bitmask (written until 2026-10-06),
+    // read as "must have" so old links keep their meaning. Never written.
+    var _FT_LEGACY_BITS = [[1, 'Molards'], [4, 'Exclusively supraglacial'],
+                           [8, 'Creeping permafrost mass'], [64, 'Post-2012 activity increase'],
+                           [128, 'Precursory headscarp'], [512, 'Tsunamigenic'],
+                           [1024, 'Glacier contact'], [2048, 'Super-elevated deposits']];
+    // The filter expression: an array `in` test per non-neutral value.
+    function _ftExpressions() {
+        var out = [];
+        Object.keys(_ftState).forEach(function (v) {
+            var test = ['in', v, ['coalesce', ['get', 'features'], ['literal', []]]];
+            out.push(_ftState[v] === 'must' ? test : ['!', test]);
+        });
+        return out;
+    }
+    // Same test for the chart events (plain JS arrays).
+    function _ftPass(features) {
+        var fl = features || [];
+        for (var v in _ftState) {
+            var has = fl.indexOf(v) >= 0;
+            if (_ftState[v] === 'must' ? !has : has) return false;
+        }
+        return true;
+    }
     var cbLimitView    = document.getElementById('cb-limit-view');
 
     // Explorer hand-off notice: shows how many records the #ids= selection
@@ -5643,7 +6342,7 @@
         writeHashState();       // and drop &ids= now, not on the next pan
     });
 
-    [cbMolards, cbStream, cbHeadscarp, cbSiteVolume, cbSupraglacial, cbPermafrost, cbTimed, cbSeismic, cbPost2012, cbTsunamigenic, cbGlacierContact, cbSuperElevated, cbFlagged].forEach(function (cb) {
+    [cbStream, cbSiteVolume, cbTimed, cbSeismic, cbFlagged].forEach(function (cb) {
         if (cb) cb.addEventListener('change', buildFilter);
     });
 
@@ -5675,6 +6374,7 @@
             } else {
                 apply();
             }
+            if (_mapReady) writeHashState();
         });
     }
 
@@ -5737,8 +6437,48 @@
             if (map.getLayer('faults-line')) map.setLayoutProperty('faults-line', 'visibility', vis);
             _swipeAlso(function (m) { if (m.getLayer('faults-line')) m.setLayoutProperty('faults-line', 'visibility', vis); });
             if (cbFaults.checked) loadFaults();
+            if (_mapReady) writeHashState();
         });
     }
+
+    // Reference vector layers in the URL (`ref=`). The checkbox IS the state;
+    // a name here is what the link calls it. Order is the order written.
+    // Scarp traces are absent because they have no show/hide control yet --
+    // add the name here when they get one.
+    var _REF_LAYERS = [['faults', cbFaults], ['circles', cbSurveyCircles]];
+    function _refSpec() {
+        var out = {};
+        _REF_LAYERS.forEach(function (r) { if (r[1] && r[1].checked) out[r[0]] = true; });
+        return out;
+    }
+    // The page's own default (the checkbox markup), not a second copy of it.
+    function _refIsDefault() {
+        return _REF_LAYERS.every(function (r) { return !r[1] || r[1].checked === r[1].defaultChecked; });
+    }
+    // Listed layers go on, unlisted ones off, through the checkbox's own
+    // change handler so the lazy fetch and the wiper mirror stay in one place.
+    function _refApply(spec) {
+        _REF_LAYERS.forEach(function (r) {
+            var cb = r[1], want = !!(spec && spec[r[0]]);
+            if (!cb || cb.checked === want) return;
+            cb.checked = want;
+            cb.dispatchEvent(new Event('change'));
+        });
+    }
+
+    // Scarp traces: the show/hide box in the pinned strip, beside the type
+    // boxes. On by default. Starting a trace turns them back on -- tracing
+    // something you cannot see is not a thing anyone means to do.
+    var cbScarps = document.getElementById('cb-scarps');
+    function _scarpsOn() { return !cbScarps || cbScarps.checked; }
+    function _scarpsSet(on) {
+        if (cbScarps) cbScarps.checked = !!on;
+        if (typeof LSScarps !== 'undefined') LSScarps.setVisible(!!on);
+    }
+    if (cbScarps) cbScarps.addEventListener('change', function () {
+        _scarpsSet(cbScarps.checked);
+        if (_mapReady) writeHashState();
+    });
 
     var histDaysSlider = document.getElementById('hist-days-slider');
     var histDaysLabel  = document.getElementById('hist-days-label');
@@ -5747,7 +6487,7 @@
         updateHistogram();
     });
 
-    // Panel-mode checkboxes (declared early so applyUrlState can hydrate them).
+    // Panel-mode checkboxes (declared early so _filterColdApply can hydrate them).
     // Listeners are attached further down, near the panel toggle handlers.
     var cbHistVol    = document.getElementById('hist-volume');
     var cbHistLog    = document.getElementById('hist-log');
@@ -5755,162 +6495,146 @@
     var cbTimingLog  = document.getElementById('timing-log');
 
     // Apply URL state to DOM after all elements are referenced
-    var _urlPanels = applyUrlState();
+    var _urlPanels = _filterColdApply();
 
     // ---------------------------------------------------------------------------
     // URL state management
     // ---------------------------------------------------------------------------
-    function writeUrlState() {
-        var params = new URLSearchParams(window.location.search);
-
-        // Types bitmask: bit0=slow, bit1=catastrophic
-        // Only write if at least one type is unchecked (default = all checked)
+    // The filters as {key: string}, only the ones that are off their default.
+    // Value encodings are exactly the ones the query string used, so a legacy
+    // ?t=1&c=5 link and a new #…&ty=1&c=5 link go through the same reader.
+    //   ty   types bitmask: bit0 slow, bit1 catastrophic (written if either is off)
+    //   c    classes bitmask by CLASS_ORDER index (written if any is off)
+    //   f    attribute flags bitmask, _flagBits below
+    //   sa da vol yr n10 lw   dual sliders as "lo,hi" slider positions
+    //   lv   limit counts to map view
+    //   pm   chart modes: bit0 hist-vol, bit1 hist-log, bit2 timing-vol, bit3 timing-log
+    // Bits are permanent: a saved/shared URL decodes by position, so append
+    // new flags at the top and never renumber an existing one.
+    // (Functions, not tables: _filterColdApply runs above this point in the
+    // file, before a `var` here would have been assigned.)
+    // Bits 1, 4, 8, 64, 128, 512, 1024 and 2048 were the feature boxes, now
+    // the ft= filter; they are still READ (_FT_LEGACY_BITS) and never written.
+    function _flagBits() {
+        return [
+            [cbStream, 2], [cbTimed, 16], [cbSeismic, 32], [cbSiteVolume, 256],
+            [cbFlagged, 4096]      // editor-only box: the bit is ignored where it does not exist
+        ];
+    }
+    function _pmBits() {
+        return [[cbHistVol, 1], [cbHistLog, 2], [cbTimingVol, 4], [cbTimingLog, 8]];
+    }
+    function _filterDuals() {
+        return [[srcAreaDual, 'sa'], [depAreaDual, 'da'], [volDual, 'vol'], [yearDual, 'yr'],
+                [suscN10Dual, 'n10'], [suscLwDual, 'lw']];
+    }
+    function _filterCollect() {
+        var out = {};
         var t = 0, anyTypeOff = false;
         document.querySelectorAll('.filter-type').forEach(function (cb) {
             if (cb.checked) t |= (cb.value === 'slow' ? 1 : 2);
             else anyTypeOff = true;
         });
-        if (anyTypeOff) params.set('t', t); else params.delete('t');
+        if (anyTypeOff) out.ty = String(t);
 
-        // Classes bitmask — only write if any present checkbox is unchecked
         var c = 0, anyClassOff = false;
         document.querySelectorAll('.filter-class').forEach(function (cb) {
             if (!cb.checked) { anyClassOff = true; return; }
             var idx = CLASS_ORDER.indexOf(cb.value);
             if (idx >= 0) c |= (1 << idx);
         });
-        if (anyClassOff) params.set('c', c); else params.delete('c');
+        if (anyClassOff) out.c = String(c);
 
-        // Flags bitmask: molards=1 stream=2 supraglacial=4 permafrost=8 timed=16 seismic=32 post2012=64 headscarp=128 site_volume=256 tsunamigenic=512 glacier_contact=1024 super_elevated=2048
-        // Bits are permanent: a saved/shared URL decodes by position, so
-        // append new flags at the top and never renumber an existing one.
         var f = 0;
-        if (cbMolards      && cbMolards.checked)      f |= 1;
-        if (cbStream       && cbStream.checked)        f |= 2;
-        if (cbSupraglacial && cbSupraglacial.checked)  f |= 4;
-        if (cbPermafrost   && cbPermafrost.checked)    f |= 8;
-        if (cbTimed        && cbTimed.checked)         f |= 16;
-        if (cbSeismic      && cbSeismic.checked)       f |= 32;
-        if (cbPost2012     && cbPost2012.checked)      f |= 64;
-        if (cbHeadscarp    && cbHeadscarp.checked)     f |= 128;
-        if (cbSiteVolume   && cbSiteVolume.checked)    f |= 256;
-        if (cbTsunamigenic && cbTsunamigenic.checked)  f |= 512;
-        if (cbGlacierContact && cbGlacierContact.checked) f |= 1024;
-        if (cbSuperElevated && cbSuperElevated.checked) f |= 2048;
-        if (f !== 0) params.set('f', f); else params.delete('f');
+        _flagBits().forEach(function (b) { if (b[0] && b[0].checked) f |= b[1]; });
+        if (f) out.f = String(f);
+        var ft = _ftEncode();
+        if (ft) out.ft = ft;
 
-        // Dual-handle sliders: encode "lo,hi" only when off-default.
-        // Defaults are min=sliderMin (0), max=sliderMax. Either side
-        // moved off its default → both ends written so the URL captures
-        // the exact range.
-        function encodeDual(dual, paramName) {
-            if (!dual) { params.delete(paramName); return; }
-            var lo = parseFloat(dual.minEl.value);
-            var hi = parseFloat(dual.maxEl.value);
-            if (lo === dual.sliderMin && hi === dual.sliderMax) {
-                params.delete(paramName);
-            } else {
-                params.set(paramName, lo + ',' + hi);
-            }
-        }
-        encodeDual(srcAreaDual, 'sa');
-        encodeDual(depAreaDual, 'da');
-        encodeDual(volDual,     'vol');
-        encodeDual(yearDual,    'yr');
-
-        // Limit counts to view
-        if (cbLimitView && cbLimitView.checked) params.set('lv', '1'); else params.delete('lv');
-
-        // Panel visibility
-        var histOpen   = histPanel   && !histPanel.classList.contains('hidden');
-        var timingOpen = timingPanel && !timingPanel.classList.contains('hidden');
-        if (histOpen)   params.set('hist',   '1'); else params.delete('hist');
-        if (timingOpen) params.set('timing', '1'); else params.delete('timing');
-
-        // Panel modes — bit0=hist-vol, bit1=hist-log, bit2=timing-vol, bit3=timing-log
-        var pm = 0;
-        if (cbHistVol   && cbHistVol.checked)   pm |= 1;
-        if (cbHistLog   && cbHistLog.checked)   pm |= 2;
-        if (cbTimingVol && cbTimingVol.checked) pm |= 4;
-        if (cbTimingLog && cbTimingLog.checked) pm |= 8;
-        if (pm) params.set('pm', pm); else params.delete('pm');
-
-        var qs = params.toString();
-        // Build the new URL keeping the hash intact — `pathname` alone would
-        // strip `#map=z/lat/lng&...` that writeHashState owns.
-        var newUrl = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
-        if (window.location.search + window.location.hash !==
-            (qs ? '?' + qs : '') + window.location.hash) {
-            history.replaceState(null, '', newUrl);
-        }
-    }
-
-    function applyUrlState() {
-        var params = new URLSearchParams(window.location.search);
-        if (!params.toString()) return { openHist: false, openTiming: false };
-
-        // Types
-        var t = params.has('t') ? parseInt(params.get('t')) : 3;
-        document.querySelectorAll('.filter-type').forEach(function (cb) {
-            cb.checked = cb.value === 'slow' ? !!(t & 1) : !!(t & 2);
+        // Either handle off its default -> both ends written, so the URL
+        // captures the exact range.
+        _filterDuals().forEach(function (d) {
+            var dual = d[0];
+            if (!dual) return;
+            var lo = parseFloat(dual.minEl.value), hi = parseFloat(dual.maxEl.value);
+            if (lo !== dual.sliderMin || hi !== dual.sliderMax) out[d[1]] = lo + ',' + hi;
         });
 
-        // Classes
-        var c = params.has('c') ? parseInt(params.get('c')) : ALL_CLASSES_MASK;
-        document.querySelectorAll('.filter-class').forEach(function (cb) {
+        if (cbLimitView && cbLimitView.checked) out.lv = '1';
+
+        var pm = 0;
+        _pmBits().forEach(function (b) { if (b[0] && b[0].checked) pm |= b[1]; });
+        if (pm) out.pm = String(pm);
+        return out;
+    }
+    // Put {key: string} on the controls. Only the keys PRESENT are touched --
+    // on a cold load the controls are at their defaults already, and when the
+    // hash changes under an open map an unmentioned filter is left alone.
+    function _filterApply(v) {
+        var bits = function (key) {
+            if (v[key] == null) return null;
+            var n = parseInt(v[key], 10);
+            return isFinite(n) ? n : null;
+        };
+        var t = bits('ty');
+        if (t != null) document.querySelectorAll('.filter-type').forEach(function (cb) {
+            cb.checked = cb.value === 'slow' ? !!(t & 1) : !!(t & 2);
+        });
+        var c = bits('c');
+        if (c != null) document.querySelectorAll('.filter-class').forEach(function (cb) {
             var idx = CLASS_ORDER.indexOf(cb.value);
             cb.checked = (idx < 0) ? true : !!(c & (1 << idx));
         });
-
-        // Flags
-        var f = params.has('f') ? parseInt(params.get('f')) : 0;
-        if (cbMolards)      cbMolards.checked      = !!(f & 1);
-        if (cbStream)       cbStream.checked        = !!(f & 2);
-        if (cbSupraglacial) cbSupraglacial.checked  = !!(f & 4);
-        if (cbPermafrost)   cbPermafrost.checked    = !!(f & 8);
-        if (cbTimed)        cbTimed.checked         = !!(f & 16);
-        if (cbSeismic)      cbSeismic.checked       = !!(f & 32);
-        if (cbPost2012)     cbPost2012.checked      = !!(f & 64);
-        if (cbHeadscarp)    cbHeadscarp.checked     = !!(f & 128);
-        if (cbSiteVolume)   cbSiteVolume.checked    = !!(f & 256);
-        if (cbTsunamigenic) cbTsunamigenic.checked  = !!(f & 512);
-        if (cbGlacierContact) cbGlacierContact.checked = !!(f & 1024);
-        if (cbSuperElevated) cbSuperElevated.checked = !!(f & 2048);
-
-        // Sliders
-        // Hydrate dual sliders from "lo,hi" param. Backwards compat with the
-        // pre-dual form (single value) — interpreted as a min-only restriction.
-        function hydrateDual(dual, paramName) {
-            if (!dual || !params.has(paramName)) return;
-            var raw = params.get(paramName);
-            var parts = raw.split(',');
-            if (parts.length === 2) {
-                dual.minEl.value = parts[0];
-                dual.maxEl.value = parts[1];
-            } else {
-                dual.minEl.value = raw;
+        var f = bits('f');
+        if (f != null) {
+            _flagBits().forEach(function (b) { if (b[0]) b[0].checked = !!(f & b[1]); });
+            // Feature bits from an old link: must-have, unless the link also
+            // carries ft=, which then says it all.
+            if (v.ft == null) {
+                _ftState = {};
+                _FT_LEGACY_BITS.forEach(function (b) { if (f & b[0]) _ftState[b[1]] = 'must'; });
+                _ftPaint();
             }
-            dual.refresh();
         }
-        hydrateDual(srcAreaDual, 'sa');
-        hydrateDual(depAreaDual, 'da');
-        hydrateDual(volDual,     'vol');
-        hydrateDual(yearDual,    'yr');
-
-        // Limit counts to view
-        if (cbLimitView && params.get('lv') === '1') cbLimitView.checked = true;
-
-        // Panel modes (bit-packed)
-        var pm = params.has('pm') ? parseInt(params.get('pm')) : 0;
-        if (cbHistVol)   cbHistVol.checked   = !!(pm & 1);
-        if (cbHistLog)   cbHistLog.checked   = !!(pm & 2);
-        if (cbTimingVol) cbTimingVol.checked = !!(pm & 4);
-        if (cbTimingLog) cbTimingLog.checked = !!(pm & 8);
-
-        return {
-            openHist:   params.get('hist')   === '1',
-            openTiming: params.get('timing') === '1',
-        };
+        if (v.ft != null) _ftApply(v.ft);
+        // "lo,hi"; a single value is the pre-dual form, a min-only restriction.
+        _filterDuals().forEach(function (d) {
+            var dual = d[0], raw = v[d[1]];
+            if (!dual || raw == null) return;
+            var parts = String(raw).split(',');
+            if (parts.length === 2) { dual.minEl.value = parts[0]; dual.maxEl.value = parts[1]; }
+            else dual.minEl.value = raw;
+            dual.refresh();
+        });
+        if (v.lv != null && cbLimitView) cbLimitView.checked = v.lv === '1';
+        var pm = bits('pm');
+        if (pm != null) _pmBits().forEach(function (b) { if (b[0]) b[0].checked = !!(pm & b[1]); });
+    }
+    // Cold load. Filters come from the hash; a link made before 2026-10-06
+    // carries them in the query string instead (?t=…&c=…&yr=…), which is read
+    // here with the same reader and then rewritten into the hash by the first
+    // writeHashState (see _queryWithoutLegacy). Where both name a filter, the
+    // hash wins. ?hist=1 / ?timing=1 are the old spelling of an=hist,timing.
+    var _legacyQuerySeen = false;
+    function _filterColdApply() {
+        var q = new URLSearchParams(window.location.search), vals = {};
+        Object.keys(_LEGACY_QUERY).forEach(function (k) {
+            if (!q.has(k)) return;
+            _legacyQuerySeen = true;
+            if (_LEGACY_QUERY[k]) vals[_LEGACY_QUERY[k]] = q.get(k);
+        });
+        var h = _initialHash.flt || {};
+        Object.keys(h).forEach(function (k) { vals[k] = h[k]; });
+        _filterApply(vals);
+        return { openHist: q.get('hist') === '1', openTiming: q.get('timing') === '1' };
+    }
+    // Called by everything that changes a filter. A bare /inventory/ stays
+    // bare until there is something to record: this also runs when the data
+    // first loads, and stamping #map=… on an untouched page helps nobody.
+    function writeUrlState() {
+        if (!_mapReady) return;
+        if (!location.hash && !_legacyQuerySeen && !Object.keys(_filterCollect()).length) return;
+        writeHashState();
     }
 
     // ---------------------------------------------------------------------------
@@ -6006,19 +6730,12 @@
                 f.push(yParts.length === 1 ? yParts[0] : ['all'].concat(yParts));
             }
         }
-        if (cbMolards      && cbMolards.checked)      f.push(['==', ['get', 'molards'], true]);
         if (cbStream       && cbStream.checked)        f.push(['!=', ['coalesce', ['get', 'stream_damming'], ''], '']);
-        if (cbHeadscarp    && cbHeadscarp.checked)     f.push(['==', ['get', 'precursory_headscarp'], true]);
         if (cbSiteVolume   && cbSiteVolume.checked)    f.push(['==', ['get', 'has_site_specific_volume'], true]);
-        if (cbSupraglacial && cbSupraglacial.checked)  f.push(['==', ['get', 'exclusively_supraglacial'], true]);
-        if (cbPermafrost   && cbPermafrost.checked)    f.push(['==', ['get', 'creeping_permafrost_mass'], true]);
         if (cbTimed        && cbTimed.checked)         f.push(['==', ['get', 'has_time_bracket'], true]);
         if (cbSeismic      && cbSeismic.checked)       f.push(['==', ['get', 'has_seismic'], true]);
-        if (cbPost2012     && cbPost2012.checked)      f.push(['==', ['get', 'post_2012_activity_increase'], true]);
-        if (cbTsunamigenic && cbTsunamigenic.checked)  f.push(['==', ['get', 'tsunamigenic'], true]);
-        if (cbGlacierContact && cbGlacierContact.checked) f.push(['==', ['get', 'glacier_contact'], true]);
-        if (cbSuperElevated && cbSuperElevated.checked) f.push(['==', ['get', 'super_elevated_deposits'], true]);
         if (cbFlagged      && cbFlagged.checked)       f.push(['==', ['get', 'flagged'], true]);
+        Array.prototype.push.apply(f, _ftExpressions());   // landslide features, three-way
 
         _applyLandslideFilter(map, f);
         _swipeFilter = f;            // remember so a newly-enabled swipe map can apply it
@@ -6209,7 +6926,7 @@
     // the clipboard for pasting into Planet etc. Skipped while a draw/measure
     // session is active (there, right-click deletes a vertex).
     map.on('contextmenu', function (e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+        if (LSTools.blocked()) return;
         e.preventDefault();
         var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
         var done = function () { _coordToast(txt + ' copied'); };
@@ -6233,11 +6950,22 @@
         t._h = setTimeout(function () { t.style.opacity = '0'; }, 1600);
     }
 
-    map.on('click', 'points',       function (e) { if (map.__measureActive || map.__drawActive || map.__insarActive) return; showDetail(e.features[0].properties.id); });
-    map.on('click', 'polygon-fill', function (e) { if (map.__measureActive || map.__drawActive || map.__insarActive) return; showDetail(e.features[0].properties.landslide_id); });
+    // ONE entry for both layers: a dot sitting on its own polygon is one
+    // record, and it used to open the panel -- and log landslide_open --
+    // twice, once per layer handler. Kind 'record': at most one record entry
+    // fires per click, and a reference popup may open alongside it. That is
+    // the declared co-activation (Hig: "fine, maybe even ideal").
+    LSTools.clicks.register({
+        id: 'landslide', kind: 'record', priority: 20,
+        layers: ['points', 'polygon-fill'],
+        handler: function (f) {
+            var p = f.properties || {};
+            showDetail(f.layer && f.layer.id === 'points' ? p.id : p.landslide_id);
+        }
+    });
     ['points', 'polygon-fill'].forEach(function (layer) {
-        map.on('mouseenter', layer, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', layer, function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = ''; });
+        map.on('mouseenter', layer, function () { LSTools.cursor.set('hover', 'pointer'); });
+        map.on('mouseleave', layer, function () { LSTools.cursor.clear('hover'); });
     });
     // Hover highlight is filter-driven, so mirror it to the comparison map —
     // otherwise the white outline cuts off at the wiper divider.
@@ -6247,7 +6975,7 @@
         _swipeAlso(function (m) { if (m.getLayer('polygon-hover')) m.setFilter('polygon-hover', f); });
     }
     map.on('mousemove',  'polygon-fill', function (e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+        if (LSTools.blocked()) return;
         _setPolygonHover(e.features[0].properties.landslide_id);
     });
     map.on('mouseleave', 'polygon-fill', function () {
@@ -6261,7 +6989,7 @@
     // map's own double-click zoom; the pair of single clicks has already
     // opened the detail panel, so this just re-renders it with fresh data.
     function _dblclickDefaultView(e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
+        if (LSTools.blocked()) return;
         // A dot over its own polygon matches both layers — handle once.
         if (e.originalEvent) {
             if (e.originalEvent._lsDefView) return;
@@ -6290,9 +7018,65 @@
     // DGGS QFF (name/age/slip), the USGS 2021 ArcticDEM traces (fault/feature/
     // slip sense, and whether it revises or adds to the QFFD), and the NSHM
     // 2023 sections (rate, dip, rake).
-    map.on('click', 'faults-line', function (e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
-        var p = e.features[0].properties || {};
+    // Bedrock geology is a raster, so the entry has no layers: `test` says
+    // whether the overlay is under the click (left pane, or the right pane
+    // when the wiper is on and the click is right of the divider). Lowest
+    // reference priority: a fault, a scarp or a staged polygon under the same
+    // click is the more specific thing to answer about.
+    LSTools.clicks.register({ id: 'geology', kind: 'reference', priority: 5,
+        test: function (e) {
+            var ov = OVERLAYS.filter(function (o) { return o.id === 'geology'; })[0];
+            if (!ov || !map.getLayer(ov.layerId)) return false;
+            if (_ovVisible(ov, false)) return true;
+            if (!_swipe.on || !_ovVisible(ov, true)) return false;
+            return e.point.x > map.getContainer().clientWidth * _swipe.x / 100;
+        },
+        handler: function (f, e) {
+            var ll = e.lngLat;
+            var box = '<div style="font:12px/1.4 system-ui,sans-serif; max-width:270px;">';
+            var foot = '<div style="margin-top:4px; color:#aaa; font-size:10px;">Geologic Map of Alaska ' +
+                '(Wilson, Hults, Mull &amp; Karl 2015, USGS SIM 3340, 1:1,584,000) · unit lookup by ' +
+                '<a href="https://macrostrat.org/map/#x=' + ll.lng.toFixed(4) + '&y=' + ll.lat.toFixed(4) + '&z=11" ' +
+                'target="_blank" rel="noopener">Macrostrat</a></div></div>';
+            var popup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
+                .setLngLat(ll).setHTML(box + '<div style="color:#888;">Looking up the unit…</div>' + foot).addTo(map);
+            LSTools.popup.show(popup);
+            var url = 'https://macrostrat.org/api/v2/geologic_units/map?lat=' + ll.lat.toFixed(5) +
+                      '&lng=' + ll.lng.toFixed(5) + '&format=json';
+            fetch(url).then(function (r) { return r.json(); }).then(function (j) {
+                if (!popup.isOpen()) return;
+                var units = (j && j.success && j.success.data) || [];
+                // The service stacks every map it holds for the point; take
+                // the Alaska map itself (source 21), else the finest scale.
+                var rank = { large: 0, medium: 1, small: 2, tiny: 3 };
+                var u = units.filter(function (x) { return x.source_id === 21; })[0] ||
+                        units.sort(function (a, b) { return (rank[a.scale] || 9) - (rank[b.scale] || 9); })[0];
+                if (!u) { popup.setHTML(box + '<div style="color:#888;">No mapped unit here.</div>' + foot); return; }
+                function row(lbl, val) {
+                    if (!val) return '';
+                    return '<div style="margin:1px 0;"><span style="color:#888;">' + lbl + ':</span> ' + esc(String(val)) + '</div>';
+                }
+                var age = [u.b_int_name, u.t_int_name].filter(Boolean);
+                age = (age[0] === age[1] ? age[0] : age.join(' – ')) +
+                      (u.b_age != null && u.t_age != null ? ' (' + u.b_age + '–' + u.t_age + ' Ma)' : '');
+                var descrip = u.descrip ? (u.descrip.length > 260 ? u.descrip.slice(0, 260) + '…' : u.descrip) : '';
+                popup.setHTML(box +
+                    '<div style="font-weight:600; color:#5d4037; margin-bottom:3px;">' +
+                        esc(u.strat_name || u.name || 'Unnamed unit') + '</div>' +
+                    (u.strat_name && u.name && u.strat_name !== u.name ? row('Map unit', u.name) : '') +
+                    row('Age', age) + row('Lithology', u.lith) + row('Description', descrip) +
+                    (u.source_id !== 21 ? '<div style="color:#a05a00; font-size:10px; margin-top:3px;">From a coarser ' +
+                        'compilation (' + esc(u.scale || '') + ' scale): the Alaska map has no unit here.</div>' : '') +
+                    foot);
+            }).catch(function () {
+                if (popup.isOpen()) popup.setHTML(box + '<div style="color:#a05a00;">Unit lookup failed (Macrostrat unreachable).</div>' + foot);
+            });
+        }
+    });
+
+    LSTools.clicks.register({ id: 'faults', kind: 'reference', priority: 30,
+                              layers: ['faults-line'], handler: function (f, e) {
+        var p = f.properties || {};
         function row(lbl, val) {
             if (val === undefined || val === null || val === '' || val === 'Unknown') return '';
             return '<div style="margin:1px 0;"><span style="color:#888;">' + lbl + ':</span> ' + esc(String(val)) + '</div>';
@@ -6335,11 +7119,11 @@
                 '<div style="margin-top:4px; color:#aaa; font-size:10px;">DGGS DDS 3 (Koehler, 2013)</div>' +
                 '</div>';
         }
-        new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
-            .setLngLat(e.lngLat).setHTML(html).addTo(map);
-    });
-    map.on('mouseenter', 'faults-line', function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'faults-line', function () { if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = ''; });
+        LSTools.popup.show(new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
+            .setLngLat(e.lngLat).setHTML(html).addTo(map));
+    } });
+    map.on('mouseenter', 'faults-line', function () { LSTools.cursor.set('hover', 'pointer'); });
+    map.on('mouseleave', 'faults-line', function () { LSTools.cursor.clear('hover'); });
 
     // ---------------------------------------------------------------------------
     // Detail panel
@@ -6495,6 +7279,7 @@
                 // runs behind it, because the rule cascade may also have moved
                 // the centroid, area and size class that other layers show.
                 _reviseSplicePolygons(res.polygons);
+                _reviseSplicePoint(res.derived);
                 _reviseRefreshData();
             }).catch(function (e) {
                 say(e && e.message ? e.message : 'Save failed.', 'rv-bad');
@@ -6552,6 +7337,33 @@
         var src = map.getSource('polygons');
         if (src) src.setData(_polygonsData);
         if (typeof _swipeSetPolygons === 'function') _swipeSetPolygons(_polygonsData);
+    }
+
+    // The landslide DOT is the stored centroid, and the points source is
+    // fetched once at load (initLayers), never by onMoveEnd -- so after the
+    // cascade moved the centroid the outline redrew and the dot stayed put
+    // until a reload (the "centroids don't recalculate" report, 2026-09-26).
+    // The save response carries the recomputed columns; apply them to this
+    // one feature the way _patchFeatureProp does, geometry included.
+    function _reviseSplicePoint(derived) {
+        var cur = LSRevise.current();
+        if (!derived || !cur || !_featuresData || !_featuresData.features) return;
+        var lid = String(cur.id);
+        var f = _featuresData.features.find(function (x) {
+            return x.properties && String(x.properties.id) === lid;
+        });
+        if (!f) return;
+        if (derived.centroid_lon != null && derived.centroid_lat != null) {
+            f.geometry = { type: 'Point', coordinates: [+derived.centroid_lon, +derived.centroid_lat] };
+        }
+        var props = { area_src: derived.area_source, area_dep: derived.area_deposit,
+                      size_inclusion: derived.size_inclusion, landslide_class: derived.landslide_class };
+        Object.keys(props).forEach(function (k) {
+            if (props[k] !== undefined) f.properties[k] = props[k];
+        });
+        if (map.getSource('landslides')) map.getSource('landslides').setData(_featuresData);
+        _swipeSetFeatures(_featuresData);
+        if (typeof buildFilter === 'function') buildFilter();
     }
 
     // -----------------------------------------------------------------------
@@ -6633,7 +7445,6 @@
     }
     // Read-only view of a trace, for anyone, outside a tracing session.
     function _scarpShowPopup(f, lngLat) {
-        if (_scarpPopup) { _scarpPopup.remove(); _scarpPopup = null; }
         var pr = f.properties, len = _scarpFmtLen(pr.length_m);
         var html = '<div style="font:12px/1.4 system-ui,sans-serif;max-width:240px;">' +
             '<div style="font-weight:600;color:#5a2d80;">Scarp trace</div>' +
@@ -6641,39 +7452,84 @@
             (pr.notes ? esc(pr.notes) : '<span style="color:#999;">(no note)</span>') + '</div>' +
             '<div style="font-size:10px;color:#888;">traced by ' + esc(pr.traced_by || '—') +
             (len ? ' · ' + len : '') + ' · a working observation, not a fault map</div></div>';
-        _scarpPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
-            .setLngLat(lngLat).setHTML(html).addTo(map);
+        // The one popup slot closes whatever was open, which is what this
+        // function used to do for its own predecessor alone.
+        _scarpPopup = LSTools.popup.show(new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
+            .setLngLat(lngLat).setHTML(html).addTo(map));
     }
     function _scarpInit() {
         if (typeof LSScarps === 'undefined') return;
         LSScarps.init({
             map: map, api: API_BASE, csrf: _csrf, onChange: _scarpSync,
-            onPick: function (f, lngLat) {
-                if (_drawCtrl && _drawCtrl.kind() === 'scarp') LSScarps.select(f.properties.id);
-                else _scarpShowPopup(f, lngLat);
-            },
+            // Just the popup. The old select-on-click branch here was dead:
+            // LSScarps sets mode='draw' for the whole tracing session and its
+            // click handler returns whenever that is so, so this callback
+            // never ran with the pencil in scarp mode. Selection while tracing
+            // is finish-driven, and stays that way (Hig, 2026-09-24).
+            onPick: _scarpShowPopup,
             flash: function (m, bad) { _scarpSay(m, bad); _scarpSync(); }
         }).catch(function (e) { console.warn('scarps: could not load — ' + e.message); });
     }
 
+    // The reviser is a Terra Draw session on the live map, exactly like the
+    // draw tool, so it holds the map the same way -- headless, since it opens
+    // from a record's detail panel rather than a button. Before this it set
+    // map.__reviseActive, which exactly one place read: landslide clicks still
+    // opened detail panels mid-edit, right-click still copied coordinates
+    // instead of deleting a vertex, and measure or InSAR could start on top.
+    // Hig, 2026-09-24: a full holder. Another tool taking the map releases
+    // it, asking first only when there are unsaved edits, instead of the two
+    // hand-written refusals that used to guard each direction.
+    function _reviseDirty() {
+        if (typeof LSRevise === 'undefined' || !LSRevise.isActive()) return false;
+        var d = LSRevise.diff();
+        return !!(d && ((d.updates && d.updates.length) || (d.deletes && d.deletes.length)));
+    }
+    LSTools.hold({
+        id: 'revise',
+        onRelease: function () {
+            if (typeof LSRevise !== 'undefined' && LSRevise.isActive()) LSRevise.stop();
+        },
+        canRelease: function () {
+            if (!_reviseDirty()) return true;
+            return window.confirm('Unsaved outline edits will be discarded.'
+                                  + '\n\nSwitch tools anyway?');
+        },
+        // Two-step Escape: with edits pending, say what to do rather than
+        // discard them; with nothing pending, exit. stop() runs onExit, which
+        // releases the holder.
+        cancel: function () {
+            if (typeof LSRevise === 'undefined' || !LSRevise.isActive()) return;
+            if (_reviseDirty()) {
+                var st = _reviseBar && _reviseBar.querySelector('#rv-status');
+                if (st) st.textContent = 'Unsaved changes — Save, Revert or Done';
+                return;
+            }
+            LSRevise.stop();
+        }
+    });
+
     function _reviseStart(id) {
         if (typeof LSRevise === 'undefined') return;
-        if (map.__drawActive) { window.__drawFlash && window.__drawFlash(
-            'Finish or close the draw tool before revising an outline.'); return; }
+        // Stop a previous session BEFORE claiming: its onExit releases the
+        // holder, and doing that after the claim would drop the new one.
         if (LSRevise.isActive()) LSRevise.stop();
+        // Takes the map from draw / measure / InSAR; false only if the outgoing
+        // tool objected (draw does, with a ring still open).
+        if (!LSTools.claim('revise')) return;
         LSRevise.start({
             id: id,
             map: map, api: API_BASE, csrf: _csrf,
             terraDraw: window.terraDraw, adapter: window.terraDrawMaplibreGlAdapter,
             onExit: function () {
-                map.__reviseActive = false;
+                LSTools.release('revise');
                 if (_reviseBar) { _reviseBar.remove(); _reviseBar = null; }
                 _reviseRefreshData();
             }
         }).then(function (info) {
-            map.__reviseActive = true;
             _reviseBuildBar(info);
         }).catch(function (e) {
+            LSTools.release('revise');
             window.alert('Could not open the reviser: ' +
                          (e && e.message ? e.message : 'unknown error'));
         });
@@ -6876,15 +7732,13 @@
             flag(d.insar_schaefer,'InSAR (Schaefer)'), flag(d.insar_kim,'InSAR (Kim)'),
             flag(d.insar_opera,'InSAR (OPERA)'), flag(d.insar_other,'InSAR (other)'),
             flag(d.planet_labs_creep,'Planet Labs creep'), flag(d.planet_labs_patchy_creep,'Planet patchy creep'),
-            flag(d.geomorph_creep,'Geomorphic'), flag(d.insar_creep,'InSAR creep'),
-            flag(d.precursory_headscarp,'Precursory headscarp'), flag(d.molards,'Molards'),
-            flag(d.exclusively_supraglacial,'Supraglacial runout'),
-            flag(d.post_2012_activity_increase,'Post-2012 increase'),
-            flag(d.creeping_permafrost_mass,'Creeping permafrost'),
-            flag(d.tsunamigenic,'Tsunamigenic'),
-            flag(d.super_elevated_deposits,'Super-elevated deposits'),
-            flag(d.glacier_contact,'Glacier contact')
-        ].filter(Boolean);
+            flag(d.its_live_creep,'ITS_LIVE'),
+            flag(d.geomorph_creep,'Geomorphic'), flag(d.insar_creep,'InSAR creep')
+        ].concat(
+            // Landslide features, by value (the ", "-joined column).
+            String(d.features || '').split(',').map(function (v) { return v.trim(); })
+                .filter(Boolean).map(function (v) { return flag(true, v); })
+        ).filter(Boolean);
 
         if (evidence.length) {
             html += '<div class="detail-section"><div class="detail-section-title">Detection / evidence</div>' +
@@ -7382,30 +8236,32 @@
         if (_photoPtsFeats.length) refreshPhotoPts();
     });
 
-    map.on('click', 'photo-pt', function (e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
-        var f = e.features && e.features[0];
-        if (f) _photoLightbox.open(_detailPhotos, f.properties.idx);
-    });
-    map.on('click', 'photo-pt-cluster', function (e) {
-        if (map.__measureActive || map.__drawActive || map.__insarActive) return;
-        var f = e.features && e.features[0];
-        if (!f) return;
-        // Open the lightbox at the cluster's first photo — the viewer arrows
-        // through the rest; no camera movement.
-        map.getSource('photo-pts').getClusterLeaves(f.properties.cluster_id, 100, 0,
-            function (err, leaves) {
-                if (!err && leaves && leaves.length) {
-                    _photoLightbox.open(_detailPhotos, leaves[0].properties.idx);
-                }
-            });
+    // 'navigate': the lightbox is modal, so nothing else should react to the
+    // same click -- the panel used to re-render underneath it.
+    LSTools.clicks.register({
+        id: 'photos', kind: 'navigate', priority: 60,
+        layers: ['photo-pt', 'photo-pt-cluster'],
+        handler: function (f) {
+            if (f.layer && f.layer.id === 'photo-pt') {
+                _photoLightbox.open(_detailPhotos, f.properties.idx);
+                return;
+            }
+            // Open the lightbox at the cluster's first photo — the viewer arrows
+            // through the rest; no camera movement.
+            map.getSource('photo-pts').getClusterLeaves(f.properties.cluster_id, 100, 0,
+                function (err, leaves) {
+                    if (!err && leaves && leaves.length) {
+                        _photoLightbox.open(_detailPhotos, leaves[0].properties.idx);
+                    }
+                });
+        }
     });
     ['photo-pt', 'photo-pt-cluster'].forEach(function (layer) {
         map.on('mouseenter', layer, function () {
-            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = 'pointer';
+            LSTools.cursor.set('hover', 'pointer');
         });
         map.on('mouseleave', layer, function () {
-            if (!map.__measureActive && !map.__drawActive && !map.__insarActive) map.getCanvas().style.cursor = '';
+            LSTools.cursor.clear('hover');
         });
     });
 
@@ -7420,7 +8276,7 @@
     // all floating, draggable, resizable panels. Panel objects are assigned at
     // their wiring sites below; declared here so the async URL-state hydration
     // (which runs after init) can open them.
-    var histFP, timingFP, scatterFP;
+    var histFP, timingFP, scatterFP, pfFP;
 
     // Shared floating-panel behavior: toggle/close, jump-free header drag
     // (clamped to the offset parent), and a debounced redraw on resize. opts:
@@ -7456,28 +8312,25 @@
             }).observe(panel);
         }
         if (handle) {
-            var moving = false, offX = 0, offY = 0, parRect = null;
-            handle.addEventListener('pointerdown', function (e) {
-                if (e.target.closest('button, a, input, label, select')) return;  // let controls work
-                moving = true;
-                var r = panel.getBoundingClientRect();
-                parRect = (panel.offsetParent || document.body).getBoundingClientRect();
-                offX = e.clientX - r.left; offY = e.clientY - r.top;
-                // Pin current position as left/top BEFORE clearing right/bottom so
-                // the anchor flip doesn't jump.
-                panel.style.left = (r.left - parRect.left) + 'px';
-                panel.style.top  = (r.top  - parRect.top)  + 'px';
-                panel.style.right = 'auto'; panel.style.bottom = 'auto';
-                handle.setPointerCapture(e.pointerId);
-                e.preventDefault();
+            var offX = 0, offY = 0, parRect = null;
+            LSTools.drag(handle, {
+                onStart: function (e) {
+                    if (e.target.closest('button, a, input, label, select')) return false;  // let controls work
+                    var r = panel.getBoundingClientRect();
+                    parRect = (panel.offsetParent || document.body).getBoundingClientRect();
+                    offX = e.clientX - r.left; offY = e.clientY - r.top;
+                    // Pin current position as left/top BEFORE clearing right/bottom so
+                    // the anchor flip doesn't jump.
+                    panel.style.left = (r.left - parRect.left) + 'px';
+                    panel.style.top  = (r.top  - parRect.top)  + 'px';
+                    panel.style.right = 'auto'; panel.style.bottom = 'auto';
+                },
+                onMove: function (e) {
+                    var w = panel.offsetWidth, h = panel.offsetHeight;
+                    panel.style.left = Math.max(0, Math.min(parRect.width  - w, e.clientX - offX - parRect.left)) + 'px';
+                    panel.style.top  = Math.max(0, Math.min(parRect.height - h, e.clientY - offY - parRect.top))  + 'px';
+                }
             });
-            handle.addEventListener('pointermove', function (e) {
-                if (!moving) return;
-                var w = panel.offsetWidth, h = panel.offsetHeight;
-                panel.style.left = Math.max(0, Math.min(parRect.width  - w, e.clientX - offX - parRect.left)) + 'px';
-                panel.style.top  = Math.max(0, Math.min(parRect.height - h, e.clientY - offY - parRect.top))  + 'px';
-            });
-            handle.addEventListener('pointerup', function () { moving = false; });
         }
         return { open: open, close: close, isOpen: isOpen };
     }
@@ -7486,7 +8339,7 @@
     // built lazily because the four controllers are assigned at different
     // points during startup; keys are the hash vocabulary.
     function _anPanels() {
-        return { hist: histFP, timing: timingFP, scatter: scatterFP, opera: operaFP };
+        return { hist: histFP, timing: timingFP, scatter: scatterFP, opera: operaFP, pf: pfFP };
     }
     function _anEncodeHash() {
         var reg = _anPanels(), out = [];
@@ -7594,18 +8447,11 @@
             maxVol:     dualHi(volDual,     volToValue),
             minYear:    dualYearLo(),
             maxYear:    dualYearHi(),
-            molards:      cbMolards      && cbMolards.checked,
             stream:       cbStream       && cbStream.checked,
-            headscarp:    cbHeadscarp    && cbHeadscarp.checked,
             siteVolume:   cbSiteVolume   && cbSiteVolume.checked,
-            supraglacial: cbSupraglacial && cbSupraglacial.checked,
-            permafrost:   cbPermafrost   && cbPermafrost.checked,
             timed:        cbTimed        && cbTimed.checked,
             seismic:      cbSeismic      && cbSeismic.checked,
-            post2012:     cbPost2012     && cbPost2012.checked,
-            tsunamigenic: cbTsunamigenic && cbTsunamigenic.checked,
-            glacierContact: cbGlacierContact && cbGlacierContact.checked,
-            superElevated: cbSuperElevated && cbSuperElevated.checked,
+            // landslide features: tested with _ftPass against ev.features
         };
     }
 
@@ -7641,15 +8487,9 @@
                 if (fs.minYear !== null && yn < fs.minYear) return;
                 if (fs.maxYear !== null && yn > fs.maxYear) return;
             }
-            if (fs.molards      && !ev.molards)         return;
             if (fs.stream       && !ev.stream_dam)      return;
-            if (fs.headscarp    && !ev.headscarp)       return;
             if (fs.siteVolume   && !ev.has_site_volume) return;
-            if (fs.supraglacial && !ev.supraglacial)    return;
-            if (fs.permafrost   && !ev.permafrost)   return;
-            if (fs.tsunamigenic && !ev.tsunamigenic) return;
-            if (fs.glacierContact && !ev.glacier_contact) return;
-            if (fs.superElevated && !ev.super_elevated_deposits) return;
+            if (!_ftPass(ev.features))                  return;
             if (fs.seismic && ev.timing !== 'point')  return;
             if (fs.timed   && ev.timing === 'point')  return;
 
@@ -8018,17 +8858,10 @@
                 if (fs.minYear !== null && yn < fs.minYear) return;
                 if (fs.maxYear !== null && yn > fs.maxYear) return;
             }
-            if (fs.molards      && !ev.molards)         return;
             if (fs.stream       && !ev.stream_dam)      return;
-            if (fs.headscarp    && !ev.headscarp)       return;
             if (fs.siteVolume   && !ev.has_site_volume) return;
-            if (fs.supraglacial && !ev.supraglacial)    return;
-            if (fs.permafrost   && !ev.permafrost)   return;
-            if (fs.tsunamigenic && !ev.tsunamigenic) return;
-            if (fs.glacierContact && !ev.glacier_contact) return;
-            if (fs.superElevated && !ev.super_elevated_deposits) return;
+            if (!_ftPass(ev.features))                  return;
             if (fs.seismic      && !ev.has_seismic)  return;
-            if (fs.post2012     && !ev.post_2012)    return;
 
             total++;
             var hasVol = ev.vol !== null && ev.vol > 0;
@@ -8381,7 +9214,7 @@
         if (timingPanel && !timingPanel.classList.contains('hidden')) renderTimeline(computeTimeline());
     }
 
-    // Listeners for panel-mode checkboxes (refs declared near applyUrlState).
+    // Listeners for panel-mode checkboxes (refs declared near _filterColdApply).
     if (cbTimingLog) cbTimingLog.addEventListener('change', function () { updateTimeline(); writeUrlState(); });
     if (cbTimingVol) cbTimingVol.addEventListener('change', function () { updateTimeline(); writeUrlState(); });
     if (cbHistLog)   cbHistLog.addEventListener('change',   function () { updateHistogram(); writeUrlState(); });
@@ -8775,42 +9608,49 @@
     // Drag-to-select
     (function () {
         if (!scatterSvg) return;
-        var dragging = false, sx = 0, sy = 0;
+        var sx = 0, sy = 0;
         function localPt(e) {
             var r = scatterSvg.getBoundingClientRect();
             return { x: e.clientX - r.left, y: e.clientY - r.top };
         }
-        scatterSvg.addEventListener('pointerdown', function (e) {
-            if (!_scDims) return;
-            e.preventDefault();   // stop native selection/drag (was causing a start jump)
-            var p = localPt(e);
-            dragging = true; sx = p.x; sy = p.y;
-            scatterSvg.setPointerCapture(e.pointerId);
-        });
-        scatterSvg.addEventListener('pointermove', function (e) {
-            var p = localPt(e);
-            if (dragging) {
-                var dr = document.getElementById('scatter-drag');
+        // The box drag goes through LSTools.drag, which ends the gesture on
+        // pointercancel and lostpointercapture as well as pointerup. The
+        // hand-rolled version left `dragging` true after a tab switch mid-box,
+        // and the next hover then stretched a box nobody had started. A
+        // cancelled gesture hides the box and changes no slider.
+        var brush = LSTools.drag(scatterSvg, {
+            onStart: function (e) {
+                if (!_scDims) return false;
+                // drag() does the preventDefault, which stops the native
+                // selection/drag that used to cause a start jump.
+                var p = localPt(e);
+                sx = p.x; sy = p.y;
+            },
+            onMove: function (e) {
+                var p = localPt(e), dr = document.getElementById('scatter-drag');
                 if (!dr) return;
                 dr.setAttribute('x', Math.min(sx, p.x)); dr.setAttribute('y', Math.min(sy, p.y));
                 dr.setAttribute('width', Math.abs(p.x - sx)); dr.setAttribute('height', Math.abs(p.y - sy));
                 dr.setAttribute('display', 'block');
-                return;
+            },
+            onEnd: function (e, info) {
+                var dr = document.getElementById('scatter-drag');
+                if (dr) dr.setAttribute('display', 'none');
+                if (info.cancelled || !e) return;
+                var p = localPt(e);
+                if (Math.abs(p.x - sx) < 4 && Math.abs(p.y - sy) < 4) return;  // treat as a click, not a box
+                var lwA = _scPxToLw(sx), lwB = _scPxToLw(p.x);
+                var nA  = _scPxToN10(sy), nB = _scPxToN10(p.y);
+                _scatterSetSliders(Math.min(lwA, lwB), Math.max(lwA, lwB), Math.min(nA, nB), Math.max(nA, nB));
             }
-            scatterCellTip(e, p);   // hover readout of exact per-cell numbers
+        });
+        // The hover readout stays its own listener: it has to run when NOT
+        // dragging, and drag() forwards moves only during a gesture.
+        scatterSvg.addEventListener('pointermove', function (e) {
+            if (brush.active()) return;
+            scatterCellTip(e, localPt(e));   // hover readout of exact per-cell numbers
         });
         scatterSvg.addEventListener('pointerleave', hideChartTip);
-        scatterSvg.addEventListener('pointerup', function (e) {
-            if (!dragging) return;
-            dragging = false;
-            var dr = document.getElementById('scatter-drag');
-            if (dr) dr.setAttribute('display', 'none');
-            var p = localPt(e);
-            if (Math.abs(p.x - sx) < 4 && Math.abs(p.y - sy) < 4) return;  // treat as a click, not a box
-            var lwA = _scPxToLw(sx), lwB = _scPxToLw(p.x);
-            var nA  = _scPxToN10(sy), nB = _scPxToN10(p.y);
-            _scatterSetSliders(Math.min(lwA, lwB), Math.max(lwA, lwB), Math.min(nA, nB), Math.max(nA, nB));
-        });
     }());
 
     scatterFP = makeFloatingPanel(scatterPanel, {
@@ -8822,6 +9662,32 @@
     // Scarp traces: the layer and the click popup for everyone; tracing
     // starts from the ✏ pencil (editors).
     _scarpInit();
+    // Elevation profile tool (profile.js): reads the lidar catalogue through a
+    // getter because it arrives after this runs.
+    if (typeof LSProfile !== 'undefined') {
+        LSProfile.init({ map: map, catalog: function () { return _lidarCatalog; },
+                         makePanel: makeFloatingPanel,
+                         onChange: function () { if (_mapReady) writeHashState(); } });
+    }
+    // Permafrost analysis (permafrost.js): Obu x Gruber density with the
+    // landslides on it, and the patch sampler. Points come from the same
+    // feature set the susceptibility scatter uses.
+    if (typeof LSPermafrost !== 'undefined') {
+        LSPermafrost.init({ map: map, features: function () { return _featuresData; },
+                            makePanel: makeFloatingPanel, staticBase: STATIC_BASE, dataV: DATA_V,
+                            openLandslide: function (id, ft) {
+                                if (ft && ft.geometry) map.flyTo({ center: ft.geometry.coordinates, zoom: Math.max(map.getZoom(), 11) });
+                                showDetail(id);
+                            },
+                            onChange: function () { if (_mapReady) writeHashState(); } });
+        pfFP = LSPermafrost.panel();
+    }
+
+    // Mirrored third-party inventories: one click handler and the moveend
+    // refetch. Registered once here rather than per layer, because the set of
+    // layers changes as the reader ticks boxes and a handler per layer would
+    // have to be added and removed in step with them.
+    _extWireClicks();
 
     // Scatter-specific controls (not part of the shared floating behavior).
     var scatterClear = document.getElementById('scatter-clear');
@@ -9187,32 +10053,183 @@
     // Analysis panels carried in the URL — applied here, after all four
     // controllers exist. Their redraw hooks self-guard on missing data and
     // refresh once features load, so opening this early is safe.
-    if (_initialHash.an) _anApplyHashSpec(_initialHash.an);
+    // ---------------------------------------------------------------------------
+    // VIEW STATE: ONE TABLE. Every piece of state that travels in the URL hash
+    // is one row here, and both writers (address bar + saved view, default
+    // view) and both runtime appliers (hashchange, a default view being
+    // applied) are loops over it. To make something travel in a link, add a
+    // row; do not add a line to a writer or an applier, because there is no
+    // longer one to add it to. (Before 2026-10-06 the same list was kept by
+    // hand in five places, and three bugs came from one copy lagging another:
+    // imagery missing from default views, the lidar code the reader refused,
+    // a shared basemap lost on a cold load.)
+    //
+    //   collect(mode, o)  put the current value on the codec object `o`
+    //                     (ls_hash.js encode's shape; inventory-only params go
+    //                     in o.extras as strings). mode is 'url' | 'saved' |
+    //                     'view' -- see _viewStateString.
+    //   apply(s, how)     put the parsed state `s` (parseHashState's shape) on
+    //                     the map. how is 'hash' (the hash changed under us),
+    //                     'view' (a stored default view) or 'cold'. A param
+    //                     that is absent from `s` is LEFT ALONE.
+    //   cold              how the param gets applied on a cold load:
+    //                     true = by the loop just below this table, through
+    //                     the same apply(). A string = it cannot wait that
+    //                     long (it is needed while the map or a panel is
+    //                     being built, or it waits on a fetch), and names the
+    //                     place that reads _initialHash for it instead.
+    //
+    // Row order is apply order; the codec fixes the order params are written.
+    // ---------------------------------------------------------------------------
+    var _VIEW_PARAMS = [
+        { key: 'base', cold: 'map construction, then _pendingBase / _applyPendingBase',
+          collect: function (mode, o) {
+              if (mode === 'view' || (_currentBasemap && _currentBasemap !== DEFAULT_BASEMAP_ID)) o.base = _currentBasemap;
+              else if (_pendingBase) o.base = _pendingBase;   // still waiting on the shared-layer list
+          },
+          apply: function (s) {
+              if (s.base && s.base !== _currentBasemap && findBasemap(s.base)) setBasemap(s.base);
+          } },
+        // A wiper in the hash is applied; a hash without one leaves the current
+        // wiper alone (permalink clicks shouldn't kill an open comparison). A
+        // default view without one closes it: the view describes both panes.
+        { key: 'swipe', cold: '_pendingSwipe / _applyPendingSwipe',
+          collect: function (mode, o) {
+              if (_swipe.on && _swipe.basemapId) { o.swipe = _swipe.basemapId; o.sx = _swipe.x; }
+          },
+          apply: function (s, how) {
+              if (s.swipe && findBasemap(s.swipe)) {
+                  if (s.sx != null) _swipeSetX(s.sx);
+                  _swipeEnable(s.swipe);
+              } else if (how === 'view') {
+                  _swipeDisable();
+              }
+          } },
+        { key: 'ov', cold: '_ovMergeHashSpec, where _ovState is first loaded',
+          collect: function (mode, o) {
+              var v = _ovSpec(mode === 'view');
+              if (mode === 'view' || Object.keys(v).length) o.ov = v;
+          },
+          apply: function (s) { if (s.ov) _ovApplyHashSpec(s.ov); } },
+        { key: 'li', cold: '_pendingLi, applied when the lidar catalog arrives',
+          collect: function (mode, o) {
+              var v = _liSpec();
+              if (mode === 'view' || Object.keys(v).length) o.li = v;
+          },
+          apply: function (s) { if (s.li) _liApplyHashSpec(s.li); } },
+        { key: 'ext', cold: '_pendingExt, applied when the source registry arrives',
+          collect: function (mode, o) {
+              var v = _extSpec();
+              if (mode === 'view' || Object.keys(v).length) o.ext = v;
+          },
+          apply: function (s) {
+              if (s.ext) { if (_extSources) _extApply(s.ext); else _extPending = s.ext; }
+          } },
+        { key: 'im', cold: '_pendingIm, applied when the imagery list arrives',
+          collect: function (mode, o) {
+              var v = _imSpec();
+              if (mode === 'view' || Object.keys(v).length) o.im = v;
+          },
+          apply: function (s) { if (s.im) _imApplyHashSpec(s.im); } },
+        // Reference vectors: written only when off the page default (faults
+        // on), where an empty list is a real answer ("none").
+        { key: 'ref', cold: true,
+          collect: function (mode, o) {
+              if (mode === 'view' || !_refIsDefault()) o.ref = _refSpec();
+          },
+          apply: function (s) { if (s.ref) _refApply(s.ref); } },
+        { key: 'sc', cold: true,
+          collect: function (mode, o) {
+              var on = _scarpsOn();
+              if (mode === 'view') o.extras.sc = on ? '1' : '0';
+              else if (!on) o.extras.sc = '0';
+          },
+          apply: function (s) { if (s.sc != null) _scarpsSet(s.sc); } },
+        // Filters travel in the address bar only (see _viewStateString), and a
+        // default view never applies any even if one is typed into it.
+        { key: 'flt', cold: '_filterColdApply, before the first buildFilter',
+          collect: function (mode, o) {
+              if (mode !== 'url') return;
+              var f = _filterCollect();
+              _FILTER_KEYS.forEach(function (k) { if (f[k] != null) o.extras[k] = f[k]; });
+          },
+          apply: function (s, how) {
+              if (how !== 'hash' || !s.flt) return;
+              _filterApply(s.flt);
+              buildFilter();
+          } },
+        // The elevation profile line (profile.js), its window and aspect lock,
+        // so a profile can be shared with the view it was drawn on.
+        { key: 'pr', cold: true,
+          collect: function (mode, o) {
+              if (typeof LSProfile === 'undefined') return;
+              var st = LSProfile.state();
+              if (!st) return;
+              o.extras.pr = st.line.map(function (c) { return c[1].toFixed(5) + ',' + c[0].toFixed(5); }).join(',');
+              if (st.sel) o.extras.pw = st.sel.d0.toFixed(1) + ',' + st.sel.d1.toFixed(1);
+              if (!st.locked) o.extras.pve = '0';
+          },
+          apply: function (s) {
+              if (s.pr && typeof LSProfile !== 'undefined') LSProfile.setState(s.pr);
+          } },
+        // The permafrost patch circle: pp=lat,lon,r_km (permafrost.js).
+        { key: 'pp', cold: true,
+          collect: function (mode, o) {
+              if (typeof LSPermafrost === 'undefined') return;
+              var st = LSPermafrost.state();
+              if (st) o.extras.pp = st.lat.toFixed(5) + ',' + st.lon.toFixed(5) + ',' + st.r;
+          },
+          apply: function (s) {
+              if (s.pp && typeof LSPermafrost !== 'undefined') LSPermafrost.setState(s.pp);
+          } },
+        { key: 'tab', cold: true,
+          collect: function (mode, o) {
+              var tab = _activeSidebarTab();
+              if (tab !== 'inventory') o.extras.tab = tab;
+          },
+          apply: function (s) { if (s.tab) _setSidebarTab(s.tab); } },
+        { key: 'an', cold: true,
+          collect: function (mode, o) { o.extras.an = _anEncodeHash(); },
+          apply: function (s) { if (s.an) _anApplyHashSpec(s.an); } },
+        // The explorer's selection. Re-emitted so panning doesn't silently
+        // drop it and the link stays shareable; never applied after load.
+        { key: 'ids', cold: '_idsFilter',
+          collect: function (mode, o) {
+              if (mode === 'url' && _idsFilter) o.extras.ids = _idsFilter.join(',');
+          } },
+        { key: 'map', cold: 'map construction',
+          collect: function (mode, o) {
+              var c = map.getCenter();
+              o.zoom = map.getZoom(); o.lat = c.lat; o.lon = c.lng;
+          },
+          apply: function (s) {
+              if (s.lat != null && s.lon != null && s.zoom != null) {
+                  map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
+              }
+          } },
+        // Never written: opening a record strips it (tryInit). The slug
+        // permalink is the shareable form of "this record".
+        { key: 'id', cold: '_pendingDetailId, opened by tryInit',
+          apply: function (s, how) { if (how === 'hash' && s.id != null) showDetail(s.id); } }
+    ];
+    function _applyViewState(s, how) {
+        _VIEW_PARAMS.forEach(function (p) { if (p.apply) p.apply(s, how); });
+        // After everything else, so the wiper's own panel is drawn from the
+        // overlays and surveys this state just set.
+        if (how === 'view' || (s.swipe && findBasemap(s.swipe))) _syncSwipeUI();
+    }
+    // Cold load: the rows that can wait until everything they touch exists.
+    // Still synchronous, so it runs before the map has loaded and built a
+    // layer from any of it.
+    _VIEW_PARAMS.forEach(function (p) {
+        if (p.cold === true && p.apply) p.apply(_initialHash, 'cold');
+    });
 
     var _lastHash = location.hash;
     window.addEventListener('hashchange', function () {
         if (location.hash === _lastHash) return;
         _lastHash = location.hash;
-        var s = parseHashState();
-        if (s.base && s.base !== _currentBasemap && findBasemap(s.base)) setBasemap(s.base);
-        // A wiper in the hash is applied; a hash without one leaves the current
-        // wiper alone (permalink clicks shouldn't kill an open comparison).
-        if (s.swipe && findBasemap(s.swipe)) {
-            if (s.sx != null) _swipeSetX(s.sx);
-            _swipeEnable(s.swipe);
-            _syncSwipeUI();
-        }
-        // Same leave-alone rule for overlays, tab, and analysis panels: only
-        // explicit params apply.
-        if (s.ov) _ovApplyHashSpec(s.ov);
-        if (s.li) _liApplyHashSpec(s.li);
-        if (s.im) _imApplyHashSpec(s.im);
-        if (s.tab) _setSidebarTab(s.tab);
-        if (s.an) _anApplyHashSpec(s.an);
-        if (s.lat != null && s.lon != null && s.zoom != null) {
-            map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
-        }
-        if (s.id != null) showDetail(s.id);
+        _applyViewState(parseHashState(), 'hash');
     });
 
     // -----------------------------------------------------------------------
@@ -9389,7 +10406,8 @@
                    + 'displacement (Esc to exit)',
             aria: 'InSAR time series',
             onSelect: function () { setActive(true); },
-            onRelease: function () { setActive(false); }
+            onRelease: function () { setActive(false); },
+            cancel: function () { setActive(false); }   // nothing is ever "in progress" here
         });
 
         var fp = makeFloatingPanel(panel, {
@@ -9420,14 +10438,10 @@
             if (on && !LSTools.claim('insar')) return;
             if (!on) LSTools.release('insar');
             _active = on;
-            map.__insarActive = on;
             if (on) window.LSTrack && LSTrack.event('map_tool', { tool: 'insar' });
-            map.getCanvas().style.cursor = on ? 'crosshair' : '';
+            if (on) LSTools.cursor.set('tool', 'crosshair'); else LSTools.cursor.clear('tool');
             if (on) { fp.open(); draw(); }
         }
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && _active) setActive(false);
-        });
 
         // Markers: one source for all samples; sample-colored dot + letter.
         // Mirrored to the wiper pane (exception to the interaction-tool rule:
@@ -9510,7 +10524,9 @@
             return PALETTE[0];
         }
 
-        map.on('click', function (e) {
+        // Action entry: runs only while 'insar' holds the map. See measure.
+        LSTools.clicks.register({ id: 'insar', kind: 'action', holders: ['insar'],
+                                  handler: function (_f, e) {
             if (!_active) return;
             // Click on an existing marker = remove that sample.
             var hits = map.queryRenderedFeatures(e.point, { layers: map.getLayer('insar-click-pt') ? ['insar-click-pt'] : [] });
@@ -9581,7 +10597,7 @@
                 }
                 syncSubtitle(); draw();
             });
-        });
+        } });
 
         function draw() {
             var r = canvas.getBoundingClientRect();

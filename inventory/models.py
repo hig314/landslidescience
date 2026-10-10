@@ -63,6 +63,42 @@ class QmsLayer(models.Model):
         return f'{self.name} (QMS #{self.qms_id}, {"public" if self.public else "editors"})'
 
 
+class FeatureVocab(models.Model):
+    """Metadata for one value of landslides.features — the multi-valued
+    "Landslide features" column (", "-joined text, like other_subtle_creep):
+    which landslide type it applies to, a one-line description for the form's
+    tooltip, and a display order. The VALUES themselves live in the landslide
+    data (a value in use with no row here is offered as applying to both
+    types, undescribed); this is the part that cannot be inferred from the
+    data. Stored in the app SQLite like QmsLayer — it is config, not
+    landslide data — and edited in the Django admin or by the picker's "add"
+    (which creates the row with the editor's applies-to choice).
+
+    legacy_column names the boolean column the value replaced on 2026-10-06;
+    that column is now a rule output mirroring membership here
+    (derived.FEATURE_MIRRORS), kept so filters, exports and snapshots that
+    name it keep working until nothing does."""
+    APPLIES = [('both', 'both'), ('slow', 'slow'), ('catastrophic', 'catastrophic')]
+    value = models.CharField(max_length=120, unique=True)
+    applies_to = models.CharField(max_length=12, choices=APPLIES, default='both')
+    description = models.CharField(max_length=300, blank=True, default='')
+    sort_order = models.IntegerField(default=100)
+    legacy_column = models.CharField(max_length=64, blank=True, default='')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['sort_order', 'value']
+        verbose_name = 'landslide feature (vocabulary)'
+        verbose_name_plural = 'landslide features (vocabulary)'
+
+    def __str__(self):
+        return f'{self.value} ({self.applies_to})'
+
+
 class TraceRaster(models.Model):
     """An editor-uploaded georeferenced image (GeoTIFF), baked at upload into
     an XYZ PNG tile pyramid under data/trace_tiles/<id>/ and shown as an

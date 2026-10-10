@@ -1,0 +1,23 @@
+{% comment %}
+Signed in but holding no role (has_no_role, inventory/context_processors.py):
+the account sees only what an anonymous visitor sees, which reads as a broken
+login unless something says why. Fixed-position so it never shifts a page's
+layout (the map is absolutely positioned under the header). Dismissal lasts
+for the browser session only; it comes back until the account gets a role.
+{% endcomment %}
+{% if has_no_role %}
+<div id="no-role-banner" role="status" style="position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:30;max-width:calc(100% - 32px);box-sizing:border-box;display:flex;gap:10px;align-items:center;padding:8px 12px;background:#fff8e1;border:1px solid #e0b64a;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.15);font:13px/1.4 system-ui,-apple-system,sans-serif;color:#4a3b00;">
+  <span>Signed in as <strong>{{ user.username }}</strong>, but this account has no role yet, so it sees only the public site. Contact a site administrator to be granted access.</span>
+  <button type="button" aria-label="Dismiss" style="border:0;background:none;font-size:16px;line-height:1;cursor:pointer;color:#4a3b00;padding:0 2px;">&times;</button>
+</div>
+<script>
+  (function () {
+    var b = document.getElementById('no-role-banner');
+    try { if (sessionStorage.getItem('ls_no_role_dismissed')) { b.remove(); return; } } catch (e) {}
+    b.querySelector('button').addEventListener('click', function () {
+      try { sessionStorage.setItem('ls_no_role_dismissed', '1'); } catch (e) {}
+      b.remove();
+    });
+  })();
+</script>
+{% endif %}

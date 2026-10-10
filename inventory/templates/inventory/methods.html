@@ -111,6 +111,42 @@
   <a href="{% url 'inventory:naming' %}">Naming conventions</a>.
 </p>
 
+<h4>Other people&rsquo;s inventories, shown alongside ours</h4>
+<p>
+  The map can display third-party landslide inventories as separate overlays.
+  They are <strong>mirrored verbatim and never merged into this inventory</strong>:
+  each is stored in its own table with the columns its publisher shipped,
+  and clicking a feature shows exactly the fields they populated, under
+  their own name and citation. Nothing in them is reclassified into our
+  scheme, because doing so would require deciding, record by record, things
+  the source never stated. Counts and statistics on this site describe our
+  records only.
+</p>
+<ul>
+  <li>
+    <strong>Alaska Division of Geological &amp; Geophysical Surveys</strong> &mdash;
+    Nicolazzo, J.A., and Larsen, M.C., 2025, <em>Alaska landslide inventory
+    database</em>, DGGS Digital Data Series 23,
+    <a href="https://doi.org/10.14509/31697" target="_blank" rel="noopener">doi:10.14509/31697</a>.
+    Used with the source indicated and modifications described; the mirror is
+    unmodified apart from being re-served for display.
+  </li>
+  <li>
+    <strong>Preliminary Canadian Landslide Database</strong> &mdash;
+    Brideau, M.-A., and others, 2026,
+    <a href="https://doi.org/10.5281/zenodo.20371365" target="_blank" rel="noopener">doi:10.5281/zenodo.20371365</a>.
+    CC&nbsp;BY&nbsp;4.0.
+  </li>
+</ul>
+<p>
+  A record of ours may be <em>promoted</em> from one of theirs: an editor
+  creates our record starting from their observation, maps its geometry here,
+  and fills our fields by hand. A promoted record stores which inventory and
+  which of their identifiers it came from, and credits the original observer
+  rather than the editor who promoted it. It enters the same review queue as
+  any other new record.
+</p>
+
 <h4>Spatial subsets (regions)</h4>
 <p>
   Subsets come in two kinds. <strong>Tags</strong> are hand-curated
@@ -163,6 +199,24 @@
   variation across a view's latitude span.
 </p>
 
+<h4>Bedrock geology overlay</h4>
+<p>
+  The <strong>Bedrock geology</strong> overlay is the USGS
+  <a href="https://doi.org/10.3133/sim3340" target="_blank" rel="noopener">Geologic
+  Map of Alaska</a> (Wilson, Hults, Mull and Karl, 2015, Scientific
+  Investigations Map 3340, 1:1,584,000, public domain), drawn from
+  <a href="https://macrostrat.org" target="_blank" rel="noopener">Macrostrat</a>'s
+  tile service (CC&nbsp;BY&nbsp;4.0) and coloured by age on the international
+  chronostratigraphic scale rather than with the publication's unit colours.
+  Clicking the map queries Macrostrat for the unit under the cursor and shows
+  its name, age range and lithology. This is the same statewide map that
+  supplies rock strength to the DGGS susceptibility model above, so the two
+  layers read against each other. At 1:1.58&nbsp;M the unit boundaries are
+  kilometre-scale: the layer says what rock a slope is in, not where the
+  contact is. Statewide it is the only seamless map; DGGS quadrangle
+  mapping is finer where it exists.
+</p>
+
 <h4>ITS_LIVE glacier velocity overlays</h4>
 <p>
   Three glacier-flow overlays derive from the NASA MEaSUREs
@@ -177,7 +231,7 @@
   shows). Tiles are pre-rendered from the project's source rasters; colors
   are baked, so the ramps live in the repository
   (<code>tools/itslive_color_*.txt</code>). These layers are most relevant
-  to slow landslides carrying the <code>glacier_contact</code> flag.
+  to slow landslides carrying the <em>Glacier contact</em> feature.
   Velocity data generated using auto-RIFT (Gardner et&nbsp;al., 2018) and
   provided by the NASA MEaSUREs ITS_LIVE project (Gardner et&nbsp;al., 2025,
   doi:10.5067/JQ6337239C96).
@@ -202,8 +256,126 @@
   fixed 2000&ndash;2019 analysis &mdash; no updating successor at comparable
   resolution exists as of 2026 &mdash; so treat it as a two-decade average,
   not current conditions. Paired with the velocity overlays it frames the
-  glacier-dynamics context of <code>glacier_contact</code> landslides:
+  glacier-dynamics context of <em>Glacier contact</em> landslides:
   thinning rate, flow speed, its seasonality, and its trend.
+</p>
+
+<h4>Permafrost overlays</h4>
+<p>
+  Three published permafrost products are shown as overlays, each as its
+  authors issued it, plus a terrain downscale of the two coarse ones built
+  here. They measure <strong>different quantities</strong> and should not be
+  read as three estimates of one thing:
+</p>
+<ul>
+  <li>
+    <strong>Permafrost zonation index</strong> (PZI) &mdash;
+    <a href="https://doi.org/10.5194/tc-6-221-2012" target="_blank" rel="noopener">Gruber
+    (2012)</a>, 30 arc-second (&asymp;1&nbsp;km). The fraction of a cell
+    expected to hold permafrost, derived from mean annual air temperature
+    (MAAT) through a fixed curve and intended for the continuous-to-isolated
+    zonation. It is an index of likely extent, not a probability at a point,
+    and carries no local information beyond the climatology it was drawn from.
+  </li>
+  <li>
+    <strong>Permafrost probability</strong> and <strong>mean annual ground
+    temperature</strong> (MAGT) at the top of the permafrost &mdash;
+    <a href="https://doi.org/10.1016/j.earscirev.2019.04.023" target="_blank"
+       rel="noopener">Obu et&nbsp;al. (2019)</a>, 1&nbsp;km, 2000&ndash;2016
+    (data: doi:10.1594/PANGAEA.888600, CC&nbsp;BY&nbsp;4.0). A TTOP
+    equilibrium model driven by MODIS land-surface temperature and ERA
+    reanalysis, with snow and vegetation offsets; probability is the share
+    of the model ensemble with MAGT below 0&nbsp;&deg;C. The 0&nbsp;&deg;C
+    contour of the MAGT layer is the modelled permafrost boundary.
+  </li>
+  <li>
+    <strong>Near-surface permafrost probability</strong> &mdash;
+    <a href="https://doi.org/10.1016/j.rse.2015.07.019" target="_blank"
+       rel="noopener">Pastick et&nbsp;al. (2015)</a>, 30&nbsp;m, Alaska only
+    (USGS, public domain). Probability of permafrost <em>within the top
+    metre</em>, from a decision-tree model trained on field observations
+    with Landsat, terrain and climate predictors. Water, glacier ice,
+    developed, barren and cultivated land were not modelled and are blank;
+    the barren class is exactly the alpine ground where the other layers
+    matter most, so above treeline this layer says nothing rather than
+    &ldquo;no permafrost&rdquo;.
+  </li>
+</ul>
+<p>
+  <strong>Terrain downscale (60&nbsp;m).</strong> A 1&nbsp;km cell in Alaskan
+  mountains spans several hundred metres of relief and every aspect, which is
+  the scale at which a landslide sits. The two coarse products are therefore
+  re-expressed on a 60&nbsp;m grid (USGS 3DEP via Mapterhorn) using the
+  elevation dependence they already contain, anchored on the published value
+  so that each 1&nbsp;km cell's own number is preserved and only the
+  within-cell terrain variation is added. The local lapse rate is a
+  <em>kernel-weighted regression</em>: at every 1&nbsp;km cell the product is
+  regressed on elevation over its neighbourhood with Gaussian weights
+  (15&nbsp;km), so the lapse field is continuous and as smooth as the kernel
+  &mdash; contrasts wider than that (interior against coast) survive,
+  cell-to-cell noise does not &mdash; and where a neighbourhood has too little
+  relief to determine a lapse (the North Slope, the deltas) a 50&nbsp;km
+  kernel takes over.
+</p>
+<p>
+  For Gruber, the published PZI is a normal cumulative curve of MAAT
+  (&Phi;((T&#8320; &minus; MAAT)/&sigma;); it reproduces his values to 0.002
+  rms), but his product floors values below 0.1 at 0.01 and cuts to zero at
+  about 0&nbsp;&deg;C, which would put a step into any elevation profile. The
+  downscale moves MAAT by the fitted lapse (median &minus;5.2&nbsp;&deg;C/km,
+  10th&ndash;90th percentile &minus;5.9 to &minus;3.9; free-air is
+  &minus;6.5) and converts it through the same curve rescaled to reach exactly
+  zero at 0&nbsp;&deg;C, refitted to his cells at or above 0.1
+  (T&#8320;&nbsp;=&nbsp;&minus;4.58&nbsp;&deg;C, &sigma;&nbsp;=&nbsp;2.67,
+  residual s.d. 0.004), so the 60&nbsp;m index is continuous from 0 to 1.
+  The downscaled MAAT itself is offered as a layer. For Obu, MAGT is regressed
+  on elevation <em>and</em> northness
+  (cos&nbsp;aspect&nbsp;&times;&nbsp;sin&nbsp;slope), because land-surface
+  temperature does respond to aspect; the fitted lapse is weak and variable
+  (median &minus;1.4&nbsp;&deg;C/km &mdash; snow insulation is doing real work
+  in that model) and the aspect term is negative, north-facing colder, in
+  93&nbsp;% of cells (median &minus;0.41&nbsp;&deg;C per unit northness).
+  Probability is recomputed as &Phi;(&minus;MAGT&nbsp;/&nbsp;s.d.) with each
+  cell's published spread. Obu has no value over glaciers and some
+  near-glacier ground; the kernel fit is estimated through those gaps from the
+  valid cells around them and the 60&nbsp;m layers are written there too
+  &mdash; read them against the <strong>Glacier covered area 2020</strong>
+  outline (Roberts-Pierel and others 2022, NSIDC G10040, Landsat-derived),
+  which is what the Glaciers category carries for exactly this purpose: on ice
+  the value is the model extended, not the model.
+</p>
+<p>
+  The one independent check is Pastick: over a million 60&nbsp;m cells where
+  every layer is valid, the downscaled Obu probability correlates with
+  Pastick's at r&nbsp;=&nbsp;0.85 against 0.85 for the 1&nbsp;km original,
+  0.66 against 0.66 where the 1&nbsp;km cell spans 200&ndash;500&nbsp;m of
+  relief and 0.65 against 0.64 above 500&nbsp;m; Gruber's PZI changes by less
+  than 0.01 at every relief band. So by this test the downscale is close to
+  neutral &mdash; and because Pastick is blank on barren ground, the test
+  cannot see the alpine slopes where the redistribution is largest. A
+  patch-extraction tool in the repository (<code>tools/permafrost/patch.py</code>)
+  draws, for any 10&nbsp;km circle, the published 1&nbsp;km cells against the
+  60&nbsp;m cloud and the fitted lapse and curve, which is how the fits are
+  judged site by site &mdash; and the same check is on the map: the
+  Analysis tab's <strong>Permafrost: Obu &times; Gruber</strong> panel shows
+  the two products' joint distribution over all terrain with every landslide
+  as a point, and its <em>Sample</em> tool reads any circle of the map
+  (published 1&nbsp;km cells and 60&nbsp;m downscale, against elevation) and
+  lets you download the numbers.
+</p>
+<p>
+  <strong>What the downscale is and is not.</strong> It adds no new
+  observations: it redistributes each 1&nbsp;km value across the terrain
+  inside the cell according to a fitted local lapse, so the published value is
+  preserved and valley floors and ridgelines are separated. It cannot see
+  cold-air pooling, snow redistribution, soil or vegetation differences at
+  the 60&nbsp;m scale, and it inherits every limitation of the parent model.
+  The 1&nbsp;km layers are the published science; the 60&nbsp;m layers are
+  this project's inference from them and are labelled as such in the layer
+  list. Attribution: Gruber (2012), Obu et&nbsp;al. (2019), Pastick
+  et&nbsp;al. (2015), Roberts-Pierel et&nbsp;al. (2022); downscaled layers
+  &copy; landslidescience.org, built on Mapterhorn / USGS 3DEP terrain. Build
+  code is in <code>tools/permafrost/</code> of the site repository.
 </p>
 
 <h4>Country attribution</h4>
@@ -242,11 +414,11 @@
 </p>
 
 <p>
-  Two observational flags were added in 2026:
-  <code>tsunamigenic</code> (catastrophic records &mdash; the failure
-  generated a displacement wave) and <code>glacier_contact</code> (slow
-  records &mdash; the moving mass is in contact with a glacier). Both are
-  editor-set booleans, shown in the detail panel's Detection/evidence list
+  Two observations were added in 2026, now values of the <em>Landslide
+  features</em> field: <em>Tsunamigenic</em> (catastrophic records &mdash;
+  the failure generated a displacement wave) and <em>Glacier contact</em>
+  (slow records &mdash; the moving mass is in contact with a glacier). Both
+  are editor-set, shown in the detail panel's Detection/evidence list
   when set; coverage is being populated progressively, so absence of the
   flag does not yet imply absence of the phenomenon.
 </p>
@@ -507,7 +679,7 @@
 <table class="methods-table">
   <tr><th>Condition</th><th>Formula</th><th>Rationale</th></tr>
   <tr>
-    <td><code>creeping_permafrost_mass = TRUE</code></td>
+    <td><em>Creeping permafrost mass</em> among the landslide features</td>
     <td><code>20 &times; area</code></td>
     <td>Uniform 20 m thickness assumed for permafrost masses, regardless of role</td>
   </tr>
@@ -725,13 +897,23 @@
   Conceptually obvious creep is the broader assertion (the whole
   feature is moving), but the patchy flag, when set, <em>overrides</em>
   that to mean &ldquo;actually it&rsquo;s only patchy&rdquo; &mdash; so in
-  the compositional rule the patchy flag wins:
+  the compositional rule the patchy flag wins. A third flag,
+  <code>its_live_creep</code>, records motion that shows in the
+  <a href="https://its-live.jpl.nasa.gov/" target="_blank" rel="noopener">ITS_LIVE</a>
+  feature-tracking velocity fields. It is a second, independent route to
+  <strong>Obvious creep</strong> rather than a label of its own, and the
+  patchy flag overrides it just as it overrides the plain Planet flag:
 </p>
 <ol style="font-size:13px; margin-left:1em;">
   <li><code>planet_labs_patchy_creep</code> &rarr; <strong>Patchy obvious creep</strong></li>
   <li><code>planet_labs_creep</code> &rarr; <strong>Obvious creep</strong></li>
+  <li><code>its_live_creep</code> &rarr; <strong>Obvious creep</strong></li>
   <li><code>insar_creep</code> &rarr; <strong>Subtle creep</strong></li>
-  <li><code>other_subtle_creep</code> (any non-empty value) &rarr; <strong>Subtle creep</strong></li>
+  <li><code>other_subtle_creep</code> (any non-empty value) &rarr; <strong>Subtle creep</strong>
+      &mdash; one or more observations from a short vocabulary (fine ground
+      cracking, post-AHAP change, recurrent failures, lidar change, post-Maxar
+      change, post-LIA change, an OPERA coherence gap, in-situ
+      instrumentation, &hellip;), comma-separated when several apply</li>
   <li><code>geomorph_creep</code> &rarr; <strong>Geomorph creep</strong></li>
   <li>none of the above, but <code>creep_evaluated</code> is TRUE &rarr;
       <strong>Cryptic</strong> &mdash; a deliberate null finding (the
@@ -961,35 +1143,51 @@
   them out entirely.
 </p>
 
-<h4>Include-only checkboxes</h4>
+<h4>Landslide features and include-only checkboxes</h4>
 <p>
-  When checked, these restrict the display to landslides having a specific
-  attribute. Multiple checked boxes are AND'd. Current options:
+  Each landslide feature in the vocabulary (grouped by the type it applies
+  to) has a three-way control: <strong>must have</strong>, <strong>no
+  preference</strong>, or <strong>exclude</strong>. Settings are AND'd, so
+  &ldquo;molards, not tsunamigenic&rdquo; is one filter. A record with no
+  features recorded counts as having none. The list grows with the
+  vocabulary: a feature added on the edit form is a filter on the next load.
+  In the URL it travels by name &mdash; <code>ft=molards,!tsunamigenic</code>
+  &mdash; and links written before 2026-10-06 with the old bitmask still
+  read as &ldquo;must have.&rdquo;
+</p>
+<p>
+  The remaining include-only checkboxes restrict the display to records
+  having an attribute that is not a feature; checked boxes are AND'd:
 </p>
 <ul>
-  <li><strong>Molards</strong> &mdash; <code>molards = TRUE</code></li>
   <li><strong>Dammed streams</strong> &mdash; <code>stream_damming</code> is a non-empty string</li>
-  <li><strong>Precursory headscarp</strong> &mdash; <code>precursory_headscarp = TRUE</code></li>
   <li><strong>Site-specific volume</strong> &mdash; <code>volume_site_specific</code> is set</li>
-  <li><strong>Exclusively supraglacial</strong> &mdash; <code>exclusively_supraglacial = TRUE</code></li>
-  <li><strong>Creeping permafrost mass</strong> &mdash; <code>creeping_permafrost_mass = TRUE</code></li>
   <li><strong>Time bracketed</strong> &mdash; both <code>date_min</code> and <code>date_max</code> are set</li>
   <li><strong>Seismic detection</strong> &mdash; <code>seismic_datetime</code> is set</li>
-  <li><strong>Post-2012 activity increase</strong> &mdash; <code>post_2012_activity_increase = TRUE</code></li>
-  <li><strong>Tsunamigenic</strong> &mdash; <code>tsunamigenic = TRUE</code>; the
-      failure generated a tsunami or displacement wave</li>
-  <li><strong>Super-elevated deposits</strong> &mdash;
-      <code>super_elevated_deposits = TRUE</code>; deposit runs up the outer
-      bank of a bend, recording flow fast enough to bank around it &mdash; read
-      as a velocity indicator</li>
-  <li><strong>Glacier contact</strong> &mdash; <code>glacier_contact = TRUE</code>;
-      the moving mass is in contact with a glacier</li>
 </ul>
 <p style="font-size:13px; color:#666;">
-  These are editor-set observations, so an unchecked box means
-  &ldquo;not recorded&rdquo; rather than &ldquo;observed absent&rdquo; &mdash;
-  filtering on one narrows to positively-noted records, not to the complete
-  population that has the attribute.
+  These are editor-set observations, so an unchecked box or an unlisted
+  feature means &ldquo;not recorded&rdquo; rather than &ldquo;observed
+  absent&rdquo; &mdash; &ldquo;must have&rdquo; narrows to positively-noted
+  records, not to the complete population that has the attribute, and
+  &ldquo;exclude&rdquo; keeps every record on which nobody noted it.
+</p>
+<p style="font-size:13px;">
+  <strong>Landslide features (since 2026-10-06).</strong> Eight former
+  boolean columns &mdash; <code>molards</code>,
+  <code>exclusively_supraglacial</code>, <code>super_elevated_deposits</code>,
+  <code>tsunamigenic</code>, <code>precursory_headscarp</code>,
+  <code>post_2012_activity_increase</code>,
+  <code>creeping_permafrost_mass</code>, <code>glacier_contact</code>
+  &mdash; are now recorded in one multi-valued column,
+  <code>features</code>, as a comma-separated list of values from a short
+  vocabulary that editors can extend (each value applies to slow
+  landslides, catastrophic ones, or both). The boolean columns were dropped
+  on 2026-10-07 after a record-by-record check against a pre-transition
+  copy of the table; exports made before then carry them, exports made
+  since carry <code>features</code> instead, and importing an older export
+  ignores the old columns with a warning. Snapshots published before the
+  change keep their own columns.
 </p>
 
 <h4>Area, volume, and age sliders</h4>
@@ -1035,8 +1233,8 @@
     records are filterable via the "Site-specific volume" checkbox.
   </li>
   <li>
-    <strong>Permafrost thickness is assumed.</strong> Landslides flagged
-    <code>creeping_permafrost_mass</code> get a uniform 20 m thickness in
+    <strong>Permafrost thickness is assumed.</strong> Landslides carrying the
+    <em>Creeping permafrost mass</em> feature get a uniform 20 m thickness in
     the volume formula. Real permafrost mass thicknesses are not measured
     here.
   </li>

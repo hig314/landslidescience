@@ -377,8 +377,31 @@
     renderIdleBar();
   }
 
+  // Pending geometry changes, judged by coordinates, not by Terra Draw's
+  // change events (a mere selection fires one). The form guard below uses
+  // this to decide whether "Save & next" / "Save changes" must save the
+  // geometry first.
+  function pendingChanges() {
+    if (!draw || !editing) return null;
+    var snap = realPolys(draw.getSnapshot());
+    var present = {}, updates = [], inserts = [];
+    snap.forEach(function (f) {
+      var dbId = uuidToDbId[f.id];
+      if (dbId != null) {
+        present[dbId] = true;
+        if (JSON.stringify(round9(f.geometry.coordinates)) !== originalGeom[dbId]) {
+          updates.push({ db_id: dbId, geometry: f.geometry });
+        }
+      } else {
+        inserts.push({ role: featureRole[f.id] || primaryRole, geometry: f.geometry });
+      }
+    });
+    var deletes = originalDbIds.filter(function (d) { return !present[d]; });
+    return (updates.length || inserts.length || deletes.length) ? { updates: updates, inserts: inserts, deletes: deletes } : null;
+  }
+
   function save_() {
-    if (!draw) return;
+    if (!draw) return Promise.resolve(false);
     var snap = realPolys(draw.getSnapshot());
     var present = {}, updates = [], inserts = [];
     snap.forEach(function (f) {
@@ -394,10 +417,10 @@
 
     if (!updates.length && !inserts.length && !deletes.length) {
       flashMode('No geometry changes to save.');
-      return;
+      return Promise.resolve(true);
     }
     flashMode('Saving…');
-    fetch(cfg.saveUrl, {
+    return fetch(cfg.saveUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': cfg.csrftoken },
       body: JSON.stringify({ updates: updates, inserts: inserts, deletes: deletes })
@@ -409,10 +432,11 @@
           applyDerivedToForm(res.j.derived);
           reloadFromServer(res.j.polygons);
           flashMode('Geometry saved ✓ — areas/centroid updated. Remember to Save the form to keep field edits.');
-        } else {
-          flashMode('Save failed: ' + (res.j && res.j.error ? res.j.error : 'unknown error'));
+          return true;
         }
-      }).catch(function (e) { flashMode('Save failed: ' + e); });
+        flashMode('Save failed: ' + (res.j && res.j.error ? res.j.error : 'unknown error'));
+        return false;
+      }).catch(function (e) { flashMode('Save failed: ' + e); return false; });
   }
 
   // Push the server-recomputed derived columns into their form inputs, so the
@@ -526,4 +550,34 @@
   }
 
   if (CREATE) { renderCreateBar(); } else { renderIdleBar(); }
+
+  // ---- the form must not discard unsaved geometry ------------------------
+  // "Save & next" (review) and "Save changes" (edit) submit the fields only;
+  // geometry is saved by this editor's own button. An editor who reshaped a
+  // polygon and went straight to the form button lost the reshape silently
+  // (Hig, 2026-09-28, record 1546: no polygon history at all). Now the form
+  // saves pending geometry first and submits only once that has succeeded;
+  // on failure it stays put with the editor's message showing. Leaving the
+  // page any other way with unsaved geometry asks first.
+  if (!CREATE) {
+    var form = document.getElementById('ls-edit-form');
+    var submitting = false;
+    if (form) form.addEventListener('submit', function (ev) {
+      if (submitting || !pendingChanges()) return;
+      ev.preventDefault();
+      var submitter = ev.submitter || null;
+      flashMode('Saving geometry before the form…');
+      save_().then(function (ok) {
+        if (!ok) return;
+        submitting = true;
+        if (form.requestSubmit) form.requestSubmit(submitter && submitter.form === form ? submitter : undefined);
+        else form.submit();
+      });
+    });
+    window.addEventListener('beforeunload', function (ev) {
+      if (submitting || !pendingChanges()) return;
+      ev.preventDefault();
+      ev.returnValue = '';
+    });
+  }
 })();

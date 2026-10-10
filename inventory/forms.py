@@ -38,21 +38,61 @@ _TEXTAREA_COLS = {'description', 'notes', 'seismic_note', 'seismic_credit',
 # most columns but loses hyphenation and domain capitalization. Only list
 # columns whose derived label is actually wrong — the default is good.
 _FIELD_LABELS = {
-    'super_elevated_deposits': 'Super-elevated deposits',
-    'post_2012_activity_increase': 'Post-2012 activity increase',
     'insar_schaefer': 'InSAR (Schaefer)',
     'insar_kim': 'InSAR (Kim)',
     'insar_opera': 'InSAR (OPERA)',
     'insar_other': 'InSAR (other)',
     'planet_labs_creep': 'Planet Labs creep',
-    'planet_labs_patchy_creep': 'Planet Labs patchy creep',
+    'planet_labs_patchy_creep': 'Patchy only',   # nested under Planet Labs creep in the form
+    'its_live_creep': 'ITS_LIVE',
+    'other_subtle_creep': 'Other subtle creep evidence',
+    'features': 'Features',   # under the 'Landslide features' group heading
 }
 
 # Short hints shown under a field. Kept for flags whose meaning is not
 # self-evident from the label alone.
 _FIELD_HELP = {
-    'super_elevated_deposits': 'Deposit runs up the outer bank of a bend — '
-                               'evidence of high flow velocity.',
+}
+
+
+# Hover tooltips (the label's `title`), for what a box means and what ticking
+# it does to the derived class -- there when wanted, without a line of grey
+# text under every checkbox in a two-column block. The creep section's flags
+# are all here because each one feeds a rule (creep_behavior, insar_creep) and
+# which label it leads to is the thing an editor cannot see from its name.
+# Keep these in step with the rule ladder in derived.compute_creep_behavior
+# and the class table on the Methods page; they restate those, nothing more.
+_FIELD_TIPS = {
+    'creep_evaluated': 'This record has been reviewed for creep. With nothing '
+                       'ticked below it reads as Cryptic (reviewed, none '
+                       'found) rather than not yet reviewed.',
+    'insar_schaefer': 'Creep detected in the Schaefer InSAR survey — counts '
+                      'as subtle creep.',
+    'insar_kim': 'Creep detected in the Kim InSAR survey — counts as subtle '
+                 'creep.',
+    'insar_opera': 'Creep apparent in the OPERA DISP-S1 (Sentinel-1) velocity '
+                   'mosaics — counts as subtle creep.',
+    'insar_other': 'Creep detected by InSAR from any other source — counts '
+                   'as subtle creep.',
+    'planet_labs_creep': 'Creep is apparent in Planet imagery — counts as '
+                         'obvious creep, taken to be landslide-wide unless '
+                         '"Patchy only" is ticked.',
+    'planet_labs_patchy_creep': 'The creep seen in Planet imagery is confined '
+                                'to parts of the feature — counts as patchy '
+                                'obvious creep instead of landslide-wide.',
+    'its_live_creep': 'Motion shows in the ITS_LIVE velocity fields — counts '
+                      'as obvious creep.',
+    'geomorph_creep': 'Geomorphic indicators of past or very slow creep '
+                      '(e.g. lobate morphology) — counts as geomorph creep '
+                      'when no stronger evidence is ticked.',
+    'other_subtle_creep': 'Subtle creep evidence other than InSAR: pick any '
+                          'that apply, or add a value. Any value counts as '
+                          'subtle creep.',
+    'stream_damming': 'What the deposit did to the stream it reached: pick '
+                      'any that apply, or add a value.',
+    'features': 'Observed features of this landslide: pick any that apply, '
+                'or add a value. The list shows the features that apply to '
+                'this record\'s type.',
 }
 
 
@@ -136,4 +176,6 @@ def build_landslide_form_class(cols_meta, all_optional=False, exclude=None):
             fields[name].label = _FIELD_LABELS[name]
         if name in _FIELD_HELP:
             fields[name].help_text = _FIELD_HELP[name]
+        if name in _FIELD_TIPS:
+            fields[name].tip = _FIELD_TIPS[name]     # read as field.field.tip
     return type('LandslideEditForm', (_LandslideEditFormBase,), fields)

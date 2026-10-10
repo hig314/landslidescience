@@ -32,6 +32,47 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
 - **Port 8000 is the Tethys stack, not this project** — and it serves an
   older copy of the map, so it *looks* right while showing stale code. Dev
   is **8001**.
+- **`rclone --exclude` is IGNORED whenever any `--include` is present.**
+  They are two separate lists, not one ordered list, so no amount of
+  reordering makes an exclude fire next to `--include '*.pmtiles'` (measured
+  against rclone 1.75, 2026-09-21). `tools/lidar/r2_sync.sh` used `--exclude`
+  to keep gated surveys off the public bucket and it never once worked. Write
+  anything order-dependent as `--filter` rules (`- name`, then `+ pattern`,
+  then `- *`), which ARE one ordered list, first match wins. A 2026-09-08 note
+  had already met this symptom, read it as an ordering bug, and "fixed" it by
+  moving the caller's flags to the front — which changed nothing.
+- **`rclone copy` only ever adds, so gating is not retroactive.** Marking a
+  survey `gated` after it has been pushed leaves the bytes public at a
+  guessable R2 URL; the droplet's gate does not cover the bucket. That is how
+  `hoonah_2015` (COG + both pyramids) sat on public R2 while the audit called
+  it "gated, served from the droplet". `/lidar/audit/` now reports **GATED BUT
+  ON PUBLIC R2** instead. Removing such bytes is a manual `rclone delete`.
+- **Large uploads never go through the droplet** — it has ~7 GB of disk and
+  shares 4 GB of RAM. The pattern is `drops/`: presign URLs to a private R2
+  bucket, let the browser PUT, record after a server-side HEAD. Reuse
+  `drops/r2.py`; do not add a streaming upload view.
+
+- **R2 token scoping is a trade, not a setting.** An *Admin* R2 token cannot
+  be limited to one bucket; an *Object* token cannot change bucket CORS. We
+  chose bucket-scoped, so the drops bucket's CORS lives in the Cloudflare
+  dashboard and `manage.py drops_setup_bucket` fails by design (it prints
+  the JSON to paste). Use **Account** tokens, not User tokens — a User token
+  dies with the login that made it.
+
+- **A drop's file count is only as good as its last reconcile.** Rows are
+  written by a *second* request after the bytes are in R2, and that request
+  is the one a flaky uplink drops: the Portage game cam arrived with 37 of
+  5,183 files stored but unrecorded, so the gallery, `links.txt` and every
+  count were short while `r2_pull.sh` quietly mirrored the lot. The uploader
+  now retries and calls `reconcile/` at the end of a batch, but if a count
+  ever looks low, trust the bucket: **Check storage** on `/drops/` or
+  `manage.py drops_reconcile --dry-run`.
+
+- **Uppy is pinned to 4.x on purpose.** v5+ replaced the `getUploadParameters`
+  / `signPart` / `completeMultipartUpload` callbacks with its "Companion"
+  server protocol; bumping the major silently breaks `drops/static/drops/
+  upload.js` against our API.
+
 - **gunicorn kills requests at ~30 s.** Long work (tile bakes, MP4
   downloads) runs in background threads with a status column the UI polls
   (`trace_views._spawn_bake` is the pattern). Never do slow work inline.
@@ -85,10 +126,19 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
   identifiers are declared; JS parses (osascript JXA — there is no node).
 - **Single sources of truth**: basemaps only in `basemaps.js`, symbology
   only in `ls_colors.js`, glacier overlays only in `ls_overlays.js`,
-  hash codec in `ls_hash.js` (note: map.js still carries its own embedded
-  hash parser with identical grammar — change both or neither until the
-  planned migration lands), EPSG:3413 in `ls_proj.js`, PNG export in
+  hash codec in `ls_hash.js` (map.js parses and writes through it since
+  2026-10-06; which params exist and how each is collected and applied is
+  the `_VIEW_PARAMS` table at the end of map.js — to make something travel
+  in a link add a row there, never a line in a writer), EPSG:3413 in `ls_proj.js`, PNG export in
   `ls_export.js`. Duplicated registries drift; that's why these exist.
+- **Pointer policy only in `ls_tools.js`.** Do not add a `map.on('click')`,
+  a hand-rolled pointer-capture drag, a direct `canvas.style.cursor` write or
+  a document `keydown` for Escape in map.js: register a click entry, use
+  `LSTools.drag`, `LSTools.cursor`, and give the holder a `cancel()`. The
+  2026-09 review found the old guard typed at 22 sites, a reviser flag read
+  once, three drags with no `pointercancel`, and an external point that
+  opened popup + panel over our polygon but only the panel over our dot —
+  by omission, not by decision.
 - **Verify discoverability, not existence.** A control can be in the DOM,
   clickable by script, and invisible to a human (it rendered at y=2515 in a
   504-px panel). Screenshot the actual page and look.
@@ -148,6 +198,34 @@ CLAUDE.md §/glaciers:
   passed 89% of noise). Gate on *replication* (split-half agreement)
   instead.
 
+## Raster sources and bakes (permafrost, 2026-10-09)
+
+- **A raster's declared nodata is not its only hole.** Obu's MAGT and
+  MAGTSTD carry NaN over near-shore sea and the declared −3.4e38 only
+  offshore. NaN survives `gdalwarp`, passes every `== nodata` test, and
+  `gdaldem color-relief` paints it with the TOP ramp colour — the Bering
+  Sea came out dark red with a staircase coastline. Count `isnan` as well
+  as `== nodata` on every new source; `rastercalc.py nan2nodata` fixes one.
+- **Pastick's 101–105 are land-cover codes, not percentages** (water, ice,
+  developed, barren, cultivated). Averaging them as data pushes the mean
+  past 100 %. Mask `> 100` first. Barren is the alpine ground, so the
+  product is blank exactly where the downscale matters most.
+- **Homebrew `gdal_calc.py` (GDAL 3.13, Python 3.14) rejects its own `-A`**
+  ("did not expand to any file") for any path. The chunked NumPy helper
+  `tools/permafrost/rastercalc.py` replaces it; do not spend time on the
+  flag.
+- **Mapterhorn tiles arrive in bulk, and one in 48,000 was corrupt** (a
+  truncated WebP Pillow refused and GDAL could not read). The mosaic now
+  skips and names an unreadable tile instead of dying; refetch it and
+  rerun. Tiles missing over open ocean are 404s, not failures.
+- **`scipy.ndimage.gaussian_filter` normalises its kernel.** G(w) of a 0/1
+  mask is the weighted *fraction* of valid cells, never a count; a
+  "minimum summed weight" gate written against it rejected every cell.
+  Multiply by 2πσ² for the cells-equivalent.
+- **Gruber's `.hdr` cellsize is truncated** (0.008333 for 1/120°); trust
+  the stated 43200×18000 grid and pin `-a_ullr -180 90 180 -60` instead
+  or the raster drifts 1 km per 10° of longitude.
+
 ## Verification discipline
 
 - **Measure, don't assume.** The costliest wrong claims in this project's
@@ -160,6 +238,16 @@ CLAUDE.md §/glaciers:
   artifact (+28 from an unrelated element) and two legitimately absent
   records. When numbers don't reconcile to zero, find out why before
   shipping.
+- **An automation tab that is hidden never renders the map.** With
+  `document.hidden === true` (window behind another, tab not selected)
+  `requestAnimationFrame` never fires, and MapLibre loads its style on a
+  rAF, so `isStyleLoaded()` stays false, no tile loads, no data layer is
+  added, `map.once('load')` never fires. A whole session was spent proving
+  "dev never draws the landslide layers" against the code before checking
+  `document.hidden`. Taking a screenshot makes the tab visible for a
+  moment: screenshot after every camera move, then query. Also: a native
+  `confirm()`/`alert()` (the reviser's Revert has one) freezes the
+  automation tab for good — stub `window.confirm` first, or lose the tab.
 - **When a fix has siblings, fix the siblings.** The viewport-count bug
   existed in three hand-copied variants; fixing one left two. Grep for the
   pattern you just fixed.

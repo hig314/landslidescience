@@ -7,6 +7,7 @@ services:
       - ./inventory:/app/inventory
       - ./files:/app/files
       - ./glaciers:/app/glaciers
+      - ./drops:/app/drops
       - ./landslidescience:/app/landslidescience
       - ./manage.py:/app/manage.py
       - ./tools:/app/tools

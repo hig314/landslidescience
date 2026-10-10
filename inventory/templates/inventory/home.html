@@ -66,8 +66,12 @@
       <label class="nav-filter-label small" style="display:inline-flex; margin-right:10px;">
         <input type="checkbox" class="filter-type" value="slow" checked> Slow
       </label>
-      <label class="nav-filter-label small" style="display:inline-flex;">
+      <label class="nav-filter-label small" style="display:inline-flex; margin-right:10px;">
         <input type="checkbox" class="filter-type" value="catastrophic" checked> Catastrophic
+      </label>
+      <label class="nav-filter-label small" style="display:inline-flex;"
+             title="Scarp traces: working observations of scarps that are not landslide headwalls (purple dashed lines). Not a fault map.">
+        <input type="checkbox" id="cb-scarps" checked> Scarps
       </label>
     </div>
     {% comment %}
@@ -208,21 +212,35 @@
     <li class="nav-item separator"></li>
 
     {# ---- Other layers (hidden by default) ---- #}
-    {# ---- Include-only checkboxes ---- #}
+    {% comment %}
+    Landslide features: one three-way control per vocabulary value — must
+    have (✓), neutral (·), exclude (✗) — grouped by the type it applies to,
+    mirroring the edit form's picker. Travels in the URL as ft=<slug>,!<slug>
+    (map.js _ft*). The list is rendered here from the vocabulary so a value
+    added in the form appears as a filter on the next load.
+    {% endcomment %}
+    <li class="nav-item nav-class-header" title="Must have (✓), no preference (·), or exclude (✗) each feature. Records with no features recorded count as not having any.">Landslide features</li>
+    <li class="nav-item filter-control" id="ft-filter">
+      {% for g in feature_groups %}
+        <div class="ft-group">{{ g.title }}</div>
+        {% for v in g.items %}
+          <div class="ft-row" data-value="{{ v.value }}"{% if v.tip %} title="{{ v.tip }}"{% endif %}>
+            <span class="ft-label">{{ v.value }}</span>
+            <span class="ft-tri" role="group" aria-label="{{ v.value }}">
+              <button type="button" data-s="must" title="Must have">✓</button><button type="button" data-s="neutral" class="on" title="No preference">·</button><button type="button" data-s="excl" title="Exclude">✗</button>
+            </span>
+          </div>
+        {% endfor %}
+      {% endfor %}
+    </li>
+
+    {# ---- Include-only checkboxes (attributes that are not features) ---- #}
     <li class="nav-item nav-class-header">Include only</li>
     <li class="nav-item filter-control">
-      <label class="nav-filter-label small"><input type="checkbox" id="cb-molards"> Molards</label>
-      <label class="nav-filter-label small"><input type="checkbox" id="cb-tsunamigenic"> Tsunamigenic</label>
-      <label class="nav-filter-label small" title="Deposit runs up the outer bank of a bend — evidence of high flow velocity"><input type="checkbox" id="cb-super-elevated"> Super-elevated deposits</label>
-      <label class="nav-filter-label small"><input type="checkbox" id="cb-glacier-contact"> Glacier contact</label>
       <label class="nav-filter-label small"><input type="checkbox" id="cb-stream"> Dammed streams</label>
-      <label class="nav-filter-label small"><input type="checkbox" id="cb-headscarp"> Precursory headscarp</label>
       <label class="nav-filter-label small"><input type="checkbox" id="cb-site-volume"> Site-specific volume</label>
-      <label class="nav-filter-label small"><input type="checkbox" id="cb-supraglacial"> Exclusively supraglacial</label>
-      <label class="nav-filter-label small"><input type="checkbox" id="cb-permafrost"> Creeping permafrost mass</label>
       <label class="nav-filter-label small"><input type="checkbox" id="cb-timed"> Time bracketed</label>
       <label class="nav-filter-label small"><input type="checkbox" id="cb-seismic"> Seismic detection</label>
-      <label class="nav-filter-label small"><input type="checkbox" id="cb-post2012"> Post-2012 activity increase</label>
     </li>
 
     {% if is_inventory_editor %}
@@ -342,6 +360,7 @@
         Survey circles
         <span style="color:#888; font-size:10px;">&nbsp;(completeness evaluation)</span>
       </label>
+      <div id="ext-inventories" style="margin-top:10px;"></div>
       <div style="font-size:11px; color:#888; margin:8px 0 2px;">
         Susceptibility &amp; OPERA velocity moved to the
         <strong>Overlays</strong> section (Reference maps tab) — with per-pane
@@ -358,6 +377,7 @@
       <button id="timing-toggle" class="inv-analysis-btn">&#9656; Time-series</button>
       <button id="scatter-toggle" class="inv-analysis-btn">&#9656; Susceptibility scatter (lw × n10)</button>
       <button id="opera-toggle" class="inv-analysis-btn" title="Histogram of OPERA InSAR velocity values across the pixels currently in view (asc/desc). Values are 8-bit quantized and clipped at ±30 mm/yr.">&#9656; OPERA velocity in view</button>
+      <button id="pf-toggle" class="inv-analysis-btn" title="Terrain joint density of two permafrost products (Gruber 2012 × Obu 2019) with every landslide as a point, and a tool to read a patch of the map: the published 1 km cells and the 60 m downscale, against elevation.">&#9656; Permafrost: Obu × Gruber</button>
       <p style="font-size:11px; color:#888; margin:10px 0 0;">
         Counts and chart data respect the "Limit to map view" toggle in the
         pinned strip above. With it off, all records are summarized; with
@@ -439,6 +459,58 @@
         relative to its own reference date · LOS: positive = toward the satellite ·
         click the map to add a point, click a marker to remove it
       </div>
+    </div>
+
+    {% comment %}
+    Elevation profile (profile.js): draw a line with the ∿ tool, read every
+    DEM that covers it. 1:1 locks the vertical scale to the horizontal one;
+    SVG / CSV download what is drawn.
+    {% endcomment %}
+    <div id="profile-panel" class="float-panel hidden">
+      <div class="float-header profile-header">
+        <span class="profile-status">Elevation profile</span>
+        <button type="button" class="profile-lock" title="True aspect (1:1). Click to let the profile fill the panel.">1:1</button>
+        <button type="button" class="profile-svg" title="Download the chart as SVG">SVG</button>
+        <button type="button" class="profile-csv" title="Download the samples as CSV">CSV</button>
+        <button type="button" class="profile-close" title="Close">&times;</button>
+      </div>
+      <div class="profile-body"><svg></svg></div>
+      <div class="profile-stats"></div>
+      <div class="profile-read">&nbsp;</div>
+    </div>
+
+    {% comment %}
+    Permafrost analysis (permafrost.js): Panel A is the Obu x Gruber terrain
+    density with landslides as points; Panel B is the patch sampler's four
+    plots. Both floating, like the other analysis panels.
+    {% endcomment %}
+    <div id="pf-float" class="float-panel hidden">
+      <div class="float-header pf-header">
+        <span class="pf-title">Permafrost</span>
+        <select id="pf-pair" title="Which two products to cross.">
+          <option value="frac" selected>PZI × probability</option>
+          <option value="temp">MAAT × MAGT</option>
+        </select>
+        <select id="pf-res" title="The published 1 km products, or this site's 60 m terrain downscale of them.">
+          <option value="1km" selected>1 km published</option>
+          <option value="60m">60 m downscaled</option>
+        </select>
+        <button type="button" id="pf-sample" title="Sample a patch: click the map to read the published 1 km cells and the 60 m downscale inside a circle of this radius.">&#9678; Sample</button>
+        <input type="number" id="pf-radius" min="1" max="30" step="1" value="10" title="Patch radius, km"><span class="pf-unit">km</span>
+        <span id="pf-count"></span>
+        <button type="button" id="pf-close" title="Close">&times;</button>
+      </div>
+      <div id="pf-body"><canvas id="pf-heat"></canvas><svg id="pf-svg"></svg></div>
+    </div>
+    <div id="pf-patch-float" class="float-panel hidden">
+      <div class="float-header pf-header">
+        <span id="pf-patch-title" class="pf-title">Patch</span>
+        <button type="button" id="pf-patch-csv" title="Download every cell in the patch (1 km published and 60 m downscaled) as CSV">CSV</button>
+        <button type="button" id="pf-patch-png" title="Download the plots as PNG">PNG</button>
+        <button type="button" id="pf-patch-clear" title="Remove the patch from the map">Clear</button>
+        <button type="button" id="pf-patch-close" title="Close">&times;</button>
+      </div>
+      <div id="pf-patch-body"><canvas id="pf-patch-canvas"></canvas></div>
     </div>
 
     <div id="hist-panel" class="float-panel hist-panel hidden">
@@ -571,6 +643,13 @@
 </script>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
+{% comment %}
+  Pointer policy: the tool group, the one click dispatcher, cursor ownership,
+  pointer-capture drags and the Escape router. Loaded before revise.js and
+  scarps.js so they can ask LSTools.blocked() rather than keep their own
+  guards. See the file header for the policy.
+{% endcomment %}
+<script src="{% static 'inventory/js/ls_tools.js' %}"></script>
 {% if is_inventory_editor %}
 <script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
 <script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>
@@ -588,6 +667,8 @@
   built by map.js in the draw-panel idiom, and a click on a line is a popup.
 {% endcomment %}
 <script src="{% static 'inventory/js/scarps.js' %}"></script>
+<script src="{% static 'inventory/js/permafrost.js' %}"></script>
+<script src="{% static 'inventory/js/profile.js' %}"></script>
 {# Self-hosted lidar DEMs: PMTiles archives read over range requests, shaded #}
 {# client-side in a Web Worker by maplibre-gl-demshade (vendor/), behind the #}
 {# old DemShade API in dem_shade_bridge.js. Public (the /lidar/ routes are #}
@@ -599,5 +680,6 @@
 <script src="{% static 'inventory/js/basemaps.js' %}"></script>
 <script src="{% static 'inventory/js/ls_overlays.js' %}"></script>
 <script src="{% static 'inventory/js/ls_export.js' %}"></script>
+<script src="{% static 'inventory/js/ls_hash.js' %}"></script>
 <script src="{% static 'inventory/js/map.js' %}"></script>
 {% endblock %}

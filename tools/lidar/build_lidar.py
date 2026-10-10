@@ -229,6 +229,57 @@ NAD83_2011_BASE = ('BASEGEOGCRS["NAD83(2011)",'
                    'ID["EPSG",6318]]')
 
 
+def horizontal_crs(ds, src, env):
+    """For a source with a COMPOUND CRS (horizontal + vertical): the path of a
+    WKT file holding its HORIZONTAL part only, and the vertical unit's factor
+    to metres. (None, 1.0) for a plain 2-D source.
+
+    WHY THE ARCHIVE WARP MUST NOT SEE THE VERTICAL CRS (found 2026-10-08)
+    ---------------------------------------------------------------------
+    Given a compound source (e.g. NOAA's "NAD83 / Alaska zone 4 (ftUS) +
+    NAVD88 height (ftUS)") and a 2-D target, gdalwarp lets PROJ transform the
+    heights too: it converts the unit to metres AND, because a 2-D target has
+    no vertical datum, treats the output as ellipsoidal and ADDS THE GEOID
+    SEPARATION. Anchorage 2015 shipped that way: +6.5 to +10.9 m above every
+    neighbouring NAVD88 survey, a smooth field across the city, found with the
+    profile tool. (The same mechanism, applied inconsistently between full-res
+    and overview reads, made the Glen Alps bands of 2026-09-06; the web stage
+    already warps with a 2-D -s_srs and -novshift for that reason.)
+
+    So the archive warp passes the horizontal CRS alone, heights go through
+    untouched in the source's own unit and datum, and the unit conversion is
+    applied explicitly afterwards (vertical_scale, derived from the VERTCRS
+    unit when the manifest does not give one). Verified on a 400 m window at
+    -149.70, 61.10: source 1988.31 ftUS, old warp 614.34 m, this warp
+    1988.83 ftUS -> 606.19 m."""
+    wkt = subprocess.run([GDAL_BIN / "gdalsrsinfo", "-o", "wkt2", "--single-line", str(src)],
+                         capture_output=True, text=True, env=env).stdout.strip()
+    if not wkt.startswith("COMPOUNDCRS["):
+        return None, 1.0
+    i = wkt.find("PROJCRS[")
+    if i < 0:
+        i = wkt.find("GEOGCRS[")
+    if i < 0:
+        return None, 1.0
+    depth = 0
+    for j in range(i, len(wkt)):
+        if wkt[j] == "[":
+            depth += 1
+        elif wkt[j] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+    out_dir = BUILD / ds["id"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "source_horizontal.wkt"
+    path.write_text(wkt[i:j + 1])
+    m = re.search(r'VERTCRS\[.*?LENGTHUNIT\["([^"]+)",([0-9.]+)', wkt)
+    unit = float(m.group(2)) if m else 1.0
+    print(f"  archive: compound source CRS -> warping the horizontal part only "
+          f"({wkt[i:i + 40]}...); vertical unit {m.group(1) if m else 'metre'} x{unit:g}")
+    return path, unit
+
+
 def retag_generic_nad83(ds, src, env):
     """Path to warp from: `src`, or a VRT of it re-tagged NAD83(2011).
     See WHY A GENERIC "NAD83" SOURCE IS TREATED AS NAD83(2011) above."""
@@ -475,7 +526,10 @@ def build_archive(ds, env):
         src_nodata = ["-srcnodata", str(ds["src_nodata"])]
         print(f"  archive: masking source value {ds['src_nodata']} as nodata")
     warp_src = apply_vertical_shift(ds, retag_generic_nad83(ds, src, env), env)
-    run([GDAL_BIN / "gdalwarp", "-overwrite", *src_nodata,
+    # Compound source: horizontal only, heights untouched (see horizontal_crs).
+    horiz_wkt, vert_unit = horizontal_crs(ds, warp_src, env)
+    vert_args = ["-s_srs", str(horiz_wkt), "-novshift"] if horiz_wkt else []
+    run([GDAL_BIN / "gdalwarp", "-overwrite", *src_nodata, *vert_args,
          "-t_srs", f"EPSG:{target}",
          "-tr", ds["native_res_m"], ds["native_res_m"],
          # bilinear is right when the archive is a reprojection at (near) native
@@ -498,18 +552,18 @@ def build_archive(ds, env):
     # metres and can never drift apart. Applied after the warp because gdalwarp
     # reprojects but does not rescale pixel values.
     scale = ds.get("vertical_scale")
-    # A source that DECLARES its vertical CRS (compound CRS such as NOAA's
-    # "NAD83 / Alaska zone 4 (ftUS) + NAVD88 height (ftUS)") is already
-    # converted by gdalwarp: PROJ scales the heights to metres as part of the
-    # transformation. Scaling again here shrank Anchorage 2015 by a second
-    # factor of 0.3048 (found 2026-09-12). vertical_scale is for sources that
-    # only say "feet" in their metadata, like the Mat-Su 2011 tiles.
-    with rasterio.open(src) as probe:
-        compound = probe.crs is not None and "VERT" in probe.crs.to_wkt()
-    if scale and scale != 1 and compound:
-        print("  archive: source declares a vertical CRS; gdalwarp already converted "
-              f"its units, so vertical_scale {scale} is NOT applied")
-        scale = None
+    # A source that DECLARES its vertical CRS in feet is warped with the
+    # horizontal CRS alone (horizontal_crs above), so its heights arrive here
+    # still in feet and the unit factor read from the VERTCRS is applied now.
+    # History: the first Anchorage build (2026-09-12) let PROJ convert the
+    # unit AND applied vertical_scale, shipping 0.3048x too small; the same-
+    # day fix dropped the scale but left PROJ's conversion in, which also
+    # added the geoid separation (found 2026-10-08). vertical_scale in the
+    # manifest is for sources that only say "feet" in their metadata (the
+    # Mat-Su 2011 tiles) and overrides the derived factor if both exist.
+    if scale is None and vert_unit != 1.0:
+        scale = vert_unit
+        print(f"  archive: vertical unit from the source CRS: x{scale:g} -> metres")
     if scale and scale != 1:
         print(f"  archive: converting vertical units x{scale} (feet -> metres)")
         scaled = BUILD / ds["id"] / "archive_m.tif"

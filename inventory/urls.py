@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import (dist, insar, opera, photos, scarps, susc_dggs, table_data,
+from . import (dist, external, insar, opera, permafrost, photos, scarps, susc_dggs, table_data,
                trace_views, views)
 
 app_name = 'inventory'
@@ -34,6 +34,7 @@ urlpatterns = [
     path('api/qms/', views.api_qms_search, name='api_qms_search'),
     path('api/qms/promoted/', views.api_qms_promoted, name='api_qms_promoted'),
     path('api/qms/promote/', views.api_qms_promote, name='api_qms_promote'),
+    path('api/features/vocab/add/', views.api_feature_vocab_add, name='api_feature_vocab_add'),
     path('api/qms/<int:qms_id>/', views.api_qms_detail, name='api_qms_detail'),
     path('api/qms/<int:qms_id>/unpromote/', views.api_qms_unpromote, name='api_qms_unpromote'),
     path('api/qms/<int:qms_id>/scope/', views.api_qms_set_scope, name='api_qms_set_scope'),
@@ -68,8 +69,24 @@ urlpatterns = [
     # inventory/susc_dggs.py for why it is proxied rather than linked).
     re_path(r'^tiles/dggs_susc/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             susc_dggs.dggs_susc_tile, name='dggs_susc_tile'),
+    # Third-party landslide inventories, mirrored verbatim into their own
+    # tables (see inventory/external.py). Public reads: these are published
+    # datasets whose licences require that we name them, so hiding them behind
+    # a login would be odd as well as unhelpful. No write routes at all -- a
+    # mirror is refreshed by management command, never from the browser.
+    path('api/external/', external.api_external_sources, name='api_external_sources'),
+    re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/$',
+            external.api_external, name='api_external'),
+    re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/record/'
+            r'(?P<ext_id>[^/]+)/$',
+            external.api_external_record, name='api_external_record'),
+    re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/promote/'
+            r'(?P<ext_id>[^/]+)/$',
+            external.api_external_promote, name='api_external_promote'),
     # Scarp traces: public reads, editor-only writes (see inventory/scarps.py).
     path('api/scarps/', scarps.api_scarps, name='api_scarps'),
+    # Permafrost patch sampler (Analysis tab); grids in data/permafrost/.
+    path('api/permafrost/patch/', permafrost.api_patch, name='api_permafrost_patch'),
     path('api/scarps/create/', scarps.api_scarp_create, name='api_scarp_create'),
     re_path(r'^api/scarps/(?P<scarp_id>\d+)/$', scarps.api_scarp_update,
             name='api_scarp_update'),

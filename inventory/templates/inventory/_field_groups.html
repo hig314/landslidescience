@@ -28,6 +28,15 @@ group comes back empty and simply doesn't render.
      string that belongs with the deposit-character flags) keeps the
      full-width renderer and spans both columns, landing under the boxes. */
   .cb-grid > .ls-field:not(.ls-check) { grid-column: 1 / -1; margin: 8px 0 2px; }
+  /* …unless it asked for one cell ({'field', 'cell': True}), to sit beside
+     a box like the InSAR group. */
+  .cb-grid > .ls-field.cb-cell { grid-column: auto; margin: 0; }
+  .cb-grid > .ls-field.cb-cell > label { margin-bottom: 5px; }
+  /* A titled box inside a block, one cell wide (the InSAR studies). */
+  .cb-group { border: 1px solid #e0d8ca; border-radius: 4px; background: #fff;
+              margin: 0; padding: 4px 10px 6px; min-width: 0; }
+  .cb-group > legend { font-size: 11px; color: #8a7a68; padding: 0 4px; }
+  @media (max-width: 560px) { .cb-grid > .ls-field.cb-cell { margin-top: 8px; } }
   .cb-grid > .ls-field:not(.ls-check) > label { font-size: 12px; }
   .cb-grid .ls-check > label { display:flex; align-items:baseline; gap:2px;
                                font-size:13px; color:#444; cursor:pointer;
@@ -40,6 +49,11 @@ group comes back empty and simply doesn't render.
      Reorder rather than fight the insertion point — this is the one place the
      status marker isn't already last in its container. */
   .cb-grid .ls-check > label > .ls-save-status { order: 9; margin-left: 6px; }
+  /* Sub-boxes: indented under their parent with a rule down the side, so the
+     structure reads as "this refines the box above". Greyed while disabled. */
+  .cb-sub { margin: 0 0 2px 9px; padding-left: 10px; border-left: 2px solid #ddd3c4; }
+  .cb-sub .ls-check > label { font-size: 12px; padding: 1px 0; }
+  .cb-sub .ls-check > label:has(input:disabled) { color: #aaa; cursor: default; }
 </style>
 {% for g in field_groups %}
   <div class="field-group group-{{ g.meta.key }}{% if g.meta.key == 'event' %} grp-event{% endif %}">
@@ -58,3 +72,27 @@ group comes back empty and simply doesn't render.
     {% endif %}
   </div>
 {% endfor %}
+{# After the groups: the boxes it wires are rendered above. #}
+<script>
+  // A sub-box only means something while its parent is ticked ("Patchy only"
+  // refines Planet Labs creep). Unticking the parent clears and disables the
+  // sub-box; the clear goes through a change event so autosave records it.
+  (function () {
+    document.querySelectorAll('.cb-sub[data-parent]').forEach(function (box) {
+      var parent = document.getElementById(box.dataset.parent);
+      if (!parent) return;
+      var kids = box.querySelectorAll('input[type="checkbox"]');
+      function sync(clear) {
+        kids.forEach(function (k) {
+          k.disabled = !parent.checked;
+          if (!parent.checked && k.checked && clear) {
+            k.checked = false;
+            k.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        });
+      }
+      parent.addEventListener('change', function () { sync(true); });
+      sync(false);
+    });
+  }());
+</script>

@@ -21,6 +21,8 @@ from django.views.static import serve as static_serve
 #                space and would burn crawl budget and bandwidth for nothing
 #   unlisted     /files/ — hosted files are reachable only by someone given
 #                the link; indexing them would undo that
+#                /drops/ — upload links are the credential; the rest is
+#                login-gated
 #   provisional  /glaciers/ — still experimental; not something to surface in
 #                search yet
 #
@@ -42,8 +44,10 @@ Disallow: /inventory/login/
 Disallow: /inventory/logout/
 Disallow: /tiles/
 Disallow: /lidar/
+Disallow: /overlays/
 Disallow: /inventory/planet/
 Disallow: /files/
+Disallow: /drops/
 Disallow: /glaciers/
 """
 
@@ -167,6 +171,13 @@ urlpatterns = [
             lidar_serve.pmtiles),
     re_path(r'^lidar/cog/(?P<dataset_id>[a-z0-9_]+)\.tif$',
             lidar_serve.cog),
+    # Baked raster overlays (permafrost) as PMTiles: local in dev, R2 in prod.
+    re_path(r'^overlays/(?P<overlay_id>[a-z0-9_]+)\.pmtiles$',
+            lidar_serve.overlay_pmtiles),
+    # Dev-only research surfaces (404 unless DEBUG); /lidar/?catalog=dev loads them.
+    path('lidar/dev/catalog.geojson', lidar_serve.dev_catalog),
+    re_path(r'^lidar/dev/pmtiles/(?P<dataset_id>[a-z0-9_]+)\.pmtiles$',
+            lidar_serve.dev_pmtiles),
     # `dggs` joins lw/n10: same directory layout, same pre-coloured PNGs, built
     # by tools/build_dggs_susc_tiles.sh from the recovered 20 m class raster.
     re_path(r'^tiles/susc/(?P<model>lw|n10|dggs)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
@@ -185,5 +196,6 @@ urlpatterns = [
     path('inventory/', include('inventory.urls')),
     path('glaciers/', include('glaciers.urls')),
     path('files/', include('files.urls')),
+    path('drops/', include('drops.urls')),
     path('', include('pages.urls')),
 ]
