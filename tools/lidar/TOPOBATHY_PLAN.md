@@ -245,12 +245,19 @@ on `main` is hosting's to sync):
 where its DTM sits at its water level — so the composite's classes come
 from our chain, with the vendor's class 6/9 counts as the fallback.
 
-Status at writing: the chain is being rerun on the six sites' units,
-Seldovia and D with the intermediates kept (`site/<unit>`), for a
-before/after check against `full/out`; then the Kachemak box's ~100
-units, a box mosaic (`mosaic.py --bbox`), and the composite rebuilt on
-it. The whole-survey rerun (1,350 units, ~a day on 4 workers) and a
-republish of `kbay_2023_reclass` are Hig's call and hosting's job.
+Verified on the seven test units (before/after against `full/out`, the
+pictures in the session scratchpad): A, C, D, F fixed; E's dome gone and
+the boat left as a bump; Seldovia's roofs planed under (struct mask 4 %
+of the unit); 0.1–1 % of each unit changed, nearly all of it lowered and
+in water cells. **Hig, 2026-10-10 13:10: rerun the whole survey.** Every
+old unit output is in `full/out_v1/` (never deleted); `fullrun.py
+--workers 3` with `FULLRUN_FIRST="595 6602 606 6610"` (a new ordering
+hook: those units first) is running, log `full/run_v2.log`, resumable
+as before. Then `mosaic.py --bbox 595 6602 606 6610 --out
+full/mosaic_kachemak` for the composite (a waiter does it), and the
+whole-survey `mosaic.py` + republish of `kbay_2023_reclass` on the
+hosting side when all 1,350 are done. The repo copy of the model under
+`tools/lidar/kbay_reclass/model/` is stale until hosting syncs it.
 
 ### Deferred: physical awareness (decided 2026-10-09)
 
