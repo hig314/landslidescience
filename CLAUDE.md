@@ -42,6 +42,11 @@ written down anywhere — read `/lidar/audit/`.
   right shape, and it is **on hold**. Viewing stays login-gated, decided the
   same day.
 
+- **A generalised analysis tool** — overlays as axes, the map as the
+  sampler, the susceptibility / permafrost / OPERA panels folded into one.
+  Hig's framing and the proposed phasing are in
+  [ANALYSIS_TOOL_PLAN.md](ANALYSIS_TOOL_PLAN.md) (2026-10-09); the permafrost
+  panel is the prototype.
 - **Rule-based derivation from mirrored inventories.** Promotion today seeds
   provenance and two fields, then the editor types the rest. `external.py`'s
   docstring anticipates a `derive` step with per-field rules (how to read
