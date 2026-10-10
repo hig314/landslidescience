@@ -27,6 +27,11 @@ written down anywhere — read `/lidar/audit/`.
   one-record-at-a-time promotion into our review queue.
 - **Lidar/bathymetry hosting** — public surveys on Cloudflare R2 with gated
   companions, SfM orthomosaics as a third render option in `/inventory/`.
+- **Permafrost overlays + the Obu × Gruber analysis panel + Surface
+  properties** (2026-10-09) — see *Permafrost overlays* below; the
+  overlay categories were reorganised the same day (Climate · Surface
+  properties · Surface change · Landslide susceptibility · Glaciers ·
+  Subsurface).
 - **Photo drops** (`/drops/`, 2026-10-05) — send a collaborator a link, they
   upload a whole folder of photos straight to a private R2 bucket; signed-in
   accounts browse a thumbnail gallery. First use (2026-10-05): the Portage
@@ -1067,7 +1072,8 @@ Obu 2019 MAGT + probability (1 km), each as published; our 60 m terrain
 downscale of all four; Pastick 2015 near-surface probability (30 m, as
 published); and the **Glacier covered area 2020** outline (NSIDC G10040,
 Roberts-Pierel & others 2022, Landsat, RGI ids carried) in the Glaciers
-category. Built 2026-10-09; **dev only until Hig approves**. Methods §1
+category. Built and **deployed 2026-10-09** (archives on R2, grids on the
+droplet). Methods §1
 *Permafrost overlays* is the reader-facing account; this is the plumbing.
 
 - **Three quantities, three hues, never one ramp.** PZI is a fraction of
@@ -1082,7 +1088,9 @@ category. Built 2026-10-09; **dev only until Hig approves**. Methods §1
   `lidar.landslidescience.org/overlays/`. `robots.txt` disallows
   `/overlays/`. 1 km products to z9 (PNG), 60 m to z11 and Pastick to z12
   (**lossy WebP, `BAKE_FMT=webp`** — Pastick as PNG was 10 GB, as WebP 2.8;
-  the 60 m layers ~200 MB each). **Not on R2 yet.**
+  the 60 m layers ~200 MB each). Pushed with
+  `tools/permafrost/r2_sync_overlays.sh` (bucket prefix `overlays/`, 7.2 GB
+  on 2026-10-09 including the value archives and Surface properties).
 - **Pipeline, `tools/permafrost/`**, data on Nunatak (`permafrost_src/`
   sources incl. `glaciers/`, `permafrost_build/` working grids, EPSG:3338,
   `-te -1041000 443000 1665000 2622000`): `fetch_mapterhorn*.sh` →
