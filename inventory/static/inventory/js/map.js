@@ -138,6 +138,13 @@
         if (x.tab != null && /^[a-z]+$/.test(x.tab)) out.tab = x.tab;   // validated against real tabs on apply
         if (x.an != null) out.an = x.an.split(',').filter(function (k) { return /^[a-z]+$/.test(k); });
         if (x.sc === '0' || x.sc === '1') out.sc = x.sc === '1';
+        // Permafrost patch circle: pp = lat,lon,r_km (permafrost.js).
+        if (x.pp != null) {
+            var pp = x.pp.split(',').map(parseFloat);
+            if (pp.length === 3 && pp.every(isFinite) && Math.abs(pp[0]) <= 90 && Math.abs(pp[1]) <= 540 && pp[2] > 0 && pp[2] <= 30) {
+                out.pp = { lat: pp[0], lon: pp[1], r: pp[2] };
+            }
+        }
         // Elevation profile: pr = flat lat,lon list (5 dp), pw = window along
         // the line in metres (d0,d1), pve = 0 when the chart is unlocked
         // from 1:1. pr absent = leave the profile alone.
@@ -1600,6 +1607,7 @@
                     _swipeSetFeatures(data);
                     if (map.getLayer('points')) buildFilter();
                     scatterDrawAll();
+                    if (typeof LSPermafrost !== 'undefined') LSPermafrost.redraw();   // its points come from this set
                 });
                 if (map.getSource('landslides')) map.getSource('landslides').setData(data);
                 _swipeSetFeatures(data);
@@ -2244,6 +2252,56 @@
           keyNote: 'Colours follow the international chronostratigraphic chart (age, not rock type). ' +
                    'Click the map for the unit name, age and lithology. Unit boundaries are ' +
                    'kilometre-scale at this map scale.' },
+        // Permafrost (2026-10-09, tools/permafrost/): three published products
+        // and our terrain downscale of the two 1 km ones. Baked PMTiles,
+        // served by /overlays/<id>.pmtiles (local in dev, R2 in production).
+        // Three quantities, three hues: PZI (Gruber, blues), permafrost
+        // probability and ground temperature (Obu, purples / diverging),
+        // near-surface permafrost probability (Pastick, greens).
+        // Glacier covered area 2020 (NSIDC G10040, Landsat-derived, RGI ids
+        // carried): the recent outline the permafrost downscale is read
+        // against, since the Obu-derived 60 m layers are interpolated THROUGH
+        // ice rather than masked. Rasterised fill + edge, baked like the rest.
+        { id: 'glac-outline-2020', layerId: 'ov-glac-outline-2020', sourceId: 'ov-glac-outline-2020-src',
+          label: 'Glacier covered area — 2020',
+          sub: 'Landsat-derived outlines, 30 m · NSIDC G10040 (1985–2020 series, 2020 epoch)',
+          sourceDef: function () { return _pfSourceDef('glac_outline_2020', 12, GLAC_ATTR); }, defOpacity: 0.9 },
+        { id: 'pf-gruber-maat', layerId: 'ov-pf-gruber-maat', sourceId: 'ov-pf-gruber-maat-src',
+          label: 'Mean annual air temperature — Gruber 2012',
+          sub: '°C, 1 km · the MAAT climatology Gruber derived PZI from',
+          sourceDef: function () { return _pfSourceDef('pf_gruber_maat', 9); }, defOpacity: 0.8 },
+        { id: 'pf-gruber-maat60', layerId: 'ov-pf-gruber-maat60', sourceId: 'ov-pf-gruber-maat60-src',
+          label: 'Mean annual air temperature — terrain-downscaled',
+          sub: '°C, 60 m · Gruber MAAT moved by a kernel-fitted local lapse onto 3DEP elevation (our inference)',
+          sourceDef: function () { return _pfSourceDef('pf_gruber_maat60', 11); }, defOpacity: 0.8 },
+        { id: 'pf-gruber-pzi', layerId: 'ov-pf-gruber-pzi', sourceId: 'ov-pf-gruber-pzi-src',
+          label: 'Permafrost zonation index — Gruber 2012',
+          sub: 'PZI 0–1, 1 km · fraction of the cell with permafrost, from MAAT',
+          sourceDef: function () { return _pfSourceDef('pf_gruber_pzi', 9); }, defOpacity: 0.8 },
+        { id: 'pf-gruber-pzi60', layerId: 'ov-pf-gruber-pzi60', sourceId: 'ov-pf-gruber-pzi60-src',
+          label: 'Permafrost zonation index — terrain-downscaled',
+          sub: 'PZI 0–1, 60 m · Gruber MAAT lapse-rate fit per 10 km, applied to 3DEP elevation (our inference)',
+          sourceDef: function () { return _pfSourceDef('pf_gruber_pzi60', 11); }, defOpacity: 0.8 },
+        { id: 'pf-obu-prob', layerId: 'ov-pf-obu-prob', sourceId: 'ov-pf-obu-prob-src',
+          label: 'Permafrost probability — Obu 2019',
+          sub: 'probability 0–1, 1 km · TTOP model on MODIS land-surface temperature, 2000–2016',
+          sourceDef: function () { return _pfSourceDef('pf_obu_prob', 9); }, defOpacity: 0.8 },
+        { id: 'pf-obu-prob60', layerId: 'ov-pf-obu-prob60', sourceId: 'ov-pf-obu-prob60-src',
+          label: 'Permafrost probability — terrain-downscaled',
+          sub: 'probability 0–1, 60 m · Obu MAGT fit on elevation + aspect per 10 km (our inference)',
+          sourceDef: function () { return _pfSourceDef('pf_obu_prob60', 11); }, defOpacity: 0.8 },
+        { id: 'pf-obu-magt', layerId: 'ov-pf-obu-magt', sourceId: 'ov-pf-obu-magt-src',
+          label: 'Ground temperature — Obu 2019',
+          sub: '°C at the permafrost top, 1 km · 0 °C is the permafrost boundary',
+          sourceDef: function () { return _pfSourceDef('pf_obu_magt', 9); }, defOpacity: 0.8 },
+        { id: 'pf-obu-magt60', layerId: 'ov-pf-obu-magt60', sourceId: 'ov-pf-obu-magt60-src',
+          label: 'Ground temperature — terrain-downscaled',
+          sub: '°C, 60 m · the downscaled Obu MAGT the probability above is derived from (our inference)',
+          sourceDef: function () { return _pfSourceDef('pf_obu_magt60', 11); }, defOpacity: 0.8 },
+        { id: 'pf-pastick-nsp', layerId: 'ov-pf-pastick-nsp', sourceId: 'ov-pf-pastick-nsp-src',
+          label: 'Near-surface permafrost probability — Pastick 2015',
+          sub: 'probability 0–1 of permafrost within 1 m, 30 m, Alaska only · field-trained; water, ice, barren, developed masked',
+          sourceDef: function () { return _pfSourceDef('pf_pastick_nsp', 12); }, defOpacity: 0.8 },
         { id: 'opera-asc',  layerId: 'ov-opera-asc',    sourceId: 'ov-opera-asc-src',
           label: 'OPERA velocity — ascending', sub: 'InSAR, ±30 mm/yr · NASA/JPL + ASF',
           sourceDef: function () { return _operaSourceDef('asc'); }, defOpacity: 0.75 },
@@ -2326,6 +2384,17 @@
     var COHERENCE_TILE_V = '1';
     var COHERENCE_ATTR = 'Sentinel-1 coherence: Kellndorfer et al. 2022 ' +
                          '(doi:10.1038/s41597-022-01189-6, CC BY 4.0)';
+    var PF_ATTR = 'Permafrost: Gruber 2012 (UZH); Obu et al. 2019 (CC-BY 3.0); Pastick et al. 2015 (USGS); ' +
+                  'downscaled layers © landslidescience.org on Mapterhorn / USGS 3DEP terrain';
+    var GLAC_ATTR = 'Glacier area 2020: Roberts-Pierel, Kirchner, Kilbride & Kennedy (2022), NSIDC G10040, doi:10.7265/8esq-w553';
+    function _pfSourceDef(id, maxzoom, attr) {
+        return {
+            type: 'raster',
+            tiles: ['pmtiles://' + location.origin + '/overlays/' + id + '.pmtiles/{z}/{x}/{y}'],
+            tileSize: 256, minzoom: 3, maxzoom: maxzoom,
+            attribution: attr || PF_ATTR
+        };
+    }
     function _coherenceSourceDef(season) {
         return {
             type: 'raster',
@@ -3749,18 +3818,24 @@
     // The "N on" COUNT is per-pane, which is a different question from
     // whether to open the group: see _ovRenderGrouped.
     // -----------------------------------------------------------------------
+    // Order and grouping per Hig, 2026-10-09: climate first (air and ground
+    // temperature side by side, same ramp), then what the surface is doing,
+    // then our susceptibility models, then glaciers as one group, then what
+    // is under the surface (permafrost indices and bedrock).
     var _OV_CATS = [
-        { key: 'susc',  label: 'Landslide susceptibility',
-          ids: ['susc-lw', 'susc-n10', 'susc-dggs'] },
-        { key: 'insar', label: 'InSAR ground motion',
-          ids: ['opera-asc', 'opera-desc', 'coh-summer'] },
+        { key: 'clim',  label: 'Climate',
+          ids: ['pf-gruber-maat', 'pf-gruber-maat60', 'pf-obu-magt', 'pf-obu-magt60'] },
         // 'dist-alert' stays listed although it is retired: _ovRenderGrouped
         // filters ids that are not in OVERLAYS, so this needs no edit if
         // DIST_ALERT_ACTIVE is flipped back on.
-        { key: 'dist',  label: 'Surface disturbance (OPERA DIST)',
-          ids: ['dist-ann', 'dist-alert'] },
-        { key: 'gsurf', label: 'Glacier surface',          ids: ['ice-v', 'ice-amp', 'ice-dvdt', 'ice-dhdt'] },
-        { key: 'gbed',  label: 'Ice thickness & bed',      ids: ['ice-thick', 'ice-bed', 'ice-over'] },
+        { key: 'surf',  label: 'Surface change',
+          ids: ['opera-asc', 'opera-desc', 'coh-summer', 'dist-ann', 'dist-alert'] },
+        { key: 'susc',  label: 'Landslide susceptibility',
+          ids: ['susc-lw', 'susc-n10', 'susc-dggs'] },
+        { key: 'glac',  label: 'Glaciers',
+          ids: ['glac-outline-2020', 'ice-v', 'ice-amp', 'ice-dvdt', 'ice-dhdt', 'ice-thick', 'ice-bed', 'ice-over'] },
+        { key: 'sub',   label: 'Subsurface',
+          ids: ['pf-gruber-pzi', 'pf-gruber-pzi60', 'pf-obu-prob', 'pf-obu-prob60', 'pf-pastick-nsp', 'geology'] },
     ];
     var _ovCatPrefs = (function () {
         try { return JSON.parse(localStorage.getItem('ls_ov_cats') || '{}') || {}; }
@@ -8201,7 +8276,7 @@
     // all floating, draggable, resizable panels. Panel objects are assigned at
     // their wiring sites below; declared here so the async URL-state hydration
     // (which runs after init) can open them.
-    var histFP, timingFP, scatterFP;
+    var histFP, timingFP, scatterFP, pfFP;
 
     // Shared floating-panel behavior: toggle/close, jump-free header drag
     // (clamped to the offset parent), and a debounced redraw on resize. opts:
@@ -8264,7 +8339,7 @@
     // built lazily because the four controllers are assigned at different
     // points during startup; keys are the hash vocabulary.
     function _anPanels() {
-        return { hist: histFP, timing: timingFP, scatter: scatterFP, opera: operaFP };
+        return { hist: histFP, timing: timingFP, scatter: scatterFP, opera: operaFP, pf: pfFP };
     }
     function _anEncodeHash() {
         var reg = _anPanels(), out = [];
@@ -9594,6 +9669,19 @@
                          makePanel: makeFloatingPanel,
                          onChange: function () { if (_mapReady) writeHashState(); } });
     }
+    // Permafrost analysis (permafrost.js): Obu x Gruber density with the
+    // landslides on it, and the patch sampler. Points come from the same
+    // feature set the susceptibility scatter uses.
+    if (typeof LSPermafrost !== 'undefined') {
+        LSPermafrost.init({ map: map, features: function () { return _featuresData; },
+                            makePanel: makeFloatingPanel, staticBase: STATIC_BASE, dataV: DATA_V,
+                            openLandslide: function (id, ft) {
+                                if (ft && ft.geometry) map.flyTo({ center: ft.geometry.coordinates, zoom: Math.max(map.getZoom(), 11) });
+                                showDetail(id);
+                            },
+                            onChange: function () { if (_mapReady) writeHashState(); } });
+        pfFP = LSPermafrost.panel();
+    }
 
     // Mirrored third-party inventories: one click handler and the moveend
     // refetch. Registered once here rather than per layer, because the set of
@@ -10083,6 +10171,16 @@
           },
           apply: function (s) {
               if (s.pr && typeof LSProfile !== 'undefined') LSProfile.setState(s.pr);
+          } },
+        // The permafrost patch circle: pp=lat,lon,r_km (permafrost.js).
+        { key: 'pp', cold: true,
+          collect: function (mode, o) {
+              if (typeof LSPermafrost === 'undefined') return;
+              var st = LSPermafrost.state();
+              if (st) o.extras.pp = st.lat.toFixed(5) + ',' + st.lon.toFixed(5) + ',' + st.r;
+          },
+          apply: function (s) {
+              if (s.pp && typeof LSPermafrost !== 'undefined') LSPermafrost.setState(s.pp);
           } },
         { key: 'tab', cold: true,
           collect: function (mode, o) {

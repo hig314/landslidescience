@@ -260,6 +260,124 @@
   thinning rate, flow speed, its seasonality, and its trend.
 </p>
 
+<h4>Permafrost overlays</h4>
+<p>
+  Three published permafrost products are shown as overlays, each as its
+  authors issued it, plus a terrain downscale of the two coarse ones built
+  here. They measure <strong>different quantities</strong> and should not be
+  read as three estimates of one thing:
+</p>
+<ul>
+  <li>
+    <strong>Permafrost zonation index</strong> (PZI) &mdash;
+    <a href="https://doi.org/10.5194/tc-6-221-2012" target="_blank" rel="noopener">Gruber
+    (2012)</a>, 30 arc-second (&asymp;1&nbsp;km). The fraction of a cell
+    expected to hold permafrost, derived from mean annual air temperature
+    (MAAT) through a fixed curve and intended for the continuous-to-isolated
+    zonation. It is an index of likely extent, not a probability at a point,
+    and carries no local information beyond the climatology it was drawn from.
+  </li>
+  <li>
+    <strong>Permafrost probability</strong> and <strong>mean annual ground
+    temperature</strong> (MAGT) at the top of the permafrost &mdash;
+    <a href="https://doi.org/10.1016/j.earscirev.2019.04.023" target="_blank"
+       rel="noopener">Obu et&nbsp;al. (2019)</a>, 1&nbsp;km, 2000&ndash;2016
+    (data: doi:10.1594/PANGAEA.888600, CC&nbsp;BY&nbsp;4.0). A TTOP
+    equilibrium model driven by MODIS land-surface temperature and ERA
+    reanalysis, with snow and vegetation offsets; probability is the share
+    of the model ensemble with MAGT below 0&nbsp;&deg;C. The 0&nbsp;&deg;C
+    contour of the MAGT layer is the modelled permafrost boundary.
+  </li>
+  <li>
+    <strong>Near-surface permafrost probability</strong> &mdash;
+    <a href="https://doi.org/10.1016/j.rse.2015.07.019" target="_blank"
+       rel="noopener">Pastick et&nbsp;al. (2015)</a>, 30&nbsp;m, Alaska only
+    (USGS, public domain). Probability of permafrost <em>within the top
+    metre</em>, from a decision-tree model trained on field observations
+    with Landsat, terrain and climate predictors. Water, glacier ice,
+    developed, barren and cultivated land were not modelled and are blank;
+    the barren class is exactly the alpine ground where the other layers
+    matter most, so above treeline this layer says nothing rather than
+    &ldquo;no permafrost&rdquo;.
+  </li>
+</ul>
+<p>
+  <strong>Terrain downscale (60&nbsp;m).</strong> A 1&nbsp;km cell in Alaskan
+  mountains spans several hundred metres of relief and every aspect, which is
+  the scale at which a landslide sits. The two coarse products are therefore
+  re-expressed on a 60&nbsp;m grid (USGS 3DEP via Mapterhorn) using the
+  elevation dependence they already contain, anchored on the published value
+  so that each 1&nbsp;km cell's own number is preserved and only the
+  within-cell terrain variation is added. The local lapse rate is a
+  <em>kernel-weighted regression</em>: at every 1&nbsp;km cell the product is
+  regressed on elevation over its neighbourhood with Gaussian weights
+  (15&nbsp;km), so the lapse field is continuous and as smooth as the kernel
+  &mdash; contrasts wider than that (interior against coast) survive,
+  cell-to-cell noise does not &mdash; and where a neighbourhood has too little
+  relief to determine a lapse (the North Slope, the deltas) a 50&nbsp;km
+  kernel takes over.
+</p>
+<p>
+  For Gruber, the published PZI is a normal cumulative curve of MAAT
+  (&Phi;((T&#8320; &minus; MAAT)/&sigma;); it reproduces his values to 0.002
+  rms), but his product floors values below 0.1 at 0.01 and cuts to zero at
+  about 0&nbsp;&deg;C, which would put a step into any elevation profile. The
+  downscale moves MAAT by the fitted lapse (median &minus;5.2&nbsp;&deg;C/km,
+  10th&ndash;90th percentile &minus;5.9 to &minus;3.9; free-air is
+  &minus;6.5) and converts it through the same curve rescaled to reach exactly
+  zero at 0&nbsp;&deg;C, refitted to his cells at or above 0.1
+  (T&#8320;&nbsp;=&nbsp;&minus;4.58&nbsp;&deg;C, &sigma;&nbsp;=&nbsp;2.67,
+  residual s.d. 0.004), so the 60&nbsp;m index is continuous from 0 to 1.
+  The downscaled MAAT itself is offered as a layer. For Obu, MAGT is regressed
+  on elevation <em>and</em> northness
+  (cos&nbsp;aspect&nbsp;&times;&nbsp;sin&nbsp;slope), because land-surface
+  temperature does respond to aspect; the fitted lapse is weak and variable
+  (median &minus;1.4&nbsp;&deg;C/km &mdash; snow insulation is doing real work
+  in that model) and the aspect term is negative, north-facing colder, in
+  93&nbsp;% of cells (median &minus;0.41&nbsp;&deg;C per unit northness).
+  Probability is recomputed as &Phi;(&minus;MAGT&nbsp;/&nbsp;s.d.) with each
+  cell's published spread. Obu has no value over glaciers and some
+  near-glacier ground; the kernel fit is estimated through those gaps from the
+  valid cells around them and the 60&nbsp;m layers are written there too
+  &mdash; read them against the <strong>Glacier covered area 2020</strong>
+  outline (Roberts-Pierel and others 2022, NSIDC G10040, Landsat-derived),
+  which is what the Glaciers category carries for exactly this purpose: on ice
+  the value is the model extended, not the model.
+</p>
+<p>
+  The one independent check is Pastick: over a million 60&nbsp;m cells where
+  every layer is valid, the downscaled Obu probability correlates with
+  Pastick's at r&nbsp;=&nbsp;0.85 against 0.85 for the 1&nbsp;km original,
+  0.66 against 0.66 where the 1&nbsp;km cell spans 200&ndash;500&nbsp;m of
+  relief and 0.65 against 0.64 above 500&nbsp;m; Gruber's PZI changes by less
+  than 0.01 at every relief band. So by this test the downscale is close to
+  neutral &mdash; and because Pastick is blank on barren ground, the test
+  cannot see the alpine slopes where the redistribution is largest. A
+  patch-extraction tool in the repository (<code>tools/permafrost/patch.py</code>)
+  draws, for any 10&nbsp;km circle, the published 1&nbsp;km cells against the
+  60&nbsp;m cloud and the fitted lapse and curve, which is how the fits are
+  judged site by site &mdash; and the same check is on the map: the
+  Analysis tab's <strong>Permafrost: Obu &times; Gruber</strong> panel shows
+  the two products' joint distribution over all terrain with every landslide
+  as a point, and its <em>Sample</em> tool reads any circle of the map
+  (published 1&nbsp;km cells and 60&nbsp;m downscale, against elevation) and
+  lets you download the numbers.
+</p>
+<p>
+  <strong>What the downscale is and is not.</strong> It adds no new
+  observations: it redistributes each 1&nbsp;km value across the terrain
+  inside the cell according to a fitted local lapse, so the published value is
+  preserved and valley floors and ridgelines are separated. It cannot see
+  cold-air pooling, snow redistribution, soil or vegetation differences at
+  the 60&nbsp;m scale, and it inherits every limitation of the parent model.
+  The 1&nbsp;km layers are the published science; the 60&nbsp;m layers are
+  this project's inference from them and are labelled as such in the layer
+  list. Attribution: Gruber (2012), Obu et&nbsp;al. (2019), Pastick
+  et&nbsp;al. (2015), Roberts-Pierel et&nbsp;al. (2022); downscaled layers
+  &copy; landslidescience.org, built on Mapterhorn / USGS 3DEP terrain. Build
+  code is in <code>tools/permafrost/</code> of the site repository.
+</p>
+
 <h4>Country attribution</h4>
 <p>
   Each record carries a derived <code>country</code> attribute: the primary

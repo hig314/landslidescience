@@ -1,0 +1,13 @@
+# Obu 2019 mean annual ground temperature at the permafrost top, C. Diverging about 0:
+# cold blues below, warm reds above; 0 is the permafrost boundary.
+nv 0 0 0 0
+-12 5 48 97 255
+-8 33 102 172 255
+-5 67 147 195 255
+-3 146 197 222 250
+-1 209 229 240 235
+0 247 247 247 220
+1 253 219 199 235
+3 244 165 130 250
+5 214 96 77 255
+8 178 24 43 255

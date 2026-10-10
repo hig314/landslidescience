@@ -23,7 +23,7 @@
  *   & ref=<name>,…             reference vector layers (faults | circles)
  *   & <extras…>                app-specific params, passed through untouched
  *                              as strings: inventory sc / filters / tab / an /
- *                              id / ids / pr,pw,pve (elevation profile:
+ *                              id / ids / pp (permafrost patch) / pr,pw,pve (elevation profile:
  *                              line, window, aspect lock), glaciers site / t.
  *
  * LIST PARAMS (ov, li, ext, im, ref): PRESENT fully describes the set —

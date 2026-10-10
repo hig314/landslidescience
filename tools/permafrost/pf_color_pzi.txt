@@ -1,0 +1,11 @@
+# Gruber 2012 permafrost zonation index (fraction of the cell with permafrost), blues.
+# Below 0.01 transparent: Gruber's own "no permafrost" floor.
+nv 0 0 0 0
+0.00 0 0 0 0
+0.009 0 0 0 0
+0.01 222 235 247 200
+0.2 158 202 225 215
+0.4 107 174 214 230
+0.6 49 130 189 240
+0.8 8 81 156 250
+1.0 8 48 107 255

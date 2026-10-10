@@ -377,6 +377,7 @@
       <button id="timing-toggle" class="inv-analysis-btn">&#9656; Time-series</button>
       <button id="scatter-toggle" class="inv-analysis-btn">&#9656; Susceptibility scatter (lw × n10)</button>
       <button id="opera-toggle" class="inv-analysis-btn" title="Histogram of OPERA InSAR velocity values across the pixels currently in view (asc/desc). Values are 8-bit quantized and clipped at ±30 mm/yr.">&#9656; OPERA velocity in view</button>
+      <button id="pf-toggle" class="inv-analysis-btn" title="Terrain joint density of two permafrost products (Gruber 2012 × Obu 2019) with every landslide as a point, and a tool to read a patch of the map: the published 1 km cells and the 60 m downscale, against elevation.">&#9656; Permafrost: Obu × Gruber</button>
       <p style="font-size:11px; color:#888; margin:10px 0 0;">
         Counts and chart data respect the "Limit to map view" toggle in the
         pinned strip above. With it off, all records are summarized; with
@@ -476,6 +477,40 @@
       <div class="profile-body"><svg></svg></div>
       <div class="profile-stats"></div>
       <div class="profile-read">&nbsp;</div>
+    </div>
+
+    {% comment %}
+    Permafrost analysis (permafrost.js): Panel A is the Obu x Gruber terrain
+    density with landslides as points; Panel B is the patch sampler's four
+    plots. Both floating, like the other analysis panels.
+    {% endcomment %}
+    <div id="pf-float" class="float-panel hidden">
+      <div class="float-header pf-header">
+        <span class="pf-title">Permafrost</span>
+        <select id="pf-pair" title="Which two products to cross.">
+          <option value="frac" selected>PZI × probability</option>
+          <option value="temp">MAAT × MAGT</option>
+        </select>
+        <select id="pf-res" title="The published 1 km products, or this site's 60 m terrain downscale of them.">
+          <option value="1km" selected>1 km published</option>
+          <option value="60m">60 m downscaled</option>
+        </select>
+        <button type="button" id="pf-sample" title="Sample a patch: click the map to read the published 1 km cells and the 60 m downscale inside a circle of this radius.">&#9678; Sample</button>
+        <input type="number" id="pf-radius" min="1" max="30" step="1" value="10" title="Patch radius, km"><span class="pf-unit">km</span>
+        <span id="pf-count"></span>
+        <button type="button" id="pf-close" title="Close">&times;</button>
+      </div>
+      <div id="pf-body"><canvas id="pf-heat"></canvas><svg id="pf-svg"></svg></div>
+    </div>
+    <div id="pf-patch-float" class="float-panel hidden">
+      <div class="float-header pf-header">
+        <span id="pf-patch-title" class="pf-title">Patch</span>
+        <button type="button" id="pf-patch-csv" title="Download every cell in the patch (1 km published and 60 m downscaled) as CSV">CSV</button>
+        <button type="button" id="pf-patch-png" title="Download the plots as PNG">PNG</button>
+        <button type="button" id="pf-patch-clear" title="Remove the patch from the map">Clear</button>
+        <button type="button" id="pf-patch-close" title="Close">&times;</button>
+      </div>
+      <div id="pf-patch-body"><canvas id="pf-patch-canvas"></canvas></div>
     </div>
 
     <div id="hist-panel" class="float-panel hist-panel hidden">
@@ -632,6 +667,7 @@
   built by map.js in the draw-panel idiom, and a click on a line is a popup.
 {% endcomment %}
 <script src="{% static 'inventory/js/scarps.js' %}"></script>
+<script src="{% static 'inventory/js/permafrost.js' %}"></script>
 <script src="{% static 'inventory/js/profile.js' %}"></script>
 {# Self-hosted lidar DEMs: PMTiles archives read over range requests, shaded #}
 {# client-side in a Web Worker by maplibre-gl-demshade (vendor/), behind the #}

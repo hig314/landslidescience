@@ -63,6 +63,14 @@ PMTILES_PUBLIC_BASE = getattr(settings, 'LIDAR_PMTILES_PUBLIC_BASE',
 # the single source of truth for which surveys are restricted: a survey is
 # gated exactly when it appears there. Keeping it in one file means the list
 # the server enforces and the list an admin is shown cannot drift apart.
+# Baked raster overlays as PMTiles (tools/permafrost/bake_overlay.py): local
+# where a copy is mounted (dev), else R2 -- same shape as the lidar pyramids,
+# for the same reason (the droplet has 7 GB of disk). Public, not gated.
+OVERLAYS_DIR = settings.BASE_DIR / 'data' / 'overlays'
+OVERLAYS_PUBLIC_BASE = getattr(settings, 'OVERLAYS_PUBLIC_BASE',
+                               'https://lidar.landslidescience.org/overlays')
+
+
 GATED_CATALOG = LIDAR_DIR / 'catalog-gated.geojson'
 _gated_cache = {'mtime': None, 'ids': frozenset()}
 
@@ -247,6 +255,17 @@ def pmtiles(request, dataset_id):
                  else 'public, max-age=3600')
         return serve_ranged(request, path, 'application/vnd.pmtiles', cache)
     return _cors(HttpResponseRedirect(f'{PMTILES_PUBLIC_BASE}/{dataset_id}.pmtiles'))
+
+
+def overlay_pmtiles(request, overlay_id):
+    """A baked overlay pyramid (permafrost products): local copy if mounted,
+    else R2. Ranged, CORS, public."""
+    path = _checked(OVERLAYS_DIR, overlay_id, '.pmtiles')
+    if request.method == 'OPTIONS':
+        return _preflight()
+    if path.is_file():
+        return serve_ranged(request, path, 'application/vnd.pmtiles', 'public, max-age=3600')
+    return _cors(HttpResponseRedirect(f'{OVERLAYS_PUBLIC_BASE}/{overlay_id}.pmtiles'))
 
 
 def cog(request, dataset_id):

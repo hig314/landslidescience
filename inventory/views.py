@@ -1277,6 +1277,19 @@ _RAMP_SPECS = {
     'ice-dhdt':  {'file': 'hugonnet_color_dhdt.txt', 'label': 'Glacier thinning', 'units': 'm/yr'},
     'ice-dhdt~s': {'file': 'hugonnet_color_dhdt_smooth.txt',
                    'label': 'Glacier thinning (smoothed)', 'units': 'm/yr'},
+    # Permafrost (tools/permafrost/, 2026-10-09): three products, three
+    # quantities, three hues -- PZI, probability and near-surface probability
+    # are not the same thing and must not share a ramp.
+    'glac-outline-2020': {'file': 'permafrost/glac_color_outline.txt', 'label': 'Glacier covered area, Alaska 2020', 'units': 'ice (fill) · outline · NSIDC G10040, Landsat, 30 m'},
+    'pf-gruber-maat':   {'file': 'permafrost/pf_color_maat.txt', 'label': 'Mean annual air temperature (Gruber 2012)', 'units': '°C · 1 km'},
+    'pf-gruber-maat60': {'file': 'permafrost/pf_color_maat.txt', 'label': 'Mean annual air temperature, terrain-downscaled', 'units': '°C · 60 m'},
+    'pf-gruber-pzi':   {'file': 'permafrost/pf_color_pzi.txt', 'label': 'Permafrost zonation index (Gruber 2012)', 'units': 'PZI, 0-1 · 1 km'},
+    'pf-gruber-pzi60': {'file': 'permafrost/pf_color_pzi.txt', 'label': 'Permafrost zonation index, terrain-downscaled', 'units': 'PZI, 0-1 · 60 m, from Gruber MAAT + elevation'},
+    'pf-obu-prob':     {'file': 'permafrost/pf_color_prob.txt', 'label': 'Permafrost probability (Obu 2019)', 'units': 'probability, 0-1 · 1 km'},
+    'pf-obu-prob60':   {'file': 'permafrost/pf_color_prob.txt', 'label': 'Permafrost probability, terrain-downscaled', 'units': 'probability, 0-1 · 60 m, from Obu MAGT + elevation + aspect'},
+    'pf-obu-magt':     {'file': 'permafrost/pf_color_magt.txt', 'label': 'Ground temperature at permafrost top (Obu 2019)', 'units': '°C · 1 km'},
+    'pf-obu-magt60':   {'file': 'permafrost/pf_color_magt.txt', 'label': 'Ground temperature, terrain-downscaled', 'units': '°C · 60 m'},
+    'pf-pastick-nsp':  {'file': 'permafrost/pf_color_nsp.txt', 'label': 'Near-surface permafrost probability (Pastick 2015)', 'units': 'probability of permafrost within 1 m, 0-1 · 30 m, Alaska'},
     'coh-summer': {'file': 'coherence_color_coh.txt',
                    'label': 'Radar coherence (summer)', 'units': '% (12-day, VV)'},
     'ice-thick': {'file': 'iceboost_color_thickness.txt',

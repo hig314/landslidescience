@@ -44,6 +44,7 @@ Disallow: /inventory/login/
 Disallow: /inventory/logout/
 Disallow: /tiles/
 Disallow: /lidar/
+Disallow: /overlays/
 Disallow: /inventory/planet/
 Disallow: /files/
 Disallow: /drops/
@@ -170,6 +171,9 @@ urlpatterns = [
             lidar_serve.pmtiles),
     re_path(r'^lidar/cog/(?P<dataset_id>[a-z0-9_]+)\.tif$',
             lidar_serve.cog),
+    # Baked raster overlays (permafrost) as PMTiles: local in dev, R2 in prod.
+    re_path(r'^overlays/(?P<overlay_id>[a-z0-9_]+)\.pmtiles$',
+            lidar_serve.overlay_pmtiles),
     # Dev-only research surfaces (404 unless DEBUG); /lidar/?catalog=dev loads them.
     path('lidar/dev/catalog.geojson', lidar_serve.dev_catalog),
     re_path(r'^lidar/dev/pmtiles/(?P<dataset_id>[a-z0-9_]+)\.pmtiles$',

@@ -566,6 +566,32 @@ body.inv-article-body {
 #opera-float   { top: 90px;  right: 16px; width: 400px; height: 470px; }
 /* Elevation profile panel (profile.js) */
 #profile-panel { top: 64px; left: 16px; width: 640px; height: 300px; }
+/* Permafrost analysis panels (permafrost.js) */
+.ls-tool-hidden { display: none !important; }
+#pf-float       { top: 64px; right: 16px; width: 470px; height: 420px; }
+#pf-patch-float { top: 64px; left: 16px;  width: 720px; height: 520px; }
+.pf-header { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 10px; border-bottom: 1px solid #eee;
+             font-size: 11px; color: #555; flex-wrap: wrap; }
+.pf-header .pf-title { font-weight: 600; color: #444; white-space: nowrap; }
+#pf-patch-float .pf-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pf-header button#pf-close { margin-left: auto; }
+.pf-header select, .pf-header input { font-size: 11px; padding: 1px 3px; }
+.pf-header input#pf-radius { width: 42px; }
+.pf-header .pf-unit { margin-left: -3px; color: #777; }
+.pf-header button { font-size: 11px; padding: 1px 7px; border: 1px solid #ccc; border-radius: 3px; background: #fff; cursor: pointer; color: #444; }
+.pf-header button:hover { background: #f0ebe9; }
+.pf-header button.active { background: #5D4037; color: #fff; border-color: #5D4037; }
+.pf-header button#pf-close, .pf-header button#pf-patch-close { border: none; font-size: 15px; line-height: 1; padding: 0 4px; }
+#pf-count { color: #777; white-space: nowrap; }
+#pf-body { position: relative; flex: 1; min-height: 0; }
+#pf-heat { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#pf-svg  { position: absolute; inset: 0; width: 100%; height: 100%; cursor: default; }
+#pf-svg circle { cursor: pointer; }
+.pf-tip { display: none; position: absolute; z-index: 2; pointer-events: none; background: rgba(255,255,255,0.96);
+          border: 1px solid #bbb; border-radius: 3px; box-shadow: 0 1px 6px rgba(0,0,0,.18); padding: 4px 8px;
+          font-size: 11px; color: #333; white-space: nowrap; }
+#pf-patch-body { position: relative; flex: 1; min-height: 0; }
+#pf-patch-canvas { display: block; }
 .profile-header { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 10px;
                   border-bottom: 1px solid #eee; font-size: 11px; color: #555; }
 .profile-header .profile-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

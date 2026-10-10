@@ -198,6 +198,34 @@ CLAUDE.md §/glaciers:
   passed 89% of noise). Gate on *replication* (split-half agreement)
   instead.
 
+## Raster sources and bakes (permafrost, 2026-10-09)
+
+- **A raster's declared nodata is not its only hole.** Obu's MAGT and
+  MAGTSTD carry NaN over near-shore sea and the declared −3.4e38 only
+  offshore. NaN survives `gdalwarp`, passes every `== nodata` test, and
+  `gdaldem color-relief` paints it with the TOP ramp colour — the Bering
+  Sea came out dark red with a staircase coastline. Count `isnan` as well
+  as `== nodata` on every new source; `rastercalc.py nan2nodata` fixes one.
+- **Pastick's 101–105 are land-cover codes, not percentages** (water, ice,
+  developed, barren, cultivated). Averaging them as data pushes the mean
+  past 100 %. Mask `> 100` first. Barren is the alpine ground, so the
+  product is blank exactly where the downscale matters most.
+- **Homebrew `gdal_calc.py` (GDAL 3.13, Python 3.14) rejects its own `-A`**
+  ("did not expand to any file") for any path. The chunked NumPy helper
+  `tools/permafrost/rastercalc.py` replaces it; do not spend time on the
+  flag.
+- **Mapterhorn tiles arrive in bulk, and one in 48,000 was corrupt** (a
+  truncated WebP Pillow refused and GDAL could not read). The mosaic now
+  skips and names an unreadable tile instead of dying; refetch it and
+  rerun. Tiles missing over open ocean are 404s, not failures.
+- **`scipy.ndimage.gaussian_filter` normalises its kernel.** G(w) of a 0/1
+  mask is the weighted *fraction* of valid cells, never a count; a
+  "minimum summed weight" gate written against it rejected every cell.
+  Multiply by 2πσ² for the cells-equivalent.
+- **Gruber's `.hdr` cellsize is truncated** (0.008333 for 1/120°); trust
+  the stated 43200×18000 grid and pin `-a_ullr -180 90 180 -60` instead
+  or the raster drifts 1 km per 10° of longitude.
+
 ## Verification discipline
 
 - **Measure, don't assume.** The costliest wrong claims in this project's

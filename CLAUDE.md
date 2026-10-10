@@ -1053,6 +1053,87 @@ wet-snow coast. Consequence worth stating plainly: this layer does **not**
 give a route to talus activity — 93 m is too coarse for it, and the terrain is
 radar-dark besides. Its value is the active-landslide flagging above.
 
+## Permafrost overlays — three products and a terrain downscale
+
+Ten overlays across the reorganised categories (`_OV_CATS` in `map.js`,
+order per Hig 2026-10-09: **Climate · Surface change · Landslide
+susceptibility · Glaciers · Subsurface**): Gruber 2012 MAAT + PZI (1 km),
+Obu 2019 MAGT + probability (1 km), each as published; our 60 m terrain
+downscale of all four; Pastick 2015 near-surface probability (30 m, as
+published); and the **Glacier covered area 2020** outline (NSIDC G10040,
+Roberts-Pierel & others 2022, Landsat, RGI ids carried) in the Glaciers
+category. Built 2026-10-09; **dev only until Hig approves**. Methods §1
+*Permafrost overlays* is the reader-facing account; this is the plumbing.
+
+- **Three quantities, three hues, never one ramp.** PZI is a fraction of
+  the cell expected to hold permafrost, Obu's probability is the ensemble
+  share with MAGT < 0 °C, Pastick's is the probability of permafrost in the
+  top metre. MAAT and MAGT share one diverging ramp on purpose (they sit
+  together in Climate). Ramps in `tools/permafrost/*_color_*.txt`,
+  registered in `views._RAMP_SPECS` as `permafrost/<file>`.
+- **Baked PMTiles, served like the lidar pyramids.** `/overlays/<id>.pmtiles`
+  (`lidar_serve.overlay_pmtiles`, ranged, CORS, `[a-z0-9_]` ids) serves a
+  local copy from `data/overlays/` where mounted (dev), else 302s to R2
+  `lidar.landslidescience.org/overlays/`. `robots.txt` disallows
+  `/overlays/`. 1 km products to z9 (PNG), 60 m to z11 and Pastick to z12
+  (**lossy WebP, `BAKE_FMT=webp`** — Pastick as PNG was 10 GB, as WebP 2.8;
+  the 60 m layers ~200 MB each). **Not on R2 yet.**
+- **Pipeline, `tools/permafrost/`**, data on Nunatak (`permafrost_src/`
+  sources incl. `glaciers/`, `permafrost_build/` working grids, EPSG:3338,
+  `-te -1041000 443000 1665000 2622000`): `fetch_mapterhorn*.sh` →
+  `mapterhorn_mosaic.py` → `terrain60.sh` (elev/slope/aspect/northness at
+  60 m + 1 km means) → **`kernel_fit.py`** → **`apply_downscale.py`** →
+  `rastercalc.py pastick` + 60 m average → `validate_pastick.py` →
+  **`patch.py --lon --lat [--radius 10]`** (the site-by-site check: 1 km
+  cells vs the 60 m cloud and the fitted lapse/curve, CSV + PNG into
+  `permafrost_build/patches/`) → `bake_overlay.py`. The glacier outline is
+  `gdal_rasterize` fill=1 + boundary=2 at 30 m → the same bake.
+- **The method (replaced the 10 km block fits the same day, at Hig's
+  request).** `kernel_fit.py` regresses the product on elevation (Obu: +
+  northness) at EVERY 1 km cell with Gaussian weights (σ 15 km) by
+  convolving the weighted moments (`scipy.ndimage.gaussian_filter` —
+  **it normalises its kernel**, so the summed weight is G(w)·2πσ², not
+  G(w)); too little relief under the kernel (sd < 75 m) → the σ 50 km fit,
+  else the domain median; coefficients clipped to physical ranges. The
+  60 m field is **anchored on the published 1 km value**: T60 = T1k +
+  b(e60 − e1k) [+ c(n60 − n1k)], all 1 km fields bilinear to 60 m, so the
+  product's own numbers are preserved. Land mask = Gruber MAAT validity
+  (defined over every glacier). **Obu is inpainted**, not masked: the
+  kernel's own fitted value stands in for MAGT/STD where Obu has none
+  (118 k cells, 5 % of land), and the 60 m layers are written over ice —
+  the glacier outline makes that honest. **PZI(MAAT)** is Gruber's own
+  normal CDF (T₀ −4.75, σ 2.55 reproduce his values to 0.002 rms) rescaled
+  to reach 0 at 0 °C and refitted to his ≥ 0.1 cells (T₀ −4.58, σ 2.67;
+  `kfit/pzi_curve.json`) — his published index floors at 0.01 below 0.1,
+  which put a step in every elevation profile.
+- **The Analysis panel (`permafrost.js`, Analysis tab → "Permafrost: Obu ×
+  Gruber"; Hig's ask, 2026-10-09).** Panel A: the terrain joint density of
+  a pair (PZI × probability, MAAT × MAGT; 1 km published or 60 m
+  downscaled) as a log backdrop with every landslide as a point (hover
+  names it, click opens it) — the susceptibility scatter's idea applied to
+  permafrost. Data: `pf_density.json` + `pf_values.json` in
+  `inventory/static/inventory/`, built by `tools/permafrost/export_web.py`
+  (sampled at `data/landslide_centroids_3338.json`, like `sample_susc.py`;
+  **regenerate when landslides are added**). The **Sample** button (or the
+  ◎ toolbar mode, `LSTools` id `pfpatch`) reads a circle on the map two
+  ways: the published 1 km cells from `api/permafrost/patch/`
+  (`inventory/permafrost.py`, memory-mapped `.npy` grids in
+  `data/permafrost/`, 11 × 22.5 MB, written by `export_web.py --grids` and
+  **rsynced to the droplet with the rest of `data/`**) and the 60 m
+  downscale from **value PMTiles** `/overlays/pfv_<field>.pmtiles`
+  (`bake_values.py`: terrain-RGB of value × scale at z10 only, scale table
+  duplicated in `permafrost.js` `SCALE`; precision is plot precision — 1 m,
+  0.1 °C, 0.001 — because a finer low byte is noise PNG cannot compress).
+  Panel B draws `patch.py`'s four plots in the browser (CSV + PNG), the
+  patch's points light up on Panel A, and the circle rides the URL as
+  `pp=lat,lon,r` (parsed in `parseHashState`, row in `_VIEW_PARAMS`).
+- **Source traps** in HAZARDS.md §Raster sources (Obu NaN inshore, Pastick
+  codes 101–105, Gruber `.hdr` cellsize, Homebrew `gdal_calc.py`).
+- **Licences / attribution**: Gruber 2012 (cite the paper), Obu 2019
+  (PANGAEA, CC BY 4.0), Pastick 2015 (USGS, public domain), G10040 (NSIDC,
+  cite); `PF_ATTR` / `GLAC_ATTR` in map.js ride the sources. Downscaled
+  layers are ours and say so in their row text ("our inference").
+
 ## OPERA DIST — surface disturbance overlay
 
 One overlay on the inventory map, **Surface disturbance — annual**
@@ -1381,6 +1462,7 @@ The sidebar at `/inventory/` is a three-tab layout with a pinned strip on top:
 - **A stored default view writes `ov`/`li`/`ext`/`im`/`ref` even when empty** and always pins the basemap; views stored before 2026-10-06 lack the empty ones and behave as they always did until re-saved.
 - **Additive only.** Stored default views, snapshots and shared links hold these strings for good. Every change above was checked by running the previously deployed parser against the new one over production's stored default views plus hand-written legacy forms (identical on all), and the codec round-trips them. Do the same before the next grammar change.
 - **`pr=` carries the elevation profile** (2026-10-08): the line as a flat `lat,lon` list at 5 dp, `pw=d0,d1` its brushed window in metres along the line, `pve=0` when the chart is unlocked from 1:1; absent = leave alone. One `_VIEW_PARAMS` row reads `LSProfile.state()` / calls `LSProfile.setState()`; a line arriving before the lidar catalogue waits for it (`LSProfile.onCatalog`), or it would be read against Mapterhorn alone. It rides in saved views and default views like the overlays.
+- **`pp=lat,lon,r_km` is the permafrost patch circle** (2026-10-09, `permafrost.js`): parsed in `parseHashState`, one `_VIEW_PARAMS` row, applied on cold load and hashchange; `an=pf` opens the panel like the other analysis panels.
 - Not in the URL, by choice so far: scatter axes and proportion mode, the histogram day window, the pinned label field.
 
 **Default views are public**, so `manage_edit_field` rejects (`view_state_private_layers`) one whose `base=`/`swipe=` is a browser-local QMS layer (`qms-…`) or a shared QMS layer with `public=False`, or whose `li=` names a survey outside the public lidar catalog; the client pre-checks the basemaps (`_viewPrivateLayers`) and shows why. QMS sharing defaults to admins-only (`QmsLayer.public=False`); editors re-scope an already-shared layer from the card's admins/everyone tag (`_showScopeMenu` → `POST api/qms/<id>/scope/`). Older default views that reference a layer visitors lack still degrade gracefully — unknown `base=` is ignored, unknown `swipe=` renders no wiper.
