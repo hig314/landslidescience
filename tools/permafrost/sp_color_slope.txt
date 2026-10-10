@@ -1,0 +1,10 @@
+# Surface properties: slope (degrees). Sequential; flat ground nearly transparent so the basemap reads through.
+nv 0 0 0 0
+0 255 255 255 40
+5 255 245 190 140
+12 254 210 110 190
+20 250 150 60 220
+30 215 60 40 235
+40 150 20 50 245
+55 80 0 70 250
+82 40 0 40 250

@@ -1,0 +1,8 @@
+# Surface properties: aspect (degrees from north, clockwise). Cyclic: N blue, E green, S yellow, W magenta, back to blue.
+# gdaldem -zero_for_flat wrote 0 for flat cells, so flat ground reads as north-facing; use slope to tell them apart.
+nv 0 0 0 0
+0 50 90 210 220
+90 60 175 90 220
+180 245 205 60 220
+270 190 60 140 220
+360 50 90 210 220

@@ -1280,6 +1280,13 @@ _RAMP_SPECS = {
     # Permafrost (tools/permafrost/, 2026-10-09): three products, three
     # quantities, three hues -- PZI, probability and near-surface probability
     # are not the same thing and must not share a ramp.
+    # Surface properties (2026-10-09): the 60 m terrain grids the permafrost
+    # downscale used, as overlays in their own right -- the axes most analyses
+    # want (ANALYSIS_TOOL_PLAN.md).
+    'sp-elev':   {'file': 'permafrost/sp_color_elev.txt',   'label': 'Elevation', 'units': 'm · 3DEP via Mapterhorn, 60 m'},
+    'sp-slope':  {'file': 'permafrost/sp_color_slope.txt',  'label': 'Slope', 'units': 'degrees · 60 m'},
+    'sp-aspect': {'file': 'permafrost/sp_color_aspect.txt', 'label': 'Aspect', 'units': 'degrees clockwise from north · 60 m (flat reads as north)'},
+    'sp-north':  {'file': 'permafrost/sp_color_north.txt',  'label': 'Northness', 'units': 'cos(aspect)·sin(slope): −1 steep south face … +1 steep north face'},
     'glac-outline-2020': {'file': 'permafrost/glac_color_outline.txt', 'label': 'Glacier covered area, Alaska 2020', 'units': 'ice (fill) · outline · NSIDC G10040, Landsat, 30 m'},
     'pf-gruber-maat':   {'file': 'permafrost/pf_color_maat.txt', 'label': 'Mean annual air temperature (Gruber 2012)', 'units': '°C · 1 km'},
     'pf-gruber-maat60': {'file': 'permafrost/pf_color_maat.txt', 'label': 'Mean annual air temperature, terrain-downscaled', 'units': '°C · 60 m'},

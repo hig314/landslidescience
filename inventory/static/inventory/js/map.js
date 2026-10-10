@@ -2258,6 +2258,23 @@
         // Three quantities, three hues: PZI (Gruber, blues), permafrost
         // probability and ground temperature (Obu, purples / diverging),
         // near-surface permafrost probability (Pastick, greens).
+        // Surface properties (2026-10-09): elevation, slope, aspect, northness
+        // from the 60 m terrain grids (Mapterhorn z11 = USGS 3DEP 1/3" in
+        // Alaska, EPSG:3338, land-masked), the same grids the permafrost
+        // downscale used. Baked like the permafrost overlays. These are the
+        // axes most pair analyses want (ANALYSIS_TOOL_PLAN.md).
+        { id: 'sp-elev', layerId: 'ov-sp-elev', sourceId: 'ov-sp-elev-src',
+          label: 'Elevation', sub: 'm, hypsometric · 3DEP via Mapterhorn, 60 m',
+          sourceDef: function () { return _pfSourceDef('sp_elev', 10, SP_ATTR); }, defOpacity: 0.7 },
+        { id: 'sp-slope', layerId: 'ov-sp-slope', sourceId: 'ov-sp-slope-src',
+          label: 'Slope', sub: 'degrees, 60 m · flat ground nearly transparent',
+          sourceDef: function () { return _pfSourceDef('sp_slope', 10, SP_ATTR); }, defOpacity: 0.7 },
+        { id: 'sp-aspect', layerId: 'ov-sp-aspect', sourceId: 'ov-sp-aspect-src',
+          label: 'Aspect', sub: 'N blue · E green · S yellow · W magenta, 60 m · flat cells read as north',
+          sourceDef: function () { return _pfSourceDef('sp_aspect', 10, SP_ATTR); }, defOpacity: 0.7 },
+        { id: 'sp-north', layerId: 'ov-sp-north', sourceId: 'ov-sp-north-src',
+          label: 'Northness', sub: 'cos(aspect)·sin(slope), 60 m · blue north-facing, red south-facing · the aspect term of the permafrost downscale',
+          sourceDef: function () { return _pfSourceDef('sp_north', 10, SP_ATTR); }, defOpacity: 0.7 },
         // Glacier covered area 2020 (NSIDC G10040, Landsat-derived, RGI ids
         // carried): the recent outline the permafrost downscale is read
         // against, since the Obu-derived 60 m layers are interpolated THROUGH
@@ -2386,6 +2403,7 @@
                          '(doi:10.1038/s41597-022-01189-6, CC BY 4.0)';
     var PF_ATTR = 'Permafrost: Gruber 2012 (UZH); Obu et al. 2019 (CC-BY 3.0); Pastick et al. 2015 (USGS); ' +
                   'downscaled layers © landslidescience.org on Mapterhorn / USGS 3DEP terrain';
+    var SP_ATTR = 'Terrain: USGS 3DEP via Mapterhorn';
     var GLAC_ATTR = 'Glacier area 2020: Roberts-Pierel, Kirchner, Kilbride & Kennedy (2022), NSIDC G10040, doi:10.7265/8esq-w553';
     function _pfSourceDef(id, maxzoom, attr) {
         return {
@@ -3825,6 +3843,8 @@
     var _OV_CATS = [
         { key: 'clim',  label: 'Climate',
           ids: ['pf-gruber-maat', 'pf-gruber-maat60', 'pf-obu-magt', 'pf-obu-magt60'] },
+        { key: 'sp',    label: 'Surface properties',
+          ids: ['sp-elev', 'sp-slope', 'sp-aspect', 'sp-north'] },
         // 'dist-alert' stays listed although it is retired: _ovRenderGrouped
         // filters ids that are not in OVERLAYS, so this needs no edit if
         // DIST_ALERT_ACTIVE is flipped back on.

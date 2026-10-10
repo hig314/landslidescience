@@ -260,6 +260,21 @@
   thinning rate, flow speed, its seasonality, and its trend.
 </p>
 
+<h4>Surface properties overlays</h4>
+<p>
+  <strong>Elevation</strong>, <strong>slope</strong>, <strong>aspect</strong>
+  and <strong>northness</strong> (cos&nbsp;aspect&nbsp;&times;&nbsp;sin&nbsp;slope,
+  &minus;1 a steep south face to +1 a steep north face) are drawn from one
+  60&nbsp;m terrain grid over Alaska and the Yukon margin, built from
+  USGS 3DEP 1/3&nbsp;arc-second elevation as served by Mapterhorn and
+  projected to Alaska Albers; they are the same grids the permafrost
+  downscale below uses, so an analysis that crosses them with a permafrost
+  layer is comparing like with like. Slope and aspect are the standard
+  Horn gradient on the 60&nbsp;m grid; flat cells carry aspect 0 and so read
+  as north-facing in the aspect layer, which is why northness (zero on flat
+  ground) is the better layer for slope-direction questions. Sea is masked.
+</p>
+
 <h4>Permafrost overlays</h4>
 <p>
   Three published permafrost products are shown as overlays, each as its

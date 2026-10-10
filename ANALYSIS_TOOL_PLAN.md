@@ -77,9 +77,10 @@ and `export_web.py --values`), regenerated when landslides change.
 ### Which layers earn an axis
 
 Already readable: OPERA asc/desc (8-bit, ±30 mm/yr), lidar DEMs and
-Mapterhorn (terrain-RGB; **elevation, slope, aspect, northness and relief
-are the most useful axes of all and are not overlays**), the four permafrost
-fields. Worth adding value archives for: coherence (banded, 93 m, small),
+Mapterhorn (terrain-RGB), the four permafrost fields, and the **Surface
+properties** overlays (elevation, slope, aspect, northness: the most useful
+axes of all; the elevation value archive exists, the others derive from it
+in the browser as the permafrost sampler already does for northness). Worth adding value archives for: coherence (banded, 93 m, small),
 ITS_LIVE speed and dh/dt (120/100 m), IceBoost thickness and bed, lw / n10
 / DGGS (90 and 20 m — DGGS is categorical, which the density must respect:
 class position on the axis, as the scatter does), Pastick (30 m; 2.8 GB as
@@ -91,12 +92,17 @@ an axis), the trace rasters, basemaps.
 
 One `LSAnalysis` panel replacing the three:
 
-- **Axes**: two pickers listing axis-capable layers, plus the derived
-  terrain quantities. **"Use wiper panes"** fills them from the current
-  left/right overlays — the wiper is a natural and legible way to choose a
-  pair, but making it the *only* way couples an analysis to a display state
-  (you would have to open the wiper to ask a question); the pickers stay
-  primary and the wiper is a shortcut. Orientation: left pane = x.
+- **Axes = the wiper panes** (Hig, 2026-10-09). The two axes and the two
+  wiper panes are one state, bound both ways: open Analysis with a wiper
+  showing two different overlays and they are x and y (left = x); open it
+  without one and choosing two axes creates the wiper with those overlays,
+  so the map always shows what the plot is crossing. The panel's two
+  pickers are just its handle on the same two slots — they exist so a
+  question can be asked without first building a wiper by hand, not as a
+  separate way of choosing. A quantity that is an axis must therefore also
+  be an overlay, which is why **Surface properties** (elevation, slope,
+  aspect, northness — baked 2026-10-09 from the 60 m terrain grids) joins
+  the overlay categories rather than living only in the picker.
 - **Backdrop**: the terrain density (server, on demand; or the precomputed
   fine one where it exists), log-scaled, with the scatter's proportion
   mode (landslides per terrain cell) as an option since that is the mode

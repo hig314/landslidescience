@@ -1111,6 +1111,12 @@ category. Built 2026-10-09; **dev only until Hig approves**. Methods §1
   to reach 0 at 0 °C and refitted to his ≥ 0.1 cells (T₀ −4.58, σ 2.67;
   `kfit/pzi_curve.json`) — his published index floors at 0.01 below 0.1,
   which put a step in every elevation profile.
+- **Surface properties** (2026-10-09, Hig: the axes most analyses want, so
+  they must exist as overlays): `sp-elev`, `sp-slope`, `sp-aspect`,
+  `sp-north` baked from the 60 m terrain grids (`out/*60_land.tif`, the
+  grids masked to Gruber's land) with `sp_color_*.txt`; own category after
+  Climate. Aspect's flat cells are 0 = north (gdaldem `-zero_for_flat`),
+  said in the row text and Methods.
 - **The Analysis panel (`permafrost.js`, Analysis tab → "Permafrost: Obu ×
   Gruber"; Hig's ask, 2026-10-09).** Panel A: the terrain joint density of
   a pair (PZI × probability, MAAT × MAGT; 1 km published or 60 m

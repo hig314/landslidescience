@@ -1,0 +1,8 @@
+# Surface properties: northness = cos(aspect) * sin(slope). -1 steep south face (red) .. 0 flat (white) .. +1 steep north face (blue).
+# Same colours as the permafrost sampler's MAGT plot.
+nv 0 0 0 0
+-1.0 178 24 43 235
+-0.5 230 130 110 225
+0.0 247 247 247 150
+0.5 110 150 220 225
+1.0 33 102 172 235
