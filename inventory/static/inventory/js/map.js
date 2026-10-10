@@ -2263,6 +2263,22 @@
         // Alaska, EPSG:3338, land-masked), the same grids the permafrost
         // downscale used. Baked like the permafrost overlays. These are the
         // axes most pair analyses want (ANALYSIS_TOOL_PLAN.md).
+        // Contours (2026-10-10): generated in the browser by maplibre-contour
+        // from Mapterhorn's terrarium tiles (3DEP 1/3" in Alaska), interval by
+        // zoom -- 1000 m zoomed out to 10 m zoomed in. Nothing baked, nothing
+        // hosted; the DEM tiles are the same ones the profile tool reads.
+        { id: 'sp-contours', layerId: 'ov-sp-contours', sourceId: 'ov-sp-contours-src',
+          label: 'Contours', sub: 'interval by zoom: 1000 m (z≤6) · 500 · 200 · 100 (z10) · 50 · 20 · 10 m (z≥14) · labels every 5th line',
+          keyNote: 'Elevation contours from USGS 3DEP (Mapterhorn), drawn as you zoom: 1000 m lines at state scale, 10 m lines at site scale, with the heavier line labelled.',
+          vector: {
+              sourceLayer: 'contours',
+              linePaint: { 'line-color': '#5d4037', 'line-width': ['match', ['get', 'level'], 1, 1.7, 0.8] },
+              labelLayout: { 'symbol-placement': 'line', 'text-field': ['concat', ['get', 'ele'], ' m'],
+                             'text-font': ['Noto Sans Regular'], 'text-size': 10, 'symbol-spacing': 300 },
+              labelPaint: { 'text-color': '#4e342e', 'text-halo-color': 'rgba(255,255,255,0.85)', 'text-halo-width': 1.2 },
+              labelFilter: ['>=', ['get', 'level'], 1]
+          },
+          sourceDef: function () { return _contourSourceDef(); }, defOpacity: 0.85 },
         { id: 'sp-elev', layerId: 'ov-sp-elev', sourceId: 'ov-sp-elev-src',
           label: 'Elevation', sub: 'm, hypsometric · 3DEP via Mapterhorn, 60 m',
           sourceDef: function () { return _pfSourceDef('sp_elev', 10, SP_ATTR); }, defOpacity: 0.7 },
@@ -2404,6 +2420,25 @@
     var PF_ATTR = 'Permafrost: Gruber 2012 (UZH); Obu et al. 2019 (CC-BY 3.0); Pastick et al. 2015 (USGS); ' +
                   'downscaled layers © landslidescience.org on Mapterhorn / USGS 3DEP terrain';
     var SP_ATTR = 'Terrain: USGS 3DEP via Mapterhorn';
+    // maplibre-contour: one DEM source for the contour overlay, set up once.
+    var _contourDem = null;
+    function _contourSourceDef() {
+        if (!_contourDem && typeof mlcontour !== 'undefined') {
+            _contourDem = new mlcontour.DemSource({ url: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
+                                                    encoding: 'terrarium', maxzoom: 13, worker: true, cacheSize: 200 });
+            _contourDem.setupMaplibre(maplibregl);
+        }
+        if (!_contourDem) return { type: 'vector', tiles: [], maxzoom: 15 };
+        return {
+            type: 'vector', maxzoom: 15, attribution: SP_ATTR,
+            tiles: [_contourDem.contourProtocolUrl({
+                // zoom -> [minor interval, major (labelled) interval], metres
+                thresholds: { 3: [1000, 2000], 7: [500, 1000], 9: [200, 1000], 10: [100, 500],
+                              11: [50, 250], 12: [20, 100], 14: [10, 50] },
+                contourLayer: 'contours', elevationKey: 'ele', levelKey: 'level', extent: 4096, buffer: 1
+            })]
+        };
+    }
     var GLAC_ATTR = 'Glacier area 2020: Roberts-Pierel, Kirchner, Kilbride & Kennedy (2022), NSIDC G10040, doi:10.7265/8esq-w553';
     function _pfSourceDef(id, maxzoom, attr) {
         return {
@@ -2543,10 +2578,18 @@
         if (!m) return;
         OVERLAYS.forEach(function (ov) {
             if (!m.getLayer(ov.layerId)) return;
-            m.setLayoutProperty(ov.layerId, 'visibility',
-                                _ovVisible(ov, isSwipe) ? 'visible' : 'none');
-            m.setPaintProperty(ov.layerId, 'raster-opacity',
-                               isSwipe ? _ovState[ov.id].opRight : _ovState[ov.id].opLeft);
+            var vis = _ovVisible(ov, isSwipe) ? 'visible' : 'none';
+            var op = isSwipe ? _ovState[ov.id].opRight : _ovState[ov.id].opLeft;
+            m.setLayoutProperty(ov.layerId, 'visibility', vis);
+            if (ov.vector) {
+                m.setPaintProperty(ov.layerId, 'line-opacity', op);
+                if (m.getLayer(ov.layerId + '-label')) {
+                    m.setLayoutProperty(ov.layerId + '-label', 'visibility', vis);
+                    m.setPaintProperty(ov.layerId + '-label', 'text-opacity', op);
+                }
+                return;
+            }
+            m.setPaintProperty(ov.layerId, 'raster-opacity', op);
         });
     }
     function _ovApplyAll() {
@@ -2586,13 +2629,32 @@
         if (OVERLAYS.some(function (ov) { return !!ov.stepper; })) _distDatesReady();
         OVERLAYS.forEach(function (ov) {
             if (!m.getSource(ov.sourceId)) m.addSource(ov.sourceId, ov.sourceDef());
-            if (!m.getLayer(ov.layerId)) {
+            if (m.getLayer(ov.layerId)) return;
+            if (ov.vector) {
+                // A vector overlay (the contours): a line layer and, where
+                // the style has glyphs (the wiper's second map does not),
+                // a label layer. Opacity drives line-/text-opacity.
                 m.addLayer({
-                    id: ov.layerId, type: 'raster', source: ov.sourceId,
-                    layout: { 'visibility': 'none' },
-                    paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
+                    id: ov.layerId, type: 'line', source: ov.sourceId, 'source-layer': ov.vector.sourceLayer,
+                    layout: { 'visibility': 'none', 'line-join': 'round', 'line-cap': 'round' },
+                    paint: ov.vector.linePaint
                 }, beforeId);
+                if (ov.vector.labelLayout && m.getStyle().glyphs) {
+                    var lab = {
+                        id: ov.layerId + '-label', type: 'symbol', source: ov.sourceId, 'source-layer': ov.vector.sourceLayer,
+                        layout: Object.assign({ 'visibility': 'none' }, ov.vector.labelLayout),
+                        paint: ov.vector.labelPaint || {}
+                    };
+                    if (ov.vector.labelFilter) lab.filter = ov.vector.labelFilter;
+                    m.addLayer(lab, beforeId);
+                }
+                return;
             }
+            m.addLayer({
+                id: ov.layerId, type: 'raster', source: ov.sourceId,
+                layout: { 'visibility': 'none' },
+                paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
+            }, beforeId);
         });
         _ovApply(m, m !== map);
     }

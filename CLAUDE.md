@@ -1119,12 +1119,27 @@ droplet). Methods §1
   to reach 0 at 0 °C and refitted to his ≥ 0.1 cells (T₀ −4.58, σ 2.67;
   `kfit/pzi_curve.json`) — his published index floors at 0.01 below 0.1,
   which put a step in every elevation profile.
-- **Surface properties** (2026-10-09, Hig: the axes most analyses want, so
-  they must exist as overlays): `sp-elev`, `sp-slope`, `sp-aspect`,
-  `sp-north` baked from the 60 m terrain grids (`out/*60_land.tif`, the
-  grids masked to Gruber's land) with `sp_color_*.txt`; own category after
-  Climate. Aspect's flat cells are 0 = north (gdaldem `-zero_for_flat`),
-  said in the row text and Methods.
+- **Surface properties** (2026-10-09/10, Hig: the axes most analyses want,
+  so they must exist as overlays): `sp-contours`, `sp-elev`, `sp-slope`,
+  `sp-aspect`, `sp-north`; own category after Climate.
+  - **The sea mask is the 60 m grid's own** (`rastercalc.py maskzero`:
+    Mapterhorn is exactly 0 over sea, land near sea level is not; 342 M
+    zero cells vs 227 k in (0, 5 cm)). The first bake used Gruber's 1 km
+    validity and the coast came out in 1 km blocks, wrong both ways.
+  - **Slope is computed per zoom** (`bake_slope_pyramid.py`): elevation
+    averaged to each zoom's ground resolution (z3 ≈ 9 km … z10 = 60 m),
+    THEN slope, colour, and that zoom's tiles only — so zoomed out, only
+    ground steep at that scale is coloured (Hig's ask). The ramp is the
+    lidar viewer's slope standard (`dem_shade.js` `SLOPE_STOPS`: white to
+    32°, yellow 40, red 45, purple 50), nearly clear below 32°.
+  - **Contours are generated in the browser** by maplibre-contour (unpkg,
+    MIT) from Mapterhorn's terrarium tiles — nothing baked or hosted — with
+    the interval by zoom (1000 m at z≤6 … 10 m at z≥14) in
+    `_contourSourceDef`. The first **vector overlay**: `_ovEnsure`/`_ovApply`
+    take an `ov.vector` entry (line layer + label layer where the style has
+    glyphs, which the wiper's second map lacks), opacity → line-/text-opacity.
+  - Aspect's flat cells are 0 = north (gdaldem `-zero_for_flat`), said in
+    the row text and Methods; northness is the layer for slope direction.
 - **The Analysis panel (`permafrost.js`, Analysis tab → "Permafrost: Obu ×
   Gruber"; Hig's ask, 2026-10-09).** Panel A: the terrain joint density of
   a pair (PZI × probability, MAAT × MAGT; 1 km published or 60 m

@@ -14,6 +14,11 @@ file") for any path, 2026-10-09. Chunked, same profile as the input.
         bilinear parameter interpolation otherwise reaches ~10 km past the
         last fitted block (sea, and Obu's masked glaciers came out as
         probability 1 by extrapolation).
+    rastercalc.py maskzero <in.tif> <elev.tif> <out.tif>
+        in where elev != 0, else nodata: the 60 m sea mask. Mapterhorn is
+        exactly 0 over sea and land near sea level is not (227 k cells in
+        (0, 5 cm) against 342 M at 0), so this is a 60 m coastline where the
+        1 km Gruber validity was a blocky one (wrong both ways at the coast).
     rastercalc.py nan2nodata <in.tif> <out.tif>
         NaN -> -9999. Obu's MAGT and MAGTSTD rasters hold NaN over near-shore
         sea (their declared nodata only offshore); NaN survives gdalwarp and
@@ -48,6 +53,9 @@ def run(op, srcs, out):
             elif op == 'mask':
                 v, m = a
                 bad = ~np.isfinite(v) | (v == ds[0].nodata) | ~np.isfinite(m) | (m == ds[1].nodata)
+            elif op == 'maskzero':
+                v, m = a
+                bad = ~np.isfinite(v) | (v == ds[0].nodata) | ~np.isfinite(m) | (m == ds[1].nodata) | (m == 0)
             else:
                 v = a[0]
                 bad = ~np.isfinite(v) | (v == ds[0].nodata)
@@ -57,7 +65,7 @@ def run(op, srcs, out):
 
 if __name__ == '__main__':
     op = sys.argv[1]
-    if op in ('northness', 'mask'):
+    if op in ('northness', 'mask', 'maskzero'):
         run(op, sys.argv[2:4], sys.argv[4])
     elif op in ('pastick', 'nan2nodata'):
         run(op, sys.argv[2:3], sys.argv[3])

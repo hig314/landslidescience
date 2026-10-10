@@ -1,10 +1,14 @@
-# Surface properties: slope (degrees). Sequential; flat ground nearly transparent so the basemap reads through.
+# Surface properties: slope (degrees). The SAME colour standard as the lidar
+# viewer's slope preset (dem_shade.js SLOPE_STOPS, from Hig's QGIS project
+# KBSP_Map/Spring_2026): green flats, white to 32, then the sensitive band
+# around the angle of repose -- yellow 40, red 45, purple 50, black 90.
+# Alpha is ours: under 32 degrees the ramp is nearly clear so imagery reads
+# through, and it is opaque where the standard carries its information.
 nv 0 0 0 0
-0 255 255 255 40
-5 255 245 190 140
-12 254 210 110 190
-20 250 150 60 220
-30 215 60 40 235
-40 150 20 50 245
-55 80 0 70 250
-82 40 0 40 250
+0  0   151 8   70
+10 255 255 255 35
+32 235 236 226 90
+40 255 236 0   225
+45 240 0   0   255
+50 184 0   255 255
+90 0   0   0   255

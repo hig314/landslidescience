@@ -272,7 +272,19 @@
   layer is comparing like with like. Slope and aspect are the standard
   Horn gradient on the 60&nbsp;m grid; flat cells carry aspect 0 and so read
   as north-facing in the aspect layer, which is why northness (zero on flat
-  ground) is the better layer for slope-direction questions. Sea is masked.
+  ground) is the better layer for slope-direction questions. Sea is masked
+  at the grid's own 60&nbsp;m. Two of these layers behave differently from
+  an ordinary map: <strong>slope is recomputed at every zoom level</strong>
+  from elevation averaged to that level's ground resolution (about
+  9&nbsp;km at the statewide view, 60&nbsp;m when zoomed in), so zoomed out
+  only ground that is steep <em>at that scale</em> is coloured, and the
+  colour standard is the lidar viewer's &mdash; nearly clear below
+  32&deg;, then yellow at 40&deg;, red at 45&deg; and purple at 50&deg;,
+  the band around the angle of repose where the information is; and
+  <strong>contours</strong> are drawn in the browser from the same 3DEP
+  terrain tiles rather than stored, at an interval that follows the zoom
+  &mdash; 1000&nbsp;m at the state scale down to 10&nbsp;m at site scale
+  &mdash; with the heavier line labelled.
 </p>
 
 <h4>Permafrost overlays</h4>
