@@ -228,12 +228,15 @@ def cmd_stats(a):
 
 # ------------------------------------------------------------ classify
 
-def rules_kbay(B, res, dtm=None, fill=None):
+def rules_kbay(B, res, dtm=None, fill=None, aux=None):
     """KBay 2023 (NIR, August, leaf-on): the laser gets almost nothing back from water, so
     NO RETURNS is the water/void signal; class 9 marks the few surface returns; class 6
-    marks structures the reclass kept as ground.  Ground = the reclass DTM's observation
-    wherever it has one and nothing says otherwise (class 2 is what the reclass built
-    from, and its under-canopy ground is better than the vendor's)."""
+    marks structures.  Ground = the reclass DTM's observation wherever it has one and
+    nothing says otherwise (class 2 is what the reclass built from, and its under-canopy
+    ground is better than the vendor's).  `aux` carries the reclass's own masks when given
+    (2026-10-10, kbay_reclass_test/model/water.py): 'struct' (vendor 6/17 cells, excluded
+    from its ground and planed under -> built), 'water' (cells whose floor is the water)
+    and 'level' (its local water level) -> water where the DTM sits at that level."""
     from scipy import ndimage
     from topobathy.axes import CLASSES
     n_all, n_g, n_u, n_w, n_b, n_sn = (B[k] for k in ("n_all", "n_ground", "n_unclass", "n_water", "n_built", "n_snow"))
@@ -256,14 +259,20 @@ def rules_kbay(B, res, dtm=None, fill=None):
         c[fill] = CLASSES["void"]
     # 4. water surface returns: class 9 outnumbers ground in the cell
     c[(n_w > 0) & (n_w >= n_g)] = CLASSES["water"]
-    # 5. structures: class 6 present and ground returns sparse -> built (never bare earth)
+    # 5. structures: class 6 present and ground returns sparse -> built (never bare earth);
+    #    the reclass's struct_mask is the same evidence at 1 m, closed, and authoritative
     c[(n_b > 0) & (n_b >= n_g)] = CLASSES["built"]
+    if aux and aux.get("struct") is not None:
+        c[aux["struct"] & has_dtm] = CLASSES["built"]
+    if aux and aux.get("water") is not None and aux.get("level") is not None and dtm is not None:
+        at_level = aux["water"] & np.isfinite(aux["level"]) & np.isfinite(dtm) & (np.abs(dtm - aux["level"]) <= 0.3)
+        c[at_level & (c != CLASSES["void"])] = CLASSES["water"]
     # 6. vendor snow (class 21; none on the 2023-08-01 lines, present on the 2024 ones)
     c[n_sn > n_g] = CLASSES["snow"]
     return c
 
 
-def rules_grewingk(B, res, dtm=None, fill=None):
+def rules_grewingk(B, res, dtm=None, fill=None, aux=None):
     """Grewingk 2021 (NIR, 12 October): the vendor's ground class stops at ~830 m; above
     that the surface is class 1 (unclassified) and the DTM still carries it.  Water (class 9)
     is the lake at 48.8 m.  Snow/ice: NOT decided here yet - cells where the DTM surface
@@ -312,7 +321,12 @@ def cmd_classify(a):
     fill = None
     if a.fill:
         fr, fv = read_geo(a.fill, grid, grid.full(), "nearest"); fill = fv & (np.rint(fr) == 2)
-    c = RULES[rules](B, res, dtm, fill)
+    aux = {}
+    for key, path, kind in (("struct", a.struct, "mask"), ("water", a.water, "mask"), ("level", a.level, "value")):
+        if path:
+            r, v = read_geo(path, grid, grid.full(), "nearest")
+            aux[key] = (v & (np.rint(r) == 1)) if kind == "mask" else np.where(v, r, np.nan)
+    c = RULES[rules](B, res, dtm, fill, aux)
     prof.update(count=1, dtype="uint8", nodata=255, predictor=2)     # 0 is a real class (void), so nodata is 255
     with rasterio.open(out / "class.tif", "w", **prof) as ds:
         ds.write(c, 1)
@@ -320,7 +334,8 @@ def cmd_classify(a):
     frac = {CLASS_NAMES[int(k)]: round(float(v) / tot, 4) for k, v in zip(*np.unique(c[c > 0], return_counts=True))}
     void_km2 = round(float(((c == 0) & (B["n_all"] >= 0)).sum()) * res * res / 1e6, 3)
     print(f"[{meta['survey']}] class.tif by rules '{rules}': {frac}  (void incl. no-data {void_km2} km2)")
-    (out / "class.json").write_text(json.dumps(dict(survey=meta["survey"], rules=rules, fractions=frac, dtm=a.dtm, fill=a.fill), indent=1))
+    (out / "class.json").write_text(json.dumps(dict(survey=meta["survey"], rules=rules, fractions=frac, dtm=a.dtm, fill=a.fill,
+                                                    struct=a.struct, water=a.water, level=a.level), indent=1))
 
 
 def main():
@@ -331,6 +346,9 @@ def main():
     c = sp.add_parser("classify"); c.add_argument("--out", required=True); c.add_argument("--rules", choices=list(RULES))
     c.add_argument("--dtm", help="the survey's archive DTM: 'observed' means the DTM has a value there")
     c.add_argument("--fill", help="a fill mask raster (2 = filled) to void, e.g. the KBay reclass fill_mask.tif")
+    c.add_argument("--struct", help="structure mask (1 = building/bridge cells) -> built, e.g. the KBay reclass struct_mask.tif")
+    c.add_argument("--water", help="water-cell mask (1 = the floor is the water), e.g. the KBay reclass water_mask.tif")
+    c.add_argument("--level", help="local water level raster, e.g. the KBay reclass water_level.tif (with --water: DTM at the level -> water)")
     a = p.parse_args()
     {"stats": cmd_stats, "classify": cmd_classify}[a.cmd](a)
 

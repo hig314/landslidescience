@@ -31,11 +31,14 @@ TARGETS = {
         # snow-free ground); 0.25 = last-rank stand-in (an ice surface where no bed exists).
         "water": {"bed": 1, "subglacial": 1, "modelled": 0.5, "water": 0.5},
         "bed":   {"bed": 1, "subglacial": 1, "modelled": 0.5, "water": 0.5},
-        "ground": {"ground": 1, "snow": 0.5, "bed": 0.5},
+        "ground": {"ground": 1, "snow": 0.5, "bed": 0.5, "built": 0.5},
         "snow":  {"ground": 1, "snow": 0.5},
         "ice":   {"subglacial": 1, "modelled": 0.5, "ice": 0.25},
         "subglacial": {"subglacial": 1, "modelled": 0.5, "ice": 0.25},
-        "canopy": {"ground": 1, "snow": 0.5}, "built": {"ground": 1},
+        "canopy": {"ground": 1, "snow": 0.5},
+        # built (2026-10-10): the KBay reclass excludes roofs and planes the TIN under them, so a
+        # 'built' observation's elevation is interpolated ground -- a half-rank stand-in, like snow
+        "built": {"ground": 1, "built": 0.5},
     },
     "top_surface": {c: {"ground": 1, "water": 1, "ice": 1, "canopy": 1, "built": 1, "snow": 1, "bed": 0}
                     for c in CLASSES},

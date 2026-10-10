@@ -147,24 +147,110 @@ true}}`. What the points said:
   where the lidar has ground, and `fallback` all but vanishes. The
   DTM-side `flat_below` / `snow_vs` steps are no longer used on KBay;
   they stay in the engine for surveys without points.
-- **Grewingk 2021 (NIR, 12 Oct): the vendor's ground class stops at
-  ~830 m.** Above it the returns are class 1 (to 1100 m) and class 18
-  "high noise" (26 % of all points, to 1508 m), yet the DTM reaches
-  1083 m. `rules_grewingk` marks DTM cells whose returns are *only*
-  unclassified, at region scale, as **snow — a hypothesis to look at,
-  not a finding**; class-1 and class-2 intensities are alike (23 k vs
-  25 k), so intensity alone will not settle it, and whether the DGGS
-  product used class 1 for its high ground is the question for the
-  metadata. Only 36 of the 119 tiles over the box were local (12 % of
-  cells); the other 83 (7.7 GB) are being fetched from DGGS at its
-  175 KB/s-per-connection throttle (`grewingk_2021/ranges3.txt`,
-  `fetch3.log`, 8 connections) — rerun `stats`/`classify` when
-  `laz/` holds 119+ files, then switch the Grewingk layer to its
-  `class.tif` as KBay's is.
+- **Grewingk 2021 (NIR, 12 Oct): no snow signal in the classes.** With
+  36 of 119 tiles local the vendor's ground class seemed to stop at
+  ~830 m, and `rules_grewingk` carried a snow hypothesis for DTM cells
+  with only unclassified returns. With all 119 tiles (the other 83
+  fetched 2026-10-10; `fetch_one.sh` compared the CRC against the wrong
+  column of `ranges3.txt`, the inflated `.part` files were verified
+  against the right one and renamed) the ground class covers 93–99 % of
+  DTM cells in every 100 m band to 1100 m, and the rule finds nothing.
+  Result 94.9 % ground / 5.1 % water (DGGS class 9). Snow on
+  2021-10-12, if any, is inside the vendor's ground class and only a
+  reference surface (the `snow_vs` step) or Hig's knowledge of the
+  season can find it; intensity drops ~20 % above 900 m, which is
+  ambiguous. The Grewingk layer now reads its `class.tif` like KBay's.
 - A free measurement from the class-by-class report: **the lake at
   Halibut Cove sits 1.07 m higher in KBay (Aug 2023) than in Grewingk
   (Oct 2021), NMAD 0.02 m** — the seasonal-level reading, which the
   water class now isolates from ground.
+
+### The reclass as the classification (2026-10-10, evening)
+
+Hig: use *our* reclassified points, not the vendor's classes, and tweak
+the reclass where it is wrong — (1) structures should be their own
+ground class so the DTM can be planed under them; (2) bad returns over
+water survive as topography (six sites given), but do not over-filter
+the water surface: real water returns matter in running water and for
+shorelines that hydroflattening moves.
+
+The reclass (`kbay_reclass_test/model/`, hosting's product
+`kbay_2023_reclass`) never wrote relabelled points — it writes surfaces
+per 1 km unit — so "our points" means the labels its chain assigns, and
+the observe stage reads them through the surfaces and masks the chain
+now writes. What the six sites held, probed at full density
+(`observe_points`-style pulls from the COPC tiles):
+
+- **Three of the six "bad return" blobs contain no returns at all.**
+  They are the chain bridging return-free water: TIN facets up to 30 m
+  (A, a 413 m tarn), the zone solver extrapolating over a pond with no
+  water class at all (D: +5 m on the rim, then the harmonic fill
+  inherited the rim, 22–40 m over a 17 m pond), a facet reaching
+  **592 m in a 528 m lake** (C).
+- **Real floating returns**: single returns of ground-like intensity
+  0.5–5 m above the water in vendor classes 1 *and* 2 (the vendor's own
+  ground holds them), over tarns (A: 427 class-1 returns at +1.4 m over
+  600 m² with 5 water returns), in bays (602361,6608610: 530 returns
+  1.2 m over the sea), a boat (E, 15 m, +1–2 m), the shrub fringe of a
+  lake (C's north shore: both flights see it, 1 m apart in height).
+- **F is the other flight**: the 2024 water at +0.23 m admitted as
+  water in the 2023 water's holes (RULE 2) while the 2023 water sat at
+  −2.76 — 3 m islands of the higher tide.
+- **An islet at C is real**: both flights put it at the same height
+  (83 % of cells within 0.3 m). The vendor flattened it away.
+- **Structures**: at Seldovia 108 of the 118 blobs the reclass raised
+  over the vendor are vendor class 6, and 65 of 551 class-6 buildings
+  were lifted — the larger roofs passing the rock rule, as the README
+  guessed. Only 3 raised smooth blobs lack a class-6 label, so the
+  vendor's building class is a good structure source; at Halibut Cove
+  the TIN already passes under every class-6 building.
+
+**Changes to the chain** (live copy on Nunatak; backup
+`model_backup_20261010/`; the repo copy `tools/lidar/kbay_reclass/model/`
+on `main` is hosting's to sync):
+
+- `EXCL` gains **6 and 17** in all 17 modules: a roof is never a ground
+  candidate, the TIN passes under it. `apply.py` writes `struct_mask`
+  (class 6/17 cells, closed) and `fullrun.py` keeps it.
+- **`model/water.py`** (new): a local water **level** W from classes
+  9/20 (sigma-clipped mean, nearest-neighbour to 20 m; a median needed
+  most of its window to be water and gave the tarn no level);
+  **floating** returns → class 7 by two rules — (a) 0.5 m above the
+  lowest return *in its own cell* when that return is at the water
+  (a 3×3 reach stripped a 3–5 m ring off every bank steeper than
+  ~10°), (b) 0.5 m above W with ≥ 60 % of the 9×9 water or return-free,
+  iterated so a field of floating returns peels inward; **persistent**
+  returns (class 22 within 0.3 m in the cell: the other flight saw it)
+  are never flagged — that is what keeps the islet; **void**: a water
+  cell (W defined, 5×5 floor at the water or empty) with no kept return
+  within 3×3 gets no surface, so nothing bridges it, and the enclosed
+  fill then fills it from a rim at the water level (`fill_mask` 2).
+  `water_mask.tif` and `water_level.tif` are written per unit.
+- `admit_low_tide` RULE 2 takes W: class-22 returns are admitted only
+  at or below W + 0.3 — the other tide stays excluded (F).
+- **A ceiling under the solver** (`sitekit.return_ceiling`): ground is
+  never above a return in its own cell (+0.3), nor 2 m above the 5×5
+  floor over a return-free cell; the mirror of the 2026-09-26 floor
+  (D).
+- `mosaic.py` mosaics the three new rasters beside the DTM (units from
+  before read as 0 / nodata).
+- What is **not** filtered, by design: dense objects over water whose
+  own cells show no water — boats and docks (Seldovia harbour) stay,
+  as a structure would; rocks under ~4 m in open water are lost unless
+  the other flight saw them; the one cell straddling a steep bank
+  loses its upper returns.
+
+**Observe stage**: `observe_points.py classify` takes `--struct`,
+`--water`, `--level` — built from the reclass's structure mask, water
+where its DTM sits at its water level — so the composite's classes come
+from our chain, with the vendor's class 6/9 counts as the fallback.
+
+Status at writing: the chain is being rerun on the six sites' units,
+Seldovia and D with the intermediates kept (`site/<unit>`), for a
+before/after check against `full/out`; then the Kachemak box's ~100
+units, a box mosaic (`mosaic.py --bbox`), and the composite rebuilt on
+it. The whole-survey rerun (1,350 units, ~a day on 4 workers) and a
+republish of `kbay_2023_reclass` are Hig's call and hosting's job.
 
 ### Deferred: physical awareness (decided 2026-10-09)
 

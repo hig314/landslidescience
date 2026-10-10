@@ -65,19 +65,13 @@
      "default": "ground"
     },
     {
-     "water_level": {
-      "tol_m": 0.3
-     }
-    },
-    {
-     "snow_vs": {
-      "ref": "kbay2023",
-      "dz_m": 0.5,
-      "smooth_m": 50,
-      "rough_ratio": 0.7
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/obs/grewingk_2021_pts/class.tif",
+      "codes": true
      }
     }
-   ]
+   ],
+   "class_notes": "2026-10-10: classes from the point cloud (observe_points.py, rules 'grewingk': ground where the DTM has a value and real returns exist, water = DGGS class 9, void where only noise); replaces the DEM-derived water_level + snow_vs steps. With all 119 tiles the vendor ground class covers 93-99% of DTM cells in every band to 1100 m, so there is no class-based hook for a snow hypothesis; snow on 2021-10-12, if any, is inside the ground class."
   },
   {
    "name": "kbay2023",
