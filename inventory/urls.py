@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import (dist, external, insar, opera, permafrost, photos, scarps, susc_dggs, table_data,
+from . import (analysis, dist, external, insar, opera, permafrost, photos, scarps, susc_dggs, table_data,
                trace_views, views)
 
 app_name = 'inventory'
@@ -85,8 +85,12 @@ urlpatterns = [
             external.api_external_promote, name='api_external_promote'),
     # Scarp traces: public reads, editor-only writes (see inventory/scarps.py).
     path('api/scarps/', scarps.api_scarps, name='api_scarps'),
-    # Permafrost patch sampler (Analysis tab); grids in data/permafrost/.
+    # Permafrost patch detail (the analysis panel's permafrost preset); grids in data/permafrost/.
     path('api/permafrost/patch/', permafrost.api_patch, name='api_permafrost_patch'),
+    # The analysis panel's quantity cube (inventory/analysis.py; data/quantities/).
+    path('api/analysis/quantities/', analysis.api_quantities, name='api_analysis_quantities'),
+    path('api/analysis/density/', analysis.api_density, name='api_analysis_density'),
+    path('api/analysis/sample/', analysis.api_sample, name='api_analysis_sample'),
     path('api/scarps/create/', scarps.api_scarp_create, name='api_scarp_create'),
     re_path(r'^api/scarps/(?P<scarp_id>\d+)/$', scarps.api_scarp_update,
             name='api_scarp_update'),

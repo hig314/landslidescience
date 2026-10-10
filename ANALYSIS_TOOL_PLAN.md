@@ -1,8 +1,31 @@
 # A generalised analysis tool — overlays as axes, the map as the sampler
 
-*Plan written 2026-10-09 at Hig's request, after the permafrost panel shipped.
-Nothing here is built. The permafrost panel (`permafrost.js`) and the
-susceptibility scatter are the two concrete instances this generalises.*
+*Plan written 2026-10-09 at Hig's request, after the permafrost panel shipped.*
+
+**Status (2026-10-10): phases 1 and 2 are built** (in dev, awaiting
+review) with one change of plan — the on-demand density came forward into
+phase 1, because without it the "general" panel would have had two
+precomputed pairs on day one. What exists: `tools/analysis/quantities.py`
+(the registry), `build_quantity_cube.py` (point-sampled 1 km lattice, not
+means — see the note in CLAUDE.md §The analysis panel), `sample_quantities.py`
+(`ls_quantities.json`, replacing `susc_values.json` + `pf_values.json`),
+`inventory/analysis.py` (quantities / density / sample endpoints),
+`ls_sample.js` (`LSSample`: the circle, the lattice-cell reader, the 60 m
+archive reader with derived slope/aspect/northness) and `analysis.js`
+(`LSAnalysis`: axes bound both ways to the wiper, points or count/rate
+grid, sample blotch + summary, brush → map highlight and the lw/n10
+sliders, `ax=`/`bx=`/`ls=`/`smp=` in the URL). The susceptibility scatter
+and the permafrost density panel are presets; `permafrost.js` keeps only
+the patch detail. Decisions taken: no area weighting needed (densities are
+on the equal-area lattice; the 60 m blotch is a picture, not a histogram);
+the land mask is the terrain grid's; categorical axes = class position
+(DGGS); the resolution question dissolved with point sampling (a 1 km
+product and a 60 m one meet at the same lattice point, as a landslide
+does). Phase 3 remains as written below, plus: dh/dt and IceBoost need a
+warp to one grid before they can join the cube (per-UTM-zone tiles).
+
+*The original plan follows.* The permafrost panel (`permafrost.js`) and the
+susceptibility scatter were the two concrete instances this generalised.
 
 ## The idea, as stated
 

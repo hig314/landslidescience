@@ -230,6 +230,19 @@ CLAUDE.md §/glaciers:
 - **Gruber's `.hdr` cellsize is truncated** (0.008333 for 1/120°); trust
   the stated 43200×18000 grid and pin `-a_ullr -180 90 180 -60` instead
   or the raster drifts 1 km per 10° of longitude.
+- **Aspect sign.** `gdaldem aspect` is the DOWNSLOPE azimuth clockwise from
+  north: a north-facing slope is 0, and northness `cos(aspect)·sin(slope)`
+  is +1 there. The browser-derived northness in the old permafrost panel
+  used `atan2(−dz/dx, +dz/dy)` and came out sign-flipped against the baked
+  rasters (south-facing points coloured blue). The downslope azimuth is
+  `atan2(−dz/dx, −dz/dy)` with y northward; `ls_sample.js terrain()` has
+  it, and the check is a circle read both ways (lattice cells vs 60 m
+  tiles) agreeing on the north-facing fraction.
+- **`gdalbuildvrt` silently drops tiles in a different projection** (one
+  warning per tile, exit 0). Hugonnet's dh/dt and IceBoost come as
+  per-UTM-zone files, so a VRT over them is one zone's worth and the cube
+  builder reported dh/dt EMPTY. Warp to one grid first, or check the valid
+  count against expectation before believing a VRT.
 
 ## Verification discipline
 

@@ -560,33 +560,39 @@ body.inv-article-body {
 .float-panel.hidden { display: none; }
 .float-header { cursor: move; user-select: none; }
 /* Default positions/sizes — just starting points; all four are draggable. */
-#scatter-float { top: 64px;  right: 16px; width: 380px; height: 380px; }
 #hist-panel    { top: 64px;  left: 16px;  width: 480px; height: 244px; }
 #timing-panel  { top: 320px; left: 16px;  width: 560px; height: 244px; }
 #opera-float   { top: 90px;  right: 16px; width: 400px; height: 470px; }
 /* Elevation profile panel (profile.js) */
 #profile-panel { top: 64px; left: 16px; width: 640px; height: 300px; }
-/* Permafrost analysis panels (permafrost.js) */
+/* The analysis panel (analysis.js) and the permafrost patch detail (permafrost.js) */
 .ls-tool-hidden { display: none !important; }
-#pf-float       { top: 64px; right: 16px; width: 470px; height: 420px; }
+#an-float       { top: 64px; right: 16px; width: 520px; height: 440px; }
 #pf-patch-float { top: 64px; left: 16px;  width: 720px; height: 520px; }
 .pf-header { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 10px; border-bottom: 1px solid #eee;
              font-size: 11px; color: #555; flex-wrap: wrap; }
 .pf-header .pf-title { font-weight: 600; color: #444; white-space: nowrap; }
 #pf-patch-float .pf-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.pf-header button#pf-close { margin-left: auto; }
 .pf-header select, .pf-header input { font-size: 11px; padding: 1px 3px; }
-.pf-header input#pf-radius { width: 42px; }
+.pf-header input#an-radius { width: 42px; }
 .pf-header .pf-unit { margin-left: -3px; color: #777; }
 .pf-header button { font-size: 11px; padding: 1px 7px; border: 1px solid #ccc; border-radius: 3px; background: #fff; cursor: pointer; color: #444; }
 .pf-header button:hover { background: #f0ebe9; }
 .pf-header button.active { background: #5D4037; color: #fff; border-color: #5D4037; }
-.pf-header button#pf-close, .pf-header button#pf-patch-close { border: none; font-size: 15px; line-height: 1; padding: 0 4px; }
-#pf-count { color: #777; white-space: nowrap; }
-#pf-body { position: relative; flex: 1; min-height: 0; }
-#pf-heat { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-#pf-svg  { position: absolute; inset: 0; width: 100%; height: 100%; cursor: default; }
-#pf-svg circle { cursor: pointer; }
+.pf-header button#an-close, .pf-header button#pf-patch-close { border: none; font-size: 15px; line-height: 1; padding: 0 4px; }
+.an-header .an-axis { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; cursor: pointer; }
+.an-header .an-axis select { max-width: 12em; }
+.an-header #an-count { color: #777; white-space: nowrap; margin-left: auto; }
+.an-header #an-clear { font-size: 11px; }
+.an-header #an-clear.disabled { opacity: 0.3; pointer-events: none; }
+#an-body { position: relative; flex: 1; min-height: 0; }
+#an-heat { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#an-svg  { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+#an-svg circle { cursor: pointer; }
+#an-note { position: absolute; right: 10px; top: 10px; font-size: 10px; color: #a33; pointer-events: none; max-width: 60%; text-align: right; }
+.scatter-legend-foot .an-sample { color: #555; margin-top: 2px; line-height: 1.35; }
+.inv-analysis-presets { margin: -4px 0 8px 2px; font-size: 11px; color: #888; }
+.inv-analysis-presets a { margin-right: 10px; color: #5D4037; }
 .pf-tip { display: none; position: absolute; z-index: 2; pointer-events: none; background: rgba(255,255,255,0.96);
           border: 1px solid #bbb; border-radius: 3px; box-shadow: 0 1px 6px rgba(0,0,0,.18); padding: 4px 8px;
           font-size: 11px; color: #333; white-space: nowrap; }
@@ -622,48 +628,11 @@ body.inv-article-body {
 .profile-stats-none { color: #999; text-align: center !important; }
 .profile-read { font-size: 10px; color: #555; padding: 2px 10px 4px; border-top: 1px solid #eee;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 16px; }
-.scatter-float-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 8px 5px 10px;
-    border-bottom: 1px solid #eee;
-    font-size: 11px;
-    color: #555;
-    cursor: move;
-    user-select: none;
-    flex-shrink: 0;
-}
-.scatter-float-header .scatter-title { font-weight: 600; color: #444; white-space: nowrap; }
-.scatter-float-header .scatter-legend { display: inline-flex; gap: 8px; font-size: 10px; color: #777; white-space: nowrap; }
-.scatter-float-header #scatter-count { margin-left: auto; font-size: 11px; color: #666; white-space: nowrap; }
-.scatter-float-header #scatter-clear { font-size: 11px; }
-.scatter-float-header #scatter-clear.disabled { opacity: 0.3; pointer-events: none; }
-.scatter-float-header #scatter-close {
-    background: none; border: none; font-size: 18px; line-height: 1;
-    cursor: pointer; color: #999; padding: 0 2px;
-}
-.scatter-float-header #scatter-close:hover { color: #333; }
-#scatter-body { position: relative; flex: 1; min-height: 0; }
-#scatter-heat { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-#scatter-svg  { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
 .scatter-hint {
-    position: absolute; left: 34px; bottom: 4px;
+    position: absolute; left: 46px; bottom: 4px;
     font-size: 9px; color: #aaa; pointer-events: none;
 }
-.scatter-float-header .scatter-prop-lbl {
-    display: inline-flex; align-items: center; gap: 3px;
-    font-size: 10px; color: #555; white-space: nowrap; cursor: pointer;
-}
-.scatter-float-header .scatter-axis-lbl {
-    display: inline-flex; align-items: center; gap: 2px;
-    font-size: 10px; color: #555; white-space: nowrap; cursor: pointer;
-}
-.scatter-float-header .scatter-axis-lbl select {
-    font-size: 10px; padding: 0 2px; max-width: 5.5em;
-    border: 1px solid #ccc; border-radius: 3px; background: #fff; color: #333;
-}
-/* The catch swatch sits at the left of the landslide legend bar and has no
+/* The analysis panel's legend footer (the old scatter's). The catch swatch sits at the left of the landslide legend bar and has no
    lower edge label, so give the bar's first cell a hairline to mark it off
    from the ramp proper. */
 .scatter-legend-foot .leg-bar span:first-child { box-shadow: inset -1px 0 0 #fff; }

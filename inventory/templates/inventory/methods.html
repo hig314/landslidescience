@@ -383,12 +383,56 @@
   patch-extraction tool in the repository (<code>tools/permafrost/patch.py</code>)
   draws, for any 10&nbsp;km circle, the published 1&nbsp;km cells against the
   60&nbsp;m cloud and the fitted lapse and curve, which is how the fits are
-  judged site by site &mdash; and the same check is on the map: the
-  Analysis tab's <strong>Permafrost: Obu &times; Gruber</strong> panel shows
-  the two products' joint distribution over all terrain with every landslide
-  as a point, and its <em>Sample</em> tool reads any circle of the map
-  (published 1&nbsp;km cells and 60&nbsp;m downscale, against elevation) and
-  lets you download the numbers.
+  judged site by site &mdash; and the same check is on the map: with two
+  permafrost products on the analysis panel's axes (below), its
+  <em>Sample</em> tool reads any circle of the map and the
+  <em>Permafrost detail</em> button draws the published 1&nbsp;km cells and
+  the 60&nbsp;m downscale against elevation, with the fitted lapse and
+  curve, and lets you download the numbers.
+</p>
+<h4>The analysis panel: any two overlays as axes</h4>
+<p>
+  The Analysis tab's <strong>Cross two overlays</strong> panel draws the
+  joint distribution of any two mapped quantities over all terrain, with
+  every landslide placed at its own values &mdash; the question
+  <em>where does this ground sit in the space of two things we can map,
+  and where do the landslides sit in that same space?</em> The axes are the
+  two sides of the map's wiper: set up a wiper with two overlays and they
+  become x (left) and y (right); pick axes in the panel and the wiper is
+  made to show them, so the map always shows what the plot is crossing.
+  Eighteen quantities can be axes today: elevation, slope, aspect and
+  northness from the 60&nbsp;m terrain; the Gruber, Obu and Pastick
+  permafrost products and our downscales; the three susceptibility models;
+  summer radar coherence; and ITS_LIVE ice speed.
+</p>
+<p>
+  <strong>How the terrain density is built.</strong> Every quantity is
+  point-sampled from its native raster at the centre of each cell of a
+  1&nbsp;km equal-area lattice (EPSG:3338, 5.9&nbsp;million cells, 2.3
+  million on land). For a 1&nbsp;km product that is exactly the published
+  value; for a 60&nbsp;m one it is a systematic 1-in-278 sample of the
+  field. It is deliberately not a mean over the cell: a landslide centroid
+  reads the 60&nbsp;m slope it sits on, and a density of kilometre-mean
+  slopes would be a smoother distribution than the one the landslides are
+  drawn from, so the comparison would mislead. The density of any pair is
+  computed on request from those samples (land cells with a value for
+  both), log-scaled as the blue backdrop. Landslides are drawn as points, or
+  as a per-cell count or rate (landslides per 1000&nbsp;km² of terrain with
+  those values), the latter being the reading that says anything: the
+  terrain density is what turns "landslides are here" into "landslides are
+  here more than terrain is". The DGGS susceptibility classes are ordinal,
+  so that axis is spaced by class position, not class number.
+</p>
+<p>
+  <strong>Sample and brush.</strong> The <em>Sample</em> tool reads a circle
+  of the map (radius chosen, up to 30&nbsp;km) onto the plot as an orange
+  cloud &mdash; from 60&nbsp;m value archives where both axes have them,
+  otherwise the lattice cells &mdash; with the median and 10&ndash;90&nbsp;%
+  range of each axis and the landslides inside the circle marked on the
+  plot and the map. Dragging a box on the plot marks the landslides inside
+  it on the map; with the two USGS susceptibility models on the axes the
+  box also sets the lw and n10 filter sliders. The panel's state (axes,
+  box, sample circle) travels in the page URL, so a view can be shared.
 </p>
 <p>
   <strong>What the downscale is and is not.</strong> It adds no new

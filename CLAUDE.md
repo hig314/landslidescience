@@ -32,6 +32,12 @@ written down anywhere — read `/lidar/audit/`.
   overlay categories were reorganised the same day (Climate · Surface
   properties · Surface change · Landslide susceptibility · Glaciers ·
   Subsurface).
+- **The analysis panel** (2026-10-10, dev only until reviewed) — two
+  overlays as axes over a server-side quantity cube, bound to the wiper's
+  panes, with the sample circle and the brush; replaced the susceptibility
+  scatter and the permafrost density panel. See *The analysis panel* under
+  the map UI section. Deploy needs `data/quantities/` (~420 MB) rsynced to
+  the droplet (7 GB free there as of 2026-10-10).
 - **Photo drops** (`/drops/`, 2026-10-05) — send a collaborator a link, they
   upload a whole folder of photos straight to a private R2 bucket; signed-in
   accounts browse a thumbnail gallery. First use (2026-10-05): the Portage
@@ -47,11 +53,13 @@ written down anywhere — read `/lidar/audit/`.
   right shape, and it is **on hold**. Viewing stays login-gated, decided the
   same day.
 
-- **A generalised analysis tool** — overlays as axes, the map as the
-  sampler, the susceptibility / permafrost / OPERA panels folded into one.
-  Hig's framing and the proposed phasing are in
-  [ANALYSIS_TOOL_PLAN.md](ANALYSIS_TOOL_PLAN.md) (2026-10-09); the permafrost
-  panel is the prototype.
+- **The generalised analysis tool, phase 3.** Phases 1–2 of
+  [ANALYSIS_TOOL_PLAN.md](ANALYSIS_TOOL_PLAN.md) were built 2026-10-10 (in
+  dev, awaiting Hig's review as of this writing): the quantity cube, the
+  density API, the panel with axes bound to the wiper, the sample and the
+  brush. Left: the brush that *paints the map*, the view and polygon
+  sample shapes, OPERA as "sample = view", value archives for coherence /
+  ITS_LIVE, and dh/dt + IceBoost warped onto one grid.
 - **Rule-based derivation from mirrored inventories.** Promotion today seeds
   provenance and two fields, then the editor types the rest. `external.py`'s
   docstring anticipates a `derive` step with per-field rules (how to read
@@ -1140,27 +1148,20 @@ droplet). Methods §1
     glyphs, which the wiper's second map lacks), opacity → line-/text-opacity.
   - Aspect's flat cells are 0 = north (gdaldem `-zero_for_flat`), said in
     the row text and Methods; northness is the layer for slope direction.
-- **The Analysis panel (`permafrost.js`, Analysis tab → "Permafrost: Obu ×
-  Gruber"; Hig's ask, 2026-10-09).** Panel A: the terrain joint density of
-  a pair (PZI × probability, MAAT × MAGT; 1 km published or 60 m
-  downscaled) as a log backdrop with every landslide as a point (hover
-  names it, click opens it) — the susceptibility scatter's idea applied to
-  permafrost. Data: `pf_density.json` + `pf_values.json` in
-  `inventory/static/inventory/`, built by `tools/permafrost/export_web.py`
-  (sampled at `data/landslide_centroids_3338.json`, like `sample_susc.py`;
-  **regenerate when landslides are added**). The **Sample** button (or the
-  ◎ toolbar mode, `LSTools` id `pfpatch`) reads a circle on the map two
-  ways: the published 1 km cells from `api/permafrost/patch/`
-  (`inventory/permafrost.py`, memory-mapped `.npy` grids in
-  `data/permafrost/`, 11 × 22.5 MB, written by `export_web.py --grids` and
-  **rsynced to the droplet with the rest of `data/`**) and the 60 m
-  downscale from **value PMTiles** `/overlays/pfv_<field>.pmtiles`
-  (`bake_values.py`: terrain-RGB of value × scale at z10 only, scale table
-  duplicated in `permafrost.js` `SCALE`; precision is plot precision — 1 m,
-  0.1 °C, 0.001 — because a finer low byte is noise PNG cannot compress).
-  Panel B draws `patch.py`'s four plots in the browser (CSV + PNG), the
-  patch's points light up on Panel A, and the circle rides the URL as
-  `pp=lat,lon,r` (parsed in `parseHashState`, row in `_VIEW_PARAMS`).
+- **The permafrost patch detail (`permafrost.js`).** Until 2026-10-10 this
+  file also held the Obu × Gruber density panel, which became the first
+  preset of the general analysis panel (see *The analysis panel* below).
+  What remains is Panel B: with permafrost products on both axes and a
+  sample circle set, the panel's **Permafrost detail** button draws
+  `patch.py`'s four plots in the browser (CSV + PNG) from the published
+  1 km cells (`api/permafrost/patch/`, `inventory/permafrost.py`,
+  memory-mapped `.npy` grids in `data/permafrost/`, 11 × 22.5 MB, written
+  by `export_web.py --grids` and **rsynced to the droplet with the rest of
+  `data/`**) and the 60 m downscale read through `LSSample.fine()` from the
+  **value PMTiles** `/overlays/pfv_<field>.pmtiles` (`bake_values.py`:
+  terrain-RGB of value × scale at z10 only, scale table in `ls_sample.js`
+  `FINE`; precision is plot precision — 1 m, 0.1 °C, 0.001 — because a
+  finer low byte is noise PNG cannot compress).
 - **Source traps** in HAZARDS.md §Raster sources (Obu NaN inshore, Pastick
   codes 101–105, Gruber `.hdr` cellsize, Homebrew `gdal_calc.py`).
 - **Licences / attribution**: Gruber 2012 (cite the paper), Obu 2019
@@ -1496,11 +1497,11 @@ The sidebar at `/inventory/` is a three-tab layout with a pinned strip on top:
 - **A stored default view writes `ov`/`li`/`ext`/`im`/`ref` even when empty** and always pins the basemap; views stored before 2026-10-06 lack the empty ones and behave as they always did until re-saved.
 - **Additive only.** Stored default views, snapshots and shared links hold these strings for good. Every change above was checked by running the previously deployed parser against the new one over production's stored default views plus hand-written legacy forms (identical on all), and the codec round-trips them. Do the same before the next grammar change.
 - **`pr=` carries the elevation profile** (2026-10-08): the line as a flat `lat,lon` list at 5 dp, `pw=d0,d1` its brushed window in metres along the line, `pve=0` when the chart is unlocked from 1:1; absent = leave alone. One `_VIEW_PARAMS` row reads `LSProfile.state()` / calls `LSProfile.setState()`; a line arriving before the lidar catalogue waits for it (`LSProfile.onCatalog`), or it would be read against Mapterhorn alone. It rides in saved views and default views like the overlays.
-- **`pp=lat,lon,r_km` is the permafrost patch circle** (2026-10-09, `permafrost.js`): parsed in `parseHashState`, one `_VIEW_PARAMS` row, applied on cold load and hashchange; `an=pf` opens the panel like the other analysis panels.
-- Not in the URL, by choice so far: scatter axes and proportion mode, the histogram day window, the pinned label field.
+- **`smp=lat,lon,r_km` is the sample circle** (`ls_sample.js`; `pp=` was its 2026-10-09 name and is still read) and **`ax=<x>|<y>`, `bx=x0,x1,y0,y1`, `ls=count|prop` are the analysis panel's axes, brush and landslide layer** (`analysis.js`; `an=analysis` opens it; `an=scatter` / `an=pf` are read as `an=analysis` on lw|n10 / pzi|prob when no `ax=` is given — `_AN_ALIASES`). Each is one `_VIEW_PARAMS` row, applied on cold load and hashchange. An `ax=` arriving by URL does NOT re-point the wiper (the URL's own `ov=`/`swipe=` describe the panes); an axis picked in the panel does.
+- Not in the URL, by choice so far: the histogram day window, the pinned label field.
 
 **Default views are public**, so `manage_edit_field` rejects (`view_state_private_layers`) one whose `base=`/`swipe=` is a browser-local QMS layer (`qms-…`) or a shared QMS layer with `public=False`, or whose `li=` names a survey outside the public lidar catalog; the client pre-checks the basemaps (`_viewPrivateLayers`) and shows why. QMS sharing defaults to admins-only (`QmsLayer.public=False`); editors re-scope an already-shared layer from the card's admins/everyone tag (`_showScopeMenu` → `POST api/qms/<id>/scope/`). Older default views that reference a layer visitors lack still degrade gracefully — unknown `base=` is ignored, unknown `swipe=` renders no wiper.
-- **Analysis tab**: triggers for the seasonal histogram, time-series chart, and the lw × n10 susceptibility scatter — each opens as a floating, draggable, resizable panel (see *Floating analysis panels* below). The histogram + time-series respect the Limit toggle.
+- **Analysis tab**: triggers for the seasonal histogram, time-series chart, the two-axis analysis panel ("Cross two overlays", with preset links for lw × n10, permafrost Obu × Gruber and slope × elevation) and the OPERA view histogram — each opens as a floating, draggable, resizable panel (see *Floating analysis panels* and *The analysis panel* below). The histogram, time-series and analysis points respect the Limit toggle.
 
 (The n10/lw susceptibility range sliders live in the **Inventory** filter panel alongside the source-area / deposit-area / volume / age dual-range filters.)
 
@@ -1596,17 +1597,20 @@ DGGS publishes it **only as a dynamic ArcGIS MapServer** — no download, no til
 - The raster crosses the **antimeridian** (data to 179.9 E), so a single warp to Web Mercator spans the globe and produces non-square pixels. The script warps the two sides separately; XYZ tiles merge with no seam.
 - `inventory/susc_dggs.py` is a live proxy of the same service, kept as a fallback (and as the record of why proxying was needed). The overlay reads the baked tiles.
 
-**Susceptibility value sliders & analysis.** Each landslide's sampled n10/lw value (0–81) lives in `inventory/static/inventory/susc_values.json` (`{id: {n10, lw}}`), produced offline by sampling the rasters at `landslides.centroid_albers_x/y` (already EPSG:3338) — the web container has no GDAL, so this is regenerated locally and committed, going stale when landslides are added/moved. `map.js` merges it into the point features as `n10`/`lw` and the two dual-handle sliders in the Inventory filter panel filter on them (reusing `_setupDual`/`addRangeFilter`), with a live "N of 1424 in range" readout. Key finding from the analysis: catastrophic source values **saturate at the 81 ceiling** (median 81; ~53% n10 / ~68% lw at max), both models score AUC ~0.96–0.97 (lw marginally higher), so the predictive signal is a sharp low-vs-high contrast rather than a graded ramp — which is why landslide-quintile bands collapse and FR-based class breaks are used instead.
+**Susceptibility value sliders.** Each landslide's sampled n10/lw value (0–81) comes from `inventory/static/inventory/ls_quantities.json` (every axis-capable quantity at every centroid — see *The analysis panel*), produced offline by `tools/analysis/sample_quantities.py` since the web container has no GDAL; committed, so it goes stale when landslides are added/moved (`--centroids` refreshes the centroid file from the dev database first). `map.js` merges `lw`/`n10`/`dggs` into the point features and the two dual-handle sliders in the Inventory filter panel filter on them (reusing `_setupDual`/`addRangeFilter`), with a live "N of 1424 in range" readout. Key finding from the analysis: catastrophic source values **saturate at the 81 ceiling** (median 81; ~53% n10 / ~68% lw at max), both models score AUC ~0.96–0.97 (lw marginally higher), so the predictive signal is a sharp low-vs-high contrast rather than a graded ramp — which is why landslide-quintile bands collapse and FR-based class breaks are used instead.
 
-**Susceptibility scatter (Analysis tab) — any two of lw / n10 / DGGS.** x and y pickers in the panel header; picking the same model on both axes moves the other aside. `tools/sample_susc.py` samples all three at every landslide centroid into `susc_values.json` and builds the terrain joint density for each pair into `susc_terrain_density.json` (`pairs: {"lw|n10", "lw|dggs", "n10|dggs"}`, 174M cells; the reverse orientation is a transpose, not a second grid). DGGS is resampled to the USGS 90 m grid by **mode** — the only correct aggregation for a class raster — and its axis is indexed by **class position**, not class value, because the numbers are ordinal labels and spacing them 0,3,5,6,7,8,9,10 would imply a linearity the model does not claim. Landslides land overwhelmingly in the top DGGS classes (466 in 9, 470 in 10, against 15 in 0).
+**The analysis panel — two overlays as axes, the map as the sampler (`analysis.js` + `ls_sample.js`, 2026-10-10; ANALYSIS_TOOL_PLAN.md phases 1–2).** It replaced the susceptibility scatter and the permafrost density panel, which are its presets (`an=scatter` → lw × n10, `an=pf` → PZI × probability).
 
-Colour scale: seven ColorBrewer YlOrRd steps plus a distinct **off-ramp catch colour** for values above zero but below the bottom of the scale, log-binned in **both** count and proportion modes and scaled to the largest value present. Previously five dark reds (top two indistinguishable) with *quantile* binning in proportion mode, which piled a large share of cells into the last colour. Every bin owns an equal **slot**, so the maximum row and column are full-width cells — the axis used to run from the first value's position to the last, leaving the top bin nowhere to extend and drawing it as a sliver.
+- **Quantities.** An overlay can be an axis when `_QUANTITY_OF[ov.id]` in `map.js` names a `key` in the server's cube — `tools/analysis/quantities.py` is the registry (label, units, axis range and bins, ordinal classes, the native raster). 18 today: elevation, slope, aspect, northness; the eight permafrost products and Pastick; lw, n10, DGGS; summer coherence; ITS_LIVE speed. Not yet: Hugonnet dh/dt and IceBoost (per-UTM-zone tiles, need a warp first), OPERA (no statewide raster), DIST and geology (categorical groupings, not axes).
+- **The cube** (`tools/analysis/build_quantity_cube.py` → `data/quantities/<key>.npy` + `land.npy` + `grid.json`, ~23 MB a quantity, **rsynced to the droplet with `data/`**): every quantity **point-sampled at the centre of each cell of the 1 km EPSG:3338 lattice** (the permafrost grid) — exactly the published value for a 1 km product, a systematic 1-in-278 sample of a 60 m one. Not a mean: a density of 1 km *means* of slope is a smoother field than the one a landslide centroid is sampled from, and the two would be drawn on different distributions. Same-CRS rasters are read in bands and indexed (no overviews, exact); others go through a nearest `WarpedVRT`. The land mask is the 60 m terrain grid's own.
+- **Server** (`inventory/analysis.py`): `api/analysis/quantities/` (the registry), `api/analysis/density/?x&y` (the 2-D histogram of every land cell with both values — on demand, ~0.6 s cold for the first pair, cached per process; the ordinal DGGS axis bins by class position), `api/analysis/sample/?lon&lat&r&q=` (the lattice cells inside a circle, columnar). All 503 with a message when `data/quantities/` is absent.
+- **Axes = the wiper panes**, bound both ways (Hig's framing). Opening the panel over a wiper whose panes show axis-capable overlays adopts them (left = x, right = y); picking an axis in the panel calls `_anWiperSet`, which creates the wiper on the current basemap if there is none, shows x's overlay left and y's right, and turns the other *axis-capable* overlays off per pane (contours, outlines etc. are left alone). `map.js` calls `LSAnalysis.onOverlays()` from the overlay row checkbox, `_ovApplyHashSpec` and the wiper enable/disable so later changes are adopted while the panel is open; a `syncing` flag stops the loop.
+- **Landslide layer**: points (hover names, click opens; `Limit to map view` respected) or the old scatter's grid — count per cell or landslides per 1000 km² of terrain, YlOrRd with the off-ramp catch colour, log-binned, legend in the footer.
+- **Sample** (`LSSample`, `LSTools` mode `sample` with no toolbar button): the panel's ◎ button, click the map, and the circle's cells are the orange blotch — the 60 m value archives where BOTH axes have a `fine` field (`ls_sample.js` `FINE`; slope, aspect and northness are derived from the elevation tile, downslope azimuth `atan2(−dz/dx, −dz/dy)`, north-facing = aspect 0 = +northness, matching gdaldem), else the lattice cells. Footer: n, median and 10–90 % per axis, landslides inside (ringed on the plot and on the map through the `an-highlight` layer). The permafrost detail opens from here.
+- **Brush**: a box highlights the landslides inside on the map; with lw and n10 on the axes it also drives those two sliders (the only quantities with filters), and `buildFilter` → `LSAnalysis.onFilter()` moves the box when the sliders move.
+- Verified in dev 2026-10-10 by reading the same circle both ways: 60 m medians vs lattice medians agreed (slope 9.9° vs 9.8°, aspect 170° both, elevation 849 m both, northness +0.007 vs +0.010).
 
-Brushing drives the lw/n10 filter sliders, and there is no DGGS filter, so **the brush is disabled when DGGS is on an axis** rather than silently setting the wrong filter.
-
-**lw × n10 scatter (legacy note).** A brushable scatter of the joint susceptibility distribution: a pale-Blues terrain-density backdrop (quintile bins) with a dark-Reds landslide grid on top (log bins for raw count, quintile for the proportion mode), drawn on a canvas behind an SVG overlay. Drag a box to set the n10/lw sliders (two-way synced); "clear box" resets. Terrain density is precomputed offline into `inventory/static/inventory/susc_terrain_density.json` (82×82 joint histogram of all AK cells, `grid[n10*82+lw]`). Reds are always darker in value than blues (colorblind-safe); proportion is shown as landslides per 1000 km² (each cell = 0.0081 km²).
-
-**Floating analysis panels.** The seasonal histogram, time-series, scatter, and the **OPERA velocity view-histogram** are floating/draggable/resizable panels via the shared `makeFloatingPanel(panel, {handle, toggle, close, onResize, onChange})` helper in `map.js`. The OPERA panel (`updateOperaHist` + `_opCollectJoint`) is the tile-pyramid payoff: it covers the viewport with BOTH tracks' value tiles at `min(ceil(zoom), 12)` from the same-origin proxy (asc and desc share the 3857 grid, so the same pixel index is the same ground cell), canvas-decodes (LRU-cached ImageData), crops edge tiles to the view (dateline-wrapped x), and accumulates a **2-D joint histogram** — asc velocity on x, desc on y at native 255×255 value resolution, rendered as a log-scaled Blues density with `y=x` / `y=−x` reference diagonals (same-sign = vertical-ish motion; opposite-sign = E–W aspect-driven motion — the aspect-bias read the plot exists for). Footer: both-track coverage, asc/desc-only counts, clipped fraction. Recomputed on debounced moveend with a stale-request token. All four panels (header is the drag handle; `ResizeObserver` redraws; each self-contained — no shared `charts-container` strip). Time-series y-axis is events/month (finest bin granularity). Chart subtitles only say "in view" when "Limit to map view" is checked.
+**Floating analysis panels.** The seasonal histogram, time-series, the analysis panel, and the **OPERA velocity view-histogram** are floating/draggable/resizable panels via the shared `makeFloatingPanel(panel, {handle, toggle, close, onResize, onChange})` helper in `map.js`. The OPERA panel (`updateOperaHist` + `_opCollectJoint`) is the tile-pyramid payoff: it covers the viewport with BOTH tracks' value tiles at `min(ceil(zoom), 12)` from the same-origin proxy (asc and desc share the 3857 grid, so the same pixel index is the same ground cell), canvas-decodes (LRU-cached ImageData), crops edge tiles to the view (dateline-wrapped x), and accumulates a **2-D joint histogram** — asc velocity on x, desc on y at native 255×255 value resolution, rendered as a log-scaled Blues density with `y=x` / `y=−x` reference diagonals (same-sign = vertical-ish motion; opposite-sign = E–W aspect-driven motion — the aspect-bias read the plot exists for). Footer: both-track coverage, asc/desc-only counts, clipped fraction. Recomputed on debounced moveend with a stale-request token. All four panels (header is the drag handle; `ResizeObserver` redraws; each self-contained — no shared `charts-container` strip). Time-series y-axis is events/month (finest bin granularity). Chart subtitles only say "in view" when "Limit to map view" is checked.
 
 Task #69 (self-hosted recolorable susceptibility) — **done**. Follow-on: sample lw/n10 values at each landslide centroid and expose susceptibility-based filtering — **done** (sliders + scatter above).
 

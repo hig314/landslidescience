@@ -34,34 +34,31 @@
         { key: 'lw',  attr: 'Susceptibility (lw): USGS, Belair et al. 2024' },
         { key: 'n10', attr: 'Susceptibility (n10): USGS, Belair et al. 2024' }
     ];
-    // Per-landslide sampled susceptibility values {id: {n10, lw}}, used by the
-    // n10/lw range sliders to filter the inventory points. Precomputed offline
-    // (tools/sample, written to this static JSON) since the web container has no
-    // GDAL. Loaded once; merged into the feature properties as `n10` / `lw`.
+    // Every axis-capable quantity sampled at every landslide centroid
+    // (ls_quantities.json: {keys, values: {id: [...]}}, built offline by
+    // tools/analysis/sample_quantities.py since the web container has no
+    // GDAL). Loaded once: lw / n10 / dggs are merged into the feature
+    // properties for the range sliders; the analysis panel (analysis.js)
+    // reads the rest through the same promise.
     var SUSC_VALUES = null;
-    var _suscValuesPromise = fetch(STATIC_BASE + 'inventory/susc_values.json?v=' + DATA_V)
+    var _suscValuesPromise = fetch(STATIC_BASE + 'inventory/ls_quantities.json?v=' + DATA_V)
         .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { SUSC_VALUES = j; })
-        .catch(function () { SUSC_VALUES = null; });
-    // 82×82 joint density of ALL Alaska terrain in lw×n10 space (grid[n10*82+lw]),
-    // drawn as the heatmap behind the scatter dots. Precomputed offline.
-    var SUSC_TERRAIN = null;
-    fetch(STATIC_BASE + 'inventory/susc_terrain_density.json?v=' + DATA_V)
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { SUSC_TERRAIN = j; scatterDrawAll(); })
-        .catch(function () { SUSC_TERRAIN = null; });
+        .then(function (j) { SUSC_VALUES = j; return j; })
+        .catch(function () { SUSC_VALUES = null; return null; });
     function mergeSuscValues(data) {
         if (!SUSC_VALUES || !data || !data.features) return;
+        var ki = {};
+        SUSC_VALUES.keys.forEach(function (k, i) { ki[k] = i; });
         data.features.forEach(function (ft) {
             // Points key on the landslide id; polygons carry landslide_id.
             var key = ft.properties.id != null ? ft.properties.id : ft.properties.landslide_id;
-            var v = SUSC_VALUES[String(key)];
-            ft.properties.n10  = (v && v.n10  != null) ? v.n10  : null;
-            ft.properties.lw   = (v && v.lw   != null) ? v.lw   : null;
+            var v = SUSC_VALUES.values[String(key)];
+            function at(k) { return (v && ki[k] != null && v[ki[k]] != null) ? v[ki[k]] : null; }
+            ft.properties.n10  = at('n10');
+            ft.properties.lw   = at('lw');
             // DGGS is null where the model does not apply (its lake/river/
-            // glacier class) as well as off-raster — both mean "no statement",
-            // which is what the scatter needs to exclude.
-            ft.properties.dggs = (v && v.dggs != null) ? v.dggs : null;
+            // glacier class) as well as off-raster — both mean "no statement".
+            ft.properties.dggs = at('dggs');
         });
     }
 
@@ -103,7 +100,13 @@
     //                 constraint
     //   tab=<key>     active sidebar tab (inventory | refmaps | analysis),
     //                 written only when not the inventory default
-    //   an=<key>,…    open analysis panels (hist | timing | scatter | opera)
+    //   an=<key>,…    open analysis panels (hist | timing | analysis | opera;
+    //                 scatter and pf are read as analysis on their old axes)
+    //   ax=<x>|<y>    the analysis panel's axes (quantity keys, analysis.js);
+    //   bx=x0,x1,y0,y1 its brush; ls=count|prop its landslide layer when
+    //                 not points; absent = leave alone
+    //   smp=<lat>,<lon>,<r_km>  the sample circle (ls_sample.js); pp= is
+    //                 its old spelling
     //   sc=0|1        scarp traces shown; written as sc=0 when hidden, absent
     //                 = leave alone (they are on by default)
     //   pr=<lat>,<lon>,…  the elevation profile line (5 dp, lat first);
@@ -138,12 +141,23 @@
         if (x.tab != null && /^[a-z]+$/.test(x.tab)) out.tab = x.tab;   // validated against real tabs on apply
         if (x.an != null) out.an = x.an.split(',').filter(function (k) { return /^[a-z]+$/.test(k); });
         if (x.sc === '0' || x.sc === '1') out.sc = x.sc === '1';
-        // Permafrost patch circle: pp = lat,lon,r_km (permafrost.js).
-        if (x.pp != null) {
-            var pp = x.pp.split(',').map(parseFloat);
+        // The sample circle: smp = lat,lon,r_km (ls_sample.js); pp is its old name.
+        var smp = x.smp != null ? x.smp : x.pp;
+        if (smp != null) {
+            var pp = smp.split(',').map(parseFloat);
             if (pp.length === 3 && pp.every(isFinite) && Math.abs(pp[0]) <= 90 && Math.abs(pp[1]) <= 540 && pp[2] > 0 && pp[2] <= 30) {
-                out.pp = { lat: pp[0], lon: pp[1], r: pp[2] };
+                out.smp = { lat: pp[0], lon: pp[1], r: pp[2] };
             }
+        }
+        // The analysis panel: ax = x|y quantity keys, bx = brush, ls = landslide layer.
+        if (x.ax != null && /^[a-z0-9_]+\|[a-z0-9_]+$/.test(x.ax)) {
+            var axp = x.ax.split('|');
+            out.ax = { x: axp[0], y: axp[1], brush: null, ls: null };
+            if (x.bx != null) {
+                var bx = x.bx.split(',').map(parseFloat);
+                if (bx.length === 4 && bx.every(isFinite)) out.ax.brush = { x0: bx[0], x1: bx[1], y0: bx[2], y1: bx[3] };
+            }
+            if (x.ls === 'count' || x.ls === 'prop') out.ax.ls = x.ls;
         }
         // Elevation profile: pr = flat lat,lon list (5 dp), pw = window along
         // the line in metres (d0,d1), pve = 0 when the chart is unlocked
@@ -1606,8 +1620,7 @@
                     if (map.getSource('landslides')) map.getSource('landslides').setData(data);
                     _swipeSetFeatures(data);
                     if (map.getLayer('points')) buildFilter();
-                    scatterDrawAll();
-                    if (typeof LSPermafrost !== 'undefined') LSPermafrost.redraw();   // its points come from this set
+                    if (typeof LSAnalysis !== 'undefined') LSAnalysis.redraw();   // its points come from this set
                 });
                 if (map.getSource('landslides')) map.getSource('landslides').setData(data);
                 _swipeSetFeatures(data);
@@ -2381,6 +2394,34 @@
           stepper: _distStepper(_distAnnDate, 'year', 'select',
                                 [{ value: 'all', label: 'all years' }]) },
     ]).concat(DIST_ALERT_ACTIVE ? [DIST_ALERT_OVERLAY] : []);
+    // Which overlays can be AXES of the analysis panel (analysis.js), and how
+    // their numbers are read: `key` names a quantity in the server's cube
+    // (tools/analysis/quantities.py -- the registry; the terrain density
+    // and the 1 km sample cells come from there), `fine` names a 60 m value
+    // archive, or a field derived from one, that LSSample reads in the
+    // browser for the sample blotch. One table here rather than a `values`
+    // on each entry, because ice-v lives in the shared ls_overlays.js.
+    var _QUANTITY_OF = {
+        'sp-elev':   { key: 'elev',   fine: 'elev60',   short: 'Elevation' },
+        'sp-slope':  { key: 'slope',  fine: 'slope60',  short: 'Slope' },
+        'sp-aspect': { key: 'aspect', fine: 'aspect60', short: 'Aspect' },
+        'sp-north':  { key: 'north',  fine: 'north60',  short: 'Northness' },
+        'pf-gruber-maat':   { key: 'maat',   short: 'MAAT — Gruber 1 km' },
+        'pf-gruber-maat60': { key: 'maat60', fine: 'maat60', short: 'MAAT — downscaled 60 m' },
+        'pf-obu-magt':      { key: 'magt',   short: 'MAGT — Obu 1 km' },
+        'pf-obu-magt60':    { key: 'magt60', fine: 'magt60', short: 'MAGT — downscaled 60 m' },
+        'pf-gruber-pzi':    { key: 'pzi',    short: 'PZI — Gruber 1 km' },
+        'pf-gruber-pzi60':  { key: 'pzi60',  fine: 'pzi60', short: 'PZI — downscaled 60 m' },
+        'pf-obu-prob':      { key: 'prob',   short: 'Permafrost probability — Obu 1 km' },
+        'pf-obu-prob60':    { key: 'prob60', fine: 'prob60', short: 'Permafrost probability — downscaled 60 m' },
+        'pf-pastick-nsp':   { key: 'pastick', short: 'Near-surface permafrost — Pastick 30 m' },
+        'susc-lw':   { key: 'lw',   short: 'Susceptibility lw' },
+        'susc-n10':  { key: 'n10',  short: 'Susceptibility n10' },
+        'susc-dggs': { key: 'dggs', short: 'Susceptibility DGGS class' },
+        'coh-summer': { key: 'coh', short: 'Radar coherence' },
+        'ice-v':     { key: 'ice_v', short: 'Ice speed' }
+    };
+    OVERLAYS.forEach(function (ov) { if (_QUANTITY_OF[ov.id]) ov.values = _QUANTITY_OF[ov.id]; });
     // Sentinel-1 seasonal interferometric coherence (Kellndorfer et al. 2022,
     // CC BY 4.0), baked statewide by tools/build_coherence_tiles.sh.
     //
@@ -2563,6 +2604,40 @@
         _ovSaveState();
         _ovApplyAll();
         _ovSyncUI();
+        _anOverlaysChanged();
+    }
+    // The analysis panel reads the wiper's panes as its axes (analysis.js);
+    // tell it whenever overlay or wiper state changes.
+    function _anOverlaysChanged() {
+        if (typeof LSAnalysis !== 'undefined') LSAnalysis.onOverlays();
+    }
+    // ---- the analysis panel's view of the wiper ----------------------------------
+    // The overlays shown on each pane, in stack order, and the one setter the
+    // panel uses: show x's overlay on the left and y's on the right, creating
+    // the wiper (on the current basemap) if there is none, and turning off
+    // the other AXIS-CAPABLE overlays on each pane so the map shows exactly
+    // what the plot crosses. Non-axis overlays (contours, outlines) are left
+    // alone.
+    function _anWiperGet() {
+        var left = [], right = [];
+        OVERLAYS.forEach(function (ov) {
+            var st = _ovState[ov.id]; if (!st) return;
+            if (st.left) left.push(ov.id);
+            if (st.right) right.push(ov.id);
+        });
+        return { on: _swipe.on, left: left, right: right };
+    }
+    function _anWiperSet(xOv, yOv) {
+        if (!xOv || !yOv) return;
+        var changed = false;
+        OVERLAYS.forEach(function (ov) {
+            if (!ov.values) return;
+            var st = _ovState[ov.id], l = ov.id === xOv, r = ov.id === yOv;
+            if (st.left !== l || st.right !== r) { st.left = l; st.right = r; changed = true; }
+        });
+        if (!_swipe.on) _swipeEnable(_currentBasemap);
+        if (changed) { _ovSaveState(); _ovApplyAll(); _ovSyncUI(); }
+        if (_mapReady) writeHashState();
     }
     // Row-refresh callbacks registered by _overlayRow, keyed `<side>-<id>`;
     // wiper-panel rebuilds overwrite their entries.
@@ -3467,6 +3542,7 @@
         if (_swipe.map) _swipe.map.resize();
         _syncSwipeUI();   // button label + the right-pane control panel
         if (_mapReady) writeHashState();
+        _anOverlaysChanged();
     }
     function _swipeDisable() {
         _swipe.on = false;
@@ -3474,6 +3550,7 @@
         if (_swipe.divider) _swipe.divider.style.display = 'none';
         _syncSwipeUI();
         if (_mapReady) writeHashState();
+        _anOverlaysChanged();
     }
     function _swipeSetBasemap(id) {
         var bm = findBasemap(id);
@@ -3869,6 +3946,7 @@
             _ovApplyAll();
             paint();
             if (_mapReady) writeHashState();
+            _anOverlaysChanged();
         });
         op.addEventListener('input', function () {
             st[opKey] = (+op.value) / 100;
@@ -6826,7 +6904,7 @@
         updateTimeline();
         scheduleSidebarCountUpdate();
         updateSuscCount();
-        scatterSyncBox();
+        if (typeof LSAnalysis !== 'undefined') LSAnalysis.onFilter();   // lw x n10 box follows the sliders
         writeUrlState();
     }
 
@@ -6858,8 +6936,6 @@
         });
         var txt = inrange + ' of ' + total + ' landslides in range';
         el.textContent = txt;
-        var sc = document.getElementById('scatter-count');
-        if (sc) sc.textContent = anyActive ? txt : '';
     }
 
     document.querySelectorAll('.filter-type').forEach(function (cb) { cb.addEventListener('change', buildFilter); });
@@ -8352,13 +8428,12 @@
     // ===========================================================================
     var histPanel      = document.getElementById('hist-panel');
     var timingPanel    = document.getElementById('timing-panel');
-    var scatterPanel   = document.getElementById('scatter-float');
 
-    // The three analysis graphs (seasonal histogram, time-series, scatter) are
-    // all floating, draggable, resizable panels. Panel objects are assigned at
-    // their wiring sites below; declared here so the async URL-state hydration
-    // (which runs after init) can open them.
-    var histFP, timingFP, scatterFP, pfFP;
+    // The analysis graphs (seasonal histogram, time-series, the two-axis
+    // analysis panel, OPERA) are all floating, draggable, resizable panels.
+    // Panel objects are assigned at their wiring sites below; declared here
+    // so the async URL-state hydration (which runs after init) can open them.
+    var histFP, timingFP, anFP;
 
     // Shared floating-panel behavior: toggle/close, jump-free header drag
     // (clamped to the offset parent), and a debounced redraw on resize. opts:
@@ -8421,8 +8496,11 @@
     // built lazily because the four controllers are assigned at different
     // points during startup; keys are the hash vocabulary.
     function _anPanels() {
-        return { hist: histFP, timing: timingFP, scatter: scatterFP, opera: operaFP, pf: pfFP };
+        return { hist: histFP, timing: timingFP, analysis: anFP, opera: operaFP };
     }
+    // Panels that became presets of the analysis panel (2026-10-10): a link
+    // naming them opens it on the axes they had.
+    var _AN_ALIASES = { scatter: ['lw', 'n10'], pf: ['pzi', 'prob'] };
     function _anEncodeHash() {
         var reg = _anPanels(), out = [];
         Object.keys(reg).forEach(function (k) {
@@ -8434,6 +8512,12 @@
     // unlisted close. Unknown keys are ignored.
     function _anApplyHashSpec(list) {
         var reg = _anPanels();
+        list = list.slice();
+        Object.keys(_AN_ALIASES).forEach(function (old) {
+            if (list.indexOf(old) < 0) return;
+            list.push('analysis');
+            if (typeof LSAnalysis !== 'undefined' && !LSAnalysis.keys()) LSAnalysis.setState({ x: _AN_ALIASES[old][0], y: _AN_ALIASES[old][1] });
+        });
         Object.keys(reg).forEach(function (k) {
             if (!reg[k]) return;
             if (list.indexOf(k) >= 0) { if (!reg[k].isOpen()) reg[k].open(); }
@@ -9311,436 +9395,8 @@
         onChange: writeUrlState
     });
 
-    // ===========================================================================
-    // Susceptibility scatter (lw × n10) — brushable, two-way synced to the
-    // n10 / lw sliders. Drag a box to set the slider ranges; moving the sliders
-    // redraws the box. Dots colored by landslide type. Values from susc_values.
-    // ===========================================================================
-    var SVGNS = 'http://www.w3.org/2000/svg';
-    var SUSC_VMAX = 81;
-
-    // THE THREE MODELS the scatter can cross. `bins` is how many columns the
-    // axis has; `val(i)`/`idx(v)` convert between a bin index and the model's
-    // own value, which differ for DGGS: its classes are 0,3,5,6,7,8,9,10, an
-    // ORDINAL scale whose numbers are labels rather than a measured quantity.
-    // Plotting them at their numeric positions would imply a linearity the
-    // model does not claim, so the axis is evenly spaced by class position and
-    // the tick labels carry the class numbers.
-    var DGGS_CLASSES = [0, 3, 5, 6, 7, 8, 9, 10];
-    var SUSC_MODELS = {
-        lw:   { key: 'lw',   label: 'lw',   bins: SUSC_VMAX + 1, ordinal: false,
-                sub: 'USGS Belair 2024',
-                val: function (i) { return i; }, idx: function (v) { return v; },
-                ticks: [0, 20, 40, 60, 81] },
-        n10:  { key: 'n10',  label: 'n10',  bins: SUSC_VMAX + 1, ordinal: false,
-                sub: 'USGS Belair 2024',
-                val: function (i) { return i; }, idx: function (v) { return v; },
-                ticks: [0, 20, 40, 60, 81] },
-        dggs: { key: 'dggs', label: 'DGGS', bins: DGGS_CLASSES.length, ordinal: true,
-                sub: 'Alaska DGGS PIR 2025-3',
-                val: function (i) { return DGGS_CLASSES[i]; },
-                idx: function (v) { var i = DGGS_CLASSES.indexOf(v); return i < 0 ? null : i; },
-                ticks: DGGS_CLASSES.slice() }
-    };
-    var _scX = 'lw', _scY = 'n10';                 // current axes
-    function _scMX() { return SUSC_MODELS[_scX]; }
-    function _scMY() { return SUSC_MODELS[_scY]; }
-    // Brushing drives the lw / n10 filter sliders, and those are the only two
-    // susceptibility filters the inventory has. With DGGS on an axis there is
-    // nothing to drive, so the brush is disabled rather than silently setting
-    // the wrong filter.
-    function _scBrushable() { return _scX !== 'dggs' && _scY !== 'dggs'; }
-    var _scDims = null;   // {x0,y0,w,h} plot rect in px; set by scatterDrawAll
-    var scatterSvg  = document.getElementById('scatter-svg');
-    var scatterHeat = document.getElementById('scatter-heat');
-
-    function _svgEl(name, attrs) {
-        var el = document.createElementNS(SVGNS, name);
-        for (var k in attrs) el.setAttribute(k, attrs[k]);
-        return el;
-    }
-    // Positions are in BIN INDEX space (0 .. bins-1), so both a 0-81 USGS axis
-    // and an 8-class DGGS axis lay out the same way.
-    // Every bin owns a SLOT of equal width. The axis used to run from the
-    // FIRST value's position to the LAST value's position, which meant the
-    // maximum bin's cell began exactly at the plot edge and had nowhere to
-    // extend — the top row and right column drew as slivers, obvious once the
-    // panel was stretched. Slots also make an 8-class DGGS axis and an 82-bin
-    // USGS axis lay out on the same rule.
-    function _scSlotX() { return _scDims.w / _scMX().bins; }
-    function _scSlotY() { return _scDims.h / _scMY().bins; }
-    function _scVx(i) { return _scDims.x0 + i * _scSlotX(); }                    // left edge of slot i
-    function _scVy(i) { return _scDims.y0 + _scDims.h - (i + 1) * _scSlotY(); }  // top edge of slot i
-    function _scCx(i) { return _scVx(i) + _scSlotX() / 2; }                      // slot centre, for ticks
-    function _scCy(i) { return _scVy(i) + _scSlotY() / 2; }
-    function _scPxToX(px) { return Math.max(0, Math.min(_scMX().bins - 1, Math.floor((px - _scDims.x0) / _scSlotX()))); }
-    function _scPxToY(py) { return Math.max(0, Math.min(_scMY().bins - 1, Math.floor((_scDims.y0 + _scDims.h - py) / _scSlotY()))); }
-    // Kept under their old names for the brush code, which only runs when both
-    // axes are the 0-81 USGS models and bin index therefore equals value.
-    function _scPxToLw(px)  { return _scPxToX(px); }
-    function _scPxToN10(py) { return _scPxToY(py); }
-
-    function scatterDrawAll() {
-        if (!scatterSvg || !scatterPanel || scatterPanel.classList.contains('hidden')) return;
-        var W = scatterSvg.clientWidth, H = scatterSvg.clientHeight;
-        if (!W || !H) return;
-        var padL = 30, padR = 10, padT = 8, padB = 22;
-        _scDims = { x0: padL, y0: padT, w: W - padL - padR, h: H - padT - padB };
-        while (scatterSvg.firstChild) scatterSvg.removeChild(scatterSvg.firstChild);
-
-        // axes box
-        scatterSvg.appendChild(_svgEl('rect', { x: _scDims.x0, y: _scDims.y0, width: _scDims.w, height: _scDims.h,
-            fill: 'none', stroke: '#ddd', 'stroke-width': 1 }));
-        // ticks + labels, from each axis's own model
-        _scMX().ticks.forEach(function (t) {
-            var i = _scMX().idx(t); if (i == null) return;
-            var x = _scCx(i);
-            scatterSvg.appendChild(_svgEl('line', { x1: x, y1: _scDims.y0 + _scDims.h, x2: x, y2: _scDims.y0 + _scDims.h + 3, stroke: '#bbb' }));
-            var xl = _svgEl('text', { x: x, y: _scDims.y0 + _scDims.h + 13, 'text-anchor': 'middle', 'font-size': 9, fill: '#888' });
-            xl.textContent = t; scatterSvg.appendChild(xl);
-        });
-        _scMY().ticks.forEach(function (t) {
-            var i = _scMY().idx(t); if (i == null) return;
-            var y = _scCy(i);
-            scatterSvg.appendChild(_svgEl('line', { x1: _scDims.x0 - 3, y1: y, x2: _scDims.x0, y2: y, stroke: '#bbb' }));
-            var yl = _svgEl('text', { x: _scDims.x0 - 5, y: y + 3, 'text-anchor': 'end', 'font-size': 9, fill: '#888' });
-            yl.textContent = t; scatterSvg.appendChild(yl);
-        });
-        var xt = _svgEl('text', { x: _scDims.x0 + _scDims.w / 2, y: H - 1, 'text-anchor': 'middle', 'font-size': 9, fill: '#666' });
-        xt.textContent = _scMX().label + ' →'; scatterSvg.appendChild(xt);
-        var yt = _svgEl('text', { x: 9, y: _scDims.y0 + _scDims.h / 2, 'text-anchor': 'middle', 'font-size': 9, fill: '#666',
-            transform: 'rotate(-90 9 ' + (_scDims.y0 + _scDims.h / 2) + ')' });
-        yt.textContent = _scMY().label + ' →'; scatterSvg.appendChild(yt);
-
-        // (landslides are drawn as a grid on the canvas in scatterDrawHeat)
-        // selection box + transient drag rect (positioned later)
-        scatterSvg.appendChild(_svgEl('rect', { id: 'scatter-box', fill: 'rgba(60,103,177,0.12)',
-            stroke: '#3f67b1', 'stroke-width': 1, 'stroke-dasharray': '3 2', display: 'none', 'pointer-events': 'none' }));
-        scatterSvg.appendChild(_svgEl('rect', { id: 'scatter-drag', fill: 'rgba(0,0,0,0.06)',
-            stroke: '#666', 'stroke-width': 1, display: 'none', 'pointer-events': 'none' }));
-        scatterSyncBox();
-        scatterDrawHeat();   // terrain backdrop on the canvas behind (drawn last so a
-                             // heat error can't abort the interactive svg layer above)
-    }
-
-    // Position the dashed selection box from the current slider values.
-    function scatterSyncBox() {
-        if (!scatterSvg || !_scDims) return;
-        var box = document.getElementById('scatter-box');
-        if (!box || !suscLwDual || !suscN10Dual) return;
-        if (!_scBrushable()) { box.setAttribute('display', 'none'); return; }
-        var lwLo = parseFloat(suscLwDual.minEl.value), lwHi = parseFloat(suscLwDual.maxEl.value);
-        var nLo  = parseFloat(suscN10Dual.minEl.value), nHi = parseFloat(suscN10Dual.maxEl.value);
-        var active = lwLo > 0 || lwHi < SUSC_VMAX || nLo > 0 || nHi < SUSC_VMAX;
-        // "clear box" is only meaningful when a selection exists — dim it otherwise
-        // so it's not an enigmatic no-op.
-        var clr = document.getElementById('scatter-clear');
-        if (clr) clr.classList.toggle('disabled', !active);
-        if (!active) { box.setAttribute('display', 'none'); return; }
-        // Inclusive of both end slots: from the left edge of the low bin to the
-        // right edge of the high one.
-        var x = _scVx(lwLo), w = _scVx(lwHi + 1) - x;
-        var y = _scVy(nHi),  h = (_scVy(nLo) + _scSlotY()) - y;
-        box.setAttribute('x', x); box.setAttribute('y', y);
-        box.setAttribute('width', Math.max(0, w)); box.setAttribute('height', Math.max(0, h));
-        box.setAttribute('display', 'block');
-    }
-
-    function _scatterSetSliders(lwLo, lwHi, nLo, nHi) {
-        suscLwDual.minEl.value = lwLo;  suscLwDual.maxEl.value = lwHi;  suscLwDual.refresh();
-        suscN10Dual.minEl.value = nLo;  suscN10Dual.maxEl.value = nHi;  suscN10Dual.refresh();
-        buildFilter();   // applies the filter, updates counts, redraws the box
-    }
-
-    // ColorBrewer ramps: pale Blues for the terrain backdrop (stays subordinate),
-    // dark Reds for the landslide grid drawn on top. Both discretized (binned).
-    // Terrain = pale Blues; landslides = dark Reds. Constraint (colorblind-safe):
-    // every red is DARKER in value than every blue, so the two layers separate on
-    // luminance, not just hue. Darkest blue (#5793c3) ≈ L0.54; lightest red
-    // (#d7301f) ≈ L0.32.
-    var TERRAIN_RAMP = ['#f7fbff','#d8e7f5','#b3d0e8','#86b3d8','#5793c3'];
-    // ColorBrewer YlOrRd, 7 classes, plus a distinct CATCH colour at the bottom.
-    //
-    // The old ramp was five dark reds ending #560409 / #380006 — two values so
-    // close that the top two bins were not tellable apart, while quantile
-    // binning in proportion mode piled a large share of cells into the last
-    // bin anyway. This spreads the range over more steps that stay distinct at
-    // the dark end, and pairs with the log binner below.
-    //
-    // LS_CATCH is deliberately outside the ramp's hue: it means "some, but
-    // below the bottom of the scale", which is a different statement from
-    // "the least of the values on the scale". Keeping it off-ramp stops a
-    // reader integrating it into the gradient by eye.
-    var LS_CATCH     = '#bcbddc';
-    var LS_RAMP      = ['#ffeda0','#fed976','#feb24c','#fd8d3c','#fc4e2a','#e31a1c','#b10026'];
-    var CELL_KM2 = 0.09 * 0.09;       // one 90 m raster cell = 0.0081 km²
-    var P_PER_KKM2 = 1000 / CELL_KM2; // fraction -> landslides per 1000 km²
-    var _lsGrid = null;               // landslide centroid counts per (lw,n10) cell
-
-    // The terrain backdrop for the active pair. susc_terrain_density.json stores
-    // one grid per unordered pair ("lw|n10", "lw|dggs", "n10|dggs"); if the
-    // axes are the other way round the same grid is transposed rather than
-    // stored twice.
-    function _scTerrain() {
-        if (!SUSC_TERRAIN || !SUSC_TERRAIN.pairs) return null;
-        var direct = SUSC_TERRAIN.pairs[_scX + '|' + _scY];
-        if (direct) return { xsize: direct.xsize, ysize: direct.ysize,
-                             grid: direct.grid, flip: false };
-        var rev = SUSC_TERRAIN.pairs[_scY + '|' + _scX];
-        if (rev) return { xsize: rev.ysize, ysize: rev.xsize,
-                          grid: rev.grid, flip: true };
-        return null;
-    }
-    function _scTerrainAt(t, xi, yi) {
-        return t.flip ? t.grid[xi * t.ysize + yi] : t.grid[yi * t.xsize + xi];
-    }
-
-    function scatterComputeLsGrid(t) {
-        var g = new Int32Array(t.xsize * t.ysize);
-        if (_featuresData && _featuresData.features) {
-            var mx = _scMX(), my = _scMY();
-            _featuresData.features.forEach(function (ft) {
-                var p = ft.properties;
-                var xv = p[_scX], yv = p[_scY];
-                if (xv == null || yv == null) return;
-                var xi = mx.idx(xv), yi = my.idx(yv);
-                if (xi == null || yi == null) return;
-                if (xi < 0 || xi >= t.xsize || yi < 0 || yi >= t.ysize) return;
-                g[yi * t.xsize + xi]++;
-            });
-        }
-        _lsGrid = g; return g;
-    }
-    // Quantile (equal-count) binner: each of n bins holds ~1/n of the supplied
-    // nonzero cell values, so the color range is used evenly regardless of the
-    // value distribution. edges = n+1 quantile boundaries (the legend labels them
-    // under equal-width swatches). Ties push equal values into the higher bin.
-    function _quantileBinner(vals, n) {
-        var s = vals.slice().sort(function (a, b) { return a - b; });
-        var m = s.length, edges = [];
-        for (var i = 0; i <= n; i++) edges.push(m ? s[Math.min(m - 1, Math.floor(i / n * m))] : 0);
-        if (m) { edges[0] = s[0]; edges[n] = s[m - 1]; }
-        return {
-            edges: edges,
-            bin: function (v) { var b = 0; for (var i = 1; i < n; i++) { if (v >= edges[i]) b = i; } return b; }
-        };
-    }
-    // log-spaced binner over [lo, hi] (edges as an array, same shape as above).
-    // Used for the count layer: counts are skewed integers (mostly 1, a few high),
-    // where quantile bins collapse on ties — log spreads the high tail across colors.
-    // Log binner with a CATCH bin for values above zero but below the scale.
-    //
-    // Returns n+1 bins: bin 0 is the catch, bins 1..n are log-spaced over
-    // [lo, hi]. `hi` is the largest observed value, so the top of the scale is
-    // always reached by something and the darkest colour means "the most there
-    // is", not "anything past some fixed threshold".
-    //
-    // DECADES sets how far down the scale runs before the catch takes over.
-    // Three decades keeps the bins meaningful when one cell is thousands of
-    // times denser than another, which is the usual shape here.
-    var LOG_DECADES = 3;
-    function _logCatchBinner(hi, n) {
-        var top = hi > 0 ? hi : 1;
-        var lo = top / Math.pow(10, LOG_DECADES);
-        var a = Math.log(lo), b = Math.log(top), d = (b - a) || 1, edges = [0, lo];
-        for (var i = 1; i <= n; i++) edges.push(Math.exp(a + d * i / n));
-        return {
-            edges: edges,       // [0, lo, ...n log edges] -> n+1 bins
-            catch_: true,
-            bin: function (v) {
-                if (v <= 0) return 0;
-                if (v < lo) return 0;                       // the catch
-                var k = Math.floor((Math.log(v) - a) / d * n);
-                return Math.max(1, Math.min(n, k + 1));
-            }
-        };
-    }
-    function _logBinner(lo, hi, n) {
-        var a = Math.log(lo), b = Math.log(hi), d = (b - a) || 1, edges = [];
-        for (var i = 0; i <= n; i++) edges.push(Math.exp(a + d * i / n));
-        return {
-            edges: edges,
-            bin: function (v) { return v <= 0 ? 0 : Math.max(0, Math.min(n - 1, Math.floor((Math.log(v) - a) / d * n))); }
-        };
-    }
-    function _fmtNum(v) {
-        if (!v) return '0';
-        var a = Math.abs(v);
-        if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M';
-        if (a >= 1e3) return (v / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k';
-        if (a >= 10)  return v.toFixed(0);
-        if (a >= 1)   return v.toFixed(1);
-        if (a >= 0.01) return v.toFixed(2);
-        return v.toExponential(1);
-    }
-    // +0.6 closes the hairline seams between adjacent fills on fractional
-    // device pixels; the slot itself is the true cell size.
-    function _cellRect(xi, yi) { return [_scVx(xi), _scVy(yi), _scSlotX() + 0.6, _scSlotY() + 0.6]; }
-
-    // Terrain-density backdrop (pale, binned) + landslide grid (dark) on top.
-    // Landslide layer = raw centroid count, or (proportion mode) the fraction of
-    // terrain cells of that (lw,n10) value that contain a centroid (drawn ‰).
-    function scatterDrawHeat() {
-        if (!scatterHeat || !_scDims || !SUSC_TERRAIN) return;
-        var T = _scTerrain();
-        if (!T) return;
-        var body = scatterHeat.parentNode;
-        var W = body.clientWidth, H = body.clientHeight;
-        var dpr = window.devicePixelRatio || 1;
-        scatterHeat.width = Math.round(W * dpr); scatterHeat.height = Math.round(H * dpr);
-        var ctx = scatterHeat.getContext('2d');
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, W, H);
-
-        var NX = T.xsize, NY = T.ysize, N = NX * NY;
-        scatterComputeLsGrid(T);
-        var pe = document.getElementById('scatter-prop');
-        var propMode = pe && pe.checked;
-
-        var i, r, xi, yi, tv;
-        // terrain layer (pale, quintile bins over the nonzero cells)
-        var tVals = [];
-        for (yi = 0; yi < NY; yi++) for (xi = 0; xi < NX; xi++) {
-            tv = _scTerrainAt(T, xi, yi); if (tv) tVals.push(tv);
-        }
-        var tBins = _quantileBinner(tVals, TERRAIN_RAMP.length);
-        for (yi = 0; yi < NY; yi++) for (xi = 0; xi < NX; xi++) {
-            tv = _scTerrainAt(T, xi, yi); if (!tv) continue;
-            r = _cellRect(xi, yi);
-            ctx.fillStyle = TERRAIN_RAMP[tBins.bin(tv)];
-            ctx.fillRect(r[0], r[1], r[2], r[3]);
-        }
-        // Landslide layer. BOTH modes are log now, scaled to the largest value
-        // present, with a catch bin under the scale — proportion used to be
-        // quantile-binned, which put a large share of cells in the top colour
-        // and made the plot read as saturated wherever anything happened.
-        var lsVals = new Float64Array(N), lsMax = 0, v;
-        for (yi = 0; yi < NY; yi++) for (xi = 0; xi < NX; xi++) {
-            i = yi * NX + xi;
-            if (!_lsGrid[i]) continue;
-            tv = _scTerrainAt(T, xi, yi);
-            v = propMode ? (tv > 0 ? _lsGrid[i] / tv : 0) : _lsGrid[i];
-            lsVals[i] = v;
-            if (v > lsMax) lsMax = v;
-        }
-        var lBins = _logCatchBinner(lsMax, LS_RAMP.length);
-        for (yi = 0; yi < NY; yi++) for (xi = 0; xi < NX; xi++) {
-            i = yi * NX + xi;
-            if (!lsVals[i]) continue;
-            r = _cellRect(xi, yi);
-            var b = lBins.bin(lsVals[i]);
-            ctx.fillStyle = b === 0 ? LS_CATCH : LS_RAMP[b - 1];
-            ctx.fillRect(r[0], r[1], r[2], r[3]);
-        }
-        scatterRenderLegend(tBins.edges, lBins.edges, propMode);
-    }
-
-    function scatterRenderLegend(tEdges, lEdges, propMode) {
-        var el = document.getElementById('scatter-legend');
-        if (!el) return;
-        function bar(ramp, edges, fmt) {
-            return '<div class="leg-bar">' + ramp.map(function (c, i) {
-                return '<span style="background:' + c + '" title="' + fmt(edges[i]) + ' – ' + fmt(edges[i + 1]) + '"></span>';
-            }).join('') + '</div>';
-        }
-        // The landslide bar carries one extra swatch at the left: values above
-        // zero but below the bottom of the log scale. It is labelled '>0' since
-        // its upper edge is the scale's floor, not a value anything reaches.
-        function barCatch(ramp, edges, fmt) {
-            var out = '<div class="leg-bar"><span style="background:' + LS_CATCH +
-                      '" title="above zero, below ' + fmt(edges[1]) + '"></span>';
-            out += ramp.map(function (c, i) {
-                return '<span style="background:' + c + '" title="' + fmt(edges[i + 1]) + ' – ' + fmt(edges[i + 2]) + '"></span>';
-            }).join('');
-            return out + '</div>';
-        }
-        function allEdges(edges, fmt) {   // every quintile boundary, under the bar
-            return '<div class="leg-edges">' + edges.map(function (v) { return '<span>' + fmt(v) + '</span>'; }).join('') + '</div>';
-        }
-        var tKm2 = tEdges.map(function (v) { return v * CELL_KM2; });
-        var tHtml = '<div class="leg-row"><span class="leg-title">Terrain km²/cell</span>' +
-            '<div style="flex:1">' + bar(TERRAIN_RAMP, tKm2, _fmtNum) + allEdges(tKm2, _fmtNum) + '</div></div>';
-        var lTitle = propMode ? 'Slides/1000 km²' : 'Slides/cell';
-        var lEdgesD = propMode ? lEdges.map(function (v) { return v * P_PER_KKM2; }) : lEdges;
-        // lEdges from _logCatchBinner is [0, lo, ...log edges]; the printed
-        // boundaries start at the scale floor, with the catch swatch before it.
-        var lHtml = '<div class="leg-row"><span class="leg-title">' + lTitle + '</span>' +
-            '<div style="flex:1">' + barCatch(LS_RAMP, lEdgesD, _fmtNum) +
-            allEdges(lEdgesD.slice(1), _fmtNum) + '</div></div>';
-        el.innerHTML = tHtml + lHtml;
-    }
-
-    // Hover readout: exact numbers for the cell under the cursor.
-    function scatterCellTip(e, p) {
-        if (!_scDims || !SUSC_TERRAIN ||
-            p.x < _scDims.x0 || p.y < _scDims.y0 ||
-            p.x > _scDims.x0 + _scDims.w || p.y > _scDims.y0 + _scDims.h) { hideChartTip(); return; }
-        var T = _scTerrain(); if (!T) { hideChartTip(); return; }
-        var xi = _scPxToX(p.x), yi = _scPxToY(p.y);
-        var tc = _scTerrainAt(T, xi, yi) || 0;
-        var lc = (_lsGrid ? _lsGrid[yi * T.xsize + xi] : 0) || 0;
-        var dens = tc > 0 ? (lc / tc * P_PER_KKM2) : 0;   // slides per 1000 km²
-        showChartTip(e.clientX, e.clientY,
-            _scMX().label + ' ' + _scMX().val(xi) + ', ' +
-            _scMY().label + ' ' + _scMY().val(yi) + ' · ' +
-            _fmtNum(tc * CELL_KM2) + ' km² · ' +
-            lc + ' slide' + (lc === 1 ? '' : 's') + (lc ? ' (' + _fmtNum(dens) + '/1000 km²)' : ''));
-    }
-
-    // Drag-to-select
-    (function () {
-        if (!scatterSvg) return;
-        var sx = 0, sy = 0;
-        function localPt(e) {
-            var r = scatterSvg.getBoundingClientRect();
-            return { x: e.clientX - r.left, y: e.clientY - r.top };
-        }
-        // The box drag goes through LSTools.drag, which ends the gesture on
-        // pointercancel and lostpointercapture as well as pointerup. The
-        // hand-rolled version left `dragging` true after a tab switch mid-box,
-        // and the next hover then stretched a box nobody had started. A
-        // cancelled gesture hides the box and changes no slider.
-        var brush = LSTools.drag(scatterSvg, {
-            onStart: function (e) {
-                if (!_scDims) return false;
-                // drag() does the preventDefault, which stops the native
-                // selection/drag that used to cause a start jump.
-                var p = localPt(e);
-                sx = p.x; sy = p.y;
-            },
-            onMove: function (e) {
-                var p = localPt(e), dr = document.getElementById('scatter-drag');
-                if (!dr) return;
-                dr.setAttribute('x', Math.min(sx, p.x)); dr.setAttribute('y', Math.min(sy, p.y));
-                dr.setAttribute('width', Math.abs(p.x - sx)); dr.setAttribute('height', Math.abs(p.y - sy));
-                dr.setAttribute('display', 'block');
-            },
-            onEnd: function (e, info) {
-                var dr = document.getElementById('scatter-drag');
-                if (dr) dr.setAttribute('display', 'none');
-                if (info.cancelled || !e) return;
-                var p = localPt(e);
-                if (Math.abs(p.x - sx) < 4 && Math.abs(p.y - sy) < 4) return;  // treat as a click, not a box
-                var lwA = _scPxToLw(sx), lwB = _scPxToLw(p.x);
-                var nA  = _scPxToN10(sy), nB = _scPxToN10(p.y);
-                _scatterSetSliders(Math.min(lwA, lwB), Math.max(lwA, lwB), Math.min(nA, nB), Math.max(nA, nB));
-            }
-        });
-        // The hover readout stays its own listener: it has to run when NOT
-        // dragging, and drag() forwards moves only during a gesture.
-        scatterSvg.addEventListener('pointermove', function (e) {
-            if (brush.active()) return;
-            scatterCellTip(e, localPt(e));   // hover readout of exact per-cell numbers
-        });
-        scatterSvg.addEventListener('pointerleave', hideChartTip);
-    }());
-
-    scatterFP = makeFloatingPanel(scatterPanel, {
-        handle:   document.getElementById('scatter-handle'),
-        toggle:   document.getElementById('scatter-toggle'),
-        close:    document.getElementById('scatter-close'),
-        onResize: scatterDrawAll
-    });
+    // (The susceptibility scatter lived here until 2026-10-10; it is a preset
+    // of the analysis panel now -- analysis.js, wired below.)
     // Scarp traces: the layer and the click popup for everyone; tracing
     // starts from the ✏ pencil (editors).
     _scarpInit();
@@ -9751,18 +9407,57 @@
                          makePanel: makeFloatingPanel,
                          onChange: function () { if (_mapReady) writeHashState(); } });
     }
-    // Permafrost analysis (permafrost.js): Obu x Gruber density with the
-    // landslides on it, and the patch sampler. Points come from the same
-    // feature set the susceptibility scatter uses.
+    // The analysis panel (analysis.js): two overlays as axes, the map as the
+    // sampler (ANALYSIS_TOOL_PLAN.md). Points come from the same feature set
+    // the sidebar counts use; the axes are bound to the wiper's panes through
+    // _anWiperGet / _anWiperSet; lw x n10 brushes drive the two sliders.
+    if (typeof LSAnalysis !== 'undefined') {
+        var _anCatOf = {};
+        _OV_CATS.forEach(function (c) { c.ids.forEach(function (id) { _anCatOf[id] = c.label; }); });
+        LSAnalysis.init({
+            map: map, apiBase: API_BASE, staticBase: STATIC_BASE, dataV: DATA_V,
+            makePanel: makeFloatingPanel,
+            features: function () { return _featuresData; },
+            values: function () { return _suscValuesPromise; },
+            inView: function () { return (cbLimitView && cbLimitView.checked) ? makeViewportTest() : null; },
+            axes: function () {
+                return OVERLAYS.filter(function (ov) { return ov.values; }).map(function (ov) {
+                    return { ov: ov.id, key: ov.values.key, fine: ov.values.fine || null, label: ov.label,
+                             short: ov.values.short || ov.label, cat: _anCatOf[ov.id] || 'Other' };
+                });
+            },
+            wiper: { get: _anWiperGet, set: _anWiperSet },
+            sliders: {
+                // {lw: [lo, hi] | null, n10: ...} -> the two dual sliders; null = full range
+                set: function (r) {
+                    var any = false;
+                    [['lw', suscLwDual], ['n10', suscN10Dual]].forEach(function (p) {
+                        var d = p[1]; if (!d || r[p[0]] === undefined) return;
+                        var v = r[p[0]];
+                        d.minEl.value = v ? v[0] : d.sliderMin; d.maxEl.value = v ? v[1] : d.sliderMax; d.refresh(); any = true;
+                    });
+                    if (any) buildFilter();
+                },
+                get: function () {
+                    if (!suscLwDual || !suscN10Dual) return null;
+                    function rd(d) { return { lo: parseFloat(d.minEl.value), hi: parseFloat(d.maxEl.value), min: d.sliderMin, max: d.sliderMax }; }
+                    return { lw: rd(suscLwDual), n10: rd(suscN10Dual) };
+                }
+            },
+            openLandslide: function (id, ft) {
+                if (ft && ft.geometry) map.flyTo({ center: ft.geometry.coordinates, zoom: Math.max(map.getZoom(), 11) });
+                showDetail(id);
+            },
+            onPermafrost: function (c) { if (typeof LSPermafrost !== 'undefined' && c) LSPermafrost.show(c); },
+            onChange: function () { if (_mapReady) writeHashState(); }
+        });
+        anFP = LSAnalysis.panel();
+    }
+    // The permafrost patch detail (permafrost.js, Panel B of the old
+    // permafrost panel): the four patch.py plots for the sample circle,
+    // opened from the analysis panel when both axes are permafrost products.
     if (typeof LSPermafrost !== 'undefined') {
-        LSPermafrost.init({ map: map, features: function () { return _featuresData; },
-                            makePanel: makeFloatingPanel, staticBase: STATIC_BASE, dataV: DATA_V,
-                            openLandslide: function (id, ft) {
-                                if (ft && ft.geometry) map.flyTo({ center: ft.geometry.coordinates, zoom: Math.max(map.getZoom(), 11) });
-                                showDetail(id);
-                            },
-                            onChange: function () { if (_mapReady) writeHashState(); } });
-        pfFP = LSPermafrost.panel();
+        LSPermafrost.init({ map: map, apiBase: API_BASE, makePanel: makeFloatingPanel });
     }
 
     // Mirrored third-party inventories: one click handler and the moveend
@@ -9771,33 +9466,6 @@
     // have to be added and removed in step with them.
     _extWireClicks();
 
-    // Scatter-specific controls (not part of the shared floating behavior).
-    var scatterClear = document.getElementById('scatter-clear');
-    if (scatterClear) {
-        scatterClear.addEventListener('click', function (e) {
-            e.preventDefault();
-            _scatterSetSliders(0, SUSC_VMAX, 0, SUSC_VMAX);
-        });
-    }
-    var scatterProp = document.getElementById('scatter-prop');
-    if (scatterProp) scatterProp.addEventListener('change', scatterDrawAll);
-    // Axis pickers. Crossing a model with itself would only draw its own
-    // diagonal, so the other axis steps aside rather than letting the plot
-    // become a line.
-    (function () {
-        var xs = document.getElementById('scatter-x'), ys = document.getElementById('scatter-y');
-        if (!xs || !ys) return;
-        function pick() {
-            _scX = xs.value; _scY = ys.value;
-            if (_scX === _scY) {
-                var alt = ['lw', 'n10', 'dggs'].filter(function (k) { return k !== _scX; })[0];
-                _scY = alt; ys.value = alt;
-            }
-            scatterDrawAll();
-        }
-        xs.addEventListener('change', pick);
-        ys.addEventListener('change', pick);
-    })();
 
     // ===========================================================================
     // Canvas mouseover tooltips
@@ -10254,15 +9922,29 @@
           apply: function (s) {
               if (s.pr && typeof LSProfile !== 'undefined') LSProfile.setState(s.pr);
           } },
-        // The permafrost patch circle: pp=lat,lon,r_km (permafrost.js).
-        { key: 'pp', cold: true,
+        // The sample circle: smp=lat,lon,r_km (ls_sample.js; pp= was its name
+        // when only the permafrost panel used it).
+        { key: 'smp', cold: true,
           collect: function (mode, o) {
-              if (typeof LSPermafrost === 'undefined') return;
-              var st = LSPermafrost.state();
-              if (st) o.extras.pp = st.lat.toFixed(5) + ',' + st.lon.toFixed(5) + ',' + st.r;
+              if (typeof LSSample === 'undefined') return;
+              var st = LSSample.state();
+              if (st) o.extras.smp = st.lat.toFixed(5) + ',' + st.lon.toFixed(5) + ',' + st.r;
           },
           apply: function (s) {
-              if (s.pp && typeof LSPermafrost !== 'undefined') LSPermafrost.setState(s.pp);
+              if (s.smp && typeof LSSample !== 'undefined') LSSample.setState(s.smp);
+          } },
+        // The analysis panel's axes, brush and landslide layer (analysis.js).
+        { key: 'ax', cold: true,
+          collect: function (mode, o) {
+              if (typeof LSAnalysis === 'undefined') return;
+              var st = LSAnalysis.state();
+              if (!st) return;
+              o.extras.ax = st.x + '|' + st.y;
+              if (st.brush) o.extras.bx = [st.brush.x0, st.brush.x1, st.brush.y0, st.brush.y1].join(',');
+              if (st.ls) o.extras.ls = st.ls;
+          },
+          apply: function (s) {
+              if (s.ax && typeof LSAnalysis !== 'undefined') LSAnalysis.setState(s.ax);
           } },
         { key: 'tab', cold: true,
           collect: function (mode, o) {

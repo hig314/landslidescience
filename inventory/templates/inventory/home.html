@@ -375,9 +375,13 @@
     <div style="padding:12px 14px;">
       <button id="hist-toggle" class="inv-analysis-btn">&#9656; Seasonal timing</button>
       <button id="timing-toggle" class="inv-analysis-btn">&#9656; Time-series</button>
-      <button id="scatter-toggle" class="inv-analysis-btn">&#9656; Susceptibility scatter (lw × n10)</button>
+      <button id="an-toggle" class="inv-analysis-btn" title="Cross any two overlays: the terrain's joint distribution of the pair with every landslide as a point. The axes are the wiper's two panes — set up a wiper and they are the axes; pick axes here and the wiper shows them. The sample tool reads a circle of the map onto the plot.">&#9656; Cross two overlays</button>
+      <div class="inv-analysis-presets">
+        <a href="#" data-an-preset="lw|n10" title="The USGS susceptibility scatter: lw × n10, brushable to the two sliders.">susceptibility lw × n10</a>
+        <a href="#" data-an-preset="pzi|prob" title="Permafrost: Gruber's zonation index × Obu's probability, with the patch detail plots.">permafrost Obu × Gruber</a>
+        <a href="#" data-an-preset="slope|elev" title="Slope × elevation from the 60 m terrain grids.">slope × elevation</a>
+      </div>
       <button id="opera-toggle" class="inv-analysis-btn" title="Histogram of OPERA InSAR velocity values across the pixels currently in view (asc/desc). Values are 8-bit quantized and clipped at ±30 mm/yr.">&#9656; OPERA velocity in view</button>
-      <button id="pf-toggle" class="inv-analysis-btn" title="Terrain joint density of two permafrost products (Gruber 2012 × Obu 2019) with every landslide as a point, and a tool to read a patch of the map: the published 1 km cells and the 60 m downscale, against elevation.">&#9656; Permafrost: Obu × Gruber</button>
       <p style="font-size:11px; color:#888; margin:10px 0 0;">
         Counts and chart data respect the "Limit to map view" toggle in the
         pinned strip above. With it off, all records are summarized; with
@@ -480,27 +484,33 @@
     </div>
 
     {% comment %}
-    Permafrost analysis (permafrost.js): Panel A is the Obu x Gruber terrain
-    density with landslides as points; Panel B is the patch sampler's four
-    plots. Both floating, like the other analysis panels.
+    The analysis panel (analysis.js): two overlays as axes -- the terrain's
+    joint density of the pair with every landslide on it -- bound to the
+    wiper's panes, with the sample tool (ls_sample.js) and a brush. The
+    permafrost patch detail (permafrost.js) is its companion panel.
     {% endcomment %}
-    <div id="pf-float" class="float-panel hidden">
-      <div class="float-header pf-header">
-        <span class="pf-title">Permafrost</span>
-        <select id="pf-pair" title="Which two products to cross.">
-          <option value="frac" selected>PZI × probability</option>
-          <option value="temp">MAAT × MAGT</option>
+    <div id="an-float" class="float-panel hidden">
+      <div class="float-header pf-header an-header">
+        <label class="an-axis" title="The x axis: the overlay on the wiper's LEFT pane.">x
+          <select id="an-x"></select></label>
+        <label class="an-axis" title="The y axis: the overlay on the wiper's RIGHT pane.">×&nbsp;y
+          <select id="an-y"></select></label>
+        <select id="an-ls" title="How the landslides are drawn: each as a point at its own values; or per cell of the plot, as a count or as landslides per 1000 km² of terrain with those values.">
+          <option value="points" selected>points</option>
+          <option value="count">count / cell</option>
+          <option value="prop">per 1000 km²</option>
         </select>
-        <select id="pf-res" title="The published 1 km products, or this site's 60 m terrain downscale of them.">
-          <option value="1km" selected>1 km published</option>
-          <option value="60m">60 m downscaled</option>
-        </select>
-        <button type="button" id="pf-sample" title="Sample a patch: click the map to read the published 1 km cells and the 60 m downscale inside a circle of this radius.">&#9678; Sample</button>
-        <input type="number" id="pf-radius" min="1" max="30" step="1" value="10" title="Patch radius, km"><span class="pf-unit">km</span>
-        <span id="pf-count"></span>
-        <button type="button" id="pf-close" title="Close">&times;</button>
+        <button type="button" id="an-sample" title="Sample: click the map to read every cell inside a circle of this radius onto the plot (60 m where both axes have value archives, else the 1 km cells).">&#9678; Sample</button>
+        <input type="number" id="an-radius" min="1" max="30" step="1" value="10" title="Sample radius, km"><span class="pf-unit">km</span>
+        <button type="button" id="an-pf" style="display:none" title="The permafrost patch plots for this sample: the published 1 km cells and the 60 m downscale against elevation, with the fitted lapse and curve.">Permafrost detail</button>
+        <span id="an-count"></span>
+        <a href="#" id="an-clear" class="disabled" title="Clear the brush box.">clear box</a>
+        <button type="button" id="an-close" title="Close">&times;</button>
       </div>
-      <div id="pf-body"><canvas id="pf-heat"></canvas><svg id="pf-svg"></svg></div>
+      <div id="an-body"><canvas id="an-heat"></canvas><svg id="an-svg"></svg>
+        <div class="scatter-hint">drag to box a range · drag header to move · grab corner to resize</div>
+        <div id="an-note"></div></div>
+      <div id="an-foot" class="scatter-legend-foot" style="display:none"></div>
     </div>
     <div id="pf-patch-float" class="float-panel hidden">
       <div class="float-header pf-header">
@@ -561,40 +571,6 @@
       <canvas id="opera-hist-canvas" style="flex:1;width:100%;min-height:0;"></canvas>
       <div id="opera-hist-foot" style="font-size:10px;color:#888;margin-top:4px;line-height:1.35;"></div>
     </div>
-  </div>
-
-  <div id="scatter-float" class="float-panel scatter-float hidden">
-    <div id="scatter-handle" class="scatter-float-header float-header">
-      <span class="scatter-title">Susceptibility</span>
-      <label class="scatter-axis-lbl" title="Model on the x axis.">
-        x
-        <select id="scatter-x">
-          <option value="lw" selected>lw</option>
-          <option value="n10">n10</option>
-          <option value="dggs">DGGS</option>
-        </select>
-      </label>
-      <label class="scatter-axis-lbl" title="Model on the y axis. Pick a different model from x — crossing a model with itself only draws its own diagonal.">
-        ×&nbsp;y
-        <select id="scatter-y">
-          <option value="lw">lw</option>
-          <option value="n10" selected>n10</option>
-          <option value="dggs">DGGS</option>
-        </select>
-      </label>
-      <label class="scatter-prop-lbl" title="Landslide layer: raw centroid count per cell, or the per-mil proportion of terrain cells of that value pair that contain a landslide centroid.">
-        <input type="checkbox" id="scatter-prop"> proportion&nbsp;(‰)
-      </label>
-      <span id="scatter-count"></span>
-      <a href="#" id="scatter-clear" class="disabled" title="Reset the lw/n10 selection box to the full range. Drag a box on the plot first; this clears it. Brushing drives the lw and n10 filters, so it is only available when both axes are those two models.">clear box</a>
-      <button id="scatter-close" title="Close">&times;</button>
-    </div>
-    <div id="scatter-body">
-      <canvas id="scatter-heat"></canvas>
-      <svg id="scatter-svg"></svg>
-      <div class="scatter-hint">drag to box a range · drag header to move · grab corner to resize</div>
-    </div>
-    <div id="scatter-legend" class="scatter-legend-foot"></div>
   </div>
 
   <div id="measure-readout" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); background:rgba(255,255,255,0.92); border:1px solid rgba(0,0,0,0.12); border-radius:4px; padding:5px 12px; font-size:13px; font-family:system-ui,sans-serif; color:#222; box-shadow:0 1px 3px rgba(0,0,0,0.15); z-index:5; display:none;"></div>
@@ -667,6 +643,8 @@
   built by map.js in the draw-panel idiom, and a click on a line is a popup.
 {% endcomment %}
 <script src="{% static 'inventory/js/scarps.js' %}"></script>
+<script src="{% static 'inventory/js/ls_sample.js' %}"></script>
+<script src="{% static 'inventory/js/analysis.js' %}"></script>
 <script src="{% static 'inventory/js/permafrost.js' %}"></script>
 {# maplibre-contour (MIT): contour lines generated in the browser from terrain tiles; the Contours overlay. #}
 <script src="https://unpkg.com/maplibre-contour@0.1.1/dist/index.min.js"></script>
