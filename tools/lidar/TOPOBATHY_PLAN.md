@@ -113,6 +113,59 @@ What the site taught, in order of importance:
    are honest in the diagnostics (`fallback.tif`, `class_now`), neither is
    hidden by a blend.
 
+**Point-cloud classes (2026-10-10, later).** Hig: the DEM-derived
+inference is the wrong level — classify from the point cloud (ground,
+water, snow/ice, others if useful), and the reclass's flat lagoon fill is
+meaningless: mask it out and interpolate the Hydropalooza instead.
+`tools/lidar/observe_points.py` is the observe stage from the point
+cloud: `stats` bins a survey's points (PDAL per tile → uncompressed LAS
+1.4 → numpy; KBay from the 2,298 COPC tiles on `/Volumes/Powder/
+lidar_src/kbay_2023_laz/` — all local — Grewingk from the DGGS LAZ tiles
+on Nunatak) into `obs/<id>_pts/cellstats.tif`, 16 evidence bands at 2 m
+(returns by class, lowest-return z per class, intensity per class, the
+flatness of the lowest surface); `classify` applies a per-survey rule
+set (`RULES`, printed with its outcome) to write `class.tif` in topobathy
+codes, which the recipe reads with `{"raster": {"path": …, "codes":
+true}}`. What the points said:
+
+- **KBay 2023 (NIR, 1 Aug, leaf-on): no returns IS the water signal.**
+  Over 7.5 km² of lagoon and bay the vendor's class 9 holds only 44 k
+  points; the laser simply gets nothing back, and the reclass filled
+  those holes. Rules: ground where the reclass DTM has a value and the
+  cell has returns; **void** where there are no returns (opened, blobs
+  ≥ 50 m²) and wherever the reclass's `fill_mask` is 2; water where
+  class-9 returns outnumber ground — checked against the evidence
+  bands: those cells are flat (0.05 m vs 0.23 for ground), sparse (14
+  vs 48 returns) and sit at −2.9…−2.3 m (sea, 1.18 km²) or 50 m (the
+  lake, 0.77 km²), so NV5's over-reaching water polygons are not biting
+  here (0.07 km² in the suspect 0.5–5 m band); built where class 6
+  outnumbers ground (the structures the reclass kept as ground); snow
+  from class 21 (none on the 2023-08-01 lines). Result 96.5 % ground /
+  3.4 % water / 0.1 % built of classified cells, 27 km² void. In the
+  composite the lagoons are now **holes with only the sounding lines in
+  them** ("none" 0.27 → 2.39 km²), the shore band is bathymetry up to
+  where the lidar has ground, and `fallback` all but vanishes. The
+  DTM-side `flat_below` / `snow_vs` steps are no longer used on KBay;
+  they stay in the engine for surveys without points.
+- **Grewingk 2021 (NIR, 12 Oct): the vendor's ground class stops at
+  ~830 m.** Above it the returns are class 1 (to 1100 m) and class 18
+  "high noise" (26 % of all points, to 1508 m), yet the DTM reaches
+  1083 m. `rules_grewingk` marks DTM cells whose returns are *only*
+  unclassified, at region scale, as **snow — a hypothesis to look at,
+  not a finding**; class-1 and class-2 intensities are alike (23 k vs
+  25 k), so intensity alone will not settle it, and whether the DGGS
+  product used class 1 for its high ground is the question for the
+  metadata. Only 36 of the 119 tiles over the box were local (12 % of
+  cells); the other 83 (7.7 GB) are being fetched from DGGS at its
+  175 KB/s-per-connection throttle (`grewingk_2021/ranges3.txt`,
+  `fetch3.log`, 8 connections) — rerun `stats`/`classify` when
+  `laz/` holds 119+ files, then switch the Grewingk layer to its
+  `class.tif` as KBay's is.
+- A free measurement from the class-by-class report: **the lake at
+  Halibut Cove sits 1.07 m higher in KBay (Aug 2023) than in Grewingk
+  (Oct 2021), NMAD 0.02 m** — the seasonal-level reading, which the
+  water class now isolates from ground.
+
 ### Deferred: physical awareness (decided 2026-10-09)
 
 Hig asked how far to go toward a physically aware merge — glacier

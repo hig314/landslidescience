@@ -83,7 +83,7 @@
    "name": "kbay2023",
    "source": "kbay_2023_reclass",
    "date": "2023-07-01",
-   "notes": "flight dates to confirm (NOAA says 2023, delivery 2023/24); mid-2023 assumed",
+   "notes": "flight dates to confirm (NOAA says 2023, delivery 2023/24); mid-2023 assumed CLASS from the point cloud (observe_points.py, 2 m): ground where the reclass DTM has a value and the cell has returns; VOID where the laser got no returns (the bay, lagoons, lakes) and where the reclass filled (its fill_mask) - Hig 2026-10-10: the fill is meaningless, mask it out; water where class-9 returns outnumber ground (checked: flat, sparse, at -2.9..-2.3 m or the 50 m lake); built where class 6 outnumbers ground; snow from class 21.",
    "sigma_m": 0.15,
    "class": [
     {
@@ -91,28 +91,8 @@
     },
     {
      "raster": {
-      "path": "/Volumes/Nunatak/lidar_build/kbay_reclass_test/full/mosaic/fill_mask.tif",
-      "map": {
-       "2": "modelled"
-      }
-     }
-    },
-    {
-     "flat_below": {
-      "max_level_m": 1.5,
-      "rough_m": 0.1,
-      "win_m": 10,
-      "min_area_m2": 2000,
-      "as": "water"
-     }
-    },
-    {
-     "snow_vs": {
-      "ref": "bathy2009",
-      "dz_m": 1.5,
-      "smooth_m": 30,
-      "rough_ratio": 1.0,
-      "as": "water"
+      "path": "/Volumes/Nunatak/lidar_build/obs/kbay_2023_pts/class.tif",
+      "codes": true
      }
     }
    ]

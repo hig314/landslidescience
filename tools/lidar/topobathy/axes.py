@@ -198,6 +198,13 @@ def class_raster(spec, z, valid, below, res_m, info, others=None, grid=None, win
                 continue
             from .stack import read_geo
             rr, rvv = read_geo(kw["path"], grid, win, "nearest")
+            if kw.get("codes"):
+                # the raster already holds topobathy class codes (observe_points.py class.tif): copy them,
+                # void included - a 0 there means the survey observed nothing usable at that cell
+                sel = valid & rvv
+                c[sel] = np.rint(rr[sel]).astype(np.uint8)
+                info["raster_void_fraction"] = float((sel & (c == 0))[valid].mean()) if valid.any() else 0.0
+                continue
             for val, cname in kw["map"].items():
                 sel = valid & rvv & (np.rint(rr) == float(val))
                 c[sel] = CLASSES[cname]
