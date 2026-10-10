@@ -232,8 +232,16 @@ from the VERTCRS is applied explicitly (verified on a 400 m window: old warp
 614.34 m, new 1988.83 ftUS -> 606.19 m, source 606.04 m). Rebuild chain
 `logs/anchorage_datum_fix.sh` (all stages + checks, NO publish) started
 22:26; the geoid-shifted products are kept as superseded/*.ellipsoidal.*.
-Publishing = r2_sync.sh (cog + --pmtiles), make_catalog.py --verify-r2,
-install the catalog on the droplet (z_min/z_max change) -- after Hig's OK.
+Rebuild done 23:14: source vs archive -0.03/-0.03/+0.27/+0.58 m at the four
+points (the two larger on steep ground), pyramid vs archive +0.00 m, and
+against neighbours on gentle ground -0.27 (glen_alps_2024), -0.02
+(eagle_river_2024), +0.02 (matsu_core_2011), +0.06 m (matsu_2019).
+PUBLISHED 2026-10-09 02:41 (Hig's OK): `logs/anchorage_datum_publish.sh`
+pushed the COG (7.0 GB) and both pyramids to R2 (byte counts verified),
+regenerated the catalogue with --verify-r2 (z_min -121.4, z_max 2129.1)
+and installed it on the droplet (backup catalog.geojson.pre-anchorage-datum)
+and in dev. A live tile off R2 reads NAVD88 metres. Anyone who downloaded
+the Anchorage COG before 2026-10-09 has ellipsoidal heights.
 
 `check_vertical_consistency.py` over every overlapping pair (41 pairs, 150
 points each, slope < 5 deg): 21 agree within 0.5 m; the large-MAD flags are
