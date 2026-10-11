@@ -20,6 +20,7 @@ import argparse
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -81,7 +82,8 @@ def main():
         # A flat cell has no aspect (the cube masks it the same way; gdaldem
         # writes 0, which would read as north).
         cols['aspect'] = [None if s == 0 else a for a, s in zip(cols['aspect'], cols['slope'])]
-    out = {'keys': keys, 'values': {str(i): [cols[k][j] for k in keys] for j, i in enumerate(ids)}}
+    out = {'keys': keys, 'built': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%MZ'),
+           'values': {str(i): [cols[k][j] for k in keys] for j, i in enumerate(ids)}}
     OUT.write_text(json.dumps(out, separators=(',', ':')))
     print(f'wrote {OUT} ({OUT.stat().st_size / 1024:.0f} KB)')
 

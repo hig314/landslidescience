@@ -159,6 +159,7 @@
             }
             if (x.ls === 'count' || x.ls === 'prop') out.ax.ls = x.ls;
             if (x.gr != null && /^\d$/.test(x.gr)) out.ax.gr = +x.gr;   // the grid slider (2^gr bins merged)
+            if (x.pt === '0') out.ax.paint = false;                         // the brush's map paint switched off
         }
         // Elevation profile: pr = flat lat,lon list (5 dp), pw = window along
         // the line in metres (d0,d1), pve = 0 when the chart is unlocked
@@ -680,8 +681,9 @@
         dragRotate: false, pitchWithRotate: false, touchPitch: false,
         transformRequest: LSBasemaps.transformRequest   // resolves quadkey/subdomain QMS tiles
     });
-    // A console handle for inspecting layer state (nothing in the code reads it).
+    // Console handles for inspecting layer state (nothing in the code reads them).
     window.__lsMap = map;
+    window.__lsSwipeMap = function () { return _swipe.map; };
     // The handler-level switches for the inputs the constructor options miss,
     // and a snap-back for anything that gets past them: whatever rotates or
     // tilts the view, the next frame is north-up and nadir again.
@@ -2872,6 +2874,9 @@
         map.addLayer(_ldefs[2], bId);   // polygon-fill
         map.addLayer(_ldefs[3], bId);   // polygon-outline
         map.addLayer(_polygonHoverDef(), bId);
+        // The analysis panel's map paint goes directly under the points
+        // (it moves its layer before 'points', so this must follow them).
+        if (typeof LSAnalysis !== 'undefined') LSAnalysis.onLayers(map);
 
         // Survey-circles layer — black outline only (no fill); thin for
         // circles with no landslides identified (update_total=0), bold for
@@ -3455,6 +3460,9 @@
         // right pane (bug found by Hig doing exactly that). Hook set by the
         // tool's IIFE below; guarded because that runs later in this file.
         if (window.__insarSwipeSync) window.__insarSwipeSync(cmap);
+        // The analysis panel's brush rings and its map paint: results, not a
+        // tool, so they show on both panes like the landslide data.
+        if (typeof LSAnalysis !== 'undefined') LSAnalysis.onLayers(cmap);
     }
     function _swipeSetPending() {
         if (!_swipe.map) return;
@@ -9557,6 +9565,7 @@
                 });
             },
             wiper: { get: _anWiperGet, set: _anWiperSet },
+            swipeMap: function () { return _swipe.on ? _swipe.map : null; },
             sliders: {
                 // {lw: [lo, hi] | null, n10: ...} -> the two dual sliders; null = full range
                 set: function (r) {
@@ -10074,6 +10083,7 @@
               if (st.brush) o.extras.bx = [st.brush.x0, st.brush.x1, st.brush.y0, st.brush.y1].join(',');
               if (st.ls) o.extras.ls = st.ls;
               if (st.gr) o.extras.gr = String(st.gr);
+              if (st.paint === false) o.extras.pt = '0';
           },
           apply: function (s) {
               if (s.ax && typeof LSAnalysis !== 'undefined') LSAnalysis.setState(s.ax);

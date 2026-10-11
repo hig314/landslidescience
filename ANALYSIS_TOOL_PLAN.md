@@ -47,6 +47,14 @@ colour scale was re-normalised to each level's maximum; it is now absolute
 (0.1–1000 per 1000 km²), and the legend's numbers sit on ticks at the
 colour boundaries instead of drifting beneath them.
 
+**Phase 3, started 2026-10-10 evening (dev):** the brush paints the map
+(`anpaint://` protocol over the 60 m value tiles, both panes, from z8;
+the pairs with fine archives only — terrain and permafrost downscales),
+and the panel reports a stale `ls_quantities.json`. Still open: the view
+and polygon sample shapes, OPERA as "sample = view", value archives for
+coherence / ITS_LIVE (which would let them paint), dh/dt + IceBoost on
+one grid, the MAAT/MAGT ramp's white centre, aspect's 45° spikes below 1°.
+
 *The original plan follows.* The permafrost panel (`permafrost.js`) and the
 susceptibility scatter were the two concrete instances this generalised.
 

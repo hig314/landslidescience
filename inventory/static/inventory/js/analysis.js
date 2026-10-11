@@ -50,6 +50,17 @@
  * axes the box also drives those two filter sliders, which exist for
  * exactly this, and the sliders move the box back.
  *
+ * THE BRUSH PAINTS THE MAP (plan phase 3, 2026-10-10): where both axes
+ * have a 60 m value archive, the ground whose two values fall inside the
+ * box is coloured on the map -- "where is PZI > 0.6 AND slope > 30°?" --
+ * by the `anpaint://` protocol below, which reads the two value tiles
+ * (LSSample.fineTile, z10) and writes a transparent PNG with the in-box
+ * pixels filled. The layer `an-paint` sits below the landslide points on
+ * both panes (map.js calls onLayers() for each map); z8-9 tiles are
+ * assembled from their z10 children, z11+ cropped from the parent, so the
+ * paint shows from z8 up. The "paint" box in the header turns it off
+ * (pt=0 in the URL).
+ *
  * URL: ax=<x>|<y>, bx=x0,x1,y0,y1 (the brush), ls=count|prop (the
  * landslide layer when not points), gr=<level> (the grid slider when not
  * 0), an=analysis; the sample is LSSample's smp=. The old an=scatter and
@@ -77,6 +88,7 @@ window.LSAnalysis = (function () {
   var SLIDER_KEYS = ['lw', 'n10'];
   var DEFAULT = ['lw', 'n10'];
   var HL = 'an-highlight', MIN_BINS = 4;
+  var PAINT = 'an-paint', PAINT_RGBA = [63, 103, 177, 150], PAINT_MINZ = 8;
 
   var map = null, o = {}, el = {}, fp = null;
   var quantities = null, cubeError = null;      // the server registry
@@ -88,13 +100,14 @@ window.LSAnalysis = (function () {
   var blotch = null, blotchSeq = 0;             // the sample on the current axes
   var P = null;                                 // the drawn plot: {d, qx, qy, panes:[{sx,sy,...}], pts, tg, lg, f}
   var syncing = false, pendingState = null, _hl = [];
+  var paintOn = true, paintSeq = 0, paintSpec = null;   // {fx, fy, box} read by the protocol; null = nothing to paint
 
   // ---- init --------------------------------------------------------------------------
   function init(opts) {
     o = opts; map = opts.map;
     var panel = document.getElementById('an-float'); if (!panel) return;
     el.panel = panel;
-    ['x', 'y', 'ls', 'grid', 'gridv', 'sample', 'radius', 'count', 'pf', 'clear', 'close', 'body', 'heat', 'svg', 'foot', 'note'].forEach(function (k) {
+    ['x', 'y', 'ls', 'grid', 'gridv', 'sample', 'radius', 'paint', 'count', 'pf', 'clear', 'close', 'body', 'heat', 'svg', 'foot', 'note'].forEach(function (k) {
       el[k] = panel.querySelector('#an-' + k);
     });
     el.tip = document.createElement('div'); el.tip.className = 'pf-tip'; el.body.appendChild(el.tip);
@@ -117,6 +130,8 @@ window.LSAnalysis = (function () {
       var c = LSSample.get(); if (c) LSSample.set(c.lon, c.lat, r);
     });
     el.clear.addEventListener('click', function (e) { e.preventDefault(); clearBrush(); });
+    if (el.paint) el.paint.addEventListener('change', function () { paintOn = el.paint.checked; updatePaint(); o.onChange(); });
+    if (typeof maplibregl !== 'undefined' && maplibregl.addProtocol) maplibregl.addProtocol('anpaint', paintLoader);
     el.pf.addEventListener('click', function (e) { e.preventDefault(); if (o.onPermafrost) o.onPermafrost(LSSample.get()); });
     el.svg.addEventListener('pointermove', onHover);
     el.svg.addEventListener('pointerleave', function () { el.tip.style.display = 'none'; });
@@ -132,8 +147,8 @@ window.LSAnalysis = (function () {
     });
     LSSample.on(onSample);
     LSSample.init({ map: map, apiBase: o.apiBase, onArm: function (on) { el.sample.classList.toggle('active', on); } });
-    map.on('style.load', ensureLayers);
-    if (map.isStyleLoaded()) ensureLayers();
+    map.on('style.load', function () { ensureLayers(map); });
+    if (map.isStyleLoaded()) ensureLayers(map);
 
     fetch(o.apiBase + 'api/analysis/quantities/').then(function (r) { return r.json(); })
       .then(function (j) { quantities = j.quantities || {}; if (j.error) cubeError = j.error; fillPickers(); loadDensity(); syncGrid(); draw(); })
@@ -189,7 +204,7 @@ window.LSAnalysis = (function () {
     X = x; Y = y;
     if (el.x) { el.x.value = X; el.y.value = Y; }
     brush = null; blotch = null;
-    loadDensity(); refreshBlotch(); syncGrid(); draw(); syncSlidersToBrush();
+    loadDensity(); refreshBlotch(); syncGrid(); draw(); syncSlidersToBrush(); updatePaint();
     if (how.push) pushWiper();
     o.onChange();
     window.LSTrack && LSTrack.event('explore_chart', { chart: 'analysis', x: X, y: Y });
@@ -263,6 +278,7 @@ window.LSAnalysis = (function () {
       LSSample.disarm();     // takes the sample with it
       highlight([]);         // and the brush's rings on the map
     }
+    updatePaint();           // the paint shows only while the panel is open
     o.onChange();
   }
 
@@ -515,7 +531,17 @@ window.LSAnalysis = (function () {
     var msg = pts.length ? pts.length + ' landslides' : (lsv ? 'no values' : 'loading…');
     if (hl.length) msg += ' · ' + hl.length + ' selected';
     el.count.textContent = msg;
-    el.note.textContent = cubeError ? cubeError : (dens ? '' : (quantities && !q(X) || quantities && !q(Y) ? 'no terrain density for this pair on this server' : ''));
+    var note = cubeError ? cubeError : (dens ? '' : (quantities && !q(X) || quantities && !q(Y) ? 'no terrain density for this pair on this server' : ''));
+    // ls_quantities.json is a committed snapshot: say so when records have
+    // appeared since it was built, rather than silently leaving them off.
+    var missing = (lsv && fd && fd.features) ? fd.features.filter(function (ft) {
+      var id = ft.properties.landslide_id != null ? ft.properties.landslide_id : ft.properties.id;
+      return !lsv.values[String(id)];
+    }).length : 0;
+    if (missing) note += (note ? ' · ' : '') + missing + ' landslide' + (missing === 1 ? ' has' : 's have') + ' no sampled values (added since the values file was built' +
+                          (lsv.built ? ' ' + lsv.built.slice(0, 10) : '') + ') — tools/analysis/sample_quantities.py --centroids';
+    if (brush && !canPaint()) note += (note ? ' · ' : '') + 'the box paints the map only where both axes have 60 m value archives';
+    el.note.textContent = note;
     foot(qx, qy, tMax, lBins, inSample, noTerrain);
   }
   // Ticks for an axis `px` pixels long: about one label per 55 px, so a
@@ -562,6 +588,11 @@ window.LSAnalysis = (function () {
       html += '<div class="leg-row"><span class="leg-title" title="' + (lsMode === 'prop' ? 'Fixed scale: the same colour is the same rate at every grid step and on every pair of axes.' : 'Scaled to this plot’s fullest cell.') + '">' +
               (lsMode === 'prop' ? 'Slides/1000 km² (fixed)' : 'Slides/cell') + '</span>' + legendBar(bar, lt) + '</div>';
     }
+    if (brush) {
+      html += '<div class="an-sample">Box: ' + qx.label.replace(/ \(.*\)$/, '') + ' ' + fmtV(qx, brush.x0) + '–' + fmtV(qx, brush.x1) + (qx.units ? ' ' + qx.units : '') +
+              ' · ' + qy.label.replace(/ \(.*\)$/, '') + ' ' + fmtV(qy, brush.y0) + '–' + fmtV(qy, brush.y1) + (qy.units ? ' ' + qy.units : '') +
+              (paintOn && canPaint() ? ' · painted on the map from zoom ' + PAINT_MINZ : '') + '</div>';
+    }
     var c = LSSample.get();
     if (c) {
       var s = 'Sample ⌀ ' + (2 * c.r) + ' km at ' + c.lat.toFixed(3) + ' N ' + (-c.lon).toFixed(3) + ' W';
@@ -584,21 +615,110 @@ window.LSAnalysis = (function () {
   }
   function mode(v) { var c = {}, best = v[0], bn = 0; v.forEach(function (t) { c[t] = (c[t] || 0) + 1; if (c[t] > bn) { bn = c[t]; best = t; } }); return best; }
 
-  // ---- highlight on the map -------------------------------------------------------------------
-  function ensureLayers() {
-    if (!map.getSource(HL)) map.addSource(HL, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    if (!map.getLayer(HL)) {
-      map.addLayer({ id: HL, type: 'circle', source: HL,
-                     paint: { 'circle-radius': 9, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': COLOR.ring, 'circle-stroke-width': 2 } });
+  // ---- the map layers: the brush's rings and its paint, on both panes --------------------------
+  function maps() { var sm = o.swipeMap ? o.swipeMap() : null; return sm ? [map, sm] : [map]; }
+  function paintUrl() { return 'anpaint://' + paintSeq + '/{z}/{x}/{y}'; }
+  // Called at style.load here and by map.js once a map's data layers exist
+  // (onLayers), so the paint sits under the landslide points.
+  function ensureLayers(m) {
+    if (!m || !m.getStyle()) return;
+    if (!m.getSource(PAINT)) m.addSource(PAINT, { type: 'raster', tiles: [paintUrl()], tileSize: 256, minzoom: PAINT_MINZ, maxzoom: 14 });
+    // Under the points; before them exist (style.load), under the tool
+    // layers map.js anchors its data stack to, so the points land above.
+    var under = m.getLayer('points') ? 'points' : (m.getLayer('measure-fill') ? 'measure-fill' : undefined);
+    if (!m.getLayer(PAINT)) {
+      m.addLayer({ id: PAINT, type: 'raster', source: PAINT, layout: { visibility: paintSpec ? 'visible' : 'none' },
+                   paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest', 'raster-fade-duration': 0 } }, under);
+    } else if (under) {
+      m.moveLayer(PAINT, under);
+    }
+    if (!m.getSource(HL)) m.addSource(HL, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    if (!m.getLayer(HL)) {
+      m.addLayer({ id: HL, type: 'circle', source: HL,
+                   paint: { 'circle-radius': 9, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': COLOR.ring, 'circle-stroke-width': 2 } });
     }
     highlight(_hl);
   }
+  function onLayers(m) { ensureLayers(m); updatePaint(); }
   function highlight(pts) {
     _hl = pts;
-    if (!map.getSource(HL)) return;
-    map.getSource(HL).setData({ type: 'FeatureCollection', features: pts.filter(function (p) { return p.lon != null; }).map(function (p) {
+    var fc = { type: 'FeatureCollection', features: pts.filter(function (p) { return p.lon != null; }).map(function (p) {
       return { type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] }, properties: { id: p.id } };
-    }) });
+    }) };
+    maps().forEach(function (m) { if (m.getSource(HL)) m.getSource(HL).setData(fc); });
+  }
+
+  // ---- the paint -------------------------------------------------------------------------------
+  function canPaint() { return !!(X && Y && byKey[X] && byKey[X].fine && byKey[Y] && byKey[Y].fine && LSSample.FINE[byKey[X].fine] && LSSample.FINE[byKey[Y].fine]); }
+  // Re-point the paint layer at the current box: a new tile URL version
+  // makes MapLibre refetch every tile through the protocol.
+  function updatePaint() {
+    var want = (paintOn && brush && canPaint() && fp && fp.isOpen()) ? { fx: byKey[X].fine, fy: byKey[Y].fine, box: brush } : null;
+    var same = JSON.stringify(want) === JSON.stringify(paintSpec);
+    paintSpec = want;
+    if (!same) paintSeq++;
+    maps().forEach(function (m) {
+      if (!m.getLayer(PAINT)) return;
+      m.setLayoutProperty(PAINT, 'visibility', paintSpec ? 'visible' : 'none');
+      if (!same && paintSpec) {
+        var src = m.getSource(PAINT);
+        if (src && src.setTiles) src.setTiles([paintUrl()]);
+      }
+    });
+  }
+  function emptyTile() {
+    return new Promise(function (resolve, reject) {
+      var c = document.createElement('canvas'); c.width = c.height = 1;
+      c.toBlob(function (b) { if (!b) { reject(new Error('empty tile')); return; } b.arrayBuffer().then(function (buf) { resolve({ data: buf }); }, reject); }, 'image/png');
+    });
+  }
+  // anpaint://<seq>/{z}/{x}/{y}: the in-box pixels of this tile, from the
+  // two z10 value tiles that cover it.
+  function paintLoader(params) {
+    var spec = paintSpec;
+    var p = params.url.replace('anpaint://', '').split('/').map(Number);   // [seq, z, x, y]
+    var z = p[1], x = p[2], y = p[3];
+    if (!spec || z < PAINT_MINZ) return emptyTile();
+    var Z = LSSample.Z, N = 256, c = document.createElement('canvas'); c.width = c.height = N;
+    var ctx = c.getContext('2d'), img = ctx.createImageData(N, N), d = img.data;
+    var qxv = axisOf(X), qyv = axisOf(Y);
+    var inBox = function (vx, vy) {
+      var px = pos(qxv, vx), py = pos(qyv, vy);
+      return px != null && py != null && px >= spec.box.x0 && px <= spec.box.x1 && py >= spec.box.y0 && py <= spec.box.y1;
+    };
+    var jobs = [];
+    if (z >= Z) {
+      // crop the parent z10 tile: this tile is a 1/2^(z-Z) window of it
+      var s = z - Z, px0 = x >> s, py0 = y >> s;
+      jobs.push(Promise.all([LSSample.fineTile(spec.fx, px0, py0), LSSample.fineTile(spec.fy, px0, py0)]).then(function (ts) {
+        var a = ts[0], b = ts[1]; if (!a || !b) return;
+        var w = a.w, frac = 1 << s, ox = (x - (px0 << s)) / frac, oy = (y - (py0 << s)) / frac;
+        for (var j = 0; j < N; j++) for (var i = 0; i < N; i++) {
+          var sx = Math.min(w - 1, Math.floor((ox + i / N / frac) * w)), sy = Math.min(a.h - 1, Math.floor((oy + j / N / frac) * a.h));
+          var k = sy * w + sx;
+          if (inBox(a.data[k], b.data[k])) { var o4 = (j * N + i) * 4; d[o4] = PAINT_RGBA[0]; d[o4 + 1] = PAINT_RGBA[1]; d[o4 + 2] = PAINT_RGBA[2]; d[o4 + 3] = PAINT_RGBA[3]; }
+        }
+      }));
+    } else {
+      // assemble from the 2^(Z-z) x 2^(Z-z) z10 children, each shrunk by that factor
+      var f = 1 << (Z - z), sub = N / f;
+      for (var cy = 0; cy < f; cy++) for (var cx = 0; cx < f; cx++) (function (cx, cy) {
+        var tx = x * f + cx, ty = y * f + cy;
+        jobs.push(Promise.all([LSSample.fineTile(spec.fx, tx, ty), LSSample.fineTile(spec.fy, tx, ty)]).then(function (ts) {
+          var a = ts[0], b = ts[1]; if (!a || !b) return;
+          for (var j = 0; j < sub; j++) for (var i = 0; i < sub; i++) {
+            var k = Math.floor((j + 0.5) / sub * a.h) * a.w + Math.floor((i + 0.5) / sub * a.w);
+            if (inBox(a.data[k], b.data[k])) { var o4 = ((cy * sub + j) * N + cx * sub + i) * 4; d[o4] = PAINT_RGBA[0]; d[o4 + 1] = PAINT_RGBA[1]; d[o4 + 2] = PAINT_RGBA[2]; d[o4 + 3] = PAINT_RGBA[3]; }
+          }
+        }));
+      })(cx, cy);
+    }
+    return Promise.all(jobs).then(function () {
+      ctx.putImageData(img, 0, 0);
+      return new Promise(function (resolve, reject) {
+        c.toBlob(function (b) { if (!b) { reject(new Error('anpaint toBlob failed')); return; } b.arrayBuffer().then(function (buf) { resolve({ data: buf }); }, reject); }, 'image/png');
+      });
+    });
   }
 
   // ---- brush --------------------------------------------------------------------------------
@@ -646,10 +766,10 @@ window.LSAnalysis = (function () {
     return +v.toFixed(3);
   }
   function setBrush(b) {
-    brush = b; draw(); syncSlidersToBrush(); o.onChange();
+    brush = b; draw(); syncSlidersToBrush(); updatePaint(); o.onChange();
     window.LSTrack && LSTrack.event('explore_filter', { chart: 'analysis', x: X, y: Y });
   }
-  function clearBrush() { if (!brush) return; brush = null; draw(); syncSlidersToBrush(); o.onChange(); }
+  function clearBrush() { if (!brush) return; brush = null; draw(); syncSlidersToBrush(); updatePaint(); o.onChange(); }
   function sliderAxes() { return SLIDER_KEYS.indexOf(X) >= 0 && SLIDER_KEYS.indexOf(Y) >= 0 && o.sliders; }
   // lw x n10: the box IS the two sliders (the only quantities with filters).
   function syncSlidersToBrush() {
@@ -667,7 +787,7 @@ window.LSAnalysis = (function () {
     var lx = s[X], ly = s[Y];
     var active = lx.lo > lx.min || lx.hi < lx.max || ly.lo > ly.min || ly.hi < ly.max;
     var nb = active ? { x0: lx.lo, x1: lx.hi, y0: ly.lo, y1: ly.hi } : null;
-    if (JSON.stringify(nb) !== JSON.stringify(brush)) { brush = nb; draw(); o.onChange(); }
+    if (JSON.stringify(nb) !== JSON.stringify(brush)) { brush = nb; draw(); updatePaint(); o.onChange(); }
     else draw();
   }
 
@@ -715,19 +835,20 @@ window.LSAnalysis = (function () {
   // ---- URL state (map.js _VIEW_PARAMS row 'ax') ------------------------------------------------
   function state() {
     if (!X || !Y) return null;
-    return { x: X, y: Y, brush: brush, ls: lsMode === 'points' ? null : lsMode, gr: level || null };
+    return { x: X, y: Y, brush: brush, ls: lsMode === 'points' ? null : lsMode, gr: level || null, paint: paintOn };
   }
   function setState(s) {
     if (!el.panel) { pendingState = s; return; }
     if (s.ls && (s.ls === 'count' || s.ls === 'prop')) { lsMode = s.ls; if (el.ls) el.ls.value = lsMode; }
     else if (s.ls === null) { lsMode = 'points'; if (el.ls) el.ls.value = lsMode; }
+    if (s.paint !== undefined) { paintOn = s.paint !== false; if (el.paint) el.paint.checked = paintOn; }
     if (s.x && s.y && s.x !== s.y) setAxes(s.x, s.y, { push: false });
     if (s.gr !== undefined) { level = s.gr || 0; syncGrid(); }
     if (s.brush !== undefined) { brush = s.brush; syncSlidersToBrush(); }
-    draw();
+    draw(); updatePaint();
   }
   function keys() { return X && Y ? [X, Y] : null; }
 
-  return { init: init, panel: panel, openWith: openWith, onOverlays: onOverlays, onFilter: onFilter,
+  return { init: init, panel: panel, openWith: openWith, onOverlays: onOverlays, onFilter: onFilter, onLayers: onLayers,
            redraw: draw, state: state, setState: setState, keys: keys };
 })();

@@ -165,6 +165,21 @@ window.LSSample = (function () {
     }
     return tileCache[key];
   }
+  // Any fine field's z10 tile as {w, h, data} -- an archive read, or the
+  // derived slope/aspect/northness of the elevation tile (computed once per
+  // tile and shared by the three). The brush that paints the map reads
+  // these (analysis.js); null where the archive has no tile.
+  var derivedCache = {};
+  function tileLat(ty) { return (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * (ty + 0.5) / Math.pow(2, Z)))) - Math.PI / 2) * 180 / Math.PI; }
+  function fineTile(name, x, y) {
+    var f = FINE[name]; if (!f) return Promise.resolve(null);
+    if (!f.derive) return tile(name, x, y);
+    var key = x + '/' + y;
+    if (!derivedCache[key]) {
+      derivedCache[key] = tile(f.from, x, y).then(function (t) { return t ? { w: t.w, h: t.h, tr: terrain(t, tileLat(y)) } : null; });
+    }
+    return derivedCache[key].then(function (d) { return d ? { w: d.w, h: d.h, data: d.tr[f.derive] } : null; });
+  }
   // Slope (deg), aspect (deg clockwise from north, downslope direction; a
   // flat cell has NO aspect -- NaN, not 0: read as 0 it piled every flat
   // cell onto north, a 3x spike in the cube's first bin) and northness =
@@ -252,6 +267,7 @@ window.LSSample = (function () {
     if (map) arm(st.r);
   }
 
-  return { init: init, FINE: FINE, set: set, clear: clear, get: get, on: on, inside: inside,
-           arm: arm, disarm: disarm, isArmed: isArmed, setRadius: setRadius, cells: cells, fine: fine, state: state, setState: setState };
+  return { init: init, FINE: FINE, Z: Z, set: set, clear: clear, get: get, on: on, inside: inside,
+           arm: arm, disarm: disarm, isArmed: isArmed, setRadius: setRadius, cells: cells, fine: fine, fineTile: fineTile,
+           state: state, setState: setState };
 })();
