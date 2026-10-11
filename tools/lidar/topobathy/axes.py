@@ -29,8 +29,12 @@ TARGETS = {
         # class now -> {observed class: gate}.  1 = the surface we want; 0.5 = stands in until
         # something better arrives (a water surface until the bed is known, a snow surface until a
         # snow-free ground); 0.25 = last-rank stand-in (an ice surface where no bed exists).
-        "water": {"bed": 1, "subglacial": 1, "modelled": 0.5, "water": 0.5},
-        "bed":   {"bed": 1, "subglacial": 1, "modelled": 0.5, "water": 0.5},
+        # Hig, 2026-10-10: "water is not a real surface - it's topobathy after all".  A water
+        # surface never stands in for the bed; where only water was observed the composite is a
+        # hole (its class stays water: bed unknown, the place for the bathymetry interpolation).
+        # A water-surface product is a separate thing, in the spirit of glacier-surface evolution.
+        "water": {"bed": 1, "subglacial": 1, "modelled": 0.5},
+        "bed":   {"bed": 1, "subglacial": 1, "modelled": 0.5},
         "ground": {"ground": 1, "snow": 0.5, "bed": 0.5, "built": 0.5},
         "snow":  {"ground": 1, "snow": 0.5},
         "ice":   {"subglacial": 1, "modelled": 0.5, "ice": 0.25},
@@ -356,9 +360,8 @@ def state_rules_sequential(obs, target="ground_current", as_of=None, rates=None,
             k = max(int(win_m), 3)
             dz_s = ndimage.uniform_filter(dz, k) / np.maximum(ndimage.uniform_filter((np.isfinite(run_z) & o["valid"]).astype(np.float32), k), 1e-3)
             take |= close & (dz_s < -tol)
-        # last resort: nothing compatible shown yet and this observation is the only thing here
-        last = dated & ~np.isfinite(run_z) & (gate_i == 0)
-        take |= last; fallback |= last
+        # (no last resort -- Hig, 2026-10-10: an observation the gate does not admit, a water
+        # surface where no bed is known, leaves a hole rather than standing in)
         masks.append(take.astype(np.float32))
         run_z = np.where(take, o["z"], run_z); run_sig = np.where(take, st, run_sig)
         run_cls = np.where(take, o["cls"], run_cls).astype(np.uint8); run_gate = np.where(take, gate_i, run_gate)
@@ -430,14 +433,9 @@ def state_rules(obs, target="ground_current", as_of=None, rates=None, sigma_max=
                 ok = nothing & (winner < 0) & (np.abs(gate_full[i] - level) < 1e-6)
                 better = ok & (st[i] <= best)
                 winner[better] = i; best[better] = st[i][better]
-    # last resort: no compatible observation at all (e.g. water with no bed known) -> the newest
-    # dated observation whatever its class (the water surface), flagged; never a stale base by default
-    still = winner < 0
-    if still.any():
-        dn = np.where(dated, dates[:, None, None], -np.inf)
-        inew2 = np.argmax(dn, axis=0); has = dated.any(axis=0)
-        sel = still & has
-        winner[sel] = inew2[sel].astype(np.int16)
+    # No last resort (Hig, 2026-10-10: "water is not a real surface"): where no observation is
+    # compatible with the target -- a lake with no bed known -- the composite is a hole, and
+    # class_now says why.  (Until today the newest observation of any class stood in, flagged.)
     fallback = nothing & (winner >= 0)
     # lowest tie-break among same-class ground observations within lowest_tol of the best sigma
     zs = np.stack([o["z"] for o in obs])

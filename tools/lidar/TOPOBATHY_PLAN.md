@@ -275,6 +275,22 @@ KBay − Grewingk **+0.97 m** (the lake's level, Aug 2023 vs Oct 2021);
 ground overlap +0.15 m (canopy residual on top of the 0.36 m shift).
 Previews in `out/preview/`.
 
+**Water is not a surface (Hig, 2026-10-10, night).** "A concept we want
+in the first version is that water is not a real surface — it's
+topobathy after all. Eventually we'll want a way of also generating a
+water surface, but that would be more in line with glacier surface
+evolution." So in `ground_current` a water observation never stands in
+for the bed (the `water: 0.5` gate entries are gone), and both folds
+lost their *last resort* (the newest observation of any class, flagged,
+where nothing compatible existed — written for exactly this case). Where
+only water was seen the composite is a hole whose class is `water`: bed
+unknown, the place the bathymetry interpolation fills next. Kachemak now:
+bathy 25.6, Grewingk 28.6, KBay 29.3, **none 4.4 km²** (was 1.9), no
+fallback cells; the lake, the lagoon interiors between sounding lines,
+the tidal channels and the ponds are the holes. A water-surface product
+(level per water body per date, from the water class) is a later, separate
+layer.
+
 ### Deferred: physical awareness (decided 2026-10-09)
 
 Hig asked how far to go toward a physically aware merge — glacier
