@@ -136,8 +136,8 @@ def _build_window(recipe, grid, win, verbose=True, obs_paint=True):
             L["st"] = rules["sigma_total"][i]; L["gate"] = rules["gate"][i]
             if i == 0:
                 L["mask"] = L["valid"].astype(np.float32); continue
-            m = rules["masks"][i]
-            for step in post:
+            m_raw = rules["masks"][i]; m = m_raw
+            for step in L["spec"].get("rules_post", post):      # a layer may override (the fill: none -- a pond under the despeckle area or a channel narrower than the feather must still be filled)
                 (name, kw), = step.items()
                 if name == "despeckle": m = despeckle(m, kw["min_area_m2"], grid.res)
                 elif name == "smooth": m = smooth(m, kw["size_m"], grid.res)
@@ -146,6 +146,18 @@ def _build_window(recipe, grid, win, verbose=True, obs_paint=True):
             p = recipe.paint_path(L["name"])
             paint = read_paint(p, grid, win) if p.exists() else None
             L["mask"] = _effective(L["auto"], L["valid"], paint)
+        # post-processing cleans seams between layers; it may never leave a cell uncovered that
+        # the rules had covered (two surveys' takes over a pond were complementary speckle, both
+        # despeckled, and the hole admitted no fill, 2026-10-11): such cells revert to the
+        # rules' own winner
+        cov = layers[0]["valid"].copy()
+        for L in layers[1:]:
+            cov |= L["mask"] > 0
+        for i, L in enumerate(layers):
+            if i == 0: continue
+            raw = rules["masks"][i]; fix = ~cov & (raw > 0) & L["valid"]
+            if fix.any():
+                L["mask"] = np.where(fix, raw, L["mask"]).astype(np.float32); cov |= fix
     else:
         lower = None; out = None
         for L in layers:
@@ -748,7 +760,15 @@ def cmd_fill(a):
         for kv in a.param:
             k, v = kv.split("="); params[k] = float(v)
     print(f"[{recipe.id}] fill: {z.shape[1]}x{z.shape[0]} @ {res} m, holes {np.isnan(z).mean():.4f} of the grid; params {params}")
+    params["_transform"] = prof["transform"]
     R = FL.fill_holes(z, cls, res, CLASSES, params, log=print)
+    params.pop("_transform", None)
+    if R.get("lakes"):
+        T = prof["transform"]
+        for t in R["lakes"]:
+            x, y = T * (t.pop("col"), t.pop("row")); t["x"], t["y"] = round(x), round(y)
+        (out / "fill_lakes.json").write_text(json.dumps(R["lakes"], indent=1))
+        print(f"  lakes table: {out / 'fill_lakes.json'}")
     base = dict(prof, driver="GTiff", tiled=True, blockxsize=512, blockysize=512, compress="zstd", predictor=3, bigtiff="yes", nodata=-9999.0, dtype="float32")
     base.pop("blockxsize", None) if prof.get("blockxsize") is None else None
     def w(name, arr, dtype="float32", nodata=-9999.0, pred=3):

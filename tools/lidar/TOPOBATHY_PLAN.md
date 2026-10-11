@@ -427,6 +427,45 @@ of order 5 m plus the Dmax spread — honest about how little the shore
 knows. The Halibut Cove lake lies in the box's corner (a margin hole);
 testing it needs a window that encloses it.
 
+**Continuous coverage, and the lake branch roughed out (2026-10-11).**
+Hig: "our target should be entirely continuous coverage"; some holes
+"look more like a bug". They were three bugs: (1) the `rules_post`
+despeckle/feather applied to the fill's take (ponds < 2000 m² and
+channels narrower than the feather vanished) — a layer may now set its
+own `rules_post`, the fill's is `[]`; (2) domains touching the box edge
+were "margin" and never filled — `fill_margin` (default true) fills
+them, the grid edge a no-flux boundary; (3) two surveys' takes over a
+pond were complementary speckle, both despeckled, and the hole admitted
+no fill under a `ground` class-now — post-processing may now never
+leave a cell uncovered that the rules had covered (it reverts to the
+rules' winner). Also the `void` gate row admits `bed` (the bathy's own
+hull TIN is still the best where the newest survey saw nothing; without
+it the fill displaced the hull between passes and the hole set never
+converged). Kachemak: **fill 4.35 km², none 0.00 km²**, stable under
+fill → build → fill → build.
+
+Lake branch (`fill.py`, rough for review): per lake domain ≥ 2000 m²,
+L (greatest distance to shore), A, median rim slope; Dmax = geometric
+mean of Hollister's 0.5·L·tan(s) and the glacial scaling (Huggel
+V = 0.104·A^1.42 → mean depth ÷ Vd 0.5); shape Dmax·(l/L)^p with
+p from Vd (0.56); shores keep the band (deeper of band and shape);
+σ = half the Dmax spread + 5 m, scaled by the shape; observations inside
+a lake within 1 m of the water level are dropped as evidence (a boat
+track or seam of returns off calm water, classed ground, had pulled the
+fill up to the surface), and islets of such cells < `island_max_m2`
+are swallowed into the domain (each had been a rim throwing a cone).
+**Sparse point depths**: `fill.points` = a CSV with x,y and z (absolute)
+or depth (below the lake's rim level) — they condition the prior exactly
+like soundings. `out/fill_lakes.json` is the per-lake table. Halibut
+Cove lake: A 0.89 km² (cut by the box edge), rim 5.4°, Dmax Hollister
+25 / glacial 66 → 41 m; the south lake at 601301,6602221 (also cut):
+rim 34.5°, Hollister 144 / glacial 47 → 82 m — Hollister's factor is
+not a cap, and the geometric mean only tempers it. Both big lakes are
+truncated by the box; a review area that encloses whole lakes (extend
+NE and S, or a lake-rich box elsewhere in the Grewingk footprint, at
+2 m) is the next step, with a few hand depths in the CSV to exercise
+the conditioning.
+
 ### Deferred: physical awareness (decided 2026-10-09)
 
 Hig asked how far to go toward a physically aware merge — glacier

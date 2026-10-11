@@ -106,7 +106,8 @@
      }
     }
    ],
-   "notes": "The hole interpolation (composite.py fill, topobathy/fill.py): a context-aware prior (shore bands from the rim slope, low-tide floor) conditioned by the soundings. Class modelled, so it stands in at half rank under water/bed and never where a real observation exists; sigma from fill_sigma.tif (grows from the shore, relaxes near soundings). Optional: skipped until the fill has been run; 'composite.py fill' treats the cells it won as holes, so build -> fill -> build is idempotent."
+   "notes": "The hole interpolation (composite.py fill, topobathy/fill.py): a context-aware prior (shore bands from the rim slope, low-tide floor) conditioned by the soundings. Class modelled, so it stands in at half rank under water/bed and never where a real observation exists; sigma from fill_sigma.tif (grows from the shore, relaxes near soundings). Optional: skipped until the fill has been run; 'composite.py fill' treats the cells it won as holes, so build -> fill -> build is idempotent.",
+   "rules_post": []
   }
  ],
  "fill": {
@@ -114,6 +115,7 @@
   "close_m": 60,
   "marine_rim_max_m": 6.0,
   "lake_depth_m": 5.0,
-  "notes": "2026-10-10: low_tide_m = the lowest sea surface the KBay 2023 water class shows in the box (-2.9 m NAVD88, the Aug 2023 low tide), standing in for MLLW until the Seldovia bench-mark value is put here. lake_depth_m is a guess for the floor of the Halibut Cove lake; its soundings (none) would override it."
+  "notes": "2026-10-10: low_tide_m = the lowest sea surface the KBay 2023 water class shows in the box (-2.9 m NAVD88, the Aug 2023 low tide), standing in for MLLW until the Seldovia bench-mark value is put here. lake_depth_m is a guess for the floor of the Halibut Cove lake; its soundings (none) would override it.",
+  "fill_margin": true
  }
 }

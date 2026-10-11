@@ -35,7 +35,7 @@ TARGETS = {
         # A water-surface product is a separate thing, in the spirit of glacier-surface evolution.
         "water": {"bed": 1, "subglacial": 1, "modelled": 0.5},
         "bed":   {"bed": 1, "subglacial": 1, "modelled": 0.5},
-        "void":  {"modelled": 0.5},        # nothing credible observed (the laser got no returns): only a modelled surface may stand in
+        "void":  {"bed": 1, "subglacial": 1, "modelled": 0.5},   # the newest survey saw nothing (the laser got no returns): a bed observation is still the best there is, else a modelled surface stands in
         "ground": {"ground": 1, "snow": 0.5, "bed": 0.5, "built": 0.5},
         "snow":  {"ground": 1, "snow": 0.5},
         "ice":   {"subglacial": 1, "modelled": 0.5, "ice": 0.25},
