@@ -434,9 +434,14 @@
   factor-of-two steps, each step merging 2&times;2 of the cells below it:
   a merged cell's count is the sum of its cells' counts and its terrain
   the sum of their areas, so its rate is the area-weighted mean of the
-  rates below it, empty cells included &mdash; never a mean of rates. A
-  cell holding landslides but no sampled terrain has no rate and is shown
-  in the off-scale colour rather than dropped. The DGGS susceptibility
+  rates below it, empty cells included &mdash; never a mean of rates. The
+  rate's colour scale is fixed (0.1 to 1000 landslides per 1000&nbsp;km²,
+  the statewide mean being about 0.6), so the same colour means the same
+  rate at every grid step and on every pair of axes, and coarsening shows
+  rates falling as the landslides are spread over more terrain; the count
+  scale is relative to the plot's fullest cell. A cell holding landslides
+  but no sampled terrain has no rate and is shown in the off-scale colour
+  rather than dropped. The DGGS susceptibility
   classes are ordinal, so that axis is spaced by class position, not class
   number; a flat cell has no aspect and is left out of that axis.
 </p>

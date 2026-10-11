@@ -17,6 +17,8 @@
  * merges 2^k x 2^k of the cube's bins (a plain sum of four cells per step,
  * so it is instant), and the landslide grid and the per-1000-km² rate are
  * built on the same merged cells -- the two plots are always on one scale.
+ * The rate's colour scale is fixed (RATE_LO..RATE_HI), so coarsening shows
+ * rates falling as the landslides are spread over more terrain.
  *
  * THE AXES ARE THE WIPER PANES (Hig, 2026-10-09). Open the panel over a
  * wiper showing two different overlays and they are x (left) and y
@@ -64,6 +66,13 @@ window.LSAnalysis = (function () {
   // below the bottom of the scale" (the susceptibility scatter's scheme).
   var LS_RAMP = ['#ffeda0', '#fed976', '#feb24c', '#fd8d3c', '#fc4e2a', '#e31a1c', '#b10026'];
   var LS_CATCH = '#bcbddc', LOG_DECADES = 3;
+  // The rate scale is ABSOLUTE and the same at every grid level: a scale
+  // re-normalised to each level's maximum made coarsening look like rates
+  // rising, when the maximum was falling (Hig, 2026-10-10 — slope x
+  // elevation: 1000 -> 91 -> 29 -> 20 -> 6 per 1000 km² from 1x to 16x).
+  // 0.1 is well under the statewide mean (0.63); 1000 is one landslide per
+  // km², the most a single lattice cell with one landslide can read.
+  var RATE_LO = 0.1, RATE_HI = 1000;
   var PF_KEYS = ['maat', 'pzi', 'magt', 'prob', 'maat60', 'pzi60', 'magt60', 'prob60'];
   var SLIDER_KEYS = ['lw', 'n10'];
   var DEFAULT = ['lw', 'n10'];
@@ -338,6 +347,15 @@ window.LSAnalysis = (function () {
       return Math.max(1, Math.min(n, Math.floor((Math.log(v) - a) / d * n) + 1));
     } };
   }
+  // A fixed log scale from lo to hi; below lo is the catch bin, above hi the top bin.
+  function logRangeBinner(lo, hi, n) {
+    var a = Math.log(lo), d = Math.log(hi) - a, edges = [0, lo];
+    for (var i = 1; i <= n; i++) edges.push(Math.exp(a + d * i / n));
+    return { edges: edges, bin: function (v) {
+      if (v <= 0 || v < lo) return 0;
+      return Math.max(1, Math.min(n, Math.floor((Math.log(v) - a) / d * n) + 1));
+    } };
+  }
   function blues(t) {   // white -> #08306b
     var s = [[247, 251, 255], [198, 219, 239], [107, 174, 214], [33, 113, 181], [8, 48, 107]];
     var k = Math.min(3.999, Math.max(0, t) * 4), i = Math.floor(k), f = k - i, a = s[i], b = s[i + 1];
@@ -420,7 +438,7 @@ window.LSAnalysis = (function () {
         var v = lsMode === 'prop' ? (tc > 0 ? lg.g[i] / tc * 1000 : -1) : lg.g[i];   // cells are 1 km²; -1 = no terrain
         lsVals[i] = v; if (v > lsMax) lsMax = v;
       }
-      lBins = logCatchBinner(lsMax, LS_RAMP.length);
+      lBins = lsMode === 'prop' ? logRangeBinner(RATE_LO, RATE_HI, LS_RAMP.length) : logCatchBinner(lsMax, LS_RAMP.length);
       for (yi = 0; yi < cny; yi++) for (xi = 0; xi < cnx; xi++) {
         i = yi * cnx + xi; if (!lsVals[i]) continue;
         r = panes[1].cell(xi, yi);
@@ -505,22 +523,34 @@ window.LSAnalysis = (function () {
     for (var v = Math.ceil(ax.min / st) * st; v <= ax.max + 1e-9; v += st) out.push({ p: v, l: fmtV(ax, v) });
     return out;
   }
+  // A legend bar with its numbers AT the colour boundaries (a tick each),
+  // not spread evenly beneath it: ticks = [{at: 0..1, label}].
+  function legendBar(barHtml, ticks) {
+    return '<div class="leg-scale">' + barHtml + '<div class="leg-ticks">' + ticks.map(function (t) {
+      return '<span class="leg-tick" style="left:' + (t.at * 100).toFixed(2) + '%"><i></i>' + t.label + '</span>';
+    }).join('') + '</div></div>';
+  }
   function foot(qx, qy, tMax, lBins, inSample, noTerrain) {
-    var html = '', edges = function (e) { return '<div class="leg-edges">' + e.map(function (v) { return '<span>' + fmtNum(v) + '</span>'; }).join('') + '</div>'; };
-    if (tMax) {   // the terrain's log scale, as a gradient from 1 km² to the fullest cell
-      var n = 6, stops = [], labs = [];
-      for (var i = 0; i <= n; i++) { stops.push(blues(i / n)); labs.push(Math.exp(Math.log(tMax + 1) * i / n) - 1); }
-      html += '<div class="leg-row"><span class="leg-title">Terrain km²/cell</span><div style="flex:1">' +
-              '<div class="leg-bar" style="background:linear-gradient(to right,' + stops.join(',') + ')"></div>' + edges([1, labs[2], labs[4], tMax]) + '</div></div>';
+    var html = '';
+    if (tMax) {   // the terrain's log scale, as a gradient from 1 km² to the fullest cell; ticks at the decades
+      var n = 6, stops = [], ticks = [], lm = Math.log(tMax + 1);
+      for (var i = 0; i <= n; i++) stops.push(blues(i / n));
+      for (var v = 1; v <= tMax; v *= 10) ticks.push({ at: Math.log(v + 1) / lm, label: fmtNum(v) });
+      if (ticks.length && ticks[ticks.length - 1].at < 0.9) ticks.push({ at: 1, label: fmtNum(tMax) });
+      html += '<div class="leg-row"><span class="leg-title">Terrain km²/cell</span>' +
+              legendBar('<div class="leg-bar" style="background:linear-gradient(to right,' + stops.join(',') + ')"></div>', ticks) + '</div>';
     }
     if (lBins) {
+      var cells = LS_RAMP.length + 1;   // the catch swatch, then the ramp
       var catchTitle = 'above zero, below ' + fmtNum(lBins.edges[1]) + (noTerrain ? '; or landslides in a cell with no sampled terrain (' + noTerrain + ')' : '');
       var bar = '<div class="leg-bar"><span style="background:' + LS_CATCH + '" title="' + catchTitle + '"></span>' +
                 LS_RAMP.map(function (c, i) {
                   return '<span style="background:' + c + '" title="' + fmtNum(lBins.edges[i + 1]) + ' – ' + fmtNum(lBins.edges[i + 2]) + '"></span>';
                 }).join('') + '</div>';
-      html += '<div class="leg-row"><span class="leg-title">' + (lsMode === 'prop' ? 'Slides/1000 km²' : 'Slides/cell') + '</span><div style="flex:1">' +
-              bar + edges(lBins.edges.slice(1)) + '</div></div>';
+      var lt = [{ at: 0, label: '0' }];
+      for (var j = 1; j < lBins.edges.length; j++) lt.push({ at: j / cells, label: fmtNum(lBins.edges[j]) });
+      html += '<div class="leg-row"><span class="leg-title" title="' + (lsMode === 'prop' ? 'Fixed scale: the same colour is the same rate at every grid step and on every pair of axes.' : 'Scaled to this plot’s fullest cell.') + '">' +
+              (lsMode === 'prop' ? 'Slides/1000 km² (fixed)' : 'Slides/cell') + '</span>' + legendBar(bar, lt) + '</div>';
     }
     var c = LSSample.get();
     if (c) {

@@ -40,7 +40,12 @@ taking). Third pass: overlay groups fold to what is selected; a faint
 terrain under the landslide plot; the sample size is a diameter (up to
 100 km) with a filled ghost; the merge rule checked (Σcount/Σarea, zeros
 included; no-terrain cells shown in the catch colour); the aspect axis's
-flat-cell spike found and masked (HAZARDS).
+flat-cell spike found and masked (HAZARDS). Fourth: Hig noticed the
+high-rate area *growing* with coarsening — the merge was right (max rate
+1000 → 91 → 29 → 20 → 6 from 1× to 16× on slope × elevation) but the rate's
+colour scale was re-normalised to each level's maximum; it is now absolute
+(0.1–1000 per 1000 km²), and the legend's numbers sit on ticks at the
+colour boundaries instead of drifting beneath them.
 
 *The original plan follows.* The permafrost panel (`permafrost.js`) and the
 susceptibility scatter were the two concrete instances this generalised.

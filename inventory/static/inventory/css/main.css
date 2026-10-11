@@ -651,6 +651,13 @@ body.inv-article-body {
 .scatter-legend-foot .leg-bar { display: flex; flex: 1; height: 11px; }
 .scatter-legend-foot .leg-bar span { flex: 1; }
 .scatter-legend-foot .leg-edges { display: flex; justify-content: space-between; color: #999; font-size: 8px; }
+/* The analysis panel's legend: numbers sit AT the colour boundaries, each on a tick (space-between put them
+   at evenly spaced positions that were not the boundaries, and nobody could tell what they meant). */
+.scatter-legend-foot .leg-scale { flex: 1; padding: 0 16px; }
+.scatter-legend-foot .leg-ticks { position: relative; height: 13px; }
+.scatter-legend-foot .leg-tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 8px; color: #777;
+                                 white-space: nowrap; text-align: center; line-height: 1; }
+.scatter-legend-foot .leg-tick i { display: block; width: 1px; height: 3px; background: #999; margin: 0 auto 1px; }
 
 /* ---- Seasonal timing histogram panel (floating; layout via .float-panel) ---- */
 .hist-header {
