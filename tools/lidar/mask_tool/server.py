@@ -22,7 +22,7 @@ from topobathy import Recipe
 from topobathy.fold import fold_step
 from topobathy.masks import feather as feather_mask, apply_paint, to_uint8, despeckle, smooth, OPS
 from topobathy import axes as AX
-from composite import build_window, parse_window, write_tif
+from composite import build_window, parse_window, write_tif, post_masks
 from topobathy.stack import read_geo
 
 app = Flask(__name__)
@@ -141,17 +141,7 @@ class Session:
         else:
             rules = AX.state_rules_sequential(obs, self.target, d.get("as_of"), d.get("rates"), d.get("sigma_max", 5.0), d.get("lowest"), d.get("margin_m", 0.0))
         self.layers[0]["rules"] = rules
-        post = d.get("rules_post", [{"despeckle": {"min_area_m2": 2000}}, {"feather": {"width_m": 20}}])
-        for i, L in enumerate(self.layers):
-            L["st"] = rules["sigma_total"][i]; L["gate"] = rules["gate"][i]
-            if i == 0: continue
-            m = rules["masks"][i]
-            for step in post:
-                (name, kw), = step.items()
-                if name == "despeckle": m = despeckle(m, kw["min_area_m2"], self.grid.res)
-                elif name == "smooth": m = smooth(m, kw["size_m"], self.grid.res)
-                elif name in OPS: m = OPS[name](m, kw.get("width_m", kw.get("sigma_m", kw.get("dist_m"))), self.grid.res)
-            L["auto"] = m.astype(np.float32)
+        post_masks(self.recipe, self.grid, self.layers, rules)      # the build's post ops + coverage guard, shared
 
     def refold(self):
         out = None
@@ -204,6 +194,48 @@ def hillshade(z, res=1.0, zf=1.0, az=315.0, alt=45.0):
     img = np.clip(s * 255, 0, 255).astype(np.uint8)
     img[~np.isfinite(z)] = 0
     return img
+
+
+# ---- the /lidar/ + /inventory/ "Preset" shading, server-side ----------------------------
+# Same stops and composition as inventory/static/inventory/js/dem_shade.js and the vendored
+# maplibre-gl-demshade (map.js LIDAR_PRESETS.preset): a cyclic mod-5 m BrBG-with-black base at
+# full strength, the slope ramp at 0.6 over it, and the hillshade on top in HARD LIGHT (the
+# shade decides).  The 5 m interval is fixed, as there, so banding is comparable between sites.
+MOD_INTERVAL = 5.0
+MOD_STOPS = [(0.000, 0xa6, 0x61, 0x1a), (0.833, 0xdf, 0xc2, 0x7d), (1.667, 0xf5, 0xf5, 0xf5), (2.500, 0x80, 0xcd, 0xc1),
+             (3.333, 0x01, 0x85, 0x71), (4.167, 0x00, 0x00, 0x00), (5.000, 0xa6, 0x61, 0x1a)]
+SLOPE_STOPS = [(0, 0x00, 0x97, 0x08), (10, 0xff, 0xff, 0xff), (32, 0xeb, 0xec, 0xe2), (40, 0xff, 0xec, 0x00),
+               (45, 0xf0, 0x00, 0x00), (50, 0xb8, 0x00, 0xff), (90, 0x00, 0x00, 0x00)]
+
+
+def _ramp(stops, v):
+    xs = np.array([s[0] for s in stops], float); cols = np.array([s[1:] for s in stops], float)
+    out = np.empty(v.shape + (3,), np.float32)
+    for k in range(3):
+        out[..., k] = np.interp(v, xs, cols[:, k])
+    return out
+
+
+def preset(z, res=1.0, hs=1.0, sl=0.6, md=1.0, az=315.0, alt=45.0, ve=1.0):
+    fin = np.isfinite(z)
+    zz = np.where(fin, z, np.nanmedian(z) if fin.any() else 0.0).astype(np.float64)
+    # 3x3 Sobel, as the client does
+    a = np.pad(zz, 1, mode="edge")
+    dzdx = ((a[:-2, 2:] + 2 * a[1:-1, 2:] + a[2:, 2:]) - (a[:-2, :-2] + 2 * a[1:-1, :-2] + a[2:, :-2])) / (8 * res) * ve
+    dzdy = ((a[2:, :-2] + 2 * a[2:, 1:-1] + a[2:, 2:]) - (a[:-2, :-2] + 2 * a[:-2, 1:-1] + a[:-2, 2:])) / (8 * res) * ve
+    slope = np.arctan(np.hypot(dzdx, dzdy)); slope_deg = np.degrees(slope); aspect = np.arctan2(dzdy, -dzdx)
+    rgb = np.full(z.shape + (3,), 255.0, np.float32)
+    m = zz - np.floor(zz / MOD_INTERVAL) * MOD_INTERVAL
+    rgb = rgb * (1 - md) + _ramp(MOD_STOPS, m) * md
+    rgb = rgb * (1 - sl) + _ramp(SLOPE_STOPS, np.clip(slope_deg, 0, 90)) * sl
+    zen = np.radians(90 - alt); azr = np.radians(az)
+    hsv = np.clip(np.cos(zen) * np.cos(slope) + np.sin(zen) * np.sin(slope) * np.cos(azr - aspect), 0, 1)[..., None]
+    b = rgb / 255.0
+    hard = 255.0 * np.where(hsv <= 0.5, 2 * b * hsv, 1 - 2 * (1 - b) * (1 - hsv))   # hard light: the shade decides
+    rgb = rgb * (1 - hs) + hard * hs
+    out = np.clip(rgb, 0, 255).astype(np.uint8)
+    out[~fin] = NODATA_RGB
+    return out
 
 
 def png(arr_rgb_or_l):
@@ -266,6 +298,9 @@ def img(kind):
         if kind == "shade":
             src = S.out if (layer in (None, "out")) else S.ref("z", layer)
             return png(hillshade(src, S.grid.res, float(request.args.get("zf", 1))))
+        if kind == "preset":       # the /lidar/ "Preset": mod-5 m banding + slope ramp + hard-light hillshade
+            src = S.out if (layer in (None, "out")) else S.ref("z", layer)
+            return png(preset(src, S.grid.res, ve=float(request.args.get("zf", 1))))
         if kind == "elev":         # elevation ramp clipped to a band; outside the band dark
             src = S.out if (layer in (None, "out")) else S.ref("z", layer)
             lo = float(request.args.get("lo", S.zrange[0])); hi = float(request.args.get("hi", S.zrange[1]))

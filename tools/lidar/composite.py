@@ -32,7 +32,7 @@ from rasterio.windows import Window
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from topobathy import Recipe, fold
 from topobathy.stack import read_layer
-from topobathy.masks import layer_mask, to_uint8
+from topobathy.masks import layer_mask, to_uint8, despeckle, smooth, OPS
 
 TILE_BLOCK = 512          # output block size; tiles must be a multiple so a tile write never splits a block
 
@@ -42,6 +42,37 @@ def parse_window(s, grid):
         return grid.full()
     r0, r1, c0, c1 = (int(v) for v in s.split(","))
     return grid.window(r0, r1, c0, c1)
+
+
+def post_masks(recipe, grid, layers, rules):
+    """The rules' take masks -> each layer's auto mask: the recipe's rules_post (despeckle,
+    feather, ...), which a layer may override with its own (the fill: none -- a pond under the
+    despeckle area or a channel narrower than the feather must still be filled); then the
+    coverage guard: post-processing cleans seams between layers but may never leave a cell
+    uncovered that the rules had covered (two surveys' takes over a pond were complementary
+    speckle, both despeckled, and the hole admitted no fill, 2026-10-11) -- such cells revert
+    to the rules' own winner.  Shared by the build and the mask tool (its refold uses `auto`;
+    with the guard only on the build's final mask, toggling a layer brought the seams back)."""
+    post = recipe.d.get("rules_post", [{"despeckle": {"min_area_m2": 2000}}, {"feather": {"width_m": 20}}])
+    for i, L in enumerate(layers):
+        L["st"] = rules["sigma_total"][i]; L["gate"] = rules["gate"][i]
+        if i == 0:
+            continue
+        m = rules["masks"][i]
+        for step in L["spec"].get("rules_post", post):
+            (name, kw), = step.items()
+            if name == "despeckle": m = despeckle(m, kw["min_area_m2"], grid.res)
+            elif name == "smooth": m = smooth(m, kw["size_m"], grid.res)
+            elif name in OPS: m = OPS[name](m, kw.get("width_m", kw.get("sigma_m", kw.get("dist_m"))), grid.res)
+        L["auto"] = m.astype(np.float32)
+    cov = layers[0]["valid"].copy()
+    for L in layers[1:]:
+        cov |= L["auto"] > 0
+    for i, L in enumerate(layers):
+        if i == 0: continue
+        raw = rules["masks"][i]; fix = ~cov & (raw > 0) & L["valid"]
+        if fix.any():
+            L["auto"] = np.where(fix, raw, L["auto"]).astype(np.float32); cov |= fix
 
 
 def build_window(recipe, grid, win, verbose=True, halo=None, obs_paint=True):
@@ -131,33 +162,13 @@ def _build_window(recipe, grid, win, verbose=True, obs_paint=True):
             rules = axes.state_rules_sequential(layers, target, recipe.d.get("as_of"), recipe.d.get("rates"),
                                                 recipe.d.get("sigma_max", 5.0), recipe.d.get("lowest"), recipe.d.get("margin_m", 0.0))
         layers[0]["rules"] = rules
-        post = recipe.d.get("rules_post", [{"despeckle": {"min_area_m2": 2000}}, {"feather": {"width_m": 20}}])
+        post_masks(recipe, grid, layers, rules)
         for i, L in enumerate(layers):
-            L["st"] = rules["sigma_total"][i]; L["gate"] = rules["gate"][i]
             if i == 0:
                 L["mask"] = L["valid"].astype(np.float32); continue
-            m_raw = rules["masks"][i]; m = m_raw
-            for step in L["spec"].get("rules_post", post):      # a layer may override (the fill: none -- a pond under the despeckle area or a channel narrower than the feather must still be filled)
-                (name, kw), = step.items()
-                if name == "despeckle": m = despeckle(m, kw["min_area_m2"], grid.res)
-                elif name == "smooth": m = smooth(m, kw["size_m"], grid.res)
-                elif name in OPS: m = OPS[name](m, kw.get("width_m", kw.get("sigma_m", kw.get("dist_m"))), grid.res)
-            L["auto"] = m.astype(np.float32)
             p = recipe.paint_path(L["name"])
             paint = read_paint(p, grid, win) if p.exists() else None
             L["mask"] = _effective(L["auto"], L["valid"], paint)
-        # post-processing cleans seams between layers; it may never leave a cell uncovered that
-        # the rules had covered (two surveys' takes over a pond were complementary speckle, both
-        # despeckled, and the hole admitted no fill, 2026-10-11): such cells revert to the
-        # rules' own winner
-        cov = layers[0]["valid"].copy()
-        for L in layers[1:]:
-            cov |= L["mask"] > 0
-        for i, L in enumerate(layers):
-            if i == 0: continue
-            raw = rules["masks"][i]; fix = ~cov & (raw > 0) & L["valid"]
-            if fix.any():
-                L["mask"] = np.where(fix, raw, L["mask"]).astype(np.float32); cov |= fix
     else:
         lower = None; out = None
         for L in layers:
