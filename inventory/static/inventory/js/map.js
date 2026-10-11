@@ -3951,9 +3951,28 @@
                 window.LSTrack && LSTrack.event('overlay', { id: ov.id, side: side });
                 // With the analysis panel open a pane holds one overlay: the
                 // one just chosen replaces whatever the pane showed (and
-                // becomes that axis through _anOverlaysChanged below).
+                // becomes that axis through _anOverlaysChanged below). If
+                // the OTHER pane shows the same overlay the axes swap: it
+                // takes this pane's previous overlay, because a plot of x
+                // against itself is not one, and the panel could not adopt
+                // the pair -- the map and the plot then disagreed (Hig,
+                // 2026-10-10: "the wiring from the left panel broke").
                 if (_anPanelOpen()) {
-                    OVERLAYS.forEach(function (o2) { if (o2 !== ov && _ovState[o2.id]) _ovState[o2.id][side] = false; });
+                    var other = side === 'left' ? 'right' : 'left', prev = null;
+                    OVERLAYS.forEach(function (o2) {
+                        if (o2 === ov || !_ovState[o2.id] || !_ovState[o2.id][side]) return;
+                        if (!prev && o2.values) prev = o2;
+                        _ovState[o2.id][side] = false;
+                    });
+                    if (_ovState[ov.id][other]) {
+                        if (!prev) {   // the pane was empty: fall back to the axis the plot still holds for it
+                            var ks = (typeof LSAnalysis !== 'undefined' && LSAnalysis.keys()) || [];
+                            var want = ks[side === 'left' ? 0 : 1];
+                            prev = OVERLAYS.filter(function (o2) { return o2.values && o2.values.key === want && o2 !== ov; })[0] || null;
+                        }
+                        _ovState[ov.id][other] = false;
+                        if (prev) _ovState[prev.id][other] = true;
+                    }
                     _ovSyncUI();
                 }
                 // Turning it on should show something. Only re-resolve rows
