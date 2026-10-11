@@ -567,7 +567,7 @@ body.inv-article-body {
 #profile-panel { top: 64px; left: 16px; width: 640px; height: 300px; }
 /* The analysis panel (analysis.js) and the permafrost patch detail (permafrost.js) */
 .ls-tool-hidden { display: none !important; }
-#an-float       { top: 64px; right: 16px; width: 520px; height: 440px; }
+#an-float       { top: 64px; right: 16px; width: 780px; height: 440px; }
 #pf-patch-float { top: 64px; left: 16px;  width: 720px; height: 520px; }
 .pf-header { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 10px; border-bottom: 1px solid #eee;
              font-size: 11px; color: #555; flex-wrap: wrap; }
@@ -582,6 +582,9 @@ body.inv-article-body {
 .pf-header button#an-close, .pf-header button#pf-patch-close { border: none; font-size: 15px; line-height: 1; padding: 0 4px; }
 .an-header .an-axis { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; cursor: pointer; }
 .an-header .an-axis select { max-width: 12em; }
+.an-header .an-grid { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; color: #777; }
+.an-header .an-grid input[type=range] { width: 64px; height: 12px; margin: 0; }
+.an-header .an-grid span { min-width: 2em; color: #444; }
 .an-header #an-count { color: #777; white-space: nowrap; margin-left: auto; }
 .an-header #an-clear { font-size: 11px; }
 .an-header #an-clear.disabled { opacity: 0.3; pointer-events: none; }

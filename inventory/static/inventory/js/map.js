@@ -158,6 +158,7 @@
                 if (bx.length === 4 && bx.every(isFinite)) out.ax.brush = { x0: bx[0], x1: bx[1], y0: bx[2], y1: bx[3] };
             }
             if (x.ls === 'count' || x.ls === 'prop') out.ax.ls = x.ls;
+            if (x.gr != null && /^\d$/.test(x.gr)) out.ax.gr = +x.gr;   // the grid slider (2^gr bins merged)
         }
         // Elevation profile: pr = flat lat,lon list (5 dp), pw = window along
         // the line in metres (d0,d1), pve = 0 when the chart is unlocked
@@ -3060,8 +3061,9 @@
             if (!_extSources) _extFetchRegistry();
         }
         // The wiper's right-pane panel lists the same basemaps — refresh it so
-        // newly merged QMS/shared layers appear there too.
-        if (_swipe.on) _wiperPanelRefresh();
+        // newly merged QMS/shared layers appear there too (and the left-pane
+        // panel, when the analysis panel has it up).
+        if (_swipe.on) { _wiperPanelRefresh(); _leftPanelSync(true); }
     }
 
     // Editor-only QMS catalog search box (added at the top of the refmaps panel).
@@ -3566,6 +3568,7 @@
             btn.textContent = _swipe.on ? '✕ Remove wiper' : '＋ Add wiper';
         }
         if (_swipe.on) _wiperPanelShow(); else _wiperPanelHide();
+        _leftPanelSync();
     }
     // Restore a wiper carried in the URL hash (or the saved localStorage view).
     // Called at startup and again after promoted QMS layers merge — a shared
@@ -3717,7 +3720,10 @@
         return det;
     }
 
-    function _overlayRow(ov, side) {
+    // `scope` names the panel a row lives in when two panels drive the same
+    // side (the sidebar and the analysis panel's left-pane panel both
+    // control the left pane); it keeps their _ovRowSync entries apart.
+    function _overlayRow(ov, side, scope) {
         var st = _ovState[ov.id];
         var opKey = side === 'left' ? 'opLeft' : 'opRight';
         var row = document.createElement('div');
@@ -3954,7 +3960,7 @@
             _ovApplyAll();
             if (_mapReady) writeHashState();
         });
-        _ovRowSync[side + '-' + ov.id] = function () {
+        _ovRowSync[(scope || side) + '-' + ov.id] = function () {
             cb.checked = !!st[side];
             op.value = String(Math.round(st[opKey] * 100));
             if (vcb) vcb.checked = ov.variant.get();
@@ -4001,7 +4007,7 @@
         try { return JSON.parse(localStorage.getItem('ls_ov_cats') || '{}') || {}; }
         catch (e) { return {}; }
     })();
-    function _ovRenderGrouped(container, side) {
+    function _ovRenderGrouped(container, side, scope) {
         var byId = {};
         OVERLAYS.forEach(function (ov) { byId[ov.id] = ov; });
         var placed = {};
@@ -4041,7 +4047,7 @@
             sum.className = 'refmaps-category ov-cat-summary';
             sum.textContent = c.label + (activeHere ? ' · ' + activeHere + ' on' : '');
             det.appendChild(sum);
-            c.ovs.forEach(function (ov) { det.appendChild(_overlayRow(ov, side)); });
+            c.ovs.forEach(function (ov) { det.appendChild(_overlayRow(ov, side, scope)); });
             det.addEventListener('toggle', function () {
                 _ovCatPrefs[c.key] = det.open;
                 try { localStorage.setItem('ls_ov_cats', JSON.stringify(_ovCatPrefs)); } catch (e) {}
@@ -4152,7 +4158,8 @@
         head.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:2px;';
         var title = document.createElement('div');
         title.style.cssText = 'flex:1;font-weight:700;font-size:13px;color:#5D4037;';
-        title.textContent = 'Right pane';
+        var an = _anPanelOpen();
+        title.textContent = an ? 'Right pane · y axis' : 'Right pane';
         var x = document.createElement('button');
         x.type = 'button'; x.textContent = '✕';
         x.title = 'Remove the wiper';
@@ -4162,7 +4169,8 @@
         p.appendChild(head);
         var hint = document.createElement('div');
         hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:6px;line-height:1.3;';
-        hint.textContent = 'Controls the right side of the divider. The left sidebar controls the left.';
+        hint.textContent = an ? 'Controls the right side of the divider; its first axis-capable overlay is the plot’s y axis.'
+                             : 'Controls the right side of the divider. The left sidebar controls the left.';
         p.appendChild(hint);
 
         REFMAPS_CATEGORY_ORDER.forEach(function (cat) {
@@ -4189,6 +4197,87 @@
     }
     function _wiperPanelHide() {
         if (_wiperPanel) _wiperPanel.style.display = 'none';
+    }
+
+    // ---------------------------------------------------------------------------
+    // Wiper LEFT-pane panel — the right-pane panel's twin, over the map's left
+    // side, shown only while the analysis panel is open with a wiper (Hig,
+    // 2026-10-10): the panel's x axis is the left pane, and with the sidebar
+    // on the Analysis tab the left pane's controls were otherwise off screen.
+    // Same basemap cards as the sidebar (setBasemap re-highlights them by
+    // data-id) and the same overlay rows, scoped so their sync entries do not
+    // overwrite the sidebar's. No lidar section: the surveys are not axes.
+    // ---------------------------------------------------------------------------
+    var _leftPanel = null;
+    function _anPanelOpen() { return !!(anFP && anFP.isOpen && anFP.isOpen()); }
+    function _leftPanelEnsure() {
+        if (_leftPanel) return _leftPanel;
+        var host = document.getElementById('map').parentNode;
+        var p = document.createElement('div');
+        p.id = 'wiper-panel-left';
+        p.style.cssText = 'position:absolute;top:10px;left:10px;width:272px;' +
+            'max-width:calc(100% - 20px);max-height:calc(100% - 60px);overflow-y:auto;' +
+            'background:#fff;border-radius:4px;box-shadow:0 2px 14px rgba(0,0,0,.28);' +
+            'z-index:9;padding:10px 12px;display:none;font-size:12px;';
+        host.appendChild(p);
+        _leftPanel = p;
+        return p;
+    }
+    function _leftPanelRefresh() {
+        var p = _leftPanelEnsure();
+        p.innerHTML = '';
+        var head = document.createElement('div');
+        head.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:2px;';
+        var title = document.createElement('div');
+        title.style.cssText = 'flex:1;font-weight:700;font-size:13px;color:#5D4037;';
+        title.textContent = 'Left pane · x axis';
+        var x = document.createElement('button');
+        x.type = 'button'; x.textContent = '✕';
+        x.title = 'Hide this panel (the sidebar’s Reference maps tab controls the left pane too)';
+        x.style.cssText = 'border:none;background:none;font-size:15px;color:#888;cursor:pointer;padding:0 2px;';
+        x.addEventListener('click', function () { _leftPanelHidden = true; _leftPanelHide(); });
+        head.appendChild(title); head.appendChild(x);
+        p.appendChild(head);
+        var hint = document.createElement('div');
+        hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:6px;line-height:1.3;';
+        hint.textContent = 'Controls the left side of the divider; its first axis-capable overlay is the plot’s x axis.';
+        p.appendChild(hint);
+
+        REFMAPS_CATEGORY_ORDER.forEach(function (cat) {
+            var inCat = BASEMAPS.filter(function (bm) { return bm.category === cat; });
+            if (!inCat.length) return;
+            var hdr = document.createElement('div');
+            hdr.className = 'refmaps-category'; hdr.textContent = cat;
+            p.appendChild(hdr);
+            var grid = document.createElement('div');
+            grid.className = 'refmaps-grid';
+            inCat.forEach(function (bm) { grid.appendChild(_buildBasemapCard(bm)); });
+            p.appendChild(grid);
+        });
+
+        var ovHdr = document.createElement('div');
+        ovHdr.className = 'refmaps-category'; ovHdr.textContent = 'Overlays';
+        p.appendChild(ovHdr);
+        _ovRenderGrouped(p, 'left', 'lpanel');
+    }
+    // Hidden by its own ✕ until the analysis panel is next opened. Called on
+    // every analysis-panel state change, so it rebuilds the DOM only when the
+    // panel comes up (or `force`, when the basemap list changed); the overlay
+    // rows follow state through _ovRowSync like every other panel's.
+    var _leftPanelHidden = false, _leftPanelWasOpen = false;
+    function _leftPanelSync(force) {
+        var an = _anPanelOpen(), changed = an !== _leftPanelWasOpen;
+        if (an && changed) _leftPanelHidden = false;
+        _leftPanelWasOpen = an;
+        if (_swipe.on && an && !_leftPanelHidden) {
+            var p = _leftPanelEnsure();
+            if (p.style.display === 'none' || force) { p.style.display = ''; _leftPanelRefresh(); }
+        } else _leftPanelHide();
+        // The right panel's title names the y axis while the analysis panel is open.
+        if (changed && _swipe.on && _wiperPanel && _wiperPanel.style.display !== 'none') _wiperPanelRefresh();
+    }
+    function _leftPanelHide() {
+        if (_leftPanel) _leftPanel.style.display = 'none';
     }
 
     // ---------------------------------------------------------------------------
@@ -9449,9 +9538,10 @@
                 showDetail(id);
             },
             onPermafrost: function (c) { if (typeof LSPermafrost !== 'undefined' && c) LSPermafrost.show(c); },
-            onChange: function () { if (_mapReady) writeHashState(); }
+            onChange: function () { if (_mapReady) writeHashState(); _leftPanelSync(); }
         });
         anFP = LSAnalysis.panel();
+        _leftPanelSync();
     }
     // The permafrost patch detail (permafrost.js, Panel B of the old
     // permafrost panel): the four patch.py plots for the sample circle,
@@ -9942,6 +10032,7 @@
               o.extras.ax = st.x + '|' + st.y;
               if (st.brush) o.extras.bx = [st.brush.x0, st.brush.x1, st.brush.y0, st.brush.y1].join(',');
               if (st.ls) o.extras.ls = st.ls;
+              if (st.gr) o.extras.gr = String(st.gr);
           },
           apply: function (s) {
               if (s.ax && typeof LSAnalysis !== 'undefined') LSAnalysis.setState(s.ax);

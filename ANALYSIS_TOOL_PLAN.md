@@ -24,6 +24,16 @@ product and a 60 m one meet at the same lattice point, as a landslide
 does). Phase 3 remains as written below, plus: dh/dt and IceBoost need a
 warp to one grid before they can join the cube (per-UTM-zone tiles).
 
+**Hig's review of the first cut (2026-10-10), applied the same day:** a
+left-pane control panel over the map twinning the wiper's right-pane one
+(both axes get basemap + overlay controls on the map); the sample is a
+tool that stays on, with the footprint following the cursor so one can
+click around; the plot is split into a *terrain* plot (density, with the
+sample highlighted) and a *landslides* plot (points / count per cell / per
+1000 km²) on the same axes, with a grid slider that coarsens both in
+factor-of-2 merges; in the grid modes the sample's landslides are drawn as
+points over the unchanged grid.
+
 *The original plan follows.* The permafrost panel (`permafrost.js`) and the
 susceptibility scatter were the two concrete instances this generalised.
 

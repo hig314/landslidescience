@@ -495,12 +495,15 @@
           <select id="an-x"></select></label>
         <label class="an-axis" title="The y axis: the overlay on the wiper's RIGHT pane.">×&nbsp;y
           <select id="an-y"></select></label>
-        <select id="an-ls" title="How the landslides are drawn: each as a point at its own values; or per cell of the plot, as a count or as landslides per 1000 km² of terrain with those values.">
-          <option value="points" selected>points</option>
-          <option value="count">count / cell</option>
-          <option value="prop">per 1000 km²</option>
-        </select>
-        <button type="button" id="an-sample" title="Sample: click the map to read every cell inside a circle of this radius onto the plot (60 m where both axes have value archives, else the 1 km cells).">&#9678; Sample</button>
+        <label class="an-grid" title="Coarsen both plots together: each step merges 2×2 of the cells below it, so the terrain density and the landslide grid stay on one scale.">grid
+          <input type="range" id="an-grid" min="0" max="0" step="1" value="0"><span id="an-gridv">1×</span></label>
+        <label class="an-axis" title="The landslide plot: each landslide as a point at its own values; or per cell, as a count or as landslides per 1000 km² of terrain with those values. With a sample set, the landslides inside it are always drawn as points.">slides
+          <select id="an-ls">
+            <option value="points" selected>points</option>
+            <option value="count">count / cell</option>
+            <option value="prop">per 1000 km²</option>
+          </select></label>
+        <button type="button" id="an-sample" title="Sample tool: a circle of this radius follows the cursor over the map; each click reads every cell inside it onto the terrain plot (60 m where both axes have value archives, else the 1 km cells) and draws the landslides inside it as points. Click again, or Esc, to put the tool away.">&#9678; Sample</button>
         <input type="number" id="an-radius" min="1" max="30" step="1" value="10" title="Sample radius, km"><span class="pf-unit">km</span>
         <button type="button" id="an-pf" style="display:none" title="The permafrost patch plots for this sample: the published 1 km cells and the 60 m downscale against elevation, with the fitted lapse and curve.">Permafrost detail</button>
         <span id="an-count"></span>
@@ -508,7 +511,7 @@
         <button type="button" id="an-close" title="Close">&times;</button>
       </div>
       <div id="an-body"><canvas id="an-heat"></canvas><svg id="an-svg"></svg>
-        <div class="scatter-hint">drag to box a range · drag header to move · grab corner to resize</div>
+        <div class="scatter-hint">drag a box on either plot to select · drag header to move · grab corner to resize</div>
         <div id="an-note"></div></div>
       <div id="an-foot" class="scatter-legend-foot" style="display:none"></div>
     </div>

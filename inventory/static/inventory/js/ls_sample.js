@@ -1,8 +1,12 @@
 /* The sample tool: a circle on the map, and two ways to read what is inside it.
  *
  * One circle, shared by whoever asks (the analysis panel, the permafrost
- * detail panel). Arm the tool, click the map, and the circle is set; it is
- * drawn on the map and rides the URL as smp=lat,lon,r_km (map.js
+ * detail panel). Arm the tool and a ghost of the circle follows the cursor
+ * at the current radius -- the footprint the next click would read; click
+ * and the circle is set there, and the tool STAYS armed so the next click
+ * moves it (Hig, 2026-10-10: "users can click in different places to see
+ * what they get"). Esc, or the panel's button, puts the tool away. The
+ * circle is drawn on the map and rides the URL as smp=lat,lon,r_km (map.js
  * _VIEW_PARAMS). Registered as an LSTools mode with no toolbar button:
  * the sampler belongs to the panels that use it (Hig, 2026-10-09).
  *
@@ -37,11 +41,11 @@ window.LSSample = (function () {
     aspect60: { derive: 'aspect', from: 'elev60' },
     north60:  { derive: 'north',  from: 'elev60' }
   };
-  var SRC = 'ls-sample', COLOR = '#ff8f00';
+  var SRC = 'ls-sample', GHOST = 'ls-sample-ghost', COLOR = '#ff8f00';
 
   var map = null, apiBase = '', onArm = function () {};
   var circle = null, pending = null, listeners = [];
-  var armed = false, radius = 10;
+  var armed = false, radius = 10, ghostAt = null;
   var archives = {}, tileCache = {};
 
   function init(opts) {
@@ -55,6 +59,8 @@ window.LSSample = (function () {
     });
     LSTools.clicks.register({ id: 'sample', kind: 'action', holders: ['sample'],
                               handler: function (_f, e) { onMapClick(e); } });
+    map.on('mousemove', function (e) { if (armed) { ghostAt = e.lngLat; renderGhost(); } });
+    map.on('mouseout', function () { if (ghostAt) { ghostAt = null; renderGhost(); } });
     map.on('style.load', ensureLayers);
     if (map.isStyleLoaded()) ensureLayers();
     if (pending) { var p = pending; pending = null; set(p.lon, p.lat, p.r); }
@@ -68,11 +74,21 @@ window.LSSample = (function () {
       map.addLayer({ id: SRC + '-fill', type: 'fill', source: SRC, paint: { 'fill-color': COLOR, 'fill-opacity': 0.08 } });
       map.addLayer({ id: SRC + '-line', type: 'line', source: SRC, paint: { 'line-color': COLOR, 'line-width': 2, 'line-dasharray': [3, 2] } });
     }
-    render();
+    // The ghost: the footprint under the cursor while the tool is armed.
+    if (!map.getSource(GHOST)) map.addSource(GHOST, { type: 'geojson', data: fc([]) });
+    if (!map.getLayer(GHOST)) {
+      map.addLayer({ id: GHOST, type: 'line', source: GHOST, paint: { 'line-color': COLOR, 'line-width': 1.5, 'line-opacity': 0.7, 'line-dasharray': [2, 2] } });
+    }
+    render(); renderGhost();
   }
+  function disc(lon, lat, r) { return turf.circle([lon, lat], r, { units: 'kilometers', steps: 72 }); }
   function render() {
     if (!map || !map.getSource(SRC)) return;
-    map.getSource(SRC).setData(fc(circle ? [turf.circle([circle.lon, circle.lat], circle.r, { units: 'kilometers', steps: 72 })] : []));
+    map.getSource(SRC).setData(fc(circle ? [disc(circle.lon, circle.lat, circle.r)] : []));
+  }
+  function renderGhost() {
+    if (!map || !map.getSource(GHOST)) return;
+    map.getSource(GHOST).setData(fc(armed && ghostAt ? [disc(ghostAt.lng, ghostAt.lat, radius)] : []));
   }
   function emit() { listeners.forEach(function (fn) { fn(circle); }); }
   function set(lon, lat, r) {
@@ -94,16 +110,18 @@ window.LSSample = (function () {
   // ---- the tool ----------------------------------------------------------------
   function setArmed(on) {
     armed = on;
-    if (on) LSTools.cursor.set('tool', 'crosshair'); else LSTools.cursor.clear('tool');
+    if (on) LSTools.cursor.set('tool', 'crosshair'); else { LSTools.cursor.clear('tool'); ghostAt = null; }
+    renderGhost();
     onArm(on);
   }
   function arm(r) { if (r) radius = r; if (LSTools.claim('sample')) setArmed(true); }
   function disarm() { if (armed) { LSTools.release('sample'); setArmed(false); } }
   function isArmed() { return armed; }
+  function setRadius(r) { radius = Math.max(R_MIN, Math.min(R_MAX, r || radius)); renderGhost(); }
+  // Each click sets the sample there; the tool stays armed for the next one.
   function onMapClick(e) {
     if (!armed) return;
     set(e.lngLat.lng, e.lngLat.lat, radius);
-    LSTools.release('sample'); setArmed(false);
     window.LSTrack && LSTrack.event('map_tool', { tool: 'sample' });
   }
 
@@ -225,5 +243,5 @@ window.LSSample = (function () {
   }
 
   return { init: init, FINE: FINE, set: set, clear: clear, get: get, on: on, inside: inside,
-           arm: arm, disarm: disarm, isArmed: isArmed, cells: cells, fine: fine, state: state, setState: setState };
+           arm: arm, disarm: disarm, isArmed: isArmed, setRadius: setRadius, cells: cells, fine: fine, state: state, setState: setState };
 })();
