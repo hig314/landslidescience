@@ -270,9 +270,17 @@
   projected to Alaska Albers; they are the same grids the permafrost
   downscale below uses, so an analysis that crosses them with a permafrost
   layer is comparing like with like. Slope and aspect are the standard
-  Horn gradient on the 60&nbsp;m grid; flat cells carry aspect 0 and so read
-  as north-facing in the aspect layer, which is why northness (zero on flat
-  ground) is the better layer for slope-direction questions. Sea is masked
+  Horn gradient on the 60&nbsp;m grid; in the aspect <em>layer</em> flat
+  cells carry aspect 0 and so read as north-facing, which is why northness
+  (zero on flat ground) is the better layer for slope-direction questions.
+  In the analysis panel's aspect axis flat cells are left out instead:
+  read as 0 they put 2.5&nbsp;% of the land in the first bin, a threefold
+  spike at north. A second, smaller artefact remains on ground under
+  1&deg; of slope, where the gradient's two components are often equal
+  and aspect piles up at 45&deg;, 135&deg;, 225&deg; and 315&deg; (three
+  to four times the neighbouring degrees; invisible above 1&deg;); it is
+  a property of the derived grid, so read the aspect axis of nearly flat
+  ground with that in mind. Sea is masked
   at the grid's own 60&nbsp;m. Two of these layers behave differently from
   an ordinary map: <strong>slope is recomputed at every zoom level</strong>
   from elevation averaged to that level's ground resolution (about
@@ -417,19 +425,24 @@
   drawn from, so the comparison would mislead. The density of any pair is
   computed on request from those samples (land cells with a value for
   both) and drawn log-scaled in blue as the <em>terrain</em> plot. Beside
-  it, on the same axes, the <em>landslides</em> plot draws each landslide
-  as a point, or per cell as a count or a rate (landslides per
-  1000&nbsp;km² of terrain with those values), the latter being the
-  reading that says anything: the terrain density is what turns "landslides
-  are here" into "landslides are here more than terrain is". A grid slider
-  coarsens both plots together in factor-of-two steps, each step merging
-  2&times;2 of the cells below it, so the rate is always a count divided by
-  the terrain in the same merged cell. The DGGS susceptibility classes are
-  ordinal, so that axis is spaced by class position, not class number.
+  it, on the same axes and over a faint copy of the same terrain, the
+  <em>landslides</em> plot draws each landslide as a point, or per cell as
+  a count or a rate (landslides per 1000&nbsp;km² of terrain with those
+  values), the latter being the reading that says anything: the terrain
+  density is what turns "landslides are here" into "landslides are here
+  more than terrain is". A grid slider coarsens both plots together in
+  factor-of-two steps, each step merging 2&times;2 of the cells below it:
+  a merged cell's count is the sum of its cells' counts and its terrain
+  the sum of their areas, so its rate is the area-weighted mean of the
+  rates below it, empty cells included &mdash; never a mean of rates. A
+  cell holding landslides but no sampled terrain has no rate and is shown
+  in the off-scale colour rather than dropped. The DGGS susceptibility
+  classes are ordinal, so that axis is spaced by class position, not class
+  number; a flat cell has no aspect and is left out of that axis.
 </p>
 <p>
   <strong>Sample and brush.</strong> The <em>Sample</em> tool shows a
-  circle of the chosen radius (up to 30&nbsp;km) under the cursor as it
+  circle of the chosen diameter (up to 100&nbsp;km) under the cursor as it
   moves over the map; each click reads the ground inside it onto the
   terrain plot as an orange cloud &mdash; from 60&nbsp;m value archives
   where both axes have them, otherwise the lattice cells &mdash; with the

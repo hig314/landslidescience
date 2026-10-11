@@ -36,7 +36,11 @@ points over the unchanged grid. Second pass the same day: the sample goes
 away with the tool; while the panel is open a pane holds exactly one
 axis-capable overlay (non-axis ones off and locked, extras pruned, a new
 pick replaces the old — which also fixed picks in the left panel not
-taking).
+taking). Third pass: overlay groups fold to what is selected; a faint
+terrain under the landslide plot; the sample size is a diameter (up to
+100 km) with a filled ghost; the merge rule checked (Σcount/Σarea, zeros
+included; no-terrain cells shown in the catch colour); the aspect axis's
+flat-cell spike found and masked (HAZARDS).
 
 *The original plan follows.* The permafrost panel (`permafrost.js`) and the
 susceptibility scatter were the two concrete instances this generalised.

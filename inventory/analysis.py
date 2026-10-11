@@ -19,7 +19,7 @@ once per process. Three endpoints:
       process. An ordinal quantity (DGGS) bins by class position.
   GET api/analysis/sample/?lon=&lat=&r=<km>&q=<key>,<key>
       -> {n, lon: [...], lat: [...], <key>: [...], ...}
-      the lattice cells inside a circle (r <= 30 km), columnar; the sample
+      the lattice cells inside a circle (r <= 50 km), columnar; the sample
       "blotch" for a quantity that has no client-readable value tiles.
 """
 import json
@@ -30,7 +30,7 @@ from django.conf import settings
 from django.http import JsonResponse
 
 CUBE = Path(settings.BASE_DIR) / 'data' / 'quantities'
-R_MAX_KM = 30.0
+R_MAX_KM = 50.0      # the panel's sample is up to 100 km across
 _cache = {}
 
 

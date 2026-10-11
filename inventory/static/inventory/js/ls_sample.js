@@ -31,7 +31,7 @@
 window.LSSample = (function () {
   'use strict';
 
-  var Z = 10, KEEP = 9000, R_MIN = 0.5, R_MAX = 30;
+  var Z = 10, KEEP = 9000, R_MIN = 0.5, R_MAX = 50;   // radius, km (the panel shows the diameter)
   // The fine fields: an archive (terrain-RGB / scale) or a derivation from one.
   var FINE = {
     elev60:   { archive: 'pfv_elev60', scale: 0.1 },
@@ -61,8 +61,10 @@ window.LSSample = (function () {
     });
     LSTools.clicks.register({ id: 'sample', kind: 'action', holders: ['sample'],
                               handler: function (_f, e) { onMapClick(e); } });
-    map.on('mousemove', function (e) { if (armed) { ghostAt = e.lngLat; renderGhost(); } });
-    map.on('mouseout', function () { if (ghostAt) { ghostAt = null; renderGhost(); } });
+    // The cursor is tracked whether or not the tool is on, so arming it
+    // shows the footprint at once rather than after the first movement.
+    map.on('mousemove', function (e) { ghostAt = e.lngLat; if (armed) renderGhost(); });
+    map.on('mouseout', function () { ghostAt = null; if (armed) renderGhost(); });
     map.on('style.load', ensureLayers);
     if (map.isStyleLoaded()) ensureLayers();
     if (pending) { var p = pending; pending = null; set(p.lon, p.lat, p.r); arm(p.r); }
@@ -79,7 +81,8 @@ window.LSSample = (function () {
     // The ghost: the footprint under the cursor while the tool is armed.
     if (!map.getSource(GHOST)) map.addSource(GHOST, { type: 'geojson', data: fc([]) });
     if (!map.getLayer(GHOST)) {
-      map.addLayer({ id: GHOST, type: 'line', source: GHOST, paint: { 'line-color': COLOR, 'line-width': 1.5, 'line-opacity': 0.7, 'line-dasharray': [2, 2] } });
+      map.addLayer({ id: GHOST + '-fill', type: 'fill', source: GHOST, paint: { 'fill-color': COLOR, 'fill-opacity': 0.12 } });
+      map.addLayer({ id: GHOST, type: 'line', source: GHOST, paint: { 'line-color': COLOR, 'line-width': 2, 'line-opacity': 0.9, 'line-dasharray': [2, 2] } });
     }
     render(); renderGhost();
   }
@@ -113,7 +116,7 @@ window.LSSample = (function () {
   function setArmed(on) {
     armed = on;
     if (on) LSTools.cursor.set('tool', 'crosshair');
-    else { LSTools.cursor.clear('tool'); ghostAt = null; clear(); }   // the sample goes with the tool
+    else { LSTools.cursor.clear('tool'); clear(); }   // the sample goes with the tool
     renderGhost();
     onArm(on);
   }
@@ -162,11 +165,13 @@ window.LSSample = (function () {
     }
     return tileCache[key];
   }
-  // Slope (deg), aspect (deg clockwise from north, downslope direction; flat
-  // = 0 like gdaldem -zero_for_flat) and northness = cos(aspect)·sin(slope)
-  // for every pixel of an elevation tile: a 3x3 central-difference gradient,
-  // one-sided at the tile edge. Matches the sign convention of the baked
-  // 60 m rasters (gdaldem): a north-facing slope has aspect 0 and +northness.
+  // Slope (deg), aspect (deg clockwise from north, downslope direction; a
+  // flat cell has NO aspect -- NaN, not 0: read as 0 it piled every flat
+  // cell onto north, a 3x spike in the cube's first bin) and northness =
+  // cos(aspect)·sin(slope) (0 when flat) for every pixel of an elevation
+  // tile: a 3x3 central-difference gradient, one-sided at the tile edge.
+  // Matches the sign convention of the baked 60 m rasters (gdaldem): a
+  // north-facing slope has aspect 0 and +northness.
   function terrain(t, lat) {
     var w = t.w, h = t.h, d = t.data, slope = new Float32Array(w * h), aspect = new Float32Array(w * h), north = new Float32Array(w * h);
     var px = 40075016.686 * Math.cos(lat * Math.PI / 180) / (w * Math.pow(2, Z));
@@ -177,7 +182,8 @@ window.LSSample = (function () {
       var dzdy = (d[y0 * w + x] - d[y1 * w + x]) / ((y1 - y0) * px);      // north
       if (isNaN(dzdx) || isNaN(dzdy)) { slope[i] = aspect[i] = north[i] = NaN; continue; }
       var s = Math.atan(Math.hypot(dzdx, dzdy));
-      var a = (dzdx === 0 && dzdy === 0) ? 0 : Math.atan2(-dzdx, -dzdy);  // downslope azimuth, 0 = north
+      if (dzdx === 0 && dzdy === 0) { slope[i] = 0; aspect[i] = NaN; north[i] = 0; continue; }
+      var a = Math.atan2(-dzdx, -dzdy);  // downslope azimuth, 0 = north
       if (a < 0) a += 2 * Math.PI;
       slope[i] = s * 180 / Math.PI; aspect[i] = a * 180 / Math.PI; north[i] = Math.cos(a) * Math.sin(s);
     }

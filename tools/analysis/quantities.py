@@ -34,7 +34,7 @@ QUANTITIES = {
     'slope':  dict(overlay='sp-slope', label='Slope', units='°', range=(0, 60), bins=60, res='60 m',
                    src=B / 'out/slope60_land.tif'),
     'aspect': dict(overlay='sp-aspect', label='Aspect', units='° from N', range=(0, 360), bins=36, res='60 m',
-                   src=B / 'out/aspect60_land.tif', note='flat cells read as 0 (north)'),
+                   src=B / 'out/aspect60_land.tif', note='flat cells have no aspect (masked)'),
     'north':  dict(overlay='sp-north', label='Northness', units='', range=(-1, 1), bins=40, res='60 m',
                    src=B / 'out/northness60_land.tif', note='cos(aspect)·sin(slope)'),
     # ---- Climate / subsurface: the three permafrost products and our downscale --

@@ -139,7 +139,8 @@ window.LSAnalysis = (function () {
   function panel() { return fp; }
   function q(k) { return quantities && quantities[k]; }
   function available(k) { return !quantities || !!quantities[k]; }   // before the registry arrives, assume yes
-  function radius() { return Math.max(1, Math.min(30, parseFloat(el.radius.value) || 10)); }
+  // The header shows the circle's DIAMETER ("a 20 km sample" is 20 km across); LSSample works in radius.
+  function radius() { return Math.max(0.5, Math.min(50, (parseFloat(el.radius.value) || 20) / 2)); }
 
   // ---- pickers ------------------------------------------------------------------------
   function fillPickers() {
@@ -286,6 +287,8 @@ window.LSAnalysis = (function () {
     p.then(function (b) { if (my !== blotchSeq) return; blotch = b; draw(); }).catch(function () {});
   }
   function onSample() {
+    var c = LSSample.get();
+    if (c && el.radius && Math.abs(parseFloat(el.radius.value) - 2 * c.r) > 0.01) el.radius.value = 2 * c.r;   // a sample from the URL
     refreshBlotch(); draw(); o.onChange();
   }
 
@@ -387,33 +390,42 @@ window.LSAnalysis = (function () {
     var lg = coarsen(lsRaw, nx, ny, level);                              // landslides, merged
     var grid = lsMode !== 'points', i, xi, yi, r;
 
-    // pane 0: the terrain density, log blues
+    // pane 0: the terrain density, log blues -- and a faint copy of it under
+    // the landslide pane, so the two read against the same ground.
     var tMax = 0;
     if (tg) {
       for (i = 0; i < tg.g.length; i++) if (tg.g[i] > tMax) tMax = tg.g[i];
       var lmax = Math.log(tMax + 1);
       for (yi = 0; yi < cny; yi++) for (xi = 0; xi < cnx; xi++) {
         var tv = tg.g[yi * cnx + xi]; if (!tv) continue;
-        r = panes[0].cell(xi, yi);
         ctx.fillStyle = blues(Math.log(tv + 1) / lmax);
-        ctx.fillRect(r[0], r[1], r[2], r[3]);
+        r = panes[0].cell(xi, yi); ctx.fillRect(r[0], r[1], r[2], r[3]);
+        ctx.globalAlpha = 0.28;
+        r = panes[1].cell(xi, yi); ctx.fillRect(r[0], r[1], r[2], r[3]);
+        ctx.globalAlpha = 1;
       }
     }
-    // pane 1: the landslide grid (count, or per 1000 km² of the SAME merged terrain cells)
-    var lBins = null;
+    // pane 1: the landslide grid. A merged cell's count is the sum of its
+    // raw cells' counts and its terrain the sum of their km², so the rate
+    // (count / km² x 1000) is the area-weighted mean of the raw rates with
+    // the empty raw cells weighing in -- not a mean of rates. A cell with
+    // landslides but no sampled terrain has no rate; it is drawn in the
+    // catch colour rather than dropped.
+    var lBins = null, noTerrain = 0;
     if (grid) {
       var lsVals = new Float64Array(lg.g.length), lsMax = 0;
       for (i = 0; i < lg.g.length; i++) {
         if (!lg.g[i]) continue;
         var tc = tg ? tg.g[i] : 0;
-        var v = lsMode === 'prop' ? (tc > 0 ? lg.g[i] / tc * 1000 : 0) : lg.g[i];   // cells are 1 km²
+        var v = lsMode === 'prop' ? (tc > 0 ? lg.g[i] / tc * 1000 : -1) : lg.g[i];   // cells are 1 km²; -1 = no terrain
         lsVals[i] = v; if (v > lsMax) lsMax = v;
       }
       lBins = logCatchBinner(lsMax, LS_RAMP.length);
       for (yi = 0; yi < cny; yi++) for (xi = 0; xi < cnx; xi++) {
         i = yi * cnx + xi; if (!lsVals[i]) continue;
         r = panes[1].cell(xi, yi);
-        var b = lBins.bin(lsVals[i]);
+        var b = lsVals[i] < 0 ? 0 : lBins.bin(lsVals[i]);
+        if (lsVals[i] < 0) noTerrain++;
         ctx.fillStyle = b === 0 ? LS_CATCH : LS_RAMP[b - 1];
         ctx.fillRect(r[0], r[1], r[2], r[3]);
       }
@@ -485,7 +497,7 @@ window.LSAnalysis = (function () {
     if (hl.length) msg += ' · ' + hl.length + ' selected';
     el.count.textContent = msg;
     el.note.textContent = cubeError ? cubeError : (dens ? '' : (quantities && !q(X) || quantities && !q(Y) ? 'no terrain density for this pair on this server' : ''));
-    foot(qx, qy, tMax, lBins, inSample);
+    foot(qx, qy, tMax, lBins, inSample, noTerrain);
   }
   function ticks(ax) {
     if (ax.classes) return ax.classes.map(function (c, i) { return { p: i + 0.5, l: String(c) }; });
@@ -493,7 +505,7 @@ window.LSAnalysis = (function () {
     for (var v = Math.ceil(ax.min / st) * st; v <= ax.max + 1e-9; v += st) out.push({ p: v, l: fmtV(ax, v) });
     return out;
   }
-  function foot(qx, qy, tMax, lBins, inSample) {
+  function foot(qx, qy, tMax, lBins, inSample, noTerrain) {
     var html = '', edges = function (e) { return '<div class="leg-edges">' + e.map(function (v) { return '<span>' + fmtNum(v) + '</span>'; }).join('') + '</div>'; };
     if (tMax) {   // the terrain's log scale, as a gradient from 1 km² to the fullest cell
       var n = 6, stops = [], labs = [];
@@ -502,7 +514,8 @@ window.LSAnalysis = (function () {
               '<div class="leg-bar" style="background:linear-gradient(to right,' + stops.join(',') + ')"></div>' + edges([1, labs[2], labs[4], tMax]) + '</div></div>';
     }
     if (lBins) {
-      var bar = '<div class="leg-bar"><span style="background:' + LS_CATCH + '" title="above zero, below ' + fmtNum(lBins.edges[1]) + '"></span>' +
+      var catchTitle = 'above zero, below ' + fmtNum(lBins.edges[1]) + (noTerrain ? '; or landslides in a cell with no sampled terrain (' + noTerrain + ')' : '');
+      var bar = '<div class="leg-bar"><span style="background:' + LS_CATCH + '" title="' + catchTitle + '"></span>' +
                 LS_RAMP.map(function (c, i) {
                   return '<span style="background:' + c + '" title="' + fmtNum(lBins.edges[i + 1]) + ' – ' + fmtNum(lBins.edges[i + 2]) + '"></span>';
                 }).join('') + '</div>';
@@ -511,7 +524,7 @@ window.LSAnalysis = (function () {
     }
     var c = LSSample.get();
     if (c) {
-      var s = 'Sample ' + c.r + ' km at ' + c.lat.toFixed(3) + ' N ' + (-c.lon).toFixed(3) + ' W';
+      var s = 'Sample ⌀ ' + (2 * c.r) + ' km at ' + c.lat.toFixed(3) + ' N ' + (-c.lon).toFixed(3) + ' W';
       if (blotch && blotch.x) {
         s += ' · ' + blotch.n + (blotch.fine ? ' cells at 60 m' : ' cells at 1 km') +
              ' · ' + summary(qx, blotch.x) + ' · ' + summary(qy, blotch.y) + ' · ' + inSample + ' landslide' + (inSample === 1 ? '' : 's') + ' inside';
@@ -636,7 +649,7 @@ window.LSAnalysis = (function () {
       var cxi = Math.min(P.cnx - 1, Math.floor((l.x - pn.x0) / (P.cw * P.f))), cyi = Math.min(P.cny - 1, Math.floor((pn.y0 + P.d.h - l.y) / (P.ch * P.f)));
       var tc = P.tg ? P.tg.g[cyi * P.cnx + cxi] || 0 : 0, lc = P.lg.g[cyi * P.cnx + cxi] || 0;
       html = cellLabel(P.qx, cxi, P.qx.bins) + ', ' + cellLabel(P.qy, cyi, P.qy.bins) + ' · ' + fmtNum(tc) + ' km² · ' +
-             lc + ' slide' + (lc === 1 ? '' : 's') + (lc && tc ? ' (' + fmtNum(lc / tc * 1000) + '/1000 km²)' : '');
+             lc + ' slide' + (lc === 1 ? '' : 's') + (lc && tc ? ' (' + fmtNum(lc / tc * 1000) + '/1000 km²)' : lc ? ' (no sampled terrain)' : '');
     }
     if (!html) { el.tip.style.display = 'none'; return; }
     el.tip.innerHTML = html; el.tip.style.display = 'block';

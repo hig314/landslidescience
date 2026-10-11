@@ -108,6 +108,11 @@ def build(key, xs, ys):
         bad |= g == nd
     if 'classes' in q:
         bad |= ~np.isin(g, q['classes'])
+    if key == 'aspect' and (OUT / 'slope.npy').exists():
+        # gdaldem -zero_for_flat writes 0 for a flat cell, which read as
+        # "north" put 57,580 cells (2.5 % of land) in the first bin, a 3x
+        # spike (found by Hig, 2026-10-10). A flat cell has no aspect.
+        bad |= np.load(OUT / 'slope.npy') == 0
     g[bad] = np.nan
     np.save(OUT / f'{key}.npy', g)
     ok = np.isfinite(g)

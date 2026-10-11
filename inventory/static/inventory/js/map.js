@@ -145,7 +145,7 @@
         var smp = x.smp != null ? x.smp : x.pp;
         if (smp != null) {
             var pp = smp.split(',').map(parseFloat);
-            if (pp.length === 3 && pp.every(isFinite) && Math.abs(pp[0]) <= 90 && Math.abs(pp[1]) <= 540 && pp[2] > 0 && pp[2] <= 30) {
+            if (pp.length === 3 && pp.every(isFinite) && Math.abs(pp[0]) <= 90 && Math.abs(pp[1]) <= 540 && pp[2] > 0 && pp[2] <= 50) {
                 out.smp = { lat: pp[0], lon: pp[1], r: pp[2] };
             }
         }
@@ -4016,12 +4016,15 @@
         { key: 'sub',   label: 'Subsurface',
           ids: ['pf-gruber-pzi', 'pf-gruber-pzi60', 'pf-obu-prob', 'pf-obu-prob60', 'pf-pastick-nsp', 'geology'] },
     ];
-    var _ovCatPrefs = (function () {
-        try { return JSON.parse(localStorage.getItem('ls_ov_cats') || '{}') || {}; }
-        catch (e) { return {}; }
-    })();
     // `onlyAxes` lists just the overlays that can be an analysis axis -- the
     // two pane panels while the analysis panel is open.
+    //
+    // A group is open exactly when one of its overlays is on in THIS pane,
+    // re-evaluated whenever overlay state changes (through _ovRowSync, like
+    // the rows), so what is selected is always in view and nothing else is
+    // unfolded (Hig, 2026-10-10). A group the user unfolds by hand stays
+    // unfolded until the next change. The per-browser remembered toggles
+    // this replaced (ls_ov_cats) are no longer read.
     function _ovRenderGrouped(container, side, scope, onlyAxes) {
         var byId = {};
         OVERLAYS.forEach(function (ov) { byId[ov.id] = ov; });
@@ -4046,28 +4049,24 @@
             // group read "1 on" with all of its boxes unticked -- and with no
             // wiper open, the right-pane state being counted was not on
             // screen anywhere, so the label pointed at nothing at all.
-            var activeHere = c.ovs.filter(function (ov) {
-                var st = _ovState[ov.id];
-                return st && st[side];
-            }).length;
-            // Whether to OPEN the group still asks about either pane, which
-            // is deliberate (see the note above _OV_CATS): showing an empty
-            // section beats hiding the controls of something that is drawn.
-            var activeEither = c.ovs.filter(function (ov) {
-                var st = _ovState[ov.id];
-                return st && (st.left || st.right);
-            }).length;
+            var activeHere = function () {
+                return c.ovs.filter(function (ov) {
+                    var st = _ovState[ov.id];
+                    return st && st[side];
+                }).length;
+            };
             var det = document.createElement('details');
-            det.open = (c.key in _ovCatPrefs) ? !!_ovCatPrefs[c.key] : activeEither > 0;
             var sum = document.createElement('summary');
             sum.className = 'refmaps-category ov-cat-summary';
-            sum.textContent = c.label + (activeHere ? ' · ' + activeHere + ' on' : '');
             det.appendChild(sum);
             c.ovs.forEach(function (ov) { det.appendChild(_overlayRow(ov, side, scope)); });
-            det.addEventListener('toggle', function () {
-                _ovCatPrefs[c.key] = det.open;
-                try { localStorage.setItem('ls_ov_cats', JSON.stringify(_ovCatPrefs)); } catch (e) {}
-            });
+            var fold = function () {
+                var n = activeHere();
+                det.open = n > 0;
+                sum.textContent = c.label + (n ? ' · ' + n + ' on' : '');
+            };
+            _ovRowSync[(scope || side) + '-cat-' + c.key] = fold;
+            fold();
             container.appendChild(det);
         });
     }

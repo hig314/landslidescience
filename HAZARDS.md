@@ -238,6 +238,18 @@ CLAUDE.md §/glaciers:
   `atan2(−dz/dx, −dz/dy)` with y northward; `ls_sample.js terrain()` has
   it, and the check is a circle read both ways (lattice cells vs 60 m
   tiles) agreeing on the north-facing fraction.
+- **Aspect histograms have two spikes that are not terrain.** (1) Flat
+  cells: `gdaldem -zero_for_flat` writes 0, which read as "north" put
+  57,580 of the cube's 2.33 M land cells (2.5 %) in the 0–10° bin — 3× its
+  neighbours. Hig saw the bump (2026-10-10); the cube, the landslide
+  values and the browser derivation now mask aspect where slope == 0
+  (northness is 0 there anyway). (2) On ground under 1° of slope the two
+  gradient components are often exactly equal, so aspect piles up at
+  45/135/225/315° at 3–4× the neighbouring degrees (1.2–1.7× at
+  0/90/180/270°); between 1° and 3° the excess is already gone. That is a
+  property of the derived 60 m grid, not fixed — a slope floor on the
+  aspect axis would be the fix if it ever matters, applied in the cube and
+  the sampler together.
 - **`gdalbuildvrt` silently drops tiles in a different projection** (one
   warning per tile, exit 0). Hugonnet's dh/dt and IceBoost come as
   per-UTM-zone files, so a VRT over them is one zone's worth and the cube

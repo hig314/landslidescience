@@ -77,6 +77,10 @@ def main():
         v[bad] = np.nan
         cols[k] = [None if np.isnan(t) else (int(t) if q.get('integer') or 'classes' in q else round(float(t), 4)) for t in v]
         print(f'  {k:8s} {int((~bad).sum()):5d} of {len(ids)} with a value')
+    if 'aspect' in cols and 'slope' in cols:
+        # A flat cell has no aspect (the cube masks it the same way; gdaldem
+        # writes 0, which would read as north).
+        cols['aspect'] = [None if s == 0 else a for a, s in zip(cols['aspect'], cols['slope'])]
     out = {'keys': keys, 'values': {str(i): [cols[k][j] for k in keys] for j, i in enumerate(ids)}}
     OUT.write_text(json.dumps(out, separators=(',', ':')))
     print(f'wrote {OUT} ({OUT.stat().st_size / 1024:.0f} KB)')

@@ -504,7 +504,7 @@
             <option value="prop">per 1000 km²</option>
           </select></label>
         <button type="button" id="an-sample" title="Sample tool: a circle of this radius follows the cursor over the map; each click reads every cell inside it onto the terrain plot (60 m where both axes have value archives, else the 1 km cells) and draws the landslides inside it as points. Click again, or Esc, to put the tool away.">&#9678; Sample</button>
-        <input type="number" id="an-radius" min="1" max="30" step="1" value="10" title="Sample radius, km"><span class="pf-unit">km</span>
+        <span class="pf-unit" title="Sample diameter">&#8960;</span><input type="number" id="an-radius" min="1" max="100" step="1" value="20" title="Sample diameter, km (the circle is this wide)"><span class="pf-unit">km</span>
         <button type="button" id="an-pf" style="display:none" title="The permafrost patch plots for this sample: the published 1 km cells and the 60 m downscale against elevation, with the fitted lapse and curve.">Permafrost detail</button>
         <span id="an-count"></span>
         <a href="#" id="an-clear" class="disabled" title="Clear the brush box.">clear box</a>
