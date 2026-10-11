@@ -259,6 +259,22 @@ whole-survey `mosaic.py` + republish of `kbay_2023_reclass` on the
 hosting side when all 1,350 are done. The repo copy of the model under
 `tools/lidar/kbay_reclass/model/` is stale until hosting syncs it.
 
+**Composite rebuilt on the new reclass (2026-10-10, evening).** The
+box mosaic (`full/mosaic_kachemak/`: 74 units, 9 enclosed holes — the
+lagoons — filled from their water-level rims, 3.1 km²) is the KBay
+layer's source until the republish (recipe `source` is its path, with
+a note to switch back to the id). Observe rules, both surveys: a fill
+or a return-free DTM cell that sits flat at the water level is classed
+**water**, not void — it is the water surface, a stand-in the bed
+outranks (KBay from the reclass's `water_mask`/`water_level`; Grewingk
+from DTM flatness, since DGGS hydroflattened the lake and the laser saw
+13 % of its cells). KBay now 94.2 % ground / 5.7 % water / 0.1 % built;
+Grewingk 91.0 / 9.0. Composite: bathy 25.7, Grewingk 30.2, KBay 30.2,
+none 1.9 km²; no fallback cells; water-class overlap 0.84 km² with
+KBay − Grewingk **+0.97 m** (the lake's level, Aug 2023 vs Oct 2021);
+ground overlap +0.15 m (canopy residual on top of the 0.36 m shift).
+Previews in `out/preview/`.
+
 ### Deferred: physical awareness (decided 2026-10-09)
 
 Hig asked how far to go toward a physically aware merge — glacier

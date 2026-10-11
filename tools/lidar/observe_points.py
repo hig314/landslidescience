@@ -265,20 +265,24 @@ def rules_kbay(B, res, dtm=None, fill=None, aux=None):
     if aux and aux.get("struct") is not None:
         c[aux["struct"] & has_dtm] = CLASSES["built"]
     if aux and aux.get("water") is not None and aux.get("level") is not None and dtm is not None:
+        # a fill that sits at the water level IS the water surface (the reclass voids return-free
+        # water and fills it from a rim of water returns): water, not void -- a stand-in the
+        # bed outranks; a fill elsewhere (canopy hole) stays void
         at_level = aux["water"] & np.isfinite(aux["level"]) & np.isfinite(dtm) & (np.abs(dtm - aux["level"]) <= 0.3)
-        c[at_level & (c != CLASSES["void"])] = CLASSES["water"]
+        c[at_level & ((c != CLASSES["void"]) | (fill if fill is not None else False))] = CLASSES["water"]
     # 6. vendor snow (class 21; none on the 2023-08-01 lines, present on the 2024 ones)
     c[n_sn > n_g] = CLASSES["snow"]
     return c
 
 
 def rules_grewingk(B, res, dtm=None, fill=None, aux=None):
-    """Grewingk 2021 (NIR, 12 October): the vendor's ground class stops at ~830 m; above
-    that the surface is class 1 (unclassified) and the DTM still carries it.  Water (class 9)
-    is the lake at 48.8 m.  Snow/ice: NOT decided here yet - cells where the DTM surface
-    comes only from unclassified returns are marked `snow` as the HYPOTHESIS to examine
-    (October, high ground), with the evidence bands beside it; replace with an intensity /
-    roughness rule once looked at."""
+    """Grewingk 2021 (NIR, 12 October).  Ground where the DTM has a value and real (non-noise)
+    returns exist; water where class 9 outnumbers ground, and where a DTM cell has NO real
+    returns but the DTM is flat at region scale (DGGS hydroflattened it: the Halibut Cove
+    lake has returns in 13 % of its cells, 10 % of them noise); void where the DTM stands on
+    nothing else.  The `snow` rule (DTM from unclassified returns only, >= 2000 m2) was a
+    hypothesis from a 36-tile run in which the ground class seemed to stop at ~830 m; with
+    all 119 tiles the ground class covers every band and the rule finds nothing.  Kept, inert."""
     from scipy import ndimage
     from topobathy.axes import CLASSES
     n_all, n_g, n_u, n_w, n_no = (B[k] for k in ("n_all", "n_ground", "n_unclass", "n_water", "n_noise"))
@@ -296,8 +300,20 @@ def rules_grewingk(B, res, dtm=None, fill=None, aux=None):
         sizes = ndimage.sum(np.ones_like(lab), lab, np.arange(1, k + 1))
         unc &= ~np.isin(lab, np.flatnonzero(sizes * res * res < 2000) + 1)
     c[unc & (c == CLASSES["ground"])] = CLASSES["snow"]
-    # nothing but noise, or nothing at all: void
-    c[has_dtm & (real == 0)] = CLASSES["void"]
+    # nothing but noise, or nothing at all: void -- unless the DTM there is flat at region
+    # scale (hydroflattened water: roughness < 0.05 m over 5x5, opened, blobs >= 2000 m2)
+    empty = has_dtm & (real == 0)
+    c[empty] = CLASSES["void"]
+    if dtm is not None:
+        d = np.where(has_dtm, dtm, np.nan)
+        rough = np.abs(d - ndimage.uniform_filter(np.nan_to_num(d), 5))
+        flat = empty & (rough < 0.05)
+        flat = ndimage.binary_opening(flat, iterations=1)
+        lab, k = ndimage.label(flat)
+        if k:
+            sizes = ndimage.sum(np.ones_like(lab), lab, np.arange(1, k + 1))
+            flat &= ~np.isin(lab, np.flatnonzero(sizes * res * res < 2000) + 1)
+        c[flat] = CLASSES["water"]
     return c
 
 
