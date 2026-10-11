@@ -23,6 +23,7 @@ from topobathy.fold import fold_step
 from topobathy.masks import feather as feather_mask, apply_paint, to_uint8, despeckle, smooth, OPS
 from topobathy import axes as AX
 from composite import build_window, parse_window, write_tif
+from topobathy.stack import read_geo
 
 app = Flask(__name__)
 LOCK = threading.Lock()
@@ -287,6 +288,21 @@ def img(kind):
             rgb = np.zeros(c.shape + (3,), np.uint8)
             for code, col in AX.CLASS_RGB.items(): rgb[c == code] = col
             rgb[~L["valid"]] = NODATA_RGB
+            return png(rgb)
+        if kind in ("fillshade", "fillmask"):
+            # the hole interpolation's outputs (composite.py fill), read for this window; absent -> dark
+            out = S.recipe.out_dir
+            f = out / (f"{S.recipe.id}_filled.tif" if kind == "fillshade" else "fill_mask.tif")
+            if not f.exists():
+                return png(np.full(S.out.shape + (3,), 25, np.uint8))
+            arr, ok = read_geo(str(f), S.grid, S.win, "nearest")
+            if kind == "fillshade":
+                z = np.where(ok, arr, np.nan)
+                return png(hillshade(z, S.grid.res, float(request.args.get("zf", 1))))
+            m = np.rint(np.where(ok, arr, 0)).astype(np.uint8)
+            rgb = np.repeat(hillshade(S.out, S.grid.res)[..., None] // 2, 3, -1).astype(np.uint8)
+            for code, col in {1: (60, 170, 60), 2: (200, 160, 220), 3: (240, 150, 40), 4: (0, 190, 200)}.items():
+                rgb[m == code] = col
             return png(rgb)
         if kind == "classnow":
             c = S.layers[0]["rules"]["class_now"]; rgb = np.zeros(c.shape + (3,), np.uint8)
