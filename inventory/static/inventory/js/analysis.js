@@ -45,7 +45,8 @@
  * the map. With permafrost products on both axes a "Permafrost detail"
  * button opens the four-plot patch panel (permafrost.js).
  *
- * BRUSH: drag a box on either plot and the landslides inside it are ringed
+ * BRUSH: click either plot for a small box around the click (+/- BRUSH_FRAC
+ * of each axis), or drag for any box; the landslides inside it are ringed
  * on the map (client side, from the values file). With lw and n10 on the
  * axes the box also drives those two filter sliders, which exist for
  * exactly this, and the sliders move the box back.
@@ -88,7 +89,12 @@ window.LSAnalysis = (function () {
   var SLIDER_KEYS = ['lw', 'n10'];
   var DEFAULT = ['lw', 'n10'];
   var HL = 'an-highlight', MIN_BINS = 4;
-  var PAINT = 'an-paint', PAINT_RGBA = [63, 103, 177, 150], PAINT_MINZ = 8;
+  // The paint is the sample's orange: map -> plot is the orange blotch, plot
+  // -> map is the orange paint (Hig, 2026-10-10), drawn on top of every
+  // data layer so it reads over any overlay.
+  var PAINT = 'an-paint', PAINT_RGBA = [255, 143, 0, 150], PAINT_MINZ = 8;
+  var SAMPLE_LAYERS = ['ls-sample-fill', 'ls-sample-line', 'ls-sample-ghost-fill', 'ls-sample-ghost'];
+  var BRUSH_FRAC = 0.05;   // a click on the plot brushes +/- this much of each axis
 
   var map = null, o = {}, el = {}, fp = null;
   var quantities = null, cubeError = null;      // the server registry
@@ -101,6 +107,7 @@ window.LSAnalysis = (function () {
   var P = null;                                 // the drawn plot: {d, qx, qy, panes:[{sx,sy,...}], pts, tg, lg, f}
   var syncing = false, pendingState = null, _hl = [];
   var paintOn = true, paintSeq = 0, paintSpec = null;   // {fx, fy, box} read by the protocol; null = nothing to paint
+  var paintTiles = {};                                  // rendered tiles for the current seq, shared by both panes
 
   // ---- init --------------------------------------------------------------------------
   function init(opts) {
@@ -497,7 +504,7 @@ window.LSAnalysis = (function () {
     });
     var yl = txt(svg, qy.label + ' →', 10, d.panes[0].y0 + d.h / 2, 'middle', '#666');
     yl.setAttribute('transform', 'rotate(-90 10 ' + (d.panes[0].y0 + d.h / 2) + ')');
-    txt(svg, 'drag a box on either plot to select · drag the header to move · grab the corner to resize', d.W / 2, d.H - 3, 'middle', '#bbb');
+    txt(svg, 'click either plot for a small brush, drag for any box · drag the header to move · grab the corner to resize', d.W / 2, d.H - 3, 'middle', '#bbb');
 
     // points: all of them in points mode; in the grid modes only the sample's,
     // as points over the grid (Hig, 2026-10-10) -- the grid itself is unchanged.
@@ -619,24 +626,21 @@ window.LSAnalysis = (function () {
   function maps() { var sm = o.swipeMap ? o.swipeMap() : null; return sm ? [map, sm] : [map]; }
   function paintUrl() { return 'anpaint://' + paintSeq + '/{z}/{x}/{y}'; }
   // Called at style.load here and by map.js once a map's data layers exist
-  // (onLayers), so the paint sits under the landslide points.
+  // (onLayers). Order, bottom to top: the paint, the sample circle and
+  // ghost, the brush rings -- all above the data stack.
   function ensureLayers(m) {
     if (!m || !m.getStyle()) return;
     if (!m.getSource(PAINT)) m.addSource(PAINT, { type: 'raster', tiles: [paintUrl()], tileSize: 256, minzoom: PAINT_MINZ, maxzoom: 14 });
-    // Under the points; before them exist (style.load), under the tool
-    // layers map.js anchors its data stack to, so the points land above.
-    var under = m.getLayer('points') ? 'points' : (m.getLayer('measure-fill') ? 'measure-fill' : undefined);
     if (!m.getLayer(PAINT)) {
       m.addLayer({ id: PAINT, type: 'raster', source: PAINT, layout: { visibility: paintSpec ? 'visible' : 'none' },
-                   paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest', 'raster-fade-duration': 0 } }, under);
-    } else if (under) {
-      m.moveLayer(PAINT, under);
-    }
+                   paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest', 'raster-fade-duration': 0 } });
+    } else m.moveLayer(PAINT);
+    SAMPLE_LAYERS.forEach(function (id) { if (m.getLayer(id)) m.moveLayer(id); });
     if (!m.getSource(HL)) m.addSource(HL, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     if (!m.getLayer(HL)) {
       m.addLayer({ id: HL, type: 'circle', source: HL,
                    paint: { 'circle-radius': 9, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': COLOR.ring, 'circle-stroke-width': 2 } });
-    }
+    } else m.moveLayer(HL);
     highlight(_hl);
   }
   function onLayers(m) { ensureLayers(m); updatePaint(); }
@@ -656,7 +660,7 @@ window.LSAnalysis = (function () {
     var want = (paintOn && brush && canPaint() && fp && fp.isOpen()) ? { fx: byKey[X].fine, fy: byKey[Y].fine, box: brush } : null;
     var same = JSON.stringify(want) === JSON.stringify(paintSpec);
     paintSpec = want;
-    if (!same) paintSeq++;
+    if (!same) { paintSeq++; paintTiles = {}; }
     maps().forEach(function (m) {
       if (!m.getLayer(PAINT)) return;
       m.setLayoutProperty(PAINT, 'visibility', paintSpec ? 'visible' : 'none');
@@ -673,30 +677,32 @@ window.LSAnalysis = (function () {
     });
   }
   // anpaint://<seq>/{z}/{x}/{y}: the in-box pixels of this tile, from the
-  // two z10 value tiles that cover it.
+  // two z10 value tiles that cover it. Rendered once per seq and tile and
+  // shared by the two panes (each map asks for the same tiles); the fine
+  // fields are plain numbers, so the test is four comparisons (NaN fails).
   function paintLoader(params) {
     var spec = paintSpec;
     var p = params.url.replace('anpaint://', '').split('/').map(Number);   // [seq, z, x, y]
-    var z = p[1], x = p[2], y = p[3];
-    if (!spec || z < PAINT_MINZ) return emptyTile();
+    var z = p[1], x = p[2], y = p[3], key = z + '/' + x + '/' + y;
+    if (!spec || p[0] !== paintSeq || z < PAINT_MINZ) return emptyTile();
+    if (paintTiles[key]) return paintTiles[key].then(function (buf) { return { data: buf.slice(0) }; });
     var Z = LSSample.Z, N = 256, c = document.createElement('canvas'); c.width = c.height = N;
     var ctx = c.getContext('2d'), img = ctx.createImageData(N, N), d = img.data;
-    var qxv = axisOf(X), qyv = axisOf(Y);
-    var inBox = function (vx, vy) {
-      var px = pos(qxv, vx), py = pos(qyv, vy);
-      return px != null && py != null && px >= spec.box.x0 && px <= spec.box.x1 && py >= spec.box.y0 && py <= spec.box.y1;
-    };
+    var bx0 = spec.box.x0, bx1 = spec.box.x1, by0 = spec.box.y0, by1 = spec.box.y1;
+    var R = PAINT_RGBA[0], G = PAINT_RGBA[1], B = PAINT_RGBA[2], A = PAINT_RGBA[3];
     var jobs = [];
     if (z >= Z) {
       // crop the parent z10 tile: this tile is a 1/2^(z-Z) window of it
       var s = z - Z, px0 = x >> s, py0 = y >> s;
       jobs.push(Promise.all([LSSample.fineTile(spec.fx, px0, py0), LSSample.fineTile(spec.fy, px0, py0)]).then(function (ts) {
         var a = ts[0], b = ts[1]; if (!a || !b) return;
-        var w = a.w, frac = 1 << s, ox = (x - (px0 << s)) / frac, oy = (y - (py0 << s)) / frac;
-        for (var j = 0; j < N; j++) for (var i = 0; i < N; i++) {
-          var sx = Math.min(w - 1, Math.floor((ox + i / N / frac) * w)), sy = Math.min(a.h - 1, Math.floor((oy + j / N / frac) * a.h));
-          var k = sy * w + sx;
-          if (inBox(a.data[k], b.data[k])) { var o4 = (j * N + i) * 4; d[o4] = PAINT_RGBA[0]; d[o4 + 1] = PAINT_RGBA[1]; d[o4 + 2] = PAINT_RGBA[2]; d[o4 + 3] = PAINT_RGBA[3]; }
+        var w = a.w, h = a.h, frac = 1 << s, ox = (x - (px0 << s)) / frac, oy = (y - (py0 << s)) / frac, ad = a.data, bd = b.data;
+        for (var j = 0; j < N; j++) {
+          var sy = Math.min(h - 1, Math.floor((oy + j / N / frac) * h)) * w, row = j * N * 4;
+          for (var i = 0; i < N; i++) {
+            var k = sy + Math.min(w - 1, Math.floor((ox + i / N / frac) * w)), vx = ad[k], vy = bd[k];
+            if (vx >= bx0 && vx <= bx1 && vy >= by0 && vy <= by1) { var o4 = row + i * 4; d[o4] = R; d[o4 + 1] = G; d[o4 + 2] = B; d[o4 + 3] = A; }
+          }
         }
       }));
     } else {
@@ -706,19 +712,24 @@ window.LSAnalysis = (function () {
         var tx = x * f + cx, ty = y * f + cy;
         jobs.push(Promise.all([LSSample.fineTile(spec.fx, tx, ty), LSSample.fineTile(spec.fy, tx, ty)]).then(function (ts) {
           var a = ts[0], b = ts[1]; if (!a || !b) return;
-          for (var j = 0; j < sub; j++) for (var i = 0; i < sub; i++) {
-            var k = Math.floor((j + 0.5) / sub * a.h) * a.w + Math.floor((i + 0.5) / sub * a.w);
-            if (inBox(a.data[k], b.data[k])) { var o4 = ((cy * sub + j) * N + cx * sub + i) * 4; d[o4] = PAINT_RGBA[0]; d[o4 + 1] = PAINT_RGBA[1]; d[o4 + 2] = PAINT_RGBA[2]; d[o4 + 3] = PAINT_RGBA[3]; }
+          var w = a.w, h = a.h, ad = a.data, bd = b.data;
+          for (var j = 0; j < sub; j++) {
+            var sy = Math.floor((j + 0.5) / sub * h) * w, row = ((cy * sub + j) * N + cx * sub) * 4;
+            for (var i = 0; i < sub; i++) {
+              var k = sy + Math.floor((i + 0.5) / sub * w), vx = ad[k], vy = bd[k];
+              if (vx >= bx0 && vx <= bx1 && vy >= by0 && vy <= by1) { var o4 = row + i * 4; d[o4] = R; d[o4 + 1] = G; d[o4 + 2] = B; d[o4 + 3] = A; }
+            }
           }
         }));
       })(cx, cy);
     }
-    return Promise.all(jobs).then(function () {
+    paintTiles[key] = Promise.all(jobs).then(function () {
       ctx.putImageData(img, 0, 0);
       return new Promise(function (resolve, reject) {
-        c.toBlob(function (b) { if (!b) { reject(new Error('anpaint toBlob failed')); return; } b.arrayBuffer().then(function (buf) { resolve({ data: buf }); }, reject); }, 'image/png');
+        c.toBlob(function (b) { if (!b) { reject(new Error('anpaint toBlob failed')); return; } b.arrayBuffer().then(resolve, reject); }, 'image/png');
       });
     });
+    return paintTiles[key].then(function (buf) { return { data: buf.slice(0) }; });
   }
 
   // ---- brush --------------------------------------------------------------------------------
@@ -750,9 +761,16 @@ window.LSAnalysis = (function () {
         var dr = el.svg.querySelector('#an-drag'); if (dr) dr.setAttribute('display', 'none');
         if (info.cancelled || !e || !P || pane < 0) return;
         var p = local(e), pn = P.panes[pane];
-        if (Math.abs(p.x - sx0) < 4 && Math.abs(p.y - sy0) < 4) return;   // a click, not a box
         var vx = function (px) { return P.qx.min + (px - pn.x0) / P.d.w * (P.qx.max - P.qx.min); };
         var vy = function (py) { return P.qy.min + (pn.y0 + P.d.h - py) / P.d.h * (P.qy.max - P.qy.min); };
+        if (Math.abs(p.x - sx0) < 4 && Math.abs(p.y - sy0) < 4) {
+          // A click: a small default brush around it (+/- BRUSH_FRAC of each
+          // axis), unless it lands on a landslide point, which onClick opens.
+          if (nearest(e)) return;
+          var hx = (P.qx.max - P.qx.min) * BRUSH_FRAC, hy = (P.qy.max - P.qy.min) * BRUSH_FRAC, cx = vx(p.x), cy = vy(p.y);
+          setBrush({ x0: clampV(P.qx, cx - hx), x1: clampV(P.qx, cx + hx), y0: clampV(P.qy, cy - hy), y1: clampV(P.qy, cy + hy) });
+          return;
+        }
         var x0 = clampV(P.qx, Math.min(vx(sx0), vx(p.x))), x1 = clampV(P.qx, Math.max(vx(sx0), vx(p.x)));
         var y0 = clampV(P.qy, Math.min(vy(sy0), vy(p.y))), y1 = clampV(P.qy, Math.max(vy(sy0), vy(p.y)));
         setBrush({ x0: x0, x1: x1, y0: y0, y1: y1 });
