@@ -10,7 +10,7 @@ This file is the deep per-feature reference. **Two work streams run in
 parallel in separate worktrees — read [WORKSTREAMS.md](WORKSTREAMS.md)
 before touching anything under `tools/lidar/`.**
 
-## State of play (2026-10-06) — the one dated snapshot in this file
+## State of play (2026-10-11) — the one dated snapshot in this file
 
 Everything else here describes how things work and should stay true.
 **This section is a snapshot and will rot**; correct it or delete it rather
@@ -57,16 +57,22 @@ written down anywhere — read `/lidar/audit/`.
   right shape, and it is **on hold**. Viewing stays login-gated, decided the
   same day.
 
-- **The generalised analysis tool, phase 3.** Phases 1–2 of
-  [ANALYSIS_TOOL_PLAN.md](ANALYSIS_TOOL_PLAN.md) were built, reviewed in
-  four passes and deployed 2026-10-10; the painting brush (phase 3's
-  first piece) deployed 2026-10-11. Left: the view and polygon sample
-  shapes (a landslide's own polygon first), OPERA as "sample = view", value
-  archives for coherence / ITS_LIVE, dh/dt + IceBoost warped onto one grid,
-  and two findings parked on the way — the MAAT/MAGT ramp is white at 0 °C
-  (invisible over the Blank White basemap; RdYlBu would need four archives
-  re-baked) and aspect below 1° of slope piles up at 45° multiples
-  (HAZARDS §Raster sources).
+- **The generalised analysis tool, phase 3 — parked 2026-10-11 to move to
+  another topic.** Phases 1–2 of [ANALYSIS_TOOL_PLAN.md](ANALYSIS_TOOL_PLAN.md)
+  were built, reviewed in four passes and deployed 2026-10-10; the painting
+  brush (phase 3's first piece) deployed 2026-10-11. **The agreed next
+  step is the sample shapes**: a landslide's own polygon as the sample
+  first ("what does this slide's ground look like in these axes?" — the
+  cheapest and most useful), then the current view (which folds the OPERA
+  panel in as "sample = view"), then a drawn polygon; it means generalising
+  `LSSample` from a circle to a shape, a polygon form of
+  `api/analysis/sample/` (shapely is in the container), the 60 m reader
+  testing inside-polygon, and a URL form per shape. After that: value
+  archives for coherence / ITS_LIVE (which would let them paint), dh/dt +
+  IceBoost warped onto one grid, and two findings parked on the way — the
+  MAAT/MAGT ramp is white at 0 °C (invisible over the Blank White basemap;
+  RdYlBu would need four archives re-baked) and aspect below 1° of slope
+  piles up at 45° multiples (HAZARDS §Raster sources).
 - **Rule-based derivation from mirrored inventories.** Promotion today seeds
   provenance and two fields, then the editor types the rest. `external.py`'s
   docstring anticipates a `derive` step with per-field rules (how to read
@@ -1615,7 +1621,7 @@ DGGS publishes it **only as a dynamic ArcGIS MapServer** — no download, no til
 - The raster crosses the **antimeridian** (data to 179.9 E), so a single warp to Web Mercator spans the globe and produces non-square pixels. The script warps the two sides separately; XYZ tiles merge with no seam.
 - `inventory/susc_dggs.py` is a live proxy of the same service, kept as a fallback (and as the record of why proxying was needed). The overlay reads the baked tiles.
 
-**Susceptibility value sliders.** Each landslide's sampled n10/lw value (0–81) comes from `inventory/static/inventory/ls_quantities.json` (every axis-capable quantity at every centroid — see *The analysis panel*), produced offline by `tools/analysis/sample_quantities.py` since the web container has no GDAL; committed, so it goes stale when landslides are added/moved (`--centroids` refreshes the centroid file from the dev database first). `map.js` merges `lw`/`n10`/`dggs` into the point features and the two dual-handle sliders in the Inventory filter panel filter on them (reusing `_setupDual`/`addRangeFilter`), with a live "N of 1424 in range" readout. Key finding from the analysis: catastrophic source values **saturate at the 81 ceiling** (median 81; ~53% n10 / ~68% lw at max), both models score AUC ~0.96–0.97 (lw marginally higher), so the predictive signal is a sharp low-vs-high contrast rather than a graded ramp — which is why landslide-quintile bands collapse and FR-based class breaks are used instead.
+**Susceptibility value sliders.** Each landslide's sampled n10/lw value (0–81) comes from `inventory/static/inventory/ls_quantities.json` (every axis-capable quantity at every centroid — see *The analysis panel*), produced offline by `tools/analysis/sample_quantities.py` since the web container has no GDAL; committed, so it goes stale when landslides are added/moved (`--centroids` refreshes the centroid file from the dev database first) — the analysis panel's note counts the landslides missing from it and names the command, so staleness is visible rather than silent. `map.js` merges `lw`/`n10`/`dggs` into the point features and the two dual-handle sliders in the Inventory filter panel filter on them (reusing `_setupDual`/`addRangeFilter`), with a live "N of 1424 in range" readout. Key finding from the analysis: catastrophic source values **saturate at the 81 ceiling** (median 81; ~53% n10 / ~68% lw at max), both models score AUC ~0.96–0.97 (lw marginally higher), so the predictive signal is a sharp low-vs-high contrast rather than a graded ramp — which is why landslide-quintile bands collapse and FR-based class breaks are used instead.
 
 **The analysis panel — two overlays as axes, the map as the sampler (`analysis.js` + `ls_sample.js`, 2026-10-10; ANALYSIS_TOOL_PLAN.md phases 1–2).** It replaced the susceptibility scatter and the permafrost density panel, which are its presets (`an=scatter` → lw × n10, `an=pf` → PZI × probability).
 

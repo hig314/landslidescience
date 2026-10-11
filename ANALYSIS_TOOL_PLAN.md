@@ -52,7 +52,9 @@ the brush paints the map (`anpaint://` protocol over the 60 m value tiles,
 both panes, on top in the sample's orange, from z8; the pairs with fine
 archives only — terrain and permafrost downscales; a click places a small
 default brush, a drag any box), and the panel reports a stale
-`ls_quantities.json`. Still open: the view
+`ls_quantities.json`. **Parked 2026-10-11; the agreed next step is the
+sample shapes, a landslide's own polygon first** (see CLAUDE.md's open
+threads for the shape of that work). Still open: the view
 and polygon sample shapes, OPERA as "sample = view", value archives for
 coherence / ITS_LIVE (which would let them paint), dh/dt + IceBoost on
 one grid, the MAAT/MAGT ramp's white centre, aspect's 45° spikes below 1°.
