@@ -433,6 +433,7 @@ class Outputs:
         self.raw = out / f"{recipe.id}_raw.tif"
         op("out", self.raw, "float32", -9999.0)
         op("source_index", out / "source_index.tif", "uint8", 255)
+        op("coverage", out / "coverage.tif", "uint8", 255)          # how many layers have a value here (0 = no survey at all; the fill leaves those alone)
         for n in names[1:]:
             op(("mask", n), recipe.work_dir / "masks" / f"{n}.tif", "uint8", None)
             op(("auto", n), recipe.work_dir / "masks" / f"{n}_auto.tif", "uint8", None)
@@ -456,6 +457,8 @@ class Outputs:
             idx[L["mask"] > 0.5] = i
         idx[~np.isfinite(out)] = 255
         w("source_index", idx)
+        opt = {S["name"] for S in self.recipe.layers if S.get("optional")}
+        w("coverage", np.sum([L["valid"] for L in layers if L["name"] not in opt], axis=0).astype(np.uint8))
         for L in layers[1:]:
             w(("mask", L["name"]), to_uint8(L["mask"]))
             w(("auto", L["name"]), to_uint8(L["auto"] if L["auto"] is not None else L["valid"].astype(np.float32)))
@@ -758,6 +761,12 @@ def cmd_fill(a):
         prof = ds.profile; res = ds.res[0]
     with rasterio.open(out / "class_now.tif") as ds:
         cls = ds.read(1)
+    # a cell no survey covers is not a hole in a water body: outside, left alone (the lakes
+    # box extended past the Grewingk footprint and the margin fill invented 60 km2, 2026-10-11)
+    outside = None
+    if (out / "coverage.tif").exists():
+        with rasterio.open(out / "coverage.tif") as ds:
+            outside = ds.read(1) == 0
     # idempotent: cells the fill layer itself won last time are holes again (never evidence)
     fill_names = [L["name"] for L in recipe.d["layers"] if L.get("optional")]
     if fill_names and (out / "source_index.tif").exists():
@@ -771,8 +780,9 @@ def cmd_fill(a):
         for kv in a.param:
             k, v = kv.split("="); params[k] = float(v)
     print(f"[{recipe.id}] fill: {z.shape[1]}x{z.shape[0]} @ {res} m, holes {np.isnan(z).mean():.4f} of the grid; params {params}")
-    params["_transform"] = prof["transform"]
+    params["_transform"] = prof["transform"]; params["_outside"] = outside
     R = FL.fill_holes(z, cls, res, CLASSES, params, log=print)
+    params.pop("_outside", None)
     params.pop("_transform", None)
     if R.get("lakes"):
         T = prof["transform"]

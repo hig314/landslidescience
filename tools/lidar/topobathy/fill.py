@@ -54,7 +54,7 @@ from scipy.sparse.linalg import cg, spsolve
 DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, slope_min_deg=1.0, slope_max_deg=60.0, low_tide_m=-2.9,
                 marine_rim_max_m=6.0, lake_depth_m=5.0, sigma_prior_m=1.0, sigma_rim_m=2.0, lake_sigma_m=5.0,
                 cond_m=30.0, cg_iters=300, coarse=16,
-                lake_min_m2=2000, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, points=None)
+                lake_min_m2=2000, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, points=None)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -151,6 +151,9 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     P = dict(DEFAULTS); P.update(p or {})
     H, W = z.shape
     hole = ~np.isfinite(z)
+    outside = P.get("_outside")
+    if outside is not None:
+        hole &= ~outside                                       # no survey here: not a hole, left empty
     land_codes = [classes[n] for n in LAND_CLASSES if n in classes]
     # DOMAIN: close over sounding lines
     # closing by a disc of close_m, as two distance transforms (a structuring element that
@@ -180,7 +183,15 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         # no-flux boundary.  fill_margin: false keeps the reclass's rule (never fill the margin).
         margin = np.zeros_like(dom)
     dom &= ~margin
-    lab, n = ndimage.label(dom)
+    # WET vs DRY (2026-10-11): a hole the class axis calls water and one it calls void (only
+    # noise returns: glacier ice, steep ground the laser missed) are different problems; welded
+    # into one domain by the closing, Halibut Cove lake (475 ha) shared a domain with the void
+    # ground around it, failed the lake test and got no basin.  Separate labels: wet = water-
+    # classed holes plus the observations inside the domain; dry = the rest.
+    wet = dom & ((hole & (cls == classes["water"])) | np.isfinite(z))
+    lw, nw = ndimage.label(wet); ld, nd = ndimage.label(dom & ~wet)
+    lab = np.where(wet, lw, np.where(ld > 0, ld + nw, 0)); n = nw + nd
+    log(f"  wet domains {nw}, dry (void) domains {nd}")
     log(f"  domains: {n} (margin holes left empty: {int((margin & hole).sum()) * res * res / 1e6:.3f} km2); "
         f"domain {int(dom.sum()) * res * res / 1e6:.3f} km2, of which holes {int((dom & hole).sum()) * res * res / 1e6:.3f} km2")
     inside_obs = dom & np.isfinite(z)                                # soundings inside a domain
@@ -194,7 +205,9 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     srim = np.clip(np.nan_to_num(srim, nan=P["slope_min_deg"]), P["slope_min_deg"], P["slope_max_deg"])
     # per-domain floor: marine or lake
     ids = np.arange(1, n + 1)
-    rim_lab = np.zeros_like(lab); rl = ndimage.maximum_filter(lab, 3); rim_lab[land_rim] = rl[land_rim]
+    # a rim cell beside both a lake and dry ground belongs to the lake (its shore)
+    rlw = ndimage.maximum_filter(np.where(lab <= nw, lab, 0), 3); rl = np.where(rlw > 0, rlw, ndimage.maximum_filter(lab, 3))
+    rim_lab = np.zeros_like(lab); rim_lab[land_rim] = rl[land_rim]
     zr = np.where(land_rim, z, np.nan)
     med = ndimage.labeled_comprehension(np.nan_to_num(zr, nan=1e9), rim_lab, ids, lambda v: np.median(v[v < 1e8]) if (v < 1e8).any() else np.nan, float, np.nan)
     marine = np.isfinite(med) & (med < P["marine_rim_max_m"])
@@ -239,6 +252,12 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             L = float(dshore[cells].max())
             rl = land_rim & (rim_lab == i)
             if not rl.any() or L <= 0:
+                continue
+            # a basin only where the class axis says water: a void domain (only noise returns --
+            # glacier ice, steep high ground) is not a lake, whatever its rim (2026-10-11, the
+            # lakes box carved 200-400 m "basins" into three of them)
+            wfrac = float(np.mean(cls[cells & hole] == classes["water"])) if (cells & hole).any() else 0.0
+            if wfrac < P["lake_water_frac"]:
                 continue
             sbar = float(np.median(srim[rl])); level = float(med[i - 1])
             d_h = P["hollister_k"] * L * np.tan(np.radians(sbar))
@@ -294,7 +313,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # where the extension reached it, carried smoothly between band edge and bed rim.
     interior = dom & ~band & ~lk                                 # holes AND the sounding cells: the prior ignores soundings
     fixed_val = np.where(np.isfinite(z) & rim, z, np.nan).astype(np.float64)
-    fixed_val = np.where(band, prior, fixed_val)
+    fixed_val = np.where(band | lk, prior, fixed_val)                # a lake's shape bounds the dry ground beside it
     fixed = np.isfinite(fixed_val)
     if interior.any():
         # the band's inner edge sits at the floor, so the interior is harmonic between the
