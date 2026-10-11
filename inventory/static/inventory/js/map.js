@@ -680,6 +680,8 @@
         dragRotate: false, pitchWithRotate: false, touchPitch: false,
         transformRequest: LSBasemaps.transformRequest   // resolves quadkey/subdomain QMS tiles
     });
+    // A console handle for inspecting layer state (nothing in the code reads it).
+    window.__lsMap = map;
     // The handler-level switches for the inputs the constructor options miss,
     // and a snap-back for anything that gets past them: whatever rotates or
     // tilts the view, the next frame is north-up and nadir again.

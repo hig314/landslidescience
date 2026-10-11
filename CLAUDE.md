@@ -515,6 +515,12 @@ docker restart landslidescience-web-1
 Templates and Python are read live from the source mount — no restart needed
 for template edits (Python needs the dev server's autoreload or a restart).
 
+**`window.__lsMap` is the main map** (map.js, just after construction; nothing
+in the code reads it) — for the console or a headless probe: layer order,
+visibility, `style.sourceCaches[...]._tiles` to see whether a raster's tiles
+loaded. Added 2026-10-10 while chasing a "layer not showing" that turned out
+to be a near-white ramp value over the Blank White basemap.
+
 Local dev needs no preview password — that barrier was removed on 2026-09-10, so dev now matches production: `/inventory/*` and `/glaciers/*` are public and signing in at `/inventory/login/` is what adds the editor surfaces.
 
 ### Refresh dev with production data
