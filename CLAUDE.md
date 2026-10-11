@@ -32,12 +32,15 @@ written down anywhere — read `/lidar/audit/`.
   overlay categories were reorganised the same day (Climate · Surface
   properties · Surface change · Landslide susceptibility · Glaciers ·
   Subsurface).
-- **The analysis panel** (2026-10-10, dev only until reviewed) — two
-  overlays as axes over a server-side quantity cube, bound to the wiper's
-  panes, with the sample circle and the brush; replaced the susceptibility
-  scatter and the permafrost density panel. See *The analysis panel* under
-  the map UI section. Deploy needs `data/quantities/` (~420 MB) rsynced to
-  the droplet (7 GB free there as of 2026-10-10).
+- **The analysis panel** (built and reviewed 2026-10-10, **deployed the
+  same evening** with `data/quantities/` rsynced to the droplet, 411 MB;
+  6.9 GB free there after) — two overlays as axes over a server-side
+  quantity cube, bound to the wiper's panes (one axis-capable overlay a
+  side while it is open, with a left-pane control panel), terrain and
+  landslide plots on shared axes with a factor-of-2 grid slider, the
+  sample tool and the brush; replaced the susceptibility scatter and the
+  permafrost density panel. See *The analysis panel* under the map UI
+  section.
 - **Photo drops** (`/drops/`, 2026-10-05) — send a collaborator a link, they
   upload a whole folder of photos straight to a private R2 bucket; signed-in
   accounts browse a thumbnail gallery. First use (2026-10-05): the Portage
@@ -54,12 +57,14 @@ written down anywhere — read `/lidar/audit/`.
   same day.
 
 - **The generalised analysis tool, phase 3.** Phases 1–2 of
-  [ANALYSIS_TOOL_PLAN.md](ANALYSIS_TOOL_PLAN.md) were built 2026-10-10 (in
-  dev, awaiting Hig's review as of this writing): the quantity cube, the
-  density API, the panel with axes bound to the wiper, the sample and the
-  brush. Left: the brush that *paints the map*, the view and polygon
-  sample shapes, OPERA as "sample = view", value archives for coherence /
-  ITS_LIVE, and dh/dt + IceBoost warped onto one grid.
+  [ANALYSIS_TOOL_PLAN.md](ANALYSIS_TOOL_PLAN.md) were built, reviewed in
+  four passes and deployed 2026-10-10. Left: the brush that *paints the
+  map*, the view and polygon sample shapes, OPERA as "sample = view", value
+  archives for coherence / ITS_LIVE, dh/dt + IceBoost warped onto one grid,
+  and two findings parked on the way — the MAAT/MAGT ramp is white at 0 °C
+  (invisible over the Blank White basemap; RdYlBu would need four archives
+  re-baked) and aspect below 1° of slope piles up at 45° multiples
+  (HAZARDS §Raster sources).
 - **Rule-based derivation from mirrored inventories.** Promotion today seeds
   provenance and two fields, then the editor types the rest. `external.py`'s
   docstring anticipates a `derive` step with per-field rules (how to read

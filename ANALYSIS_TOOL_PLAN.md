@@ -2,8 +2,8 @@
 
 *Plan written 2026-10-09 at Hig's request, after the permafrost panel shipped.*
 
-**Status (2026-10-10): phases 1 and 2 are built** (in dev, awaiting
-review) with one change of plan — the on-demand density came forward into
+**Status (2026-10-10): phases 1 and 2 are built, reviewed and deployed**
+(production, with `data/quantities/` on the droplet) with one change of plan — the on-demand density came forward into
 phase 1, because without it the "general" panel would have had two
 precomputed pairs on day one. What exists: `tools/analysis/quantities.py`
 (the registry), `build_quantity_cube.py` (point-sampled 1 km lattice, not
