@@ -735,6 +735,14 @@ def cmd_fill(a):
         prof = ds.profile; res = ds.res[0]
     with rasterio.open(out / "class_now.tif") as ds:
         cls = ds.read(1)
+    # idempotent: cells the fill layer itself won last time are holes again (never evidence)
+    fill_names = [L["name"] for L in recipe.d["layers"] if L.get("optional")]
+    if fill_names and (out / "source_index.tif").exists():
+        with rasterio.open(out / "source_index.tif") as ds:
+            si = ds.read(1)
+        for nm in fill_names:
+            if nm in [L["name"] for L in recipe.layers]:
+                z[si == [L["name"] for L in recipe.layers].index(nm)] = np.nan
     params = dict(recipe.d.get("fill", {}))
     if a.param:
         for kv in a.param:

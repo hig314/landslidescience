@@ -36,6 +36,16 @@ class Recipe:
         names = [l["name"] for l in self.layers]
         if len(set(names)) != len(names):
             raise ValueError(f"duplicate layer names: {names}")
+        # an optional layer is one the pipeline itself produces (the hole interpolation,
+        # composite.py fill): skipped, with a note, until its file exists
+        keep = []
+        for l in self.layers:
+            if l.get("optional") and isinstance(l.get("source"), str) and not self.resolve(l["source"]).exists():
+                import sys
+                print(f"[{self.id}] optional layer {l['name']} skipped: {self.resolve(l['source'])} not built yet", file=sys.stderr)
+                continue
+            keep.append(l)
+        self.layers = keep
 
     @property
     def work_dir(self) -> Path:
@@ -72,6 +82,10 @@ class Recipe:
         return hashlib.sha256(self.path.read_bytes()).hexdigest()[:16]
 
     def resolve(self, p) -> Path:
+        """Absolute as is; "$out/x" in the composite's own out_dir; else relative to root."""
+        p = str(p)
+        if p.startswith("$out/"):
+            return self.out_dir / p[5:]
         p = Path(p)
         return p if p.is_absolute() else self.root / p
 
@@ -96,6 +110,8 @@ class Recipe:
         applied); anything else is a path relative to `root`."""
         import os
         src = spec["source"]
+        if isinstance(src, str) and src.startswith("$out/"):
+            return self.resolve(src)
         if self.dataset(src) is not None and not self.resolve(src).exists():
             cog = Path(os.environ.get("LIDAR_COG_OUT", Path(os.environ.get("LIDAR_BUILD", "/Volumes/Nunatak/lidar_build")) / "cog"))
             p = cog / f"{src}.tif"

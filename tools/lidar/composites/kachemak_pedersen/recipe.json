@@ -91,6 +91,22 @@
     }
    ],
    "source_notes": "2026-10-10: the box mosaic of the reclass rerun (water rules + structures, see TOPOBATHY_PLAN.md 'The reclass as the classification') -- a stand-in for dataset id kbay_2023_reclass until hosting republishes it from the whole-survey rerun; switch back to the id then."
+  },
+  {
+   "name": "fill",
+   "optional": true,
+   "source": "$out/fill.tif",
+   "date": "2023-07-01",
+   "class": "modelled",
+   "sigma_m": 1.0,
+   "sigma": [
+    {
+     "raster": {
+      "path": "$out/fill_sigma.tif"
+     }
+    }
+   ],
+   "notes": "The hole interpolation (composite.py fill, topobathy/fill.py): a context-aware prior (shore bands from the rim slope, low-tide floor) conditioned by the soundings. Class modelled, so it stands in at half rank under water/bed and never where a real observation exists; sigma from fill_sigma.tif (grows from the shore, relaxes near soundings). Optional: skipped until the fill has been run; 'composite.py fill' treats the cells it won as holes, so build -> fill -> build is idempotent."
   }
  ],
  "fill": {

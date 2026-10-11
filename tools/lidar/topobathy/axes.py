@@ -35,6 +35,7 @@ TARGETS = {
         # A water-surface product is a separate thing, in the spirit of glacier-surface evolution.
         "water": {"bed": 1, "subglacial": 1, "modelled": 0.5},
         "bed":   {"bed": 1, "subglacial": 1, "modelled": 0.5},
+        "void":  {"modelled": 0.5},        # nothing credible observed (the laser got no returns): only a modelled surface may stand in
         "ground": {"ground": 1, "snow": 0.5, "bed": 0.5, "built": 0.5},
         "snow":  {"ground": 1, "snow": 0.5},
         "ice":   {"subglacial": 1, "modelled": 0.5, "ice": 0.25},
@@ -277,7 +278,10 @@ def sigma_raster(spec, z, valid, res_m, info):
             s = np.sqrt(s * s + facets(z, valid, res_m, **kw) ** 2).astype(np.float32)
         elif name == "raster":     # an observation package's own sigma raster (e.g. from grid_bathy.py)
             from .stack import read_geo
-            sr, sv = read_geo(kw["path"], kw["_grid"], kw["_win"], "bilinear")
+            path = kw["path"]
+            if str(path).startswith("$out/") and kw.get("_recipe") is not None:
+                path = kw["_recipe"].resolve(path)
+            sr, sv = read_geo(str(path), kw["_grid"], kw["_win"], "bilinear")
             s = np.where(sv & np.isfinite(sr), sr, s).astype(np.float32)
         elif name == "edge":       # near the footprint edge the DTM is interpolated from fewer points
             d = ndimage.distance_transform_edt(valid) * res_m
@@ -342,8 +346,10 @@ def state_rules_sequential(obs, target="ground_current", as_of=None, rates=None,
         dated = o["valid"] & (o["cls"] > 0) & (o["date"] <= as_of + 1e-6)
         cred = dated & (o["sigma"] < o.get("class_sigma_max", sigma_max))
         st = sig_total(o); sts.append(st)
-        # class-now: the newer of (running newest, this observation) among credible ones
-        newer = cred & (o["date"] >= date_now)
+        # class-now: the newer of (running newest, this observation) among credible ones --
+        # never a modelled surface (the hole interpolation): derived, not an observation of
+        # what is there, so it can stand in for the bed without claiming to be the class
+        newer = cred & (o["cls"] != CLASSES["modelled"]) & (o["date"] >= date_now)
         class_now = np.where(newer, o["cls"], class_now).astype(np.uint8)
         date_now = np.where(newer, o["date"], date_now).astype(np.float32)
         gate_i = compat(class_now, o["cls"]); gate_i[~dated] = 0
@@ -388,9 +394,10 @@ def state_rules(obs, target="ground_current", as_of=None, rates=None, sigma_max=
     cred = dated & np.stack([o["sigma"] < o.get("class_sigma_max", sigma_max) for o in obs])
     elig = dated & np.stack([o["sigma"] < sigma_max for o in obs])
     dates = np.array([o["date"] for o in obs], np.float32)
-    dstack = np.where(cred, dates[:, None, None], -np.inf)
+    not_model = np.stack([o["cls"] != CLASSES["modelled"] for o in obs])      # a modelled surface never sets the class axis
+    dstack = np.where(cred & not_model, dates[:, None, None], -np.inf)
     inew = np.argmax(dstack, axis=0)
-    any_cred = cred.any(axis=0)
+    any_cred = (cred & not_model).any(axis=0)
     cls_stack = np.stack([o["cls"] for o in obs])
     class_now = np.take_along_axis(cls_stack, inew[None], 0)[0]
     class_now[~any_cred] = 0
