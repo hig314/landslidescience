@@ -345,6 +345,88 @@ rock from beach (slope does it here); lakes get a guessed floor; the
 filled surface is a sibling product, not yet a layer in the gate (it
 could enter as class `modelled` with `fill_sigma` as its σ).
 
+**The interpolation is a layer (2026-10-10, late).** Hig: "there should
+be a layer representing the interpolations" — and the black on the
+composite hillshade was the holes themselves. The recipe now carries
+`{"name": "fill", "optional": true, "source": "$out/fill.tif", "class":
+"modelled", "sigma": [{"raster": {"path": "$out/fill_sigma.tif"}}]}`:
+`$out/` resolves to the composite's out_dir, an optional layer is
+skipped (with a note) until its file exists, and `composite.py fill`
+treats the cells the fill layer won as holes again, so build → fill →
+build is idempotent. Two gate changes were needed: a `modelled`
+observation never sets `class_now` (it is derived, not an observation
+of what is there — with it on the class axis the fill blocked itself,
+since the table has no `modelled` row), and a `void` row admits
+`modelled` at half rank (where the laser got no returns at all, only a
+modelled surface may stand in). Kachemak: fill 1.63 km², bathy's own
+hull TIN 26.7 (it outranks the fill between the lines, gate 1 vs 0.5),
+holes 1.70 km² of which 1.34 is margin. The mask tool shows `fill` as a
+layer like any other, plus the two fill views. Open question: between
+sounding lines the bathy layer's linear TIN beats the context-aware
+fill because it is class `bed`; whether that is the right ranking is
+Hig's call (the fill could be given gate 1 under `water`/`void` where
+the bed observation's σ is the hull's).
+
+### Default lake-basin guess: the literature (2026-10-10, late)
+
+Hig: "one thing we should start building is a default lake-basin
+guess — research the literature on lake basin geometry inference."
+What exists, and what it gives us:
+
+- **Hollister, Milstead & Urrutia 2011** (PLoS ONE 6:e25764; R package
+  `lakemorpho`): depth at a point = distance from shore × median slope
+  of the surrounding topography, in a buffer as wide as the lake's
+  greatest in-lake distance to shore; max depth = the farthest point.
+  Raw predictions run high — the fitted corrections are **0.46–0.55**
+  (basins are shallower than their shores extrapolated, by erosion and
+  sedimentation) — and after correction RMSE 5–6 m, r 0.7–0.8,
+  explaining 50–60 % of max-depth variance over ~28,000 NE-US lakes.
+  This is exactly our shore-band extension, with the factor.
+- **Sobek, Nisell & Fölster 2011** (Can. J. Fish. Aquat. Sci.): 6,943
+  Swedish lakes; lake area and the **maximum slope in a 50 m zone
+  outside the shoreline** are the best predictors — 92 % of volume
+  variance but < 40 % of max or mean depth; regional sub-models alike,
+  "probably applicable for glacially formed lakes in general".
+- **Heathcote et al. 2015**: elevation change in a buffer scaled by lake
+  area explains 95 % of volume variance for 433 Quebec (glacial) lakes.
+- **Messager et al. 2016** (HydroLAKES, Nat. Commun.): a geostatistical
+  volume model from surrounding terrain for every lake > 10 ha.
+- **Khazaei et al. 2022** (GLOBathy, Sci. Data): max depth by random
+  forest on shoreline length, area, volume, watershed area and
+  elevation (test NSE 0.86, n 1,503); the bathymetry itself is
+  **D = l·Dmax / L** — depth linear in distance to shore, Dmax at the
+  farthest point (a cone, Hollister's shape); head–area–volume as power
+  laws A = a·hᵇ, V = c·hᵈ.
+- **Håkanson 1981** (A Manual of Lake Morphometry): basin shape in one
+  number, the **volume development Vd = z̄/z_max** (a cone is 1/3); a
+  hypsographic form parameter Hd fits area–depth curves to r² ≈ 0.99.
+  For a basin whose depth goes as (l/L)ᵖ, Vd = 2/((p+1)(p+2)): p = 1 is
+  the cone, p ≈ 0.56 gives Vd = 0.5 (flatter-bottomed, the glacial
+  norm), p → 0 a box.
+- **Cook & Quincey 2015** (Earth Surf. Dynam. 3:559): Alpine glacial
+  lakes — volume–area r² 0.91 (power law, Huggel et al. 2002's
+  V = 0.104·A^1.42 is the usual form), depth–area only r² 0.38; the
+  outliers are overdeepened, complex basins — our case.
+- **Haeberli et al. 2016** (ESPL 41:1980): overdeepenings sit where
+  glacier surface slope was < 5–10°, are hundreds of metres long, about
+  half as wide, tens of metres deep, with the adverse slope on the
+  down-flow side.
+
+**Design that falls out of it**, as the lake branch of `fill.py` (not
+built yet): (1) **Dmax** two ways — Hollister: (max distance to shore)
+× (median rim slope) × ~0.5; glacial scaling: mean depth from area
+(Huggel/Cook & Quincey), Dmax ≈ mean / Vd — and the spread between
+them is the depth σ; (2) **shape**: depth = Dmax·(l/L)ᵖ with p from a
+target Vd (0.5 default for glacial basins, 1 for a cone), Dmax at the
+farthest-from-shore point — or, where the rim says which way the ice
+came (highest rim side = headwall), shifted toward it, per Haeberli;
+(3) **shores** keep our band: the deeper of the rim-slope extension
+(capped at Dmax) and the shape model, so rock drops steeply and beaches
+grade; (4) soundings condition it exactly as in marine domains; (5) σ
+of order 5 m plus the Dmax spread — honest about how little the shore
+knows. The Halibut Cove lake lies in the box's corner (a margin hole);
+testing it needs a window that encloses it.
+
 ### Deferred: physical awareness (decided 2026-10-09)
 
 Hig asked how far to go toward a physically aware merge — glacier
