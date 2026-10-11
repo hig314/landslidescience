@@ -92,5 +92,12 @@
    ],
    "source_notes": "2026-10-10: the box mosaic of the reclass rerun (water rules + structures, see TOPOBATHY_PLAN.md 'The reclass as the classification') -- a stand-in for dataset id kbay_2023_reclass until hosting republishes it from the whole-survey rerun; switch back to the id then."
   }
- ]
+ ],
+ "fill": {
+  "low_tide_m": -2.9,
+  "close_m": 60,
+  "marine_rim_max_m": 6.0,
+  "lake_depth_m": 5.0,
+  "notes": "2026-10-10: low_tide_m = the lowest sea surface the KBay 2023 water class shows in the box (-2.9 m NAVD88, the Aug 2023 low tide), standing in for MLLW until the Seldovia bench-mark value is put here. lake_depth_m is a guess for the floor of the Halibut Cove lake; its soundings (none) would override it."
+ }
 }

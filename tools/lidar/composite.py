@@ -720,6 +720,47 @@ def dataset_entry(recipe, grid, rep=None):
     return entry
 
 
+def cmd_fill(a):
+    """Fill the composite's holes with a context-aware first guess conditioned by the soundings
+    (topobathy/fill.py): out/fill*.tif and out/<id>_filled.tif."""
+    from topobathy import fill as FL
+    from topobathy.axes import CLASSES
+    recipe = Recipe(a.recipe); out = recipe.out_dir
+    src = out / f"{recipe.id}.tif"
+    if not src.exists():
+        sys.exit(f"build first: {src} missing")
+    t0 = time.time()
+    with rasterio.open(src) as ds:
+        z = ds.read(1).astype(np.float32); z[z == ds.nodata] = np.nan
+        prof = ds.profile; res = ds.res[0]
+    with rasterio.open(out / "class_now.tif") as ds:
+        cls = ds.read(1)
+    params = dict(recipe.d.get("fill", {}))
+    if a.param:
+        for kv in a.param:
+            k, v = kv.split("="); params[k] = float(v)
+    print(f"[{recipe.id}] fill: {z.shape[1]}x{z.shape[0]} @ {res} m, holes {np.isnan(z).mean():.4f} of the grid; params {params}")
+    R = FL.fill_holes(z, cls, res, CLASSES, params, log=print)
+    base = dict(prof, driver="GTiff", tiled=True, blockxsize=512, blockysize=512, compress="zstd", predictor=3, bigtiff="yes", nodata=-9999.0, dtype="float32")
+    base.pop("blockxsize", None) if prof.get("blockxsize") is None else None
+    def w(name, arr, dtype="float32", nodata=-9999.0, pred=3):
+        pr = dict(base, dtype=dtype, nodata=nodata, predictor=pred)
+        with rasterio.open(out / name, "w", **pr) as d:
+            d.write(np.where(np.isfinite(arr), arr, nodata).astype(dtype) if dtype == "float32" else arr.astype(dtype), 1)
+    w("fill.tif", R["fill"]); w("fill_prior.tif", R["prior"]); w("fill_sigma.tif", R["sigma"])
+    w("fill_mask.tif", R["mask"], "uint8", 0, 2)
+    filled = np.where(np.isfinite(R["fill"]), R["fill"], z)
+    raw = out / f"{recipe.id}_filled.raw.tif"; w(raw.name, filled)
+    cog_translate(raw, out / f"{recipe.id}_filled.tif", {"vertical_shift_m": 0, "composite_id": recipe.id, "composite_fill": "topobathy/fill.py",
+                                                       "fill_params": json.dumps(params)})
+    raw.unlink()
+    summ = dict(params=params, filled_km2=round(float(np.isfinite(R["fill"]).sum()) * res * res / 1e6, 4),
+                mask_km2={k: round(float((R["mask"] == v).sum()) * res * res / 1e6, 4) for k, v in (("band", 1), ("interior", 2), ("conditioned", 3), ("margin_left", 4))},
+                sigma_p50=round(float(np.nanmedian(R["sigma"])), 2), domains=int(R["marine"].size), marine=int(R["marine"].sum()), seconds=round(time.time() - t0))
+    (out / "fill.json").write_text(json.dumps(summ, indent=1))
+    print(f"  {out / (recipe.id + '_filled.tif')}  {json.dumps(summ)}")
+
+
 def cmd_publish(a):
     recipe = Recipe(a.recipe); grid = recipe.grid()
     cog = recipe.out_dir / f"{recipe.id}.tif"
@@ -746,6 +787,8 @@ def main():
     b.add_argument("--no-cog", action="store_true", help="full build: leave the raw tiled GeoTIFF, skip the COG")
     b.add_argument("--pin", action="store_true", help="window build: pin water levels from the whole-grid pre-pass, as a full build does")
     b.add_argument("--verbose", action="store_true", help="full build: per-layer lines for every tile")
+    f = sp.add_parser("fill", help="fill the composite's holes: context-aware prior + soundings (topobathy/fill.py)")
+    f.add_argument("recipe"); f.add_argument("--param", action="append", help="override a fill parameter, e.g. low_tide_m=-2.9")
     r = sp.add_parser("regress"); r.add_argument("recipe"); r.add_argument("--against", required=True); r.add_argument("--window"); r.add_argument("--out")
     m = sp.add_parser("masks"); m.add_argument("recipe"); m.add_argument("--window"); m.add_argument("--out-dir", required=True)
     im = sp.add_parser("import-mask"); im.add_argument("recipe"); im.add_argument("edited"); im.add_argument("--layer", required=True)
@@ -755,7 +798,7 @@ def main():
     pb = sp.add_parser("publish"); pb.add_argument("recipe"); pb.add_argument("--write", action="store_true", help="add the entry to datasets.json")
     a = p.parse_args()
     sys.exit({"build": cmd_build, "regress": cmd_regress, "masks": cmd_masks, "import-mask": cmd_import_mask,
-              "export-mask": cmd_export_mask, "publish": cmd_publish}[a.cmd](a) or 0)
+              "export-mask": cmd_export_mask, "publish": cmd_publish, "fill": cmd_fill}[a.cmd](a) or 0)
 
 
 if __name__ == "__main__":

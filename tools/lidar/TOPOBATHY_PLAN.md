@@ -291,6 +291,60 @@ the tidal channels and the ponds are the holes. A water-surface product
 (level per water body per date, from the water class) is a later, separate
 layer.
 
+### Hole interpolation: a context-aware first guess (2026-10-10, night)
+
+Hig: "where we're aiming here is a context-aware first-guess ... first
+create a synthetic DEM for the interpolation — in many cases it might be
+a simple smooth interpolation, but for shorelines we want a shore-like
+transition: smooth shore-parallel contours where there are beaches, and
+steep cliffs extending down to low-tide where there is bedrock."
+
+`topobathy/fill.py` + `composite.py fill <recipe>` (module docstring is
+the specification; recipe block `fill`, every parameter overridable
+with `--param k=v`):
+
+1. **Domain** — the composite's holes, closed over the sounding lines
+   that cross them (60 m, done as two distance transforms — a
+   structuring element that size on 88 M cells never finished), so a
+   lagoon is one domain with its lines as observations *inside* it.
+   Holes touching the grid edge are margin and stay empty (1.34 km²
+   here, mostly the bay edge and the lake in the corner).
+2. **Rim character** — each land-rim cell's slope over the 10 m behind
+   it (p10/50/90 here 1.8 / 8.7 / 36°): beach or cliff is that number.
+3. **Prior, the synthetic DEM** — nearest-rim extension z = z_rim −
+   tan(slope)·d along distance-to-shore (contours are iso-distance, so
+   shore-parallel), smoothed with a distance-growing kernel, down to a
+   **floor**: the low-tide level (`low_tide_m`, −2.9 here = the lowest
+   sea surface the KBay water class shows, standing in for MLLW) for
+   marine domains (land-rim median < 6 m), rim − `lake_depth_m` for
+   lakes. That band is fixed; the interior is harmonic between the
+   band's inner edge and any bed rim, *with the sounding cells as
+   unknowns* — the prior ignores soundings by design, and leaving them
+   out of the system made pockets ringed by lines boundary-less (the
+   solve wandered to +30 m before that was found).
+4. **Residual** — r = sounding − prior at sounding cells, 0 on the rim,
+   harmonic between; fill = prior + r. Soundings are honoured exactly.
+5. **Sigma** — grows from the rim (1 m + 2 m per 100 m, + 5 m for
+   lakes) and relaxes toward 0.3 m within ~30 m of a sounding.
+
+Solver: geometric multilevel — direct at 16 m, conjugate gradients at
+8/4/2/1 m warm-started from the level above; 2 M unknowns in 8 s,
+harmonic to machine precision (a cold CG at 1 m sat at its mean after
+300 iterations). Kachemak: 652 domains, 3.08 km² filled in 2.5 min
+(band 0.64, interior 2.44, 2.85 conditioned), σ p50 0.95 m. What it
+looks like: Halibut Cove Lagoon's −60 m basin between the lines with
+the beach band grading off the west shore and a steep face off the east
+rock; the Peterson Bay lagoon as a bowl from its beach rims. Outputs
+`out/fill.tif`, `fill_prior.tif`, `fill_mask.tif` (1 band, 2 interior,
+3 conditioned, 4 margin left), `fill_sigma.tif`, `<id>_filled.tif`
+(COG), `fill.json`.
+
+Open: the sounding lines' own gridded width still reads as a faint
+texture in the filled hillshade; roughness is not yet used to separate
+rock from beach (slope does it here); lakes get a guessed floor; the
+filled surface is a sibling product, not yet a layer in the gate (it
+could enter as class `modelled` with `fill_sigma` as its σ).
+
 ### Deferred: physical awareness (decided 2026-10-09)
 
 Hig asked how far to go toward a physically aware merge — glacier
