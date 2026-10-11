@@ -32,7 +32,11 @@ click around; the plot is split into a *terrain* plot (density, with the
 sample highlighted) and a *landslides* plot (points / count per cell / per
 1000 km²) on the same axes, with a grid slider that coarsens both in
 factor-of-2 merges; in the grid modes the sample's landslides are drawn as
-points over the unchanged grid.
+points over the unchanged grid. Second pass the same day: the sample goes
+away with the tool; while the panel is open a pane holds exactly one
+axis-capable overlay (non-axis ones off and locked, extras pruned, a new
+pick replaces the old — which also fixed picks in the left panel not
+taking).
 
 *The original plan follows.* The permafrost panel (`permafrost.js`) and the
 susceptibility scatter were the two concrete instances this generalised.

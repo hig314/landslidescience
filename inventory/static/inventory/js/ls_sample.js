@@ -5,8 +5,10 @@
  * at the current radius -- the footprint the next click would read; click
  * and the circle is set there, and the tool STAYS armed so the next click
  * moves it (Hig, 2026-10-10: "users can click in different places to see
- * what they get"). Esc, or the panel's button, puts the tool away. The
- * circle is drawn on the map and rides the URL as smp=lat,lon,r_km (map.js
+ * what they get"). Esc, or the panel's button, puts the tool away -- AND
+ * THE SAMPLE WITH IT: the circle exists only while the tool is on (Hig,
+ * same day), so a sample arriving by URL arms the tool. The circle is
+ * drawn on the map and rides the URL as smp=lat,lon,r_km (map.js
  * _VIEW_PARAMS). Registered as an LSTools mode with no toolbar button:
  * the sampler belongs to the panels that use it (Hig, 2026-10-09).
  *
@@ -63,7 +65,7 @@ window.LSSample = (function () {
     map.on('mouseout', function () { if (ghostAt) { ghostAt = null; renderGhost(); } });
     map.on('style.load', ensureLayers);
     if (map.isStyleLoaded()) ensureLayers();
-    if (pending) { var p = pending; pending = null; set(p.lon, p.lat, p.r); }
+    if (pending) { var p = pending; pending = null; set(p.lon, p.lat, p.r); arm(p.r); }
   }
 
   // ---- the circle --------------------------------------------------------------
@@ -110,7 +112,8 @@ window.LSSample = (function () {
   // ---- the tool ----------------------------------------------------------------
   function setArmed(on) {
     armed = on;
-    if (on) LSTools.cursor.set('tool', 'crosshair'); else { LSTools.cursor.clear('tool'); ghostAt = null; }
+    if (on) LSTools.cursor.set('tool', 'crosshair');
+    else { LSTools.cursor.clear('tool'); ghostAt = null; clear(); }   // the sample goes with the tool
     renderGhost();
     onArm(on);
   }
@@ -240,6 +243,7 @@ window.LSSample = (function () {
     if (!st) { clear(); return; }
     radius = st.r;
     set(st.lon, st.lat, st.r);
+    if (map) arm(st.r);
   }
 
   return { init: init, FINE: FINE, set: set, clear: clear, get: get, on: on, inside: inside,

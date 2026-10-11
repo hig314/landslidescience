@@ -26,12 +26,16 @@
  * map.js calls onOverlays() whenever overlay state changes. While the panel
  * is open map.js also shows a left-pane control panel beside the wiper's
  * right-pane one, so both axes have their basemap and overlay controls on
- * the map (Hig, 2026-10-10).
+ * the map, and it holds the panes to EXACTLY ONE AXIS-CAPABLE OVERLAY
+ * EACH: non-axis overlays go off when the panel opens, extras are pruned
+ * to the first, and an overlay turned on replaces the pane's previous one
+ * (Hig, 2026-10-10).
  *
  * SAMPLE: the ◎ button is a tool. While it is on, a ghost of the circle
  * follows the cursor over the map at the chosen radius; every click sets
  * the sample there (LSSample), and the tool stays on so the next click
- * moves it. The circle's cells light up on the terrain plot -- the 60 m
+ * moves it; turning the tool off (or closing the panel) removes the sample
+ * and its highlights. The circle's cells light up on the terrain plot -- the 60 m
  * value archives where both axes have them, else the cube's lattice
  * cells -- with a median / range summary in the footer, and the landslides
  * inside the circle are drawn on the landslide plot as points whatever the
@@ -246,7 +250,8 @@ window.LSAnalysis = (function () {
       pushWiper();           // show the two quantities on the map (creates the wiper if needed)
       draw();
     } else {
-      LSSample.disarm();
+      LSSample.disarm();     // takes the sample with it
+      highlight([]);         // and the brush's rings on the map
     }
     o.onChange();
   }

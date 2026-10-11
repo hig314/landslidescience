@@ -2616,9 +2616,9 @@
     // The overlays shown on each pane, in stack order, and the one setter the
     // panel uses: show x's overlay on the left and y's on the right, creating
     // the wiper (on the current basemap) if there is none, and turning off
-    // the other AXIS-CAPABLE overlays on each pane so the map shows exactly
-    // what the plot crosses. Non-axis overlays (contours, outlines) are left
-    // alone.
+    // every other overlay on both panes -- the other axis-capable ones and
+    // (Hig, 2026-10-10) the non-axis ones too -- so the map shows exactly
+    // what the plot crosses, one overlay a side.
     function _anWiperGet() {
         var left = [], right = [];
         OVERLAYS.forEach(function (ov) {
@@ -2632,7 +2632,6 @@
         if (!xOv || !yOv) return;
         var changed = false;
         OVERLAYS.forEach(function (ov) {
-            if (!ov.values) return;
             var st = _ovState[ov.id], l = ov.id === xOv, r = ov.id === yOv;
             if (st.left !== l || st.right !== r) { st.left = l; st.right = r; changed = true; }
         });
@@ -3931,6 +3930,13 @@
         }
 
         function paint() {
+            // An overlay that cannot be an axis is locked while the analysis
+            // panel is open (its panes are the axes); _leftPanelSync resyncs
+            // every row when the panel opens or closes.
+            var lock = _anPanelOpen() && !ov.values;
+            cb.disabled = lock;
+            row.style.opacity = lock ? 0.45 : 1;
+            row.title = lock ? 'Not available while the analysis panel is open: this overlay cannot be an axis.' : '';
             line2.style.opacity = st[side] ? 1 : 0.45;
             if (line3) {
                 line3.style.opacity = st[side] ? 1 : 0.45;
@@ -3943,6 +3949,13 @@
             st[side] = cb.checked;
             if (cb.checked) {
                 window.LSTrack && LSTrack.event('overlay', { id: ov.id, side: side });
+                // With the analysis panel open a pane holds one overlay: the
+                // one just chosen replaces whatever the pane showed (and
+                // becomes that axis through _anOverlaysChanged below).
+                if (_anPanelOpen()) {
+                    OVERLAYS.forEach(function (o2) { if (o2 !== ov && _ovState[o2.id]) _ovState[o2.id][side] = false; });
+                    _ovSyncUI();
+                }
                 // Turning it on should show something. Only re-resolve rows
                 // still tracking — a date the user picked by hand survives
                 // being toggled off and on.
@@ -4007,18 +4020,21 @@
         try { return JSON.parse(localStorage.getItem('ls_ov_cats') || '{}') || {}; }
         catch (e) { return {}; }
     })();
-    function _ovRenderGrouped(container, side, scope) {
+    // `onlyAxes` lists just the overlays that can be an analysis axis -- the
+    // two pane panels while the analysis panel is open.
+    function _ovRenderGrouped(container, side, scope, onlyAxes) {
         var byId = {};
         OVERLAYS.forEach(function (ov) { byId[ov.id] = ov; });
         var placed = {};
+        var ok = function (ov) { return ov && (!onlyAxes || ov.values); };
         var cats = _OV_CATS.map(function (c) {
             var ovs = c.ids.map(function (id) { placed[id] = 1; return byId[id]; })
-                           .filter(Boolean);
+                           .filter(ok);
             return { key: c.key, label: c.label, ovs: ovs };
         });
         // Anything unlisted still renders (a new overlay must never silently
         // vanish from the panel because nobody categorized it).
-        var rest = OVERLAYS.filter(function (ov) { return !placed[ov.id]; });
+        var rest = OVERLAYS.filter(function (ov) { return !placed[ov.id] && ok(ov); });
         if (rest.length) cats.push({ key: 'other', label: 'Other', ovs: rest });
 
         cats.forEach(function (c) {
@@ -4169,7 +4185,7 @@
         p.appendChild(head);
         var hint = document.createElement('div');
         hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:6px;line-height:1.3;';
-        hint.textContent = an ? 'Controls the right side of the divider; its first axis-capable overlay is the plot’s y axis.'
+        hint.textContent = an ? 'Controls the right side of the divider. Its one overlay is the plot’s y axis; choosing another replaces it.'
                              : 'Controls the right side of the divider. The left sidebar controls the left.';
         p.appendChild(hint);
 
@@ -4188,7 +4204,7 @@
         var ovHdr = document.createElement('div');
         ovHdr.className = 'refmaps-category'; ovHdr.textContent = 'Overlays';
         p.appendChild(ovHdr);
-        _ovRenderGrouped(p, 'right');
+        _ovRenderGrouped(p, 'right', null, an);
         p.appendChild(_buildRasterUIRight());
     }
     function _wiperPanelShow() {
@@ -4240,7 +4256,7 @@
         p.appendChild(head);
         var hint = document.createElement('div');
         hint.style.cssText = 'font-size:11px;color:#777;margin-bottom:6px;line-height:1.3;';
-        hint.textContent = 'Controls the left side of the divider; its first axis-capable overlay is the plot’s x axis.';
+        hint.textContent = 'Controls the left side of the divider. Its one overlay is the plot’s x axis; choosing another replaces it.';
         p.appendChild(hint);
 
         REFMAPS_CATEGORY_ORDER.forEach(function (cat) {
@@ -4258,7 +4274,7 @@
         var ovHdr = document.createElement('div');
         ovHdr.className = 'refmaps-category'; ovHdr.textContent = 'Overlays';
         p.appendChild(ovHdr);
-        _ovRenderGrouped(p, 'left', 'lpanel');
+        _ovRenderGrouped(p, 'left', 'lpanel', true);
     }
     // Hidden by its own ✕ until the analysis panel is next opened. Called on
     // every analysis-panel state change, so it rebuilds the DOM only when the
@@ -4273,8 +4289,13 @@
             var p = _leftPanelEnsure();
             if (p.style.display === 'none' || force) { p.style.display = ''; _leftPanelRefresh(); }
         } else _leftPanelHide();
-        // The right panel's title names the y axis while the analysis panel is open.
-        if (changed && _swipe.on && _wiperPanel && _wiperPanel.style.display !== 'none') _wiperPanelRefresh();
+        if (changed) {
+            // The right panel lists only axis-capable overlays and names the y
+            // axis while the analysis panel is open; every row everywhere
+            // re-paints its locked state (non-axis overlays, see _overlayRow).
+            if (_swipe.on && _wiperPanel && _wiperPanel.style.display !== 'none') _wiperPanelRefresh();
+            _ovSyncUI();
+        }
     }
     function _leftPanelHide() {
         if (_leftPanel) _leftPanel.style.display = 'none';
