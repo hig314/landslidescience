@@ -7246,6 +7246,61 @@
         t._h = setTimeout(function () { t.style.opacity = '0'; }, 1600);
     }
 
+    // Alt-click (Option-click on a Mac) → lat, lon and the elevation from every
+    // lidar survey turned on in either pane that covers the point, plus
+    // Mapterhorn as the reference everywhere. Read in the page from the same
+    // tiles the profile tool reads (LSProfile.pointElevations), each survey at
+    // its deepest zoom. A 'probe' click runs alone (ls_tools.js), so it never
+    // also opens the record under the cursor. The popup's Copy button puts
+    // the same lines on the clipboard.
+    if (typeof LSProfile !== 'undefined' && LSProfile.pointElevations) {
+        LSTools.clicks.register({ id: 'elev-probe', kind: 'probe', handler: function (_f, e) {
+            _elevProbe(e.lngLat);
+        } });
+    }
+    var _elevProbeSeq = 0;
+    function _elevProbe(ll) {
+        var seq = ++_elevProbeSeq;
+        var ids = {};
+        Object.keys(_lidarActive).concat(Object.keys(_lidarActiveR)).forEach(function (id) { ids[id] = 1; });
+        var head = ll.lat.toFixed(5) + ', ' + ll.lng.toFixed(5);
+        var pop = LSTools.popup.show(new maplibregl.Popup({ maxWidth: '340px', focusAfterOpen: false,
+                                                            className: 'elev-probe-pop' })
+            .setLngLat(ll)
+            .setHTML('<div class="elev-probe"><div class="ep-ll">' + esc(head) + '</div>' +
+                     '<div class="ep-note">reading elevations\u2026</div></div>')
+            .addTo(map));
+        LSProfile.pointElevations(ll.lng, ll.lat, Object.keys(ids)).then(function (rows) {
+            if (seq !== _elevProbeSeq || !pop.isOpen()) return;
+            var lines = [head];
+            var html = '<div class="elev-probe"><div class="ep-ll">' + esc(head) + '</div><table>';
+            rows.forEach(function (r) {
+                var v = isNaN(r.z) ? 'no data' : r.z.toFixed(2) + ' m';
+                lines.push(r.title + '\t' + (isNaN(r.z) ? '' : r.z.toFixed(2)) + '\t' + r.datum);
+                html += '<tr title="' + esc(r.id + ' \u00b7 read at z' + r.zoom + ', ~' +
+                        (r.res < 1 ? r.res.toFixed(2) : r.res.toFixed(1)) + ' m/px, bilinear') + '">' +
+                        '<td>' + esc(r.title) + '<div class="ep-datum">' + esc(r.datum) + '</div></td>' +
+                        '<td class="ep-z">' + v + '</td></tr>';
+            });
+            html += '</table>';
+            if (!Object.keys(ids).length) {
+                html += '<div class="ep-note">Turn on a lidar survey (Elevation &amp; imagery overlays) to read it here too.</div>';
+            } else if (rows.length - 1 < Object.keys(ids).length) {
+                html += '<div class="ep-note">Surveys turned on whose footprint misses this point are not listed.</div>';
+            }
+            html += '<button type="button" class="ep-copy">Copy</button></div>';
+            pop.setHTML(html);
+            var b = pop.getElement().querySelector('.ep-copy');
+            if (b) b.addEventListener('click', function () {
+                var txt = lines.join('\n');
+                var ok = function () { b.textContent = 'Copied'; };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(txt).then(ok, function () { _coordToast('Copy failed'); });
+                }
+            });
+        });
+    }
+
     // ONE entry for both layers: a dot sitting on its own polygon is one
     // record, and it used to open the panel -- and log landslide_open --
     // twice, once per layer handler. Kind 'record': at most one record entry

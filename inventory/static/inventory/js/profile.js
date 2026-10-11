@@ -288,6 +288,42 @@ window.LSProfile = (function () {
     });
   }
 
+  // One point, read from the named catalogue surveys (where their footprint
+  // covers it) at their deepest zoom, plus Mapterhorn. The Alt-click probe in
+  // map.js. Resolves to [{id, title, z (m or NaN), zoom, res (m/px), datum}]
+  // (datum = the catalogue's vertical_datum, as the manifest words it), the
+  // surveys in the order given and Mapterhorn last; a survey whose footprint
+  // misses the point is left out rather than reported as a void.
+  function pointElevations(lon, lat, ids) {
+    var cat = catalog(), srcs = [];
+    (ids || []).forEach(function (id) {
+      var f = cat && cat.features.filter(function (x) { return x.properties.id === id; })[0];
+      if (!f || !f.properties.pmtiles_url) return;
+      if (!turf.booleanPointInPolygon([lon, lat], f)) return;
+      var p = f.properties;
+      srcs.push({ id: p.id, title: p.title, encoding: 'mapbox', maxzoom: p.max_zoom,
+                  datum: p.vertical_datum || 'not declared by the source',
+                  pmtiles: probeArchive(p.pmtiles_url) });
+    });
+    srcs.push({ id: 'mapterhorn', title: 'Mapterhorn (3DEP 1/3\u2033 in Alaska)', encoding: 'terrarium',
+                maxzoom: 13, tiles: MAPTERHORN, tileSize: 512, sea: 0,
+                datum: 'NAVD88 (3DEP, Alaska); EGM2008 (Copernicus, Canada)' });
+    return Promise.all(srcs.map(function (s) {
+      return elevationAt(s, s.maxzoom, lon, lat).then(function (v) {
+        if (s.sea !== undefined && v <= s.sea) v = NaN;
+        return { id: s.id, title: s.title, z: v, zoom: s.maxzoom, datum: s.datum,
+                 res: metersPerPixel(lat, s.maxzoom, s.tileSize || 256) };
+      });
+    }));
+  }
+  // The probe keeps one PMTiles reader per archive so repeated clicks reuse
+  // its header and directory (and tileFor's cache) instead of re-fetching.
+  var probeArchives = {};
+  function probeArchive(url) {
+    var u = new URL(url, location.href).href;
+    return probeArchives[u] || (probeArchives[u] = new pmtiles.PMTiles(u));
+  }
+
   // ---- panel + chart -----------------------------------------------------
   function showPanel() { if (panelApi) panelApi.open(); }
   function status(msg) { if (el.status) el.status.textContent = msg; }
@@ -600,5 +636,6 @@ window.LSProfile = (function () {
     if (map.isStyleLoaded()) ensureLayers();
   }
 
-  return { init: init, clear: clearAll, state: state, setState: setState, onCatalog: onCatalog };
+  return { init: init, clear: clearAll, state: state, setState: setState, onCatalog: onCatalog,
+           pointElevations: pointElevations };
 })();

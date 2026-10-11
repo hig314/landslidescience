@@ -71,6 +71,13 @@
  *              (bedrock geology): it has no features to hit, so it is in the
  *              contest whenever its test says the raster is under the click,
  *              and its handler gets (null, e, []).
+ *   probe      runs ALONE on an Alt-click (Option-click on a Mac) when no
+ *              holder is active: a read-the-ground-here shortcut (the
+ *              elevation probe) that must not also open whatever record or
+ *              reference sits under the cursor. Ctrl-click is taken -- it is
+ *              the Mac's right-click, which copies coordinates -- and
+ *              Shift-drag is box zoom. While a holder is active an Alt-click
+ *              is an ordinary click for that holder.
  *
  * Cursor: two owners, `tool` and `hover`; tool outranks hover. A layer's
  * mouseenter/mouseleave can set and clear its pointer unconditionally,
@@ -183,6 +190,11 @@ window.LSTools = (function () {
         return L || [];
     }
     function dispatch(e) {
+        var oe = e.originalEvent;
+        if (!activeId && oe && oe.altKey) {
+            var pr = entries.filter(function (en) { return en.kind === 'probe'; });
+            if (pr.length) { pr[pr.length - 1].handler(null, e, []); return; }
+        }
         if (activeId) {
             // A holder owns the map: only its own action entries run.
             entries.forEach(function (en) {
