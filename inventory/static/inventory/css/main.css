@@ -631,10 +631,6 @@ body.inv-article-body {
 .profile-stats-none { color: #999; text-align: center !important; }
 .profile-read { font-size: 10px; color: #555; padding: 2px 10px 4px; border-top: 1px solid #eee;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 16px; }
-.scatter-hint {
-    position: absolute; left: 46px; bottom: 4px;
-    font-size: 9px; color: #aaa; pointer-events: none;
-}
 /* The analysis panel's legend footer (the old scatter's). The catch swatch sits at the left of the landslide legend bar and has no
    lower edge label, so give the bar's first cell a hairline to mark it off
    from the ramp proper. */

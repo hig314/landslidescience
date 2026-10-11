@@ -316,7 +316,7 @@ window.LSAnalysis = (function () {
   // Two panes side by side on the same axes: [0] terrain, [1] landslides.
   function dims() {
     var W = el.svg.clientWidth, H = el.svg.clientHeight;
-    var top = 18, bot = 34, ml = 42, gap = 48, mr = 10;
+    var top = 18, bot = 44, ml = 42, gap = 48, mr = 10;   // bot: tick labels, axis titles, then the hint line
     var w = Math.floor((W - ml - gap - mr) / 2), h = H - top - bot;
     return { W: W, H: H, w: w, h: h, panes: [{ x0: ml, y0: top }, { x0: ml + w + gap, y0: top }] };
   }
@@ -469,18 +469,19 @@ window.LSAnalysis = (function () {
     panes.forEach(function (p, pi) {
       svg.appendChild(svgEl('rect', { x: p.x0, y: p.y0, width: d.w, height: d.h, fill: 'none', stroke: '#ddd' }));
       txt(svg, titles[pi], p.x0, p.y0 - 6, 'start', '#555');
-      ticks(qx).forEach(function (t) {
+      ticks(qx, d.w).forEach(function (t) {
         svg.appendChild(svgEl('line', { x1: p.sx(t.p), y1: p.y0 + d.h, x2: p.sx(t.p), y2: p.y0 + d.h + 3, stroke: '#bbb' }));
-        txt(svg, t.l, p.sx(t.p), p.y0 + d.h + 13, 'middle');
+        if (t.l != null) txt(svg, t.l, p.sx(t.p), p.y0 + d.h + 13, 'middle');
       });
-      ticks(qy).forEach(function (t) {
+      ticks(qy, d.h).forEach(function (t) {
         svg.appendChild(svgEl('line', { x1: p.x0 - 3, y1: p.sy(t.p), x2: p.x0, y2: p.sy(t.p), stroke: '#bbb' }));
-        txt(svg, t.l, p.x0 - 5, p.sy(t.p) + 3, 'end');
+        if (t.l != null) txt(svg, t.l, p.x0 - 5, p.sy(t.p) + 3, 'end');
       });
-      txt(svg, qx.label + ' →', p.x0 + d.w / 2, d.H - 2, 'middle', '#666');
+      txt(svg, qx.label + ' →', p.x0 + d.w / 2, p.y0 + d.h + 27, 'middle', '#666');
     });
     var yl = txt(svg, qy.label + ' →', 10, d.panes[0].y0 + d.h / 2, 'middle', '#666');
     yl.setAttribute('transform', 'rotate(-90 10 ' + (d.panes[0].y0 + d.h / 2) + ')');
+    txt(svg, 'drag a box on either plot to select · drag the header to move · grab the corner to resize', d.W / 2, d.H - 3, 'middle', '#bbb');
 
     // points: all of them in points mode; in the grid modes only the sample's,
     // as points over the grid (Hig, 2026-10-10) -- the grid itself is unchanged.
@@ -517,9 +518,18 @@ window.LSAnalysis = (function () {
     el.note.textContent = cubeError ? cubeError : (dens ? '' : (quantities && !q(X) || quantities && !q(Y) ? 'no terrain density for this pair on this server' : ''));
     foot(qx, qy, tMax, lBins, inSample, noTerrain);
   }
-  function ticks(ax) {
-    if (ax.classes) return ax.classes.map(function (c, i) { return { p: i + 0.5, l: String(c) }; });
-    var st = niceStep(ax.max - ax.min, 5), out = [];
+  // Ticks for an axis `px` pixels long: about one label per 55 px, so a
+  // narrow panel thins them rather than overprinting; a class axis keeps
+  // every tick and labels every other class when they would touch (l = null
+  // draws the tick without a label).
+  function ticks(ax, px) {
+    var i;
+    if (ax.classes) {
+      var every = (px / ax.classes.length < 24) ? 2 : 1;
+      return ax.classes.map(function (c, i) { return { p: i + 0.5, l: i % every ? null : String(c) }; });
+    }
+    var n = Math.max(2, Math.min(8, Math.floor((px || 300) / 55)));
+    var st = niceStep(ax.max - ax.min, n), out = [];
     for (var v = Math.ceil(ax.min / st) * st; v <= ax.max + 1e-9; v += st) out.push({ p: v, l: fmtV(ax, v) });
     return out;
   }
