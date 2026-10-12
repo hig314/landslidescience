@@ -11,7 +11,11 @@
  * "the one that spreads the members over the greatest horizontal
  * distance"). It runs down the middle of the band the members occupy and
  * spans exactly their projected extent, A to A'. Shown on the map while the
- * panel is open; Flip swaps A and A'. Distances are in a local
+ * panel is open; Flip swaps A and A'. DRAG A OR A' to set the plane by
+ * hand (Hig, 2026-10-11): the plane is then the line through the two ends
+ * as placed, spanning them and every member's projection; *Auto plane* goes
+ * back to the farthest pair. Re-placing the plane only re-projects the
+ * samples already read -- no elevation is read again. Distances are in a local
  * equirectangular frame about the members' centre (metres; exact enough
  * over tens of km).
  *
@@ -19,7 +23,10 @@
  * window table, however many traces it holds (Hig, 2026-10-11). The code
  * takes a list of groups so that several can later be projected onto one
  * plane in distinct colours; the plane is then built from all their members.
- * Today the page opens one.
+ * Today the page opens one. While the panel is open, a trace added to,
+ * edited in or removed from an open group re-reads the profile (the host
+ * calls notify() on every change to the traces; only the open groups'
+ * members are compared).
  *
  * ELEVATIONS: each trace is sampled along its length and each sample is read
  * from the first surface that has data there, in this order: the surveys the
@@ -32,7 +39,8 @@
  * /inventory/.
  *
  *   LSTraceProfile.init({map, catalog, preferred, traces, groupById, onChange})
- *   LSTraceProfile.open(groupId | [ids]) / close() / state() / setState({groups, flip, locked, sel})
+ *   LSTraceProfile.open(groupId | [ids]) / close() / notify() / state()
+ *   LSTraceProfile.setState({groups, flip, locked, sel, plane: {A, B} | null})
  */
 window.LSTraceProfile = (function () {
   'use strict';
@@ -42,6 +50,8 @@ window.LSTraceProfile = (function () {
   var PLANE = 'tgp-plane', LINK = 'tgp-link', SRC = 'tgp-src', CURSOR = 'tgp-cursor';
   var map = null, opts = {}, chart = null;
   var groups = [], flip = false;
+  var custom = null;            // {A, B} [lon, lat] when the plane's ends were dragged; null = automatic
+  var sig = '', notifyTimer = null, dragRaf = null;
   var plane = null;             // {fr, p1, u, n, smin, smax, tmean, A, B, az, len}
   var result = null;            // {series: [{group, color, runs: [[point…]…]}], pending}
   var seq = 0;
@@ -70,36 +80,60 @@ window.LSTraceProfile = (function () {
     return lo.slice(0, -1).concat(up.slice(0, -1));
   }
   function partsOf(g) { return g.type === 'MultiLineString' ? g.coordinates : [g.coordinates]; }
-  function buildPlane(members) {
+  function memberXY(members) {
     var all = [];
     members.forEach(function (f) { partsOf(f.geometry).forEach(function (p) { all = all.concat(p); }); });
     if (all.length < 2) return null;
     var fr = frame(all);
-    var xy = all.map(function (c) { return toXY(fr, c); });
-    var H = hull(xy), best = -1, a = null, b = null;
-    for (var i = 0; i < H.length; i++) for (var j = i + 1; j < H.length; j++) {
-      var dx = H[j][0] - H[i][0], dy = H[j][1] - H[i][1], d = dx * dx + dy * dy;
-      if (d > best) { best = d; a = H[i]; b = H[j]; }
+    return { fr: fr, xy: all.map(function (c) { return toXY(fr, c); }) };
+  }
+  // The automatic plane: through the farthest pair of vertices, down the
+  // middle of the band the members occupy. With `through` ({A, B}, dragged
+  // by hand) the plane is the line through those two points instead, and
+  // spans them as well as the members.
+  function buildPlane(members, through) {
+    var mx = memberXY(members);
+    if (!mx) return null;
+    var fr = mx.fr, xy = mx.xy, a, u, L;
+    if (through) {
+      a = toXY(fr, through.A);
+      var b = toXY(fr, through.B);
+      L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (L < 1) return null;
+      u = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+    } else {
+      var H = hull(xy), best = -1, p = null, q = null;
+      for (var i = 0; i < H.length; i++) for (var j = i + 1; j < H.length; j++) {
+        var dx = H[j][0] - H[i][0], dy = H[j][1] - H[i][1], d = dx * dx + dy * dy;
+        if (d > best) { best = d; p = H[i]; q = H[j]; }
+      }
+      if (!p || best <= 0) return null;
+      L = Math.sqrt(best);
+      a = p; u = [(q[0] - p[0]) / L, (q[1] - p[1]) / L];
+      if (flip) u = [-u[0], -u[1]];
     }
-    if (!a || best <= 0) return null;
-    var L = Math.sqrt(best), u = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
-    if (flip) u = [-u[0], -u[1]];
     var n = [-u[1], u[0]];
     var smin = Infinity, smax = -Infinity, tmin = Infinity, tmax = -Infinity;
-    xy.forEach(function (p) {
-      var s = (p[0] - a[0]) * u[0] + (p[1] - a[1]) * u[1];
-      var t = (p[0] - a[0]) * n[0] + (p[1] - a[1]) * n[1];
+    xy.forEach(function (pt) {
+      var s = (pt[0] - a[0]) * u[0] + (pt[1] - a[1]) * u[1];
+      var t = (pt[0] - a[0]) * n[0] + (pt[1] - a[1]) * n[1];
       if (s < smin) smin = s; if (s > smax) smax = s;
       if (t < tmin) tmin = t; if (t > tmax) tmax = t;
     });
-    // Down the middle of the band the traces occupy. (A mean of vertex
-    // offsets was tried first: it leans toward whichever trace happens to
-    // have more vertices, which says nothing about the ground.)
-    var tmean = (tmin + tmax) / 2;
+    var tmean;
+    if (through) {
+      // Through the dragged ends exactly, spanning them and the members.
+      smin = Math.min(smin, 0); smax = Math.max(smax, L); tmean = 0;
+    } else {
+      // Down the middle of the band the traces occupy. (A mean of vertex
+      // offsets was tried first: it leans toward whichever trace happens to
+      // have more vertices, which says nothing about the ground.)
+      tmean = (tmin + tmax) / 2;
+    }
     function at(s) { return toLL(fr, [a[0] + u[0] * s + n[0] * tmean, a[1] + u[1] * s + n[1] * tmean]); }
     var az = (Math.atan2(u[0], u[1]) * 180 / Math.PI + 360) % 360;
     return { fr: fr, p1: a, u: u, n: n, smin: smin, smax: smax, tmean: tmean,
-             A: at(smin), B: at(smax), az: az, len: smax - smin };
+             A: at(smin), B: at(smax), az: az, len: smax - smin, custom: !!through };
   }
   function project(pl, c) {
     var p = toXY(pl.fr, c);
@@ -247,12 +281,60 @@ window.LSTraceProfile = (function () {
     d.textContent = text;
     return d;
   }
+  // A and A' are draggable: dragging re-places the plane live (the samples
+  // are re-projected, not re-read), and on release both ends settle where
+  // the new plane's span puts them.
   function placeMarkers() {
     markers.forEach(function (m) { m.remove(); });
     markers = [];
     if (!plane) return;
-    markers.push(new maplibregl.Marker({ element: mk('A') }).setLngLat(plane.A).addTo(map));
-    markers.push(new maplibregl.Marker({ element: mk('A′') }).setLngLat(plane.B).addTo(map));
+    [['A', plane.A], ['A′', plane.B]].forEach(function (e, i) {
+      var m = new maplibregl.Marker({ element: mk(e[0]), draggable: true }).setLngLat(e[1]).addTo(map);
+      m.getElement().title = 'Drag to set the plane by hand';
+      m.on('drag', function () {
+        if (dragRaf) return;
+        dragRaf = requestAnimationFrame(function () { dragRaf = null; dragTo(i, m.getLngLat()); });
+      });
+      m.on('dragend', function () {
+        if (dragRaf) { cancelAnimationFrame(dragRaf); dragRaf = null; }
+        dragTo(i, m.getLngLat());
+        placeMarkers();
+        opts.onChange();
+      });
+      markers.push(m);
+    });
+  }
+  function dragTo(i, ll) {
+    var A = markers[0].getLngLat(), B = markers[1].getLngLat();
+    custom = { A: [A.lng, A.lat], B: [B.lng, B.lat] };
+    custom[i ? 'B' : 'A'] = [ll.lng, ll.lat];
+    replane();
+  }
+  // Rebuild the plane (automatic or through the dragged ends) and project the
+  // samples already read onto it: no elevation is read again.
+  function replane() {
+    var pl = buildPlane(members(), custom);
+    if (!pl) return;
+    plane = pl;
+    if (result) result.series.forEach(function (se) { se.runs.forEach(function (run) { run.forEach(function (q) {
+      var pr = project(plane, [q.lon, q.lat]); q.d = pr.s; q.t = pr.t;
+    }); }); });
+    setPlane();
+    autoBtn();
+    draw();
+  }
+  function autoBtn() {
+    var b = chart && chart.el.title.parentNode.querySelector('.tgp-auto');
+    if (b) b.style.display = custom ? '' : 'none';
+  }
+  function members() {
+    var all = (opts.traces().features || []);
+    return all.filter(function (f) { return groups.some(function (g) { return g.id === f.properties.group_id; }); });
+  }
+  // A fingerprint of the open groups' members, to tell a real change (a line
+  // added, moved, deleted, regrouped) from the redraws a selection makes.
+  function signature() {
+    return JSON.stringify(members().map(function (f) { return [f.properties.id, f.properties.group_id, f.geometry.coordinates]; }));
   }
   // The hovered sample, and a dotted line to its foot on the plane: what the
   // chart's x is measured from.
@@ -284,7 +366,7 @@ window.LSTraceProfile = (function () {
     });
     var dems = Object.keys(used).sort(function (a, b) { return used[b] - used[a]; })
       .map(function (k) { return k + ' ' + Math.round(100 * used[k] / n) + '%'; }).join(', ');
-    chart.setStatus('A→A′ ' + Math.round(plane.az) + '°, ' + fmtD(plane.len) + ' · ' +
+    chart.setStatus('A→A′ ' + Math.round(plane.az) + '°, ' + fmtD(plane.len) + (plane.custom ? ' (set by hand)' : '') + ' · ' +
                     traces + ' trace' + (traces === 1 ? '' : 's') +
                     (result.pending ? ' · reading elevations…' : (dems ? ' · surfaces: ' + dems : ' · no elevations')));
   }
@@ -333,7 +415,11 @@ window.LSTraceProfile = (function () {
     chart = LSProfileChart.create({
       panel: p, makePanel: LSFloat.make, hover: 'nearest', ends: ['A', 'A′'], statsName: 'group',
       buttons: [
-        { label: 'Flip', title: 'Swap A and A′', onClick: function () { flip = !flip; run(); opts.onChange(); } },
+        { label: 'Flip', title: 'Swap A and A′', onClick: function () {
+            if (custom) custom = { A: custom.B, B: custom.A }; else flip = !flip;
+            replane(); placeMarkers(); opts.onChange(); } },
+        { cls: 'tgp-auto', label: 'Auto plane', title: 'Back to the automatic plane (through the two points farthest apart)',
+          onClick: function () { custom = null; replane(); placeMarkers(); opts.onChange(); } },
         { label: '↻', title: 'Re-read the group (after editing its traces)', onClick: function () { run(); } }
       ],
       tip: tip, onHover: function (hit) { setCursor(hit && hit.point); },
@@ -342,6 +428,7 @@ window.LSTraceProfile = (function () {
       onClose: function () { teardown(); opts.onChange(); }
     });
     chart.setLocked(false);
+    autoBtn();
   }
 
   // ---- open / close ------------------------------------------------------
@@ -352,31 +439,35 @@ window.LSTraceProfile = (function () {
     var sets = groups.map(function (g) {
       return { group: g, members: all.filter(function (f) { return f.properties.group_id === g.id; }) };
     });
-    var members = [];
-    sets.forEach(function (gs) { members = members.concat(gs.members); });
+    var mem = [];
+    sets.forEach(function (gs) { mem = mem.concat(gs.members); });
     ensureChart();
     chart.open();
     chart.setTitle('Group profile — ' + groups.map(function (g) { return g.name; }).join(' + '));
-    plane = buildPlane(members);
-    setPlane(); placeMarkers(); setCursor(null);
+    plane = buildPlane(mem, custom);
+    if (!plane && custom) { custom = null; plane = buildPlane(mem); }
+    sig = signature();
+    setPlane(); placeMarkers(); setCursor(null); autoBtn();
     if (!plane) {
       result = null; chart.setData({ length: 1, series: [] });
-      chart.setStatus(members.length ? 'The group’s traces are all at one point.' : 'This group has no traces yet.');
+      chart.setStatus(mem.length ? 'The group’s traces are all at one point.' : 'This group has no traces yet.');
       return;
     }
     sample(sets, mySeq);
   }
-  function open(ids) {
+  function open(ids, keepPlane) {
     var gs = [].concat(ids).map(function (id) { return opts.groupById(+id); }).filter(Boolean);
     if (!gs.length) return false;
     groups = gs;
+    if (!keepPlane) custom = null;
     run();
     opts.onChange();
     return true;
   }
   function teardown() {
     seq++;
-    groups = []; plane = null; result = null;
+    groups = []; plane = null; result = null; custom = null; sig = '';
+    clearTimeout(notifyTimer);
     if (map && map.getSource(SRC)) map.getSource(SRC).setData(fc());
     setCursor(null);
     markers.forEach(function (m) { m.remove(); }); markers = [];
@@ -394,19 +485,33 @@ window.LSTraceProfile = (function () {
   return {
     init: init, open: open, close: close,
     isOpen: function () { return groups.length > 0; },
+    // The host calls this whenever the traces change; the profile re-reads
+    // (after a pause, so a vertex drag is one re-read) only when an open
+    // group's members did.
+    notify: function () {
+      if (!groups.length) return;
+      clearTimeout(notifyTimer);
+      notifyTimer = setTimeout(function () {
+        if (!groups.length) return;
+        groups = groups.map(function (g) { return opts.groupById(g.id) || g; });
+        if (signature() !== sig) run();
+      }, 600);
+    },
     _test: { buildPlane: buildPlane, project: project },   // pure geometry, for checks
     // {groups: [id…], flip, locked, sel: {d0, d1} | null} or null when closed.
     state: function () {
       return groups.length ? { groups: groups.map(function (g) { return g.id; }), flip: flip,
-                               locked: chart ? chart.locked() : false, sel: chart ? chart.window() : null } : null;
+                               locked: chart ? chart.locked() : false, sel: chart ? chart.window() : null,
+                               plane: custom ? { A: custom.A.slice(), B: custom.B.slice() } : null } : null;
     },
     setState: function (st) {
       if (!st) return;
       flip = !!st.flip;
       ensureChart();
       chart.setLocked(!!st.locked);
+      custom = st.plane && st.plane.A && st.plane.B ? { A: st.plane.A, B: st.plane.B } : null;
       var ids = st.groups || (st.group != null ? [st.group] : []);
-      if (ids.length) open(ids);
+      if (ids.length) open(ids, true);
       if (st.sel) chart.setWindow(st.sel);
     }
   };

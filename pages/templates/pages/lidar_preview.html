@@ -122,7 +122,7 @@ vanish depending on which way you light them.
   /* Group profile (trace_profile.js): the panel and chart are ls_panels.css's
      (.float-panel, .profile-*), as on /inventory/; this is only where it opens. */
   #tgp-panel { top: 10px; left: 312px; width: 660px; height: 340px; }
-  .tgp-mark { background: #111; color: #fff; font: 700 12px system-ui, sans-serif; border: 2px solid #fff;
+  .tgp-mark { cursor: grab; background: #111; color: #fff; font: 700 12px system-ui, sans-serif; border: 2px solid #fff;
     border-radius: 50%; width: 20px; height: 20px; line-height: 20px; text-align: center;
     box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 </style>
@@ -1376,13 +1376,16 @@ vanish depending on which way you light them.
       CONTROLS.forEach(function (id) { p.set(id, document.getElementById(id).value); });
       CHECKS.forEach(function (id) { p.set(id, document.getElementById(id).checked ? '1' : '0'); });
       // The group profile: gp=<group id>[,<id>…], gpf=1 flipped (A at the other
-      // end), gpl=1 at 1:1, gpw=d0,d1 the brushed window (m along the plane).
+      // end), gpl=1 at 1:1, gpw=d0,d1 the brushed window (m along the plane),
+      // gpa=latA,lonA,latB,lonB a plane set by dragging its ends.
       var gst = window.LSTraceProfile && LSTraceProfile.state();
       if (gst) {
         p.set('gp', gst.groups.join(','));
         if (gst.flip) p.set('gpf', '1');
         if (gst.locked) p.set('gpl', '1');
         if (gst.sel) p.set('gpw', Math.round(gst.sel.d0) + ',' + Math.round(gst.sel.d1));
+        if (gst.plane) p.set('gpa', [gst.plane.A[1], gst.plane.A[0], gst.plane.B[1], gst.plane.B[0]]
+                                     .map(function (v) { return v.toFixed(5); }).join(','));
       }
       history.replaceState(null, '', location.pathname + '?' + p.toString());
     }, 250);
@@ -1952,6 +1955,23 @@ vanish depending on which way you light them.
     a.value = LSScarps.drawGroup() == null ? '' : String(LSScarps.drawGroup());
     tpSync(true);
   }
+  // A group nearly always holds one kind (a glaciation's moraine crests, a
+  // fault's scarps), so choosing a group for new lines takes the kind of its
+  // most recent trace; changing the kind afterwards still wins (Hig,
+  // 2026-10-11). An empty group leaves the kind alone.
+  function tpKindFromGroup(gid) {
+    if (gid === '' || gid == null) return;
+    var last = null;
+    LSScarps.all().features.forEach(function (f) {
+      if (f.properties.group_id === +gid && (!last || f.properties.id > last.properties.id)) last = f;
+    });
+    if (!last) return;
+    var k = last.properties.kind || 'scarp';
+    if (k === LSScarps.drawKind()) return;
+    document.getElementById('tp-kind').value = k;
+    LSScarps.setDrawKind(k);
+    tpSay('New lines: ' + LSScarps.kindInfo(k).label + ', as in this group.');
+  }
   // "＋ New group…" in either select: an inline name box; the new group is
   // then chosen in whichever select asked for it.
   var newgFor = null;
@@ -2027,6 +2047,7 @@ vanish depending on which way you light them.
     document.getElementById('tp-group').addEventListener('change', function () {
       if (tpGroupPicked(this)) return;
       LSScarps.setDrawGroup(this.value);
+      tpKindFromGroup(this.value);
     });
     document.getElementById('tp-egroup').addEventListener('change', function () { tpGroupPicked(this); });
     document.getElementById('tp-newno').addEventListener('click', function () {
@@ -2072,7 +2093,7 @@ vanish depending on which way you light them.
     LSScarps.init({
       map: map, api: '/inventory/',
       csrf: function () { return '{{ csrf_token }}'; },
-      onChange: function () { tpSync(); },
+      onChange: function () { tpSync(); if (window.LSTraceProfile) LSTraceProfile.notify(); },
       onPick: tracePopup,
       flash: function (m, bad) { if (tp) { tpSay(m, bad); tpSync(); traceKindFilter(); traceGroupsUi(); } }
     }).then(function () {
@@ -2088,9 +2109,11 @@ vanish depending on which way you light them.
           if (catalog || ++tries > 60) {
             clearInterval(t);
             var w = (Q.get('gpw') || '').split(',').map(Number);
+            var pa = (Q.get('gpa') || '').split(',').map(Number);
             LSTraceProfile.setState({ groups: Q.get('gp').split(',').map(Number).filter(Boolean),
                                       flip: Q.get('gpf') === '1', locked: Q.get('gpl') === '1',
-                                      sel: w.length === 2 && w.every(isFinite) ? { d0: w[0], d1: w[1] } : null });
+                                      sel: w.length === 2 && w.every(isFinite) ? { d0: w[0], d1: w[1] } : null,
+                                      plane: pa.length === 4 && pa.every(isFinite) ? { A: [pa[1], pa[0]], B: [pa[3], pa[2]] } : null });
           }
         }, 250);
       }

@@ -685,7 +685,17 @@ non-drag pointerup as a click, so the editor's listeners sit on the map
 **container** in the capture phase, `stopPropagation` + `preventDefault` (the
 latter suppresses the compatibility mouse events MapLibre pans on) and
 `setPointerCapture` for any gesture on a trace or handle; open-ground
-gestures pass through untouched. "Line in progress" = a LineString in Terra
+gestures pass through untouched, and so does anything whose target is not the
+canvas (markers, popups). **Mid-line, a secondary click (right-click,
+Ctrl-click on a Mac) ends the line and saves it** — the point clicked becomes
+the last vertex, or on a vertex already drawn the line ends as it is
+(`finishSecondary`: it takes the click from Terra Draw, ends Terra Draw's line
+by switching modes, and saves through the same `saveNew` as Terra Draw's own
+finish; the contextmenu that follows is swallowed, not a coordinate copy).
+Terra Draw alone ends a line only on a click within `pointerDistance` of its
+last vertex. **Choosing a group for new lines takes the kind of the group's
+most recent trace** (a group nearly always holds one kind; the kind can still
+be changed after). "Line in progress" = a LineString in Terra
 Draw's snapshot not yet seen by its `finish` event (it has no flag of its own).
 
 **Group profile** (`trace_profile.js`, `LSTraceProfile`, on `/lidar/`; built
@@ -705,7 +715,13 @@ difference surveys, other covering surveys finest first, then Mapterhorn
 one series** — one colour, one legend line, one row of the window table,
 however many traces (Hig); the code takes a list of groups so several can
 later share one plane in distinct colours (the plane is then built from all
-their members). Hover picks the nearest sample and marks it and its foot on
+their members). **A and A′ are draggable** (2026-10-11): the plane becomes
+the line through the two ends as placed, spanning them and the members;
+dragging re-projects the samples already read (live, no re-read) and *Auto
+plane* returns to the farthest pair; URL `gpa=latA,lonA,latB,lonB`. **The
+profile follows the traces**: the page calls `LSTraceProfile.notify()` on
+every `LSScarps` change, and it re-reads (after 600 ms) when the open groups'
+members differ from what it drew. Hover picks the nearest sample and marks it and its foot on
 the plane; the brushed window's slope is the group's trend along the plane
 (for moraine crests, the former ice-surface gradient). CSV: group, trace,
 along-plane distance, signed offset, lon/lat, z, surface; `#` lines carry

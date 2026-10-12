@@ -248,6 +248,27 @@ window.LSScarps = (function () {
     });
   }
 
+  // Save a newly finished line as the current draw kind and group, with
+  // traced_on from the host. Every way a line ends comes here: Terra Draw's
+  // own finish (Enter, double-click, a click back on the last vertex) and
+  // the editor's secondary click (finishSecondary).
+  function saveNew(geom) {
+    var ctx = null;
+    try { ctx = drawContext ? drawContext() : null; } catch (e) { ctx = null; }
+    var k = drawKind, g = drawGroup;
+    // A kind filtered off would save a line the tracer then cannot see.
+    if (hiddenKinds[k]) { delete hiddenKinds[k]; }
+    return req(api + 'api/scarps/create/', { method: 'POST',
+        body: { geometry: geom, notes: '', kind: k, traced_on: ctx, group_id: g } })
+      .then(function (res) {
+        upsert(res.scarps); selectedId = res.id;
+        if (g != null) bumpGroupCounts();
+        redraw();
+        flash(kindInfo(k).label + ' saved — add a note.');
+      })
+      .catch(function (e) { flash('Could not save: ' + e.message, true); });
+  }
+
   /** Start tracing. Each finished line is saved immediately, as
    *  opts.kind (default: the last kind set) with traced_on = opts.context(). */
   function startDraw(opts) {
@@ -294,20 +315,7 @@ window.LSScarps = (function () {
       // mutating its feature list mid-event leaves the next trace in a bad
       // state.
       setTimeout(function () { try { td && td.removeFeatures([id]); } catch (e) {} }, 0);
-      var ctx = null;
-      try { ctx = drawContext ? drawContext() : null; } catch (e) { ctx = null; }
-      var k = drawKind, g = drawGroup;
-      // A kind filtered off would save a line the tracer then cannot see.
-      if (hiddenKinds[k]) { delete hiddenKinds[k]; }
-      req(api + 'api/scarps/create/', { method: 'POST',
-          body: { geometry: geom, notes: '', kind: k, traced_on: ctx, group_id: g } })
-        .then(function (res) {
-          upsert(res.scarps); selectedId = res.id;
-          if (g != null) bumpGroupCounts();
-          redraw();
-          flash(kindInfo(k).label + ' saved — add a note.');
-        })
-        .catch(function (e) { flash('Could not save: ' + e.message, true); });
+      saveNew(geom);
     });
     attachEditor();
     onChange();
@@ -416,11 +424,20 @@ window.LSScarps = (function () {
   function secondary(e) { return e.button === 2 || (IS_MAC && e.button === 0 && e.ctrlKey); }
   function onDown(e) {
     if (!e.isPrimary || (e.button !== 0 && e.button !== 2)) return;
-    // Mid-line every click is Terra Draw's, a secondary one included: it adds
-    // a vertex there, or finishes on the last one. (onContext keeps the
-    // host's copy-coordinates out of it.)
-    if (lineInProgress()) return;
+    // Only the map itself: a marker, popup or control over it (the group
+    // profile's draggable plane ends, say) keeps its own pointer events.
+    if (e.target !== map.getCanvas()) return;
     var sec = secondary(e);
+    // Mid-line a primary click is Terra Draw's (a vertex, or a finish back on
+    // the last one). A secondary click ends the line here and saves it: the
+    // point clicked becomes the last vertex, or, on a vertex already drawn,
+    // the line ends as it is (Hig, 2026-10-11). Terra Draw itself only ends
+    // a line on its last vertex, and on a Mac a Ctrl-click may not reach it
+    // as a click at all.
+    if (lineInProgress()) {
+      if (sec) { take(e); gesture = { type: 'rclick' }; finishSecondary(e); }
+      return;
+    }
     var pt = canvasPoint(e), f = selected();
     var h = f ? handleAt(pt) : null;
     if (h) {
@@ -494,8 +511,35 @@ window.LSScarps = (function () {
     if (gesture.type === 'drag') { gesture.f.geometry = gesture.before; redraw(); }
     gesture = null;
   }
+  var swallowMenu = 0;          // time a secondary click ended a line: its contextmenu is not a copy
+  function finishSecondary(e) {
+    var line = null;
+    try {
+      line = td.getSnapshot().filter(function (f) {
+        return f.geometry.type === 'LineString' && !finished[f.id];
+      })[0];
+    } catch (err) { line = null; }
+    if (!line) return;
+    // Terra Draw's in-progress line ends with the point following the cursor;
+    // the vertices actually placed are the rest.
+    var placed = line.geometry.coordinates.slice(0, -1);
+    var pt = canvasPoint(e), ll = map.unproject(pt);
+    var onVertex = placed.some(function (c) {
+      var q = map.project(c);
+      return Math.abs(q.x - pt[0]) <= HANDLE_PX + 3 && Math.abs(q.y - pt[1]) <= HANDLE_PX + 3;
+    });
+    var coords = onVertex ? placed : placed.concat([[ll.lng, ll.lat]]);
+    swallowMenu = Date.now();
+    if (coords.length < 2) { flash('A line needs two points.', true); return; }
+    // End Terra Draw's line without its finish event (switching modes clears
+    // the drawing), then save ours.
+    finished[line.id] = true;
+    try { td.setMode('select'); td.setMode('linestring'); } catch (err) {}
+    saveNew(round({ type: 'LineString', coordinates: coords }));
+  }
   function onContext(e) {
     if (mode !== 'draw') return;
+    if (Date.now() - swallowMenu < 1500) { swallowMenu = 0; take(e); return; }
     // Mid-line the secondary click added a vertex (or finished the line), and
     // on a handle it edited: neither is a request for the coordinates or the
     // browser's menu. Anywhere else it passes, and the host copies "lat, lon".
