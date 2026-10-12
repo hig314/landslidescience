@@ -188,8 +188,9 @@
   "close_m": 60,
   "marine_rim_max_m": 6.0,
   "lake_depth_m": 5.0,
-  "notes": "Lakes review box. Lake parameters at their defaults (lake_vd 0.5, hollister_k 0.5, lake_water_frac 0.5). Sparse depths: add a CSV as 'points' (x,y,depth or z).",
-  "fill_margin": true
+  "notes": "Lakes review box. Lake parameters at their defaults (lake_vd 0.5, hollister_k 0.5, lake_water_frac 0.5). Sparse depths: 'points' = Nick's July 2018 lake soundings (China Poot Lake 157, the 67 m lake 82; Hazel lakes outside the box), z = KBay water level - depth (see the README beside the CSV).",
+  "fill_margin": true,
+  "points": "/Volumes/Nunatak/lidar_build/obs/nick_lakedepths_2018/points.csv"
  },
  "notes": "Lake-basin review box (Hig, 2026-10-11: 'near 59.54106, -151.20282 where there are a number of lakes of different sizes'): ~60 lakes 0.5-105 ha. Stack = every survey that covers it, oldest first, over a 3DEP fallback: Hig asked why the Grewingk Lake box had used neither Mark Laker's SfM (dixon_2023) nor Katie Hughes' sonar (grewingk_sonar_2023) -- the recipe was a copy of Kachemak's, whose box neither reaches; a recipe lists its layers by hand, so a box needs its own survey search (wanted: an 'auto' layer list from the catalogue footprints).",
  "margin_m_notes": "2026-10-11: margin_m 0.05 -> 0. With equal sigma (0.15) the older Grewingk 2021 kept every cell it reached and the newer KBay showed only where Grewingk's class raster was void -- i.e. at the edges of the LAZ tiles classified for this box, straight km and half-km lines with a 0.1-0.3 m step. At 0 the newer survey wins a tie."

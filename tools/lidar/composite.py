@@ -827,6 +827,9 @@ def cmd_fill(a):
             x, y = T * (t.pop("col"), t.pop("row")); t["x"], t["y"] = round(x), round(y)
         (out / "fill_lakes.json").write_text(json.dumps(R["lakes"], indent=1))
         print(f"  lakes table: {out / 'fill_lakes.json'}")
+    if R.get("channels"):
+        (out / "fill_channels.json").write_text(json.dumps(R["channels"], indent=1))
+        print(f"  channels table: {out / 'fill_channels.json'}")
     base = dict(prof, driver="GTiff", tiled=True, blockxsize=512, blockysize=512, compress="zstd", predictor=3, bigtiff="yes", nodata=-9999.0, dtype="float32")
     base.pop("blockxsize", None) if prof.get("blockxsize") is None else None
     def w(name, arr, dtype="float32", nodata=-9999.0, pred=3):
