@@ -54,7 +54,7 @@ from scipy.sparse.linalg import cg, spsolve
 DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, slope_min_deg=1.0, slope_max_deg=60.0, low_tide_m=-2.9,
                 marine_rim_max_m=6.0, lake_depth_m=5.0, sigma_prior_m=1.0, sigma_rim_m=2.0, lake_sigma_m=5.0,
                 cond_m=30.0, cg_iters=300, coarse=16,
-                lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, points=None)
+                lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, lake_surface_tol_m=0.2, lake_islet_m2=50, void_shore_m=2.0, points=None)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -190,6 +190,34 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # classed holes plus the observations inside the domain; dry = the rest.
     wet = dom & ((hole & (cls == classes["water"])) | np.isfinite(z))
     lw, nw = ndimage.label(wet); ld, nd = ndimage.label(dom & ~wet)
+    # ...but a void patch OF a lake (no returns off calm water: China Poot Lake's east bay,
+    # 2026-10-12) is wet: it touches a wet domain and its shore stands near that water (within
+    # void_shore_m of the observed level).  Void ground above a lake (Halibut Cove) stays dry.
+    wz = P.get("_water_z")
+    if nw and nd and wz is not None:
+        wlev = ndimage.labeled_comprehension(np.nan_to_num(wz, nan=-1e9), lw, np.arange(1, nw + 1),
+                                             lambda v: np.median(v[v > -1e8]) if (v > -1e8).sum() >= 20 else np.nan, float, np.nan)
+        land_obs = np.isfinite(z) & np.isin(cls, land_codes) & ~dom
+        merge = np.zeros(z.shape, bool)
+        for k, sl in enumerate(ndimage.find_objects(ld), 1):
+            if sl is None:
+                continue
+            sl = tuple(slice(max(s.start - 1, 0), s.stop + 1) for s in sl)
+            sub = ld[sl] == k
+            ring = ndimage.binary_dilation(sub, structure=np.ones((3, 3), bool)) & ~sub
+            wl = lw[sl][ring]; wl = wl[wl > 0]
+            if not wl.size:
+                continue
+            lev = wlev[np.bincount(wl).argmax() - 1]
+            rz = z[sl][ring & land_obs[sl]]
+            # no shore of its own: a void hole enclosed by the water (2x2 void cells inside China Poot
+            # Lake took the far shore's slope extension, 15-30 m above the bed around them)
+            if not rz.size or (np.isfinite(lev) and np.median(rz) < lev + P["void_shore_m"]):
+                merge[sl] |= sub
+        if merge.any():
+            log(f"  void patches of lakes joined to them: {int(merge.sum()) * res * res / 1e6:.4f} km2")
+            wet |= merge
+            lw, nw = ndimage.label(wet); ld, nd = ndimage.label(dom & ~wet)
     lab = np.where(wet, lw, np.where(ld > 0, ld + nw, 0)); n = nw + nd
     log(f"  wet domains {nw}, dry (void) domains {nd}")
     log(f"  domains: {n} (margin holes left empty: {int((margin & hole).sum()) * res * res / 1e6:.3f} km2); "
@@ -270,8 +298,15 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             sbar = float(np.median(srim[rl])); level = float(med[i - 1])
             # the lake level: the median of the returns off its surface where there are any (the
             # land rim's median stands on the shore -- 0.76 m above China Poot Lake's water)
+            # Best is the water surface itself (water_z: the water-classed observation that won each
+            # cell, written by the build); the returns classed ground near the shore read ~1 m high on
+            # China Poot Lake (2026-10-12), and then island ground within 1.5 m of the water was dropped
+            wz = P.get("_water_z")
+            wcell = cells & np.isfinite(wz) if wz is not None else None
             surf = cells & inside_obs & (cls != classes["bed"]) & (z > level - 3.0) & (z < level + 0.5)
-            if int(surf.sum()) >= 20:
+            if wcell is not None and int(wcell.sum()) >= 20:
+                level = float(np.median(wz[wcell]))
+            elif int(surf.sum()) >= 20:
                 level = float(np.median(z[surf]))
             lake_level[i] = level
             d_h = P["hollister_k"] * L * np.tan(np.radians(sbar))
@@ -313,18 +348,35 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         lk = np.isfinite(lake_prior) & dom
         prior[lk] = lake_prior[lk]; band &= ~lk                      # the lake shape replaces band + interior there
         # inside a lake a topo lidar cannot see the bed: an observation that is not bed (sonar,
-        # bathymetry) and sits below level + 0.5 m is the water surface (a seam of returns off calm
-        # water, an older survey's flight line classed ground -- Grewingk 2021 on China Poot Lake,
-        # 2026-10-11, pinned the bed to the surface along straight strips), not evidence for the
-        # fill.  Islands (higher) stay.
+        # bathymetry) and sits below level + lake_surface_tol_m is the water surface (a seam of returns
+        # off calm water, an older survey's flight line classed ground -- Grewingk 2021 on China Poot
+        # Lake, 2026-10-11, pinned the bed to the surface along straight strips), not evidence for the
+        # fill.  Islands (higher) stay; the tolerance was 0.5 m against a level 1 m too high, which ate
+        # their low ground (2026-10-12), and is 0.2 m now the level is the observed water.
         lvt = np.full(n + 1, np.nan, np.float32)
         for i, v in lake_level.items(): lvt[i] = v
         lvl = np.full(z.shape, np.nan, np.float32); lvl[lk] = lvt[lab[lk]]
-        at_surface = lk & inside_obs & np.isfinite(z) & (cls != classes["bed"]) & (z < lvl + 0.5)
+        at_surface = lk & inside_obs & np.isfinite(z) & (cls != classes["bed"]) & (z < lvl + P["lake_surface_tol_m"])
+        # and a speck of "ground" out on the water (< lake_islet_m2, the survey layers' islets rule) is
+        # a stray return, not an island: one 2 m Grewingk cell 0.3 m above the water pulled the
+        # bed up 30 m around it (2026-10-12).  Larger islands are kept.
+        sp = lk & inside_obs & np.isfinite(z) & (cls != classes["bed"]) & ~at_surface
+        sl, sn = ndimage.label(sp)
+        if sn:
+            ssz = ndimage.sum(sp, sl, np.arange(1, sn + 1)) * res * res
+            specks = np.isin(sl, np.flatnonzero(ssz < P["lake_islet_m2"]) + 1)
+            at_surface |= specks
         if at_surface.any():
-            log(f"  lake observations at the water level dropped as evidence: {int(at_surface.sum())} cells")
+            log(f"  lake observations at the water level or specks dropped as evidence: {int(at_surface.sum())} cells")
             inside_obs &= ~at_surface; hole |= at_surface
             surface |= at_surface
+        # surface cells judged by the previous pass are water-classed holes now, invisible here;
+        # carried over (inside a lake still) so the next build does not call them ground again
+        prev = P.get("_surface_prev")
+        if prev is not None:
+            carried = prev & lk & ~surface
+            surface |= carried
+            log(f"  surface cells carried over from the previous fill: {int(carried.sum())}")
         if lake_tab:
             log(f"  lakes >= {P['lake_min_m2']} m2: {len(lake_tab)}; Dmax Hollister/glacial p50 "
                 f"{np.median([t['dmax_hollister_m'] for t in lake_tab]):.1f}/{np.median([t['dmax_glacial_m'] for t in lake_tab]):.1f} m")

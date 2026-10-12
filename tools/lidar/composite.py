@@ -460,6 +460,7 @@ class Outputs:
             op("date_now", out / "date_now.tif", "float32", -9999.0)
             op("sigma", out / "sigma.tif", "float32", -9999.0)
             op("fallback", out / "fallback.tif", "uint8", 0)
+            op("water_z", out / "water_z.tif", "float32", -9999.0)   # the observed water surface (the fill's lake levels)
             if diag:
                 for n in names:
                     op(("class", n), out / f"class_{n}.tif", "uint8", 0)
@@ -485,6 +486,8 @@ class Outputs:
             st = np.take_along_axis(R["sigma_total"], win_i[None].astype(np.intp), 0)[0]
             w("sigma", np.where((R["winner"] >= 0) & np.isfinite(st), st, -9999).astype(np.float32))
             w("fallback", R["fallback"].astype(np.uint8))
+            if "water_z" in R:
+                w("water_z", np.where(np.isfinite(R["water_z"]), R["water_z"], -9999).astype(np.float32))
             if self.diag:
                 for L in layers:
                     w(("class", L["name"]), L["cls"])
@@ -509,6 +512,19 @@ def _tile_job(args):
     if axes_mode:
         R = layers[0]["rules"]
         slim[0]["rules"] = {k: R[k] for k in ("class_now", "winner", "date_now", "sigma_total", "fallback")}
+        # the water surface as observed: the elevation of the newest layer that classes the cell
+        # water.  The fill takes a lake's level from it (2026-10-12: the shore and stray returns put
+        # China Poot Lake's level 1 m above KBay's water, and island ground within 1.5 m of the
+        # water was dropped as surface).  Not the rules' winner: in a lake that is the fill layer,
+        # whose z is the modelled bed (the first try read China Poot Lake's level as 15 m).
+        from topobathy.axes import CLASSES as _C
+        wz = np.full(out.shape, np.nan, np.float32)
+        for L in layers:                                     # oldest first, so the newest water wins
+            if L.get("cls") is None or L["spec"].get("optional"):
+                continue
+            m = (L["cls"] == _C["water"]) & L["valid"] & np.isfinite(L["z"])
+            wz[m] = L["z"][m]
+        slim[0]["rules"]["water_z"] = wz
     return box, out, slim, stats
 
 
@@ -794,9 +810,17 @@ def cmd_fill(a):
             k, v = kv.split("="); params[k] = float(v)
     print(f"[{recipe.id}] fill: {z.shape[1]}x{z.shape[0]} @ {res} m, holes {np.isnan(z).mean():.4f} of the grid; params {params}")
     params["_transform"] = prof["transform"]; params["_outside"] = outside
+    # the observed water surface (lake levels) and the surface cells judged last time: those are
+    # water-classed holes now, so this pass cannot see them -- without carrying them over the next
+    # build calls them ground again (Grewingk 2021's 50.14 m strips came back as pimples, 2026-10-12)
+    for key, name in (("_water_z", "water_z.tif"), ("_surface_prev", "fill_surface.tif")):
+        if (out / name).exists():
+            with rasterio.open(out / name) as ds:
+                arr = ds.read(1)
+                params[key] = (np.where(arr == ds.nodata, np.nan, arr).astype(np.float32) if key == "_water_z" else arr > 0)
     R = FL.fill_holes(z, cls, res, CLASSES, params, log=print)
-    params.pop("_outside", None)
-    params.pop("_transform", None)
+    for k in ("_outside", "_transform", "_water_z", "_surface_prev"):
+        params.pop(k, None)
     if R.get("lakes"):
         T = prof["transform"]
         for t in R["lakes"]:
