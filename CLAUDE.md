@@ -87,7 +87,9 @@ written down anywhere — read `/lidar/audit/`.
   tool — its first pointer tool; tool group top-right). The profile and the
   Alt-click probe are the obvious next tools there; they register with the
   same dispatcher rather than growing a policy of their own.
-- **Landform traces, built 2026-10-11 (in dev, not yet deployed):** the
+- **Landform traces, deployed 2026-10-11** (with the group profile and the
+  shared profile chart; first group on prod: Moosehorn-Seldovia moraines,
+  15 traces copied from dev): the
   scarp table generalised to every traced line (`kind`: scarp, moraine
   crest, trimline, strandline, lineament; `traced_on`; named groups, one
   per trace, with a GeoJSON download each), traced on `/lidar/`.
