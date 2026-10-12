@@ -1,9 +1,9 @@
 /* ls_tools.js — pointer policy for a MapLibre map: who owns a click, who owns
  * a drag, who owns the cursor, what Escape means. Global `window.LSTools`.
  *
- * Loaded by /inventory/ (map.js). Built as a module rather than a pattern so
- * /lidar/ can load it the day it gains a profile tool — that page has zero
- * pointer handlers today and nothing to hook one into.
+ * Loaded by /inventory/ (map.js) and, since 2026-10-11, by /lidar/ for its
+ * landform trace tool (init with {position: 'top-right'}). Built as a module
+ * rather than a pattern for exactly that second page.
  *
  * WHAT THIS REPLACES, AND WHY (2026-09-24)
  * ----------------------------------------
@@ -99,6 +99,7 @@ window.LSTools = (function () {
 
     var map = null;
     var container = null, added = false;
+    var position = 'top-left';  // where the tool group sits; init's opts.position
     var reg = {};              // id -> {onRelease, canRelease, cancel, btn}
     var activeId = null;
 
@@ -122,7 +123,7 @@ window.LSTools = (function () {
         map.addControl({
             onAdd: function () { return el; },
             onRemove: function () {}
-        }, 'top-left');
+        }, position);
     }
     // Insert by `order` so the group always reads line, area, draw, InSAR,
     // clear — whatever sequence the tools happened to register in.
@@ -322,10 +323,13 @@ window.LSTools = (function () {
     return {
         // Bind to a map. Attaches the tool group, the one click listener and
         // the Escape router. Idempotent for the same map.
-        init: function (m) {
+        // opts.position: the control corner for the tool group (default
+        // 'top-left'; /lidar/ uses 'top-right', its panel covers the left).
+        init: function (m, opts) {
             if (map && map !== m) throw new Error('LSTools.init: already bound to a different map');
             if (map) return;
             map = m;
+            if (opts && opts.position) position = opts.position;
             attach();
             map.on('click', dispatch);
             document.addEventListener('keydown', onKey);

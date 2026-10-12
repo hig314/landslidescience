@@ -83,10 +83,21 @@ written down anywhere — read `/lidar/audit/`.
 - **Transient-overlay Escape stack.** The photo lightbox and the draw-choice
   menu still keep their own Escape listeners outside `ls_tools.js`; they are
   modal overlays rather than tools, and want a small stack of their own.
-- **`/lidar/` has no pointer handlers at all** — no elevation readout on an
-  elevation page. When it gains a profile or pick tool, it loads
-  `ls_tools.js` rather than growing its own policy (that is why the module
-  is a module).
+- **`/lidar/` now loads `ls_tools.js`** (2026-10-11, for the landform trace
+  tool — its first pointer tool; tool group top-right). The profile and the
+  Alt-click probe are the obvious next tools there; they register with the
+  same dispatcher rather than growing a policy of their own.
+- **Landform traces, built 2026-10-11 (in dev, not yet deployed):** the
+  scarp table generalised to every traced line (`kind`: scarp, moraine
+  crest, trimline, strandline, lineament; `traced_on`; named groups, one
+  per trace, with a GeoJSON download each), traced on `/lidar/`.
+  First use: Pleistocene moraines. See *Landform traces* below. Open: a
+  profile along a trace; `/glaciers/` reading the traces as a reference
+  layer; whether tracing other kinds on `/inventory/` is wanted.
+- **trailgeek.org** is a sister site that copies four of this repo's files
+  by a pinned sync and reads the lidar catalogue; its own trace editor and
+  3D are richer than ours. Its open ask of this repo: adopt `dem_stack.js`
+  in `/lidar/`. Relationship and rules: WORKSTREAMS.md *Sister sites*.
 
 **Two pre-existing bugs found 2026-09-24 and deliberately left alone**, so
 nobody rediscovers them as regressions:
@@ -147,6 +158,7 @@ pushing untested code to GH.
 | `/inventory/manage/settings/` | inventory_editors + Hig | Map display settings (colors, point sizes) |
 | `/inventory/export/` | public | Download zip of GeoJSON + QGIS .qml styles |
 | `/lidar/` | public | Standalone lidar/bathymetry viewer + the ranged `pmtiles`/`cog`/catalogue routes |
+| `/lidar/methods/` | public | Reader-facing account of the viewer (`pages/lidar_methods.html`); the sidebar keeps a tooltip per control and a `?` per section linking here |
 | `/lidar/audit/` | data admins | Publish-state check: for every survey, built / on R2 / in the catalogue / what the gate does |
 | `/lidar/?catalog=dev` | dev only | Same viewer over research surfaces in `data/lidar_dev/` (`lidar/dev/*` routes 404 unless DEBUG). Kept OUTSIDE `data/lidar/` because the redeploy rsync in `tools/lidar/RESUME.md` copies all of `data/lidar/` to the droplet. |
 | `/inventory/manage/import/` | inventory_editors + Hig | Upload zip/.geojson; preview diff; confirm to apply |
@@ -615,7 +627,7 @@ Geometry can be created/edited in-browser via **Terra Draw** (loaded from CDN, e
 
 - **Edit existing** — on the edit/review preview map (`terra_draw.js`), the **✎ Edit geometry** button: reshape (drag/add/delete vertices), add a polygon (role), delete a polygon → **Save** POSTs to `manage_polygons_save`. Round-trip-safe: only changed rows rewritten (server `ST_Equals` skip); pre-edit geom snapshotted to `landslide_polygons_history`; rule cascade re-runs. Terra Draw select mode adds vertex/midpoint **handle Points** to its store — filtered out via `realPolys()` before diffing (else they look like new polygons). Geometry is `MULTIPOLYGON,4326`; drawn Polygons are `ST_Multi`-wrapped. **Coordinates are rounded to 9 dp on the way into Terra Draw** (`loadFeatures` → `round9`): Terra Draw rejects coords with >9 decimal places (`addFeatures` returns `valid:false, "invalid coordinates"`, *silently* — no throw), and stored geometry is served at 15 dp, so without rounding every existing polygon loaded empty (the editor showed nothing to edit). 9 dp ≈ 0.1 mm — far below mapping accuracy.
 - **Draw new on the main map** — the **✏ draw** control (`DrawModeControl` in `map.js`): trace a polygon → name + role popup → staged server-side in `provisional_polygons` (per-editor, survives reload). **Same name = same landslide.** A draft teal overlay shows staged polygons **only while the tool is open** (hidden on Exit so closed sessions leave no unexplained “ghost” polygons; components persist server-side and reappear with the tool — Exit with staged work confirms and says so; own source, re-added on `style.load`, MeasureControl pattern; `__drawActive` flag suppresses landslide clicks + is mutually exclusive with measure; basemap locks only while a polygon is open). The queue panel groups by name (`manage_draw_preview` flags dispersed/duplicate/collision), and each group has a **✎ rename** button (`manage_draw_rename/` — renames all of the editor's components under that name; renaming onto another staged name merges groups) as the recovery path for a flagged collision or blocked commit; **Commit** (`manage_draw_commit`): new names → `apply_import` synthesize-by-name (type inferred from roles); **names that already exist → polygons are *attached* to that landslide** (e.g. a source for a committed deposit), `is_primary` normalized to the role convention. Then cascade + redirect into review. **Attach hard-block:** if the staged name matches an existing landslide whose centroid is **> ~5 km** away (`_PROV_DISPERSED_M`), commit is **refused** (409) with "… exists ~N km away — give this one a distinct name (e.g. 'X 2')" rather than silently merging two different features under one name (this is how record 1446 merged two 100 km-apart "Moose Creek" landslides). The legit nearby-attach case still works.
-- **Scarp traces** — line tracing under the same ✏ pencil (kind *Scarp traces*), same Terra Draw plumbing and `pointerDistance` tightening; see *Scarp traces* below.
+- **Scarp traces** — line tracing under the same ✏ pencil (kind *Scarp traces*), same Terra Draw plumbing and `pointerDistance` tightening; see *Landform traces* below.
 - **Provisional (pending) records on the map** — editors see them in **magenta** (`api/provisional/`, editor-only, not cached; `pending-*` layers in `map.js`), click → review form. Public never sees pending. The map also restores the last view (localStorage) when you return with no hash, and the edit/review forms have a **↩ Map** link, so you can bounce between mapping and form-filling.
 
 **Migrations (run on prod at deploy, idempotent, like `migrate_deprecated`):** `migrate_polygon_history`, `migrate_provisional_polygons`, `migrate_flag_review` (adds `flagged` + `flag_reason`), `migrate_default_view` (adds `default_map_view`), `migrate_regions` (adds `subsets.kind`/`region_geom`, `landslides.country`, `countries` table; follow with `load_countries` + the `load_region_geometry` runs — see *Subsets* section). `migrate_features` + `backfill_features` + `check_features` (2026-10-06, see *Landslide features* below; add the column by psql first). `migrate_its_live` (2026-10-06) adds `landslides.its_live_creep`, a nullable boolean beside `planet_labs_creep`: motion that shows in the ITS_LIVE velocity fields, which the `creep_behavior` rule reads as **Obvious creep** (the Planet patchy flag still overrides it, as it overrides the plain Planet flag — that ordering was the conservative reading, not something Hig specified). **Run it right after the deploy that names the column**: the rule cascade SELECTs every rule input by name, so until the column exists a review-save fails on `creep_behavior`. Nothing else needed telling — the edit form, the explorer and the GeoJSON round-trip all discover columns from the database; the hand-kept places are the rule (`derived.py`), the label and hint (`forms.py`), the form block (`_EDIT_FIELD_GROUPS`), the explorer's creep preset, the detail panel's evidence list (`map.js`) and the Methods page. **Landslide features (2026-10-06/07, all three phases done).** `landslides.features` is a multi-valued text column (`", "`-joined values) that replaced the eight feature booleans as the thing editors set: molards, exclusively_supraglacial, super_elevated_deposits, tsunamigenic, precursory_headscarp (catastrophic) and post_2012_activity_increase, creeping_permafrost_mass, glacier_contact (slow). **The eight booleans were kept for one day as rule outputs mirroring `features` and dropped on 2026-10-07** (`drop_feature_mirrors`: refuses unless every boolean agrees with `features`, then drops the `landslide_overview` view that named five of them, the columns, and re-creates the view without them; `derived.FEATURE_MIRRORS` remains as the legacy-column → value map that the transition commands and the old `f=` URL bits translate through). The volume rule now tests `features` directly (`derived.feature_sql('Creeping permafrost mass')`); on dev the rule diff agreed with every stored polygon volume under the new test (1,827 polygons, 0 changes). Exports made before the drop carry the booleans, which an import ignores with a warning — **Phase 2 (same day) moved the map filters onto `features` itself**: the sidebar's *Landslide features* section is one three-way control per vocabulary value (must have / neutral / exclude, grouped by the type it applies to, rendered by `home` from `_feature_filter_groups()` so a value added in the form is a filter on the next load); it travels as `ft=<slug>,!<slug>` (by name, so no bit table to extend; `_ftSlug` in map.js), the eight feature bits of the old `f=` bitmask are read as must-have and never written, `features` rides `_FILTER_PROPS_SQL` as a JSON array on both map sources and on the two chart-event payloads (`_ftPass`), and the explorer splits every `VOCAB_COLUMNS` column into values like Subsets. The remaining *Include only* boxes (dammed streams, site-specific volume, time bracketed, seismic, flagged) still use `f=`. **Also found on the way (fixed 2026-10-07): `landslides.updated_at` was never stamped by the editor** — neither the full-form save nor the per-field autosave touched it, so the audit log (`LandslideEditMeta.last_edited_at`) was the only record of an edit; both now set `updated_at = NOW()`, and `check_features` reads "edited since the backup" from the audit log rather than trusting the column for anything earlier. A record whose `features` is NULL has not been backfilled (or came from an older import) and its booleans are left alone; `''` means "no features". Per-value metadata — applies to slow / catastrophic / both, a tooltip, order, the legacy column — is `inventory.models.FeatureVocab` in SQLite (Django admin; config like `QmsLayer`); the values themselves are the data, and the picker's "add" registers a new one with an applies-to choice via `api/features/vocab/add/`. **Transition commands, run in this order once per environment** (dev done 2026-10-06; on prod `ALTER TABLE landslides ADD COLUMN IF NOT EXISTS features text` by psql *before* the deploy, because the new rules SELECT it): `migrate_features` (column; `landslides_backup_20261006` copy of the table — the thing to validate against, drop by hand after Phase 3; seeds the 8 vocabulary rows), `backfill_features --dry-run` then live (fills `features` from the booleans for NULL rows only; mirror pass turns NULL booleans into FALSE — 9,406 cells in dev, visible as 0 rather than blank in the explorer and `false` rather than `null` in exports), `check_features` (proves mirrors ⇔ features ⇔ backup, record by record; exit 1 on any disagreement). The form: a *Landslide features* group after the core fields with one picker that shows the values for the record's type (following the type select live) and the mirrors in the collapsed Computed group; the old *Failure & deposit character* and *Slow-mass attributes* blocks are gone, stream damming stays in the event group. `_EDIT_FIELD_GROUPS` nesting forms are enumerated by `views.group_field_names`, which the explorer's column grouping also uses — a new nesting form goes there, or `/inventory/api/table/` 500s (it did, in dev).
@@ -624,7 +636,105 @@ Geometry can be created/edited in-browser via **Terra Draw** (loaded from CDN, e
 
 **Permanent delete (superuser-only).** The edit/review forms carry a "Danger zone" (`_danger_zone.html`) that **hard-deletes** a landslide and everything keyed to it — polygons, polygon edit-history, subset memberships, Planet-Story links, the SQLite `LandslideEditMeta`, and clears any inbound `superseded_by` pointers — in one transaction via `manage_delete` (`POST manage/<id>/delete/`), then invalidates caches and redirects to the list with a banner. Itemizes the impact counts up front, gated behind an "I understand" checkbox **and** a `confirm()`. Distinct from **deprecation** (the soft, provenance-keeping retire); data editors only deprecate — hard delete is restricted to superusers (in-view `is_superuser` check, not just the editor decorator).
 
-## Scarp traces — traced observations (public reads, editor-only writes)
+## Landform traces — traced observations (public reads, editor-only writes)
+
+**Generalised 2026-10-11** (Hig) from scarps to every hand-traced line: a
+moraine crest and a scarp are the same thing as a tool. Two columns added by
+re-running `migrate_fault_scarps` (idempotent; **run it right after the deploy
+that ships them** — the list query SELECTs both, so `api/scarps/` 500s until
+then): `kind` (text, default `'scarp'`, so every earlier row is a scarp) and
+`traced_on` (jsonb `{page, surveys[], basemap}` — which surfaces the line was
+read from, shape-checked on the way in by `_clean_traced_on`; NULL for rows
+traced before). **The vocabulary is `TRACE_KINDS` in `inventory/scarps.py`**
+(id, label, colour, dash, hint) and rides the list response as a GeoJSON
+foreign member `kinds`, so the client builds its styles, filters and pickers
+from it: adding a kind is one entry there, never a schema change; never rename
+an id rows use. `?kind=a,b` filters the list; create and update take `kind`.
+`scarps.js` draws a white casing under every trace, one line layer per dash
+style (data-driven `line-dasharray` is not in MapLibre 5.5), colour by kind,
+and offers `setHiddenKinds`, `setDrawKind`, `save({notes, kind})`, `raise()`.
+
+**Groups** (same day; Hig: outputs specific to one glaciation / fault / lake
+stand). `trace_groups` (PostGIS, same migration): `name` (unique ignoring
+case — `trace_groups_name_key` on `lower(name)` — so a typo cannot split a
+group), `notes` (age, interpretation, citation), `created_by`. **One group per
+trace** (`fault_scarps.group_id`, FK `ON DELETE SET NULL`: deleting a group
+ungroups its traces, never deletes them). **A group has no kind** — one
+glaciation holds moraines, trimlines and strandlines together. The list
+response carries every group with its count as the foreign member `groups`,
+and each trace its `group_id` + `group` name. `?group=<id>` filters (and then
+carries the group record as `group`); `&download=1` makes it a
+`traces_<slug>.geojson` attachment (`application/geo+json`) — **the per-group
+output**, today the only one. Writes: `api/scarps/groups/create/` and
+`api/scarps/groups/<id>/` (rename / re-note / `{"delete": true}`), editors
+only; traces take `group_id` on create and update. On `/lidar/`: the sidebar's
+*Show* selector filters the map to one group and shows its note, count and
+download (editors: *edit group*); the trace panel picks the group for new lines
+and for the selected trace, with an inline **＋ New group…**.
+
+**Editing in the session** (`scarps.js`, shared by both pages). With no
+line in progress a click decides its own meaning: **on a trace it selects it**
+(vertex + midpoint handles appear), **on open ground it deselects and starts a
+new line**. Drag a vertex to move it, drag a midpoint to insert one, right-click
+a vertex to delete it, Ctrl/⌘-Z undoes (per session, 50 deep), Esc deselects;
+every change POSTs the geometry on release and reverts on failure. Mechanism:
+Terra Draw listens for pointer events on the map **canvas** and takes a
+non-drag pointerup as a click, so the editor's listeners sit on the map
+**container** in the capture phase, `stopPropagation` + `preventDefault` (the
+latter suppresses the compatibility mouse events MapLibre pans on) and
+`setPointerCapture` for any gesture on a trace or handle; open-ground
+gestures pass through untouched. "Line in progress" = a LineString in Terra
+Draw's snapshot not yet seen by its `finish` event (it has no flag of its own).
+
+**Group profile** (`trace_profile.js`, `LSTraceProfile`, on `/lidar/`; built
+2026-10-11 for moraine crests). *∿ profile* beside a group in the sidebar:
+every member sampled along its length (step max(1, min(20, length/300)) m)
+and projected onto one vertical plane. **The plane** is the direction of
+greatest horizontal extent — the farthest pair of the group's vertices
+(convex hull, then all pairs; Hig's choice over a principal axis) — placed at
+the **middle of the members' offset range** (a mean of vertex offsets was
+tried and leans toward whichever trace has more vertices), spanning their
+projected extent A→A′; drawn on the map (`tgp-*` layers, A/A′ HTML markers)
+only while the panel is open; Flip swaps the ends. Distances in a local
+equirectangular frame about the group's centre. **Each sample reads the first
+surface with data**: the trace's `traced_on` surveys, the page's active and
+difference surveys, other covering surveys finest first, then Mapterhorn
+(footprint test is its own ray-cast — `/lidar/` loads no turf). **A group is
+one series** — one colour, one legend line, one row of the window table,
+however many traces (Hig); the code takes a list of groups so several can
+later share one plane in distinct colours (the plane is then built from all
+their members). Hover picks the nearest sample and marks it and its foot on
+the plane; the brushed window's slope is the group's trend along the plane
+(for moraine crests, the former ice-surface gradient). CSV: group, trace,
+along-plane distance, signed offset, lon/lat, z, surface; `#` lines carry
+A/A′, azimuth, length and the window. URL `gp=<id>[,<id>…]`, `gpf=1`,
+`gpl=1`, `gpw=d0,d1`; a cold `gp=` waits for the catalogue. **The panel and
+chart are shared with the inventory's ∿ line profile** (2026-10-11):
+`profile_chart.js` (`LSProfileChart` — panel DOM, 1:1/VE, legend, column or
+nearest-sample hover, brushed window + stats, SVG/CSV, the map cursor paint)
+inside a `.float-panel` from **`ls_float.js`** (`LSFloat.make`, extracted from
+map.js's `makeFloatingPanel`, which now wraps it to add the hash rewrite),
+styled by **`ls_panels.css`** (moved out of main.css; base.html and `/lidar/`
+both load it). Each tool keeps only its sampling, map layers and URL state. **The readers moved to `dem_read.js`
+(`LSDemRead`) the same day** — decode, tile cache, bilinear read, zoom choice,
+one PMTiles reader per archive, the Mapterhorn source — and `profile.js` (the
+∿ elevation profile and the Alt-click probe on `/inventory/`) now uses it;
+`home.html` loads it before `profile.js`. `_test` exposes the plane geometry
+for headless checks.
+
+**Where tracing happens.** `/lidar/` is the main tracing page (sun angle,
+slope, 3D, Nadir): an `LSTools` mode `trace` (✎, top-right, editors only), a
+floating `#trace-panel` (kind for new lines, the selected trace's kind and
+note, delete, Exit), and for everyone a sidebar *Traces* section (show/hide =
+`trv=` in the query string; a per-kind filter with counts) and a popup on
+click — editors get an **Edit** button there, which opens the session with
+that trace selected (in a session, clicks belong to Terra Draw). The page
+wraps `map.addLayer` so every layer it adds lands **below** the traces —
+surveys and shading come and go all session. `/inventory/`'s pencil still
+traces scarps only (kind `scarp`, with `traced_on`); it shows every kind,
+labelled; its pinned-strip box now reads **Traces**. Whether the inventory
+should trace other kinds (e.g. mapping a slide's own scarps) is open (Hig,
+2026-10-11: decide when it comes up).
 
 Say **scarp**, not fault, in anything user-facing: many are of ambiguous or multiple origin (Hig, 2026-09-20). The PostGIS table and management command keep the original `fault_scarps` name.
 
@@ -677,7 +787,7 @@ Tooling to find and fix non-conforming names without page reloads:
 - **Rename collision block:** `manage_edit_field` (the per-field autosave endpoint behind both the inline pinned-field editor *and* the edit/review form) refuses a `unique_name` rename that matches another non-deprecated record (normalized case/whitespace, the import/draw `name_key`) with a 409 — the rename-side counterpart to the draw-commit attach hard-block. Without it a rename to an existing name slipped through silently (it's a generic UPDATE). It blocks duplicate *naming*, not a merge — two same-named rows were never actually merged here.
 - **Naming page:** the standard above is reader-facing at `/inventory/naming/` (`naming` view + `naming.html`), linked from **Methods** §1. 
 
-**Elevation profile tool (mock-up, 2026-10-08; `inventory/static/inventory/js/profile.js`).** The ∿ mode in the LSTools group: click vertices, double-click or Enter finishes, Esc cancels the line then exits (two-step, like measure); it claims and releases the map through `LSTools.claim/release` like the measure control, so draw and InSAR take over cleanly. On finish the line is sampled every max(0.5 m, min(50 m, length/400)) and read at those points from **every lidar/bathymetry survey in the catalogue whose footprint it crosses** — terrain-RGB PMTiles read directly with pmtiles.js at the survey's deepest useful zoom and decoded in the page (bilinear; alpha-0 pixels are voids) — plus **Mapterhorn** (3DEP 1/3″ in Alaska, terrarium z13, sea = 0 masked) as the reference everywhere. Nothing goes through the server. The floating `#profile-panel` draws one SVG line per DEM (gaps where a survey has no data), **1:1** locks the vertical scale to the horizontal (the profile fits the panel at equal scales, legend moves below the thin band), unlocked fills the panel and labels the exaggeration (`VE ×N`); **SVG** serialises the drawing, **CSV** writes `distance_m, lon, lat, <id>_m…` with a trailing `#` line naming the DEMs and zooms; hovering the chart marks the position on the map. Not yet: the sample spacing and zoom choice are heuristics; slope/aspect, a second profile for comparison, and `/lidar/` (which has no pointer handlers) are open.
+**Elevation profile tool (mock-up, 2026-10-08; `inventory/static/inventory/js/profile.js`).** The ∿ mode in the LSTools group: click vertices, double-click or Enter finishes, Esc cancels the line then exits (two-step, like measure); it claims and releases the map through `LSTools.claim/release` like the measure control, so draw and InSAR take over cleanly. On finish the line is sampled every max(0.5 m, min(50 m, length/400)) and read at those points from **every lidar/bathymetry survey in the catalogue whose footprint it crosses** — terrain-RGB PMTiles read directly with pmtiles.js at the survey's deepest useful zoom and decoded in the page (bilinear; alpha-0 pixels are voids) — plus **Mapterhorn** (3DEP 1/3″ in Alaska, terrarium z13, sea = 0 masked) as the reference everywhere. Nothing goes through the server. The floating `#profile-panel` draws one SVG line per DEM (gaps where a survey has no data), **1:1** locks the vertical scale to the horizontal (the profile fits the panel at equal scales, legend moves below the thin band), unlocked fills the panel and labels the exaggeration (`VE ×N`); **SVG** serialises the drawing, **CSV** writes `distance_m, lon, lat, <id>_m…` with a trailing `#` line naming the DEMs and zooms; hovering the chart marks the position on the map. Not yet: the sample spacing and zoom choice are heuristics; slope/aspect, a second profile for comparison, and `/lidar/` (which now has `ls_tools.js`, for the trace tool) are open.
 
 **Right-click → copy coords:** right-click (Ctrl-click on Mac) anywhere on the main map *or* the edit preview map copies `lat, lon` to the clipboard (for pasting into Planet etc.) with a brief toast. Suppressed while any tool holds the map — measure, draw, InSAR or the outline reviser (there right-click deletes a vertex); the guard is `LSTools.blocked()` on the main map and `__lsTdActive` on the edit preview map. **Alt-click (Option-click) → elevation probe** (main map only): a popup with lat, lon and the height from every lidar survey turned on in either pane whose footprint covers the point, plus Mapterhorn, read in the page by `LSProfile.pointElevations` (each survey at its deepest zoom, bilinear) each with its vertical datum (the catalogue's `vertical_datum`, worded as in the manifest), with a Copy button (tab-separated lines). It is the `probe` click kind in `ls_tools.js`: runs alone, only when no tool holds the map, so it never also opens the record underneath. **Pointer policy — who owns a click, a drag, the cursor and Escape — is declared once in `inventory/static/inventory/js/ls_tools.js`** (header comment is the spec): one `map.on('click')` dispatcher, every clickable thing registers with a kind (`action` / `navigate` / `record` / `reference`) and a priority; a `record` and the highest `reference` may both fire (the declared co-activation), one reference popup slot, tool cursor outranks hover, `LSTools.drag` ends a gesture exactly once, Escape is two-step (cancel, then exit). Add a clickable layer by registering it, never with another `map.on('click')`.
 
@@ -1506,7 +1616,7 @@ thickness) yet; no "only records in the current map view" spatial filter; the
 
 The sidebar at `/inventory/` is a three-tab layout with a pinned strip on top:
 
-- **Pinned strip** (always visible above the tabs): the slow/catastrophic type checkboxes and the **Scarps** show/hide box (2026-10-06). (The basemap quick-select was removed 2026-08 as redundant with the Reference maps tab, which owns basemap choice; "Limit counts to map view" moved into the Inventory tab because it scopes that tab's counts + the analysis charts, not anything universal.)
+- **Pinned strip** (always visible above the tabs): the slow/catastrophic type checkboxes and the **Traces** show/hide box (2026-10-06 as *Scarps*; renamed 2026-10-11 when the traces gained kinds). (The basemap quick-select was removed 2026-08 as redundant with the Reference maps tab, which owns basemap choice; "Limit counts to map view" moved into the Inventory tab because it scopes that tab's counts + the analysis charts, not anything universal.)
 - **Inventory tab**: "Limit counts to map view" toggle, class checkboxes + dot-color legend + record count breakdown. Every class group header carries scoped all/none links (`.sg-all`/`.sg-none` + `data-sg` rows); the top "Class all/none" pair is global. In-view counting uses the shared `makeViewportTest()` predicate (see HAZARDS.md §globe) — not `queryRenderedFeatures`.
 - **Reference maps tab**: categorized basemap cards (Imagery / Topo / Historical / Other) with thumbnails, Windy.com-style. "Reference layers" section for toggleable vector references (faults, survey circles), an **Overlays** section for semi-transparent rasters (see *Raster overlays* below), plus Compare (swipe) and, for editors, Traced imagery. A **＋ Add wiper** button (Compare section; replaces the old pull-down) adds a second, view-synced basemap on the right half of the map behind a draggable vertical divider, and opens a **floating right-pane panel** over the map's right side with its own basemap cards + overlay toggles — the sidebar controls the left pane, the panel controls the right (`_wiperPanelRefresh`/`_syncSwipeUI`; the panel sits at z-index 9, under the detail panel). The wiper starts with both panes on the current basemap — `#swipe-map` is a second `maplibregl.Map` (pointer-events:none, clipped via `clip-path`) carrying the **same data stack in the same draw order** as the main map, so the display reads seamlessly across the divider. `_swipeAddData` builds it from **shared def builders** (`_landslideLayerDefs`, `_suscSourceDef`/`_suscLayerDef`, `_faultsLayerDef`, `_polygonHoverDef`, `_surveyCircleLayerDefs`, `_pendingLayerDefs` — one def = identical paint on both panes; also consumed by `initDataLayers`/`ensurePendingLayers`), in the main map's bottom→top order: pending magenta → susceptibility rasters → faults → points → patchy → polygon fill/outline → hover → survey circles → pin-label. Every toggle/data/hover site mirrors via `_swipeAlso` (susc + faults + survey-circle visibility & data, `polygon-hover` filter via `_setPolygonHover`, `_patchFeatureProp` live edits, `ensurePinLabel`), and the active filter applies to both sides (`_applyLandslideFilter` registry). Only interaction-tool layers (measure, draw draft) are deliberately not mirrored. `_swipeAddData` bails until `initLayers` sets the palette (a hash-restored wiper can create the swipe map first); `initLayers` re-invokes it. Available to everyone; works with any basemap (reprojected Yandex / QMS / AHAP). Toggle classes off for a clean image-only compare.
 
@@ -1516,7 +1626,7 @@ The sidebar at `/inventory/` is a three-tab layout with a pinned strip on top:
 - **`_VIEW_PARAMS` (end of `map.js`) is the one table**: a row per param with `collect(mode, o)` and `apply(s, how)`. Both writers are `_viewStateString(mode)` — `'url'` the address bar, `'saved'` the per-browser last view, `'view'` a stored default view — and both runtime appliers (hashchange, `applyViewString`) are `_applyViewState`. **To make something travel in a link, add a row.** Each row also names where it is consumed on a cold load: `cold: true` goes through the same `apply()`, a string names the place that reads `_initialHash` instead, for the params that are needed while the map is being built or that wait on a fetch (basemap, wiper, overlays, lidar, external layers, imagery, filters). Cold-load timing is real and was left where it is; the table records it rather than hiding it.
 - **Filters are in the hash**, with the same value encodings they had in the query string: `ty` types, `c` classes, `f` attribute flags (bitmasks; `f` gained bit 4096 = Flagged, editor-only), `sa`/`da`/`vol`/`yr`/`n10`/`lw` sliders as `lo,hi`, `lv` limit-to-view, `pm` chart modes. A legacy `?t=1&c=5&yr=…` link is still read on load (`_filterColdApply`, same reader), and the first `writeHashState` rewrites it into the hash and drops the old query keys (`?subset=` and anything else stays). `ty` was `t` in the query; it was renamed because `/glaciers/` already uses `t` for time. `?hist=1`/`?timing=1` are read as the old spelling of `an=hist,timing` and no longer written.
 - **Filters and the explorer selection are in the address bar only.** They are not saved to `ls_map_view` (a filter must not become the map someone finds days later with most of its records missing) and never written into or applied from a default view (it is permanent and public; a filter in it would hide other records from a visitor who never chose to).
-- **`sc=0|1` is the scarp-trace toggle** — the **Scarps** box in the pinned strip beside Slow / Catastrophic (`cb-scarps` → `LSScarps.setVisible`, which now remembers its state across basemap switches). Written as `sc=0` when hidden; a default view writes it either way. It is its own key rather than a name in `ref=` because scarps are on by default and `ref=` links already in the wild list what is on — adding a name to that set would have hidden scarps on every one of them. Starting a scarp trace from the pencil turns the layer back on.
+- **`sc=0|1` is the trace toggle** — the **Traces** box in the pinned strip beside Slow / Catastrophic (`cb-scarps` → `LSScarps.setVisible`, which now remembers its state across basemap switches). Written as `sc=0` when hidden; a default view writes it either way. It is its own key rather than a name in `ref=` because scarps are on by default and `ref=` links already in the wild list what is on — adding a name to that set would have hidden scarps on every one of them. Starting a scarp trace from the pencil turns the layer back on.
 - **Other params**: `ref=<name>,…` reference vectors (`faults`, `circles`), written only when off the page default of faults-on; a `~YYYY-MM-DD` / `~all` flag on an `ov` entry pins a date-stepper overlay's date (written only for a date the user chose, so a saved view never freezes a row tracking "latest"; a default view always pins it); `li` takes a second shading code before the `r` pane when the panes differ (`homer_2019.hl100pr80`).
 - **A stored default view writes `ov`/`li`/`ext`/`im`/`ref` even when empty** and always pins the basemap; views stored before 2026-10-06 lack the empty ones and behave as they always did until re-saved.
 - **Additive only.** Stored default views, snapshots and shared links hold these strings for good. Every change above was checked by running the previously deployed parser against the new one over production's stored default views plus hand-written legacy forms (identical on all), and the codec round-trips them. Do the same before the next grammar change.
@@ -1661,6 +1771,13 @@ Tracking this as "deferred but anticipated" so when we get to it, the UI design 
   rules, subset semantics, or attribution obligations must update
   `methods.html` in the same change — it drifted silently through the
   region/country work until the user asked (2026-07-13); don't repeat that.
+- **Lidar viewer methods freshness:** `/lidar/methods/` is to `/lidar/` what
+  `methods.html` is to the inventory. Explanations live there and in short
+  `title` tooltips on the controls, **not as paragraphs in the sidebar**
+  (Hig, 2026-10-11: the 3D and Difference blocks had grown to fill it). A
+  new control gets a tooltip of a sentence or two and, if it needs more, a
+  paragraph in the matching section there; its anchors are linked from the
+  sidebar's `?` buttons, so keep them stable.
 - **New-tab policy:** internal navigation (map ↔ manage ↔ methods) is
   same-tab — the map restores its view from localStorage, and new tabs just
   accumulate stale maps. `target="_blank"` is reserved for external

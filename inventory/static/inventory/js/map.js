@@ -1335,7 +1335,8 @@
                 _scarpOpenPanel();
                 if (!_scarpsOn()) { _scarpsSet(true); writeHashState(); }
                 LSScarps.startDraw({ terraDraw: window.terraDraw,
-                                     adapter: window.terraDrawMaplibreGlAdapter });
+                                     adapter: window.terraDrawMaplibreGlAdapter,
+                                     kind: 'scarp', context: _scarpContext });
                 this._styleReload = function () {
                     if (self._on && self._kind === 'scarp') {
                         LSScarps.stopDraw();
@@ -7220,9 +7221,14 @@
     // ---------------------------------------------------------------------------
     // Right-click (Ctrl-click on Mac) anywhere on the map → copy "lat, lon" to
     // the clipboard for pasting into Planet etc. Skipped while a draw/measure
-    // session is active (there, right-click deletes a vertex).
+    // session is active (there, right-click deletes a vertex), except tracing
+    // with no line in progress (see below).
     map.on('contextmenu', function (e) {
-        if (LSTools.blocked()) return;
+        // A tool holding the map owns right-click, with one exception: a
+        // trace session with no line in progress copies as usual (scarps.js
+        // stops the event itself when it means a vertex or a line).
+        var tracing = typeof LSScarps !== 'undefined' && LSScarps.isDrawing();
+        if (LSTools.blocked() && !tracing) return;
         e.preventDefault();
         var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
         var done = function () { _coordToast(txt + ' copied'); };
@@ -7739,6 +7745,12 @@
         if (len == null) return '';
         return len >= 1000 ? (len / 1000).toFixed(2) + ' km' : Math.round(len) + ' m';
     }
+    // traced_on for a new trace: what the editor was looking at.
+    function _scarpContext() {
+        var ids = {};
+        Object.keys(_lidarActive).concat(Object.keys(_lidarActiveR)).forEach(function (id) { ids[id] = 1; });
+        return { page: 'inventory', surveys: Object.keys(ids), basemap: _currentBasemap };
+    }
     function _scarpOpenPanel() {
         if (_scarpPanel) { _scarpPanel.style.display = ''; _scarpSync(); return; }
         var p = document.createElement('div'); p.className = 'inv-draw-panel';
@@ -7747,8 +7759,9 @@
             '<div style="font-size:11px;color:#666;line-height:1.4;margin-bottom:6px;">' +
             'Click along the scarp, press <b>Enter</b> (or double-click) to finish, ' +
             '<b>Esc</b> cancels. Each line saves straight away — then write what you saw. ' +
-            'Click an existing line to edit its note. Working observations of scarps ' +
-            'of any origin, not a fault map.</div>' +
+            'Click an existing line to edit it: its note here, and on the map drag a vertex, ' +
+            'drag a midpoint to add one, right-click a vertex to delete it, Ctrl/⌘-Z undoes. ' +
+            'Working observations of scarps of any origin, not a fault map.</div>' +
             '<div id="isq-count" style="font-size:11px;color:#888;"></div>' +
             '<div id="isq-edit" style="display:none;margin-top:6px;border-top:1px solid #eee;padding-top:6px;">' +
             '<div id="isq-who" style="font-size:10px;color:#888;margin-bottom:4px;"></div>' +
@@ -7784,7 +7797,8 @@
         if (!_scarpPanel || _scarpPanel.style.display === 'none') return;
         var fc = LSScarps.all(), f = LSScarps.selected();
         _scarpPanel.querySelector('#isq-count').textContent =
-            fc.features.length + (fc.features.length === 1 ? ' scarp traced' : ' scarps traced');
+            fc.features.length + (fc.features.length === 1 ? ' trace' : ' traces') +
+            ' (scarps and other landforms; trace other kinds on /lidar/)';
         var ed = _scarpPanel.querySelector('#isq-edit');
         ed.style.display = f ? '' : 'none';
         if (f) {
@@ -7797,12 +7811,16 @@
     // Read-only view of a trace, for anyone, outside a tracing session.
     function _scarpShowPopup(f, lngLat) {
         var pr = f.properties, len = _scarpFmtLen(pr.length_m);
+        var k = LSScarps.kindInfo(pr.kind || 'scarp');
+        var on = pr.traced_on && pr.traced_on.surveys && pr.traced_on.surveys.length
+            ? ' · on ' + pr.traced_on.surveys.join(', ') : '';
         var html = '<div style="font:12px/1.4 system-ui,sans-serif;max-width:240px;">' +
-            '<div style="font-weight:600;color:#5a2d80;">Scarp trace</div>' +
+            '<div style="font-weight:600;color:' + esc(k.color) + ';">' + esc(k.label) + ' trace</div>' +
+            (pr.group ? '<div><b>' + esc(pr.group) + '</b></div>' : '') +
             '<div style="white-space:pre-wrap;margin:4px 0;">' +
             (pr.notes ? esc(pr.notes) : '<span style="color:#999;">(no note)</span>') + '</div>' +
             '<div style="font-size:10px;color:#888;">traced by ' + esc(pr.traced_by || '—') +
-            (len ? ' · ' + len : '') + ' · a working observation, not a fault map</div></div>';
+            (len ? ' · ' + len : '') + esc(on) + ' · a working observation, not a published map</div></div>';
         // The one popup slot closes whatever was open, which is what this
         // function used to do for its own predecessor alone.
         _scarpPopup = LSTools.popup.show(new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
@@ -8631,58 +8649,16 @@
     // Shared floating-panel behavior: toggle/close, jump-free header drag
     // (clamped to the offset parent), and a debounced redraw on resize. opts:
     // {handle, toggle, close, onResize}. Returns {open, close, isOpen}.
+    // Floating panels are ls_float.js's (shared with /lidar/ since
+    // 2026-10-11); this wrapper adds the URL-hash rewrite on open/close,
+    // because the analysis panels carry an= in the hash.
     function makeFloatingPanel(panel, opts) {
-        if (!panel) return { open: function () {}, close: function () {}, isOpen: function () { return false; } };
         opts = opts || {};
-        var handle = opts.handle, toggle = opts.toggle, closeBtn = opts.close,
-            onResize = opts.onResize, onChange = opts.onChange;
-        function isOpen() { return !panel.classList.contains('hidden'); }
-        function open() {
-            panel.classList.remove('hidden');
-            if (toggle) toggle.classList.add('active');
-            if (onResize) setTimeout(onResize, 60);   // after layout settles
-            if (onChange) onChange();
-            if (_mapReady) writeHashState();   // analysis panels carry an= in the hash
-        }
-        function close() {
-            panel.classList.add('hidden');
-            if (toggle) toggle.classList.remove('active');
-            if (onChange) onChange();
-            if (_mapReady) writeHashState();
-        }
-        if (toggle)   toggle.addEventListener('click', function (e) { e.preventDefault(); isOpen() ? close() : open(); });
-        if (closeBtn) closeBtn.addEventListener('click', function (e) { e.preventDefault(); close(); });
-
-        if (onResize && window.ResizeObserver) {
-            var raf = null;
-            new ResizeObserver(function () {
-                if (!isOpen()) return;
-                if (raf) cancelAnimationFrame(raf);
-                raf = requestAnimationFrame(onResize);
-            }).observe(panel);
-        }
-        if (handle) {
-            var offX = 0, offY = 0, parRect = null;
-            LSTools.drag(handle, {
-                onStart: function (e) {
-                    if (e.target.closest('button, a, input, label, select')) return false;  // let controls work
-                    var r = panel.getBoundingClientRect();
-                    parRect = (panel.offsetParent || document.body).getBoundingClientRect();
-                    offX = e.clientX - r.left; offY = e.clientY - r.top;
-                    // Pin current position as left/top BEFORE clearing right/bottom so
-                    // the anchor flip doesn't jump.
-                    panel.style.left = (r.left - parRect.left) + 'px';
-                    panel.style.top  = (r.top  - parRect.top)  + 'px';
-                    panel.style.right = 'auto'; panel.style.bottom = 'auto';
-                },
-                onMove: function (e) {
-                    var w = panel.offsetWidth, h = panel.offsetHeight;
-                    panel.style.left = Math.max(0, Math.min(parRect.width  - w, e.clientX - offX - parRect.left)) + 'px';
-                    panel.style.top  = Math.max(0, Math.min(parRect.height - h, e.clientY - offY - parRect.top))  + 'px';
-                }
-            });
-        }
-        return { open: open, close: close, isOpen: isOpen };
+        var own = opts.onChange;
+        return LSFloat.make(panel, {
+            handle: opts.handle, toggle: opts.toggle, close: opts.close, onResize: opts.onResize,
+            onChange: function () { if (own) own(); if (_mapReady) writeHashState(); }
+        });
     }
 
     // Analysis floating panels ↔ the URL hash's `an=` param. The registry is

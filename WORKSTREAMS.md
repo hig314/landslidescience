@@ -10,7 +10,7 @@ and what to do at the boundaries. Read it before editing anything under
 | piece | where | what it is | serves |
 |---|---|---|---|
 | **Landslide inventory** | `inventory/`, `/inventory/` on the site | the public landslide map: scarps, faults, susceptibility, OPERA DIST, IceBoost bed, imagery | the public |
-| **Lidar viewer + hosting** | `lidar/`, `/lidar/`, `tools/lidar/build_lidar.py`, `make_catalog.py`, `datasets.json`, R2 | turns survey deliveries into archive COGs + PMTiles, publishes them, and shows them with hillshade, slope, difference, profile | the public; the inventory (elevation context) |
+| **Lidar viewer + hosting** | `lidar/`, `/lidar/`, `tools/lidar/build_lidar.py`, `make_catalog.py`, `datasets.json`, R2 | turns survey deliveries into archive COGs + PMTiles, publishes them, and shows them with hillshade, slope, difference and 3D; the landform trace tool (2026-10-11). The profile tool is on `/inventory/`, not here | the public; the inventory (elevation context); trailgeek.org |
 | **Topobathy compositing** (this branch) | `tools/lidar/topobathy/`, `composite.py`, `grid_bathy.py`, `mask_tool/`, `composites/`, `TOPOBATHY_PLAN.md` | makes *new* DEMs out of existing ones: a dated, classified, quality-aware layer stack folded through masks, with a local mask editor; plus an observe stage (gridding sparse soundings) | the lidar viewer (composites become datasets) |
 
 The chain is one-directional:
@@ -77,3 +77,58 @@ only. After a merge, `TOPOBATHY_PLAN.md` on `main` is the current one.
   play", then "Revision 2" (the three-axis model), then the paused
   interpolation section; dated sections at the end record what was
   built and learned, newest last.
+
+## Sister sites — trailgeek.org (added 2026-10-11)
+
+trailgeek.org (repo `hig314/trailgeek`, local `~/Claude_projects/trail_geek`,
+developed mostly from Claude Code on the web) is a trails site: Django +
+MapLibre 5.24 + D3, its own droplet and database. Its canonical account of
+the relationship is its `docs/SISTER_PROJECTS.md`; this is the view from here.
+
+**What it takes from this repo:**
+
+- **Code, by pinned copy.** `basemaps.js`, `ls_hash.js`,
+  `dem_shade_bridge.js` and the vendored demshade build, copied verbatim
+  under a provenance header; `tools/shared.json` pins the commit and each
+  file's SHA-256, `tools/sync_shared.py check` fails its CI if a copy is
+  edited there, `sync` pulls a newer commit. **So a change to one of those
+  files here is a change to trailgeek at its next sync** — say so in the
+  commit message. To change a shared file, change it here; never there.
+- **Data, by URL.** The public lidar catalogue
+  (`/lidar/catalog.geojson`, CORS `*`) and the R2 archives / tile Worker,
+  both of which now allow the trailgeek.org origin. Gated surveys are not
+  available to it (a landslidescience session does not cross sites).
+  `datasets.json` property names are therefore an API trailgeek reads:
+  add properties freely, rename or remove none without telling it.
+
+**What it has that we do not, and the reverse:**
+
+- Its alignment editor (`tg_editor.js`) is a richer line tool than our
+  traces: legs with shared joints, snapping to the trail network, follow /
+  split modes, undo. Our landform traces are deliberately simpler (one line,
+  a kind, a note). If ours grows editing (vertex drag, undo, snapping to
+  contours or crests), look at `tg_editor.js` first; the right end state is
+  one module both sites load, not two editors.
+- Its profile is server-evaluated on lidar COGs (`core/dem.py`, GDAL
+  `/vsicurl/`); ours (`profile.js`) reads the PMTiles in the browser.
+  Different jobs (trail grades vs. a quick look), same data.
+- It uses Alt-click to delete a vertex in its editor; here Alt-click is the
+  elevation probe. Harmless while the two never share a page; worth
+  settling before a shared tool module exists.
+
+**Open items between the two:**
+
+- **`dem_stack.js`** — trailgeek extracted `/lidar/`'s inline DEM-stack
+  logic into a DOM-free module (`core/static/core/js/dem_stack.js`,
+  `LSDemStack`) and asked this repo to adopt it at
+  `inventory/static/inventory/js/dem_stack.js`; then it moves into the
+  pinned files. Not done yet. It is the natural first step of any `/lidar/`
+  refactor, and it shrinks the ~1,960-line inline template.
+- **`ls_tools.js`** is listed there as reusable but not yet copied; with
+  `/lidar/` now loading it (trace tool), it is proven outside `map.js`.
+- **`hig-maplibre-kit`** — the plan (its PLAN.md §2) to move the shared
+  modules into one package both sites vendor. Deliberately deferred; it
+  edits this repo and needs its own reviewed change.
+- **MapLibre versions**: trailgeek and `/lidar/` are on 5.24.0, `/inventory/`
+  and `/glaciers/` on 5.5.0. A shared tool module has to run on both until
+  the inventory is upgraded.

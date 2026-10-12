@@ -70,8 +70,8 @@
         <input type="checkbox" class="filter-type" value="catastrophic" checked> Catastrophic
       </label>
       <label class="nav-filter-label small" style="display:inline-flex;"
-             title="Scarp traces: working observations of scarps that are not landslide headwalls (purple dashed lines). Not a fault map.">
-        <input type="checkbox" id="cb-scarps" checked> Scarps
+             title="Landform traces: working observations of scarps (purple dashed), moraine crests, trimlines, strandlines and lineaments, traced on lidar. Not a published map.">
+        <input type="checkbox" id="cb-scarps" checked> Traces
       </label>
     </div>
     {% comment %}
@@ -467,21 +467,10 @@
 
     {% comment %}
     Elevation profile (profile.js): draw a line with the ∿ tool, read every
-    DEM that covers it. 1:1 locks the vertical scale to the horizontal one;
-    SVG / CSV download what is drawn.
+    DEM that covers it. The panel's contents are built by profile_chart.js
+    (shared with the group profile on /lidar/).
     {% endcomment %}
-    <div id="profile-panel" class="float-panel hidden">
-      <div class="float-header profile-header">
-        <span class="profile-status">Elevation profile</span>
-        <button type="button" class="profile-lock" title="True aspect (1:1). Click to let the profile fill the panel.">1:1</button>
-        <button type="button" class="profile-svg" title="Download the chart as SVG">SVG</button>
-        <button type="button" class="profile-csv" title="Download the samples as CSV">CSV</button>
-        <button type="button" class="profile-close" title="Close">&times;</button>
-      </div>
-      <div class="profile-body"><svg></svg></div>
-      <div class="profile-stats"></div>
-      <div class="profile-read">&nbsp;</div>
-    </div>
+    <div id="profile-panel" class="float-panel hidden"></div>
 
     {% comment %}
     The analysis panel (analysis.js): two overlays as axes -- the terrain's
@@ -629,6 +618,7 @@
   guards. See the file header for the policy.
 {% endcomment %}
 <script src="{% static 'inventory/js/ls_tools.js' %}"></script>
+<script src="{% static 'inventory/js/ls_float.js' %}"></script>
 {% if is_inventory_editor %}
 <script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
 <script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>
@@ -651,6 +641,8 @@
 <script src="{% static 'inventory/js/permafrost.js' %}"></script>
 {# maplibre-contour (MIT): contour lines generated in the browser from terrain tiles; the Contours overlay. #}
 <script src="https://unpkg.com/maplibre-contour@0.1.1/dist/index.min.js"></script>
+<script src="{% static 'inventory/js/dem_read.js' %}"></script>
+<script src="{% static 'inventory/js/profile_chart.js' %}"></script>
 <script src="{% static 'inventory/js/profile.js' %}"></script>
 {# Self-hosted lidar DEMs: PMTiles archives read over range requests, shaded #}
 {# client-side in a Web Worker by maplibre-gl-demshade (vendor/), behind the #}

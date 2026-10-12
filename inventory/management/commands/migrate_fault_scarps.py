@@ -1,4 +1,4 @@
-"""Schema for traced fault scarps.
+"""Schema for traced landform lines (scarps, moraines, ... -- column kind).
 
     python manage.py migrate_fault_scarps            # apply
     python manage.py migrate_fault_scarps --dry-run  # report only
@@ -48,15 +48,49 @@ CREATE INDEX IF NOT EXISTS fault_scarps_geom_idx
 CREATE INDEX IF NOT EXISTS fault_scarps_traced_by_idx
     ON fault_scarps (traced_by);
 
+-- 2026-10-11: generalised from scarps to landform traces (Hig). One table
+-- for every hand-traced line feature -- scarps, moraine crests, trimlines,
+-- strandlines, lineaments -- because as a tool they are the same thing: a
+-- line drawn on a surface, a note, who drew it. The vocabulary lives in
+-- inventory/scarps.py (TRACE_KINDS), not in a CHECK constraint, so adding a
+-- kind is a code change and never a schema one. Existing rows are scarps.
+ALTER TABLE fault_scarps ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'scarp';
+-- What the tracer was looking at: {"page": "lidar"|"inventory",
+-- "surveys": [lidar ids], "basemap": id}. Lidar-based mapping is only
+-- reproducible if you know which surface it was read from. NULL for the
+-- rows traced before this column existed.
+ALTER TABLE fault_scarps ADD COLUMN IF NOT EXISTS traced_on jsonb;
+CREATE INDEX IF NOT EXISTS fault_scarps_kind_idx ON fault_scarps (kind);
+
+-- 2026-10-11: groups. A named set of traces that belong to one thing -- a
+-- glaciation, a fault, a lake stand -- so outputs can be made per thing.
+-- One group per trace (Hig's call). A group has no kind: one glaciation
+-- holds moraines, trimlines and strandlines together. Names are unique
+-- case-insensitively so "Naptowne" and "naptowne" cannot split one group.
+CREATE TABLE IF NOT EXISTS trace_groups (
+    id          serial PRIMARY KEY,
+    name        text NOT NULL,
+    notes       text NOT NULL DEFAULT '',
+    created_by  text NOT NULL DEFAULT '',
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS trace_groups_name_key ON trace_groups (lower(name));
+-- Deleting a group ungroups its traces; it never deletes them.
+ALTER TABLE fault_scarps ADD COLUMN IF NOT EXISTS group_id integer
+    REFERENCES trace_groups (id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS fault_scarps_group_idx ON fault_scarps (group_id);
+
 COMMENT ON TABLE fault_scarps IS
-    'Hand-traced possible fault scarps noticed while mapping landslides on '
-    'lidar. Observations, not a published fault map: see the Alaska active '
-    'faults and folds database for that.';
+    'Hand-traced landform lines (scarps, moraine crests, trimlines, '
+    'strandlines, lineaments; column kind) noticed while mapping on lidar. '
+    'Working observations, not a published map. The table keeps its '
+    'original name.';
 """
 
 
 class Command(BaseCommand):
-    help = 'Create the fault_scarps table (idempotent)'
+    help = 'Create / extend the fault_scarps (landform traces) table (idempotent)'
 
     def add_arguments(self, parser):
         parser.add_argument('--dry-run', action='store_true')

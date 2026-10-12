@@ -20,6 +20,7 @@ vanish depending on which way you light them.
 <meta name="robots" content="noindex, nofollow, noarchive">
 <title>Lidar DEM preview — landslidescience.org</title>
 <link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+<link href="{% static 'inventory/css/ls_panels.css' %}" rel="stylesheet">
 <style>
   html, body { margin: 0; height: 100%; font: 13px/1.45 system-ui, sans-serif; }
   #map { position: absolute; inset: 0; }
@@ -82,12 +83,55 @@ vanish depending on which way you light them.
   .btnrow { margin-bottom: 4px; }
   label.vis { font-weight: 600; }
   .visrow { margin: 0 0 6px 14px; }
+  /* Landform traces (scarps.js). The tool group is ls_tools.js's; it sits
+     top-right here because the panel covers the left. Empty for visitors
+     (no tools), so hidden then. */
+  .inv-tools-ctrl:empty { display: none; }
+  .inv-tools-ctrl button { font-size: 16px; font-weight: 700; line-height: 1; color: #333; }
+  .inv-tools-ctrl button.active { background: #ffaa00; color: #fff; }
+  .tr-kinds label { display: inline-flex; align-items: center; gap: 3px; margin: 0 8px 2px 0; font-size: 11px; }
+  .tr-sw { display: inline-block; width: 16px; height: 0; border-top: 3px solid; vertical-align: middle; }
+  .tr-sw.dash { border-top-style: dashed; } .tr-sw.dot { border-top-style: dotted; }
+  #trace-panel { position: absolute; right: 10px; bottom: 30px; width: 280px; z-index: 3;
+    background: rgba(255,255,255,.97); border: 1px solid #bbb; border-radius: 6px;
+    padding: 8px 10px; box-shadow: 0 2px 10px rgba(0,0,0,.25); font-size: 12px; display: none; }
+  #trace-panel .hd { font-weight: 600; margin-bottom: 4px; }
+  #trace-panel .hint { font-size: 11px; color: #666; line-height: 1.4; margin-bottom: 6px; }
+  #trace-panel select { font-size: 12px; }
+  #trace-panel textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px;
+    border: 1px solid #ccc; border-radius: 4px; padding: 4px 6px; resize: vertical; }
+  #trace-panel button { font-size: 11px; padding: 3px 8px; margin: 6px 4px 0 0; }
+  #trace-panel .who { font-size: 10px; color: #888; margin: 4px 0; }
+  #trace-panel .msg { min-height: 14px; font-size: 11px; }
+  .trace-pop { font: 12px/1.4 system-ui, sans-serif; max-width: 250px; }
+  .trace-pop .meta { font-size: 10px; color: #888; }
+  .trace-pop button { font-size: 11px; margin-top: 6px; }
+  #tr-ginfo { font-size: 11px; color: #555; margin: 2px 0 6px; }
+  #tr-ginfo .gnote { white-space: pre-wrap; margin: 2px 0; }
+  #tr-ginfo input, #tr-ginfo textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 11px; }
+  #tp-newg input { width: 60%; font-size: 12px; }
+  #trace-panel label { display: block; margin: 3px 0; }
+  /* "?" beside a heading: that section of /lidar/methods/. Explanations live
+     there and in tooltips (title) on the controls, not in the sidebar. */
+  #panel h2 a.mlink { font-size: 10px; font-weight: 600; color: #1a5fb4; text-decoration: none;
+    border: 1px solid #b9cbe6; border-radius: 50%; width: 13px; height: 13px; line-height: 13px;
+    display: inline-block; text-align: center; margin-left: 4px; vertical-align: 1px; }
+  #panel h2 a.mlink:hover { background: #e8f0fb; }
+  #panel [title] { cursor: help; }
+  #panel input[title], #panel select[title], #panel label[title] input { cursor: pointer; }
+  /* Group profile (trace_profile.js): the panel and chart are ls_panels.css's
+     (.float-panel, .profile-*), as on /inventory/; this is only where it opens. */
+  #tgp-panel { top: 10px; left: 312px; width: 660px; height: 340px; }
+  .tgp-mark { background: #111; color: #fff; font: 700 12px system-ui, sans-serif; border: 2px solid #fff;
+    border-radius: 50%; width: 20px; height: 20px; line-height: 20px; text-align: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div id="panel">
   <h1>Lidar DEM preview</h1>
+  <div style="font-size:11px;margin:-6px 0 6px"><a href="{% url 'lidar_methods' %}">Methods</a> &middot; hover a control for what it does</div>
   {% comment %}
     Restricted surveys are served only to a signed-in data admin, and until
     now this page gave no hint that signing in was even possible -- a survey
@@ -106,48 +150,36 @@ vanish depending on which way you light them.
     {% endif %}
   </div>
 
-  <h2>Basemap</h2>
-  <select id="bm" style="width:100%"></select>
+  <h2>Basemap <a class="mlink" href="{% url 'lidar_methods' %}#basemap" title="Methods: basemap and lidar opacity">?</a></h2>
+  <select id="bm" style="width:100%" title="The same basemaps as /inventory/, plus any shared layers you can see there."></select>
   <label>Basemap opacity <span class="val" id="bopv">0.55</span></label>
   <input type="range" id="bop" min="0" max="100" value="55">
-  <label>Lidar opacity <span class="val" id="opv">1.00</span></label>
+  <label title="Fades the whole lidar stack (shading, imagery, vegetation height and difference) so the basemap shows through.">Lidar opacity <span class="val" id="opv">1.00</span></label>
   <input type="range" id="op" min="0" max="100" value="100">
-  <div class="stackhint">The same collection as /inventory/ (basemaps.js), plus any shared
-    QMS layers you can see there. <b>Lidar opacity</b> fades the whole lidar stack --
-    shading, drape, vegetation height and difference -- so the basemap shows through.</div>
 
-  <h2>Datasets</h2>
-  <label><input type="checkbox" id="inview"> Only surveys in view</label>
+  <h2>Datasets <a class="mlink" href="{% url 'lidar_methods' %}#surveys" title="Methods: the surveys">?</a></h2>
+  <label title="List only the surveys whose footprint is on the map now."><input type="checkbox" id="inview"> Only surveys in view</label>
   <div id="datasets">loading catalog…</div>
 
   <div id="imagery-box" style="display:none">
-    <h2>Imagery</h2>
-    <label><input type="checkbox" id="ortho"> Drape the orthomosaic</label>
-    <label>Imagery opacity <span class="val" id="oopv">1.00</span></label>
+    <h2>Imagery <a class="mlink" href="{% url 'lidar_methods' %}#imagery" title="Methods: imagery">?</a></h2>
+    <label title="The photograph from the same flight as this surface, on top of everything else."><input type="checkbox" id="ortho"> Drape the orthomosaic</label>
+    <label title="At around half, the shading gives the form and the imagery the ground cover: which boulders are bare rock and which are vegetated.">Imagery opacity <span class="val" id="oopv">1.00</span></label>
     <input type="range" id="oop" min="0" max="100" value="100">
-    <div class="stackhint">The photograph from the same flight as this
-      surface, on top of everything else. Drop its opacity to read the two
-      together: the shading gives the form, the imagery gives the ground
-      cover, and at around half you can see which boulders on the hillshade
-      are bare rock and which are vegetated.</div>
   </div>
 
   <div id="veg-box" style="display:none">
-    <h2>Vegetation height</h2>
-    <label><input type="checkbox" id="veg"> Show what this surface treats as vegetation</label>
+    <h2>Vegetation height <a class="mlink" href="{% url 'lidar_methods' %}#vegetation" title="Methods: vegetation height">?</a></h2>
+    <label title="Highest return in each 1 m cell minus this surface: what the classification put above the ground. Magenta = the surface sits above every return, an invented feature."><input type="checkbox" id="veg"> Show what this surface treats as vegetation</label>
     <label>Opacity <span class="val" id="vopv">0.70</span></label>
     <input type="range" id="vop" min="0" max="100" value="70">
     <div id="veglegend" class="veglegend"></div>
-    <div class="stackhint">Highest return in each 1&nbsp;m cell minus <em>this</em>
-      surface: everything the classification put above the ground. Switch
-      surfaces to compare what each one removed. Magenta is the surface sitting
-      ABOVE every return, which ground cannot do: an invented feature.</div>
   </div>
 
-  <h2>Layer stack</h2>
+  <h2>Layer stack <a class="mlink" href="{% url 'lidar_methods' %}#layers" title="Methods: hillshade, slope, mod 5 m, aspect">?</a></h2>
   <div class="btnrow">
-    <button type="button" id="preset">Preset</button>
-    <button type="button" id="plain">Hillshade only</button>
+    <button type="button" id="preset" title="Hillshade in Hard light over the slope ramp and the mod 5 m bands.">Preset</button>
+    <button type="button" id="plain" title="Hillshade alone, ramps off.">Hillshade only</button>
     <button type="button" id="imgview" style="display:none">Imagery</button>
   </div>
   <div class="stackhint">hillshade (Hard light) · slope · mod&nbsp;5&nbsp;m</div>
@@ -180,83 +212,64 @@ vanish depending on which way you light them.
     No new URL key: a value of zero already means off, so the checkbox is
     derived from the value and old links keep working.
   {% endcomment %}
-  <label class="vis"><input type="checkbox" id="slon"> Slope ramp</label>
+  <label class="vis" title="Green to white across 0-10° (benches, terraces); pale to 32°; yellow 40°, red 45°, purple 50° (the angle of repose)."><input type="checkbox" id="slon"> Slope ramp</label>
   <div class="visrow" id="slrow" hidden>
     <label>Strength <span class="val" id="slv">0.00</span></label>
     <input type="range" id="sl" min="0" max="100" value="0">
-    <label><input type="checkbox" id="preslope" checked> From the archive (pre-baked, true metres) where available</label>
+    <label title="Slope pre-computed from the full-resolution survey, where built. Unticked, slope comes from the tiles at the zoom shown."><input type="checkbox" id="preslope" checked> From the archive (pre-baked, true metres) where available</label>
   </div>
 
-  <label class="vis"><input type="checkbox" id="mdon"> Mod 5 m</label>
+  <label class="vis" title="Colour bands repeating every 5 m of elevation. The interval is fixed so sites can be compared."><input type="checkbox" id="mdon"> Mod 5 m</label>
   <div class="visrow" id="mdrow" hidden>
     <label>Strength <span class="val" id="mdv">0.00</span></label>
     <input type="range" id="md" min="0" max="100" value="0">
   </div>
 
-  <label class="vis"><input type="checkbox" id="ason"> Aspect tint</label>
+  <label class="vis" title="Hue = the direction the ground faces; stronger on steeper ground."><input type="checkbox" id="ason"> Aspect tint</label>
   <div class="visrow" id="asrow" hidden>
     <label>Strength <span class="val" id="asv">0.00</span></label>
     <input type="range" id="as" min="0" max="100" value="0">
   </div>
 
 
-  <h2>Difference</h2>
-  <select id="df"><option value="">— off —</option></select>
+  <h2>Difference <a class="mlink" href="{% url 'lidar_methods' %}#difference" title="Methods: difference">?</a></h2>
+  <select id="df" title="Colours the overlap with another survey: green where the ground rose, purple where it fell; as m/yr when the dates differ. One flat colour over a whole survey is a datum disagreement, not change."><option value="">— off —</option></select>
   <div id="dfpanel" hidden>
     <div class="dfbar"></div>
     <div class="dfends"><span id="dflo"></span><span id="dfhi"></span></div>
     <div class="dfnote" id="dfnote"></div>
-    <label>Ramp saturates at <span class="val" id="dmaxv">0.10 m/yr</span></label>
+    <label title="The change at which the colours reach their darkest; anything larger is drawn at the end colour.">Ramp saturates at <span class="val" id="dmaxv">0.10 m/yr</span></label>
     <input type="range" id="dmax" min="0" max="100" value="29">
     <label>Difference opacity <span class="val" id="dopv">0.75</span></label>
     <input type="range" id="dop" min="0" max="100" value="75">
   </div>
-  <div class="stackhint">Colours the overlap of two surveys by how fast the
-    ground moved between them, ColorBrewer PRGn: green where it rose, purple
-    where it fell, neutral where it did not, transparent outside the overlap.
-    Two surveys years apart are scaled as a RATE, metres per year, so a pair
-    eleven years apart and a pair one year apart can be read against each
-    other. Two renderings of the same date are scaled in plain metres.
-    A whole survey in one flat colour is not change but a vertical datum
-    disagreement, which is what this is best at catching.</div>
 
-  <h2>View</h2>
+  <h2>View <a class="mlink" href="{% url 'lidar_methods' %}#view" title="Methods: view">?</a></h2>
   <label id="nuplabel"><input type="checkbox" id="nup"> North up (lock bearing)</label>
   <label><input type="checkbox" id="nadir"> Nadir (lock pitch)</label>
-  <label><input type="checkbox" id="warm" checked> Keep overlapping DEMs warm</label>
-  <div class="stackhint">Preloads every survey covering the view so switching
-    between them is instant. <span id="cachestat"></span></div>
+  <label title="Preloads every survey covering the view so switching between them is instant."><input type="checkbox" id="warm" checked> Keep overlapping DEMs warm</label>
+  <div class="stackhint"><span id="cachestat"></span></div>
 
-  <h2>3D</h2>
+  <h2>3D <a class="mlink" href="{% url 'lidar_methods' %}#3d" title="Methods: 3D terrain and context">?</a></h2>
   <label><input type="checkbox" id="t3d"> Terrain</label>
   <label>Terrain exaggeration <span class="val" id="exv">1.0</span></label>
   <input type="range" id="ex" min="0" max="40" value="10">
-  <label><input type="checkbox" id="ctx" checked> USGS 3DEP outside the survey</label>
-  <label><input type="checkbox" id="ctxlive" checked> Global terrain beyond the bake (Mapterhorn)</label>
-  <label><input type="checkbox" id="ctxshade" checked> Shade the context (hillshade outside the surveys)</label>
-  <label>Terrain mesh
+  <label title="Fills around a survey with USGS 3DEP up to its boundary, so it doesn't stand on a flat plane. Voids inside the survey stay voids."><input type="checkbox" id="ctx" checked> USGS 3DEP outside the survey</label>
+  <label title="Beyond the pre-baked 3DEP: Mapterhorn's global terrain (the same 3DEP in Alaska, Copernicus 30 m in Canada). Untick for flat beyond."><input type="checkbox" id="ctxlive" checked> Global terrain beyond the bake (Mapterhorn)</label>
+  <label title="Hillshades the context terrain; the 3D mesh alone is too coarse to show detail."><input type="checkbox" id="ctxshade" checked> Shade the context (hillshade outside the surveys)</label>
+  <label title="Fast samples the same elevations through tiles twice the size: a quarter of the meshes to build and draw.">Terrain mesh
     <select id="tmesh">
       <option value="512">fast (512 px tiles, quarter the meshes)</option>
       <option value="256">fine (256 px tiles)</option>
     </select></label>
-  <label><input type="checkbox" id="fog" checked> Fade into the distance (pitched views)</label>
-  <div class="stackhint">Without context a survey stands on a flat plane as a
-    block of towers. Context is USGS 3DEP from a pre-baked pyramid around the
-    surveys, and it fills right up to the survey's boundary, not just the
-    tiles the survey lacks -- so the last partial tile at the edge no longer
-    drops to a 0 m shelf. Water and other voids inside the boundary stay
-    voids, at 0 m, rather than being painted with a regional DEM's guess at
-    the sea surface. In Alaska 3DEP is 2010 IfSAR, so retreated glaciers still
-    show as ice and the survey steps off them with a cliff. Beyond the bake
-    the ground comes from Mapterhorn's global terrain: the same 3DEP data
-    everywhere in Alaska (it matches the bake to a median of 0 m), Copernicus
-    30 m in Canada, served from a CDN. Untick it for the bake alone, flat
-    beyond. The fast mesh samples the same posts through tiles twice
-    the size, one zoom coarser: a quarter of the terrain meshes to build and
-    draw. The fog applies only once the view is pitched: looking straight
-    down there is no far field, and on a deep bathymetric survey the fog
-    reads depth as distance and washes the seabed out past a certain
-    contour.</div>
+  <label title="Fades distant terrain, only in pitched views. Over deep bathymetry it reads depth as distance; turn it off there."><input type="checkbox" id="fog" checked> Fade into the distance (pitched views)</label>
+
+  <h2>Traces <a class="mlink" href="{% url 'lidar_methods' %}#traces" title="Methods: landform traces">?</a></h2>
+  <label title="Scarps, moraine crests, trimlines, strandlines, lineaments traced on these surfaces. Working observations, not a published map; click one for its note."><input type="checkbox" id="trv"> Show landform traces</label>
+  <div class="tr-kinds" id="tr-kinds"></div>
+  <label>Show <select id="tr-gshow"><option value="">all groups</option></select></label>
+  <div id="tr-ginfo"></div>
+  {% if is_inventory_editor %}<div class="stackhint">Trace with the &#9998; button (top right).</div>{% endif %}
 
   <details class="grp" id="srcgrp">
     <summary>Sources &amp; credits <span class="cnt" id="srccount"></span></summary>
@@ -271,6 +284,37 @@ vanish depending on which way you light them.
   <button type="button" id="copyurl">Copy link to this view</button>
 </div>
 
+{% if is_inventory_editor %}
+<div id="trace-panel">
+  <div class="hd">&#9998; Trace landforms</div>
+  <div class="hint"><b>Open ground:</b> click along the feature; <b>Enter</b>
+    or double-click finishes, <b>Esc</b> drops the line in progress.
+    <b>An existing line:</b> click it to edit &mdash; drag a vertex to move
+    it, drag a small midpoint to add one, right-click (Ctrl-click) a vertex to delete it,
+    <b>Ctrl/&#8984;-Z</b> undoes. Everything saves as you go, with the surveys
+    on screen recorded as what a new line was read from. Tracing is easiest
+    looking straight down (Nadir).</div>
+  <label>New lines are <select id="tp-kind"></select></label>
+  <label>in group <select id="tp-group"></select></label>
+  <div id="tp-newg" style="display:none">
+    <input id="tp-newname" placeholder="e.g. Naptowne advance, Kachemak" maxlength="120">
+    <button type="button" id="tp-newok">Create</button>
+    <button type="button" id="tp-newno">Cancel</button>
+  </div>
+  <div id="tp-edit" style="display:none; margin-top:6px; border-top:1px solid #eee; padding-top:6px;">
+    <div class="who" id="tp-who"></div>
+    <label>Kind <select id="tp-ekind"></select></label>
+    <label>Group <select id="tp-egroup"></select></label>
+    <textarea id="tp-notes" rows="4" placeholder="What you saw, and on which surface. For a moraine: lateral / terminal / recessional, and the age argument."></textarea>
+    <button type="button" id="tp-save">Save</button>
+    <button type="button" id="tp-del">Delete</button>
+  </div>
+  <div class="msg" id="tp-msg"></div>
+  <div style="text-align:right"><button type="button" id="tp-exit">Exit</button></div>
+</div>
+<script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
+<script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>
+{% endif %}
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
 <script>
@@ -281,6 +325,12 @@ vanish depending on which way you light them.
 <script src="{% static 'inventory/js/vendor/maplibre-gl-demshade.iife.js' %}"></script>
 <script src="{% static 'inventory/js/dem_shade_bridge.js' %}"></script>
 <script src="{% static 'inventory/js/basemaps.js' %}"></script>
+<script src="{% static 'inventory/js/ls_tools.js' %}"></script>
+<script src="{% static 'inventory/js/ls_float.js' %}"></script>
+<script src="{% static 'inventory/js/scarps.js' %}"></script>
+<script src="{% static 'inventory/js/dem_read.js' %}"></script>
+<script src="{% static 'inventory/js/profile_chart.js' %}"></script>
+<script src="{% static 'inventory/js/trace_profile.js' %}"></script>
 <script>
 (function () {
   'use strict';
@@ -330,7 +380,7 @@ vanish depending on which way you light them.
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
   var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop', 'vop', 'bop', 'tmesh'];
-  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'ctxlive', 'ctxshade', 'fog', 'inview', 'preslope', 'ortho', 'veg'];
+  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'ctxlive', 'ctxshade', 'fog', 'inview', 'preslope', 'ortho', 'veg', 'trv'];
   // [checkbox, slider, row, default-when-first-ticked] for the optional ramps.
   // Declared HERE, beside the other boot tables, because syncVisRows() runs
   // during restore: `var` hoists the name but not the value, so leaving this
@@ -355,7 +405,7 @@ vanish depending on which way you light them.
   syncVisRows();
   CHECKS.forEach(function (id) {
     // 3D on by default (Hig, 2026-09-28); a link's own t3d=0 still wins.
-    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'ctxlive' || id === 'ctxshade' || id === 'fog' || id === 'preslope' || id === 't3d');
+    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'ctxlive' || id === 'ctxshade' || id === 'fog' || id === 'preslope' || id === 't3d' || id === 'trv');
   });
 
   var map = new maplibregl.Map({
@@ -452,9 +502,10 @@ vanish depending on which way you light them.
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
 
   // Right-click (Ctrl-click on Mac) anywhere on the map copies "lat, lon" to the
-  // clipboard, as on /inventory/ (map.js) -- same format, same toast. This page has
-  // no click tools yet; if it gains one that uses right-click, guard this handler
-  // the way map.js does with LSTools.blocked().
+  // clipboard, as on /inventory/ (map.js) -- same format, same toast. The trace
+  // tool (scarps.js) stops the event before it gets here when a right-click
+  // means something to it: mid-line (a vertex, or the end) or on a handle.
+  // A future tool that uses right-click guards this with LSTools.blocked().
   map.on('contextmenu', function (e) {
     e.preventDefault();
     var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
@@ -1324,6 +1375,15 @@ vanish depending on which way you light them.
       if (df) p.set('df', df);
       CONTROLS.forEach(function (id) { p.set(id, document.getElementById(id).value); });
       CHECKS.forEach(function (id) { p.set(id, document.getElementById(id).checked ? '1' : '0'); });
+      // The group profile: gp=<group id>[,<id>…], gpf=1 flipped (A at the other
+      // end), gpl=1 at 1:1, gpw=d0,d1 the brushed window (m along the plane).
+      var gst = window.LSTraceProfile && LSTraceProfile.state();
+      if (gst) {
+        p.set('gp', gst.groups.join(','));
+        if (gst.flip) p.set('gpf', '1');
+        if (gst.locked) p.set('gpl', '1');
+        if (gst.sel) p.set('gpw', Math.round(gst.sel.d0) + ',' + Math.round(gst.sel.d1));
+      }
       history.replaceState(null, '', location.pathname + '?' + p.toString());
     }, 250);
   }
@@ -1730,6 +1790,318 @@ vanish depending on which way you light them.
     });
     return [[minX, minY], [maxX, maxY]];
   }
+
+  // ---- landform traces (scarps.js; the table is inventory's) --------------
+  // Public reads: every visitor sees the traces and can click one for its
+  // note. Editors get the trace tool, an LSTools mode, so the click policy is
+  // ls_tools.js's -- this page's first pointer tool. Every layer this page
+  // adds lands BELOW the traces (the addLayer wrapper), because surveys,
+  // shading and the difference layer are added and removed all session long
+  // and a trace under a hillshade is a trace nobody can see.
+  LSTools.init(map, { position: 'top-right' });
+  var TRACE_FIRST = 'scarps-case';
+  var _addLayer = map.addLayer.bind(map);
+  map.addLayer = function (layer, before) {
+    if (!before && layer && !/^(scarps|tgp)-/.test(layer.id) && map.getLayer(TRACE_FIRST)) before = TRACE_FIRST;
+    return _addLayer(layer, before);
+  };
+  var IS_EDITOR = {% if is_inventory_editor %}true{% else %}false{% endif %};
+  function traceContext() {
+    var df = document.getElementById('df').value;
+    return { page: 'lidar', surveys: [active, df].filter(function (x, i, a) { return x && a.indexOf(x) === i; }),
+             basemap: shownBm };
+  }
+  function trEsc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+  function trLen(L) { return L == null ? '' : (L >= 1000 ? (L / 1000).toFixed(2) + ' km' : Math.round(L) + ' m'); }
+  function trMeta(pr) {
+    var on = pr.traced_on && pr.traced_on.surveys && pr.traced_on.surveys.length
+      ? ' · on ' + pr.traced_on.surveys.join(', ') : '';
+    return 'traced by ' + (pr.traced_by || '—') + (pr.length_m != null ? ' · ' + trLen(pr.length_m) : '') + on;
+  }
+  function trSwatch(k) {
+    return '<i class="tr-sw' + (k.dash ? ' ' + k.dash : '') + '" style="border-top-color:' + trEsc(k.color) + '"></i>';
+  }
+  function tracePopup(f, lngLat) {
+    var pr = f.properties, k = LSScarps.kindInfo(pr.kind || 'scarp');
+    var html = '<div class="trace-pop"><div style="font-weight:600;color:' + trEsc(k.color) + '">' +
+      trSwatch(k) + ' ' + trEsc(k.label) + '</div>' +
+      '<div style="white-space:pre-wrap;margin:4px 0">' +
+      (pr.notes ? trEsc(pr.notes) : '<span style="color:#999">(no note)</span>') + '</div>' +
+      (pr.group ? '<div><b>' + trEsc(pr.group) + '</b>' + (pr.group_id ?
+        ' · <a href="#" class="tp-gprof" title="Every trace in this group, projected onto one vertical plane">&#8767; group profile</a>' : '') +
+        '</div>' : '') +
+      '<div class="meta">' + trEsc(trMeta(pr)) + ' · a working observation, not a published map</div>' +
+      (IS_EDITOR ? '<button type="button" class="tp-edit">Edit</button>' : '') + '</div>';
+    var pop = LSTools.popup.show(new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
+      .setLngLat(lngLat).setHTML(html).addTo(map));
+    var gp = pop.getElement().querySelector('.tp-gprof');
+    if (gp) gp.addEventListener('click', function (e) {
+      e.preventDefault();
+      LSTools.popup.close();
+      LSTraceProfile.open(pr.group_id);
+    });
+    var b = pop.getElement().querySelector('.tp-edit');
+    if (b) b.addEventListener('click', function () {
+      LSTools.popup.close();
+      traceStart();
+      LSScarps.select(pr.id);
+    });
+  }
+  function traceKindFilter() {
+    var box = document.getElementById('tr-kinds');
+    box.innerHTML = '';
+    LSScarps.kinds().forEach(function (k) {
+      var n = LSScarps.all().features.filter(function (f) { return (f.properties.kind || 'scarp') === k.id; }).length;
+      var l = document.createElement('label');
+      l.title = k.hint || '';
+      l.innerHTML = '<input type="checkbox" checked data-k="' + trEsc(k.id) + '">' + trSwatch(k) +
+                    trEsc(k.label) + ' <span style="color:#999">' + n + '</span>';
+      box.appendChild(l);
+    });
+    box.onchange = function () {
+      var off = [];
+      box.querySelectorAll('input').forEach(function (c) { if (!c.checked) off.push(c.dataset.k); });
+      LSScarps.setHiddenKinds(off);
+    };
+  }
+
+  // ---- groups: one glaciation / fault / lake stand, one group per trace ----
+  var NEWG = '__new__';
+  function groupOptions(withNew) {
+    return '<option value="">— no group —</option>' + LSScarps.groups().map(function (g) {
+      return '<option value="' + g.id + '">' + trEsc(g.name) + ' (' + g.n + ')</option>';
+    }).join('') + (withNew ? '<option value="' + NEWG + '">＋ New group…</option>' : '');
+  }
+  function traceGroupsUi() {
+    var sel = document.getElementById('tr-gshow'), v = sel.value;
+    sel.innerHTML = '<option value="">all groups</option>' + LSScarps.groups().map(function (g) {
+      return '<option value="' + g.id + '">' + trEsc(g.name) + ' (' + g.n + ')</option>';
+    }).join('');
+    sel.value = LSScarps.groupById(+v) ? v : '';
+    traceGroupInfo();
+    if (IS_EDITOR) tpFillGroups();
+  }
+  function traceGroupInfo(editing) {
+    var box = document.getElementById('tr-ginfo');
+    var g = LSScarps.groupById(+document.getElementById('tr-gshow').value);
+    if (!g) {
+      // The profile is per group, so say where it is rather than hide it.
+      box.innerHTML = (LSScarps.groups().length
+        ? '<div style="color:#999">&#8767; profile: choose a group above (or click a grouped trace)</div>' : '') +
+        '<a href="' + LSScarps.downloadUrl(null) + '">&#8595; all traces (GeoJSON)</a>';
+      return;
+    }
+    if (editing) {
+      box.innerHTML = '<input id="tg-name" maxlength="120" value="' + trEsc(g.name) + '">' +
+        '<textarea id="tg-notes" rows="4" placeholder="What this group is: age, interpretation, citation.">' +
+        trEsc(g.notes) + '</textarea>' +
+        '<button type="button" id="tg-save">Save group</button> ' +
+        '<button type="button" id="tg-del">Delete group</button> ' +
+        '<button type="button" id="tg-cancel">Cancel</button><div id="tg-msg"></div>';
+      box.querySelector('#tg-save').onclick = function () {
+        LSScarps.updateGroup(g.id, { name: box.querySelector('#tg-name').value,
+                                     notes: box.querySelector('#tg-notes').value })
+          .then(function () { traceGroupsUi(); })
+          .catch(function (e) { box.querySelector('#tg-msg').textContent = e.message; });
+      };
+      box.querySelector('#tg-del').onclick = function () {
+        if (!window.confirm('Delete the group "' + g.name + '"? Its ' + g.n +
+                            ' trace(s) are kept, just ungrouped.')) return;
+        LSScarps.updateGroup(g.id, { delete: true })
+          .then(function () { document.getElementById('tr-gshow').value = ''; LSScarps.setGroupFilter(null); traceGroupsUi(); })
+          .catch(function (e) { box.querySelector('#tg-msg').textContent = e.message; });
+      };
+      box.querySelector('#tg-cancel').onclick = function () { traceGroupInfo(); };
+      return;
+    }
+    box.innerHTML = (g.notes ? '<div class="gnote">' + trEsc(g.notes) + '</div>' : '<div style="color:#999">(no group note)</div>') +
+      '<div>' + g.n + ' trace' + (g.n === 1 ? '' : 's') + (g.created_by ? ' · made by ' + trEsc(g.created_by) : '') + '</div>' +
+      '<a href="#" id="tg-prof" title="Every trace in the group, projected onto the vertical plane along the group\'s longest horizontal extent">&#8767; profile</a> · ' +
+      '<a href="' + LSScarps.downloadUrl(g.id) + '">&#8595; GeoJSON</a>' +
+      (IS_EDITOR ? ' · <a href="#" id="tg-edit">edit group</a>' : '');
+    box.querySelector('#tg-prof').onclick = function (e) { e.preventDefault(); LSTraceProfile.open(g.id); };
+    var ed = box.querySelector('#tg-edit');
+    if (ed) ed.onclick = function (e) { e.preventDefault(); traceGroupInfo(true); };
+  }
+  document.getElementById('tr-gshow').addEventListener('change', function () {
+    LSScarps.setGroupFilter(this.value === '' ? null : +this.value);
+    traceGroupInfo();
+  });
+
+  // The editor's session: one LSTools mode, a floating panel, Terra Draw.
+  var tp = IS_EDITOR ? document.getElementById('trace-panel') : null;
+  var tracing = false;
+  function tpSay(msg, bad) {
+    var m = document.getElementById('tp-msg');
+    m.textContent = msg || ''; m.style.color = bad ? '#b3261e' : '#1b7a3d';
+    if (msg) setTimeout(function () { if (m.textContent === msg) m.textContent = ''; }, 4000);
+  }
+  function tpFillKinds() {
+    ['tp-kind', 'tp-ekind'].forEach(function (id) {
+      var sel = document.getElementById(id), v = sel.value;
+      sel.innerHTML = LSScarps.kinds().map(function (k) {
+        return '<option value="' + trEsc(k.id) + '" title="' + trEsc(k.hint || '') + '">' + trEsc(k.label) + '</option>';
+      }).join('');
+      if (v) sel.value = v;
+    });
+    document.getElementById('tp-kind').value = LSScarps.drawKind();
+  }
+  function tpFillGroups() {
+    var a = document.getElementById('tp-group'), b = document.getElementById('tp-egroup');
+    a.innerHTML = groupOptions(true); b.innerHTML = groupOptions(true);
+    a.value = LSScarps.drawGroup() == null ? '' : String(LSScarps.drawGroup());
+    tpSync(true);
+  }
+  // "＋ New group…" in either select: an inline name box; the new group is
+  // then chosen in whichever select asked for it.
+  var newgFor = null;
+  function tpGroupPicked(sel) {
+    if (sel.value !== NEWG) return false;
+    newgFor = sel.id;
+    document.getElementById('tp-newg').style.display = '';
+    document.getElementById('tp-newname').value = '';
+    document.getElementById('tp-newname').focus();
+    return true;
+  }
+  function tpSync(force) {
+    if (!tp) return;
+    var f = tracing ? LSScarps.selected() : null;
+    document.getElementById('tp-edit').style.display = f ? '' : 'none';
+    if (f) {
+      document.getElementById('tp-who').textContent = trMeta(f.properties);
+      // The editable fields follow the stored values only when the selection
+      // changes (or on `force`, after the group list is rebuilt): a redraw
+      // must not undo a choice the editor has not saved yet.
+      var ed = document.getElementById('tp-edit');
+      if (force || ed.dataset.id !== String(f.properties.id)) {
+        ed.dataset.id = f.properties.id;
+        document.getElementById('tp-ekind').value = f.properties.kind || 'scarp';
+        document.getElementById('tp-egroup').value = f.properties.group_id == null ? '' : String(f.properties.group_id);
+        document.getElementById('tp-notes').value = f.properties.notes || '';
+      }
+    }
+  }
+  function traceStart() {
+    if (tracing) return;
+    if (typeof terraDraw === 'undefined' || typeof terraDrawMaplibreGlAdapter === 'undefined') {
+      alert('The drawing library failed to load; check the connection and reload.'); return;
+    }
+    if (!LSTools.claim('trace')) return;
+    tracing = true;
+    if (!document.getElementById('trv').checked) {
+      document.getElementById('trv').checked = true; LSScarps.setVisible(true); syncUrl();
+    }
+    LSTools.cursor.set('tool', 'crosshair');
+    tp.style.display = 'block';
+    tpFillKinds();
+    tpFillGroups();
+    try {
+      LSScarps.startDraw({ terraDraw: window.terraDraw, adapter: window.terraDrawMaplibreGlAdapter,
+                           kind: document.getElementById('tp-kind').value, context: traceContext });
+    } catch (e) {
+      console.error('trace start failed:', e); traceStop();
+      alert('Could not start tracing: ' + (e && e.message ? e.message : e)); return;
+    }
+    tpSync();
+  }
+  function traceStop() {
+    if (!tracing) return;
+    tracing = false;
+    LSScarps.stopDraw(); LSScarps.select(null);
+    LSTools.cursor.clear('tool');
+    LSTools.release('trace');
+    if (tp) tp.style.display = 'none';
+  }
+  if (IS_EDITOR) {
+    LSTools.mode({
+      id: 'trace', order: 30, label: '\u270E',
+      title: 'Trace landforms (scarps, moraine crests, trimlines, ...): click along the feature, Enter or double-click to finish',
+      onSelect: traceStart,
+      onRelease: traceStop,
+      // Escape is Terra Draw's here (it drops the line in progress), as on
+      // the inventory pencil: a second listener on the same key would race
+      // it. Leaving the tool is the button or Exit.
+      cancel: function () {}
+    });
+    document.getElementById('tp-kind').addEventListener('change', function () { LSScarps.setDrawKind(this.value); });
+    document.getElementById('tp-group').addEventListener('change', function () {
+      if (tpGroupPicked(this)) return;
+      LSScarps.setDrawGroup(this.value);
+    });
+    document.getElementById('tp-egroup').addEventListener('change', function () { tpGroupPicked(this); });
+    document.getElementById('tp-newno').addEventListener('click', function () {
+      document.getElementById('tp-newg').style.display = 'none';
+      tpFillGroups();
+    });
+    function newGroup() {
+      var name = document.getElementById('tp-newname').value;
+      LSScarps.createGroup(name).then(function (res) {
+        document.getElementById('tp-newg').style.display = 'none';
+        traceGroupsUi();
+        var sel = document.getElementById(newgFor || 'tp-group');
+        sel.value = String(res.id);
+        if (sel.id === 'tp-group') LSScarps.setDrawGroup(res.id);
+        tpSay('Group created' + (sel.id === 'tp-egroup' ? ' — Save to put this trace in it.' : '.'));
+      }).catch(function (e) { tpSay(e.message, true); });
+    }
+    document.getElementById('tp-newok').addEventListener('click', newGroup);
+    document.getElementById('tp-newname').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); newGroup(); }
+    });
+    document.getElementById('tp-exit').addEventListener('click', traceStop);
+    document.getElementById('tp-save').addEventListener('click', function () {
+      var eg = document.getElementById('tp-egroup').value;
+      LSScarps.save({ notes: document.getElementById('tp-notes').value,
+                      kind: document.getElementById('tp-ekind').value,
+                      group_id: eg === '' || eg === NEWG ? null : +eg })
+        .then(function () { tpSay('Saved.'); traceKindFilter(); traceGroupsUi(); })
+        .catch(function (e) { tpSay(e.message, true); });
+    });
+    document.getElementById('tp-del').addEventListener('click', function () {
+      if (!window.confirm('Delete this trace? This cannot be undone.')) return;
+      LSScarps.remove()
+        .then(function () { tpSay('Deleted.'); traceKindFilter(); traceGroupsUi(); tpSync(); })
+        .catch(function (e) { tpSay(e.message, true); });
+    });
+  }
+  document.getElementById('trv').addEventListener('change', function () {
+    LSScarps.setVisible(this.checked); syncUrl();
+  });
+  map.on('load', function () {
+    LSScarps.setVisible(document.getElementById('trv').checked);
+    LSScarps.init({
+      map: map, api: '/inventory/',
+      csrf: function () { return '{{ csrf_token }}'; },
+      onChange: function () { tpSync(); },
+      onPick: tracePopup,
+      flash: function (m, bad) { if (tp) { tpSay(m, bad); tpSync(); traceKindFilter(); traceGroupsUi(); } }
+    }).then(function () {
+      LSTraceProfile.init({
+        map: map, catalog: function () { return catalog; },
+        preferred: function () { return [active, document.getElementById('df').value].filter(Boolean); },
+        traces: LSScarps.all, groupById: LSScarps.groupById, onChange: syncUrl
+      });
+      // A link's gp= waits for the catalogue too, or every sample would fall
+      // back to Mapterhorn.
+      if (Q.get('gp')) {
+        var tries = 0, t = setInterval(function () {
+          if (catalog || ++tries > 60) {
+            clearInterval(t);
+            var w = (Q.get('gpw') || '').split(',').map(Number);
+            LSTraceProfile.setState({ groups: Q.get('gp').split(',').map(Number).filter(Boolean),
+                                      flip: Q.get('gpf') === '1', locked: Q.get('gpl') === '1',
+                                      sel: w.length === 2 && w.every(isFinite) ? { d0: w[0], d1: w[1] } : null });
+          }
+        }, 250);
+      }
+      LSScarps.raise();          // above anything added before the first answer
+      traceKindFilter();
+      traceGroupsUi();
+      if (IS_EDITOR) tpFillKinds();
+    }).catch(function (e) {
+      document.getElementById('tr-kinds').textContent = 'Traces failed to load: ' + e.message;
+    });
+  });
 
   map.on('error', function (e) {
     if (e && e.error) status.textContent = 'map error: ' + e.error.message;

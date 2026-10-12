@@ -164,6 +164,7 @@ urlpatterns = [
     # Public on purpose — see analytics.optout.
     path('traffic/optout/', analytics.optout, name='traffic_optout'),
     path('lidar/', lidar_serve.preview),
+    path('lidar/methods/', lidar_serve.methods, name='lidar_methods'),
     path('lidar/catalog.geojson', lidar_serve.catalog),
     path('lidar/catalog-gated.geojson', lidar_serve.catalog_gated),
     path('lidar/audit/', lidar_serve.publish_audit, name='publish_audit'),

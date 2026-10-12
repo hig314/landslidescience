@@ -1,0 +1,233 @@
+{% extends "inventory/base.html" %}
+{% comment %}
+The reader-facing account of the /lidar/ viewer. The viewer's sidebar keeps
+one or two sentences per control as a tooltip and links each section here
+(the "?" beside its heading); the explanation itself lives on this page.
+Anchors are load-bearing: lidar_preview.html links to them.
+{% endcomment %}
+{% block title %}Lidar viewer methods — landslidescience.org{% endblock %}
+{% block page_title %}Lidar viewer methods{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div class="methods-page">
+
+<h2>Lidar viewer methods</h2>
+
+<p class="methods-intro">
+  How the <a href="/lidar/">lidar viewer</a> draws the elevation surveys it
+  hosts: what each layer shows, how to read it, and where it can mislead.
+  Each section here matches a section of the viewer's sidebar.
+</p>
+
+<nav class="methods-toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#surveys">The surveys</a></li>
+    <li><a href="#basemap">Basemap and lidar opacity</a></li>
+    <li><a href="#imagery">Imagery</a></li>
+    <li><a href="#vegetation">Vegetation height</a></li>
+    <li><a href="#layers">Layer stack: hillshade, slope, mod 5 m, aspect</a></li>
+    <li><a href="#difference">Difference</a></li>
+    <li><a href="#view">View</a></li>
+    <li><a href="#3d">3D terrain and context</a></li>
+    <li><a href="#traces">Landform traces</a></li>
+    <li><a href="#heights">Heights and vertical datums</a></li>
+  </ol>
+</nav>
+
+<h3 id="surveys">1. The surveys</h3>
+<p>
+  Each survey is hosted as two products: an archive Cloud-Optimized GeoTIFF in
+  its local UTM zone (NAD83(2011)), which GIS software such as QGIS can open
+  straight from its URL, and a web pyramid of elevation tiles that this viewer
+  and the inventory map read. Every view here, including the shading, is
+  computed in your browser from those elevations; nothing is pre-rendered
+  except the optional slope ramp (below).
+</p>
+<p>
+  The footprint shown for a survey is where it has data, not its bounding
+  box. Some surveys are restricted and appear only to signed-in
+  collaborators. <em>Only surveys in view</em> limits the list to surveys
+  whose footprint the map currently shows.
+</p>
+
+<h3 id="basemap">2. Basemap and lidar opacity</h3>
+<p>
+  The basemaps are the same collection as the
+  <a href="/inventory/">inventory map</a>'s, plus any shared map layers you
+  can see there. <strong>Lidar opacity</strong> fades the whole lidar stack
+  &mdash; shading, imagery drape, vegetation height and difference &mdash; so
+  the basemap shows through.
+</p>
+
+<h3 id="imagery">3. Imagery</h3>
+<p>
+  Offered only for surveys flown with a camera (structure-from-motion
+  surveys): the orthomosaic from the same flight as the surface, drawn on top
+  of everything else. A lidar terrain model has no imagery of its own.
+</p>
+<p>
+  Drop its opacity to read the two together: the shading gives the form, the
+  imagery gives the ground cover, and at around half you can see which
+  boulders on the hillshade are bare rock and which are vegetated.
+</p>
+
+<h3 id="vegetation">4. Vegetation height</h3>
+<p>
+  Shown where a survey has a surface of highest returns as well as its ground
+  surface: the highest return in each 1&nbsp;m cell minus <em>this</em>
+  surface, i.e. everything the ground classification put above the ground.
+  Switch surfaces to compare what each one removed.
+</p>
+<p>
+  Magenta marks the surface sitting <em>above</em> every return, which real
+  ground cannot do: there the surface has invented a feature.
+</p>
+
+<h3 id="layers">5. Layer stack: hillshade, slope, mod 5 m, aspect</h3>
+<p>
+  The shading is computed in the browser from the elevation tiles, which is
+  what makes the sun movable: re-lighting a slope from a different azimuth is
+  a mapping technique, not a cosmetic setting &mdash; scarps and old failure
+  scars appear and vanish depending on which way they are lit.
+  <strong>Preset</strong> is hillshade composited in Hard light with the slope
+  ramp and the mod&nbsp;5&nbsp;m banding; <strong>Hillshade only</strong>
+  turns the ramps off.
+</p>
+<ul>
+  <li><strong>Hillshade.</strong> Sun azimuth and altitude, a shading
+    exaggeration (which steepens the shading, not the terrain), and how the
+    shade combines with the ramps beneath it: <em>Hard light</em> (the shade
+    decides), <em>Overlay</em> (the ramp decides; it fades where the ramp is
+    pale, which is why it reads faint on moderate slopes), <em>Multiply</em>
+    (shadows only) or plain transparency.</li>
+  <li><strong>Slope ramp.</strong> Two deliberate sensitivities. Green to
+    white across 0&ndash;10&deg; resolves near-horizontal ground (benches,
+    scarp crowns, terraces); pale from 10&deg; to 32&deg;; then yellow at
+    40&deg;, red at 45&deg; and purple at 50&deg;, bracketing the angle of
+    repose. <em>From the archive</em> reads slope from a pyramid pre-computed
+    from the full-resolution survey, in true metres, where one has been built;
+    unticked (or where none exists) slope is computed from the elevation tiles
+    at the zoom shown, so zoomed out it reflects slope at that coarser
+    scale.</li>
+  <li><strong>Mod 5 m.</strong> Colour bands that repeat every 5&nbsp;m of
+    elevation: contours you can read as texture. The interval is fixed, not
+    adjustable, so banding can be compared between sites.</li>
+  <li><strong>Aspect tint.</strong> Colours ground by the direction it faces
+    (hue), more strongly the steeper it is (saturation).</li>
+</ul>
+<p>
+  The colour ramps are copied verbatim from the QGIS project behind our
+  Kachemak Bay maps, so a site rendered here matches one rendered there.
+</p>
+
+<h3 id="difference">6. Difference</h3>
+<p>
+  Colours the overlap of two surveys by how far the ground moved between them,
+  on the ColorBrewer PRGn ramp: green where it rose, purple where it fell,
+  neutral where it did not, and transparent outside the overlap.
+</p>
+<p>
+  Two surveys years apart are scaled as a <strong>rate</strong>, metres per
+  year, so a pair eleven years apart and a pair one year apart can be read
+  against each other. Two renderings of the same date are scaled in plain
+  metres. <em>Ramp saturates at</em> sets the value at which the colours reach
+  their darkest; anything faster is drawn at the end colour.
+</p>
+<p>
+  A whole survey in one flat colour is not change but a vertical datum
+  disagreement between the two surveys &mdash; which is what this view is best
+  at catching (see <a href="#heights">Heights and vertical datums</a>).
+</p>
+
+<h3 id="view">7. View</h3>
+<p>
+  <strong>North up</strong> and <strong>Nadir</strong> lock the bearing and
+  the pitch. <strong>Keep overlapping DEMs warm</strong> preloads every survey
+  covering the view so switching between them is instant; the line under it
+  reports what is cached.
+</p>
+
+<h3 id="3d">8. 3D terrain and context</h3>
+<p>
+  <strong>Context.</strong> Without context a survey stands on a flat plane as
+  a block of towers. Context is USGS 3DEP (1/3 arc-second) from a pre-baked
+  pyramid around the surveys, and it fills right up to the survey's boundary,
+  not just the tiles the survey lacks, so the last partial tile at a survey's
+  edge does not drop to a 0&nbsp;m shelf. Water and other voids inside the
+  boundary stay voids, at 0&nbsp;m, rather than being painted with a regional
+  model's guess at the sea surface.
+</p>
+<p>
+  In Alaska 3DEP is 2010 IfSAR, so glaciers that have since retreated still
+  show as ice, and a newer survey steps off them with a cliff. That artifact
+  is left in deliberately: an honest step beats a masked one.
+</p>
+<p>
+  <strong>Global terrain beyond the bake.</strong> Beyond the pre-baked
+  pyramid the ground comes from
+  <a href="https://mapterhorn.com" target="_blank" rel="noopener">Mapterhorn</a>'s
+  global terrain: the same 3DEP data everywhere in Alaska (it matches the bake
+  to a median of 0&nbsp;m), and Copernicus 30&nbsp;m in Canada, served from a
+  CDN. Untick it for the bake alone, flat beyond.
+  <strong>Shade the context</strong> hillshades that terrain beneath the
+  surveys, because the 3D mesh on its own is too coarse to show detail.
+</p>
+<p>
+  <strong>Terrain mesh.</strong> <em>Fast</em> samples the same elevations
+  through tiles twice the size, one zoom coarser: a quarter of the terrain
+  meshes to build and draw. <em>Fine</em> uses the standard tiles.
+</p>
+<p>
+  <strong>Fade into the distance.</strong> Applies only once the view is
+  pitched: looking straight down there is no far field. On a deep bathymetric
+  survey the fade reads depth as distance and washes the seabed out past a
+  certain contour, so turn it off there.
+</p>
+
+<h3 id="traces">9. Landform traces</h3>
+<p>
+  Lines traced on these surfaces by the inventory's editors: scarps (of any
+  origin &mdash; not a fault map), moraine crests, trimlines, strandlines
+  (former shorelines) and lineaments. They are working observations, not a
+  published map. Click a line to read its note, who traced it and which
+  surveys it was read from. Traces can belong to a named group (one
+  glaciation, one fault), and each group can be downloaded as GeoJSON. The
+  same traces show on the inventory map.
+</p>
+<p>
+  <strong>Group profile</strong> (<em>&#8767; profile</em> beside a group).
+  Every trace in the group is sampled along its length for elevation and
+  projected onto one vertical plane &mdash; for lateral moraines on both sides
+  of a valley, the classic way to read a former ice surface. The plane runs in
+  the group's direction of greatest horizontal extent (through the two points
+  of the group that lie farthest apart), down the middle of the band the
+  traces occupy; it is drawn on the map from A to A&prime; while the profile
+  is open, and <em>Flip</em> swaps the ends. Each sample is read from the
+  first surface with data under it: the surveys the trace was drawn on, then
+  the survey on screen, then the finest other survey covering it, then
+  Mapterhorn. A group is drawn as one line colour, whatever its number of
+  traces. Hovering picks the nearest sample and marks it on the map with its
+  foot on the plane; dragging across the chart gives a window whose slope is
+  the group's trend along the plane (for moraine crests, the gradient of the
+  former ice surface). The status line gives each surface's share. The CSV lists
+  every sample with its distance along the plane, its perpendicular offset
+  from it and the surface it came from. A trace far off the plane is
+  projected all the same, so read offsets before reading a trend.
+</p>
+
+<h3 id="heights">10. Heights and vertical datums</h3>
+<p>
+  Heights are in metres, in each survey's own vertical datum; the catalogue
+  records it per survey, nearly always NAVD88. Two cautions. NAVD88 is a
+  land-survey datum, not local sea level: in Alaska the two differ by up to a
+  metre or more, and by different amounts along the coast. And surveys that
+  all say NAVD88 can still disagree by tens of centimetres to more than a
+  metre, depending on the geoid model used to convert their GPS heights,
+  which is exactly what a flat-coloured <a href="#difference">difference</a>
+  reveals.
+</p>
+
+</div>
+{% endblock %}

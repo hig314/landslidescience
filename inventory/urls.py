@@ -94,6 +94,10 @@ urlpatterns = [
     path('api/scarps/create/', scarps.api_scarp_create, name='api_scarp_create'),
     re_path(r'^api/scarps/(?P<scarp_id>\d+)/$', scarps.api_scarp_update,
             name='api_scarp_update'),
+    # Trace groups (one glaciation / fault / lake stand); listed with the traces.
+    path('api/scarps/groups/create/', scarps.api_group_create, name='api_trace_group_create'),
+    re_path(r'^api/scarps/groups/(?P<group_id>\d+)/$', scarps.api_group_update,
+            name='api_trace_group_update'),
     path('api/dist_dates/', dist.dist_dates, name='dist_dates'),
     path('api/dist_coverage/', dist.dist_coverage, name='dist_coverage'),
     path('api/timed_events/', views.api_timed_events, name='api_timed_events'),

@@ -1,4 +1,16 @@
-/* scarps.js — trace scarps on the live map.
+/* scarps.js — landform traces (scarps, moraine crests, trimlines, ...).
+ *
+ * GENERALISED 2026-10-11 (Hig): one table and one tool for every hand-traced
+ * line feature. A moraine crest and a scarp are the same thing as a tool --
+ * a line read off a surface, a note, who drew it -- so each trace carries a
+ * `kind`, and the vocabulary (label, colour, dash) comes from the server
+ * with the data (inventory/scarps.py TRACE_KINDS). Each new trace also
+ * records `traced_on`, the surfaces it was read from, which the host supplies
+ * through startDraw's `context`. Hosts: /lidar/ (the main tracing page: sun
+ * angle, slope, 3D) and the inventory map's pencil (scarps). The name of the
+ * module, the global and the API paths stay "scarps".
+ *
+ * The scarp-only history follows.
  *
  * WHY THIS EXISTS
  * ---------------
@@ -37,7 +49,25 @@ window.LSScarps = (function () {
   var features = { type: 'FeatureCollection', features: [] };
   var selectedId = null;
 
-  var SRC = 'scarps-src', LINE = 'scarps-line', HIT = 'scarps-hit', SEL = 'scarps-sel';
+  var SRC = 'scarps-src', HIT = 'scarps-hit', SEL = 'scarps-sel', CASE = 'scarps-case';
+  // One line layer per dash style (line-dasharray cannot be data-driven on
+  // MapLibre 5.5, the inventory map's version); colour is by kind.
+  var STYLES = { solid: 'scarps-line', dash: 'scarps-line-dash', dot: 'scarps-line-dot' };
+  var DASH = { solid: null, dash: [3, 1.5], dot: [0.6, 1.6] };
+  var LINES = [STYLES.solid, STYLES.dash, STYLES.dot];
+  // Edit handles for the selected trace while a session is open: vertices
+  // and segment midpoints (drag one to add a vertex there).
+  var EDIT_SRC = 'scarps-edit', MID = 'scarps-mid', VTX = 'scarps-vtx';
+  var ALL = [CASE, HIT].concat(LINES, [SEL, MID, VTX]);
+  // Until the first load answers: enough to draw the rows that existed
+  // before kinds did.
+  var kinds = [{ id: 'scarp', label: 'Scarp', color: '#7b3fa0', dash: 'dash' }];
+  var hiddenKinds = {};           // kind id -> true while filtered off
+  var drawKind = 'scarp';         // kind given to the next finished line
+  var drawContext = null;         // () -> traced_on, from the host
+  var drawGroup = null;           // group id given to the next finished line
+  var groups = [];                // [{id, name, notes, created_by, n}]
+  var groupFilter = null;         // show only this group id, or null
   // Terra Draw's MapLibre adapter counts decimals and rejects anything finer
   // than its precision (9). The API serves ST_AsGeoJSON(geom, 6), so this is
   // headroom rather than a constraint — but rounding here keeps an untouched
@@ -84,18 +114,34 @@ window.LSScarps = (function () {
     // back on style.load (init below). The layer-scoped click handlers are
     // kept by the map across styles, so they are wired once, not per style.
     map.addSource(SRC, { type: 'geojson', data: features });
-    // A wide transparent line under the visible one: scarps are hairlines and
+    // A white casing under every trace, so a coloured line reads on grey
+    // hillshade, a slope ramp and imagery alike.
+    map.addLayer({ id: CASE, type: 'line', source: SRC,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#fff', 'line-opacity': 0.8, 'line-width': 4.4 } });
+    // A wide transparent line under the visible one: traces are hairlines and
     // clicking a 2 px target is not usable.
     map.addLayer({ id: HIT, type: 'line', source: SRC,
       paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 14 } });
-    map.addLayer({ id: LINE, type: 'line', source: SRC,
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#7b3fa0', 'line-width': 2.2,
-               'line-dasharray': [3, 1.5] } });
+    Object.keys(STYLES).forEach(function (st) {
+      var paint = { 'line-color': '#7b3fa0', 'line-width': 2.2 };
+      if (DASH[st]) paint['line-dasharray'] = DASH[st];
+      map.addLayer({ id: STYLES[st], type: 'line', source: SRC,
+        layout: { 'line-cap': st === 'dot' ? 'round' : 'butt', 'line-join': 'round' },
+        paint: paint });
+    });
+    applyStyle();
     map.addLayer({ id: SEL, type: 'line', source: SRC,
       filter: ['==', ['get', 'id'], -1],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': '#ffb300', 'line-width': 4 } });
+    map.addSource(EDIT_SRC, { type: 'geojson', data: handlesFC() });
+    map.addLayer({ id: MID, type: 'circle', source: EDIT_SRC, filter: ['==', ['get', 'role'], 'm'],
+      paint: { 'circle-radius': 3.5, 'circle-color': '#fff', 'circle-opacity': 0.85,
+               'circle-stroke-color': '#555', 'circle-stroke-width': 1 } });
+    map.addLayer({ id: VTX, type: 'circle', source: EDIT_SRC, filter: ['==', ['get', 'role'], 'v'],
+      paint: { 'circle-radius': 5, 'circle-color': '#fff',
+               'circle-stroke-color': '#e65100', 'circle-stroke-width': 2 } });
     if (wired) return;
     wired = true;
     // Hand back OUR feature (full notes, not the map's flattened copy) and
@@ -138,8 +184,38 @@ window.LSScarps = (function () {
     });
   }
 
+  // Colour and the per-style filters from the kinds vocabulary, plus the
+  // host's kind filter. Kinds the vocabulary lacks draw as plain scarps
+  // rather than vanishing.
+  function kindInfo(id) {
+    for (var i = 0; i < kinds.length; i++) if (kinds[i].id === id) return kinds[i];
+    return { id: id, label: id, color: '#7b3fa0', dash: 'dash' };
+  }
+  function applyStyle() {
+    if (!map || !map.getLayer(STYLES.solid)) return;
+    var color = ['match', ['get', 'kind']];
+    var byStyle = { solid: [], dash: [], dot: [] };
+    kinds.forEach(function (k) {
+      color.push(k.id, k.color);
+      if (!hiddenKinds[k.id]) byStyle[k.dash || 'solid'].push(k.id);
+    });
+    color.push('#7b3fa0');
+    var shown = byStyle.solid.concat(byStyle.dash, byStyle.dot);
+    function f(list) {
+      var k = ['in', ['get', 'kind'], ['literal', list]];
+      return groupFilter == null ? k : ['all', k, ['==', ['get', 'group_id'], groupFilter]];
+    }
+    Object.keys(STYLES).forEach(function (st) {
+      map.setPaintProperty(STYLES[st], 'line-color', color);
+      map.setFilter(STYLES[st], f(byStyle[st]));
+    });
+    [CASE, HIT].forEach(function (id) { map.setFilter(id, f(shown)); });
+  }
+
   function redraw() {
     if (map.getSource(SRC)) map.getSource(SRC).setData(features);
+    if (map.getSource(EDIT_SRC)) map.getSource(EDIT_SRC).setData(handlesFC());
+    applyStyle();
     if (map.getLayer(SEL)) {
       map.setFilter(SEL, ['==', ['get', 'id'], selectedId == null ? -1 : selectedId]);
     }
@@ -148,6 +224,8 @@ window.LSScarps = (function () {
 
   function load() {
     return req(api + 'api/scarps/').then(function (fc) {
+      if (fc.kinds && fc.kinds.length) kinds = fc.kinds;
+      if (fc.groups) groups = fc.groups;
       features = fc; ensureLayers(); redraw(); return fc;
     });
   }
@@ -170,9 +248,13 @@ window.LSScarps = (function () {
     });
   }
 
-  /** Start tracing. Each finished line is saved immediately. */
+  /** Start tracing. Each finished line is saved immediately, as
+   *  opts.kind (default: the last kind set) with traced_on = opts.context(). */
   function startDraw(opts) {
     var TD = opts.terraDraw, ADAPT = opts.adapter;
+    if (opts.kind) drawKind = opts.kind;
+    if (opts.context) drawContext = opts.context;
+    if ('group' in opts) drawGroup = opts.group;
     stopDraw();
     td = new TD.TerraDraw({
       adapter: new ADAPT.TerraDrawMapLibreGLAdapter({ map: map }),
@@ -201,7 +283,9 @@ window.LSScarps = (function () {
     // Double-click finishes a line; without this it also zooms the map, which
     // throws the view off the feature you just traced.
     map.doubleClickZoom.disable();
+    finished = {};
     td.on('finish', function (id) {
+      finished[id] = true;
       var snap = td.getSnapshot().filter(function (f) { return f.id === id; })[0];
       if (!snap) return;
       var geom = round(snap.geometry);
@@ -210,34 +294,311 @@ window.LSScarps = (function () {
       // mutating its feature list mid-event leaves the next trace in a bad
       // state.
       setTimeout(function () { try { td && td.removeFeatures([id]); } catch (e) {} }, 0);
+      var ctx = null;
+      try { ctx = drawContext ? drawContext() : null; } catch (e) { ctx = null; }
+      var k = drawKind, g = drawGroup;
+      // A kind filtered off would save a line the tracer then cannot see.
+      if (hiddenKinds[k]) { delete hiddenKinds[k]; }
       req(api + 'api/scarps/create/', { method: 'POST',
-          body: { geometry: geom, notes: '' } })
+          body: { geometry: geom, notes: '', kind: k, traced_on: ctx, group_id: g } })
         .then(function (res) {
-          upsert(res.scarps); selectedId = res.id; redraw();
-          flash('Scarp saved — add a note.');
+          upsert(res.scarps); selectedId = res.id;
+          if (g != null) bumpGroupCounts();
+          redraw();
+          flash(kindInfo(k).label + ' saved — add a note.');
         })
         .catch(function (e) { flash('Could not save: ' + e.message, true); });
     });
+    attachEditor();
     onChange();
   }
 
   function stopDraw() {
+    detachEditor();
     if (td) { try { td.stop(); } catch (e) {} td = null; }
     if (map && map.doubleClickZoom) map.doubleClickZoom.enable();
     mode = null;
+    if (map && map.getSource(EDIT_SRC)) map.getSource(EDIT_SRC).setData(handlesFC());
     onChange();
   }
 
-  function saveNotes(text) {
-    var f = selected();
-    if (!f) return Promise.reject(new Error('nothing selected'));
-    return req(api + 'api/scarps/' + f.properties.id + '/',
-               { method: 'POST', body: { notes: text } })
-      .then(function (res) { upsert(res.scarps); redraw(); return res; });
+  // ---- editing in the session (2026-10-11, Hig) ---------------------------
+  // With no line in progress, a click decides what it is for: on an existing
+  // trace it selects that trace for editing; on open ground it starts a new
+  // line. The selected trace shows its vertices (drag to move, right-click to
+  // delete) and midpoints (drag to add a vertex); every change saves on
+  // release, and Ctrl/Cmd-Z undoes the last one. Terra Draw only ever draws
+  // new lines: it listens for pointer events on the map CANVAS and takes a
+  // pointerup without a drag as a click, so these listeners sit on the map
+  // CONTAINER in the capture phase and keep a gesture away from it -- and
+  // from MapLibre's pan and rotate -- by stopping it there. preventDefault
+  // on pointerdown also suppresses the compatibility mouse events MapLibre
+  // pans on. Open-ground gestures pass straight through.
+  var finished = {};             // Terra Draw ids already finished (removed a tick later)
+  var gesture = null;            // {type: 'drag'|'pick', ...}
+  var undoStack = [];            // [{id, geometry}] before each edit, newest last
+  var UNDO_MAX = 50, HANDLE_PX = 7;
+
+  function partsOf(g) {
+    return g.type === 'MultiLineString' ? g.coordinates : [g.coordinates];
+  }
+  function handlesFC() {
+    var out = { type: 'FeatureCollection', features: [] };
+    var f = mode === 'draw' ? selected() : null;
+    if (!f) return out;
+    partsOf(f.geometry).forEach(function (part, p) {
+      part.forEach(function (c, i) {
+        out.features.push({ type: 'Feature', properties: { role: 'v', p: p, i: i },
+                            geometry: { type: 'Point', coordinates: c } });
+        if (i > 0) {
+          var a = part[i - 1];
+          out.features.push({ type: 'Feature', properties: { role: 'm', p: p, i: i },
+                              geometry: { type: 'Point', coordinates: [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2] } });
+        }
+      });
+    });
+    return out;
+  }
+  function lineInProgress() {
+    if (!td) return false;
+    try {
+      return td.getSnapshot().some(function (f) {
+        return f.geometry.type === 'LineString' && !finished[f.id];
+      });
+    } catch (e) { return false; }
+  }
+  function canvasPoint(e) {
+    var r = map.getCanvas().getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  }
+  function handleAt(pt) {
+    var box = [[pt[0] - HANDLE_PX, pt[1] - HANDLE_PX], [pt[0] + HANDLE_PX, pt[1] + HANDLE_PX]];
+    var hits = map.getLayer(VTX) ? map.queryRenderedFeatures(box, { layers: [VTX, MID] }) : [];
+    // A vertex wins over a midpoint under the same cursor.
+    return hits.filter(function (h) { return h.properties.role === 'v'; })[0] || hits[0] || null;
+  }
+  function traceAt(pt) {
+    if (!map.getLayer(HIT)) return null;
+    var h = map.queryRenderedFeatures(pt, { layers: [HIT] })[0];
+    return h ? h.properties.id : null;
+  }
+  function take(e) { e.stopPropagation(); e.preventDefault(); }
+  // Route the rest of a taken gesture to the container, so a drag released
+  // off the map still ends (and never reaches Terra Draw's canvas).
+  function capture(e) {
+    try { map.getContainer().setPointerCapture(e.pointerId); } catch (err) {}
+  }
+  function setCursor(c) {
+    if (window.LSTools) LSTools.cursor.set('tool', c);
+    else map.getCanvas().style.cursor = c;
+  }
+  function cloneGeom(g) { return JSON.parse(JSON.stringify(g)); }
+  function setGeom(f, parts) {
+    f.geometry = { type: 'MultiLineString', coordinates: parts };
+  }
+  function pushUndo(f, before) {
+    undoStack.push({ id: f.properties.id, geometry: before });
+    if (undoStack.length > UNDO_MAX) undoStack.shift();
+  }
+  function saveGeom(f, before) {
+    var id = f.properties.id;
+    return req(api + 'api/scarps/' + id + '/', { method: 'POST', body: { geometry: round(f.geometry) } })
+      .then(function (res) { upsert(res.scarps); redraw(); flash('Trace updated.'); })
+      .catch(function (err) {
+        var cur = byId(id);
+        if (cur && before) { cur.geometry = before; redraw(); }
+        flash('Could not save the edit: ' + err.message, true);
+      });
+  }
+  // A secondary click: the right button, or Ctrl-click on a Mac (which some
+  // browsers report as button 0 with ctrlKey, then a contextmenu).
+  var IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
+  function secondary(e) { return e.button === 2 || (IS_MAC && e.button === 0 && e.ctrlKey); }
+  function onDown(e) {
+    if (!e.isPrimary || (e.button !== 0 && e.button !== 2)) return;
+    // Mid-line every click is Terra Draw's, a secondary one included: it adds
+    // a vertex there, or finishes on the last one. (onContext keeps the
+    // host's copy-coordinates out of it.)
+    if (lineInProgress()) return;
+    var sec = secondary(e);
+    var pt = canvasPoint(e), f = selected();
+    var h = f ? handleAt(pt) : null;
+    if (h) {
+      take(e);
+      var parts = partsOf(f.geometry).map(function (part) { return part.slice(); });
+      var before = cloneGeom(f.geometry), p = h.properties.p, i = h.properties.i;
+      if (sec && h.properties.role !== 'v') { gesture = { type: 'rclick' }; return; }
+      if (sec) {
+        if (parts[p].length <= 2) { flash('A line needs two vertices — use Delete for the whole trace.', true); return; }
+        parts[p].splice(i, 1);
+        setGeom(f, parts); pushUndo(f, before); redraw(); saveGeom(f, before);
+        return;
+      }
+      if (h.properties.role === 'm') parts[p].splice(i, 0, h.geometry.coordinates.slice());
+      setGeom(f, parts); redraw();
+      gesture = { type: 'drag', f: f, p: p, i: i, before: before, moved: h.properties.role === 'm',
+                  x: e.clientX, y: e.clientY };
+      capture(e);
+      return;
+    }
+    if (sec) {
+      // No line, no handle: keep it from Terra Draw (which would start a line
+      // with any button) and let the contextmenu through to the host, which
+      // copies the coordinates as it does outside the tool.
+      take(e);
+      gesture = { type: 'rclick' };
+      return;
+    }
+    var id = traceAt(pt);
+    if (id != null) {
+      take(e);
+      gesture = { type: 'pick', id: id };
+      capture(e);
+      return;
+    }
+    // Open ground: put down the selection and let the click through, where
+    // Terra Draw starts a new line with it.
+    if (selectedId != null) select(null);
+  }
+  function onMove(e) {
+    if (!gesture) {
+      // Hover cue: a handle or another trace is editable, open ground draws.
+      if (mode !== 'draw' || lineInProgress()) return;
+      var pt = canvasPoint(e), f = selected();
+      var over = (f && handleAt(pt)) ? 'move' : (traceAt(pt) != null ? 'pointer' : '');
+      setCursor(over || 'crosshair');
+      return;
+    }
+    take(e);
+    if (gesture.type !== 'drag') return;
+    if (Math.abs(e.clientX - gesture.x) + Math.abs(e.clientY - gesture.y) > 2) gesture.moved = true;
+    var ll = map.unproject(canvasPoint(e));
+    var parts = partsOf(gesture.f.geometry).map(function (part) { return part.slice(); });
+    parts[gesture.p][gesture.i] = [ll.lng, ll.lat];
+    setGeom(gesture.f, parts);
+    redraw();
+  }
+  function onUp(e) {
+    if (!gesture) return;
+    take(e);
+    var g = gesture; gesture = null;
+    if (g.type === 'pick') { select(g.id); return; }
+    if (g.type === 'rclick') return;
+    if (g.moved) { pushUndo(g.f, g.before); saveGeom(g.f, g.before); }
+    else { g.f.geometry = g.before; redraw(); }
+  }
+  // Capture lost without a pointerup (the window lost focus, a touch was
+  // cancelled): put a half-dragged vertex back.
+  function onLost() {
+    if (!gesture) return;
+    if (gesture.type === 'drag') { gesture.f.geometry = gesture.before; redraw(); }
+    gesture = null;
+  }
+  function onContext(e) {
+    if (mode !== 'draw') return;
+    // Mid-line the secondary click added a vertex (or finished the line), and
+    // on a handle it edited: neither is a request for the coordinates or the
+    // browser's menu. Anywhere else it passes, and the host copies "lat, lon".
+    if (lineInProgress() || (selected() && handleAt(canvasPoint(e)))) take(e);
+  }
+  function onKey(e) {
+    if (mode !== 'draw') return;
+    var t = e.target, tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable)) return;
+    if (lineInProgress()) return;               // Terra Draw's Enter / Escape
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      var u = undoStack.pop();
+      if (!u) { flash('Nothing to undo.'); return; }
+      var f = byId(u.id);
+      if (!f) { flash('That trace no longer exists.', true); return; }
+      var before = cloneGeom(f.geometry);
+      f.geometry = u.geometry; selectedId = u.id; redraw();
+      saveGeom(f, before);
+    } else if (e.key === 'Escape' && selectedId != null) {
+      select(null);
+    }
+  }
+  var editorOn = false;
+  function attachEditor() {
+    if (editorOn) return;
+    editorOn = true;
+    var el = map.getContainer();
+    el.addEventListener('pointerdown', onDown, true);
+    el.addEventListener('pointermove', onMove, true);
+    el.addEventListener('pointerup', onUp, true);
+    el.addEventListener('contextmenu', onContext, true);
+    el.addEventListener('pointercancel', onLost, true);
+    el.addEventListener('lostpointercapture', onLost, true);
+    document.addEventListener('keydown', onKey);
+  }
+  function detachEditor() {
+    if (!editorOn) return;
+    editorOn = false;
+    var el = map.getContainer();
+    el.removeEventListener('pointerdown', onDown, true);
+    el.removeEventListener('pointermove', onMove, true);
+    el.removeEventListener('pointerup', onUp, true);
+    el.removeEventListener('contextmenu', onContext, true);
+    el.removeEventListener('pointercancel', onLost, true);
+    el.removeEventListener('lostpointercapture', onLost, true);
+    document.removeEventListener('keydown', onKey);
+    if (gesture && gesture.type === 'drag') { gesture.f.geometry = gesture.before; }
+    gesture = null;
+    undoStack = [];
   }
 
-  function remove() {
-    var f = selected();
+  // Save fields ({notes, kind, group_id}) on the selected trace, or on `id`.
+  function save(fields, id) {
+    var f = id != null ? byId(id) : selected();
+    if (!f) return Promise.reject(new Error('nothing selected'));
+    return req(api + 'api/scarps/' + f.properties.id + '/',
+               { method: 'POST', body: fields })
+      .then(function (res) {
+        upsert(res.scarps);
+        if ('group_id' in fields) bumpGroupCounts();
+        redraw(); return res;
+      });
+  }
+  // Group counts live on the group records; recount from the features we
+  // hold rather than refetching everything after each regroup.
+  function bumpGroupCounts() {
+    groups.forEach(function (g) {
+      g.n = features.features.filter(function (f) { return f.properties.group_id === g.id; }).length;
+    });
+  }
+  function groupById(id) {
+    return groups.filter(function (g) { return g.id === id; })[0] || null;
+  }
+  // Group writes answer with the whole group list; traces carry the group's
+  // name for display, so a rename or delete refreshes them too.
+  function takeGroups(res) {
+    groups = res.groups || groups;
+    features.features.forEach(function (f) {
+      var g = groupById(f.properties.group_id);
+      if (!g) f.properties.group_id = null;
+      f.properties.group = g ? g.name : null;
+    });
+    if (groupFilter != null && !groupById(groupFilter)) groupFilter = null;
+    if (drawGroup != null && !groupById(drawGroup)) drawGroup = null;
+    redraw();
+    return res;
+  }
+  function createGroup(name, notes) {
+    return req(api + 'api/scarps/groups/create/', { method: 'POST', body: { name: name, notes: notes || '' } })
+      .then(takeGroups);
+  }
+  function updateGroup(id, fields) {
+    return req(api + 'api/scarps/groups/' + id + '/', { method: 'POST', body: fields })
+      .then(takeGroups);
+  }
+  function saveNotes(text) { return save({ notes: text }); }
+  function byId(id) {
+    return features.features.filter(function (f) { return f.properties.id === id; })[0] || null;
+  }
+
+  function remove(id) {
+    var f = id != null ? byId(id) : selected();
     if (!f) return Promise.reject(new Error('nothing selected'));
     var id = f.properties.id;
     return req(api + 'api/scarps/' + id + '/', { method: 'POST', body: { delete: true } })
@@ -245,7 +606,8 @@ window.LSScarps = (function () {
         features.features = features.features.filter(function (x) {
           return x.properties.id !== id;
         });
-        selectedId = null; redraw(); return res;
+        undoStack = undoStack.filter(function (u) { return u.id !== id; });
+        selectedId = null; bumpGroupCounts(); redraw(); return res;
       });
   }
 
@@ -255,7 +617,7 @@ window.LSScarps = (function () {
   function setVisible(on) {
     visible = !!on;
     if (!map) return;
-    [LINE, HIT, SEL].forEach(function (id) {
+    ALL.forEach(function (id) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
     });
   }
@@ -269,11 +631,44 @@ window.LSScarps = (function () {
     return load();
   }
 
+  // Move the trace layers to the top of the stack: a host that adds layers
+  // after init (/lidar/ adds shading per survey) calls this so a trace is
+  // never drawn under a hillshade.
+  function raise() {
+    if (!map) return;
+    ALL.forEach(function (id) { if (map.getLayer(id)) map.moveLayer(id); });
+  }
+
   return {
     init: init, load: load, startDraw: startDraw, stopDraw: stopDraw,
-    select: select, selected: selected, saveNotes: saveNotes, remove: remove,
+    select: select, selected: selected, saveNotes: saveNotes, save: save,
+    remove: remove, byId: byId, raise: raise,
     setVisible: setVisible,
+    kinds: function () { return kinds; },
+    kindInfo: kindInfo,
+    setDrawKind: function (k) { drawKind = k; },
+    groups: function () { return groups; },
+    groupById: groupById,
+    createGroup: createGroup,
+    updateGroup: updateGroup,
+    setDrawGroup: function (g) { drawGroup = g == null || g === '' ? null : +g; },
+    drawGroup: function () { return drawGroup; },
+    // Show only one group's traces (id), or null for all.
+    setGroupFilter: function (g) { groupFilter = g == null || g === '' ? null : +g; applyStyle(); },
+    groupFilter: function () { return groupFilter; },
+    // The GeoJSON download for one group (or all traces), for GIS.
+    downloadUrl: function (g) {
+      return api + 'api/scarps/?download=1' + (g != null ? '&group=' + g : '');
+    },
+    drawKind: function () { return drawKind; },
+    // Filter kinds off the map (ids), or null for all.
+    setHiddenKinds: function (ids) {
+      hiddenKinds = {};
+      (ids || []).forEach(function (k) { hiddenKinds[k] = true; });
+      applyStyle();
+    },
     isDrawing: function () { return mode === 'draw'; },
+    lineInProgress: lineInProgress,
     all: function () { return features; }
   };
 })();

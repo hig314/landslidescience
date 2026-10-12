@@ -395,6 +395,13 @@ def preview(request):
     return render(request, 'pages/lidar_preview.html')
 
 
+def methods(request):
+    """The viewer's methods page: what each sidebar section shows and how to
+    read it (the sidebar keeps a tooltip per control and links here)."""
+    from django.shortcuts import render
+    return render(request, 'pages/lidar_methods.html')
+
+
 def publish_audit(request):
     """Where every survey actually is, for data admins.
 
