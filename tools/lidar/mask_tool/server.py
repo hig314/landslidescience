@@ -110,6 +110,8 @@ class Session:
         """The base has no mask; toggling it off empties it."""
         if L is self.layers[0] and not self.enabled[L["name"]]["dem"]:
             return np.full(self.shape, np.nan, np.float32)
+        if L is self.layers[0] and L.get("auto") is not None:     # the base only where the rules took it
+            return np.where(L["auto"] > 0, L["z"], np.nan).astype(np.float32)
         return L["z"]
 
     def _folds_below(self):

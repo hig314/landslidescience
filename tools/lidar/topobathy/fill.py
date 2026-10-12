@@ -54,7 +54,7 @@ from scipy.sparse.linalg import cg, spsolve
 DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, slope_min_deg=1.0, slope_max_deg=60.0, low_tide_m=-2.9,
                 marine_rim_max_m=6.0, lake_depth_m=5.0, sigma_prior_m=1.0, sigma_rim_m=2.0, lake_sigma_m=5.0,
                 cond_m=30.0, cg_iters=300, coarse=16,
-                lake_min_m2=2000, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, points=None)
+                lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, points=None)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -194,6 +194,10 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     log(f"  wet domains {nw}, dry (void) domains {nd}")
     log(f"  domains: {n} (margin holes left empty: {int((margin & hole).sum()) * res * res / 1e6:.3f} km2); "
         f"domain {int(dom.sum()) * res * res / 1e6:.3f} km2, of which holes {int((dom & hole).sum()) * res * res / 1e6:.3f} km2")
+    if n == 0:                                                       # nothing to fill
+        nanf = np.full(z.shape, np.nan, np.float32)
+        return dict(fill=nanf, prior=nanf.copy(), mask=np.zeros(z.shape, np.uint8), sigma=nanf.copy(),
+                    domain=dom, marine=np.zeros(0, bool), lakes=[])
     inside_obs = dom & np.isfinite(z)                                # soundings inside a domain
     rim = ndimage.binary_dilation(dom, structure=np.ones((3, 3), bool)) & ~dom & np.isfinite(z)
     land_rim = rim & np.isin(cls, land_codes)
@@ -211,8 +215,11 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     zr = np.where(land_rim, z, np.nan)
     med = ndimage.labeled_comprehension(np.nan_to_num(zr, nan=1e9), rim_lab, ids, lambda v: np.median(v[v < 1e8]) if (v < 1e8).any() else np.nan, float, np.nan)
     marine = np.isfinite(med) & (med < P["marine_rim_max_m"])
-    floor_by = np.where(marine, P["low_tide_m"], med - P["lake_depth_m"])
-    floor_by = np.where(np.isfinite(floor_by), floor_by, P["low_tide_m"])
+    # floors only for the sea (low tide).  A non-marine domain has none (2026-10-11, Hig: "a short
+    # steep slope down to a perfectly flat bottom"): a wet one gets the lake basin below, a dry one
+    # (void: the laser missed the ground) the plain harmonic surface from its rim.
+    floor_by = np.where(marine, P["low_tide_m"], np.nan)
+    floor_by = np.where(np.isfinite(med), floor_by, P["low_tide_m"])
     floor = np.full(z.shape, np.nan, np.float32); floor[dom] = floor_by[lab[dom] - 1]
     log(f"  land rim {int(land_rim.sum())} cells, bed rim {int(bed_rim.sum())}, soundings inside {int(inside_obs.sum())}; "
         f"marine domains {int(marine.sum())} / lakes {int((~marine).sum())}; rim slope p10/50/90 "
@@ -238,7 +245,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # sigma.  Shape: depth = Dmax*(l/L)^p with p from the target volume development Vd
     # (Hakanson: Vd = 2/((p+1)(p+2)); 0.5 is the flatter glacial norm, 1/3 a cone).  Shores
     # keep the band: the deeper of the rim-slope extension (capped at Dmax) and the shape.
-    lake_tab = []
+    lake_tab = []; lake_level = {}
+    surface = np.zeros(z.shape, bool)              # observations judged to be the water surface (-> fill_surface.tif)
     lake_prior = np.full(z.shape, np.nan, np.float32); lake_sig = np.full(z.shape, np.nan, np.float32)
     if land_rim.any():
         dshore = d                                                  # distance to the nearest land rim cell
@@ -260,29 +268,63 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             if wfrac < P["lake_water_frac"]:
                 continue
             sbar = float(np.median(srim[rl])); level = float(med[i - 1])
+            # the lake level: the median of the returns off its surface where there are any (the
+            # land rim's median stands on the shore -- 0.76 m above China Poot Lake's water)
+            surf = cells & inside_obs & (cls != classes["bed"]) & (z > level - 3.0) & (z < level + 0.5)
+            if int(surf.sum()) >= 20:
+                level = float(np.median(z[surf]))
+            lake_level[i] = level
             d_h = P["hollister_k"] * L * np.tan(np.radians(sbar))
             dbar = P["huggel_a"] * A ** (P["huggel_b"] - 1)            # mean depth, m (A in m2, V in m3)
             d_g = dbar / vd
             dmax = float(np.sqrt(max(d_h, 0.5) * max(d_g, 0.5)))
-            sd = abs(d_h - d_g) / 2 + 5.0
+            # a CHANNEL (A >> pi L^2: a river reach, a long narrow arm) is not a lake: the area
+            # scaling gave a 1.2 km2, 180 m wide creek 74 m of depth (2026-10-11).  Width sets its
+            # depth, so Hollister alone.
+            elong = A / (np.pi * L * L)
+            if elong > P["channel_elong"]:
+                dmax = float(max(d_h, 0.5))
+            sd = abs(d_h - d_g) / 2 + 5.0 if elong <= P["channel_elong"] else max(d_h, 1.0)
+            # ONE smooth profile (2026-10-11, replaces max(shape, rim slope capped at Dmax), which on a
+            # steep shore hit Dmax within metres and held it -- a wall and a flat floor):
+            #   depth = Dmax * (1 - (1 - l/L)^q),  q = L tan(s) / Dmax  clipped to [1, 4]
+            # The shore gradient is the rim slope's (q Dmax / L = tan s), the bed deepens all the way to
+            # the deepest point and flattens only there.  q = 2 (Dmax = Hollister's 0.5 L tan s) is a
+            # paraboloid, Vd = 0.5; q = 1 a cone, Vd 1/3.  Smoothed over ~L/8 to take the creases of
+            # the distance transform (the medial axis of an irregular shore) out of the bed.
             lfrac = np.clip(dshore[cells] / L, 0, 1)
-            shape = dmax * lfrac ** pexp
-            bandd = np.minimum(np.tan(np.radians(srim[ri, ci][cells])) * dshore[cells], dmax)
-            depth = np.maximum(shape, bandd)
+            q = float(np.clip(L * np.tan(np.radians(sbar)) / max(dmax, 0.1), 1.0, 4.0))
+            frac = 1 - (1 - lfrac) ** q
+            sg = max(L / 8 / res, 1.0); pad = int(3 * sg) + 1
+            rs_, cs_ = np.nonzero(cells)
+            r0, r1 = max(rs_.min() - pad, 0), min(rs_.max() + pad + 1, z.shape[0])
+            c0, c1 = max(cs_.min() - pad, 0), min(cs_.max() + pad + 1, z.shape[1])
+            cb = cells[r0:r1, c0:c1]
+            fr = np.zeros(cb.shape, np.float32); fr[cb] = frac
+            num = ndimage.gaussian_filter(fr, sg); den = ndimage.gaussian_filter(cb.astype(np.float32), sg)
+            frs = np.where(den > 1e-3, num / np.maximum(den, 1e-3), 0)[cb]
+            frac = np.minimum(frac, np.maximum(frs, 0))                 # smoothing never deepens the shore
+            depth = dmax * frac
             lake_prior[cells] = (level - depth).astype(np.float32)
-            lake_sig[cells] = (P["lake_sigma_frac"] * sd * lfrac ** pexp + 1.0).astype(np.float32)
+            lake_sig[cells] = (P["lake_sigma_frac"] * sd * frac + 1.0).astype(np.float32)
             rr, cc = ndimage.center_of_mass(cells)
             lake_tab.append(dict(id=int(i), area_m2=int(A), L_m=round(L, 1), rim_slope_deg=round(sbar, 1), level_m=round(level, 2),
-                                 dmax_hollister_m=round(d_h, 1), dmax_glacial_m=round(d_g, 1), dmax_m=round(dmax, 1), p=round(pexp, 2), row=int(rr), col=int(cc)))
+                                 dmax_hollister_m=round(d_h, 1), dmax_glacial_m=round(d_g, 1), dmax_m=round(dmax, 1), q=round(q, 2), elong=round(elong, 1), row=int(rr), col=int(cc)))
         lk = np.isfinite(lake_prior) & dom
         prior[lk] = lake_prior[lk]; band &= ~lk                      # the lake shape replaces band + interior there
-        # an observation inside a lake that sits at the water level is the water surface (a
-        # boat track, a seam of returns off calm water), not the bed: not evidence for the fill
-        lvl = np.full(z.shape, np.nan, np.float32); lvl[lk] = np.array([med[i - 1] for i in range(1, n + 1)], np.float32)[lab[lk] - 1]
-        at_surface = lk & inside_obs & np.isfinite(z) & (z > lvl - 1.0)
+        # inside a lake a topo lidar cannot see the bed: an observation that is not bed (sonar,
+        # bathymetry) and sits below level + 0.5 m is the water surface (a seam of returns off calm
+        # water, an older survey's flight line classed ground -- Grewingk 2021 on China Poot Lake,
+        # 2026-10-11, pinned the bed to the surface along straight strips), not evidence for the
+        # fill.  Islands (higher) stay.
+        lvt = np.full(n + 1, np.nan, np.float32)
+        for i, v in lake_level.items(): lvt[i] = v
+        lvl = np.full(z.shape, np.nan, np.float32); lvl[lk] = lvt[lab[lk]]
+        at_surface = lk & inside_obs & np.isfinite(z) & (cls != classes["bed"]) & (z < lvl + 0.5)
         if at_surface.any():
             log(f"  lake observations at the water level dropped as evidence: {int(at_surface.sum())} cells")
             inside_obs &= ~at_surface; hole |= at_surface
+            surface |= at_surface
         if lake_tab:
             log(f"  lakes >= {P['lake_min_m2']} m2: {len(lake_tab)}; Dmax Hollister/glacial p50 "
                 f"{np.median([t['dmax_hollister_m'] for t in lake_tab]):.1f}/{np.median([t['dmax_glacial_m'] for t in lake_tab]):.1f} m")
@@ -327,17 +369,28 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     fill = prior.copy()
     mask = np.zeros(z.shape, np.uint8); mask[band] = 1; mask[interior] = 2; mask[margin & hole] = 4; mask[lk & hole] = 5
     cond = np.zeros(z.shape, bool)
-    if inside_obs.any():
+    # the residual at the RIM is the rim's own misfit to the prior beside it (2026-10-11; it was 0,
+    # so the fill met the rim at the prior's level -- a step wherever the shore stood off the lake
+    # level or the nearest-rim extension): harmonic, the misfit fades smoothly into the domain
+    pin = dom & np.isfinite(prior)
+    rim_res = np.zeros(z.shape, np.float64)
+    if rim.any() and pin.any():
+        _, (pi, pj) = ndimage.distance_transform_edt(~pin, return_indices=True)
+        rr_, cc_ = np.nonzero(rim)
+        rim_res[rr_, cc_] = z[rr_, cc_] - prior[pi[rr_, cc_], pj[rr_, cc_]]
+        del pi, pj
+    if inside_obs.any() or np.abs(rim_res).max() > 0:
         rz = np.zeros(z.shape, np.float64)
         rz[inside_obs] = z[inside_obs] - np.nan_to_num(prior[inside_obs], nan=0.0)   # the prior is defined at sounding cells
         rfix = inside_obs | rim
-        rval = np.where(inside_obs, rz, 0.0)
+        rval = np.where(inside_obs, rz, np.nan_to_num(rim_res))
         r = harmonic(rval, rfix, dom & hole, coarse=P["coarse"], iters=P["cg_iters"])
         ok = (dom & hole) & np.isfinite(r)
         fill[ok] = (prior[ok] + r[ok]).astype(np.float32)
-        dso = ndimage.distance_transform_edt(~inside_obs, sampling=res)
-        cond = ok & (dso <= 3 * P["cond_m"])
-        mask[cond] = 3
+        if inside_obs.any():
+            dso = ndimage.distance_transform_edt(~inside_obs, sampling=res)
+            cond = ok & (dso <= 3 * P["cond_m"])
+            mask[cond] = 3
     # SIGMA
     drim = ndimage.distance_transform_edt(~rim, sampling=res) if rim.any() else np.full(z.shape, 1e4)
     s_prior = P["sigma_prior_m"] + P["sigma_rim_m"] * drim / 100.0
@@ -353,4 +406,4 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     log(f"  filled {int(np.isfinite(fill).sum()) * res * res / 1e6:.3f} km2: band {int(band.sum()) * res * res / 1e6:.3f}, "
         f"interior {int(interior.sum()) * res * res / 1e6:.3f}, conditioned {int(cond.sum()) * res * res / 1e6:.3f} km2; "
         f"sigma p50 {np.nanmedian(sigma):.2f} m")
-    return dict(fill=fill, prior=prior, mask=mask, sigma=sigma, domain=dom, marine=marine, lakes=lake_tab)
+    return dict(fill=fill, prior=prior, mask=mask, sigma=sigma, domain=dom, marine=marine, lakes=lake_tab, surface=surface)

@@ -181,6 +181,49 @@ def class_raster(spec, z, valid, below, res_m, info, others=None, grid=None, win
             as_ = CLASSES[kw.get("as", "snow")]
             c[sn & (c == CLASSES["ground"])] = as_
             info["snow_fraction" if as_ == CLASSES["snow"] else CLASS_NAMES[as_] + "_vs_fraction"] = float(sn[valid].mean()) if valid.any() else 0.0
+        elif name == "islets":
+            # specks of "ground" in open water are returns off its surface (2026-10-11: single
+            # KBay cells over China Poot Lake stood as 50 m spikes from a 30 m-deep basin, and as
+            # the newest survey's ground they kept the fill out).  A ground component under
+            # max_m2 whose ring (ring_m wide) is >= ring_frac water or void becomes `as`.
+            g = valid & (c == CLASSES["ground"])
+            lab, nl = ndimage.label(g)
+            if nl:
+                cnt = np.bincount(lab.ravel(), minlength=nl + 1)
+                small = cnt * res_m * res_m <= kw.get("max_m2", 50.0); small[0] = False
+                cand = small[lab]
+                r = max(int(round(kw.get("ring_m", 3.0) / res_m)), 1)
+                ring = ndimage.binary_dilation(cand, iterations=r) & ~cand
+                wetv = ring & ((c == CLASSES["water"]) | ~valid | (c == CLASSES["void"]))
+                lr = ndimage.maximum_filter(np.where(cand, lab, 0), size=2 * r + 1)
+                nr = np.bincount(lr[ring].ravel(), minlength=nl + 1); nw = np.bincount(lr[wetv].ravel(), minlength=nl + 1)
+                ok = small & (nw >= kw.get("ring_frac", 0.8) * np.maximum(nr, 1)) & (nr > 0)
+                hit = ok[lab] & g
+                c[hit] = CLASSES[kw.get("as", "water")]
+                info["islets_fraction"] = float(hit[valid].mean()) if valid.any() else 0.0
+        elif name == "fallback":
+            # a context layer (3DEP) that stands in only where NO survey of the stack has a cell,
+            # whatever that survey's class (Hig, 2026-10-11, China Poot Lake): elsewhere it is void.
+            # Without this a survey's water (excluded: water is not a surface) let the fallback's
+            # hydroflattened lake through as a flat floor, and the hole fill never saw the lake.
+            # {"fallback": {"except": ["fill"]}} -- layers that do not count as surveys.
+            skip = set(kw.get("except", [])) | {spec.get("name")}
+            seen = np.zeros(z.shape, bool)
+            for nm, (_, v) in (others or {}).items():
+                if nm not in skip and v is not None: seen |= v
+            # a survey's FOOTPRINT, not only its valid cells: inside it a missing cell means it flew
+            # over and kept nothing (open water -- Halibut Cove Lagoon showed 3DEP's sea at 0 m
+            # between the 2009 multibeam lines, 2026-10-11).  {"footprints": [raster, ...]}: any
+            # raster whose valid cells mark where a survey flew (observe_points.py class.tif).
+            if kw.get("footprints") and grid is not None and win is not None:
+                from .stack import read_geo
+                import os as _os
+                for fp in kw["footprints"]:
+                    if _os.path.exists(str(fp)):
+                        _, fv = read_geo(str(fp), grid, win, "nearest")
+                        seen |= fv
+            c[valid & seen] = CLASSES["void"]
+            info["fallback_fraction"] = float((valid & ~seen).mean()) if valid.any() else 0.0
         elif name == "flat_below":
             # water surfaces at SEVERAL levels (a lidar flown over the sea on different tides): flat
             # (roughness < rough_m over win_m) and below max_level_m, opened, blobs >= min_area_m2.
@@ -205,7 +248,10 @@ def class_raster(spec, z, valid, below, res_m, info, others=None, grid=None, win
             if grid is None or win is None:
                 continue
             from .stack import read_geo
-            rr, rvv = read_geo(kw["path"], grid, win, "nearest")
+            import os as _os
+            if not _os.path.exists(str(kw["path"])):      # a pipeline product not built yet ($out/fill_surface.tif)
+                continue
+            rr, rvv = read_geo(str(kw["path"]), grid, win, "nearest")
             if kw.get("codes"):
                 # the raster already holds topobathy class codes (observe_points.py class.tif): copy them,
                 # void included - a 0 there means the survey observed nothing usable at that cell
@@ -215,6 +261,8 @@ def class_raster(spec, z, valid, below, res_m, info, others=None, grid=None, win
                 continue
             for val, cname in kw["map"].items():
                 sel = valid & rvv & (np.rint(rr) == float(val))
+                if kw.get("only"):                          # recolour one class only: {"only": "ground"}
+                    sel &= c == CLASSES[kw["only"]]
                 c[sel] = CLASSES[cname]
                 info[f"raster_{cname}_fraction"] = float(sel[valid].mean()) if valid.any() else 0.0
         elif name == "polygons":

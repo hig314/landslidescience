@@ -44,6 +44,17 @@ def parse_window(s, grid):
     return grid.window(r0, r1, c0, c1)
 
 
+def winner_index(out, layers):
+    """Which layer a cell shows: the largest weight, ties to the upper layer.  (It was "top-most
+    above 0.5, else the base", which credited every feathered blend to the base -- wrong once the
+    base can be empty: a fallback shown nowhere read as 0.9 km2 of 3DEP, 2026-10-11.)"""
+    idx = np.zeros(out.shape, np.uint8); best = np.zeros(out.shape, np.float32)
+    for i, L in enumerate(layers):
+        sel = (L["mask"] > 0) & (L["mask"] >= best)
+        idx[sel] = i; best = np.where(sel, L["mask"], best)
+    return idx
+
+
 def post_masks(recipe, grid, layers, rules):
     """The rules' take masks -> each layer's auto mask: the recipe's rules_post (despeckle,
     feather, ...), which a layer may override with its own (the fill: none -- a pond under the
@@ -57,6 +68,10 @@ def post_masks(recipe, grid, layers, rules):
     for i, L in enumerate(layers):
         L["st"] = rules["sigma_total"][i]; L["gate"] = rules["gate"][i]
         if i == 0:
+            # the base is shown only where the rules took it (2026-10-11): it used to be shown
+            # wherever it had data, which was harmless while the base was always a survey, but a
+            # 3DEP fallback base then showed its hydroflattened lakes under every survey's water
+            L["auto"] = (rules["masks"][0] > 0).astype(np.float32)
             continue
         m = rules["masks"][i]
         for step in L["spec"].get("rules_post", post):
@@ -65,7 +80,7 @@ def post_masks(recipe, grid, layers, rules):
             elif name == "smooth": m = smooth(m, kw["size_m"], grid.res)
             elif name in OPS: m = OPS[name](m, kw.get("width_m", kw.get("sigma_m", kw.get("dist_m"))), grid.res)
         L["auto"] = m.astype(np.float32)
-    cov = layers[0]["valid"].copy()
+    cov = layers[0]["auto"] > 0
     for L in layers[1:]:
         cov |= L["auto"] > 0
     for i, L in enumerate(layers):
@@ -144,6 +159,10 @@ def _build_window(recipe, grid, win, verbose=True, obs_paint=True):
             below = None if prov is None else prov.copy()
             L["below"] = below
             others = {M["name"]: (M["z"], M["valid"]) for M in layers if M is not L}
+            cs = L["spec"].get("class")
+            for step in (cs if isinstance(cs, list) else []):     # $out/ paths in class steps (the fill's surface mask)
+                if "raster" in step and str(step["raster"].get("path", "")).startswith("$out/"):
+                    step["raster"]["path"] = str(recipe.resolve(step["raster"]["path"]))
             L["cls"] = axes.class_raster(L["spec"], L["z"], L["valid"], below, grid.res, L["info"], others, grid, win)
             if obs_paint: _obs_paint(recipe, L, grid, win)
             else: L["info"]["_cls"] = L["cls"]
@@ -165,7 +184,7 @@ def _build_window(recipe, grid, win, verbose=True, obs_paint=True):
         post_masks(recipe, grid, layers, rules)
         for i, L in enumerate(layers):
             if i == 0:
-                L["mask"] = L["valid"].astype(np.float32); continue
+                L["mask"] = (L["valid"] & (L["auto"] > 0)).astype(np.float32); continue
             p = recipe.paint_path(L["name"])
             paint = read_paint(p, grid, win) if p.exists() else None
             L["mask"] = _effective(L["auto"], L["valid"], paint)
@@ -180,7 +199,7 @@ def _build_window(recipe, grid, win, verbose=True, obs_paint=True):
                 lower |= valid; out = fold_step(out, z, L["mask"])
     out = None
     for L in layers:
-        out = L["z"].copy() if out is None else fold_step(out, L["z"], L["mask"])
+        out = np.where(L["mask"] > 0, L["z"], np.nan).astype(np.float32) if out is None else fold_step(out, L["z"], L["mask"])
         if verbose:
             m = L["mask"]; info = L["info"]
             extra = "".join(f"  {k} {v:.2f}" for k, v in info.items() if isinstance(v, float) and not k.startswith("_"))
@@ -330,9 +349,7 @@ def _tile_stats(out, layers, axes_mode):
                 idx = np.floor((v + DZ_MAX) / DZ_BIN).astype(np.int64)
                 h = np.bincount(np.clip(idx, 0, NB - 1), minlength=NB)
                 st["pairs"][(i, j, c)] = (h, int((idx < 0).sum()), int((idx >= NB).sum()))
-    idx = np.zeros(out.shape, np.uint8)
-    for i, L in enumerate(layers[1:], start=1):
-        idx[L["mask"] > 0.5] = i
+    idx = winner_index(out, layers)
     idx[~np.isfinite(out)] = n          # bucket n = nothing
     st["source"] = np.bincount(idx.ravel(), minlength=n + 1)[:n + 1]
     if axes_mode:
@@ -452,9 +469,7 @@ class Outputs:
         w = lambda key, arr: self.ds[key].write(arr, 1, window=win)
         w("out", np.where(np.isfinite(out), out, -9999).astype(np.float32))
         n = len(layers)
-        idx = np.zeros(out.shape, np.uint8)
-        for i, L in enumerate(layers[1:], start=1):
-            idx[L["mask"] > 0.5] = i
+        idx = winner_index(out, layers)
         idx[~np.isfinite(out)] = 255
         w("source_index", idx)
         opt = {S["name"] for S in self.recipe.layers if S.get("optional")}
@@ -587,9 +602,7 @@ def cmd_build(a):
         for L in layers[1:]:
             write_tif(d / f"{L['name']}.tif", to_uint8(L["mask"]), grid, win, "uint8", None)
         # which layer won: the top-most layer whose effective mask > 0.5 (base = 0)
-        idx = np.zeros(out.shape, np.uint8)
-        for i, L in enumerate(layers[1:], start=1):
-            idx[L["mask"] > 0.5] = i
+        idx = winner_index(out, layers)
         idx[~np.isfinite(out)] = 255
         write_tif(d / "source_index.tif", idx, grid, win, "uint8", 255)
         print(f"masks + source_index in {d}")
@@ -798,6 +811,10 @@ def cmd_fill(a):
             d.write(np.where(np.isfinite(arr), arr, nodata).astype(dtype) if dtype == "float32" else arr.astype(dtype), 1)
     w("fill.tif", R["fill"]); w("fill_prior.tif", R["prior"]); w("fill_sigma.tif", R["sigma"])
     w("fill_mask.tif", R["mask"], "uint8", 0, 2)
+    # observations the fill judged to be the water surface (inside a lake, not bed, at the level):
+    # survey layers read it as a class step ({"raster": {"path": "$out/fill_surface.tif",
+    # "map": {"1": "water"}, "only": "ground"}}) so a stale "ground" there stops gating the fill out
+    w("fill_surface.tif", R.get("surface", np.zeros(R["mask"].shape, bool)).astype(np.uint8), "uint8", 0, 2)
     filled = np.where(np.isfinite(R["fill"]), R["fill"], z)
     raw = out / f"{recipe.id}_filled.raw.tif"; w(raw.name, filled)
     cog_translate(raw, out / f"{recipe.id}_filled.tif", {"vertical_shift_m": 0, "composite_id": recipe.id, "composite_fill": "topobathy/fill.py",

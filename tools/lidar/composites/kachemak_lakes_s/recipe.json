@@ -30,7 +30,7 @@
    "smooth_m": 50
   }
  },
- "margin_m": 0.05,
+ "margin_m": 0.0,
  "rules_post": [
   {
    "despeckle": {
@@ -49,9 +49,26 @@
    "name": "ctx3dep",
    "source": "/Volumes/Nunatak/lidar_build/ctx_3dep/all.vrt",
    "date": "2012-07-01",
-   "class": "ground",
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "fallback": {
+      "except": [
+       "fill"
+      ],
+      "footprints": [
+       "/Volumes/Nunatak/lidar_build/obs/kbay_2023_lakes_s/class.tif",
+       "/Volumes/Nunatak/lidar_build/obs/grewingk_2021_lakes_s/class.tif"
+      ]
+     }
+    }
+   ],
    "sigma_m": 3.0,
-   "notes": "Fallback everywhere: USGS 3DEP 1/3 arc-second seamless (~10 m; IfSAR-derived in Alaska), the same data Mapterhorn serves in Alaska (median difference 0 m against this bake, reference_mapterhorn) -- read locally rather than from Mapterhorn's tiles. NAVD88. Date a nominal 2012 (IfSAR era); sigma 3 m, so any survey outranks it and it shows only where nothing else does. Its lakes are hydroflattened: class ground here, so where it is the only data a lake reads as a flat surface -- the class axis from the surveys above still says water there."
+   "notes": "Fallback everywhere: USGS 3DEP 1/3 arc-second seamless (~10 m; IfSAR-derived in Alaska), the same data Mapterhorn serves in Alaska (median difference 0 m against this bake, reference_mapterhorn) -- read locally rather than from Mapterhorn's tiles. NAVD88. Date a nominal 2012 (IfSAR era); sigma 3 m, so any survey outranks it and it shows only where nothing else does. Its lakes are hydroflattened: class ground here, so where it is the only data a lake reads as a flat surface -- the class axis from the surveys above still says water there.",
+   "resample": "bilinear",
+   "class_notes": "2026-10-11 (Hig: China Poot Lake read as a short steep drop to a flat floor): the fallback step makes 3DEP void wherever any survey has a cell, whatever its class -- its hydroflattened lakes sat ~5 m below KBay's water level and stood in for the bed once water stopped being a surface, so the hole fill never saw the lakes. Bilinear: ~10 m cells read nearest at 1 m were stair-steps. Footprints: the two lidars' point-class rasters (valid wherever a tile was flown), so open water a survey flew over and kept nothing from is a hole, not 3DEP's sea surface (Halibut Cove Lagoon: 3DEP at 0 m between the multibeam lines)."
   },
   {
    "name": "bathy2009",
@@ -76,6 +93,22 @@
      "raster": {
       "path": "/Volumes/Nunatak/lidar_build/obs/grewingk_2021_lakes_s/class.tif",
       "codes": true
+     }
+    },
+    {
+     "raster": {
+      "path": "$out/fill_surface.tif",
+      "map": {
+       "1": "water"
+      },
+      "only": "ground"
+     }
+    },
+    {
+     "islets": {
+      "max_m2": 50,
+      "ring_m": 3,
+      "ring_frac": 0.8
      }
     }
    ],
@@ -103,6 +136,22 @@
      "raster": {
       "path": "/Volumes/Nunatak/lidar_build/obs/kbay_2023_lakes_s/class.tif",
       "codes": true
+     }
+    },
+    {
+     "raster": {
+      "path": "$out/fill_surface.tif",
+      "map": {
+       "1": "water"
+      },
+      "only": "ground"
+     }
+    },
+    {
+     "islets": {
+      "max_m2": 50,
+      "ring_m": 3,
+      "ring_frac": 0.8
      }
     }
    ],
@@ -142,5 +191,6 @@
   "notes": "Lakes review box. Lake parameters at their defaults (lake_vd 0.5, hollister_k 0.5, lake_water_frac 0.5). Sparse depths: add a CSV as 'points' (x,y,depth or z).",
   "fill_margin": true
  },
- "notes": "Lake-basin review box (Hig, 2026-10-11: 'near 59.54106, -151.20282 where there are a number of lakes of different sizes'): ~60 lakes 0.5-105 ha. Stack = every survey that covers it, oldest first, over a 3DEP fallback: Hig asked why the Grewingk Lake box had used neither Mark Laker's SfM (dixon_2023) nor Katie Hughes' sonar (grewingk_sonar_2023) -- the recipe was a copy of Kachemak's, whose box neither reaches; a recipe lists its layers by hand, so a box needs its own survey search (wanted: an 'auto' layer list from the catalogue footprints)."
+ "notes": "Lake-basin review box (Hig, 2026-10-11: 'near 59.54106, -151.20282 where there are a number of lakes of different sizes'): ~60 lakes 0.5-105 ha. Stack = every survey that covers it, oldest first, over a 3DEP fallback: Hig asked why the Grewingk Lake box had used neither Mark Laker's SfM (dixon_2023) nor Katie Hughes' sonar (grewingk_sonar_2023) -- the recipe was a copy of Kachemak's, whose box neither reaches; a recipe lists its layers by hand, so a box needs its own survey search (wanted: an 'auto' layer list from the catalogue footprints).",
+ "margin_m_notes": "2026-10-11: margin_m 0.05 -> 0. With equal sigma (0.15) the older Grewingk 2021 kept every cell it reached and the newer KBay showed only where Grewingk's class raster was void -- i.e. at the edges of the LAZ tiles classified for this box, straight km and half-km lines with a 0.1-0.3 m step. At 0 the newer survey wins a tie."
 }
