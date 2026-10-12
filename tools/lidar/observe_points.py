@@ -228,6 +228,26 @@ def cmd_stats(a):
 
 # ------------------------------------------------------------ classify
 
+def _water_level_spread(has, zw, res, block_m=50, win_blocks=3, q=(5, 50)):
+    """Robust local water level: per block_m block, the q[0] and q[1] percentiles of the water
+    returns (`has`) in the win_blocks x win_blocks blocks around it (NaN under 20 returns)."""
+    bs = max(1, int(round(block_m / res))); H, Wd = has.shape; h = win_blocks // 2
+    nb = (-(-H // bs), -(-Wd // bs))
+    lo = np.full(nb, np.nan, np.float32); md = np.full(nb, np.nan, np.float32)
+    for i in range(nb[0]):
+        r0, r1 = max(0, (i - h) * bs), min(H, (i + h + 1) * bs)
+        rh = has[r0:r1]
+        if not rh.any():
+            continue
+        for j in range(nb[1]):
+            c0, c1 = max(0, (j - h) * bs), min(Wd, (j + h + 1) * bs)
+            m = rh[:, c0:c1]
+            if m.sum() >= 20:
+                lo[i, j], md[i, j] = np.percentile(zw[r0:r1, c0:c1][m], q)
+    up = lambda a: np.kron(a, np.ones((bs, bs), np.float32))[:H, :Wd]
+    return up(lo), up(md)
+
+
 def rules_kbay(B, res, dtm=None, fill=None, aux=None):
     """KBay 2023 (NIR, August, leaf-on): the laser gets almost nothing back from water, so
     NO RETURNS is the water/void signal; class 9 marks the few surface returns; class 6
@@ -270,6 +290,23 @@ def rules_kbay(B, res, dtm=None, fill=None, aux=None):
         # bed outranks; a fill elsewhere (canopy hole) stays void
         at_level = aux["water"] & np.isfinite(aux["level"]) & np.isfinite(dtm) & (np.abs(dtm - aux["level"]) <= 0.3)
         c[at_level & ((c != CLASSES["void"]) | (fill if fill is not None else False))] = CLASSES["water"]
+    # 5b. a "water" cell standing clear of its water is ground.  The vendor's class 9 follows a
+    #     lake outline, not the surface: China Poot Lake's island carries class-9 points at
+    #     51-56 m on a lake at 50.47, the island had no vendor ground to outvote them (step 4),
+    #     and the reclass's water mask and level followed them (step 5).  Local level = 5th
+    #     percentile of the water returns within ~150 m, spread = median - that; a cell whose
+    #     observed DTM and own water return (if any) stand more than max(0.5 m, 3 x spread)
+    #     above it is demoted.  The spread term keeps sloping wetland and stream water (1 m of
+    #     spread) as water; tidal water (level < 6 m) is left alone.  (Hig 2026-10-12)
+    if dtm is not None:
+        W = c == CLASSES["water"]
+        zw = B["zmin_water"].astype(np.float64)
+        lvl, med = _water_level_spread(W & (n_w > 0) & np.isfinite(zw), zw, res)
+        thr = lvl + np.maximum(0.5, 3.0 * (med - lvl))
+        obs = np.isfinite(dtm) & ~(fill if fill is not None else np.zeros_like(W))
+        with np.errstate(invalid="ignore"):
+            clear = W & obs & (lvl > 6.0) & (dtm > thr) & ((n_w == 0) | (zw > thr))
+        c[clear] = CLASSES["ground"]
     # 6. vendor snow (class 21; none on the 2023-08-01 lines, present on the 2024 ones)
     c[n_sn > n_g] = CLASSES["snow"]
     return c
