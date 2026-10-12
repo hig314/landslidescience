@@ -101,6 +101,8 @@ class Session:
         if L["auto"] is None:
             return L["valid"].astype(np.float32)
         auto = L["auto"] if en["auto"] else L["valid"].astype(np.float32)   # auto off = plain footprint
+        if L["name"] not in self.paint:      # the base: rules mask only, no hand paint (as in the build)
+            return auto * L["valid"]
         v, a = self.paint[L["name"]]
         if not en["paint"]:
             a = np.zeros_like(a)
