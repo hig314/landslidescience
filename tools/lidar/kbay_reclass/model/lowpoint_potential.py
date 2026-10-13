@@ -2,7 +2,7 @@
 Grewingk surface AT each point's own XY), so slope does not bias the minimum."""
 import json, sys
 import numpy as np
-EXCL = (7, 18, 21, 22)   # noise, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26)
+EXCL = (6, 7, 17, 18, 21, 22)   # BUILDING, noise, BRIDGE, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26; 6/17 added 2026-10-10 -- roofs were passing the rock rule, Seldovia)
 from scipy import ndimage
 sys.path.insert(0, 'model'); import sitekit as K, loso as L
 print('%-13s %8s  ' % ('site', 'n cells') + '  '.join('lowest return within %d m is <0.25 m above truth' % r if i == 0 else '%d m' % r for i, r in enumerate((1, 2, 3, 5))))

@@ -4,7 +4,7 @@ weighted solver surface, feathered over FEATHER m at the zone edge. Outside the 
 surface is untouched by the solver -- the zone map is exactly where modelling was used."""
 import json, sys
 import numpy as np
-EXCL = (7, 18, 21, 22)   # noise, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26)
+EXCL = (6, 7, 17, 18, 21, 22)   # BUILDING, noise, BRIDGE, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26; 6/17 added 2026-10-10 -- roofs were passing the rock rule, Seldovia)
 from scipy import ndimage
 import rasterio
 sys.path.insert(0, 'model'); import sitekit as K, loso as L

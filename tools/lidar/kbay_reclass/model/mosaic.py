@@ -234,7 +234,32 @@ def main():
                             str(out / f'{name}.strip.tif'), str(out / f'{name}.tif')], check=True)
             (out / f'{name}.strip.tif').unlink()
         log('COGs written')
+    extra_masks(us, work, out, dtm_vrt, a.no_cog)
     log(f'done in {time.time() - t0:.0f} s: {json.dumps(meta)}')
+
+
+EXTRA = (('water_mask', 'NEAREST', '2'), ('struct_mask', 'NEAREST', '2'), ('water_level', 'AVERAGE', '3'))
+
+
+def extra_masks(us, work, out, dtm_vrt, no_cog):
+    """Water-rule and structure rasters (model/water.py, 2026-10-10): mosaicked on the DTM's
+    grid, no hole filling. Units from before the water rules have none; they read as 0 / nodata."""
+    with rasterio.open(dtm_vrt) as src:
+        b = src.bounds
+    for name, rs, pred in EXTRA:
+        files = [str(FULL / 'out' / u / f'{name}.tif') for u, _, _ in us if (FULL / 'out' / u / f'{name}.tif').exists()]
+        if not files:
+            continue
+        lst = work / f'{name}.txt'; lst.write_text('\n'.join(files) + '\n')
+        vrt = work / f'{name}.vrt'
+        subprocess.run([f'{GDAL}/gdalbuildvrt', '-q', '-overwrite', '-te', str(b.left), str(b.bottom), str(b.right), str(b.top),
+                        '-input_file_list', str(lst), str(vrt)], check=True)
+        if no_cog:
+            continue
+        subprocess.run([f'{GDAL}/gdal_translate', '-q', '-of', 'COG', '-co', 'COMPRESS=DEFLATE', '-co', f'PREDICTOR={pred}',
+                        '-co', 'BIGTIFF=YES', '-co', 'NUM_THREADS=ALL_CPUS', '-co', f'OVERVIEW_RESAMPLING={rs}',
+                        str(vrt), str(out / f'{name}.tif')], check=True)
+        log(f'{name}.tif from {len(files)} of {len(us)} units')
 
 
 if __name__ == '__main__':

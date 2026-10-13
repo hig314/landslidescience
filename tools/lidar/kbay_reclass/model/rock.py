@@ -11,7 +11,7 @@ In rock cells every return is surface -> ground; TIN them together with the edit
 over 1 m. Writes dtm_final.tif (and rock_mask.tif)."""
 import json, os, sys
 import numpy as np
-EXCL = (7, 18, 21, 22)   # noise, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26)
+EXCL = (6, 7, 17, 18, 21, 22)   # BUILDING, noise, BRIDGE, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26; 6/17 added 2026-10-10 -- roofs were passing the rock rule, Seldovia)
 from scipy import ndimage
 import pyarrow as pa, pyarrow.feather as feather
 os.chdir('/Volumes/Nunatak/lidar_build/kbay_reclass_test'); sys.path.insert(0, 'model'); import sitekit as K, v2, surfacefit as SF, best_slope as BS
@@ -197,9 +197,22 @@ def write_final(s, C, rock):
     P = np.load(f'site/{s}/pts.npz'); w = P['cls'] == 9
     cid = np.clip((y1 - P['y'][w]).astype(int), 0, NY - 1) * NX + np.clip((P['x'][w] - x0).astype(int), 0, NX - 1)
     wc = np.zeros(NX * NY, bool); wc[cid] = True
+    # water void (water.py, 2026-10-10): a water cell with no kept return within 3x3 m has no
+    # observation -- no TIN facet or solver value bridged across it; enclosed ones are then filled
+    # like any hole, from a rim at the water level, and fill_mask says so.
+    import water as WA
+    try:
+        wcell = np.load(f'site/{s}/water_mask.npy'); struct = np.load(f'site/{s}/struct_mask.npy'); Wl = np.load(f'site/{s}/water_level.npy')
+    except FileNotFoundError:                      # a site processed without apply.py's water step
+        wcell = np.zeros((NY, NX), bool); struct = np.zeros((NY, NX), bool); Wl = np.full((NY, NX), np.nan)
+    void = WA.void_mask(P['x'], P['y'], P['cls'], S_['bounds'], wcell, EXCL)
+    C = np.where(void, np.nan, C)
     C, fm = FH.fill_enclosed(C, wc.reshape(NY, NX))
     v2.write_like(s, 'dtm_final.tif', C); v2.write_like(s, 'rock_mask.tif', rock.astype(float))
     v2.write_like(s, 'fill_mask.tif', fm.astype(float))
+    v2.write_like(s, 'water_mask.tif', wcell.astype(float)); v2.write_like(s, 'struct_mask.tif', struct.astype(float))
+    v2.write_like(s, 'water_level.tif', np.where(np.isfinite(Wl), Wl, np.nan))
+    print(f'water void cells: {int(void.sum())} (filled: {int((fm[void] == 2).sum())})', flush=True)
 
 if __name__ == '__main__':
     for s in sys.argv[1:] or v2.SITES + ['woz_boulders']:

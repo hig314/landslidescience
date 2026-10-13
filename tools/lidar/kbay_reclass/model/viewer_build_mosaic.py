@@ -20,20 +20,25 @@ from pathlib import Path
 HERE = Path('/Volumes/Nunatak/lidar_build/kbay_reclass_test')
 REPO = Path('/Users/Hig/Claude_projects/landslidescience')
 os.environ['LIDAR_BUILD'] = str(HERE / 'viewer_build')
-os.environ['LIDAR_PM_OUT'] = str(REPO / 'data' / 'lidar_dev' / 'pmtiles')
+os.environ['LIDAR_PM_OUT'] = os.environ.get('VB_PM_OUT', str(REPO / 'data' / 'lidar_dev' / 'pmtiles'))   # v2 2026-10-13: built on Nunatak, copied in
 sys.path.insert(0, str(REPO / 'tools' / 'lidar')); import build_lidar as B
 import numpy as np
 import rasterio
 from rasterio.warp import transform_bounds
 
 VENDOR_TITLE = 'Kachemak Bay 2023 lidar DEM (NOAA vendor ground classification)'
-ID = 'kbay_2023_reclass'
+ID = os.environ.get('VB_ID', 'kbay_2023_reclass')   # v2 (2026-10-13): VB_ID=kbay_2023_reclass_v2 VB_MOSAIC=mosaic, beside v1 (mosaic_v1, published)
 KNOWN_ISSUE = (" KNOWN ISSUE (2026-09-28): structures are classified as ground -- buildings and bridges stand up in this surface where the vendor surface goes under them. The vendor's building (6) and bridge (17) classes were not excluded from ground; the fix is recorded in tools/lidar/kbay_reclass/README.md.")
 KNOWN_ISSUE += ' KNOWN ISSUE (2026-09-28): in places spurious returns above water are kept as ground (e.g. 59.45329, -151.71004); see the README.'
+if ID.endswith('_v2'):
+    KNOWN_ISSUE = (' v2 (mosaic 2026-10-13): vendor building (6) and bridge (17) classes excluded from ground, and returns '
+                   'floating over water rejected (model/water.py); water cells with no return within 3 m are left as holes '
+                   'rather than bridged, then filled only where enclosed. Still present by design: boats, docks and rafts '
+                   'over water (a dense object with no water return under it); rocks under ~4 m across in open water can be lost.')
 
 
 def main():
-    arch = HERE / 'full' / 'mosaic' / 'dtm_final.tif'
+    arch = HERE / 'full' / os.environ.get('VB_MOSAIC', 'mosaic') / 'dtm_final.tif'
     ds = dict(id=ID, title='Kachemak Bay 2023 lidar DTM, reclassified (calibrated on Grewingk 2021)',
               min_zoom=8, max_zoom=17, target_epsg=6334)
     env = B.clean_env()
@@ -65,8 +70,14 @@ def main():
     vend = json.loads(json.dumps(vend))
     vend['properties']['title'] = VENDOR_TITLE
     cat = REPO / 'data' / 'lidar_dev' / 'catalog.geojson'
+    if os.environ.get('VB_NO_CATALOG'):
+        print('VB_NO_CATALOG: entry written to', HERE / f'{ID}_entry.json'); (HERE / f'{ID}_entry.json').write_text(json.dumps(reclass)); return
     fc = json.loads(cat.read_text())
-    fc['features'] = [f for f in fc['features'] if f['properties']['id'] not in (ID, 'kbay_2023')] + [vend, reclass]
+    if ID.endswith('_v2'):
+        reclass['properties']['title'] += ' -- v2 (structures, over-water returns)'
+        fc['features'] = [f for f in fc['features'] if f['properties']['id'] != ID] + [reclass]   # v1 + vendor entries left as they are
+    else:
+        fc['features'] = [f for f in fc['features'] if f['properties']['id'] not in (ID, 'kbay_2023')] + [vend, reclass]
     tmp = cat.with_suffix('.tmp'); tmp.write_text(json.dumps(fc)); os.replace(tmp, cat)   # atomic: Docker file sharing
     print('dev catalogue now has', len(fc['features']), 'surveys, incl.', ID, 'and the relabelled vendor survey', flush=True)
 
