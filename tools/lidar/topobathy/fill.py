@@ -282,12 +282,14 @@ def channel_beds(lab, nw, wz, res, P, marine_ids=(), log=print):
 def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, name=0):
     """Weighted thin-plate smoothing spline of the soundings' residual against `base` over one
     domain's hole `cells`, with residual 0 on the cells' boundary (finite neighbours: shore,
-    islands).  S rows: (row, col, x, y, z).  Smoothing by the discrepancy principle: the
-    soundings' sigma-weighted misfit RMS = 1.  Returns the residual on `cells` (NaN elsewhere)."""
+    islands).  Smoothing by the discrepancy principle: the
+    soundings' sigma-weighted misfit RMS = 1.  S rows: (row, col, x, y, z, sigma) -- sigma from the
+    points file's `sigma` column (export_soundings writes it), else points_sigma_m.  Returns the
+    residual on `cells` (NaN elsewhere)."""
     if T is None or not cells.any():
         return None
     from scipy.ndimage import map_coordinates
-    sg_pt, sg_rim = float(P["points_sigma_m"]), float(P["points_rim_sigma_m"])
+    sg_rim = float(P["points_rim_sigma_m"])
     rr, cc = S[:, 0].astype(int), S[:, 1].astype(int)
     b = base[rr, cc].astype(np.float64); ok = np.isfinite(b)
     if ok.sum() < 3:
@@ -297,7 +299,7 @@ def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, nam
     uk, inv = np.unique(key, return_inverse=True); cnt = np.bincount(inv).astype(float)
     sx = np.bincount(inv, S[ok, 2]) / cnt; sy = np.bincount(inv, S[ok, 3]) / cnt
     sr = np.bincount(inv, S[ok, 4] - b[ok]) / cnt
-    sgp = sg_pt / np.sqrt(cnt)
+    sgp = np.sqrt(np.bincount(inv, S[ok, 5] ** 2) / cnt) / np.sqrt(cnt)     # several in a cell: their mean's sigma
     # boundary: finite cells 8-adjacent to the domain's holes, one per points_rim_step_m block
     bnd = ndimage.binary_dilation(cells, structure=np.ones((3, 3), bool)) & ~cells & bnd_ok
     br, bc = np.nonzero(bnd)
@@ -614,7 +616,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     zz = float(row["z"])
                 else:
                     zz = float(med[lab[rr, cc] - 1]) - float(row["depth"])
-                sound.append((rr, cc, x, y, zz)); pts[rr, cc] = True
+                sg = float(row["sigma"]) if row.get("sigma") not in (None, "") else P["points_sigma_m"]
+                sound.append((rr, cc, x, y, zz, sg)); pts[rr, cc] = True
         log(f"  sparse points: {len(sound)} inside domain holes from {P['points']}")
     # interior: harmonic from band edge + rim + floor-band... the interior sits at the floor
     # where the extension reached it, carried smoothly between band edge and bed rim.
