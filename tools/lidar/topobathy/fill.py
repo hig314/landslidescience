@@ -604,8 +604,15 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     if P.get("points"):
         import csv
         T = P.get("_transform")
+        nbound = 0
         with open(P["points"]) as fh:
             for row in csv.DictReader(fh):
+                # A lower bound (a lead line that ran out) says the bed is at or below z: never
+                # condition the surface on it as a depth. Kept out; honouring it as an
+                # inequality is not built yet.
+                if row.get("bound"):
+                    nbound += 1
+                    continue
                 x, y = float(row["x"]), float(row["y"])
                 if T is None:
                     continue
@@ -618,7 +625,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     zz = float(med[lab[rr, cc] - 1]) - float(row["depth"])
                 sg = float(row["sigma"]) if row.get("sigma") not in (None, "") else P["points_sigma_m"]
                 sound.append((rr, cc, x, y, zz, sg)); pts[rr, cc] = True
-        log(f"  sparse points: {len(sound)} inside domain holes from {P['points']}")
+        log(f"  sparse points: {len(sound)} inside domain holes from {P['points']}"
+            + (f"; {nbound} lower bounds not used" if nbound else ""))
     # interior: harmonic from band edge + rim + floor-band... the interior sits at the floor
     # where the extension reached it, carried smoothly between band edge and bed rim.
     interior = dom & ~band & ~lk                                 # holes AND the sounding cells: the prior ignores soundings

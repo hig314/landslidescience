@@ -6,7 +6,8 @@
 
 Columns: x, y (in --epsg), z (NAVD88 m = level - depth), sigma (m: the
 depth's and the level's in quadrature), depth_m, survey, kind (sounding |
-contour), id, level_key.  This is the `points` file a composite recipe names
+contour), id, level_key, bound ('min' = a lower bound: the bed is at or
+below z, never a depth -- fill.py keeps these out of its exact points).  This is the `points` file a composite recipe names
 (tools/lidar/topobathy/fill.py reads x, y, z and sigma); a recipe should name a
 DATED export, so a build can be repeated after the database moves on.
 
@@ -43,12 +44,13 @@ class Command(BaseCommand):
             sv_par = [o['survey']] if o['survey'] else []
             cur.execute("""
                 SELECT ST_X(ST_Transform(s.geom, %s)), ST_Y(ST_Transform(s.geom, %s)), s.z,
-                       s.sigma_z * CASE WHEN s.flag = 'suspect' THEN 2 ELSE 1 END, s.depth_m, v.slug, s.id, s.level_key
+                       s.sigma_z * CASE WHEN s.flag = 'suspect' THEN 2 ELSE 1 END, s.depth_m, v.slug, s.id, s.level_key,
+                       s.depth_bound
                   FROM soundings_z s JOIN sounding_surveys v ON v.id = s.survey_id
                  WHERE s.flag <> 'rejected' AND s.z IS NOT NULL""" + sv_sql + ' ORDER BY s.id',
                         [o['epsg'], o['epsg']] + sv_par)
-            for x, y, z, sg, d, slug, i, lk in cur.fetchall():
-                rows.append([x, y, z, sg, d, slug, 'sounding', i, lk])
+            for x, y, z, sg, d, slug, i, lk, bd in cur.fetchall():
+                rows.append([x, y, z, sg, d, slug, 'sounding', i, lk, bd])
             cur.execute("""
                 SELECT count(*) FROM soundings_z s JOIN sounding_surveys v ON v.id = s.survey_id
                  WHERE s.flag <> 'rejected' AND s.z IS NULL""" + sv_sql, sv_par)
@@ -67,14 +69,14 @@ class Command(BaseCommand):
             """, [o['epsg'], o['contour_step']] + sv_par)
             nc = 0
             for x, y, z, sg, d, slug, i, lk in cur.fetchall():
-                rows.append([x, y, z, sg, d, slug, 'contour', i, lk]); nc += 1
+                rows.append([x, y, z, sg, d, slug, 'contour', i, lk, '']); nc += 1
             conn.rollback()
         finally:
             _put_conn(conn)
         out = Path(o['out']); out.parent.mkdir(parents=True, exist_ok=True)
         with open(out, 'w', newline='') as fh:
             w = csv.writer(fh)
-            w.writerow(['x', 'y', 'z', 'sigma', 'depth_m', 'survey', 'kind', 'id', 'level_key'])
+            w.writerow(['x', 'y', 'z', 'sigma', 'depth_m', 'survey', 'kind', 'id', 'level_key', 'bound'])
             for r in rows:
                 w.writerow(['%.2f' % r[0], '%.2f' % r[1], '%.2f' % r[2], '%.2f' % r[3], '%.2f' % r[4]] + r[5:])
         self.stdout.write(self.style.SUCCESS(

@@ -10,10 +10,14 @@
  *   LSSoundings.all() -> the FeatureCollection (with .surveys, .levels)
  *   LSSoundings.near(coords [[lon,lat],...], maxM) -> [{d, off, z, sigma, f}]
  *        soundings with an elevation within maxM of the line, d = metres along it
+ *        (lower bounds included: f.properties.depth_bound === 'min')
  *
  * Points are coloured by DEPTH (pale shallow → dark deep, one fixed ramp so
  * two lakes read alike); a rejected sounding is a hollow grey ring, kept on the
  * map because the record of what was measured outlives the judgement on it.
+ * A LOWER BOUND (depth_bound 'min': a lead line that ran out, ">120") sits on
+ * the same ramp at its threshold with a heavy dark ring, and labels and the
+ * popup say "≥": the bed is somewhere below it.
  * Contours (digitised old lake maps) are dashed lines. A click opens a popup
  * that cites the survey and says how the elevation was made (level − depth,
  * and whose level). Clicks go through LSTools as a REFERENCE (priority 35,
@@ -51,8 +55,10 @@ window.LSSoundings = (function () {
       filter: ['all', ['==', ['get', 'kind'], 'sounding'], ['!=', ['get', 'flag'], 'rejected']],
       paint: { 'circle-color': RAMP,
                'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 1.5, 13, 3, 16, 5.5],
-               'circle-stroke-color': ['case', ['==', ['get', 'flag'], 'suspect'], '#e65100', '#ffffff'],
-               'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 9, 0.3, 14, 1] } });
+               'circle-stroke-color': ['case', ['==', ['get', 'flag'], 'suspect'], '#e65100',
+                                       ['==', ['get', 'depth_bound'], 'min'], '#111111', '#ffffff'],
+               'circle-stroke-width': ['case', ['==', ['get', 'depth_bound'], 'min'], 2.5,
+                                       ['interpolate', ['linear'], ['zoom'], 9, 0.3, 14, 1]] } });
     map.addLayer({ id: REJ, type: 'circle', source: SRC, layout: { visibility: vis() },
       filter: ['all', ['==', ['get', 'kind'], 'sounding'], ['==', ['get', 'flag'], 'rejected']],
       paint: { 'circle-color': 'rgba(0,0,0,0)', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 2, 16, 6],
@@ -61,7 +67,8 @@ window.LSSoundings = (function () {
     var st = map.getStyle && map.getStyle();
     if (st && st.glyphs) {
       map.addLayer({ id: LBL, type: 'symbol', source: SRC, minzoom: 15.5, layout: { visibility: vis(),
-          'text-field': ['concat', ['to-string', ['round', ['get', 'depth_m']]], ' m'],
+          'text-field': ['concat', ['case', ['==', ['get', 'depth_bound'], 'min'], '≥', ''],
+                         ['to-string', ['round', ['get', 'depth_m']]], ' m'],
           'text-font': ['Noto Sans Regular'], 'text-size': 10, 'text-offset': [0, 1.0], 'text-anchor': 'top',
           'text-allow-overlap': false },
         filter: ['==', ['get', 'kind'], 'sounding'],
@@ -191,10 +198,12 @@ window.LSSoundings = (function () {
     var head = p.kind === 'contour' ? 'Depth contour' : 'Sounding';
     var html = '<div class="snd-pop" style="font-size:12px;line-height:1.4;max-width:270px">' +
       '<div style="font-weight:600">' + head + (lv && lv.water_body ? ' · ' + esc(lv.water_body) : '') + '</div>' +
-      '<div><b>' + Number(p.depth_m).toFixed(1) + ' m</b> deep' + orig +
+      '<div>' + (p.depth_bound === 'min' ? 'at least ' : '') + '<b>' + Number(p.depth_m).toFixed(1) + ' m</b> deep' + orig +
       (p.sigma_m != null ? ' <span style="color:#777">±' + Number(p.sigma_m).toFixed(1) + ' m</span>' : '') + '</div>';
+    if (p.depth_bound === 'min')
+      html += '<div style="color:#666;font-size:11px">A lower bound: the bed was not reached at this depth.</div>';
     if (p.z != null && lv) {
-      html += '<div>bed ' + Number(p.z).toFixed(1) + ' m ' + esc(lv.datum) +
+      html += '<div>bed ' + (p.depth_bound === 'min' ? 'below ' : '') + Number(p.z).toFixed(1) + ' m ' + esc(lv.datum) +
         (p.sigma_z != null ? ' <span style="color:#777">±' + Number(p.sigma_z).toFixed(1) + '</span>' : '') + '</div>' +
         '<div style="color:#666;font-size:11px">= level ' + Number(lv.level_m).toFixed(2) + ' m − depth; level: ' +
         esc(lv.source) + '</div>';

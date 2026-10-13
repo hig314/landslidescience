@@ -272,14 +272,44 @@ window.LSProfile = (function () {
     // water the DEMs read as a flat surface. Each with its ±sigma.
     // Reach: a fifteenth of the line, 40-250 m -- soundings run in lines across a lake, and
     // a profile that crosses one should catch it (a thirtieth caught too few).
+    // One series per survey, so two surveys of the same lake can be told apart (Berg's
+    // sounder track against Hig's lead line at Grewingk). A dense track survey -- more
+    // than SND_DENSE points in reach -- keeps only what lies within SND_TIGHT m of the
+    // line: on a steep lake side, points 100 m off the line are a different depth.
     var sndNote = '';
     if (window.LSSoundings && LSSoundings.visible() && LSSoundings.all()) {
-      var buf = Math.max(40, Math.min(250, result.length / 15));
+      var buf = Math.max(40, Math.min(250, result.length / 15)), SND_DENSE = 300, SND_TIGHT = 15;
+      var SND_COLORS = ['#0d47a1', '#e65100', '#6a1b9a', '#00838f', '#5d4037'];
       var nr = LSSoundings.near(result.points.map(function (q) { return [q.lon, q.lat]; }), buf);
-      if (nr.length) out.push({ id: 'soundings', label: 'Soundings within ' + Math.round(buf) + ' m (±σ)', short: 'soundings',
-                                color: '#0d47a1', marker: true,
-                                runs: [nr.map(function (n) { return { d: n.d, z: n.z, sigma: n.sigma, off: n.off }; })] });
-      sndNote = ' · ' + nr.length + ' sounding' + (nr.length === 1 ? '' : 's') + ' within ' + Math.round(buf) + ' m';
+      var bySv = {}, svOrder = [], nShown = 0;
+      nr.forEach(function (n) {
+        var sv = n.f.properties.survey_id;
+        if (!bySv[sv]) { bySv[sv] = []; svOrder.push(sv); }
+        bySv[sv].push(n);
+      });
+      svOrder.forEach(function (sv, i) {
+        var pts = bySv[sv], reach = buf;
+        if (pts.length > SND_DENSE) {
+          reach = SND_TIGHT;
+          pts = pts.filter(function (n) { return n.off <= SND_TIGHT; });
+        }
+        if (!pts.length) return;
+        nShown += pts.length;
+        var s = LSSoundings.survey(sv) || {}, name = s.collector || s.title || 'Soundings';
+        var tag = name + (s.collected_from ? ' ' + s.collected_from.slice(0, 4) : '');
+        var exact = pts.filter(function (n) { return n.f.properties.depth_bound !== 'min'; });
+        var lower = pts.filter(function (n) { return n.f.properties.depth_bound === 'min'; });
+        if (exact.length)
+          out.push({ id: 'soundings_' + sv, label: tag + ' — soundings within ' + Math.round(reach) + ' m (±σ)', short: name,
+                     color: SND_COLORS[i % SND_COLORS.length], marker: true,
+                     runs: [exact.map(function (n) { return { d: n.d, z: n.z, sigma: n.sigma, off: n.off }; })] });
+        // Lower bounds: the bed is somewhere BELOW the dot, so no ±σ bar.
+        if (lower.length)
+          out.push({ id: 'soundings_' + sv + '_min', label: tag + ' — lower bounds (bed is below these)', short: name + ' ≥',
+                     color: '#111111', marker: true,
+                     runs: [lower.map(function (n) { return { d: n.d, z: n.z, off: n.off }; })] });
+      });
+      if (nShown) sndNote = ' · ' + nShown + ' sounding' + (nShown === 1 ? '' : 's') + ' near the line';
     }
     chart.setData({ length: result.length, series: out });
     status(fmtD(result.length) + ' · ' + series.length + ' DEM' + (series.length === 1 ? '' : 's') +

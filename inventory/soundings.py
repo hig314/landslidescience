@@ -88,12 +88,12 @@ def api_soundings(request):
                                    sigma_m=r[6], observed_on=_iso(r[7]), source=r[8]))
             cur.execute("""
                 SELECT id, survey_id, level_id, ST_X(geom), ST_Y(geom), observed_at, depth_m, depth_orig,
-                       depth_unit, sigma_depth, z, sigma_z, flag, flag_reason, name, notes
+                       depth_unit, sigma_depth, z, sigma_z, flag, flag_reason, name, notes, depth_bound
                   FROM soundings_z
                  WHERE survey_id = ANY(%s)""" + env_sql + """
                  ORDER BY id
             """, [ids] + env_params)
-            for (i, sv, lv, x, y, t, dm, do, du, sd, z, sz, fl, fr, nm, no) in cur.fetchall():
+            for (i, sv, lv, x, y, t, dm, do, du, sd, z, sz, fl, fr, nm, no, bd) in cur.fetchall():
                 feats.append({'type': 'Feature', 'id': i,
                               'geometry': {'type': 'Point', 'coordinates': [round(x, 7), round(y, 7)]},
                               'properties': {'id': i, 'kind': 'sounding', 'survey_id': sv, 'level_id': lv,
@@ -102,7 +102,8 @@ def api_soundings(request):
                                              'sigma_m': round(sd, 2) if sd is not None else None,
                                              'z': round(z, 2) if z is not None else None,
                                              'sigma_z': round(sz, 2) if sz is not None else None,
-                                             'flag': fl, 'flag_reason': fr, 'name': nm, 'notes': no}})
+                                             'flag': fl, 'flag_reason': fr, 'name': nm, 'notes': no,
+                                             'depth_bound': bd}})
             cur.execute("""
                 SELECT c.id, c.survey_id, c.level_id, ST_AsGeoJSON(c.geom, 7), c.depth_m, c.depth_orig,
                        c.depth_unit, COALESCE(c.sigma_m, v.sigma_m), l.level_m - c.depth_m, c.flag,

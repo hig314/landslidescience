@@ -13,7 +13,8 @@ on the Mac against the untouched originals) writes:
                   the script did: unit changes, rows dropped and why, counts).
   points.csv      lon, lat, observed_at, depth_m, depth_orig, depth_unit,
                   level_key, sigma_m, flag, flag_reason, name, notes
-                  (empty sigma_m = the survey's default)
+                  (empty sigma_m = the survey's default), optional
+                  depth_bound ('min' = the bed is at least depth_m down)
   contours.geojson  optional: LineString/MultiLineString features with
                   properties depth_m, depth_orig, depth_unit, level_key,
                   sigma_m, flag, flag_reason, notes
@@ -35,6 +36,14 @@ SURVEY_COLS = ['slug', 'title', 'collector', 'collected_from', 'collected_to', '
 # What the table's NOT NULL columns take when survey.json leaves them out.
 DEFAULTS = dict(collector='', method='sounder', instrument='', depth_unit='m', sigma_m=1.0, licence='',
                 citation='', public=False, raw_path='', notes='')
+
+
+def _bound(v):
+    """points.csv depth_bound: '' (a depth) or 'min' (the bed is at least this deep)."""
+    v = (v or '').strip()
+    if v not in ('', 'min'):
+        raise CommandError('depth_bound must be empty or "min", not %r' % v)
+    return v
 
 
 def _f(v):
@@ -96,11 +105,12 @@ class Command(BaseCommand):
             for p in pts:
                 cur.execute("""
                     INSERT INTO soundings (survey_id, level_id, geom, observed_at, depth_m, depth_orig, depth_unit,
-                                           sigma_m, flag, flag_reason, name, notes, created_by)
-                    VALUES (%s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                           sigma_m, flag, flag_reason, name, notes, created_by, depth_bound)
+                    VALUES (%s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, [sid, lid.get(p.get('level_key')), float(p['lon']), float(p['lat']), p.get('observed_at') or None,
                       float(p['depth_m']), _f(p.get('depth_orig')), p.get('depth_unit') or 'm', _f(p.get('sigma_m')),
-                      p.get('flag', ''), p.get('flag_reason', ''), p.get('name', ''), p.get('notes', ''), o['user']])
+                      p.get('flag', ''), p.get('flag_reason', ''), p.get('name', ''), p.get('notes', ''), o['user'],
+                      _bound(p.get('depth_bound'))])
             for f in cons:
                 q = f['properties']
                 cur.execute("""

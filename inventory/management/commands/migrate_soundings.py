@@ -31,6 +31,13 @@ THE MODEL
                       depth, the level it hangs from, a sigma that is larger
                       than a sounding's because the line is an interpretation.
 
+DEPTH BOUNDS (2026-10-13, Hig): a sounding can be a LOWER BOUND -- a lead line
+that ran out (">120"): depth_bound = 'min' says the bed is at least depth_m
+down. It sits on the colour scale at that depth, and it must survive as a
+limit for synthetic bathymetry, never as a depth: export_soundings writes the
+bound column and topobathy/fill.py keeps bounds out of its exact points.
+'' = an ordinary depth.
+
 Elevation is DERIVED, never stored: z = level_m - depth_m (soundings_z view).
 A lake's level is often not known for the day of the survey (Nick Riordan's
 2018 depths hang from the 2023 lidar water surface), and a better level later
@@ -103,6 +110,7 @@ CREATE TABLE IF NOT EXISTS soundings (
     created_at      timestamptz NOT NULL DEFAULT now(),
     updated_at      timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE soundings ADD COLUMN IF NOT EXISTS depth_bound text NOT NULL DEFAULT '';  -- '' depth | 'min' at least this deep
 CREATE INDEX IF NOT EXISTS soundings_geom_idx ON soundings USING GIST (geom);
 CREATE INDEX IF NOT EXISTS soundings_survey_idx ON soundings (survey_id);
 
@@ -125,8 +133,11 @@ CREATE TABLE IF NOT EXISTS sounding_contours (
 CREATE INDEX IF NOT EXISTS sounding_contours_geom_idx ON sounding_contours USING GIST (geom);
 
 -- Elevation and its uncertainty, derived. sigma_z adds the depth's and the
--- level's in quadrature; z is NULL where the level is unknown.
-CREATE OR REPLACE VIEW soundings_z AS
+-- level's in quadrature; z is NULL where the level is unknown. Dropped and
+-- re-created rather than replaced: s.* grows when soundings gains a column, and
+-- CREATE OR REPLACE VIEW cannot insert one ahead of the view's own columns.
+DROP VIEW IF EXISTS soundings_z;
+CREATE VIEW soundings_z AS
 SELECT s.*, l.level_m, l.key AS level_key, l.water_body,
        l.level_m - s.depth_m AS z,
        sqrt(power(COALESCE(s.sigma_m, v.sigma_m), 2) + power(COALESCE(l.sigma_m, 0), 2)) AS sigma_z,
