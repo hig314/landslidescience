@@ -360,6 +360,11 @@
         Survey circles
         <span style="color:#888; font-size:10px;">&nbsp;(completeness evaluation)</span>
       </label>
+      <label class="nav-filter-label small" title="Lake and nearshore depth soundings and digitised depth contours, coloured by depth (pale shallow, dark deep; a grey ring is a sounding judged wrong and kept on the record). Click one for its depth, the bed elevation it implies and its source. Shown on the ∿ elevation profile where the line passes near them.">
+        <input type="checkbox" id="cb-soundings">
+        Lake soundings
+        <span style="color:#888; font-size:10px;">&nbsp;(depths &amp; contours)</span>
+      </label>
       <div id="ext-inventories" style="margin-top:10px;"></div>
       <div style="font-size:11px; color:#888; margin:8px 0 2px;">
         Susceptibility &amp; OPERA velocity moved to the
@@ -637,6 +642,8 @@
   built by map.js in the draw-panel idiom, and a click on a line is a popup.
 {% endcomment %}
 <script src="{% static 'inventory/js/scarps.js' %}"></script>
+{# Bathymetric soundings (inventory/soundings.py): a reference layer, and dots on the ∿ profile. #}
+<script src="{% static 'inventory/js/soundings.js' %}"></script>
 <script src="{% static 'inventory/js/ls_sample.js' %}"></script>
 <script src="{% static 'inventory/js/analysis.js' %}"></script>
 <script src="{% static 'inventory/js/permafrost.js' %}"></script>

@@ -6681,6 +6681,20 @@
         });
     }
 
+    // Lake soundings (soundings.js) — reference layer, off by default, fetched on
+    // first use. The module re-adds its layers after a basemap switch itself.
+    var cbSoundings = document.getElementById('cb-soundings');
+    if (cbSoundings) {
+        cbSoundings.addEventListener('change', function () {
+            if (typeof LSSoundings !== 'undefined') {
+                if (cbSoundings.checked) LSSoundings.init({ map: map, api: API_BASE })
+                    .catch(function (e) { console.error('soundings fetch failed:', e); });
+                LSSoundings.setVisible(cbSoundings.checked);
+            }
+            if (_mapReady) writeHashState();
+        });
+    }
+
     // Faults & folds — reference overlay, ON by default. Three files, merged
     // here and tagged with _src so one source/layer serves all:
     // All three are DISPLAY COPIES written by tools/faults/build_faults.py
@@ -6748,7 +6762,7 @@
     // a name here is what the link calls it. Order is the order written.
     // Scarp traces are absent because they have no show/hide control yet --
     // add the name here when they get one.
-    var _REF_LAYERS = [['faults', cbFaults], ['circles', cbSurveyCircles]];
+    var _REF_LAYERS = [['faults', cbFaults], ['circles', cbSurveyCircles], ['soundings', cbSoundings]];
     function _refSpec() {
         var out = {};
         _REF_LAYERS.forEach(function (r) { if (r[1] && r[1].checked) out[r[0]] = true; });

@@ -32,6 +32,7 @@ Anchors are load-bearing: lidar_preview.html links to them.
     <li><a href="#view">View</a></li>
     <li><a href="#3d">3D terrain and context</a></li>
     <li><a href="#traces">Landform traces</a></li>
+    <li><a href="#soundings">Lake soundings</a></li>
     <li><a href="#heights">Heights and vertical datums</a></li>
   </ol>
 </nav>
@@ -228,7 +229,32 @@ Anchors are load-bearing: lidar_preview.html links to them.
   projected all the same, so read offsets before reading a trend.
 </p>
 
-<h3 id="heights">10. Heights and vertical datums</h3>
+<h3 id="soundings">10. Lake soundings</h3>
+<p>
+  Depths measured in lakes and near shore that are too sparse to be a survey
+  of their own: soundings from a handheld sounder or a lead line, and depth
+  contours digitised from old lake maps (such as the Alaska Department of Fish
+  and Game's hand-drawn charts, whose sounding positions are rarely known).
+  A lidar survey sees the water surface over a lake; these are the bed under
+  it. Points are coloured by depth, pale at the shore to dark at depth; a grey
+  ring is a sounding judged wrong (a mistyped depth, say), kept on the record
+  with the reason rather than deleted. Click one for its depth as measured
+  (with the original unit), the bed elevation it implies, and its source.
+</p>
+<p>
+  <strong>Depth, not elevation, is what was measured.</strong> A sounding is a
+  depth below the water surface on the day; the bed elevation is the lake's
+  level minus that depth, and the level is recorded separately with its own
+  source and date, because it is often not known for the day of the survey.
+  The 2018 Kachemak Bay State Park soundings, for instance, hang from the
+  2023 lidar water surface. A better level later corrects every point in the
+  lake at once. Each elevation carries an uncertainty: the depth's (sounder,
+  GPS position, drift) and the level's, added in quadrature. On the inventory
+  map's elevation profile, soundings near the line appear as dots with that
+  uncertainty as a bar.
+</p>
+
+<h3 id="heights">11. Heights and vertical datums</h3>
 <p>
   Heights are in metres, in each survey's own vertical datum; the catalogue
   records it per survey, nearly always NAVD88. Two cautions. NAVD88 is a

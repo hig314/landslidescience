@@ -11,8 +11,11 @@
  *
  * The chart knows nothing of DEMs or planes. A host gives it series:
  *
- *   {length: m, series: [{id, label, short?, color, dash?, width?,
+ *   {length: m, series: [{id, label, short?, color, dash?, width?, marker?,
  *                         runs: [[{d, z, ...host fields}, ...], ...]}]}
+ *
+ * marker: true draws the series as dots (with a ±q.sigma bar where a sample
+ * has one) instead of a line -- sparse points such as soundings.
  *
  * `d` is metres along the x axis, `z` metres (NaN = no data: the pen
  * lifts). A run is a polyline; a series draws all its runs in one colour and
@@ -181,6 +184,17 @@ window.LSProfileChart = (function () {
       // Lines: one colour per series, the pen lifting between runs and at gaps.
       // Screen positions are kept on the samples for the nearest-sample hover.
       series.forEach(function (s) {
+        if (s.marker) {
+          // A point series (soundings): a dot per sample, a bar for its ±sigma.
+          s.runs.forEach(function (run) { run.forEach(function (q) {
+            q._px = X(q.d); q._py = isNaN(q.z) ? NaN : Y(q.z);
+            if (isNaN(q.z)) return;
+            if (q.sigma > 0) parts.push('<line x1="' + q._px.toFixed(1) + '" y1="' + Y(q.z + q.sigma).toFixed(1) + '" x2="' + q._px.toFixed(1) +
+                                        '" y2="' + Y(q.z - q.sigma).toFixed(1) + '" stroke="' + s.color + '" stroke-opacity="0.6" stroke-width="1"/>');
+            parts.push('<circle cx="' + q._px.toFixed(1) + '" cy="' + q._py.toFixed(1) + '" r="2.6" fill="' + s.color + '" stroke="#fff" stroke-width="0.6"/>');
+          }); });
+          return;
+        }
         var dstr = '';
         s.runs.forEach(function (run) {
           var pen = false;
@@ -199,7 +213,8 @@ window.LSProfileChart = (function () {
       var need = series.length * 13 + 6, below = (H - m.b - (oy + ch)) > need + 18;
       var ly = below ? oy + ch + 30 : oy + 12, lx = ox + 8;
       series.forEach(function (s) {
-        parts.push('<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 22) + '" y2="' + ly + '" stroke="' + s.color +
+        if (s.marker) parts.push('<circle cx="' + (lx + 11) + '" cy="' + ly + '" r="3" fill="' + s.color + '"/>');
+        else parts.push('<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 22) + '" y2="' + ly + '" stroke="' + s.color +
                    '" stroke-width="2"' + (s.dash ? ' stroke-dasharray="' + s.dash + '"' : '') + '/>');
         parts.push('<text x="' + (lx + 26) + '" y="' + (ly + 3) + '" font-size="10" fill="#333">' + esc(s.label) + '</text>');
         ly += 13;
