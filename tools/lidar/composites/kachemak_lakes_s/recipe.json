@@ -1,0 +1,197 @@
+{
+ "id": "kachemak_lakes_s",
+ "dataset_id": "kachemak_lakes_s_test",
+ "title": "Kachemak south-shore lakes test (59.541 N, 151.203 W) -- lake-basin prior review, 1 m",
+ "region": "Kenai Peninsula",
+ "vertical_datum": "NAVD88 (GEOID12B, as the sources)",
+ "note": "Test composite set up 2026-10-10 at Hig's request: a setting with several datasets, partial overlap and real gaps. Grid is a snapped 1 m lattice on NAD83(2011)/UTM 5N covering China Poot Bay, Peterson Bay and the Halibut Cove entrance (x 595-606 km, y 6602-6610 km), chosen so that the three-way overlap of Grewingk 2021, KBay 2023 and the Hydropalooza bathymetry (around Halibut Cove) and the two-way KBay + bathymetry case (China Poot Bay) are both inside. Sources are datasets.json ids, read from the archive COGs, all NAVD88 (GEOID12B); the 2009 bathymetry carries its -1.38 m MLLW shift. The KBay 2023 layer is the landslidescience reclassification (kbay_2023_reclass), not the vendor DEM: the vendor COG has a compound NAVD88 CRS that gdalwarp geoid-shifts on full-resolution reads (see CLAUDE.md), and the reclass is the preferred bare earth. Classes: the bathymetry is bed everywhere (gridded from soundings with no interpolation across unsurveyed ground, so there is no TIN hull to reject); Grewingk 2021 (12 Oct) gets the lake-level detector and a snow guess against KBay 2023; KBay 2023 gets the reclass's own fill_mask (2 = harmonic fill, classed modelled), a flat-below-level detector for the sea surface it holds at several tide levels (-3.0..-1.9 m NAVD88 on different lines, plus +0.8), and a compare-to-bathymetry step for water over known bed. `lowest` is on for KBay against Grewingk at region scale: the two lidars differ by +0.58 m median over 31 km2 of overlap (KBay higher), which is canopy, and the lower of two sound DTMs is the better ground. Grewingk 2021 carries shift_m +0.36 (see its notes).",
+ "grid": {
+  "epsg": 6334,
+  "res_m": 1.0,
+  "bounds": [
+   597000,
+   6597000,
+   606000,
+   6605000
+  ]
+ },
+ "target": "ground_current",
+ "as_of": "2023-07-01",
+ "rates": {
+  "ground": 0.01,
+  "bed": 0.02,
+  "ice": 3.0
+ },
+ "sigma_max": 5.0,
+ "rules": "sequential",
+ "lowest": {
+  "kbay2023": {
+   "tol_m": 0.3,
+   "smooth_m": 50
+  }
+ },
+ "margin_m": 0.0,
+ "rules_post": [
+  {
+   "despeckle": {
+    "min_area_m2": 2000
+   }
+  },
+  {
+   "feather": {
+    "width_m": 15
+   }
+  }
+ ],
+ "halo_px": 192,
+ "layers": [
+  {
+   "name": "ctx3dep",
+   "source": "/Volumes/Nunatak/lidar_build/ctx_3dep/all.vrt",
+   "date": "2012-07-01",
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "fallback": {
+      "except": [
+       "fill"
+      ],
+      "footprints": [
+       "/Volumes/Nunatak/lidar_build/obs/kbay_2023_lakes_s/class.tif",
+       "/Volumes/Nunatak/lidar_build/obs/grewingk_2021_lakes_s/class.tif"
+      ]
+     }
+    }
+   ],
+   "sigma_m": 3.0,
+   "notes": "Fallback everywhere: USGS 3DEP 1/3 arc-second seamless (~10 m; IfSAR-derived in Alaska), the same data Mapterhorn serves in Alaska (median difference 0 m against this bake, reference_mapterhorn) -- read locally rather than from Mapterhorn's tiles. NAVD88. Date a nominal 2012 (IfSAR era); sigma 3 m, so any survey outranks it and it shows only where nothing else does. Its lakes are hydroflattened: class ground here, so where it is the only data a lake reads as a flat surface -- the class axis from the surveys above still says water there.",
+   "resample": "bilinear",
+   "class_notes": "2026-10-11 (Hig: China Poot Lake read as a short steep drop to a flat floor): the fallback step makes 3DEP void wherever any survey has a cell, whatever its class -- its hydroflattened lakes sat ~5 m below KBay's water level and stood in for the bed once water stopped being a surface, so the hole fill never saw the lakes. Bilinear: ~10 m cells read nearest at 1 m were stair-steps. Footprints: the two lidars' point-class rasters (valid wherever a tile was flown), so open water a survey flew over and kept nothing from is a hole, not 3DEP's sea surface (Halibut Cove Lagoon: 3DEP at 0 m between the multibeam lines)."
+  },
+  {
+   "name": "bathy2009",
+   "source": "kachemak_bathy_2009",
+   "date": "2009-07-01",
+   "notes": "H11933-38 (2008) and H12084-12146 (2009); mid-2009 as the date. Per-band native cells 1-8 m stacked on a 1 m VRT.",
+   "sigma_m": 0.5,
+   "class": "bed"
+  },
+  {
+   "name": "grewingk2021",
+   "source": "grewingk_2021",
+   "date": "2021-10-12",
+   "shift_m": 0.36,
+   "notes": "shift_m +0.36: MEASURED 2026-10-10, not from metadata. On bare smooth flat ground (both DTMs < 0.05 m rough, slope < 3 deg, 2-20 m: beaches, flats, fans) KBay 2023 reads +0.36 m above Grewingk 2021 with NMAD 0.06 m (n 108k at 2 m), while KBay reads +0.014 m (NMAD 0.048) against Seldovia 2019 NCMP topobathy, the survey the 2009 bathymetry's MLLW->NAVD88 shift was tied to, and the reclass matches the vendor DEM to 1 cm. Two independent products against one: Grewingk sits ~0.36 m low in the collection's NAVD88(GEOID12B) frame despite its metadata. No third witness overlaps it (Homer 2019 and Lower Kenai have no data over it). Belongs in datasets.json as vertical_shift_m for hosting to apply after its own check; applied here explicitly so the test composite has no 0.4 m seam at Grewingk's edge.",
+   "sigma_m": 0.15,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/obs/grewingk_2021_lakes_s/class.tif",
+      "codes": true
+     }
+    },
+    {
+     "raster": {
+      "path": "$out/fill_surface.tif",
+      "map": {
+       "1": "water"
+      },
+      "only": "ground"
+     }
+    },
+    {
+     "islets": {
+      "max_m2": 50,
+      "ring_m": 3,
+      "ring_frac": 0.8
+     }
+    }
+   ],
+   "class_notes": "2026-10-10: classes from the point cloud (observe_points.py, rules 'grewingk': ground where the DTM has a value and real returns exist, water = DGGS class 9, void where only noise); replaces the DEM-derived water_level + snow_vs steps. With all 119 tiles the vendor ground class covers 93-99% of DTM cells in every band to 1100 m, so there is no class-based hook for a snow hypothesis; snow on 2021-10-12, if any, is inside the ground class."
+  },
+  {
+   "name": "sonar2023",
+   "source": "grewingk_sonar_2023",
+   "date": "2023-05-18",
+   "class": "bed",
+   "sigma_m": 0.3,
+   "notes": "Katie Hughes' Grewingk Lake sonar (gated; NAVD88 GEOID12B from the LAS headers). Not in this box -- listed so the stack is the same everywhere it is used."
+  },
+  {
+   "name": "kbay2023",
+   "source": "/Volumes/Nunatak/lidar_build/kbay_reclass_test/full/mosaic_lakes_s/dtm_final.tif",
+   "date": "2023-07-01",
+   "notes": "flight dates to confirm (NOAA says 2023, delivery 2023/24); mid-2023 assumed CLASS from the point cloud (observe_points.py, 2 m): ground where the reclass DTM has a value and the cell has returns; VOID where the laser got no returns (the bay, lagoons, lakes) and where the reclass filled (its fill_mask) - Hig 2026-10-10: the fill is meaningless, mask it out; water where class-9 returns outnumber ground (checked: flat, sparse, at -2.9..-2.3 m or the 50 m lake); built where class 6 outnumbers ground; snow from class 21.",
+   "sigma_m": 0.15,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/obs/kbay_2023_lakes_s/class.tif",
+      "codes": true
+     }
+    },
+    {
+     "raster": {
+      "path": "$out/fill_surface.tif",
+      "map": {
+       "1": "water"
+      },
+      "only": "ground"
+     }
+    },
+    {
+     "islets": {
+      "max_m2": 50,
+      "ring_m": 3,
+      "ring_frac": 0.8
+     }
+    }
+   ],
+   "source_notes": "Box mosaic of the reclass rerun (water rules + structures) until kbay_2023_reclass is republished."
+  },
+  {
+   "name": "dixon2023",
+   "source": "dixon_2023",
+   "date": "2023-09-19",
+   "class": "ground",
+   "sigma_m": 0.5,
+   "notes": "Mark Laker (USFWS Kenai NWR) SfM, 19 Sep 2023, converted to NAVD88/GEOID12B at ingest (datasets.json). A SURFACE model: over vegetation it is canopy, so it must not outrank lidar ground -- sigma 0.5 vs the lidars' 0.15 keeps it underneath wherever they have ground; it shows where it is the only survey. Its water surfaces carry the lake levels on 19 Sep 2023. Its datum against grewingk_2021 (measured -0.02 at 700-1100 m by hosting, against our +0.36 on low flat ground) is unresolved."
+  },
+  {
+   "name": "fill",
+   "optional": true,
+   "source": "$out/fill.tif",
+   "date": "2023-07-01",
+   "class": "modelled",
+   "sigma_m": 1.0,
+   "sigma": [
+    {
+     "raster": {
+      "path": "$out/fill_sigma.tif"
+     }
+    }
+   ],
+   "notes": "The hole interpolation (composite.py fill, topobathy/fill.py): a context-aware prior (shore bands from the rim slope, low-tide floor) conditioned by the soundings. Class modelled, so it stands in at half rank under water/bed and never where a real observation exists; sigma from fill_sigma.tif (grows from the shore, relaxes near soundings). Optional: skipped until the fill has been run; 'composite.py fill' treats the cells it won as holes, so build -> fill -> build is idempotent.",
+   "rules_post": []
+  }
+ ],
+ "fill": {
+  "low_tide_m": -2.9,
+  "close_m": 60,
+  "marine_rim_max_m": 6.0,
+  "lake_depth_m": 5.0,
+  "notes": "Lakes review box. Lake parameters at their defaults (lake_vd 0.5, hollister_k 0.5, lake_water_frac 0.5). Sparse depths: 'points' = a dated export of the soundings database (manage.py export_soundings, 2026-10-12): Nick Riordan's July 2018 lake soundings (China Poot Lake 157, the 67 m lake 82; Hazel lakes outside the box), z = KBay water level - depth, sigma per point (1.04 m: depth 1.0, level 0.3).",
+  "fill_margin": true,
+  "points": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261012.csv"
+ },
+ "notes": "Lake-basin review box (Hig, 2026-10-11: 'near 59.54106, -151.20282 where there are a number of lakes of different sizes'): ~60 lakes 0.5-105 ha. Stack = every survey that covers it, oldest first, over a 3DEP fallback: Hig asked why the Grewingk Lake box had used neither Mark Laker's SfM (dixon_2023) nor Katie Hughes' sonar (grewingk_sonar_2023) -- the recipe was a copy of Kachemak's, whose box neither reaches; a recipe lists its layers by hand, so a box needs its own survey search (wanted: an 'auto' layer list from the catalogue footprints).",
+ "margin_m_notes": "2026-10-11: margin_m 0.05 -> 0. With equal sigma (0.15) the older Grewingk 2021 kept every cell it reached and the newer KBay showed only where Grewingk's class raster was void -- i.e. at the edges of the LAZ tiles classified for this box, straight km and half-km lines with a 0.1-0.3 m step. At 0 the newer survey wins a tie."
+}

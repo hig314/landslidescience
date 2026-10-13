@@ -1,0 +1,113 @@
+{
+ "id": "portage_subaerial",
+ "note": "The above-water merge: portage_axes without the sonar. Used as the shoreline constraint for gridding the bathymetry (observe stage experiment).",
+ "root": "/Volumes/Nunatak/Landslides/Portage/Portage_topobathy/Crops",
+ "legacy_output": "Topobathy_merge/Portage_topobathy_merge.tif",
+ "grid": {
+  "from": "base",
+  "width": 30000,
+  "height": 20000
+ },
+ "target": "ground_current",
+ "as_of": "2026-01-04",
+ "rates": {
+  "ground": 0.01,
+  "bed": 0.02,
+  "ice": 3.0
+ },
+ "sigma_max": 5.0,
+ "rules_post": [
+  {
+   "despeckle": {
+    "min_area_m2": 5000
+   }
+  },
+  {
+   "feather": {
+    "width_m": 20
+   }
+  }
+ ],
+ "layers": [
+  {
+   "name": "ifsar",
+   "source": "IfSAR_crop_1m.tif",
+   "align": "pixel",
+   "date": "2012",
+   "notes": "date assumed (AK IfSAR 2010-2012); no water detection: not hydro-flattened at a precise level",
+   "sigma_m": 2.0,
+   "class": [
+    {
+     "default": "ground"
+    }
+   ]
+  },
+  {
+   "name": "anc2015",
+   "source": "Anchorage_2015_UTM6_1m_crop.tif",
+   "align": "pixel",
+   "date": "2015-09-01",
+   "sigma_m": 0.5,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "water_level": {
+      "tol_m": 0.5
+     }
+    },
+    {
+     "snow_vs": {
+      "ref": "portage2020",
+      "dz_m": 0.5,
+      "smooth_m": 50
+     }
+    }
+   ],
+   "notes": "spring 2015 flight with snow: survey-wide sigma 0.5 (snow prior) + snow_vs portage2020 classes the plainly snowy parts as snow (+1.5 m); newer snow-free lidars (Whittier 0.3, Portage 2020 0.1) replace it on land"
+  },
+  {
+   "name": "whittier",
+   "source": "Whittier_topobathy_EPSG32606_crop.tif",
+   "align": "pixel",
+   "date": "2019-07-01",
+   "notes": "date assumed",
+   "sigma_m": 0.3,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "below_level": {
+      "as": "bed",
+      "else": "ground"
+     }
+    },
+    {
+     "water_level": {
+      "tol_m": 0.5
+     }
+    }
+   ]
+  },
+  {
+   "name": "portage2020",
+   "source": "Portage_2020_1m_crop.tif",
+   "align": "pixel",
+   "date": "2020-10-05",
+   "sigma_m": 0.1,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "water_level": {
+      "tol_m": 0.5
+     }
+    }
+   ]
+  }
+ ],
+ "rules": "sequential"
+}
