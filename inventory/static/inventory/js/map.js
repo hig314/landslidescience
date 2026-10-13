@@ -10132,6 +10132,11 @@
               if (typeof LSAnalysis === 'undefined') return;
               var st = LSAnalysis.state();
               if (!st) return;
+              // The axes outlive the panel (closing it keeps them for the
+              // next open), so a default view taken long after the panel was
+              // closed carried them too. A stored view takes them only while
+              // the panel is open; the address bar keeps them as before.
+              if (mode === 'view' && _anEncodeHash().split(',').indexOf('analysis') < 0) return;
               o.extras.ax = st.x + ',' + st.y;
               if (st.brush) o.extras.bx = [st.brush.x0, st.brush.x1, st.brush.y0, st.brush.y1].join(',');
               if (st.ls) o.extras.ls = st.ls;
