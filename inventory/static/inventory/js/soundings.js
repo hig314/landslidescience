@@ -2,7 +2,9 @@
  * Global `window.LSSoundings`. Used by /inventory/ (a reference layer) and
  * /lidar/ (beside the surveys); the data are inventory/soundings.py's.
  *
- *   LSSoundings.init({map, api: '/inventory/'}) -> Promise   fetch + add layers (idempotent)
+ *   LSSoundings.init({map, api: '/inventory/', bars?}) -> Promise   fetch + add layers (idempotent);
+ *        bars: true adds the 3D bars (surface to bed) drawn under terrain (/lidar/)
+ *   LSSoundings.setSeeThrough(0..1)   the bars' opacity (/lidar/: 1 - lidar opacity)
  *   LSSoundings.setVisible(bool) / visible()
  *   LSSoundings.all() -> the FeatureCollection (with .surveys, .levels)
  *   LSSoundings.near(coords [[lon,lat],...], maxM) -> [{d, off, z, sigma, f}]
@@ -21,8 +23,9 @@
 window.LSSoundings = (function () {
   'use strict';
   var SRC = 'soundings', PT = 'soundings-pt', REJ = 'soundings-rej', HIT = 'soundings-hit',
-      CON = 'soundings-con', LBL = 'soundings-lbl';
+      CON = 'soundings-con', LBL = 'soundings-lbl', BARS = 'soundings-3d';
   var map = null, api = '/inventory/', data = null, shown = false, loading = null, wired = false;
+  var bars = false, seeThrough = 0;          // 3D bars (opts.bars, /lidar/) and their opacity
   var surveys = {}, levels = {};
 
   // Depth ramp (m): pale blue at the shore to near-black navy at 100 m.
@@ -63,7 +66,96 @@ window.LSSoundings = (function () {
     }
     map.addLayer({ id: HIT, type: 'circle', source: SRC, layout: { visibility: vis() },
       paint: { 'circle-color': '#000', 'circle-opacity': 0, 'circle-radius': 8 } });
+    if (bars) map.addLayer(barLayer());
     wire();
+  }
+
+  // ---- 3D: each sounding as a bar from its lake's surface down to the bed --
+  // (Hig, 2026-10-12, for /lidar/: "show in their appropriate point in space --
+  // a bar down from the lake surface, so the dots appear even at 100% lidar
+  // opacity, but as vertical traces you can see through if the opacity is
+  // reduced".)  The dot at the top is the circle layer, draped on the terrain
+  // at the water surface.  The bars are a custom WebGL layer drawn WITHOUT the
+  // depth test -- they are under the terrain, so with it they could never show
+  // -- at an opacity the host sets from the lidar opacity (setSeeThrough), so
+  // they appear as the surface is faded and are gone when it is opaque.  A bar
+  // runs from level x exaggeration to bed x exaggeration: MapLibre's terrain
+  // height is the DEM value times the exaggeration, no offset (5.24,
+  // Terrain.getElevation), and custom layers share its projection.  Only with
+  // terrain on; in 2D the dots are the whole story.
+  function hexRgb(h) { return [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255]; }
+  var STOPS = []; for (var si = 3; si < RAMP.length; si += 2) STOPS.push([RAMP[si], hexRgb(RAMP[si + 1])]);
+  function rampRgb(d) {
+    if (d <= STOPS[0][0]) return STOPS[0][1];
+    for (var i = 1; i < STOPS.length; i++) {
+      if (d <= STOPS[i][0]) {
+        var t = (d - STOPS[i - 1][0]) / (STOPS[i][0] - STOPS[i - 1][0]), a = STOPS[i - 1][1], b = STOPS[i][1];
+        return [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2])];
+      }
+    }
+    return STOPS[STOPS.length - 1][1];
+  }
+  function barLayer() {
+    var prog = null, buf = null, n = 0, loc = {};
+    var VS = 'attribute vec3 a_pos; attribute vec3 a_col; uniform mat4 u_matrix; uniform float u_ex; varying vec3 v_col;' +
+             'void main() { gl_Position = u_matrix * vec4(a_pos.xy, a_pos.z * u_ex, 1.0); gl_PointSize = 5.0; v_col = a_col; }';
+    var FS = 'precision mediump float; uniform float u_alpha; uniform float u_dot; varying vec3 v_col;' +
+             'void main() { if (u_dot > 0.5) { vec2 c = gl_PointCoord - 0.5; if (dot(c, c) > 0.25) discard; }' +
+             ' gl_FragColor = vec4(v_col * u_alpha, u_alpha); }';
+    function build(gl) {
+      // two vertices per sounding (surface, bed), then the beds again as dots
+      var top = [], bot = [];
+      data.features.forEach(function (f) {
+        var p = f.properties, lv = levels[p.level_id];
+        if (p.kind !== 'sounding' || p.z == null || !lv || lv.level_m == null) return;
+        var ll = f.geometry.coordinates, c = rampRgb(p.depth_m);
+        var a = maplibregl.MercatorCoordinate.fromLngLat(ll, lv.level_m), b = maplibregl.MercatorCoordinate.fromLngLat(ll, p.z);
+        if (p.flag === 'rejected') c = [0.55, 0.55, 0.55];
+        top.push(a.x, a.y, a.z, c[0], c[1], c[2], b.x, b.y, b.z, c[0], c[1], c[2]);
+        bot.push(b.x, b.y, b.z, c[0], c[1], c[2]);
+      });
+      n = top.length / 12;
+      buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(top.concat(bot)), gl.STATIC_DRAW);
+    }
+    function sh(gl, type, src) { var o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); return o; }
+    return {
+      id: BARS, type: 'custom', renderingMode: '3d',
+      onAdd: function (m, gl) {
+        prog = gl.createProgram();
+        gl.attachShader(prog, sh(gl, gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl, gl.FRAGMENT_SHADER, FS));
+        gl.linkProgram(prog);
+        ['a_pos', 'a_col'].forEach(function (k) { loc[k] = gl.getAttribLocation(prog, k); });
+        ['u_matrix', 'u_ex', 'u_alpha', 'u_dot'].forEach(function (k) { loc[k] = gl.getUniformLocation(prog, k); });
+        build(gl);
+      },
+      render: function (gl, args) {
+        var t = map.getTerrain && map.getTerrain();
+        if (!shown || !t || seeThrough < 0.02 || !n) return;
+        var M = (args && args.defaultProjectionData && args.defaultProjectionData.mainMatrix) || args.modelViewProjectionMatrix || args;
+        gl.useProgram(prog);
+        gl.uniformMatrix4fv(loc.u_matrix, false, new Float32Array(M));   // MapLibre hands over a Float64Array
+        gl.uniform1f(loc.u_ex, t.exaggeration || 1);
+        gl.uniform1f(loc.u_alpha, seeThrough);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.enableVertexAttribArray(loc.a_pos); gl.enableVertexAttribArray(loc.a_col);
+        gl.vertexAttribPointer(loc.a_pos, 3, gl.FLOAT, false, 24, 0);
+        gl.vertexAttribPointer(loc.a_col, 3, gl.FLOAT, false, 24, 12);
+        gl.disable(gl.DEPTH_TEST);
+        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.uniform1f(loc.u_dot, 0); gl.drawArrays(gl.LINES, 0, 2 * n);
+        gl.uniform1f(loc.u_dot, 1); gl.drawArrays(gl.POINTS, 2 * n, n);
+      },
+      onRemove: function (m, gl) { if (buf) gl.deleteBuffer(buf); if (prog) gl.deleteProgram(prog); buf = prog = null; }
+    };
+  }
+  // 0 = bars hidden (the surface is opaque), 1 = fully drawn. /lidar/ passes 1 - lidar opacity.
+  function setSeeThrough(a) {
+    a = Math.max(0, Math.min(1, +a || 0));
+    if (a === seeThrough) return;
+    seeThrough = a;
+    if (map && map.getLayer(BARS)) map.triggerRepaint();
   }
 
   function wire() {
@@ -136,6 +228,7 @@ window.LSSoundings = (function () {
 
   function init(opts) {
     map = opts.map; api = opts.api || api;
+    if (opts.bars) bars = true;
     return load();
   }
 
@@ -145,6 +238,7 @@ window.LSSoundings = (function () {
     [CON, PT, REJ, LBL, HIT].forEach(function (id) {
       if (map && map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis());
     });
+    if (map && map.getLayer(BARS)) map.triggerRepaint();
   }
 
   // Soundings within maxM of a polyline, projected onto it: d along, off across.
@@ -170,7 +264,7 @@ window.LSSoundings = (function () {
     return out.sort(function (a, b) { return a.d - b.d; });
   }
 
-  return { init: init, setVisible: setVisible, visible: function () { return shown; },
+  return { init: init, setVisible: setVisible, setSeeThrough: setSeeThrough, visible: function () { return shown; },
            all: function () { return data; }, near: near, survey: function (id) { return surveys[id]; },
            level: function (id) { return levels[id]; } };
 })();

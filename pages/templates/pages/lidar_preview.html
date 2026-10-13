@@ -792,6 +792,8 @@ vanish depending on which way you light them.
     // the difference layer is part of the lidar stack too (DIFF_LAYER may be undefined during early restore)
     if (typeof DIFF_LAYER !== 'undefined' && map.getLayer(DIFF_LAYER))
       map.setPaintProperty(DIFF_LAYER, 'raster-opacity', V('dop') / 100 * op);
+    // Soundings' 3D bars (under the terrain, surface to bed) show as the surface fades.
+    if (window.LSSoundings) LSSoundings.setSeeThrough(1 - op);
   }
 
   // The whole Imagery block exists only for a survey with imagery from its
@@ -2102,7 +2104,7 @@ vanish depending on which way you light them.
   // Lake soundings (soundings.js; the tables are inventory's): fetched the first
   // time they are shown, under the traces like every other layer.
   function soundingsShow(on) {
-    if (on) LSSoundings.init({ map: map, api: '/inventory/' }).then(function (fc) {
+    if (on) LSSoundings.init({ map: map, api: '/inventory/', bars: true }).then(function (fc) {
       var n = fc.features.filter(function (f) { return f.properties.kind === 'sounding'; }).length;
       document.getElementById('sd-info').textContent = fc.surveys.length
         ? n + ' soundings from ' + fc.surveys.length + ' survey' + (fc.surveys.length === 1 ? '' : 's') +
