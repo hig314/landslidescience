@@ -151,7 +151,7 @@ function updateStack(){ // no DOM rebuild: preload then swap thumbnails, patch h
     d.querySelectorAll('img').forEach(im=>{if(im.src.includes('layer='+L.name+'&'))im.classList.toggle('cur-img',L.name===cur)})}
   const nmComp=[...d.querySelectorAll('.nm')].find(e=>e.textContent==='composite');if(nmComp)nmComp.classList.toggle('cur',compositeView);
 }
-let demBg='shade:out';
+let demBg='preset:out';
 const BAND={lo:0,hi:0,min:0,max:0};
 function bandSet(lo,hi,redraw=true){BAND.lo=Math.min(lo,hi);BAND.hi=Math.max(lo,hi);const f=v=>Math.round(1000*(v-BAND.min)/Math.max(BAND.max-BAND.min,1e-6));$('#band-lo').value=f(BAND.lo);$('#band-hi').value=f(BAND.hi);$('#band-lo-v').value=BAND.lo.toFixed(1);$('#band-hi-v').value=BAND.hi.toFixed(1);if(redraw)bandDraw()}
 let bandT=null;function bandDraw(){clearTimeout(bandT);bandT=setTimeout(()=>refresh(new Set(['bg'])),120)}
@@ -166,7 +166,7 @@ function bandInit(){BAND.min=Math.floor(ST.zrange[0]-10);BAND.max=Math.ceil(ST.z
 let compositeView=false, savedOv=null;
 function showComposite(){ // final result, clean: composite hillshade, overlays off; remembered so a layer click restores them
   if(!compositeView){savedOv={mask:$('#ovmask').checked,paint:$('#ovpaint').checked,valid:$('#ovvalid').checked,bg:$('#bg').value};compositeView=true}
-  $('#bg').value='shade:out';
+  $('#bg').value='preset:out';
   $('#ovmask').checked=false; $('#ovpaint').checked=false; $('#ovvalid').checked=false;
   refresh(new Set(['bg','mask','paint','valid']))}
 function leaveComposite(){if(!compositeView)return;compositeView=false;
@@ -249,5 +249,6 @@ $('#ref').onchange=()=>{const v=$('#ref').value;$('#tolu').textContent=v==='auto
   if(ST.has_axes){document.querySelectorAll('option.axes').forEach(o=>o.disabled=false);buildPickers();$('#title').textContent+=` · ${ST.target} as of ${(+ST.as_of).toFixed(2)}`}
   if(ST.has_reference){$('#bg-refdiff').disabled=false;$('#ref-refdiff').disabled=false;$('#bg-refdiff').textContent=`composite − reference (${ST.reference.split('/').pop()}) ±s`}
   view.k=Math.min(stage.clientWidth/ST.width,stage.clientHeight/ST.height);applyView();bandInit();
-  await refresh(new Set(['bg','mask','paint','valid','sel']));setStatus('ready')})();
+  $('#bg').value='preset:out';      // opens on the composite in the /lidar/ preset (Hig 2026-10-12), not the last layer
+  showComposite(); await refresh(new Set(['sel']));setStatus('ready')})();
 </script></body></html>

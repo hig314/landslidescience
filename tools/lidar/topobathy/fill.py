@@ -56,7 +56,7 @@ DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, s
                 cond_m=30.0, cg_iters=300, coarse=16,
                 lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, lake_surface_tol_m=0.2, lake_islet_m2=50, void_shore_m=2.0, points=None,
                 channel_slope=0.002, channel_drop_m=1.0, channel_ws_smooth_m=20.0, channel_min_m2=2000, channel_wd=15.0, channel_dmax_cap=2.0,
-                channel_surface_tol_m=0.3)
+                channel_surface_tol_m=0.3, channel_tidal_wmax=120.0)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -147,28 +147,55 @@ def _solve(val, fixed, unk, x0, iters, direct):
     return out
 
 
-def channel_beds(lab, nw, wz, res, P, log=print):
+def _half_width(cells, dt, w, res):
+    """Continuous half-width field: the local maximum of distance-to-bank over ~w, smoothed.  NOT
+    the nearest skeleton cell's half-width: that jumps where the nearest cell switches branch and
+    drew straight spokes across the bed (2026-10-12)."""
+    k = max(int(round(w / res)) | 1, 3)
+    hw = ndimage.maximum_filter(np.where(cells, dt, 0), size=k)
+    sgh = max(w / 2 / res, 1.0)
+    hw = (ndimage.gaussian_filter(np.where(cells, hw, 0), sgh)
+          / np.maximum(ndimage.gaussian_filter(cells.astype(np.float64), sgh), 1e-3))
+    return np.maximum(np.maximum(hw, dt), res)
+
+
+def _keep_big(ch, res, min_m2):
+    ch = ndimage.binary_opening(ch, iterations=2)
+    cl, cn = ndimage.label(ch)
+    if cn:
+        csz = ndimage.sum(ch, cl, np.arange(1, cn + 1)) * res * res
+        ch &= np.isin(cl, np.flatnonzero(csz >= min_m2) + 1)
+    return ch
+
+
+def channel_beds(lab, nw, wz, res, P, marine_ids=(), log=print):
     """CHANNELS (Hig, 2026-10-12: "recognize sloping water surfaces as flowing water channels and
     build bathymetry that is river-aware ... a constant cross-sectional area with a simple curve,
     such that there are wide shallow areas and narrow deep spots").  Per wet domain (labels 1..nw):
 
       WATER SURFACE  harmonic over the domain from the observed water returns (`wz`), smoothed
-                     over channel_ws_smooth_m.  A domain whose surface drops less than
-                     channel_drop_m end to end is still water (a lake): no channel in it.
-      CHANNEL CELLS  where that surface slopes more than channel_slope (m/m), opened, pieces under
-                     channel_min_m2 dropped; over half the domain -> the whole domain (pools in a
-                     river are the river).  The flat rest of a mixed domain stays for the lake code.
-      SECTION        centreline = skeleton of the domain, half-width hw = distance to the bank at
-                     the nearest centreline cell, offset y = hw - (distance to bank).  Parabolic
-                     section depth = dmax (1 - (y/hw)^2), area 2/3 w dmax held constant along the
-                     channel: dmax = 1.5 A / w, so wide reaches are shallow and narrow ones deep.
-                     A from the median width and a width/depth ratio: A = w_med^2 / channel_wd
-                     (mean depth w_med / channel_wd there).  dmax capped at channel_dmax_cap x its
-                     value at the median width, smoothed along over ~w_med.
+                     over channel_ws_smooth_m.
+      RIVER          a non-marine domain whose surface drops more than channel_drop_m: channel
+                     cells where the surface slopes more than channel_slope (m/m), opened, pieces
+                     under channel_min_m2 dropped; over half the domain -> the whole domain (pools
+                     in a river are the river).  The flat rest of a mixed domain stays a lake.
+                     Neither bed nor surface is forced to descend: on average they do, locally not.
+      TIDAL          a MARINE domain (2026-10-12: the tidal channel through the head of China Poot
+                     Bay became "flat water-surface" -- its water is the sea at the flight's tide,
+                     flat, so the slope test never fired and the marine floor was the low-tide
+                     level under it).  The channel is told by SHAPE: cells whose local width is
+                     under channel_tidal_wmax; depth tapers to 0 as the width reaches it, so the
+                     channel meets the open water's floor without a step.
+      SECTION        half-width hw = a continuous local-max field of distance-to-bank (_half_width),
+                     offset y = hw - (distance to bank).  Parabolic: depth = dmax (1 - (y/hw)^2),
+                     area 2/3 w dmax held constant along the channel: dmax = 1.5 A / w, so wide
+                     reaches are shallow and narrow ones deep.  A = w_med^2 / channel_wd (mean
+                     depth w_med / channel_wd at the median width).  dmax capped at
+                     channel_dmax_cap x its value at the median width, smoothed over ~w_med.
       BED            water surface - depth.
 
-    Returns (chan mask, bed, water surface, table).  A first take: no downstream monotonicity, no
-    flow model, no bars -- soundings (points) still condition it like the lakes."""
+    Returns (chan mask, bed, water surface, table).  A first take: no flow model, no bars, braid
+    threads each get the whole section -- soundings (points) still condition it like the lakes."""
     from skimage.morphology import skeletonize
     chan = np.zeros(lab.shape, bool); bed = np.full(lab.shape, np.nan, np.float32)
     wsurf = np.full(lab.shape, np.nan, np.float32); tab = []
@@ -191,40 +218,42 @@ def channel_beds(lab, nw, wz, res, P, log=print):
         den = ndimage.gaussian_filter(cells.astype(np.float64), sg)
         ws = np.where(cells & (den > 1e-3), num / np.maximum(den, 1e-3), np.nan)
         v = ws[cells & np.isfinite(ws)]
-        if v.size == 0 or np.percentile(v, 98) - np.percentile(v, 2) < P["channel_drop_m"]:
+        if v.size == 0:
             continue
-        # slope of the surface: fill outside the domain with the nearest inside value so the
-        # gradient at the bank is the surface's own, not a cliff to NaN
-        _, (ii, jj) = ndimage.distance_transform_edt(~np.isfinite(ws), return_indices=True)
-        wsf = ws[ii, jj]
-        gy, gx = np.gradient(wsf, res)
-        slope = np.hypot(gx, gy)
-        ch = cells & (slope > P["channel_slope"])
-        ch = ndimage.binary_opening(ch, iterations=2)
-        cl, cn = ndimage.label(ch)
-        if cn:
-            csz = ndimage.sum(ch, cl, np.arange(1, cn + 1)) * res * res
-            ch &= np.isin(cl, np.flatnonzero(csz >= P["channel_min_m2"]) + 1)
-        if not ch.any():
-            continue
-        if ch.sum() > 0.5 * cells.sum():
-            ch = cells.copy()
-        # section geometry from the whole domain (its edge is the bank)
+        drop = float(np.percentile(v, 98) - np.percentile(v, 2))
         dt = ndimage.distance_transform_edt(cells, sampling=res)
-        sk = skeletonize(cells) & cells
-        if not sk.any():
-            continue
-        w_med = float(np.median(2 * dt[sk & ch])) if (sk & ch).any() else float(np.median(2 * dt[sk]))
-        w_med = max(w_med, 2 * res)
-        # half-width: NOT the nearest skeleton cell's (it jumps where the nearest cell switches
-        # branch -- straight spokes across the bed, 2026-10-12) but a continuous field: the local
-        # maximum of distance-to-bank over ~one width, smoothed
-        k = max(int(round(w_med / res)) | 1, 3)
-        hw = ndimage.maximum_filter(np.where(cells, dt, 0), size=k)
-        sgh = max(w_med / 2 / res, 1.0)
-        hw = (ndimage.gaussian_filter(np.where(cells, hw, 0), sgh)
-              / np.maximum(ndimage.gaussian_filter(cells.astype(np.float64), sgh), 1e-3))
-        hw = np.maximum(np.maximum(hw, dt), res)
+        tidal = i in marine_ids
+        if tidal:
+            wmax = P["channel_tidal_wmax"]
+            hwt = _half_width(cells, dt, wmax, res)            # over wmax: is it narrow at all?
+            ch = _keep_big(cells & (2 * hwt < wmax), res, P["channel_min_m2"])
+            if not ch.any():
+                continue
+            slope = np.zeros(cells.shape)
+            sk = skeletonize(ch) & ch                            # its own width, from its centreline
+            w_med = max(float(np.median(2 * dt[sk])) if sk.any() else float(np.median(2 * hwt[ch])), 2 * res)
+            hw = _half_width(cells, dt, w_med, res)
+            taper = np.clip((wmax - 2 * hwt) / (0.3 * wmax), 0, 1)
+        else:
+            if drop < P["channel_drop_m"]:
+                continue
+            # slope of the surface: outside the domain filled with the nearest inside value, so the
+            # gradient at the bank is the surface's own, not a cliff to NaN
+            _, (ii, jj) = ndimage.distance_transform_edt(~np.isfinite(ws), return_indices=True)
+            gy, gx = np.gradient(ws[ii, jj], res)
+            slope = np.hypot(gx, gy)
+            ch = _keep_big(cells & (slope > P["channel_slope"]), res, P["channel_min_m2"])
+            if not ch.any():
+                continue
+            if ch.sum() > 0.5 * cells.sum():
+                ch = cells.copy()
+            sk = skeletonize(cells) & cells
+            if not sk.any():
+                continue
+            w_med = float(np.median(2 * dt[sk & ch])) if (sk & ch).any() else float(np.median(2 * dt[sk]))
+            w_med = max(w_med, 2 * res)
+            hw = _half_width(cells, dt, w_med, res)
+            taper = 1.0
         y = np.clip(hw - dt, 0, hw)
         A = w_med ** 2 / P["channel_wd"]
         dmax_ref = 1.5 * A / w_med
@@ -232,17 +261,18 @@ def channel_beds(lab, nw, wz, res, P, log=print):
         sgw = max(w_med / res, 1.0)
         dmax = (ndimage.gaussian_filter(np.where(cells, dmax, 0), sgw)
                 / np.maximum(ndimage.gaussian_filter(cells.astype(np.float64), sgw), 1e-3))
-        depth = dmax * (1 - (y / hw) ** 2)
+        depth = taper * dmax * (1 - (y / hw) ** 2)
         b = (ws - depth).astype(np.float32)
         sub = ch & np.isfinite(b)
         chan[sl] |= sub
         bed[sl][sub] = b[sub]; wsurf[sl][sub] = ws[sub].astype(np.float32)
-        tab.append(dict(id=int(i), area_m2=int(sub.sum() * res * res), domain_m2=int(A_dom), w_med_m=round(w_med, 1),
-                        area_section_m2=round(A, 1), dmax_med_m=round(dmax_ref, 2), depth_max_m=round(float(np.nanmax(depth[sub])), 2),
-                        slope_med=round(float(np.median(slope[sub])), 4), drop_m=round(float(np.percentile(v, 98) - np.percentile(v, 2)), 1)))
+        tab.append(dict(id=int(i), tidal=bool(tidal), area_m2=int(sub.sum() * res * res), domain_m2=int(A_dom),
+                        w_med_m=round(w_med, 1), area_section_m2=round(A, 1), dmax_med_m=round(dmax_ref, 2),
+                        depth_max_m=round(float(np.nanmax(depth[sub])), 2), slope_med=round(float(np.median(slope[sub])), 4),
+                        drop_m=round(drop, 1)))
     if tab:
-        log(f"  channels: {len(tab)} in wet domains, {int(chan.sum()) * res * res / 1e6:.3f} km2; width p50 "
-            f"{np.median([t['w_med_m'] for t in tab]):.0f} m, section {np.median([t['area_section_m2'] for t in tab]):.1f} m2 p50")
+        log(f"  channels: {len(tab)} ({sum(t['tidal'] for t in tab)} tidal) in wet domains, {int(chan.sum()) * res * res / 1e6:.3f} km2; "
+            f"width p50 {np.median([t['w_med_m'] for t in tab]):.0f} m, section {np.median([t['area_section_m2'] for t in tab]):.1f} m2 p50")
     return chan, bed, wsurf, tab
 
 
@@ -374,7 +404,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # sigma.  Shape: depth = Dmax*(l/L)^p with p from the target volume development Vd
     # (Hakanson: Vd = 2/((p+1)(p+2)); 0.5 is the flatter glacial norm, 1/3 a cone).  Shores
     # keep the band: the deeper of the rim-slope extension (capped at Dmax) and the shape.
-    chan, chan_bed, chan_ws, chan_tab = channel_beds(lab, nw, P.get("_water_z"), res, P, log=log)
+    chan, chan_bed, chan_ws, chan_tab = channel_beds(lab, nw, P.get("_water_z"), res, P,
+                                                     marine_ids={int(i) for i in ids[marine]}, log=log)
     lake_tab = []; lake_level = {}
     surface = np.zeros(z.shape, bool)              # observations judged to be the water surface (-> fill_surface.tif)
     lake_prior = np.full(z.shape, np.nan, np.float32); lake_sig = np.full(z.shape, np.nan, np.float32)
