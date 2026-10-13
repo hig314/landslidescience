@@ -5,6 +5,7 @@ derive the observation's class raster from them by stated rules.
 
   observe_points.py stats    --survey kbay|grewingk --bounds x0,y0,x1,y1 --out DIR [--res 2] [--jobs 6]
   observe_points.py classify --out DIR [--rules kbay|grewingk] [--dtm archive.tif]
+  observe_points.py intensity --out DIR --units-from kbay_reclass_test/full/out [--res 1] [--resolution 0.5]
 
 `stats` writes DIR/cellstats.tif (EPSG:6334, `res` m cells, bands below)
 by running one PDAL pipeline per tile (COPC tiles for KBay on Powder,
@@ -391,6 +392,90 @@ def cmd_classify(a):
                                                     struct=a.struct, water=a.water, level=a.level), indent=1))
 
 
+# --------------------------------------------------------------- intensity
+
+INT_BANDS = ["i_single", "i_last", "n_last"]
+
+
+def _intensity_unit(args):
+    """One 1 km unit: mean intensity of single returns (open sky: the ground or water surface lit
+    by the whole pulse) and of last returns, and the last-return count, on `res` m cells. Written
+    as uint16 (intensity is uint16 in the LAS; 0 = no return)."""
+    survey, name, box, res, resolution, out, tmp = args
+    dst_tif = Path(out) / f"{name}.tif"
+    if dst_tif.exists():
+        return name, "exists"
+    x0, y0, x1, y1 = box
+    W = int(round((x1 - x0) / res)); H = int(round((y1 - y0) / res)); n = W * H
+    s1 = np.zeros(n); c1 = np.zeros(n); sl = np.zeros(n); cl = np.zeros(n)
+    for t in tiles_for(survey, box):
+        dst = str(Path(tmp) / f"{name}_{Path(t).stem}.las")
+        p = _pipeline(survey, t, box, dst)
+        if resolution:
+            p["pipeline"][0]["resolution"] = resolution
+        pj = dst + ".json"; Path(pj).write_text(json.dumps(p))
+        r = subprocess.run(["pdal", "pipeline", pj], capture_output=True, text=True)
+        os.remove(pj)
+        if r.returncode or not Path(dst).exists() or Path(dst).stat().st_size < 400:
+            if Path(dst).exists(): os.remove(dst)
+            continue
+        x, y, z, inten, cls, rn, nr = read_las_pf6(dst)
+        os.remove(dst)
+        keep = ~((cls == 7) | (cls == 18))
+        col = np.floor((x - x0) / res).astype(np.int64); row = np.floor((y1 - y) / res).astype(np.int64)
+        ok = keep & (col >= 0) & (col < W) & (row >= 0) & (row < H)
+        f = row[ok] * W + col[ok]; ii = inten[ok]; last = (rn == nr)[ok]; single = (nr == 1)[ok]
+        s1 += np.bincount(f[single], weights=ii[single], minlength=n); c1 += np.bincount(f[single], minlength=n)
+        sl += np.bincount(f[last], weights=ii[last], minlength=n); cl += np.bincount(f[last], minlength=n)
+    if cl.sum() == 0:
+        return name, "no points"
+    with np.errstate(invalid="ignore", divide="ignore"):
+        b1 = np.where(c1 > 0, np.clip(np.round(s1 / c1), 1, 65535), 0)
+        b2 = np.where(cl > 0, np.clip(np.round(sl / cl), 1, 65535), 0)
+    arr = np.stack([b1, b2, np.minimum(cl, 65535)]).reshape(3, H, W).astype(np.uint16)
+    part = str(dst_tif) + ".part"
+    with rasterio.open(part, "w", driver="GTiff", width=W, height=H, count=3, dtype="uint16", nodata=0,
+                       crs=CRS.from_epsg(EPSG), transform=from_origin(x0, y1, res, res),
+                       compress="deflate", predictor=2, tiled=True, blockxsize=256, blockysize=256) as d:
+        d.write(arr)
+        for k, nm in enumerate(INT_BANDS, 1):
+            d.set_band_description(k, nm)
+    os.replace(part, dst_tif)
+    return name, None
+
+
+def cmd_intensity(a):
+    """Intensity rasters over a set of 1 km units named u_<x km>_<y km> (the KBay reclass unit
+    grid: --units-from its full/out). Resumable: a unit whose tif exists is skipped."""
+    out = Path(a.out); (out / "units").mkdir(parents=True, exist_ok=True)
+    names = sorted(p.name for p in Path(a.units_from).iterdir() if p.name.startswith("u_"))
+    if a.limit:
+        names = names[:a.limit]
+    jobs = []
+    for nm in names:
+        _, ux, uy = nm.split("_"); x0, y0 = int(ux) * 1000.0, int(uy) * 1000.0
+        jobs.append((a.survey, nm, (x0, y0, x0 + 1000, y0 + 1000), a.res, a.resolution, str(out / "units"), None))
+    tmp_root = "/Volumes/Nunatak/lidar_build/tmp" if Path("/Volumes/Nunatak/lidar_build/tmp").exists() else None
+    t0 = time.time(); done = 0
+    print(f"[{a.survey}] intensity: {len(jobs)} units, {a.res} m cells, COPC resolution {a.resolution}", flush=True)
+    with tempfile.TemporaryDirectory(dir=tmp_root) as tmp:
+        jobs = [j[:-1] + (tmp,) for j in jobs]
+        import multiprocessing as mp
+        with mp.get_context("fork").Pool(a.jobs) as pool:
+            for k, (nm, err) in enumerate(pool.imap_unordered(_intensity_unit, jobs), 1):
+                done += err is None
+                if err not in (None, "exists") or k % 25 == 0:
+                    print(f"  {k}/{len(jobs)} {nm} {err or 'ok'}  {time.time() - t0:.0f}s", flush=True)
+    tifs = sorted(str(p) for p in (out / "units").glob("u_*.tif"))
+    vrt = str(out / "intensity.vrt")
+    subprocess.run(["/opt/homebrew/bin/gdalbuildvrt", "-q", vrt] + tifs, check=True)
+    subprocess.run(["/opt/homebrew/bin/gdal_translate", "-q", "-of", "COG", "-co", "COMPRESS=DEFLATE", "-co", "PREDICTOR=2",
+                    "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS", vrt, str(out / "intensity.tif")], check=True)
+    (out / "intensity.json").write_text(json.dumps(dict(survey=a.survey, res_m=a.res, copc_resolution=a.resolution,
+                                                        units=len(tifs), bands=INT_BANDS, seconds=round(time.time() - t0)), indent=1))
+    print(f"[{a.survey}] intensity: {done} units written, {len(tifs)} on disk, {time.time() - t0:.0f}s -> {out}/intensity.tif")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sp = p.add_subparsers(dest="cmd", required=True)
@@ -402,8 +487,12 @@ def main():
     c.add_argument("--struct", help="structure mask (1 = building/bridge cells) -> built, e.g. the KBay reclass struct_mask.tif")
     c.add_argument("--water", help="water-cell mask (1 = the floor is the water), e.g. the KBay reclass water_mask.tif")
     c.add_argument("--level", help="local water level raster, e.g. the KBay reclass water_level.tif (with --water: DTM at the level -> water)")
+    i = sp.add_parser("intensity"); i.add_argument("--survey", default="kbay", choices=list(SURVEYS)); i.add_argument("--out", required=True)
+    i.add_argument("--units-from", required=True, help="directory of u_<xkm>_<ykm> unit dirs, e.g. kbay_reclass_test/full/out")
+    i.add_argument("--res", type=float, default=1.0); i.add_argument("--resolution", type=float, default=0.5, help="COPC octree cut (m)")
+    i.add_argument("--jobs", type=int, default=6); i.add_argument("--limit", type=int, default=0)
     a = p.parse_args()
-    {"stats": cmd_stats, "classify": cmd_classify}[a.cmd](a)
+    {"stats": cmd_stats, "classify": cmd_classify, "intensity": cmd_intensity}[a.cmd](a)
 
 
 if __name__ == "__main__":
