@@ -767,6 +767,25 @@ Mapping landslides on the lidar surfaces turns up scarps that are **not** landsl
 
 Deliberately thin. Certainty, sense of motion, or a link to a USGS fault id are `ALTER TABLE ADD COLUMN` away, which is why the migration is written to be re-run.
 
+## Lake soundings — sparse depths (2026-10-12, dev only)
+
+Scattered lake and nearshore depths (handheld sounder, lead line, digitised
+ADF&G contour maps) that are too sparse to be a raster survey. PostGIS tables
+`sounding_surveys` / `sounding_levels` / `soundings` / `sounding_contours`
+and view `soundings_z` (`migrate_soundings`, idempotent); loaded whole per
+survey by `load_soundings <package>` from a package a per-source ingest script
+writes (`tools/soundings/`); `export_soundings` writes the dated x,y,z,sigma
+CSV the topobathy composites read. **Depth is stored, elevation derived**
+(`z = level − depth`, the level a row of its own with source and sigma), and
+**wrong rows are flagged `rejected`, never deleted**. Reads at
+`/inventory/api/soundings/` — public surveys for everyone, `public = false`
+ones only for `can_view_restricted` accounts; no write endpoints yet. Shown by
+`soundings.js` on `/lidar/` (Soundings) and `/inventory/` (Reference layers →
+Lake soundings, `ref=soundings`), and as dots with ±σ on the ∿ profile
+(`marker` series in `profile_chart.js`). Workflow and the contour-map plan:
+**[tools/soundings/README.md](tools/soundings/README.md)**. First survey:
+Nick Riordan's 2018 KBSP lakes (574 soundings, public).
+
 ## Faults & folds reference layer (three sources, one layer)
 
 `inventory/static/inventory/ak_qff.geojson`, `ak_adem2021.geojson`, `ak_nshm2023.geojson` are **display copies built by `tools/faults/build_faults.py`** — edit the script, never the files. Sources: DGGS DDS 3 (Koehler 2013; pristine copy in `tools/faults/src/`), USGS *Alaska Fault Trace Mapping 2021* (Bender & Haeussler, 648 traces at 1:10,000 on ArcticDEM, interior/western AK) and the *NSHM 2023 Alaska fault sections* v2.0 (Bender, Haeussler & Powers, 105 simplified model lines with rate/dip/rake — the only GIS with the Susitna basin scarps of Haeussler et al. 2017). The two USGS files download from ScienceBase into `data/faults_src/` on first run.

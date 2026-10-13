@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import (analysis, dist, external, insar, opera, permafrost, photos, scarps, susc_dggs, table_data,
+from . import (analysis, dist, external, insar, opera, permafrost, photos, scarps, soundings, susc_dggs, table_data,
                trace_views, views)
 
 app_name = 'inventory'
@@ -85,6 +85,8 @@ urlpatterns = [
             external.api_external_promote, name='api_external_promote'),
     # Scarp traces: public reads, editor-only writes (see inventory/scarps.py).
     path('api/scarps/', scarps.api_scarps, name='api_scarps'),
+    # Bathymetric soundings: reads only; gated surveys for data users (inventory/soundings.py).
+    path('api/soundings/', soundings.api_soundings, name='api_soundings'),
     # Permafrost patch detail (the analysis panel's permafrost preset); grids in data/permafrost/.
     path('api/permafrost/patch/', permafrost.api_patch, name='api_permafrost_patch'),
     # The analysis panel's quantity cube (inventory/analysis.py; data/quantities/).

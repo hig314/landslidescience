@@ -263,11 +263,21 @@ window.LSProfile = (function () {
   function draw() {
     if (!result || !chart) return;
     var series = ordered();
-    chart.setData({ length: result.length, series: series.map(function (s) {
+    var out = series.map(function (s) {
       return { id: s.id, label: s.title, short: s.id, color: s.color,
                dash: s.id === 'mapterhorn' ? '4 3' : null, width: s.id === 'mapterhorn' ? 1.2 : 1.8,
                runs: [result.points.map(function (q, k) { return { d: q.d, z: s.z[k] }; })] };
-    }) });
+    });
+    // Soundings near the line (soundings.js), while their layer is shown: the bed under the
+    // water the DEMs read as a flat surface. Each with its ±sigma.
+    if (window.LSSoundings && LSSoundings.visible() && LSSoundings.all()) {
+      var buf = Math.max(25, Math.min(150, result.length / 30));
+      var nr = LSSoundings.near(result.points.map(function (q) { return [q.lon, q.lat]; }), buf);
+      if (nr.length) out.push({ id: 'soundings', label: 'Soundings within ' + Math.round(buf) + ' m (±σ)', short: 'soundings',
+                                color: '#0d47a1', marker: true,
+                                runs: [nr.map(function (n) { return { d: n.d, z: n.z, sigma: n.sigma, off: n.off }; })] });
+    }
+    chart.setData({ length: result.length, series: out });
     status(fmtD(result.length) + ' · ' + series.length + ' DEM' + (series.length === 1 ? '' : 's') +
            (result.pending ? ' · reading ' + result.pending + ' more…' : '') +
            ' · ' + result.points.length + ' samples every ' + (result.step < 10 ? result.step.toFixed(1) : Math.round(result.step)) + ' m');

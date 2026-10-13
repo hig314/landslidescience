@@ -271,6 +271,10 @@ vanish depending on which way you light them.
   <div id="tr-ginfo"></div>
   {% if is_inventory_editor %}<div class="stackhint">Trace with the &#9998; button (top right).</div>{% endif %}
 
+  <h2>Soundings <a class="mlink" href="{% url 'lidar_methods' %}#soundings" title="Methods: lake soundings">?</a></h2>
+  <label title="Lake and nearshore depth soundings and digitised depth contours, coloured by depth (pale shallow, dark deep; a grey ring is a sounding judged wrong, kept on the record). Click one for its depth, the bed elevation it implies and its source. A lidar survey sees the water surface over a lake; these are the bed under it."><input type="checkbox" id="sdv"> Show lake soundings</label>
+  <div id="sd-info" class="stackhint"></div>
+
   <details class="grp" id="srcgrp">
     <summary>Sources &amp; credits <span class="cnt" id="srccount"></span></summary>
     <div class="stackhint">Who produced each survey. Where this says "not
@@ -329,6 +333,7 @@ vanish depending on which way you light them.
 <script src="{% static 'inventory/js/ls_float.js' %}"></script>
 <script src="{% static 'inventory/js/ls_goto.js' %}"></script>
 <script src="{% static 'inventory/js/scarps.js' %}"></script>
+<script src="{% static 'inventory/js/soundings.js' %}"></script>
 <script src="{% static 'inventory/js/dem_read.js' %}"></script>
 <script src="{% static 'inventory/js/profile_chart.js' %}"></script>
 <script src="{% static 'inventory/js/trace_profile.js' %}"></script>
@@ -381,7 +386,7 @@ vanish depending on which way you light them.
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
   var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop', 'vop', 'bop', 'tmesh'];
-  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'ctxlive', 'ctxshade', 'fog', 'inview', 'preslope', 'ortho', 'veg', 'trv'];
+  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'ctxlive', 'ctxshade', 'fog', 'inview', 'preslope', 'ortho', 'veg', 'trv', 'sdv'];
   // [checkbox, slider, row, default-when-first-ticked] for the optional ramps.
   // Declared HERE, beside the other boot tables, because syncVisRows() runs
   // during restore: `var` hoists the name but not the value, so leaving this
@@ -1807,7 +1812,11 @@ vanish depending on which way you light them.
   var TRACE_FIRST = 'scarps-case';
   var _addLayer = map.addLayer.bind(map);
   map.addLayer = function (layer, before) {
-    if (!before && layer && !/^(scarps|tgp)-/.test(layer.id) && map.getLayer(TRACE_FIRST)) before = TRACE_FIRST;
+    if (!before && layer && !/^(scarps|tgp)-/.test(layer.id)) {
+      // Soundings (soundings.js) sit just under the traces; everything else under both.
+      if (!/^soundings-/.test(layer.id) && map.getLayer('soundings-con')) before = 'soundings-con';
+      else if (map.getLayer(TRACE_FIRST)) before = TRACE_FIRST;
+    }
     return _addLayer(layer, before);
   };
   var IS_EDITOR = {% if is_inventory_editor %}true{% else %}false{% endif %};
@@ -2090,8 +2099,23 @@ vanish depending on which way you light them.
   document.getElementById('trv').addEventListener('change', function () {
     LSScarps.setVisible(this.checked); syncUrl();
   });
+  // Lake soundings (soundings.js; the tables are inventory's): fetched the first
+  // time they are shown, under the traces like every other layer.
+  function soundingsShow(on) {
+    if (on) LSSoundings.init({ map: map, api: '/inventory/' }).then(function (fc) {
+      var n = fc.features.filter(function (f) { return f.properties.kind === 'sounding'; }).length;
+      document.getElementById('sd-info').textContent = fc.surveys.length
+        ? n + ' soundings from ' + fc.surveys.length + ' survey' + (fc.surveys.length === 1 ? '' : 's') +
+          (fc.features.length > n ? ', ' + (fc.features.length - n) + ' contours' : '') + '. Click one for its source.'
+        : 'No soundings yet.';
+      LSScarps.raise && LSScarps.raise();
+    }).catch(function (e) { document.getElementById('sd-info').textContent = 'Soundings failed to load: ' + e.message; });
+    LSSoundings.setVisible(on);
+  }
+  document.getElementById('sdv').addEventListener('change', function () { soundingsShow(this.checked); syncUrl(); });
   map.on('load', function () {
     LSScarps.setVisible(document.getElementById('trv').checked);
+    if (document.getElementById('sdv').checked) soundingsShow(true);
     LSScarps.init({
       map: map, api: '/inventory/',
       csrf: function () { return '{{ csrf_token }}'; },
