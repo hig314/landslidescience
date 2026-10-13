@@ -29,8 +29,10 @@ those holes in four steps, each written out so the provenance of every filled ce
             harmonic surface from the band's inner edge and the bed rim.  Off a beach the band
             is wide and gentle; off bedrock it is a steep face to the low-tide level.
   RESIDUAL  the soundings inside the domain condition the prior: r = sounding - prior at
-            sounding cells, r = 0 on the rim, harmonic in between; fill = prior + r.  Soundings
-            are honoured exactly; between them the prior's shape holds.
+            sounding cells, r = 0 on the rim, harmonic in between; fill = prior + r.  Sparse
+            POINT depths (`points`, a CSV) are not observations: a weighted thin-plate smoothing
+            spline of their residual (r = 0 on the boundary) is added afterwards, passing within
+            ~points_sigma_m of them rather than through them (_spline_residual, Portage's wtps).
 
   SIGMA     for the fill: sigma_fill = sigma_prior * (1 - w) + sigma_obs * w where w decays with
             distance to the nearest sounding (`cond_m`), and sigma_prior grows with distance from
@@ -56,7 +58,8 @@ DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, s
                 cond_m=30.0, cg_iters=300, coarse=16,
                 lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, lake_surface_tol_m=0.2, lake_islet_m2=50, void_shore_m=2.0, points=None,
                 channel_slope=0.002, channel_drop_m=1.0, channel_ws_smooth_m=20.0, channel_min_m2=2000, channel_wd=15.0, channel_dmax_cap=2.0,
-                channel_surface_tol_m=0.3, channel_tidal_wmax=120.0)
+                channel_surface_tol_m=0.3, channel_tidal_wmax=120.0,
+                points_sigma_m=1.0, points_rim_sigma_m=0.2, points_rim_step_m=10.0, points_grid_m=4.0, points_sigma_per_m=0.15)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -274,6 +277,75 @@ def channel_beds(lab, nw, wz, res, P, marine_ids=(), log=print):
         log(f"  channels: {len(tab)} ({sum(t['tidal'] for t in tab)} tidal) in wet domains, {int(chan.sum()) * res * res / 1e6:.3f} km2; "
             f"width p50 {np.median([t['w_med_m'] for t in tab]):.0f} m, section {np.median([t['area_section_m2'] for t in tab]):.1f} m2 p50")
     return chan, bed, wsurf, tab
+
+
+def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, name=0):
+    """Weighted thin-plate smoothing spline of the soundings' residual against `base` over one
+    domain's hole `cells`, with residual 0 on the cells' boundary (finite neighbours: shore,
+    islands).  S rows: (row, col, x, y, z).  Smoothing by the discrepancy principle: the
+    soundings' sigma-weighted misfit RMS = 1.  Returns the residual on `cells` (NaN elsewhere)."""
+    if T is None or not cells.any():
+        return None
+    from scipy.ndimage import map_coordinates
+    sg_pt, sg_rim = float(P["points_sigma_m"]), float(P["points_rim_sigma_m"])
+    rr, cc = S[:, 0].astype(int), S[:, 1].astype(int)
+    b = base[rr, cc].astype(np.float64); ok = np.isfinite(b)
+    if ok.sum() < 3:
+        return None
+    # one site per cell (a sounding run logs several fixes per metre)
+    key = rr[ok] * base.shape[1] + cc[ok]
+    uk, inv = np.unique(key, return_inverse=True); cnt = np.bincount(inv).astype(float)
+    sx = np.bincount(inv, S[ok, 2]) / cnt; sy = np.bincount(inv, S[ok, 3]) / cnt
+    sr = np.bincount(inv, S[ok, 4] - b[ok]) / cnt
+    sgp = sg_pt / np.sqrt(cnt)
+    # boundary: finite cells 8-adjacent to the domain's holes, one per points_rim_step_m block
+    bnd = ndimage.binary_dilation(cells, structure=np.ones((3, 3), bool)) & ~cells & bnd_ok
+    br, bc = np.nonzero(bnd)
+    k = max(int(round(P["points_rim_step_m"] / res)), 1)
+    _, first = np.unique((br // k) * 1_000_003 + bc // k, return_index=True)
+    br, bc = br[first], bc[first]
+    bx = T.c + (bc + 0.5) * res; by = T.f - (br + 0.5) * res
+    X = np.column_stack([np.r_[sx, bx], np.r_[sy, by]]); zv = np.r_[sr, np.zeros(len(bx))]
+    sg = np.r_[sgp, np.full(len(bx), sg_rim)]
+    m = len(X); ns = len(sx)
+    c0 = X.mean(axis=0); xy = (X - c0) / 1000.0                           # km: keeps the system conditioned
+    r2 = ((xy[:, None, :] - xy[None, :, :]) ** 2).sum(-1)
+    K = np.where(r2 > 0, 0.5 * r2 * np.log(np.maximum(r2, 1e-12)), 0.0)
+    Pm = np.column_stack([np.ones(m), xy])
+    A0 = np.zeros((m + 3, m + 3)); A0[:m, :m] = K; A0[:m, m:] = Pm; A0[m:, :m] = Pm.T
+    rhs = np.r_[zv, np.zeros(3)]
+
+    def solve(lam):
+        A = A0.copy(); A[np.arange(m), np.arange(m)] += lam * sg ** 2
+        sol = np.linalg.solve(A, rhs); w = sol[:m]
+        chi = np.sqrt(np.mean((lam * sgp * w[:ns]) ** 2))                  # misfit / sigma at the soundings
+        return sol, chi
+
+    lo, hi = -9.0, 3.0                                                    # log10 lam; chi rises with lam
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if solve(10 ** mid)[1] < 1.0: lo = mid
+        else: hi = mid
+    lam = 10 ** lo; sol, chi = solve(lam); w, cp = sol[:m], sol[m:]
+    # evaluate on a points_grid_m lattice over the domain's box, bilinear to the cells
+    g = max(int(round(P["points_grid_m"] / res)), 1)
+    rs_, cs_ = np.nonzero(cells)
+    r0, r1, c0_, c1 = rs_.min(), rs_.max(), cs_.min(), cs_.max()
+    gr = np.arange(r0, r1 + g, g); gc = np.arange(c0_, c1 + g, g)
+    GR, GC = np.meshgrid(gr, gc, indexing="ij")
+    Q = (np.column_stack([T.c + (GC.ravel() + 0.5) * res, T.f - (GR.ravel() + 0.5) * res]) - c0) / 1000.0
+    val = np.empty(len(Q))
+    for s in range(0, len(Q), 4096):
+        q = Q[s:s + 4096]; d2 = ((q[:, None, :] - xy[None, :, :]) ** 2).sum(-1)
+        Kq = np.where(d2 > 0, 0.5 * d2 * np.log(np.maximum(d2, 1e-12)), 0.0)
+        val[s:s + 4096] = Kq @ w + cp[0] + q @ cp[1:]
+    out = np.full(base.shape, np.nan, np.float32)
+    out[rs_, cs_] = map_coordinates(val.reshape(GR.shape), [(rs_ - r0) / g, (cs_ - c0_) / g], order=1, mode="nearest")
+    fit = sr - lam * sgp ** 2 * w[:ns]
+    log(f"  soundings spline, domain {name}: {ns} sounding cells, {len(bx)} boundary sites; residual to the prior "
+        f"p50 {np.median(sr):+.2f} m (|p90| {np.percentile(np.abs(sr), 90):.2f}); misfit RMS {np.sqrt(np.mean((sr - fit) ** 2)):.2f} m "
+        f"(lam {lam:.1e}); correction field p5/p95 {np.nanpercentile(out[rs_, cs_], [5, 95]).round(2)} m")
+    return out
 
 
 def fill_holes(z, cls, res, classes, p=None, log=print):
@@ -523,25 +595,27 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # SPARSE POINTS (Hig, 2026-10-11: "this method should be able to accept sparse point
     # depths"): a CSV with x,y and z (absolute) or depth (positive down from the domain's rim
     # level) becomes observations inside the domain, conditioning the prior like soundings.
-    pts = np.zeros(z.shape, bool)                  # sounding cells: no survey layer holds them, so the fill must
+    # They are NOT observations of the grid (2026-10-12, Hig: "allow some uncertainty ... ~1 m"): they
+    # stay out of z and condition the fill afterwards through a smoothing spline (SOUNDINGS below).
+    pts = np.zeros(z.shape, bool)                  # cells holding a sounding (bookkeeping only)
+    sound = []                                     # (row, col, x, y, z)
     if P.get("points"):
         import csv
         T = P.get("_transform")
-        npts = 0
         with open(P["points"]) as fh:
             for row in csv.DictReader(fh):
                 x, y = float(row["x"]), float(row["y"])
                 if T is None:
                     continue
                 cc, rr = ~T * (x, y); rr, cc = int(rr), int(cc)
-                if not (0 <= rr < z.shape[0] and 0 <= cc < z.shape[1]) or not dom[rr, cc]:
+                if not (0 <= rr < z.shape[0] and 0 <= cc < z.shape[1]) or not (dom[rr, cc] and hole[rr, cc]):
                     continue
                 if row.get("z") not in (None, ""):
                     zz = float(row["z"])
                 else:
                     zz = float(med[lab[rr, cc] - 1]) - float(row["depth"])
-                z[rr, cc] = zz; inside_obs[rr, cc] = True; hole[rr, cc] = False; pts[rr, cc] = True; npts += 1
-        log(f"  sparse points: {npts} inside domains from {P['points']}")
+                sound.append((rr, cc, x, y, zz)); pts[rr, cc] = True
+        log(f"  sparse points: {len(sound)} inside domain holes from {P['points']}")
     # interior: harmonic from band edge + rim + floor-band... the interior sits at the floor
     # where the extension reached it, carried smoothly between band edge and bed rim.
     interior = dom & ~band & ~lk                                 # holes AND the sounding cells: the prior ignores soundings
@@ -583,6 +657,27 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             dso = ndimage.distance_transform_edt(~inside_obs, sampling=res)
             cond = ok & (dso <= 3 * P["cond_m"])
             mask[cond] = 3
+    # SOUNDINGS (2026-10-12, replaces "honoured exactly, harmonic residual in between"): a harmonic
+    # residual is a cone at each sounding and a ridge along a sounding line (China Poot Lake: the
+    # bed fell back to the prior a few tens of metres either side of every line).  What Portage
+    # settled (TOPOBATHY_PLAN, grid_bathy.py wtps): a thin-plate SMOOTHING spline, global per domain,
+    # per-site sigma on the diagonal.  Here it fits the residual r = sounding - fill, with r = 0 at
+    # the domain's boundary (shore, islands; sigma points_rim_sigma_m).  The minimum-curvature
+    # surface spreads a line's correction across the basin instead of a ridge, and the smoothing
+    # is set by the discrepancy principle: the soundings' misfit RMS = points_sigma_m (~1 m, the
+    # measurements are not absolute truth), so the surface passes NEAR them, not through them.
+    sdist = None
+    if sound:
+        S_ = np.array(sound, np.float64)
+        for i in np.unique(lab[S_[:, 0].astype(int), S_[:, 1].astype(int)]):
+            sel = lab[S_[:, 0].astype(int), S_[:, 1].astype(int)] == i
+            r = _spline_residual(S_[sel], fill, (lab == i) & hole, dom, inside_obs | rim, res, P,
+                                 T=P.get("_transform"), log=log, name=int(i))
+            if r is not None:
+                m_ = np.isfinite(r)
+                fill[m_] = (fill[m_] + r[m_]).astype(np.float32)
+        sdist = ndimage.distance_transform_edt(~pts, sampling=res)
+        mask[(dom & hole) & (sdist <= 3 * P["cond_m"])] = 3
     # SIGMA
     drim = ndimage.distance_transform_edt(~rim, sampling=res) if rim.any() else np.full(z.shape, 1e4)
     s_prior = P["sigma_prior_m"] + P["sigma_rim_m"] * drim / 100.0
@@ -593,10 +688,10 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         sig = s_prior * (1 - wgt) + 0.3 * wgt
     else:
         sig = s_prior
-    # the sounding cells themselves carry the sounding (2026-10-12: left out, each was a one-cell hole)
-    fill[pts] = z[pts]; mask[pts] = 3
-    sigma = np.where((dom & hole & np.isfinite(fill)) | pts, np.where(pts, 0.3, sig), np.nan).astype(np.float32)
-    fill[~(dom & hole) & ~pts] = np.nan; prior[~(dom & hole)] = np.nan
+    if sdist is not None:                          # the soundings: points_sigma_m at them, growing ~0.15 m/m
+        sig = np.minimum(sig, np.sqrt(P["points_sigma_m"] ** 2 + (P["points_sigma_per_m"] * sdist) ** 2))
+    sigma = np.where(dom & hole & np.isfinite(fill), sig, np.nan).astype(np.float32)
+    fill[~(dom & hole)] = np.nan; prior[~(dom & hole)] = np.nan
     log(f"  filled {int(np.isfinite(fill).sum()) * res * res / 1e6:.3f} km2: band {int(band.sum()) * res * res / 1e6:.3f}, "
         f"interior {int(interior.sum()) * res * res / 1e6:.3f}, conditioned {int(cond.sum()) * res * res / 1e6:.3f} km2; "
         f"sigma p50 {np.nanmedian(sigma):.2f} m")
