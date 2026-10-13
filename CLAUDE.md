@@ -767,7 +767,7 @@ Mapping landslides on the lidar surfaces turns up scarps that are **not** landsl
 
 Deliberately thin. Certainty, sense of motion, or a link to a USGS fault id are `ALTER TABLE ADD COLUMN` away, which is why the migration is written to be re-run.
 
-## Lake soundings — sparse depths (2026-10-12, dev only)
+## Lake soundings — sparse depths (deployed 2026-10-12)
 
 Scattered lake and nearshore depths (handheld sounder, lead line, digitised
 ADF&G contour maps) that are too sparse to be a raster survey. PostGIS tables
