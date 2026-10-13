@@ -62,7 +62,7 @@
  * paint shows from z8 up. The "paint" box in the header turns it off
  * (pt=0 in the URL).
  *
- * URL: ax=<x>|<y>, bx=x0,x1,y0,y1 (the brush), ls=count|prop (the
+ * URL: ax=<x>,<y> (x|y before 2026-10-13, still read), bx=x0,x1,y0,y1 (the brush), ls=count|prop (the
  * landslide layer when not points), gr=<level> (the grid slider when not
  * 0), an=analysis; the sample is LSSample's smp=. The old an=scatter and
  * an=pf open this panel on lw|n10 and pzi|prob (map.js).

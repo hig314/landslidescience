@@ -185,7 +185,7 @@ One `LSAnalysis` panel replacing the three:
   slope > 30°?"), and nothing on the site answers it today. The
   susceptibility brush keeps driving its sliders for lw/n10, because those
   filters exist.
-- **URL**: `ax=<x>|<y>`, `smp=lat,lon,r` (generalising `pp=`), `bx=x0,x1,y0,y1`
+- **URL**: `ax=<x>,<y>` (was `<x>|<y>`), `smp=lat,lon,r` (generalising `pp=`), `bx=x0,x1,y0,y1`
   for the brush, `an=analysis` for the panel; the old `an=scatter` and
   `an=pf` map onto it.
 

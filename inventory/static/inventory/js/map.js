@@ -102,7 +102,7 @@
     //                 written only when not the inventory default
     //   an=<key>,…    open analysis panels (hist | timing | analysis | opera;
     //                 scatter and pf are read as analysis on their old axes)
-    //   ax=<x>|<y>    the analysis panel's axes (quantity keys, analysis.js);
+    //   ax=<x>,<y>    the analysis panel's axes (quantity keys, analysis.js);
     //   bx=x0,x1,y0,y1 its brush; ls=count|prop its landslide layer when
     //                 not points; absent = leave alone
     //   smp=<lat>,<lon>,<r_km>  the sample circle (ls_sample.js); pp= is
@@ -149,9 +149,13 @@
                 out.smp = { lat: pp[0], lon: pp[1], r: pp[2] };
             }
         }
-        // The analysis panel: ax = x|y quantity keys, bx = brush, ls = landslide layer.
-        if (x.ax != null && /^[a-z0-9_]+\|[a-z0-9_]+$/.test(x.ax)) {
-            var axp = x.ax.split('|');
+        // The analysis panel: ax = x,y quantity keys, bx = brush, ls = landslide layer.
+        // Written x|y until 2026-10-13, when it turned out a default view
+        // holding '|' fails the server's charset check (views.valid_view_state);
+        // links in the wild carry '|', or '%7C' where a browser escaped it.
+        var axs = x.ax != null ? x.ax.replace(/%7C/gi, '|') : null;
+        if (axs != null && /^[a-z0-9_]+[|,][a-z0-9_]+$/.test(axs)) {
+            var axp = axs.split(/[|,]/);
             out.ax = { x: axp[0], y: axp[1], brush: null, ls: null };
             if (x.bx != null) {
                 var bx = x.bx.split(',').map(parseFloat);
@@ -10128,7 +10132,7 @@
               if (typeof LSAnalysis === 'undefined') return;
               var st = LSAnalysis.state();
               if (!st) return;
-              o.extras.ax = st.x + '|' + st.y;
+              o.extras.ax = st.x + ',' + st.y;
               if (st.brush) o.extras.bx = [st.brush.x0, st.brush.x1, st.brush.y0, st.brush.y1].join(',');
               if (st.ls) o.extras.ls = st.ls;
               if (st.gr) o.extras.gr = String(st.gr);
