@@ -77,7 +77,8 @@
     {
       "id": "kbay_2023_reclass",
       "title": "Kachemak Bay 2023 lidar DTM, reclassified (calibrated on Grewingk 2021)",
-      "src": "/Volumes/Nunatak/lidar_build/kbay_reclass_test/full/mosaic/dtm_final.tif",
+      "src": "/Volumes/Nunatak/lidar_build/kbay_reclass_test/full/mosaic_v1/dtm_final.tif",
+      "retired": "Superseded 2026-10-13 by kbay_2023_reclass_v2, the same reclassification re-run over the whole survey with both known issues below addressed (structures out of ground; returns floating over water rejected). Hig reviewed v2 in the dev viewer and approved replacing this one. v2 covers the same units; at Hig's six over-water check sites the changed cells dropped 0.7-12 m, Seldovia roofs are gone, and 1.6 km2 of open sea that v1 bridged with interpolated or floating returns is now empty by design. This archive (cog/kbay_2023_reclass.tif, hard-linked to full/mosaic_v1/dtm_final.tif) and its pyramids stay on R2 so old links keep resolving; it is only unlisted.",
       "target_epsg": 6334,
       "native_res_m": 1.0,
       "center_lat": 59.4,
@@ -91,6 +92,24 @@
       "source": "NOAA Office for Coastal Management 2023/24 Kachemak Bay point cloud (NV5, dataset 10418), reclassified by landslidescience.org",
       "source_url": "https://www.fisheries.noaa.gov/inport/item/77562",
       "notes": "The same NOAA 2023/24 Kachemak Bay point cloud as kbay_2023 (the vendor's own ground classification, kept published beside this one), re-classified here because the vendor ground is weak under canopy. Method: tools/lidar/kbay_reclass (README is the running log): a ground model calibrated leave-one-site-out on the DGGS Grewingk 2021 lidar, a zone solver, a learned blend with guards, and a rock/cliff-face surface; 1,350 1 km units with 60 m buffers (27 empty edge slivers), mosaicked at 1 m. Enclosed no-data holes are harmonically filled, per unit and across unit seams; fill_mask.tif marks them (2 = filled), 3.7 km2 of seam fills, the largest being lakes and a tidal lagoon filled near-flat at their shore level. Water is what the data shows: no hydroflattening; class 22 returns admitted below the kept water level (low tide). ARCHIVE: the mosaic COG itself (DEFLATE, overviews), not re-warped; tiles built by build_lidar's own per-zoom functions (model/viewer_build_mosaic.py). KNOWN ISSUES (2026-09-28, recorded for the next pass, not fixed): (1) structures are classified as ground -- buildings and bridges stand up where the vendor surface goes under them, because the vendor's building (6) and bridge (17) classes were not excluded; (2) in places spurious returns above water are kept as ground, e.g. 59.45329, -151.71004. Fixes are outlined in tools/lidar/kbay_reclass/README.md."
+    },
+    {
+      "id": "kbay_2023_reclass_v2",
+      "title": "Kachemak Bay 2023 lidar DTM, reclassified (calibrated on Grewingk 2021)",
+      "src": "/Volumes/Nunatak/lidar_build/kbay_reclass_test/full/mosaic/dtm_final.tif",
+      "target_epsg": 6334,
+      "native_res_m": 1.0,
+      "center_lat": 59.4,
+      "min_zoom": 8,
+      "max_zoom": 17,
+      "year": 2023,
+      "product": "DTM (bare earth, reclassified from the point cloud)",
+      "archive_mode": "copy",
+      "vertical_datum": "NAVD88 (GEOID12B)",
+      "region": "Kenai Peninsula",
+      "source": "NOAA Office for Coastal Management 2023/24 Kachemak Bay point cloud (NV5, dataset 10418), reclassified by landslidescience.org",
+      "source_url": "https://www.fisheries.noaa.gov/inport/item/77562",
+      "notes": "Second version of the reclassification (v1, kbay_2023_reclass, is retired). The same NOAA 2023/24 Kachemak Bay point cloud as kbay_2023 (the vendor's own ground classification, kept published beside this one), re-classified here because the vendor ground is weak under canopy. Method: tools/lidar/kbay_reclass (README is the running log): a ground model calibrated leave-one-site-out on the DGGS Grewingk 2021 lidar, a zone solver, a learned blend with guards, and a rock/cliff-face surface; 1,350 1 km units with 60 m buffers (27 empty edge slivers), mosaicked at 1 m on 2026-10-13. v2 changes: the vendor's building (6) and bridge (17) classes are excluded from ground, so structures no longer stand up in the surface (struct_mask.tif marks them); returns floating over water are rejected (model/water.py), and water cells with no return within 3 m are left empty rather than bridged. Enclosed no-data holes are then harmonically filled, per unit and across unit seams (fill_mask.tif, 2 = filled; 70 holes, 5.0 km2). Water is what the data shows: no hydroflattening; class 22 returns admitted only below the kept water level (low tide). Still present by design: boats, docks and rafts over water (a dense object with no water return under it); rocks under ~4 m across in open water can be lost; open water with no usable return is empty, and that empty band can reach into flat water surfaces the vendor had interpolated. ARCHIVE: the mosaic COG itself (DEFLATE, overviews), not re-warped; tiles built by build_lidar's own per-zoom functions (model/viewer_build_mosaic.py)."
     },
     {
       "id": "matsu_2019",
