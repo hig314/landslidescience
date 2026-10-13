@@ -19,7 +19,7 @@ KBay class 9 get no training label -- a flattened lake is not a ground truth.
 """
 import argparse, json, os, subprocess, sys
 import numpy as np
-EXCL = (7, 18, 21, 22)   # noise, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26)
+EXCL = (6, 7, 17, 18, 21, 22)   # BUILDING, noise, BRIDGE, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26; 6/17 added 2026-10-10 -- roofs were passing the rock rule, Seldovia)
 
 ROOT = '/Volumes/Nunatak/lidar_build/kbay_reclass_test'
 PDAL = '/opt/homebrew/bin/pdal'
@@ -239,8 +239,18 @@ def return_floor(s, win=5):
     return F
 
 
+CEIL_TOL_CELL = 0.3     # ground is never above a return in its own cell (2026-10-10: the zone solver
+CEIL_TOL_WIN = 2.0      # bridged a return-free pond at +5 m, site D); over a return-free cell, not
+                        # far above the 5x5 window's lowest return either (a 45 deg slope spans 1.4 m in 2 m)
+def return_ceiling(s):
+    """Highest credible ground per cell: the cell's own lowest return + CEIL_TOL_CELL, or where the
+    cell has no return, the 5x5 floor + CEIL_TOL_WIN. NaN where the window holds no return."""
+    F1 = return_floor(s, win=1); F5 = return_floor(s, win=5)
+    return np.where(np.isfinite(F1), F1 + CEIL_TOL_CELL, F5 + CEIL_TOL_WIN)
+
+
 LOW_TIDE_BELOW = 0.15
-def admit_low_tide(x, y, z, cls, bounds, win=15):
+def admit_low_tide(x, y, z, cls, bounds, win=15, W=None):
     """Class 22 (temporal exclusion) returns admitted back, by two rules (RULE 2 in the body: the
     excluded flight is the only observation). RULE 1: those BELOW the kept water surface become class 2.
 
@@ -265,6 +275,11 @@ def admit_low_tide(x, y, z, cls, bounds, win=15):
     # the kept flights have no return in a cell's 3x3 neighbourhood, admit the class 22 there:
     # as water (9) if within 0.15 m of the local median of class 22 (a flat surface), else as
     # unclassified (1) for the pipeline to judge like any other return.
+    # 2026-10-10 (Hig's site F, 59.45179 -151.51274): the other flight's water stood 3 m ABOVE the
+    # kept flight's (a higher tide) and was admitted as water in the kept flight's return-free
+    # holes, so the 2023 water carried 2024 water-level islands. With the kept water level W
+    # (water.level) given, a class-22 return is admitted only at or below W + WATER_TOL; above it,
+    # it is the other tide and stays excluded. Away from kept water (W NaN): as before.
     kept = ~np.isin(cls, (7, 18, 21, 22))
     kc = ndimage.maximum_filter(np.bincount(cid[kept], minlength=NX * NY).reshape(NY, NX) > 0, 3).ravel()
     only = e & ~kc[cid]
@@ -273,6 +288,10 @@ def admit_low_tide(x, y, z, cls, bounds, win=15):
         el = np.where(En > 0, E / np.maximum(En, 1), np.inf).reshape(NY, NX)
         el = ndimage.median_filter(el, 15); el[~np.isfinite(el)] = np.nan
         flat = np.abs(z - el.ravel()[cid]) <= 0.15
+        if W is not None:
+            import water as WA
+            Wp = W.ravel()[cid]; above = np.isfinite(Wp) & (z > Wp + WA.WATER_TOL)
+            only &= ~above
         out[only & flat] = 9; out[only & ~flat] = 1
     n2 = int(only.sum())
     if not w.any():

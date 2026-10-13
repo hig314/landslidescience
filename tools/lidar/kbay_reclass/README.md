@@ -550,3 +550,34 @@ so the target is not flattening but rejecting returns that sit above the local w
 nothing solid under them -- e.g. single returns over class 9 / below-water class 22 neighbourhoods,
 or a height-above-water-level test using the kept water level that admit_low_tide already computes
 (sitekit.admit_low_tide). Check the example unit's classes and return numbers before choosing.
+
+## 2026-10-13 — v2: both known issues addressed, whole survey re-run and re-mosaicked
+
+What changed (model code dated 2026-10-10, committed 2026-10-13 — it had sat only on Nunatak):
+- **Structures**: vendor classes 6 (building) and 17 (bridge) added to `EXCL` in every module, so a
+  roof is never a ground candidate; `apply.py` writes `struct_mask` (cells with 6/17 returns,
+  closed 3x3) so a composite can class them `built`.
+- **Returns over water**: `model/water.py` (docstring is the spec) — a local water level from the
+  kept water returns; a return floating > 0.5 m over it with water directly beneath, or over a mostly
+  empty/water 9x9, becomes class 7; persistent across both flights is rescued (islets). Water cells
+  with no kept return within 3 m are left empty rather than bridged. `sitekit.admit_low_tide` admits
+  the other flight's class 22 only at or below the kept water level (site F); `return_ceiling` stops
+  the zone solver climbing over return-free ponds (site D).
+- `mosaic.py` also mosaics `water_mask`, `struct_mask`, `water_level` (COGs beside `dtm_final`).
+
+Run: all 1,350 units re-run 2026-10-10..12 (every DONE postdates the last model edit); mosaic
+2026-10-13 02:00, 258 s, 70 enclosed holes / 5.0 km2 filled. **v1 is in `full/mosaic_v1/`, and its
+`dtm_final.tif` is the same inode as the published `cog/kbay_2023_reclass.tif` — never write over it.**
+
+v1 -> v2 (`full/v2_check/v2_check.json`, scratch `v2_check.py`): changed cells at Hig's six
+over-water sites dropped by 0.7–12 m on average (59.40852 -151.27885: 1,045 cells, -12.4 m);
+Seldovia town p95 12.2 -> 10.5 m, p99.5 16.2 -> 11.0 (roofs gone). Survey-wide 0.34 M cells up
+and 0.72 M down by > 0.5 m; 1.6 km2 that had a value in v1 is empty in v2, all open sea inside the
+water mask — returns 2–3 m over the local sea surface, and cells at the sea surface that v1 had
+bridged (TIN / solver) with no return — the VOID rule, by design. Homer and Anchor Point are
+outside this survey. Still present by design: boats, docks, rafts.
+
+Dev: `kbay_2023_reclass_v2` built beside v1 by `viewer_build_mosaic.py` (`VB_ID`, `VB_MOSAIC`,
+`VB_PM_OUT`, `VB_NO_CATALOG`). **Publishing v2 needs Hig's approval**; when it comes, the
+published COG must be a NEW file (not written through the v1 hard link), and the manifest notes'
+KNOWN ISSUES paragraph replaced by the v2 description above.

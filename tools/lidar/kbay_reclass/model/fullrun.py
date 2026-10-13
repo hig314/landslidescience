@@ -38,6 +38,7 @@ for d in ('units', 'out', 'claims', 'failed', 'logs'):
     (FULL / d).mkdir(parents=True, exist_ok=True)
 PY = '/opt/anaconda3/bin/python'
 KEEP = ['dtm_final.tif', 'fill_mask.tif', 'rock_mask.tif', 'vendor_dtm.tif', 'blend_w.tif', 'timing.json',
+        'water_mask.tif', 'struct_mask.tif', 'water_level.tif',   # water rules + structures (2026-10-10)
         'EMPTY']   # apply.py's note for a unit with no vendor ground: DONE with no dtm_final (mosaic skips it)
 
 
@@ -134,7 +135,14 @@ def main():
     for c in (FULL / 'claims').iterdir():
         if not done(c.name) and not (FULL / 'failed' / f'{c.name}.txt').exists():
             c.rmdir()
-    us = units(idx); print(f'{len(us)} units', flush=True)
+    us = units(idx)
+    # FULLRUN_FIRST="x0 y0 x1 y1" (km): run the units inside that box before the rest (2026-10-10,
+    # the whole-survey rerun with the Kachemak composite's box wanted first)
+    if os.environ.get('FULLRUN_FIRST'):
+        bx = [int(v) for v in os.environ['FULLRUN_FIRST'].split()]
+        inside = lambda u: bx[0] <= int(u.split('_')[1]) < bx[2] and bx[1] <= int(u.split('_')[2]) < bx[3]
+        us = sorted(us, key=lambda u: (not inside(u), u))
+    print(f'{len(us)} units', flush=True)
     with ProcessPoolExecutor(a.workers) as ex:
         running = {}
         while True:

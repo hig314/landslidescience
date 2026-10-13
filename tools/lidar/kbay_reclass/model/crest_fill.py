@@ -4,7 +4,7 @@ its 1 m cell has no vendor ground, it stands 0.3-3 m above the vendor TIN, it is
 slope-aware local low reference (h_low3 < 0.15 m), and the model gives p >= P_MIN."""
 import json, sys
 import numpy as np
-EXCL = (7, 18, 21, 22)   # noise, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26)
+EXCL = (6, 7, 17, 18, 21, 22)   # BUILDING, noise, BRIDGE, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26; 6/17 added 2026-10-10 -- roofs were passing the rock rule, Seldovia)
 sys.path.insert(0, 'model'); import sitekit as K, loso as L
 out = json.load(open('site/loso_results.json'))
 for s in L.SITES:

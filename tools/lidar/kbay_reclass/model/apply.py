@@ -9,7 +9,7 @@ slope-adaptive Best -> v2a -> blend model + support rule -> dtm_blend.tif.
 """
 import json, os, sys
 import numpy as np
-EXCL = (7, 18, 21, 22)   # noise, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26)
+EXCL = (6, 7, 17, 18, 21, 22)   # BUILDING, noise, BRIDGE, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26; 6/17 added 2026-10-10 -- roofs were passing the rock rule, Seldovia)
 from scipy import ndimage
 os.chdir('/Volumes/Nunatak/lidar_build/kbay_reclass_test'); sys.path.insert(0, 'model')
 import sitekit as K, loso as L, v2
@@ -53,8 +53,21 @@ xyz = np.asarray(t.column('xyz').combine_chunks().flatten()).reshape(-1, 3)
 V, T = K.rd(f'{d}/vendor_dtm.tif'); Vs = ndimage.uniform_filter(np.nan_to_num(V, nan=np.nanmedian(V)), 3)
 gy, gx = np.gradient(Vs); slope = np.degrees(np.arctan(np.hypot(gx, gy))); curv = Vs - ndimage.uniform_filter(Vs, 15)
 row = (y1 - xyz[:, 1]) - 0.5; col = (xyz[:, 0] - x0) - 0.5
-cls_in, n_lt = K.admit_low_tide(xyz[:, 0], xyz[:, 1], xyz[:, 2], np.asarray(t.column('Classification')), S['bounds'])
+import water as WA
+cls0 = np.asarray(t.column('Classification'))
+W0 = WA.level(xyz[:, 0], xyz[:, 1], xyz[:, 2], cls0, S['bounds'])          # the kept flight's water level, for RULE 2
+cls_in, n_lt = K.admit_low_tide(xyz[:, 0], xyz[:, 1], xyz[:, 2], cls0, S['bounds'], W=W0)
 print(f'low-tide class-22 returns admitted as ground: {n_lt}', flush=True)
+# water rules (water.py, 2026-10-10): floating returns over water -> class 7; a water cell with no
+# return keeps no surface (rock.write_final). Structures (vendor 6/17) are excluded by EXCL and
+# recorded as struct_mask so the composite can plane them off as 'built'.
+cls_in, Wl, wcell, winfo = WA.apply(xyz[:, 0], xyz[:, 1], xyz[:, 2], cls_in, S['bounds'], EXCL)
+print('water rules:', json.dumps(winfo), flush=True)
+_cid = np.clip((y1 - xyz[:, 1]).astype(int), 0, NY - 1) * NX + np.clip((xyz[:, 0] - x0).astype(int), 0, NX - 1)
+_st = np.isin(cls0, (6, 17))
+struct = ndimage.binary_closing(np.bincount(_cid[_st], minlength=NX * NY).reshape(NY, NX) > 0, structure=np.ones((3, 3)))
+np.save(f'{d}/water_level.npy', Wl.astype(np.float32)); np.save(f'{d}/water_mask.npy', wcell); np.save(f'{d}/struct_mask.npy', struct)
+print(f'structure cells (vendor 6/17): {int(struct.sum())}', flush=True)
 np.savez(f'{d}/pts.npz', x=xyz[:, 0], y=xyz[:, 1], z=xyz[:, 2], dz=np.full(len(xyz), np.nan, np.float32),
          cls=cls_in, rn=np.asarray(t.column('ReturnNumber')),
          nr=np.asarray(t.column('NumberOfReturns')), inten=np.asarray(t.column('Intensity')),
@@ -131,6 +144,8 @@ L.dtm_from(P, sel, S, d, 'tinslope'); Tn, _ = K.rd(f'{d}/dtm_tinslope.tif')
 with rasterio.open(f'{d}/zone_s_e.tif') as src: zone = src.read(1).astype(bool)
 Z, _ = K.rd(f'{d}/dtm_s_e.tif')
 Z[Z < K.return_floor(s) - K.FLOOR_TOL] = np.nan   # the solver can dive far below every return where it has few points (snow edge, 2026-09-26): drop it there
+_fl = K.return_floor(s)
+Z[(Z > K.return_ceiling(s)) | ~np.isfinite(_fl)] = np.nan   # ... and climb far above them over a return-free pond (site D, 2026-10-10): ground is never above a return in its cell, and with no return within 5 m there is nothing to solve from (the rim there sat 24-97 m up)
 wgt = np.clip(1 - ndimage.distance_transform_edt(~zone)/3, 0, 1)
 C = np.where(np.isfinite(Z), wgt*Z + (1-wgt)*Tn, Tn); v2.write_like(s, 'dtm_bestslope.tif', C)
 TICK('5 zone solver + Best'); print('best done', flush=True)

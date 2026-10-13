@@ -17,7 +17,7 @@ w is smoothed over 3 m so the surface does not flicker between the two.
 """
 import json, os, sys
 import numpy as np
-EXCL = (7, 18, 21, 22)   # noise, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26)
+EXCL = (6, 7, 17, 18, 21, 22)   # BUILDING, noise, BRIDGE, high noise, SNOW, TEMPORAL EXCLUSION: never ground or surface (stress test 2026-09-26; 6/17 added 2026-10-10 -- roofs were passing the rock rule, Seldovia)
 from scipy import ndimage
 os.chdir('/Volumes/Nunatak/lidar_build/kbay_reclass_test'); sys.path.insert(0, 'model'); import v2, sitekit as K
 
