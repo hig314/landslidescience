@@ -270,17 +270,21 @@ window.LSProfile = (function () {
     });
     // Soundings near the line (soundings.js), while their layer is shown: the bed under the
     // water the DEMs read as a flat surface. Each with its ±sigma.
+    // Reach: a fifteenth of the line, 40-250 m -- soundings run in lines across a lake, and
+    // a profile that crosses one should catch it (a thirtieth caught too few).
+    var sndNote = '';
     if (window.LSSoundings && LSSoundings.visible() && LSSoundings.all()) {
-      var buf = Math.max(25, Math.min(150, result.length / 30));
+      var buf = Math.max(40, Math.min(250, result.length / 15));
       var nr = LSSoundings.near(result.points.map(function (q) { return [q.lon, q.lat]; }), buf);
       if (nr.length) out.push({ id: 'soundings', label: 'Soundings within ' + Math.round(buf) + ' m (±σ)', short: 'soundings',
                                 color: '#0d47a1', marker: true,
                                 runs: [nr.map(function (n) { return { d: n.d, z: n.z, sigma: n.sigma, off: n.off }; })] });
+      sndNote = ' · ' + nr.length + ' sounding' + (nr.length === 1 ? '' : 's') + ' within ' + Math.round(buf) + ' m';
     }
     chart.setData({ length: result.length, series: out });
     status(fmtD(result.length) + ' · ' + series.length + ' DEM' + (series.length === 1 ? '' : 's') +
            (result.pending ? ' · reading ' + result.pending + ' more…' : '') +
-           ' · ' + result.points.length + ' samples every ' + (result.step < 10 ? result.step.toFixed(1) : Math.round(result.step)) + ' m');
+           ' · ' + result.points.length + ' samples every ' + (result.step < 10 ? result.step.toFixed(1) : Math.round(result.step)) + ' m' + sndNote);
   }
   // A vertical slice of the chart: every DEM at one distance.
   function tip(hit) {
@@ -324,6 +328,8 @@ window.LSProfile = (function () {
   }
 
   // ---- init --------------------------------------------------------------
+  // Soundings switched on or arriving after the line was drawn: redraw (no re-read).
+  if (window.LSSoundings) LSSoundings.onChange(function () { if (result && chart) draw(); });
   function init(opts) {
     map = opts.map;
     catalog = opts.catalog || catalog;

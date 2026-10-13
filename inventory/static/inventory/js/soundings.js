@@ -6,6 +6,7 @@
  *        bars: true adds the 3D bars (surface to bed) drawn under terrain (/lidar/)
  *   LSSoundings.setSeeThrough(0..1)   the bars' opacity (/lidar/: 1 - lidar opacity)
  *   LSSoundings.setVisible(bool) / visible()
+ *   LSSoundings.onChange(fn)   called when the data arrive or visibility changes
  *   LSSoundings.all() -> the FeatureCollection (with .surveys, .levels)
  *   LSSoundings.near(coords [[lon,lat],...], maxM) -> [{d, off, z, sigma, f}]
  *        soundings with an elevation within maxM of the line, d = metres along it
@@ -26,6 +27,8 @@ window.LSSoundings = (function () {
       CON = 'soundings-con', LBL = 'soundings-lbl', BARS = 'soundings-3d';
   var map = null, api = '/inventory/', data = null, shown = false, loading = null, wired = false;
   var bars = false, seeThrough = 0;          // 3D bars (opts.bars, /lidar/) and their opacity
+  var listeners = [];                         // onChange(fn): data loaded or visibility changed (the profile redraws)
+  function changed() { listeners.forEach(function (fn) { try { fn(); } catch (e) { console.error(e); } }); }
   var surveys = {}, levels = {};
 
   // Depth ramp (m): pale blue at the shore to near-black navy at 100 m.
@@ -156,6 +159,7 @@ window.LSSoundings = (function () {
     if (a === seeThrough) return;
     seeThrough = a;
     if (map && map.getLayer(BARS)) map.triggerRepaint();
+    changed();
   }
 
   function wire() {
@@ -221,6 +225,7 @@ window.LSSoundings = (function () {
         // are numbers, contour ids strings -- keep them out of the top-level id.
         fc.features.forEach(function (f) { delete f.id; });
         addLayers();
+        changed();
         return data;
       });
     return loading;
@@ -264,7 +269,8 @@ window.LSSoundings = (function () {
     return out.sort(function (a, b) { return a.d - b.d; });
   }
 
-  return { init: init, setVisible: setVisible, setSeeThrough: setSeeThrough, visible: function () { return shown; },
+  return { init: init, setVisible: setVisible, setSeeThrough: setSeeThrough,
+           onChange: function (fn) { listeners.push(fn); }, visible: function () { return shown; },
            all: function () { return data; }, near: near, survey: function (id) { return surveys[id]; },
            level: function (id) { return levels[id]; } };
 })();
