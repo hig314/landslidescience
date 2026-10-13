@@ -52,3 +52,19 @@
 .profile-header .profile-title { font-weight: 600; color: #444; white-space: nowrap; }
 .profile-tip .profile-tip-h { color: #333; font-weight: 600; }
 .profile-body svg.nearest { cursor: crosshair; }
+
+/* Go to lat, lon (ls_goto.js): one button; the input slides out toward the
+ * middle of the map. */
+.ls-goto { display: flex; align-items: center; overflow: visible; position: relative; }
+.ls-goto .ls-goto-btn { font-size: 17px; line-height: 1; color: #333; }
+.ls-goto .ls-goto-in { display: none; position: absolute; top: 0; left: 100%; margin-left: 4px;
+                       width: 170px; height: 29px; box-sizing: border-box; padding: 0 8px;
+                       border: 1px solid #bbb; border-radius: 4px; font: 12px/1 system-ui, sans-serif;
+                       background: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.08); outline: none; }
+.ls-goto.right .ls-goto-in { left: auto; right: 100%; margin: 0 4px 0 0; }
+.ls-goto.open .ls-goto-in { display: block; }
+.ls-goto.open .ls-goto-btn { background: #eee; }
+.ls-goto.bad .ls-goto-in { border-color: #c62828; box-shadow: 0 0 0 2px rgba(198,40,40,.2); }
+.ls-goto-mark { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff;
+                box-shadow: 0 0 0 2px #d32f2f, 0 0 6px rgba(0,0,0,.5); background: rgba(211,47,47,.25);
+                pointer-events: none; }

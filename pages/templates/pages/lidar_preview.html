@@ -327,6 +327,7 @@ vanish depending on which way you light them.
 <script src="{% static 'inventory/js/basemaps.js' %}"></script>
 <script src="{% static 'inventory/js/ls_tools.js' %}"></script>
 <script src="{% static 'inventory/js/ls_float.js' %}"></script>
+<script src="{% static 'inventory/js/ls_goto.js' %}"></script>
 <script src="{% static 'inventory/js/scarps.js' %}"></script>
 <script src="{% static 'inventory/js/dem_read.js' %}"></script>
 <script src="{% static 'inventory/js/profile_chart.js' %}"></script>
@@ -500,6 +501,7 @@ vanish depending on which way you light them.
     syncUrl();
   });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
+  LSGoto.attach(map, { position: 'top-right', zoom: 15 });   // paste lat, lon to jump
 
   // Right-click (Ctrl-click on Mac) anywhere on the map copies "lat, lon" to the
   // clipboard, as on /inventory/ (map.js) -- same format, same toast. The trace

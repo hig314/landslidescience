@@ -708,6 +708,10 @@
     // themselves register into it as their own setup runs (two are
     // conditional — measure needs turf, draw needs an editor).
     LSTools.init(map);
+    // Go to a pasted lat, lon (ls_goto.js): a button under the zoom buttons
+    // (the tool group attaches on first registration, so it lands below),
+    // and a paste anywhere outside a text field.
+    if (window.LSGoto) LSGoto.attach(map, { position: 'top-left', zoom: 14 });
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric'   }), 'bottom-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
 
