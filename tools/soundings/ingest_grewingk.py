@@ -20,14 +20,21 @@ The judgement calls, each recorded in the package's `ingest` block:
     cell's median, never an average -- because the soundings layer loads every
     point into the browser, and 55 k points is ~20 MB. Every original row
     stays in the archived raw files.
-  * BERG LEVEL: 50.05 m, sigma 0.3 (2026-10-14). First set at 50.5 m from Hig's
+  * BERG SPEED OF SOUND (2026-10-14, Hig: assume the sounder used seawater): every
+    depth is the delivered one x 1421.6/1500 = 0.9477 (fresh water at ~4 C against
+    the 1500 m/s seawater default); depth_orig keeps the delivered feet. Before it, Ed
+    read 1.30 m deeper than the 2023 multibeam on its flat floor (~23 m, NMAD 0.06) --
+    a ratio of 1.063; after it -0.20 m, i.e. the two agree and the multibeam's datum
+    stands. (6-10 m: +0.5 m, NMAD 1.0.)
+  * BERG LEVEL: 50.01 m, sigma 0.3 (2026-10-14). First set at 50.5 m from Hig's
     shoreline of September 2017 (50.5m_Shore_points.csv, which reads 50.4 m median
     on the 2021 lidar). Hig (2026-10-14): the track reads a little HIGH where it
     overlaps dry 2021 lidar, drop it wholesale. Measured on the raw track: rows
     whose 2021 lidar is above 49.0 m (dry; the 2021 water is 48.55, 48.7-48.8 near
     the inflows) on ground under 5 deg, 152 rows, depth ~0.6 m, read +0.46 m above
     the lidar (NMAD 0.32) at level 50.5 -- and each of the three overlap areas
-    agrees (west end +0.40, outlet +0.33 and +0.67). So the level is 50.5 - 0.45.
+    agrees (west end +0.40, outlet +0.33 and +0.67); +0.49 m with the sound-speed
+    correction applied. So the level is 50.5 - 0.49.
     Bed change 2017-2021 on those shoals (the outlet especially) would look the same.
   * BERG REJECTED: raw rows 21131-21135 follow a 1.34 km position jump and read
     24-43 m on a shoal the lidar shows dry at 49.9 m (Hig: "one obvious bad
@@ -39,9 +46,9 @@ The judgement calls, each recorded in the package's `ingest` block:
     thinned on its own so no cell mixes it with ordinary track.
   * BERG vs the 2023 multibeam (grewingk_sonar_2023, 527 overlapping points):
     on the flat floor Ed reads ~3.3 m deeper than the multibeam below 48.55 m
-    (NMAD 0.17); the difference grows with depth. NOT corrected: Hig's call is
-    two measures, multibeam preferred. Plausible cause: a low-frequency
-    single beam reading through dilated silt the multibeam resolves sharply.
+    (NMAD 0.17); the difference grows with depth. First kept as two measures
+    (Hig); 2026-10-14 explained and corrected as the sounder's speed of sound
+    (BERG SPEED OF SOUND below).
     sigma 1.0 per point (sounder, off-nadir pickup on the steep sides).
   * 2017 LEAD LINE: the last 10 rows of Ed's file are not track but lead-line drops of 21 July 2017
     (Waypoints_21-JUL-17.gpx, names = wraps of a 3.51 ft line); split off as berg_grewingk_2017_hand,
@@ -65,7 +72,9 @@ SHORE = SRC / '50.5m_Shore_points.csv'
 HAND_GPX = Path('/Volumes/Nunatak/bathy_src/berg_grewingk_2017_hand/raw/Waypoints_21-JUL-17.gpx')
 CELL_M = 5.0
 LEVEL_2021 = 48.55   # grewingk_2021 lidar, flat water surface over 76% of the sonar footprint
-BERG_LEVEL = 50.05   # Hig's 2017 shoreline (50.5) less the +0.45 m the track reads over dry 2021 lidar (2026-10-14)
+BERG_LEVEL = 50.01   # Hig's 2017 shoreline (50.5) less the +0.49 m the (sound-corrected) track reads over dry 2021 lidar
+SOUND_C, SOUND_ASSUMED = 1421.6, 1500.0   # m/s: fresh water at ~4 C (Del Grosso); the sounder's seawater default (Hig, 2026-10-14)
+SOUND_K = SOUND_C / SOUND_ASSUMED          # every delivered sounder depth x 0.9477
 BAD_AT = (59.60800, -151.13920)          # Hig: an obvious bad point; rows within BAD_R_M of it deeper than BAD_MIN_M
 BAD_R_M, BAD_MIN_M = 5.0, 5.0
 ICE_ENDS = ((59.60011, -151.07073), (59.60665, -151.08217))   # Hig: the run between these hugged the ice face
@@ -126,7 +135,7 @@ def berg(outdir, arch):
         if None in (x, y, lon, lat, dm, dft):
             bad.append(dict(row=i, values={k: r.get(k) for k in ('Depth_ft', 'Depth_m', 'Elev_m')}))
             continue
-        p = (x, y, lon, lat, dm, dft)
+        p = (x, y, lon, lat, dm * SOUND_K, dft)
         if dist_m(lat, lon, *BAD_AT) < BAD_R_M and dm > BAD_MIN_M:
             rejected.append((i, p))
         elif i0 <= i <= i1:
@@ -143,8 +152,8 @@ def berg(outdir, arch):
     keep = archive(arch, slug, [BERG, SHORE, SRC / 'Ed_Hig_Depths.csv'])
     lv = level('grewingk', BERG_LEVEL, 0.3, '2017-09-18',
                "Tied to the 2021 lidar (2026-10-14, Hig): where the track overlaps dry 2021 ground (lidar > 49.0 m, "
-               "slope < 5 deg, 152 raw rows in three areas) it read +0.46 m (NMAD 0.32) above the lidar at the 50.5 m "
-               "of Hig's September 2017 shoreline (50.5m_Shore_points.csv), so 50.5 - 0.45. Ed's survey was under way "
+               "slope < 5 deg, 152 raw rows in three areas) it read +0.49 m above the lidar (depths sound-corrected) at "
+               "the 50.5 m of Hig's September 2017 shoreline (50.5m_Shore_points.csv), so 50.5 - 0.49. Ed's survey was under way "
                "by 19 September 2017.", rows)
     survey = dict(
         slug=slug, title='Grewingk Lake depths (Ed Berg, September 2017)',
@@ -154,9 +163,11 @@ def berg(outdir, arch):
         citation='Berg, E., Grewingk Lake depth soundings, September 2017 (unpublished field data, compiled by B. Higman).',
         raw_path=str(keep),
         notes='Dense sounder track over Grewingk Lake, thinned for display to one measured point per 5 m cell. '
-              'Level tied to the 2021 lidar where the track crosses ground that was dry in 2021 (50.05 m; 2026-10-14). '
-              'Reads deeper than the 2023 multibeam (grewingk_sonar_2023) on its flat floor by 1.30 m at ~23 m '
-              '(NMAD 0.06): kept as a separate measure, not corrected; the multibeam is preferred where both exist. '
+              'Depths corrected for the speed of sound: x 1421.6/1500 (cold fresh water against the seawater default '
+              'the sounder is assumed to have used; Hig, 2026-10-14) -- after which it agrees with the 2023 multibeam '
+              '(grewingk_sonar_2023) on its flat floor to 0.2 m, where it had read 1.3 m (6 %) deep. Level tied to the '
+              '2021 lidar where the track crosses ground that was dry in 2021 (50.01 m). The multibeam is preferred '
+              'where both exist. '
               'The run along the 2017 ice face is loaded as lower bounds (off-nadir returns from the face read '
               'shallow), and one mislocated burst near 59.6080,-151.1392 as rejected. Surveyed by September 19, '
               '2017 (Ed\'s email of that date: ~20 hours of Lowrance pack-raft profiling, cleaned in ReefMaster 2.0).',
@@ -164,11 +175,13 @@ def berg(outdir, arch):
         ingest=dict(script='tools/soundings/ingest_grewingk.py', run=dt.datetime.now().isoformat(timespec='seconds'),
                     files=[BERG.name], points_in=len(utm) - nhand, points_valid=len(good) + len(ice), dropped=bad,
                     rejected_rows=[i for i, _ in rejected], ice_face_rows=[i0, i1], ice_face_points=len(ice),
-                    level_tie='+0.46 m (NMAD 0.32, n 152) over dry 2021 lidar at 50.5 m -> 50.05 m',
+                    level_tie='+0.49 m (n 152, sound-corrected depths) over dry 2021 lidar at 50.5 m -> 50.01 m',
+                    sound_speed=dict(factor=round(SOUND_K, 5), true_m_s=SOUND_C, assumed_m_s=SOUND_ASSUMED,
+                                     why='Hig 2026-10-14: assume the sounder used seawater; fresh water ~4 C'),
                     hand_rows_split_off=dict(rows=nhand, package=slug + '_hand'),
                     thinned=dict(cell_m=CELL_M, rule='one real point per cell, the one nearest the cell median depth; '
                                  'the ice-face run thinned on its own', cells=len(rows) - len(rejected)),
-                    not_used='Elev_m (an assumed 47.0 m level minus depth)', units='depth_m as delivered (= feet x 0.3048)'))
+                    not_used='Elev_m (an assumed 47.0 m level minus depth)', units='depth_m = delivered metres (feet x 0.3048) x SOUND_K; depth_orig = delivered feet'))
     write(outdir / slug, survey, rows)
     berg_hand(outdir, keep, utm[len(utm) - nhand:], len(utm) - nhand)
 
