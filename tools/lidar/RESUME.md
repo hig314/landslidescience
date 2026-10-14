@@ -564,3 +564,19 @@ into data/lidar/pmtiles/). Uploaded 21:14-23:07 (~0.9 MB/s), all three files ver
 rebuilt with LIDAR_TILES_PUBLIC_BASE, backups `catalog{,-gated}.geojson.bak.20260929-071327`;
 audit `ok` for all 47. Its notes carry two KNOWN ISSUES (structures as ground; returns above
 water) -- fixes in tools/lidar/kbay_reclass/README.md.
+
+## 2026-10-13 16:20: KBay reclassification v2 published, v1 retired -- still 47 public
+
+`kbay_2023_reclass_v2` (structures out of ground, returns floating over water rejected; 70 holes /
+5.0 km2 filled) replaces `kbay_2023_reclass`, approved by Hig the same day. A NEW id rather than an
+in-place replacement: v1's bytes are hard-linked (full/mosaic_v1/dtm_final.tif = cog/kbay_2023_reclass.tif)
+and edge caches would serve stale ranges. v1 now carries `"retired"` in datasets.json, so make_catalog
+skips it; **its bytes stay on R2**, unlisted, and the audit reads it `retired`. v2's COG is hard-linked
+from full/mosaic/dtm_final.tif, its pyramids from data/lidar_dev/. Uploaded 14:37-16:17 by
+`r2_publish_overnight.sh kbay_2023_reclass_v2`, all files verified. Pushed d94ef01 (manifest only),
+image rebuilt, catalogues rebuilt (`--verify-r2` + `LIDAR_TILES_PUBLIC_BASE`; `--gated-only`), backups
+`catalog{,-gated}.geojson.bak.20261014-001739`, installed; audit `ok`; pmtiles and COG 206; Worker
+tiles 200. Four prod default views (ids 1151, 1028, 29, 1027) still name the old id in `li=`, all far
+from Kachemak Bay; an unknown id is ignored, so they were left alone.
+
+Still open: hoonah_2015's bytes on public R2 (unchanged).
