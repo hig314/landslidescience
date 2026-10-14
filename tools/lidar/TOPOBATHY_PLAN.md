@@ -51,6 +51,36 @@ for the two dev_only entries so they show on `/lidar/` (WORKSTREAMS
 boundary). Hig redirected the second site from Lituya to **Kachemak Bay**
 (next section). The rule set is frozen until a named site fails.
 
+### Grewingk Lake, first attempt (2026-10-13)
+
+Hig: build a Grewingk topobathy with the ice as Mark Laker's SfM shows it (19 Sep 2023), the ice face
+VERTICAL and putting no constraint on the depth, the bed 150 m deep in the middle. Recipe
+`composites/grewingk/recipe.json` (2 m, x 602-614 km, y 6605-6612 km), ice from `make_ice.py` (the 2020
+G10040 outline minus what the lake had taken by 2023; face at x 609.19-609.50 km, matching the ortho).
+In the dev viewer as `grewingk_topobathy_v1` (`tools/lidar/dev_viewer_add.py`, new, generic).
+
+- **SfM is used for the glacier only** (Hig: SfM is bad over water and at the lake shore; measured here
+  NMAD 2.9 m over the lake, +3.4 m above the lidar on land beside it): the dixon2023 layer is a copy
+  holding only the 2023 ice and the retreat zone. Given everywhere with a canopy default it became the
+  newest class over the lake and the lake got no basin. Lake level pinned to the 2021 lidar's 48.55 m.
+- **Grewingk 2021's point classes are ~60% void over this box**: only their water is used; the lake is
+  also taken from the DTM itself (flat at 48.55 +- 0.35 m, connected to the class lake), else its surface
+  read ground along the face and the fill met a "shore" at water level instead of the ice.
+- **fill.py, new**: `ice_face: "free"` -- ice rim beside a WET domain is neither shore nor boundary value
+  (residual and spline free there; the solver skips such neighbours = no flux); ice inside a lake
+  (bergs, the face fringe the closing wraps in) is dropped as evidence (as an "island" it pinned the bed
+  20-30 m above the water); and the lake shape's distance-to-shore is to any non-ice land, as if the
+  lake ran on under the glacier (to the land rim only, the shape tapered to the face). `lake_dmax:
+  [{x, y, dmax_m, level_m}]` overrides one lake's deepest depth and level. **Lower bounds** get one
+  active-set pass: violated bounds join the points at their bound and the domain is refitted.
+  `channel_min_m2` huge in this recipe: channel detection read the deep east end as a river.
+- **Result**: lake 4.8 km2, max depth 170 m by the face, mean 50 m, 0.26 km3; soundings honoured (Berg
+  median 0.00 m, NMAD 0.29; lead line +0.15/0.56); bounds within 1.8 m (sigma 2.4). Face: middle
+  42-72 m deep, its ends shallow where they meet the valley walls.
+- **Open**: lake cells above the water (0.13 km2, to check); the TPS correction extrapolates toward
+  the free face from soundings ~100-300 m off it; berg / glacier buoyancy constraints (Hig: later);
+  the ice front moves (Hig: our face data is already out of date) -- a dated ice-front layer.
+
 ### Kachemak test: Peterson Bay – China Poot Bay – Halibut Cove (2026-10-10)
 
 `composites/kachemak_pedersen/recipe.json`, Hig's choice of a setting with

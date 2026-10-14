@@ -39,6 +39,13 @@ those holes in four steps, each written out so the provenance of every filled ce
             the rim (sigma_rim_m per 100 m, from `sigma_prior_m`).  Lakes carry `lake_sigma_m`
             extra, because the floor there is a guess.
 
+ICE FACE (ice_face "free", 2026-10-13): rim cells classed ice are no boundary at all -- not shore (no
+slope extension, no basin taper toward them) and not fixed values (residual and spline free there).
+LOWER BOUNDS (a points row with `bound` set): held out of the fit, then one active-set pass -- any
+the surface violates joins the points at its bound and its domain is refitted.
+LAKE OVERRIDES (lake_dmax: [{x, y, dmax_m, level_m}]): the lake holding (x, y) takes that deepest depth
+and water level instead of the estimates.
+
 Marine vs lake: a domain is marine when the median elevation of its land rim is below
 `marine_rim_max_m`; its floor is `low_tide_m`.  A lake's floor is its rim median minus
 `lake_depth_m`.  Both are first guesses that the soundings override wherever they exist.
@@ -59,7 +66,8 @@ DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, s
                 lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, lake_surface_tol_m=0.2, lake_islet_m2=50, void_shore_m=2.0, points=None,
                 channel_slope=0.002, channel_drop_m=1.0, channel_ws_smooth_m=20.0, channel_min_m2=2000, channel_wd=15.0, channel_dmax_cap=2.0,
                 channel_surface_tol_m=0.3, channel_tidal_wmax=120.0,
-                points_sigma_m=1.0, points_rim_sigma_m=0.2, points_rim_step_m=10.0, points_grid_m=4.0, points_sigma_per_m=0.15)
+                points_sigma_m=1.0, points_rim_sigma_m=0.2, points_rim_step_m=10.0, points_grid_m=4.0, points_sigma_per_m=0.15,
+                ice_face="shore", lake_dmax=None)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -433,6 +441,20 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     domain=dom, marine=np.zeros(0, bool), lakes=[])
     inside_obs = dom & np.isfinite(z)                                # soundings inside a domain
     rim = ndimage.binary_dilation(dom, structure=np.ones((3, 3), bool)) & ~dom & np.isfinite(z)
+    # ICE FACE (Hig, 2026-10-13, Grewingk): with ice_face "free" a rim cell classed ice is neither
+    # shore nor boundary value -- the face is vertical and says nothing about the depth below it.  It
+    # is taken out of the land rim (no slope extension, no taper of a lake basin toward it: distance to
+    # shore ignores it) and out of `rim` (the harmonic residual and the soundings spline are free
+    # there: the solver skips a neighbour that is neither fixed nor unknown, i.e. no flux).
+    ice_rim = np.zeros(z.shape, bool)
+    if P.get("ice_face") == "free" and "ice" in classes:
+        # only where ice meets a WET domain (the lake): a hole inside the glacier (an SfM gap) ringed by
+        # ice keeps the ice as its boundary -- freed, it had none and its solution was arbitrary (2026-10-13)
+        wet_dom = (lab > 0) & (lab <= nw)
+        ice_rim = rim & (cls == classes["ice"]) & ndimage.binary_dilation(wet_dom, structure=np.ones((3, 3), bool))
+        rim &= ~ice_rim
+        if ice_rim.any():
+            log(f"  ice face free: {int(ice_rim.sum())} rim cells classed ice are no boundary")
     land_rim = rim & np.isin(cls, land_codes)
     bed_rim = rim & ~land_rim
     # RIM SLOPE
@@ -485,8 +507,28 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     lake_prior = np.full(z.shape, np.nan, np.float32); lake_sig = np.full(z.shape, np.nan, np.float32)
     if land_rim.any():
         dshore = d                                                  # distance to the nearest land rim cell
+        if ice_rim.any():
+            # a FREE ice face (2026-10-13): the basin is shaped as if the lake ran on under the glacier --
+            # distance to shore is to any non-ice land, so across the face it is the valley's own width,
+            # not a taper toward the face.  (Measured to the land rim only, the shape shallowed to the
+            # face: the rim stops where rock meets ice, and the narrow end read as near the "shore".)
+            land_noice = np.isfinite(z) & np.isin(cls, [classes[n] for n in LAND_CLASSES if n in classes and n != "ice"]) & ~dom
+            dshore = ndimage.distance_transform_edt(~land_noice, sampling=res)
         vd = float(P["lake_vd"]); pexp = (-3 + np.sqrt(1 + 8 / vd)) / 2
         lake_ids = [i for i in ids if not marine[i - 1]]
+        # per-lake overrides (lake_dmax: [{x, y, dmax_m, level_m?}]): the lake whose domain holds (x, y)
+        # takes dmax_m as its deepest depth instead of the estimate, and level_m as its water level
+        # (Grewingk, 2026-10-13: 150 m, Hig; the SfM water surface is too noisy to be a level)
+        over = {}
+        T_ = P.get("_transform")
+        for e in (P.get("lake_dmax") or []):
+            if T_ is None:
+                break
+            cc_, rr_ = ~T_ * (float(e["x"]), float(e["y"])); rr_, cc_ = int(rr_), int(cc_)
+            if 0 <= rr_ < z.shape[0] and 0 <= cc_ < z.shape[1] and lab[rr_, cc_] > 0:
+                over[int(lab[rr_, cc_])] = e
+            else:
+                log(f"  lake_dmax entry at {e['x']},{e['y']} is not in a fill domain")
         for i in lake_ids:
             cells = (lab == i) & ~chan                              # a channel's cells are the channel's
             n_c = int(cells.sum()); A = n_c * res * res
@@ -515,6 +557,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 level = float(np.median(wz[wcell]))
             elif int(surf.sum()) >= 20:
                 level = float(np.median(z[surf]))
+            if i in over and over[i].get("level_m") is not None:
+                level = float(over[i]["level_m"])
             lake_level[i] = level
             d_h = P["hollister_k"] * L * np.tan(np.radians(sbar))
             dbar = P["huggel_a"] * A ** (P["huggel_b"] - 1)            # mean depth, m (A in m2, V in m3)
@@ -527,6 +571,10 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             if elong > P["channel_elong"]:
                 dmax = float(max(d_h, 0.5))
             sd = abs(d_h - d_g) / 2 + 5.0 if elong <= P["channel_elong"] else max(d_h, 1.0)
+            if i in over:
+                dmax = float(over[i]["dmax_m"])
+                log(f"  lake {i}: Dmax {dmax:.0f} m and level {level:.2f} m set by the recipe "
+                    f"(estimates: Hollister {d_h:.0f}, glacial {d_g:.0f} m)")
             # ONE smooth profile (2026-10-11, replaces max(shape, rim slope capped at Dmax), which on a
             # steep shore hit Dmax within metres and held it -- a wall and a flat floor):
             #   depth = Dmax * (1 - (1 - l/L)^q),  q = L tan(s) / Dmax  clipped to [1, 4]
@@ -551,6 +599,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             lake_sig[cells] = (P["lake_sigma_frac"] * sd * frac + 1.0).astype(np.float32)
             rr, cc = ndimage.center_of_mass(cells)
             lake_tab.append(dict(id=int(i), area_m2=int(A), L_m=round(L, 1), rim_slope_deg=round(sbar, 1), level_m=round(level, 2),
+                                 dmax_set=bool(i in over),
                                  dmax_hollister_m=round(d_h, 1), dmax_glacial_m=round(d_g, 1), dmax_m=round(dmax, 1), q=round(q, 2), elong=round(elong, 1), row=int(rr), col=int(cc)))
         # channels (channel_beds): their bed replaces band + interior like a lake's shape
         lake_prior[chan] = chan_bed[chan]
@@ -578,6 +627,14 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             ssz = ndimage.sum(sp, sl, np.arange(1, sn + 1)) * res * res
             specks = np.isin(sl, np.flatnonzero(ssz < P["lake_islet_m2"]) + 1)
             at_surface |= specks
+        # ice inside a lake (bergs, the ragged fringe of a calving face that the closing wraps into the
+        # domain) is not evidence of the bed: kept as an "island" at its surface height it pinned the bed
+        # 20-30 m ABOVE the water along Grewingk's face (2026-10-13).  Dropped when the face is free.
+        if P.get("ice_face") == "free" and "ice" in classes:
+            ice_in = lk & inside_obs & np.isfinite(z) & (cls == classes["ice"])
+            if ice_in.any():
+                log(f"  ice inside lakes dropped as evidence (bergs, face fringe): {int(ice_in.sum())} cells")
+                at_surface |= ice_in
         if at_surface.any():
             log(f"  lake observations at the water level or specks dropped as evidence: {int(at_surface.sum())} cells")
             inside_obs &= ~at_surface; hole |= at_surface
@@ -601,18 +658,17 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # stay out of z and condition the fill afterwards through a smoothing spline (SOUNDINGS below).
     pts = np.zeros(z.shape, bool)                  # cells holding a sounding (bookkeeping only)
     sound = []                                     # (row, col, x, y, z)
+    bounds = []                                    # lower bounds (row, col, x, y, z_max, sigma): bed at or below z
     if P.get("points"):
         import csv
         T = P.get("_transform")
         nbound = 0
         with open(P["points"]) as fh:
             for row in csv.DictReader(fh):
-                # A lower bound (a lead line that ran out) says the bed is at or below z: never
-                # condition the surface on it as a depth. Kept out; honouring it as an
-                # inequality is not built yet.
-                if row.get("bound"):
-                    nbound += 1
-                    continue
+                # A lower bound (a lead line that ran out) says the bed is at or below z: never a
+                # depth.  Held aside; after the spline any bound the surface violates becomes a
+                # point AT the bound and the domain is refitted (one active-set pass, 2026-10-13).
+                is_bound = bool(row.get("bound"))
                 x, y = float(row["x"]), float(row["y"])
                 if T is None:
                     continue
@@ -624,9 +680,12 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 else:
                     zz = float(med[lab[rr, cc] - 1]) - float(row["depth"])
                 sg = float(row["sigma"]) if row.get("sigma") not in (None, "") else P["points_sigma_m"]
+                if is_bound:
+                    bounds.append((rr, cc, x, y, zz, sg)); nbound += 1
+                    continue
                 sound.append((rr, cc, x, y, zz, sg)); pts[rr, cc] = True
         log(f"  sparse points: {len(sound)} inside domain holes from {P['points']}"
-            + (f"; {nbound} lower bounds not used" if nbound else ""))
+            + (f"; {nbound} lower bounds held for the active-set pass" if nbound else ""))
     # interior: harmonic from band edge + rim + floor-band... the interior sits at the floor
     # where the extension reached it, carried smoothly between band edge and bed rim.
     interior = dom & ~band & ~lk                                 # holes AND the sounding cells: the prior ignores soundings
@@ -680,13 +739,30 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     sdist = None
     if sound:
         S_ = np.array(sound, np.float64)
-        for i in np.unique(lab[S_[:, 0].astype(int), S_[:, 1].astype(int)]):
-            sel = lab[S_[:, 0].astype(int), S_[:, 1].astype(int)] == i
-            r = _spline_residual(S_[sel], fill, (lab == i) & hole, dom, inside_obs | rim, res, P,
-                                 T=P.get("_transform"), log=log, name=int(i))
+        base = fill.copy()
+        def spline_domain(i, Sd, tag=""):
+            r = _spline_residual(Sd, base, (lab == i) & hole, dom, inside_obs | rim, res, P,
+                                 T=P.get("_transform"), log=log, name=f"{int(i)}{tag}")
             if r is not None:
                 m_ = np.isfinite(r)
-                fill[m_] = (fill[m_] + r[m_]).astype(np.float32)
+                fill[m_] = (base[m_] + r[m_]).astype(np.float32)
+        slab = lab[S_[:, 0].astype(int), S_[:, 1].astype(int)]
+        for i in np.unique(slab):
+            spline_domain(i, S_[slab == i])
+        # LOWER BOUNDS, one active-set pass: a bound the surface violates (bed shallower than the line
+        # that ran out) joins its domain's points AT the bound, and that domain is refitted.
+        if bounds:
+            B_ = np.array(bounds, np.float64)
+            br_, bc_ = B_[:, 0].astype(int), B_[:, 1].astype(int)
+            viol = fill[br_, bc_] > B_[:, 4]
+            log(f"  lower bounds: {len(B_)}, violated after the fit: {int(viol.sum())} "
+                f"(by {np.round(fill[br_, bc_][viol] - B_[viol, 4], 1).tolist()} m)")
+            for i in np.unique(lab[br_[viol], bc_[viol]]):
+                add = B_[viol & (lab[br_, bc_] == i)]
+                spline_domain(i, np.vstack([S_[slab == i], add]), tag=" +bounds")
+            still = fill[br_, bc_] > B_[:, 4] + 1.0
+            if still.any():
+                log(f"  lower bounds still violated by > 1 m after the pass: {int(still.sum())}")
         sdist = ndimage.distance_transform_edt(~pts, sampling=res)
         mask[(dom & hole) & (sdist <= 3 * P["cond_m"])] = 3
     # SIGMA
