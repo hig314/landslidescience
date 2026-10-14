@@ -96,8 +96,9 @@ def write(out, survey, rows):
 def berg(outdir, arch):
     slug = 'berg_grewingk_2017'
     utm = read(BERG)                       # X/Y in UTM 5N, Lat/Lon columns alongside
+    nhand = hand_tail(utm)
     good, bad = [], []
-    for i, r in enumerate(utm):
+    for i, r in enumerate(utm[:len(utm) - nhand]):
         x, y, lon, lat, dm, dft = (num(r.get(k)) for k in ('X', 'Y', 'Lon', 'Lat', 'Depth_m', 'Depth_ft'))
         if None in (x, y, lon, lat, dm, dft):
             bad.append(dict(row=i, values={k: r.get(k) for k in ('Depth_ft', 'Depth_m', 'Elev_m')}))
@@ -121,7 +122,7 @@ def berg(outdir, arch):
                "on the 2021 lidar; ~2 m above the 2021 water. Ed's survey was under way by 19 September 2017.", rows)
     survey = dict(
         slug=slug, title='Grewingk Lake depths (Ed Berg, September 2017)',
-        collector='Ed Berg', collected_from=None, collected_to='2017-09-19',
+        collector='Ed Berg', collected_from=None, collected_to='2017-09-07',
         method='sounder', instrument='Lowrance sounder with GPS on a pack raft (model not recorded); cleaned in ReefMaster 2.0',
         depth_unit='ft', sigma_m=1.0, horizontal_m=5.0, licence='', public=False,
         citation='Berg, E., Grewingk Lake depth soundings, September 2017 (unpublished field data, compiled by B. Higman).',
@@ -133,10 +134,61 @@ def berg(outdir, arch):
               '2017 (Ed\'s email of that date: ~20 hours of Lowrance pack-raft profiling, cleaned in ReefMaster 2.0).',
         levels=[lv],
         ingest=dict(script='tools/soundings/ingest_grewingk.py', run=dt.datetime.now().isoformat(timespec='seconds'),
-                    files=[BERG.name], points_in=len(utm), points_valid=len(good), dropped=bad,
+                    files=[BERG.name], points_in=len(utm) - nhand, points_valid=len(good), dropped=bad,
+                    hand_rows_split_off=dict(rows=nhand, package=slug + '_hand'),
                     thinned=dict(cell_m=CELL_M, rule='one real point per cell, the one nearest the cell median depth',
                                  cells=len(rows)),
                     not_used='Elev_m (an assumed 47.0 m level minus depth)', units='depth_m as delivered (= feet x 0.3048)'))
+    write(outdir / slug, survey, rows)
+    berg_hand(outdir, keep, utm[len(utm) - nhand:], len(utm) - nhand)
+
+
+def hand_tail(utm, gap_m=15.0):
+    """Rows at the END of Ed's file that are not on a track: each more than gap_m from the row
+    before it.  The track steps 0.5 m (99th pct 0.7 m); the tail is 10 points 47-1,189 m apart."""
+    n = 0
+    for i in range(len(utm) - 1, 0, -1):
+        a, b = utm[i], utm[i - 1]
+        if math.hypot(float(a['X']) - float(b['X']), float(a['Y']) - float(b['Y'])) <= gap_m:
+            break
+        n += 1
+    return n
+
+
+def berg_hand(outdir, keep, tail, first_row):
+    """The non-track tail of Ed's file: his "hand sample depths" (email of 2017-09-19), most likely --
+    10 isolated points, 9 with a depth (16-83 m), the last written MAX (no number: not loaded, listed in
+    ingest.not_loaded).  None is within 1.3 km of Hig's 2019/2021 lead-line drops.  Method is ASSUMED to
+    be a weighted line; sigma 2 % of depth like Hig's (floor 0.2 m) -- both to be confirmed by Hig."""
+    slug = 'berg_grewingk_2017_hand'
+    rows, skipped = [], []
+    for k, r in enumerate(tail):
+        dm, dft = num(r.get('Depth_m')), num(r.get('Depth_ft'))
+        if dm is None:
+            skipped.append(dict(row=first_row + k, lat=r.get('Lat'), lon=r.get('Lon'), Depth_ft=r.get('Depth_ft'),
+                                Depth_m=r.get('Depth_m'))); continue
+        rows.append(dict(lon='%.7f' % float(r['Lon']), lat='%.7f' % float(r['Lat']), observed_at='', depth_m='%.3f' % dm,
+                         depth_orig='%g' % dft, depth_unit='ft', level_key='grewingk',
+                         sigma_m='%.2f' % max(0.2, 0.02 * dm), flag='', flag_reason='', name='', depth_bound='',
+                         notes='row %d of Ed_Hig_Depths_UTM5 (appended after the sounder track)' % (first_row + k)))
+    lv = level('grewingk', 50.5, 1.0, '2017-09-18',
+               "Hig's Grewingk shoreline of September 2017 (50.5m_Shore_points.csv), which reads 50.4 m median "
+               "on the 2021 lidar; the same level as Ed's sounder track.", rows)
+    survey = dict(
+        slug=slug, title='Grewingk Lake hand depths (Ed Berg, 2017)',
+        collector='Ed Berg', collected_from=None, collected_to='2017-09-07',
+        method='lead_line', instrument='hand sample depths (method assumed: weighted line)',
+        depth_unit='ft', sigma_m=1.0, horizontal_m=5.0, licence='', public=False,
+        citation='Berg, E., Grewingk Lake hand depth samples, 2017 (unpublished field data, compiled by B. Higman).',
+        raw_path=str(keep),
+        notes='Ten isolated points appended after the sounder track in Ed_Hig_Depths_UTM5 (file dated 2017-09-07): '
+              'taken to be the "hand sample depths" of Ed\'s 19 September 2017 email. Nine have depths, 16-83 m, in '
+              'the central and eastern lake, most 50-130 m from any sounder point; the tenth reads MAX (line ran '
+              'out?) with no number and is not loaded. Method and error are assumptions until Hig confirms.',
+        levels=[lv],
+        ingest=dict(script='tools/soundings/ingest_grewingk.py', run=dt.datetime.now().isoformat(timespec='seconds'),
+                    files=[BERG.name], rows=[first_row, first_row + len(tail) - 1], soundings=len(rows),
+                    not_loaded=skipped, sigma='max(0.2 m, 2% of depth), assumed'))
     write(outdir / slug, survey, rows)
 
 
