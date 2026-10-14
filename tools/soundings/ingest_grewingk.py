@@ -20,10 +20,23 @@ The judgement calls, each recorded in the package's `ingest` block:
     cell's median, never an average -- because the soundings layer loads every
     point into the browser, and 55 k points is ~20 MB. Every original row
     stays in the archived raw files.
-  * BERG LEVEL: 50.5 m, sigma 1.0. Hig's shoreline of September 2017
-    (50.5m_Shore_points.csv, same folder) reads 50.4 m median on the 2021 lidar,
-    so it is in the same datum and ~2 m above the October 2021 water (48.55 m).
-    Hig (2026-10-13): the water may have been ~2 m higher when Ed surveyed.
+  * BERG LEVEL: 50.05 m, sigma 0.3 (2026-10-14). First set at 50.5 m from Hig's
+    shoreline of September 2017 (50.5m_Shore_points.csv, which reads 50.4 m median
+    on the 2021 lidar). Hig (2026-10-14): the track reads a little HIGH where it
+    overlaps dry 2021 lidar, drop it wholesale. Measured on the raw track: rows
+    whose 2021 lidar is above 49.0 m (dry; the 2021 water is 48.55, 48.7-48.8 near
+    the inflows) on ground under 5 deg, 152 rows, depth ~0.6 m, read +0.46 m above
+    the lidar (NMAD 0.32) at level 50.5 -- and each of the three overlap areas
+    agrees (west end +0.40, outlet +0.33 and +0.67). So the level is 50.5 - 0.45.
+    Bed change 2017-2021 on those shoals (the outlet especially) would look the same.
+  * BERG REJECTED: raw rows 21131-21135 follow a 1.34 km position jump and read
+    24-43 m on a shoal the lidar shows dry at 49.9 m (Hig: "one obvious bad
+    point at 59.60800, -151.13920"); loaded as flag 'rejected', kept out of thinning.
+  * BERG ICE-FACE LINE: the run of the track from 59.60011,-151.07073 to
+    59.60665,-151.08217 (raw rows ICE_RUN) ran along the 2017 ice face; Hig
+    (2026-10-14): some readings are unrealistically shallow, probably off-nadir
+    returns from the face. Every row of it is a LOWER BOUND (depth_bound 'min'),
+    thinned on its own so no cell mixes it with ordinary track.
   * BERG vs the 2023 multibeam (grewingk_sonar_2023, 527 overlapping points):
     on the flat floor Ed reads ~3.3 m deeper than the multibeam below 48.55 m
     (NMAD 0.17); the difference grows with depth. NOT corrected: Hig's call is
@@ -52,6 +65,10 @@ SHORE = SRC / '50.5m_Shore_points.csv'
 HAND_GPX = Path('/Volumes/Nunatak/bathy_src/berg_grewingk_2017_hand/raw/Waypoints_21-JUL-17.gpx')
 CELL_M = 5.0
 LEVEL_2021 = 48.55   # grewingk_2021 lidar, flat water surface over 76% of the sonar footprint
+BERG_LEVEL = 50.05   # Hig's 2017 shoreline (50.5) less the +0.45 m the track reads over dry 2021 lidar (2026-10-14)
+BAD_AT = (59.60800, -151.13920)          # Hig: an obvious bad point; rows within BAD_R_M of it deeper than BAD_MIN_M
+BAD_R_M, BAD_MIN_M = 5.0, 5.0
+ICE_ENDS = ((59.60011, -151.07073), (59.60665, -151.08217))   # Hig: the run between these hugged the ice face
 FT = 0.3048
 COLS = ['lon', 'lat', 'observed_at', 'depth_m', 'depth_orig', 'depth_unit', 'level_key', 'sigma_m',
         'flag', 'flag_reason', 'name', 'notes', 'depth_bound']
@@ -101,29 +118,34 @@ def berg(outdir, arch):
     slug = 'berg_grewingk_2017'
     utm = read(BERG)                       # X/Y in UTM 5N, Lat/Lon columns alongside
     nhand = hand_tail(utm)
-    good, bad = [], []
-    for i, r in enumerate(utm[:len(utm) - nhand]):
+    track = utm[:len(utm) - nhand]
+    i0, i1 = sorted(nearest_row(track, *e) for e in ICE_ENDS)
+    good, bad, ice, rejected = [], [], [], []
+    for i, r in enumerate(track):
         x, y, lon, lat, dm, dft = (num(r.get(k)) for k in ('X', 'Y', 'Lon', 'Lat', 'Depth_m', 'Depth_ft'))
         if None in (x, y, lon, lat, dm, dft):
             bad.append(dict(row=i, values={k: r.get(k) for k in ('Depth_ft', 'Depth_m', 'Elev_m')}))
             continue
-        good.append((x, y, lon, lat, dm, dft))
-    cells = {}
-    for p in good:
-        cells.setdefault((math.floor(p[0] / CELL_M), math.floor(p[1] / CELL_M)), []).append(p)
-    rows = []
-    for (cx, cy), pts in sorted(cells.items()):
-        ds = sorted(p[4] for p in pts)
-        med = ds[len(ds) // 2]
-        p = min(pts, key=lambda q: abs(q[4] - med))
+        p = (x, y, lon, lat, dm, dft)
+        if dist_m(lat, lon, *BAD_AT) < BAD_R_M and dm > BAD_MIN_M:
+            rejected.append((i, p))
+        elif i0 <= i <= i1:
+            ice.append(p)
+        else:
+            good.append(p)
+    rows = thin(good) + thin(ice, bound='min', note='ice-face line (2017): a lower bound, off-nadir returns from the face '
+                                                    'read shallow (Hig 2026-10-14); ')
+    for i, p in rejected:
         rows.append(dict(lon='%.7f' % p[2], lat='%.7f' % p[3], observed_at='', depth_m='%.3f' % p[4],
-                         depth_orig='%g' % p[5], depth_unit='ft', level_key='grewingk', sigma_m='', flag='',
-                         flag_reason='', name='', depth_bound='', notes='%d points in its 5 m cell, depth %.1f-%.1f m'
-                         % (len(pts), ds[0], ds[-1]) if len(pts) > 1 else ''))
+                         depth_orig='%g' % p[5], depth_unit='ft', level_key='grewingk', sigma_m='', flag='rejected',
+                         flag_reason='raw row %d: after a 1.34 km position jump, %.1f m on a shoal the 2021 lidar shows '
+                                     'dry (Hig: obvious bad point)' % (i, p[4]), name='', depth_bound='', notes=''))
     keep = archive(arch, slug, [BERG, SHORE, SRC / 'Ed_Hig_Depths.csv'])
-    lv = level('grewingk', 50.5, 1.0, '2017-09-18',
-               "Hig's Grewingk shoreline of September 2017 (50.5m_Shore_points.csv), which reads 50.4 m median "
-               "on the 2021 lidar; ~2 m above the 2021 water. Ed's survey was under way by 19 September 2017.", rows)
+    lv = level('grewingk', BERG_LEVEL, 0.3, '2017-09-18',
+               "Tied to the 2021 lidar (2026-10-14, Hig): where the track overlaps dry 2021 ground (lidar > 49.0 m, "
+               "slope < 5 deg, 152 raw rows in three areas) it read +0.46 m (NMAD 0.32) above the lidar at the 50.5 m "
+               "of Hig's September 2017 shoreline (50.5m_Shore_points.csv), so 50.5 - 0.45. Ed's survey was under way "
+               "by 19 September 2017.", rows)
     survey = dict(
         slug=slug, title='Grewingk Lake depths (Ed Berg, September 2017)',
         collector='Ed Berg', collected_from=None, collected_to='2017-09-07',
@@ -132,19 +154,53 @@ def berg(outdir, arch):
         citation='Berg, E., Grewingk Lake depth soundings, September 2017 (unpublished field data, compiled by B. Higman).',
         raw_path=str(keep),
         notes='Dense sounder track over Grewingk Lake, thinned for display to one measured point per 5 m cell. '
-              'Reads deeper than the 2023 multibeam (grewingk_sonar_2023), increasingly with depth (~3.3 m on '
-              'the flat floor against the 2021 water level; ~1.3 m against this 50.5 m level): kept as a separate '
-              'measure, not corrected; the multibeam is preferred where both exist. Surveyed by September 19, '
+              'Level tied to the 2021 lidar where the track crosses ground that was dry in 2021 (50.05 m; 2026-10-14). '
+              'Reads deeper than the 2023 multibeam (grewingk_sonar_2023) on its flat floor by 1.30 m at ~23 m '
+              '(NMAD 0.06): kept as a separate measure, not corrected; the multibeam is preferred where both exist. '
+              'The run along the 2017 ice face is loaded as lower bounds (off-nadir returns from the face read '
+              'shallow), and one mislocated burst near 59.6080,-151.1392 as rejected. Surveyed by September 19, '
               '2017 (Ed\'s email of that date: ~20 hours of Lowrance pack-raft profiling, cleaned in ReefMaster 2.0).',
         levels=[lv],
         ingest=dict(script='tools/soundings/ingest_grewingk.py', run=dt.datetime.now().isoformat(timespec='seconds'),
-                    files=[BERG.name], points_in=len(utm) - nhand, points_valid=len(good), dropped=bad,
+                    files=[BERG.name], points_in=len(utm) - nhand, points_valid=len(good) + len(ice), dropped=bad,
+                    rejected_rows=[i for i, _ in rejected], ice_face_rows=[i0, i1], ice_face_points=len(ice),
+                    level_tie='+0.46 m (NMAD 0.32, n 152) over dry 2021 lidar at 50.5 m -> 50.05 m',
                     hand_rows_split_off=dict(rows=nhand, package=slug + '_hand'),
-                    thinned=dict(cell_m=CELL_M, rule='one real point per cell, the one nearest the cell median depth',
-                                 cells=len(rows)),
+                    thinned=dict(cell_m=CELL_M, rule='one real point per cell, the one nearest the cell median depth; '
+                                 'the ice-face run thinned on its own', cells=len(rows) - len(rejected)),
                     not_used='Elev_m (an assumed 47.0 m level minus depth)', units='depth_m as delivered (= feet x 0.3048)'))
     write(outdir / slug, survey, rows)
     berg_hand(outdir, keep, utm[len(utm) - nhand:], len(utm) - nhand)
+
+
+def dist_m(lat, lon, lat0, lon0):
+    return math.hypot((lat - lat0) * 111320.0, (lon - lon0) * 111320.0 * math.cos(math.radians(lat0)))
+
+
+def nearest_row(rows, lat, lon):
+    """Index of the row nearest (lat, lon): where Hig's coordinates for a run's ends fall on the track."""
+    best = min(((dist_m(num(r['Lat']), num(r['Lon']), lat, lon), i) for i, r in enumerate(rows)
+                if num(r.get('Lat')) is not None and num(r.get('Lon')) is not None))
+    assert best[0] < 10, 'no track row within 10 m of %s,%s' % (lat, lon)
+    return best[1]
+
+
+def thin(pts, bound='', note=''):
+    """One real point per CELL_M cell, the one nearest the cell's median depth (never an average)."""
+    cells = {}
+    for p in pts:
+        cells.setdefault((math.floor(p[0] / CELL_M), math.floor(p[1] / CELL_M)), []).append(p)
+    rows = []
+    for (cx, cy), cp in sorted(cells.items()):
+        ds = sorted(p[4] for p in cp)
+        med = ds[len(ds) // 2]
+        p = min(cp, key=lambda q: abs(q[4] - med))
+        rows.append(dict(lon='%.7f' % p[2], lat='%.7f' % p[3], observed_at='', depth_m='%.3f' % p[4],
+                         depth_orig='%g' % p[5], depth_unit='ft', level_key='grewingk', sigma_m='', flag='',
+                         flag_reason='', name='', depth_bound=bound,
+                         notes=note + ('%d points in its 5 m cell, depth %.1f-%.1f m' % (len(cp), ds[0], ds[-1])
+                                       if len(cp) > 1 else '')))
+    return rows
 
 
 def hand_tail(utm, gap_m=15.0):
