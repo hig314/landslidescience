@@ -12,8 +12,10 @@ The judgement calls, each recorded in the package's `ingest` block:
 
   * BERG. Ed_Hig_Depths_UTM5.shp: 55,363 points 0.5 m apart along the boat
     track, depth in feet and metres, plus an Elev_m from an ASSUMED 47.0 m level
-    (not used). One bad row (#VALUE!) is dropped. The files are dated
-    September 2017, so the survey is 2017 or earlier (Hig remembered ~2018).
+    (not used). One bad row (#VALUE!) is dropped. Ed's email of 2017-09-19
+    (fwdgrewingkandemeraldlakebathymetry/ATT00001.txt) dates it: "about 20 hours
+    of Lowrance pack raft profiling plus some hand sample depths", cleaned in
+    ReefMaster 2.0 -- so a Lowrance sounder, September 2017 (Hig remembered ~2018).
     THINNED to one point per 5 m cell -- the real measurement whose depth is the
     cell's median, never an average -- because the soundings layer loads every
     point into the browser, and 55 k points is ~20 MB. Every original row
@@ -116,19 +118,19 @@ def berg(outdir, arch):
     keep = archive(arch, slug, [BERG, SHORE, SRC / 'Ed_Hig_Depths.csv'])
     lv = level('grewingk', 50.5, 1.0, '2017-09-18',
                "Hig's Grewingk shoreline of September 2017 (50.5m_Shore_points.csv), which reads 50.4 m median "
-               "on the 2021 lidar; ~2 m above the 2021 water. Ed's survey day is not known.", rows)
+               "on the 2021 lidar; ~2 m above the 2021 water. Ed's survey was under way by 19 September 2017.", rows)
     survey = dict(
-        slug=slug, title='Grewingk Lake depths (Ed Berg, 2017 or earlier)',
-        collector='Ed Berg', collected_from=None, collected_to=None,
-        method='sounder', instrument='boat-mounted single-beam sounder with GPS track (model not recorded)',
+        slug=slug, title='Grewingk Lake depths (Ed Berg, September 2017)',
+        collector='Ed Berg', collected_from=None, collected_to='2017-09-19',
+        method='sounder', instrument='Lowrance sounder with GPS on a pack raft (model not recorded); cleaned in ReefMaster 2.0',
         depth_unit='ft', sigma_m=1.0, horizontal_m=5.0, licence='', public=False,
-        citation='Berg, E., Grewingk Lake depth soundings, 2017 or earlier (unpublished field data, compiled by B. Higman).',
+        citation='Berg, E., Grewingk Lake depth soundings, September 2017 (unpublished field data, compiled by B. Higman).',
         raw_path=str(keep),
         notes='Dense sounder track over Grewingk Lake, thinned for display to one measured point per 5 m cell. '
               'Reads deeper than the 2023 multibeam (grewingk_sonar_2023), increasingly with depth (~3.3 m on '
               'the flat floor against the 2021 water level; ~1.3 m against this 50.5 m level): kept as a separate '
-              'measure, not corrected; the multibeam is preferred where both exist. Survey date: the files are '
-              'from September 2017.',
+              'measure, not corrected; the multibeam is preferred where both exist. Surveyed by September 19, '
+              '2017 (Ed\'s email of that date: ~20 hours of Lowrance pack-raft profiling, cleaned in ReefMaster 2.0).',
         levels=[lv],
         ingest=dict(script='tools/soundings/ingest_grewingk.py', run=dt.datetime.now().isoformat(timespec='seconds'),
                     files=[BERG.name], points_in=len(utm), points_valid=len(good), dropped=bad,
