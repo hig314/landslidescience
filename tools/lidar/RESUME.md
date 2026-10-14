@@ -580,3 +580,16 @@ tiles 200. Four prod default views (ids 1151, 1028, 29, 1027) still name the old
 from Kachemak Bay; an unknown id is ignored, so they were left alone.
 
 Still open: hoonah_2015's bytes on public R2 (unchanged).
+
+## 2026-10-13 19:10: grewingk_sonar_2023 replaced by its pass-levelled re-grid (gated, same id)
+
+Katie Hughes' multibeam passes disagreed by whole-pass vertical shifts (0.15 m median, 0.77 m p90, 2.0 m max
+where they overlap); tools/lidar/grewingk_sonar/level_passes.py fits one offset per pass (sum zero, so the mean
+level is unchanged) and re-grids the raw .las on the delivered lattice. Hig reviewed it in the dev viewer and
+approved it for production the same day. `src` in datasets.json now points at
+lidar_build/grewingk_sonar_level/levelled_1m.tif and the notes carry the method. Rebuilt with build_lidar.py after
+moving the old archive to grewingk_sonar_level/delivered_archive_20260919/ and deleting the tile and slope caches
+(build_archive skips an existing archive, and the first run silently re-tiled the OLD surface). Gated, so no R2:
+pmtiles + COG scp'd to the droplet (md5 checked), droplet copies of those and catalog-gated.geojson backed up in
+/root/backup_grewingk_sonar_20261013-levelled/, gated catalogue rebuilt and installed. Same id on purpose: links,
+profiles and default views keep working; the gated route's private max-age is an hour.
