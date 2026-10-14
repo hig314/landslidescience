@@ -137,7 +137,9 @@
    "date": "2023-05-18",
    "class": "bed",
    "sigma_m": 0.3,
-   "notes": "The pass-levelled re-grid (level_passes.py), published 2026-10-13."
+   "notes": "The pass-levelled re-grid (level_passes.py), published 2026-10-13.",
+   "shift_m": 0.36,
+   "shift_notes": "Hig 2026-10-14: the whole topobathy raised 0.36 m to the other DEMs (Grewingk 2021 reads 0.36 m low against KBay 2023 and Seldovia 2019). The multibeam agrees with Ed Berg's sound-corrected track, whose level is tied to the UNSHIFTED 2021 lidar, to 0.2 m -- so it is in that datum and takes the same shift."
   },
   {
    "name": "dixon2023",
@@ -187,8 +189,8 @@
     "y": 6608900,
     "dmax_m": 150.0,
     "why": "Hig 2026-10-13: 150 m deep in the middle of the lake",
-    "level_m": 48.55,
-    "level_why": "the 12 Oct 2021 lidar water surface (flat at 48.55 m). The 2023 SfM water reads 51.6 m median but scatters NMAD 2.9 m (p5-p95 48-58 m) and stands +3.4 m above the lidar even on land near the lake: not a level."
+    "level_m": 48.91,
+    "level_why": "the 12 Oct 2021 lidar water surface (flat at 48.55 m). The 2023 SfM water reads 51.6 m median but scatters NMAD 2.9 m (p5-p95 48-58 m) and stands +3.4 m above the lidar even on land near the lake: not a level. Raised 0.36 m to 48.91 with the 2021 lidar's shift (Hig 2026-10-14)."
    }
   ],
   "points": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261014b.csv",
@@ -198,6 +200,9 @@
   "shore_grad_m": 200.0,
   "shore_grad_r_m": 150.0,
   "shore_grad_n0": 3.0,
-  "shore_grad_notes": "Hig 2026-10-14: the measured gradients off a shore inform the assumed one. Each depth within 200 m of shore (soundings, multibeam bed) gives rho = measured / prior depth; log rho smoothed along the lake (sigma 150 m, 3 sites' weight on rho = 1) rescales the basin prior within 200 m of shore, fading out by 400 m. Made for the outlet bay, where the lake-wide shape put a 48 m hole between the cross-outlet sounding line and the river."
+  "shore_grad_notes": "Hig 2026-10-14: the measured gradients off a shore inform the assumed one. Each depth within 200 m of shore (soundings, multibeam bed) gives rho = measured / prior depth; log rho smoothed along the lake (sigma 150 m, 3 sites' weight on rho = 1) rescales the basin prior within 200 m of shore, fading out by 400 m. Made for the outlet bay, where the lake-wide shape put a 48 m hole between the cross-outlet sounding line and the river. 2026-10-14 (Hig): the window widens with distance from shore -- local at the water's edge, an ever broader stretch of shore farther out (sigma ~ distance, 150 m to 2.4 km) -- so a few soundings by one cliff no longer set the bed far below it; the same for the land rim slope in the shore band (rim_widen).",
+  "points_dz_m": 0.36,
+  "points_dz_notes": "Every Grewingk sounding level is tied to the UNSHIFTED 2021 lidar (48.55 m water; Ed's level to its dry ground), as the soundings database keeps them (the published grewingk_2021 is unshifted too); the composite raises them with the lidar layer's shift_m (Hig 2026-10-14).",
+  "rim_widen": true
  }
 }

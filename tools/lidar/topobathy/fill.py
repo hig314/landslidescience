@@ -70,7 +70,8 @@ DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, s
                 channel_slope=0.002, channel_drop_m=1.0, channel_ws_smooth_m=20.0, channel_min_m2=2000, channel_wd=15.0, channel_dmax_cap=2.0,
                 channel_surface_tol_m=0.3, channel_tidal_wmax=120.0,
                 points_sigma_m=1.0, points_rim_sigma_m=0.2, points_rim_step_m=10.0, points_grid_m=4.0, points_sigma_per_m=0.15,
-                ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0)
+                ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0,
+                rim_widen=True, points_dz_m=0.0)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -78,6 +79,42 @@ def _nmean(v, has, size):
     s = ndimage.uniform_filter(np.where(has, v, 0.0).astype(np.float32), size)
     n = ndimage.uniform_filter(has.astype(np.float32), size)
     return np.where(n > 1e-6, s / np.maximum(n, 1e-6), np.nan)
+
+
+def _gsmooth(a, sig):
+    """Gaussian filter of `a` (sigma in cells); past ~8 cells done on a block-averaged grid and zoomed
+    back (a 400-cell kernel at full resolution is ~1e11 operations on a lake box)."""
+    if sig <= 8:
+        return ndimage.gaussian_filter(a, sig, truncate=3.0)
+    f = int(sig // 4); H, W = a.shape; Hp, Wp = -(-H // f) * f, -(-W // f) * f
+    b = np.zeros((Hp, Wp), np.float64); b[:H, :W] = a
+    c = b.reshape(Hp // f, f, Wp // f, f).mean(axis=(1, 3))
+    c = ndimage.gaussian_filter(c, sig / f, truncate=3.0)
+    return ndimage.zoom(c, f, order=1)[:H, :W]
+
+
+def _widening(val, wgt, d, scales, n0=0.0, floor=None):
+    """Weighted mean of `val` (with weights `wgt`, both on the grid, 0 where none) whose window WIDENS with
+    `d` (metres-from-shore, in cells): computed at each of `scales` (sigma, cells) and, cell by cell,
+    interpolated in log-scale at sigma = max(d, scales[0]).  n0 sites' worth of weight on 0 at each scale
+    (the field relaxes to 0 where there is little).  Hig (2026-10-14): "as the extrapolation proceeds, it
+    should be dependent on an increasingly broad section of shoreline"."""
+    out = np.zeros(val.shape, np.float64)
+    ls = np.log(np.asarray(scales, float)); x = np.log(np.clip(d, scales[0], scales[-1]))
+    prev = None
+    for k, sc in enumerate(scales):
+        num = _gsmooth(val * wgt, sc); den = _gsmooth(wgt, sc) + n0 / (2 * np.pi * sc * sc)
+        cur = np.where(den > 1e-12, num / np.maximum(den, 1e-12), 0.0)
+        if floor is not None:
+            cur = np.where(_gsmooth(wgt, sc) > 1e-9, cur, floor)
+        if k == 0:
+            out[:] = cur
+        else:
+            t = np.clip((x - ls[k - 1]) / (ls[k] - ls[k - 1]), 0, 1)
+            sel = x > ls[k - 1]
+            out[sel] = ((1 - t) * prev + t * cur)[sel]
+        prev = cur
+    return out
 
 
 def slope_deg(z, res):
@@ -487,7 +524,28 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     band = np.zeros(z.shape, bool)
     if land_rim.any():
         d, (ri, ci) = ndimage.distance_transform_edt(~land_rim, return_indices=True, sampling=res)
-        ext = z[ri, ci] - np.tan(np.radians(srim[ri, ci])) * d
+        if P.get("rim_widen"):
+            # the shore's slope read over a stretch of shore that WIDENS with distance out (Hig, 2026-10-14):
+            # at the water's edge the slope of the inland_m behind the nearest rim cell, d out the mean tan(slope)
+            # of the rim within ~d/2 of it -- one cliff patch no longer carries its slope far down
+            tr = np.where(land_rim, np.tan(np.radians(srim)), 0.0); wr = land_rim.astype(np.float64)
+            scl = [max(P["inland_m"] / res, 1.0) * 2 ** k for k in range(6)]          # 10 .. 320 m
+            ls_ = np.log(scl); x_ = np.log(np.clip(d / res / 2, scl[0], scl[-1]))
+            tan0 = np.tan(np.radians(srim[ri, ci])); tan_eff = tan0.copy(); prev = None
+            for k, sc in enumerate(scl):
+                den = _gsmooth(wr, sc)
+                cur = np.where(den > 1e-9, _gsmooth(tr, sc) / np.maximum(den, 1e-9), np.nan)[ri, ci]
+                cur = np.where(np.isfinite(cur), cur, tan0)
+                if k == 0:
+                    tan_eff[:] = cur
+                else:
+                    t_ = np.clip((x_ - ls_[k - 1]) / (ls_[k] - ls_[k - 1]), 0, 1); sel = x_ > ls_[k - 1]
+                    tan_eff[sel] = ((1 - t_) * prev + t_ * cur)[sel]
+                prev = cur
+            ext = z[ri, ci] - tan_eff * d
+            del prev, cur
+        else:
+            ext = z[ri, ci] - np.tan(np.radians(srim[ri, ci])) * d
         ext = ext.astype(np.float32)
         # smooth the extension with a kernel that grows with distance to shore (blend, not terrace)
         sm = ndimage.gaussian_filter(np.where(dom, ext, 0), sigma=max(8 / res, 1)) / np.maximum(ndimage.gaussian_filter(dom.astype(np.float32), sigma=max(8 / res, 1)), 1e-3)
@@ -679,7 +737,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 if not (0 <= rr < z.shape[0] and 0 <= cc < z.shape[1]) or not (dom[rr, cc] and hole[rr, cc]):
                     continue
                 if row.get("z") not in (None, ""):
-                    zz = float(row["z"])
+                    zz = float(row["z"]) + float(P.get("points_dz_m") or 0.0)
                 else:
                     zz = float(med[lab[rr, cc] - 1]) - float(row["depth"])
                 sg = float(row["sigma"]) if row.get("sigma") not in (None, "") else P["points_sigma_m"]
@@ -716,8 +774,12 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             lr = np.log(np.clip(dm_ / dp_, 0.05, 4.0))
             acc = np.zeros(z.shape, np.float64); cnt = np.zeros(z.shape, np.float64)
             np.add.at(acc, (mr[use], mc[use]), lr); np.add.at(cnt, (mr[use], mc[use]), 1.0)
-            gs = ndimage.gaussian_filter(acc, sgc, truncate=3.0); gc = ndimage.gaussian_filter(cnt, sgc, truncate=3.0)
-            F = gs / (gc + float(P["shore_grad_n0"]) / (2 * np.pi * sgc * sgc))
+            val = np.where(cnt > 0, acc / np.maximum(cnt, 1), 0.0)
+            # the window WIDENS with distance from shore (Hig, 2026-10-14): a cell d from shore takes the mean
+            # log rho over sigma ~ max(d, shore_grad_r_m) -- local at the water's edge, an ever broader stretch
+            # of shore farther out, so a few soundings by one cliff no longer set the bed far below it.
+            scl = [sgc * 2 ** k for k in range(5)]                  # 150 .. 2400 m
+            F = _widening(val, cnt, dshore / res, scl, n0=float(P["shore_grad_n0"]))
             # the blend in distance from shore, smooth (smoothstep), and the log-factor then smoothed over the
             # lake (shore_grad_smooth_m): distance to shore is creased along the medial axis and wherever the
             # nearest shore switches, and multiplying the basin by a function of it printed those creases
