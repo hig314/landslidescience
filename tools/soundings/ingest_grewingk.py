@@ -237,6 +237,36 @@ def higman(outdir, arch):
     write(outdir / slug, survey, rows)
 
 
+# Hig's 2026 plumb-line drops, given in conversation 2026-10-13 (lat, lon, depth m); day not yet given.
+HIG_2026 = [(59.60402, -151.06686, 149.0), (59.60329, -151.06729, 164.5), (59.60233, -151.06720, 164.0),
+            (59.60171, -151.06662, 138.0)]
+
+
+def higman_2026(outdir, arch):
+    """Four lead-line (plumb) depths of 2026 at the east end, near the ice face, incl. the deepest so far
+    (164.5 m). sigma = 2 % of depth (Hig). Day not recorded here, so observed_at is empty; level is the
+    2021 lidar water (48.55 m) at sigma 1.0 -- the 2026 stage is unknown, as for 2019."""
+    slug = 'higman_grewingk_2026'
+    rows = [dict(lon='%.5f' % lon, lat='%.5f' % lat, observed_at='', depth_m='%.1f' % d, depth_orig='%g' % d,
+                 depth_unit='m', level_key='grewingk_2026', sigma_m='%.2f' % max(0.2, 0.02 * d), flag='',
+                 flag_reason='', name='', depth_bound='', notes='') for lat, lon, d in HIG_2026]
+    lv = level('grewingk_2026', LEVEL_2021, 1.0, '2021-10-12',
+               'grewingk_2021 lidar water surface (flat at 48.55 m, 12 October 2021); the 2026 stage is unknown', rows)
+    survey = dict(
+        slug=slug, title='Grewingk Lake lead-line depths, east end (Higman, 2026)',
+        collector='Bretwood Higman', collected_from='2026-01-01', collected_to='2026-10-13',
+        method='lead_line', instrument='plumb line; handheld GPS', depth_unit='m', sigma_m=0.5, horizontal_m=5.0,
+        licence='', public=False,
+        citation='Higman, B., 2026, Grewingk Lake lead-line soundings (unpublished field data).',
+        raw_path='', notes='Four plumb-line depths near the ice face, 138-164.5 m: the deepest yet measured in the lake. '
+              'Given by Hig in conversation 2026-10-13 (no file); error about 2% of depth (Hig). Day of survey not '
+              'recorded here (collected_from/to bracket the year).',
+        levels=[lv],
+        ingest=dict(script='tools/soundings/ingest_grewingk.py', run=dt.datetime.now().isoformat(timespec='seconds'),
+                    source='typed by Hig 2026-10-13', soundings=len(rows), sigma='max(0.2 m, 2% of depth)'))
+    write(outdir / slug, survey, rows)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--out', required=True, help='parent directory; one package per survey is written inside')
@@ -244,6 +274,7 @@ def main():
     a = ap.parse_args()
     berg(Path(a.out), a.archive)
     higman(Path(a.out), a.archive)
+    higman_2026(Path(a.out), a.archive)
 
 
 if __name__ == '__main__':
