@@ -57,8 +57,11 @@ window.LSSoundings = (function () {
                'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 1.5, 13, 3, 16, 5.5],
                'circle-stroke-color': ['case', ['==', ['get', 'flag'], 'suspect'], '#e65100',
                                        ['==', ['get', 'depth_bound'], 'min'], '#111111', '#ffffff'],
-               'circle-stroke-width': ['case', ['==', ['get', 'depth_bound'], 'min'], 2.5,
-                                       ['interpolate', ['linear'], ['zoom'], 9, 0.3, 14, 1]] } });
+               // ['zoom'] is legal only as the input of a TOP-LEVEL interpolate/step, so the
+               // bound test goes inside the stops (nested the other way, the layer is refused).
+               'circle-stroke-width': ['interpolate', ['linear'], ['zoom'],
+                                       9, ['case', ['==', ['get', 'depth_bound'], 'min'], 2.5, 0.3],
+                                       14, ['case', ['==', ['get', 'depth_bound'], 'min'], 2.5, 1]] } });
     map.addLayer({ id: REJ, type: 'circle', source: SRC, layout: { visibility: vis() },
       filter: ['all', ['==', ['get', 'kind'], 'sounding'], ['==', ['get', 'flag'], 'rejected']],
       paint: { 'circle-color': 'rgba(0,0,0,0)', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 2, 16, 6],
