@@ -81,6 +81,39 @@ In the dev viewer as `grewingk_topobathy_v1` (`tools/lidar/dev_viewer_add.py`, n
   the free face from soundings ~100-300 m off it; berg / glacier buoyancy constraints (Hig: later);
   the ice front moves (Hig: our face data is already out of date) -- a dated ice-front layer.
 
+
+### Grewingk Lake v2 (2026-10-14)
+
+Hig's review of v1: (1) Ed Berg's sounder track reads a bit high where it overlaps dry 2021 lidar -- drop it
+wholesale; (2) one obvious bad point at 59.60800,-151.13920; (3) the track's run along the 2017 ice face
+(59.60011,-151.07073 to 59.60665,-151.08217) reads unrealistically shallow, probably off-nadir -- make it
+lower bounds; (4) the outlet bay is shallower than the fill made it -- use measured near-shore gradients
+to inform the assumed one. Done:
+
+- (1)-(3) in the soundings ingest (main, `tools/soundings/ingest_grewingk.py`): the level is 50.05 m, not
+  50.5. On the RAW track, rows over 2021 lidar > 49.0 m (dry; the 2021 water is 48.55, 48.7-48.8 near the
+  inflows) on ground < 5 deg: 152 rows, ~0.6 m deep, +0.46 m (NMAD 0.32) above the lidar, and all three
+  overlap areas agree (west end +0.40, outlet +0.33, +0.67). Raw rows 21131-21135 (24-43 m after a 1.34 km
+  position jump, on a shoal dry in 2021) rejected; the ice-face run (raw rows 41712-44273, 316 thinned
+  points) loaded as lower bounds.
+- KATIE'S DATUM in that light: on the multibeam's flat floor (~23 m, 122 raw rows, NMAD 0.06) Ed now reads
+  1.30 m DEEPER than the multibeam (0.85 m at the old level); at 6-10 m they agree (+0.2, NMAD 1.0). A
+  constant datum error in the multibeam would show at every depth; a ratio of 1.063 (Ed's depth / the
+  multibeam's) is what a sounder reading ~6 % deep gives -- e.g. one assuming ~1500 m/s in ~2-4 C fresh
+  water (~1420 m/s). Not applied: one depth band cannot tell a scale from an offset, and a 6 % scale would
+  take ~5 m off Ed's 87 m and ~9 m off its 149 m readings. Settles with the sounder's speed setting, or a
+  lead line dropped on the multibeam's floor.
+- (4) `shore_grad_m` in fill.py (docstring SHORE GRADIENT): every depth within 200 m of shore (soundings,
+  multibeam bed one per 10 m) gives rho = measured / prior depth; log rho is smoothed along the lake
+  (sigma 150 m, 3 sites' weight on rho = 1) and multiplies the lake prior's depth within 200 m of shore,
+  fading out by 400 m. 4,137 depths, rho p10/50/90 0.17/0.71/1.73. The outlet bay north of the
+  cross-outlet line: bed 9.5 m (39 m deep) in v1, 40.8 m (8 m deep) now.
+- Result (`grewingk_topobathy_v2` in the dev viewer): lake 5.08 km2, max depth 168 m, mean 50.8 m,
+  0.258 km3; soundings fit median 0.00 / NMAD 0.23 (Berg), +0.05 / 0.28 (Higman 2019/21). Lower bounds:
+  22 of 316 ice-face bounds still above the surface after the one active-set pass, most by ~1 m; worst
+  30.8 m at the run's south end, where two ordinary 0.9 m readings sit 2 m from a 61 m bound -- the same
+  off-nadir problem just outside Hig's endpoint. Above-water lake cells 0.151 km2 (0.13 in v1).
+
 ### Kachemak test: Peterson Bay – China Poot Bay – Halibut Cove (2026-10-10)
 
 `composites/kachemak_pedersen/recipe.json`, Hig's choice of a setting with

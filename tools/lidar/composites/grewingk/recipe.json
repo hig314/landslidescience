@@ -182,9 +182,13 @@
     "level_why": "the 12 Oct 2021 lidar water surface (flat at 48.55 m). The 2023 SfM water reads 51.6 m median but scatters NMAD 2.9 m (p5-p95 48-58 m) and stands +3.4 m above the lidar even on land near the lake: not a level."
    }
   ],
-  "points": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261013.csv",
-  "notes": "Sparse depths: a dated export of the soundings database (Grewingk: Berg 2017 sounder, thinned; Higman lead line 2017/2019/2021/2026; z = each survey's level - depth). ice_face 'free': rim cells classed ice are neither shore (no slope extension, no taper of the basin) nor fixed boundary values (residual and spline free there). lake_dmax: the basin's deepest point fixed by Hig instead of estimated.",
+  "points": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261014.csv",
+  "notes": "Sparse depths: a dated export of the soundings database (Grewingk: Berg 2017 sounder, thinned, level tied to the 2021 lidar (50.05 m), its 2017 ice-face run as lower bounds; Higman lead line 2017/2019/2021/2026; z = each survey's level - depth). ice_face 'free': rim cells classed ice are neither shore (no slope extension, no taper of the basin) nor fixed boundary values (residual and spline free there). lake_dmax: the basin's deepest point fixed by Hig instead of estimated.",
   "channel_min_m2": 1000000000000.0,
-  "channel_notes": "Channel detection off for this box (channel_min_m2 huge): it read the deep east end of Grewingk Lake, by the ice face, as a river channel and gave it a shallow channel bed (first fill, 2026-10-13)."
+  "channel_notes": "Channel detection off for this box (channel_min_m2 huge): it read the deep east end of Grewingk Lake, by the ice face, as a river channel and gave it a shallow channel bed (first fill, 2026-10-13).",
+  "shore_grad_m": 200.0,
+  "shore_grad_r_m": 150.0,
+  "shore_grad_n0": 3.0,
+  "shore_grad_notes": "Hig 2026-10-14: the measured gradients off a shore inform the assumed one. Each depth within 200 m of shore (soundings, multibeam bed) gives rho = measured / prior depth; log rho smoothed along the lake (sigma 150 m, 3 sites' weight on rho = 1) rescales the basin prior within 200 m of shore, fading out by 400 m. Made for the outlet bay, where the lake-wide shape put a 48 m hole between the cross-outlet sounding line and the river."
  }
 }

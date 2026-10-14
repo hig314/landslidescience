@@ -43,6 +43,9 @@ ICE FACE (ice_face "free", 2026-10-13): rim cells classed ice are no boundary at
 slope extension, no basin taper toward them) and not fixed values (residual and spline free there).
 LOWER BOUNDS (a points row with `bound` set): held out of the fit, then one active-set pass -- any
 the surface violates joins the points at its bound and its domain is refitted.
+SHORE GRADIENT (shore_grad_m, 2026-10-14): depths measured near a shore rescale the lake's basin prior
+there (rho = measured / prior depth, smoothed along the lake, fading out by 2 x shore_grad_m from shore),
+so a shore whose soundings say gentle gets a gentle prior in the gaps between them.
 LAKE OVERRIDES (lake_dmax: [{x, y, dmax_m, level_m}]): the lake holding (x, y) takes that deepest depth
 and water level instead of the estimates.
 
@@ -67,7 +70,7 @@ DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, s
                 channel_slope=0.002, channel_drop_m=1.0, channel_ws_smooth_m=20.0, channel_min_m2=2000, channel_wd=15.0, channel_dmax_cap=2.0,
                 channel_surface_tol_m=0.3, channel_tidal_wmax=120.0,
                 points_sigma_m=1.0, points_rim_sigma_m=0.2, points_rim_step_m=10.0, points_grid_m=4.0, points_sigma_per_m=0.15,
-                ice_face="shore", lake_dmax=None)
+                ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -686,6 +689,45 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 sound.append((rr, cc, x, y, zz, sg)); pts[rr, cc] = True
         log(f"  sparse points: {len(sound)} inside domain holes from {P['points']}"
             + (f"; {nbound} lower bounds held for the active-set pass" if nbound else ""))
+    # SHORE GRADIENT (Hig, 2026-10-14, Grewingk's outlet: "use measured gradients from shore nearby to
+    # inform the assumed gradient"): one basin shape per lake gives every shore the same profile, so a
+    # shallow outlet bay got a 48 m hole between the sounding line across it and the river.  Each depth
+    # measured near a shore (sparse points and bed observations within shore_grad_m of it) is a ratio
+    # rho = measured depth / prior depth at its distance from shore; log rho is smoothed along the lake
+    # (Gaussian, shore_grad_r_m, with shore_grad_n0 sites' worth of weight on rho = 1, so one sounding
+    # cannot rescale a whole shore and the prior returns where there are none) and the lake prior's
+    # depth is multiplied by it -- fully within shore_grad_m of shore, fading to none at twice that.
+    # The deep middle keeps the basin shape; the soundings' spline still fits them afterwards.
+    if P.get("shore_grad_m") and lk.any() and lake_tab:
+        Ls = float(P["shore_grad_m"]); sgc = max(float(P["shore_grad_r_m"]) / res, 1.0)
+        shp = lk & ~chan & np.isfinite(prior) & np.isfinite(lvl)
+        dprior = np.where(shp, lvl - prior, np.nan)
+        mr, mc, mz = [], [], []
+        for (rr, cc, _x, _y, zz, _s) in sound:
+            mr.append(rr); mc.append(cc); mz.append(zz)
+        bed_in = shp & inside_obs & (cls == classes["bed"]) if "bed" in classes else np.zeros(z.shape, bool)
+        k_ = max(int(round(10.0 / res)), 1)                      # bed observations: one per 10 m block
+        bm = np.zeros(z.shape, bool); bm[::k_, ::k_] = True; br, bc = np.nonzero(bed_in & bm)
+        mr += br.tolist(); mc += bc.tolist(); mz += z[br, bc].tolist()
+        mr, mc, mz = np.array(mr, int), np.array(mc, int), np.array(mz, np.float64)
+        use = shp[mr, mc] & (dshore[mr, mc] <= Ls) if len(mr) else np.zeros(0, bool)
+        if use.any():
+            dm_ = np.maximum(lvl[mr, mc] - mz, 0.1)[use]; dp_ = np.maximum(dprior[mr, mc], 0.5)[use]
+            lr = np.log(np.clip(dm_ / dp_, 0.05, 4.0))
+            acc = np.zeros(z.shape, np.float64); cnt = np.zeros(z.shape, np.float64)
+            np.add.at(acc, (mr[use], mc[use]), lr); np.add.at(cnt, (mr[use], mc[use]), 1.0)
+            gs = ndimage.gaussian_filter(acc, sgc, truncate=3.0); gc = ndimage.gaussian_filter(cnt, sgc, truncate=3.0)
+            F = gs / (gc + float(P["shore_grad_n0"]) / (2 * np.pi * sgc * sgc))
+            b = np.clip((2 * Ls - dshore) / Ls, 0, 1)
+            fac = np.exp(F * b)
+            newp = (lvl - dprior * fac).astype(np.float32)
+            ch = shp & (np.abs(newp - prior) > 0.5)
+            prior[shp] = newp[shp]
+            log(f"  shore gradient: {int(use.sum())} depths within {Ls:.0f} m of shore, rho p10/50/90 "
+                f"{np.round(np.exp(np.percentile(lr, [10, 50, 90])), 2).tolist()}; prior moved > 0.5 m on "
+                f"{int(ch.sum()) * res * res / 1e6:.3f} km2 (factor p10/50/90 there "
+                f"{np.round(np.percentile(fac[ch], [10, 50, 90]), 2).tolist() if ch.any() else '-'})")
+            P["_shore_grad_factor"] = np.where(shp, fac, np.nan).astype(np.float32)
     # interior: harmonic from band edge + rim + floor-band... the interior sits at the floor
     # where the extension reached it, carried smoothly between band edge and bed rim.
     interior = dom & ~band & ~lk                                 # holes AND the sounding cells: the prior ignores soundings
