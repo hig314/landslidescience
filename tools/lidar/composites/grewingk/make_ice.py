@@ -6,7 +6,8 @@
 Hig (2026-10-13): "use the ice as depicted in Mark Laker's 2023 dataset". The SfM surface has no
 classes, and the ortho alone cannot trace the ice (the south half of the tongue is in a mountain's
 shadow), so the 2023 ice is the 2020 glacier outline (NSIDC G10040, AK_2020_overall_glacier_covered_area)
-MINUS the ground the lake took between 2020 and 2023: cells inside the outline whose 2023 surface
+MINUS the ground the lake took between 2020 and 2023 (PLUS ice the outline missed: where the 2021
+lidar stands > DOWN_M above the 2023 SfM, connected to the ice -- 2026-10-14): cells inside the outline whose 2023 surface
 stands within `WATER_TOL_M` of the 2023 lake level AND connect to the open lake.  The lake seed is
 the water class of Grewingk 2021's point classification; the 2023 level is the median of the SfM
 surface over that seed (SfM over water is noisy, so a median over a large area).  Small specks are
@@ -39,6 +40,8 @@ ICE_MIN_M2 = 5000.0
 G21 = '/Volumes/Nunatak/lidar_build/cog/grewingk_2021.tif'
 LEVEL_2021 = 48.55
 LAKE_TOL_M = 0.35
+DOWN_M = 5.0          # lidar 2021 above SfM 2023 by more than this: the surface is ice (see main)
+DOWN_NEAR_M = 400.0
 
 
 def on_grid(path, resampling):
@@ -76,10 +79,27 @@ def main():
         sz = ndimage.sum(ice, lab2, np.arange(1, n2 + 1)) * res * res
         ice &= ~np.isin(lab2, np.flatnonzero(sz < max(BERG_M2, ICE_MIN_M2)) + 1)
     ice = ndimage.binary_opening(ice, iterations=1)
+    # ICE THE 2020 OUTLINE MISSED (Hig, 2026-10-14: the glacier's south edge read as rock, so the 2021 lidar
+    # stood there and the face had no vertical drop): where the 2021 lidar stands > DOWN_M above the 2023 SfM
+    # (median over 10 m) the surface came down by more than ground does in two years -- ice.  Measured on
+    # this grid: ground within 800 m of the outline reads lidar - SfM -0.9 m median (p95 4.6), the outlined
+    # ice +11.0 (p5 2.4).  Only cells connected to the ice, within DOWN_NEAR_M of it, not lake.
+    g21_, _, _ = on_grid(G21, Resampling.average)
+    dd = ndimage.median_filter(np.nan_to_num(g21_ - dsm, nan=-99.0), size=5)
+    # Ice the outline missed that had become LAKE by 2023 (its 2023 surface at the water: water23) is
+    # retreat, not ice -- the lake's south-east corner, 5-21 m down from 2021 (first cut excluded it, and
+    # the 2021 ice stood there as rock).  The 2021 lake itself reads lidar - SfM < 0, never a candidate.
+    cand = (dd > DOWN_M) & ~ice & ~seed
+    labc, _ = ndimage.label(cand | ice)
+    grown = np.isin(labc, np.unique(labc[ice])) & cand & (ndimage.distance_transform_edt(~ice) * R['grid']['res_m'] < DOWN_NEAR_M)
+    grown = ndimage.binary_opening(grown, iterations=2)
+    ice |= grown & ~water23
+    ice_added_m2 = float((grown & ~water23).sum()) * R['grid']['res_m'] ** 2
+    retreat_added_m2 = float((grown & water23 & ~out20).sum()) * R['grid']['res_m'] ** 2
     # SfM over water is poor (Hig, 2026-10-13: "better to use the lidar for that, and for lake shore"):
     # the SfM's water counts only where the lake took ground from the 2020 glacier outline -- the one
     # place the 2021 lidar cannot know it is lake now.  Elsewhere the lidar's own water class rules.
-    retreat = out20 & water23
+    retreat = (out20 | grown) & water23
     for name, arr in (('ice_2023', ice), ('water_2023', water23), ('outline_2020', out20), ('retreat_2023', retreat)):
         with rasterio.open(OUT / f'{name}.tif', 'w', driver='GTiff', height=shape[0], width=shape[1], count=1, dtype='uint8',
                            crs=f"EPSG:{R['grid']['epsg']}", transform=T, nodata=255, compress='deflate') as ds:
@@ -91,6 +111,7 @@ def main():
                 water_tol_m=WATER_TOL_M, outline_2020_km2=round(out20.sum() * res * res / 1e6, 3),
                 ice_2023_km2=round(ice.sum() * res * res / 1e6, 3),
                 lake_gained_from_2020_outline_km2=round((out20 & water23).sum() * res * res / 1e6, 3),
+                ice_added_by_lowering_km2=round(ice_added_m2 / 1e6, 3), retreat_added_by_lowering_km2=round(retreat_added_m2 / 1e6, 3), down_m=DOWN_M,
                 face_cells=int(face.sum()),
                 face_x_range_m=[round(float(T.c + fc.min() * res)), round(float(T.c + fc.max() * res))] if fc.size else None,
                 face_y_range_m=[round(float(T.f - fr.max() * res)), round(float(T.f - fr.min() * res))] if fr.size else None)

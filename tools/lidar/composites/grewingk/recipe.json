@@ -62,7 +62,7 @@
   },
   {
    "name": "grewingk2021",
-   "source": "grewingk_2021",
+   "source": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/nohf/dtm_1m.tif",
    "date": "2021-10-12",
    "shift_m": 0.36,
    "notes": "shift_m +0.36: MEASURED 2026-10-10, not from metadata. On bare smooth flat ground (both DTMs < 0.05 m rough, slope < 3 deg, 2-20 m: beaches, flats, fans) KBay 2023 reads +0.36 m above Grewingk 2021 with NMAD 0.06 m (n 108k at 2 m), while KBay reads +0.014 m (NMAD 0.048) against Seldovia 2019 NCMP topobathy, the survey the 2009 bathymetry's MLLW->NAVD88 shift was tied to, and the reclass matches the vendor DEM to 1 cm. Two independent products against one: Grewingk sits ~0.36 m low in the collection's NAVD88(GEOID12B) frame despite its metadata. No third witness overlaps it (Homer 2019 and Lower Kenai have no data over it). Belongs in datasets.json as vertical_shift_m for hosting to apply after its own check; applied here explicitly so the test composite has no 0.4 m seam at Grewingk's edge.",
@@ -118,9 +118,18 @@
       "ring_m": 3,
       "ring_frac": 0.8
      }
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/nohf/islands_2021.tif",
+      "map": {
+       "1": "ground"
+      }
+     }
     }
    ],
-   "class_notes": "Ground wherever the DGGS DTM has a value, WATER where the 2021 point classification says so (obs/grewingk_2021_lakes, which is ~60% void over this box, so only its water is used), ICE inside the 2020 glacier outline. DTM cells over the lake that the point classes miss read ground at the water level; the fill drops lake observations within lake_surface_tol_m of the level as surface, not evidence. WATER also wherever the DTM is the flat lake surface (48.55 +- 0.35 m, connected to the point-class lake; make_ice.py lake_2021.tif): without it the lake surface read ground along the ice face, and the fill saw a shore at water level between the lake and the ice. In the retreat zone (lake by 2023, ice in the 2020 outline) the 2021 ice surface is classed WATER: classed ice it still won there under a water class_now (sequential rules), standing the old ice in for the lake bed."
+   "class_notes": "Ground wherever the DGGS DTM has a value, WATER where the 2021 point classification says so (obs/grewingk_2021_lakes, which is ~60% void over this box, so only its water is used), ICE inside the 2020 glacier outline. DTM cells over the lake that the point classes miss read ground at the water level; the fill drops lake observations within lake_surface_tol_m of the level as surface, not evidence. WATER also wherever the DTM is the flat lake surface (48.55 +- 0.35 m, connected to the point-class lake; make_ice.py lake_2021.tif): without it the lake surface read ground along the ice face, and the fill saw a shore at water level between the lake and the ice. In the retreat zone (lake by 2023, ice in the 2020 outline) the 2021 ice surface is classed WATER: classed ice it still won there under a water class_now (sequential rules), standing the old ice in for the lake bed. ISLANDS (2026-10-14): water-classed returns standing > 0.65 m above the flat lake surface in components >= 50 m2 (make_nohf_dtm.py islands_2021.tif) are GROUND, last so neither the lake masks nor the islets rule take them back.",
+   "source_notes": "2026-10-14 (Hig): the delivered DGGS DTM hydroflattens the lake and with it a real island (59.60571,-151.11924). Rebuilt from the classified points (ground + water returns, mean per 1 m cell, delivered DTM where no return) by make_nohf_dtm.py; was the dataset grewingk_2021."
   },
   {
    "name": "sonar2023",
@@ -182,7 +191,7 @@
     "level_why": "the 12 Oct 2021 lidar water surface (flat at 48.55 m). The 2023 SfM water reads 51.6 m median but scatters NMAD 2.9 m (p5-p95 48-58 m) and stands +3.4 m above the lidar even on land near the lake: not a level."
    }
   ],
-  "points": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261014.csv",
+  "points": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261014b.csv",
   "notes": "Sparse depths: a dated export of the soundings database (Grewingk: Berg 2017 sounder, thinned, level tied to the 2021 lidar (50.05 m), its 2017 ice-face run as lower bounds; Higman lead line 2017/2019/2021/2026; z = each survey's level - depth). ice_face 'free': rim cells classed ice are neither shore (no slope extension, no taper of the basin) nor fixed boundary values (residual and spline free there). lake_dmax: the basin's deepest point fixed by Hig instead of estimated.",
   "channel_min_m2": 1000000000000.0,
   "channel_notes": "Channel detection off for this box (channel_min_m2 huge): it read the deep east end of Grewingk Lake, by the ice face, as a river channel and gave it a shallow channel bed (first fill, 2026-10-13).",

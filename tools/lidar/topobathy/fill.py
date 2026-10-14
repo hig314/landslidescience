@@ -70,7 +70,7 @@ DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, s
                 channel_slope=0.002, channel_drop_m=1.0, channel_ws_smooth_m=20.0, channel_min_m2=2000, channel_wd=15.0, channel_dmax_cap=2.0,
                 channel_surface_tol_m=0.3, channel_tidal_wmax=120.0,
                 points_sigma_m=1.0, points_rim_sigma_m=0.2, points_rim_step_m=10.0, points_grid_m=4.0, points_sigma_per_m=0.15,
-                ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0)
+                ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -718,8 +718,15 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             np.add.at(acc, (mr[use], mc[use]), lr); np.add.at(cnt, (mr[use], mc[use]), 1.0)
             gs = ndimage.gaussian_filter(acc, sgc, truncate=3.0); gc = ndimage.gaussian_filter(cnt, sgc, truncate=3.0)
             F = gs / (gc + float(P["shore_grad_n0"]) / (2 * np.pi * sgc * sgc))
-            b = np.clip((2 * Ls - dshore) / Ls, 0, 1)
-            fac = np.exp(F * b)
+            # the blend in distance from shore, smooth (smoothstep), and the log-factor then smoothed over the
+            # lake (shore_grad_smooth_m): distance to shore is creased along the medial axis and wherever the
+            # nearest shore switches, and multiplying the basin by a function of it printed those creases
+            # into the deep bed as sharp seams (v2, 2026-10-14, Hig: "hard seams in the deepest parts")
+            t_ = np.clip((2 * Ls - dshore) / Ls, 0, 1); b = t_ * t_ * (3 - 2 * t_)
+            G = np.where(shp, F * b, 0.0)
+            ss = max(float(P["shore_grad_smooth_m"]) / res, 1.0)
+            G = ndimage.gaussian_filter(G, ss) / np.maximum(ndimage.gaussian_filter(shp.astype(np.float64), ss), 1e-3)
+            fac = np.exp(G)
             newp = (lvl - dprior * fac).astype(np.float32)
             ch = shp & (np.abs(newp - prior) > 0.5)
             prior[shp] = newp[shp]
