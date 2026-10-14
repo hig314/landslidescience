@@ -30,6 +30,9 @@ The judgement calls, each recorded in the package's `ingest` block:
     two measures, multibeam preferred. Plausible cause: a low-frequency
     single beam reading through dilated silt the multibeam resolves sharply.
     sigma 1.0 per point (sounder, off-nadir pickup on the steep sides).
+  * 2017 LEAD LINE: the last 10 rows of Ed's file are not track but lead-line drops of 21 July 2017
+    (Waypoints_21-JUL-17.gpx, names = wraps of a 3.51 ft line); split off as berg_grewingk_2017_hand,
+    MAX loaded as a lower bound at the deepest numbered drop.
   * HIGMAN: Hig_depths/20190712_depths.shp holds TWO field days -- 10 lead-line (plumb)
     soundings on 12 July 2019 and 10 on 30 August 2021, depth in m (and ft),
     times as the GPS wrote them (zone not recorded; taken as UTC). sigma = 2 %
@@ -46,6 +49,7 @@ SRC = Path('/Volumes/Nunatak/Landslides/Grewingk')
 BERG = SRC / 'Ed_Hig_Depths_UTM5.shp'
 HIG = SRC / 'Hig_depths' / '20190712_depths.shp'
 SHORE = SRC / '50.5m_Shore_points.csv'
+HAND_GPX = Path('/Volumes/Nunatak/bathy_src/berg_grewingk_2017_hand/raw/Waypoints_21-JUL-17.gpx')
 CELL_M = 5.0
 LEVEL_2021 = 48.55   # grewingk_2021 lidar, flat water surface over 76% of the sonar footprint
 FT = 0.3048
@@ -155,40 +159,62 @@ def hand_tail(utm, gap_m=15.0):
     return n
 
 
+def wpt_times(gpx):
+    """{(lat5, lon5): ISO time} from a GPX's waypoints (Hig's Garmin export)."""
+    import xml.etree.ElementTree as ET
+    r = ET.parse(gpx).getroot(); ns = r.tag.split('}')[0] + '}' if r.tag.startswith('{') else ''
+    return {(round(float(w.get('lat')), 5), round(float(w.get('lon')), 5)): (w.findtext(ns + 'time') or '').strip()
+            for w in r.iter(ns + 'wpt')}
+
+
 def berg_hand(outdir, keep, tail, first_row):
-    """The non-track tail of Ed's file: his "hand sample depths" (email of 2017-09-19), most likely --
-    10 isolated points, 9 with a depth (16-83 m), the last written MAX (no number: not loaded, listed in
-    ingest.not_loaded).  None is within 1.3 km of Hig's 2019/2021 lead-line drops.  Method is ASSUMED to
-    be a weighted line; sigma 2 % of depth like Hig's (floor 0.2 m) -- both to be confirmed by Hig."""
+    """The non-track tail of Ed's file: lead-line drops of 21 July 2017. Hig (2026-10-13): the line is counted
+    in WRAPS of 3.51 ft, and the waypoint names in Waypoints_21-JUL-17.gpx (Hig's GPS archive, matched to
+    0.0 m) are wrap counts -- so Ed's feet column (wraps x 3.51) and its metres are the correct depths.
+    The last drop, MAX, ran out of line: loaded as a LOWER BOUND at the deepest numbered drop (78 wraps,
+    83.45 m), Hig's call. sigma 2 % of depth (Hig)."""
     slug = 'berg_grewingk_2017_hand'
-    rows, skipped = [], []
+    times = wpt_times(HAND_GPX) if HAND_GPX.exists() else {}
+    rows, deepest = [], None
     for k, r in enumerate(tail):
         dm, dft = num(r.get('Depth_m')), num(r.get('Depth_ft'))
+        if dm is not None and (deepest is None or dm > deepest[0]):
+            deepest = (dm, dft)
+    for k, r in enumerate(tail):
+        dm, dft = num(r.get('Depth_m')), num(r.get('Depth_ft'))
+        bound = ''
+        if dm is None and (r.get('Depth_ft') or '').strip().upper() == 'MAX':
+            dm, dft, bound = deepest[0], deepest[1], 'min'
         if dm is None:
-            skipped.append(dict(row=first_row + k, lat=r.get('Lat'), lon=r.get('Lon'), Depth_ft=r.get('Depth_ft'),
-                                Depth_m=r.get('Depth_m'))); continue
-        rows.append(dict(lon='%.7f' % float(r['Lon']), lat='%.7f' % float(r['Lat']), observed_at='', depth_m='%.3f' % dm,
+            continue
+        lat, lon = float(r['Lat']), float(r['Lon'])
+        when = times.get((round(lat, 5), round(lon, 5)), '')
+        rows.append(dict(lon='%.7f' % lon, lat='%.7f' % lat, observed_at=when, depth_m='%.3f' % dm,
                          depth_orig='%g' % dft, depth_unit='ft', level_key='grewingk',
-                         sigma_m='%.2f' % max(0.2, 0.02 * dm), flag='', flag_reason='', name='', depth_bound='',
-                         notes='row %d of Ed_Hig_Depths_UTM5 (appended after the sounder track)' % (first_row + k)))
+                         sigma_m='%.2f' % max(0.2, 0.02 * dm), flag='', flag_reason='', name='MAX' if bound else '',
+                         depth_bound=bound,
+                         notes=('line ran out (MAX); bed deeper than the deepest numbered drop, %.2f m' % dm) if bound else
+                               '%g wraps of 3.51 ft' % round(dft / 3.51)))
     lv = level('grewingk', 50.5, 1.0, '2017-09-18',
                "Hig's Grewingk shoreline of September 2017 (50.5m_Shore_points.csv), which reads 50.4 m median "
-               "on the 2021 lidar; the same level as Ed's sounder track.", rows)
+               "on the 2021 lidar; the 21 July 2017 stage itself is unknown.", rows)
     survey = dict(
-        slug=slug, title='Grewingk Lake hand depths (Ed Berg, 2017)',
-        collector='Ed Berg', collected_from=None, collected_to='2017-09-07',
-        method='lead_line', instrument='hand sample depths (method assumed: weighted line)',
+        slug=slug, title='Grewingk Lake lead-line depths (21 July 2017)',
+        collector='Ed Berg', collected_from='2017-07-21', collected_to='2017-07-21',
+        method='lead_line', instrument='lead line counted in wraps of 3.51 ft; handheld GPS',
         depth_unit='ft', sigma_m=1.0, horizontal_m=5.0, licence='', public=False,
-        citation='Berg, E., Grewingk Lake hand depth samples, 2017 (unpublished field data, compiled by B. Higman).',
+        citation='Grewingk Lake lead-line depths, 21 July 2017 (unpublished field data, Berg and Higman).',
         raw_path=str(keep),
-        notes='Ten isolated points appended after the sounder track in Ed_Hig_Depths_UTM5 (file dated 2017-09-07): '
-              'taken to be the "hand sample depths" of Ed\'s 19 September 2017 email. Nine have depths, 16-83 m, in '
-              'the central and eastern lake, most 50-130 m from any sounder point; the tenth reads MAX (line ran '
-              'out?) with no number and is not loaded. Method and error are assumptions until Hig confirms.',
+        notes='Ten lead-line drops of 21 July 2017 in the central and eastern lake, appended after the sounder track in '
+              'Ed_Hig_Depths_UTM5 and matched exactly to Waypoints_21-JUL-17.gpx in Hig\'s GPS archive, whose names '
+              'are wrap counts of a line wrapped at 3.51 ft (Hig): depth = wraps x 3.51 ft, 16-83 m. The last drop, '
+              'MAX, ran out of line and is a lower bound at the deepest numbered drop (83.45 m). Error about 2% of '
+              'depth. Who held the line is not recorded here (in Ed\'s compilation, on Hig\'s GPS).',
         levels=[lv],
         ingest=dict(script='tools/soundings/ingest_grewingk.py', run=dt.datetime.now().isoformat(timespec='seconds'),
-                    files=[BERG.name], rows=[first_row, first_row + len(tail) - 1], soundings=len(rows),
-                    not_loaded=skipped, sigma='max(0.2 m, 2% of depth), assumed'))
+                    files=[BERG.name, HAND_GPX.name], rows=[first_row, first_row + len(tail) - 1], soundings=len(rows),
+                    lower_bounds=sum(1 for r in rows if r['depth_bound']), times_from=HAND_GPX.name,
+                    depth='wraps x 3.51 ft (Ed\'s Depth_ft); GPX names are the wrap counts', sigma='max(0.2 m, 2% of depth)'))
     write(outdir / slug, survey, rows)
 
 

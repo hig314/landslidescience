@@ -26,6 +26,14 @@ should move every point in the lake without touching the measurements.
 sigma doubled in the export. Rows that were never soundings (route waypoints,
 GPS waypoint numbers) are listed in the survey's `ingest` block, not loaded.
 
+**Lower bounds** (`depth_bound = 'min'`, 2026-10-13): a lead line that ran
+out (">120", "MAX") records that the bed is at LEAST `depth_m` down. Drawn on
+the colour scale at that depth with a heavy dark ring and "≥"; on the profile a
+separate black series with no error bar; exported in the `bound` column, which
+the composite fill keeps OUT of its exact points (honouring it as an inequality
+is not built yet). Re-run `migrate_soundings` after deploying it: it adds the
+column and re-creates `soundings_z`.
+
 **Gating**: `public = false` surveys are served only to accounts that may
 see restricted data (`auth.can_view_restricted`), applied to the rows.
 
