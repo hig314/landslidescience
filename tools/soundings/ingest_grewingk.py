@@ -128,7 +128,7 @@ def berg(outdir, arch):
         slug=slug, title='Grewingk Lake depths (Ed Berg, September 2017)',
         collector='Ed Berg', collected_from=None, collected_to='2017-09-07',
         method='sounder', instrument='Lowrance sounder with GPS on a pack raft (model not recorded); cleaned in ReefMaster 2.0',
-        depth_unit='ft', sigma_m=1.0, horizontal_m=5.0, licence='', public=False,
+        depth_unit='ft', sigma_m=1.0, horizontal_m=5.0, licence='', public=True,
         citation='Berg, E., Grewingk Lake depth soundings, September 2017 (unpublished field data, compiled by B. Higman).',
         raw_path=str(keep),
         notes='Dense sounder track over Grewingk Lake, thinned for display to one measured point per 5 m cell. '
@@ -199,17 +199,17 @@ def berg_hand(outdir, keep, tail, first_row):
                "Hig's Grewingk shoreline of September 2017 (50.5m_Shore_points.csv), which reads 50.4 m median "
                "on the 2021 lidar; the 21 July 2017 stage itself is unknown.", rows)
     survey = dict(
-        slug=slug, title='Grewingk Lake lead-line depths (21 July 2017)',
-        collector='Ed Berg', collected_from='2017-07-21', collected_to='2017-07-21',
+        slug=slug, title='Grewingk Lake lead-line depths (Higman, 21 July 2017)',
+        collector='Bretwood Higman', collected_from='2017-07-21', collected_to='2017-07-21',
         method='lead_line', instrument='lead line counted in wraps of 3.51 ft; handheld GPS',
-        depth_unit='ft', sigma_m=1.0, horizontal_m=5.0, licence='', public=False,
-        citation='Grewingk Lake lead-line depths, 21 July 2017 (unpublished field data, Berg and Higman).',
+        depth_unit='ft', sigma_m=1.0, horizontal_m=5.0, licence='', public=True,
+        citation='Higman, B., 2017, Grewingk Lake lead-line soundings, 21 July 2017 (unpublished field data).',
         raw_path=str(keep),
         notes='Ten lead-line drops of 21 July 2017 in the central and eastern lake, appended after the sounder track in '
               'Ed_Hig_Depths_UTM5 and matched exactly to Waypoints_21-JUL-17.gpx in Hig\'s GPS archive, whose names '
               'are wrap counts of a line wrapped at 3.51 ft (Hig): depth = wraps x 3.51 ft, 16-83 m. The last drop, '
               'MAX, ran out of line and is a lower bound at the deepest numbered drop (83.45 m). Error about 2% of '
-              'depth. Who held the line is not recorded here (in Ed\'s compilation, on Hig\'s GPS).',
+              'depth. Hig\'s measurements (Hig, 2026-10-13), compiled into Ed Berg\'s sounder file.',
         levels=[lv],
         ingest=dict(script='tools/soundings/ingest_grewingk.py', run=dt.datetime.now().isoformat(timespec='seconds'),
                     files=[BERG.name, HAND_GPX.name], rows=[first_row, first_row + len(tail) - 1], soundings=len(rows),
@@ -250,7 +250,7 @@ def higman(outdir, arch):
         slug=slug, title='Grewingk Lake lead-line depths, east end (Higman, 2019 and 2021)',
         collector='Bretwood Higman', collected_from='2019-07-12', collected_to='2021-08-30',
         method='lead_line', instrument='plumb line; handheld GPS', depth_unit='m', sigma_m=0.5, horizontal_m=5.0,
-        licence='', public=False,
+        licence='', public=True,
         citation='Higman, B., 2019, Grewingk Lake lead-line soundings, 12 July 2019 (unpublished field data).',
         raw_path=str(keep),
         notes='Plumb-line depths in the east end of Grewingk Lake on two days, 12 July 2019 and 30 August 2021; '
@@ -282,7 +282,7 @@ def higman_2026(outdir, arch):
         slug=slug, title='Grewingk Lake lead-line depths, east end (Higman, 2026)',
         collector='Bretwood Higman', collected_from='2026-09-22', collected_to='2026-09-22',
         method='lead_line', instrument='plumb line; handheld GPS', depth_unit='m', sigma_m=0.5, horizontal_m=5.0,
-        licence='', public=False,
+        licence='', public=True,
         citation='Higman, B., 2026, Grewingk Lake lead-line soundings (unpublished field data).',
         raw_path='', notes='Four plumb-line depths near the ice face, 138-164.5 m: the deepest yet measured in the lake. '
               'Given by Hig in conversation 2026-10-13 (no file); error about 2% of depth (Hig). Taken 22 September 2026 (time of day not recorded).',
