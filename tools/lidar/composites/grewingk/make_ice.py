@@ -42,6 +42,8 @@ LEVEL_2021 = 48.55
 LAKE_TOL_M = 0.35
 DOWN_M = 5.0          # lidar 2021 above SfM 2023 by more than this: the surface is ice (see main)
 DOWN_NEAR_M = 400.0
+HAND_LAKE = [(59.60023, -151.06399, 100.0, 'Hig 2026-10-14: 2021 ice standing as ground, lake by 2023')]
+RETREAT_DOWN_M = 1.0  # in the 2023 water band: down by more than this since 2021 = ice that became lake
 
 
 def on_grid(path, resampling):
@@ -100,6 +102,39 @@ def main():
     # the SfM's water counts only where the lake took ground from the 2020 glacier outline -- the one
     # place the 2021 lidar cannot know it is lake now.  Elsewhere the lidar's own water class rules.
     retreat = (out20 | grown) & water23
+    # ...and 2021 ice that is lake by 2023 but came down LESS than DOWN_M (Hig, 2026-10-14: 59.60023,-151.06399,
+    # 2021 ice standing as ground in the lake): over water the SfM reads ~3.4 m high, so ice that became lake
+    # shows only 1-5 m of lowering.  In the 2023 water band, not the 2021 lake, down > RETREAT_DOWN_M (rock on the
+    # shore reads -0.9 m median) and connected to the retreat or the ice: retreat too.
+    dd_r = ndimage.median_filter(np.nan_to_num(g21_ - dsm, nan=-99.0), size=5)
+    g21_lake = np.isfinite(g21_) & (np.abs(g21_ - LEVEL_2021) < LAKE_TOL_M)
+    c2 = water23 & ~g21_lake & ~retreat & ~ice & (dd_r > RETREAT_DOWN_M)
+    lab2_, _ = ndimage.label(c2 | retreat | ice)
+    more = ndimage.binary_opening(np.isin(lab2_, np.unique(lab2_[retreat | ice])) & c2, iterations=1)
+    retreat |= more
+    # the cells inside it that came down less than RETREAT_DOWN_M (noise in a 2021 ice surface) stayed ground and
+    # pinned the bed 5-10 m above the water (v4): close the retreat and fill its holes, within the 2023 water band
+    closed = ndimage.binary_fill_holes(ndimage.binary_closing(retreat, structure=np.ones((3, 3), bool), iterations=3))
+    more2 = closed & water23 & ~g21_lake & ~ice & ~retreat
+    retreat |= more2; more |= more2
+    # HAND SEEDS (Hig marks a place that is lake by 2023): every 2023-water-band cell connected to the seed within
+    # its radius is retreat -- where the data alone cannot tell 2021 ice from shore rock (both read alike in 2023)
+    T_ = rasterio.transform.from_origin(R['grid']['bounds'][0], R['grid']['bounds'][3], R['grid']['res_m'], R['grid']['res_m'])
+    from rasterio.warp import transform as _tr
+    for lat, lon, rad, why in HAND_LAKE:
+        (sx,), (sy,) = _tr('EPSG:4326', f"EPSG:{R['grid']['epsg']}", [lon], [lat])
+        sc, sr = ~T_ * (sx, sy); sr, sc = int(sr), int(sc)
+        yy, xx = np.ogrid[:shape[0], :shape[1]]
+        near = (yy - sr) ** 2 + (xx - sc) ** 2 <= (rad / R['grid']['res_m']) ** 2
+        cand_ = near & water23 & ~g21_lake & ~ice
+        lab_h, _ = ndimage.label(cand_ | retreat)
+        hand = (lab_h == lab_h[sr, sc]) & cand_ if lab_h[sr, sc] else np.zeros(shape, bool)
+        retreat |= hand; more |= hand
+    # cells the closed retreat encloses that the SfM puts ABOVE the water band are ice still standing in 2023
+    # (a stranded block): ice, which the fill drops as evidence inside a lake -- not ground
+    enc = ndimage.binary_fill_holes(retreat) & ~retreat & ~water23 & ~g21_lake & ~ice
+    ice |= enc
+    retreat_lowdrop_m2 = float(more.sum()) * R['grid']['res_m'] ** 2
     for name, arr in (('ice_2023', ice), ('water_2023', water23), ('outline_2020', out20), ('retreat_2023', retreat)):
         with rasterio.open(OUT / f'{name}.tif', 'w', driver='GTiff', height=shape[0], width=shape[1], count=1, dtype='uint8',
                            crs=f"EPSG:{R['grid']['epsg']}", transform=T, nodata=255, compress='deflate') as ds:
@@ -111,7 +146,7 @@ def main():
                 water_tol_m=WATER_TOL_M, outline_2020_km2=round(out20.sum() * res * res / 1e6, 3),
                 ice_2023_km2=round(ice.sum() * res * res / 1e6, 3),
                 lake_gained_from_2020_outline_km2=round((out20 & water23).sum() * res * res / 1e6, 3),
-                ice_added_by_lowering_km2=round(ice_added_m2 / 1e6, 3), retreat_added_by_lowering_km2=round(retreat_added_m2 / 1e6, 3), down_m=DOWN_M,
+                ice_added_by_lowering_km2=round(ice_added_m2 / 1e6, 3), retreat_added_by_lowering_km2=round(retreat_added_m2 / 1e6, 3), retreat_added_lowdrop_km2=round(retreat_lowdrop_m2 / 1e6, 3), down_m=DOWN_M,
                 face_cells=int(face.sum()),
                 face_x_range_m=[round(float(T.c + fc.min() * res)), round(float(T.c + fc.max() * res))] if fc.size else None,
                 face_y_range_m=[round(float(T.f - fr.max() * res)), round(float(T.f - fr.min() * res))] if fr.size else None)

@@ -51,6 +51,83 @@ for the two dev_only entries so they show on `/lidar/` (WORKSTREAMS
 boundary). Hig redirected the second site from Lituya to **Kachemak Bay**
 (next section). The rule set is frozen until a named site fails.
 
+## Roadmap (2026-10-14, Hig's outline, refined)
+
+Hig's sequence after Grewingk: lessons -> preliminary KBay -> broad dataset -> water surface/depth ->
+hand edits -> publish -> explore (glacier vs ground, sediment vs bedrock).  Refinements, agreed or open:
+
+**0. Grewingk "dialed" -- an acceptance list, so done is checkable.**  Soundings fit (median ~0, NMAD
+< 0.3 m); lower bounds honoured or explained; no lake cell above the water; no seams or streaks in the
+deep bed; the ice face vertical, no glacier as ground; the outlet CREEK a channel, not a string of ponds;
+v-numbered in the dev viewer with the as-of date.  Open now: the creek (below), the basin shape's radial
+streaks (widening window, Hig to decide), 30 ice-face bounds, 0.12 km2 above water.
+
+**The creek is step 4 pulled forward.**  Grewingk Creek needs the water surface model anyway: it is ~45
+wet domains (pools between bars), each given a flat level and a little basin.  Measured 2026-10-14: the
+points' water returns slope continuously 48.8 -> 21 m over ~2.3 km; the vendor DTM's creek is NOT the
+water (40.2 m where the returns are 42.5-43.4 m at x 605.4 km: stream hydroflattening drops each reach to a
+downstream level); class 1 (unclassified) is as common as ground there.  So: (a) reclassify the creek
+corridor (water / bar / ground) where class 1 hides it; (b) ONE water surface for the network from the
+water returns, smoothed along the flow and non-increasing downstream; (c) link the pools across bars into
+one channel system (threads of a braid share the surface); (d) channel detection back on with the named
+lake (lake_dmax) excluded -- it read the lake's east end as a river because the retreat zone's water came
+from the SfM; (e) sections per thread from width (fill.channel_beds), conditioned by any depths Hig has.
+The water surface this builds IS the first piece of the water-surface DEM.
+
+**1. Lessons -> defaults, and a regression set.**  Not a prose review alone: each lesson becomes a recipe
+default or a rule with a test.  Candidates: SfM never over water; ice by multi-epoch lowering (and the
+SfM's +3.4 m water bias); vendor DTMs hydroflattened (rebuild from points where a lake or river matters);
+per-survey vertical shifts in ONE registry with their evidence (Grewingk +0.36, Seldovia xGEOID17B 1.42,
+MLLW via bench marks); sounder sound speed; lower bounds; free ice faces; shore-gradient with widening
+windows; bergs are not islands; lake levels from returns not shores.  The regression set: the windows we
+have tuned (Portage, Peterson-China Poot-Halibut Cove, Grewingk, the KBay reclass tests), each with its
+metrics (soundings fit, holdout, above-water lake cells, seam/curvature score), run after any rule change.
+`composite.py holdout` exists; a `regress` over all windows is the missing piece.
+
+**2. Preliminary KBay -- scale is the issue, plan for it.**  build is tiled and streams; FILL IS NOT (one
+whole-grid pass: 13 min for Grewingk's 21 M cells; KBay at 2 m is ~30x larger, and domains such as the
+bay itself span tiles).  Needed: fill by domain (each wet domain with its own bbox + halo, small ones
+batched), coarse-to-fine for the big marine domain, and a cache so an unchanged domain is not refilled.
+Iterations then cost minutes where something changed, not hours.  Also: which other surveys are
+hydroflattened and need the point rebuild, and the point fetches that implies (the DGGS zip route, ~0.5 MB/s
+here -- start early).
+
+**3. Broad dataset.**  Decide the extent (Kenai Peninsula? every hosted survey? Kachemak + Cook Inlet
+margin?), the resolution (2 m composite with 1 m where surveys allow?), and the time model: one as-of date
+per region, or the newest credible observation everywhere with a date raster (the build already writes
+date_now).  The outer bay: NOAA OCM 2023 seamless 2 m, underwater only (reference_outer_kachemak_bathy).
+
+**4. Water surface and water depth.**  Products: water surface elevation (lakes flat at a stated level and
+date; rivers sloping, from returns; the sea at a stated tidal datum, MHW or MLLW -- not the flight's
+tide), water depth = surface - bed, both with sigma.  Hydraulic awareness: a non-increasing-downstream
+surface along each channel, sections that conserve area across braids, bars and pools; a flow network to
+carry it.  Decide whether the surface is the flight-day stage (what was seen) or a reference stage (what
+modellers want) -- probably both, the second a parameter.
+
+**5. Hand edits.**  The paint/mask tool already edits classes, sigma and masks (Tier 3).  What Grewingk
+needed and the tool cannot do: a lake-here seed (make_ice HAND_LAKE), an island keep (make_nohf
+ISLANDS_KEEP), a lower-bound run of soundings, a lake level, a bed shape (a breakline / thalweg / contour
+with depth and sigma -- the sounding_contours table is already that shape).  Proposal: edits as small
+GeoJSON features in the repo, each with a kind, the values, who and why, applied every build, listed in
+the report; drawn on /lidar/ with the landform-trace machinery.  The scattered hard-coded lists become
+the first edits.
+
+**6. Publish.**  Topobathy, its sigma, the source index (provenance per cell), water surface, water depth;
+a methods page section; versioned ids.  LICENSING: a composite that includes a gated survey (Katie
+Hughes' multibeam, gated pending attribution) cannot be public until that survey can be -- either
+permission first, or a public build without it.
+
+**7. Explore.**  Glacier vs ground (multi-epoch lowering generalised, the ortho, ITS_LIVE velocity, the
+G10040 outlines; a dated ice-front layer -- the face retreats every year); sediment vs bedrock (roughness
+and slope signatures, depth-to-bedrock priors, the lake beds as sediment traps); buoyancy constraints at
+calving faces; uncertainty that a user can query; ADF&G contour maps and the Emerald Lake depth
+distribution as soft constraints.
+
+**Questions for Hig.**  (1) Which first application drives priority -- hazard modelling (landslide into a
+lake, outburst), navigation/recreation, habitat?  It sets the water-surface datum and how much hydraulics
+matters.  (2) Broad extent and resolution.  (3) Any depths or cross-sections on Grewingk Creek?  (4) The
+gated multibeam in public products.
+
 ### Grewingk Lake, first attempt (2026-10-13)
 
 Hig: build a Grewingk topobathy with the ice as Mark Laker's SfM shows it (19 Sep 2023), the ice face
