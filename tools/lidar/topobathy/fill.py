@@ -656,6 +656,18 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             frs = np.where(den > 1e-3, num / np.maximum(den, 1e-3), 0)[cb]
             frac = np.minimum(frac, np.maximum(frs, 0))                 # smoothing never deepens the shore
             depth = dmax * frac
+            hyp = over.get(i, {}).get("hypsometry")
+            if hyp:
+                # HYPSOMETRY (Hig, 2026-10-14, Emerald Lake: soundings too damaged to condition the bed, good for
+                # its deepest depth and how much of the lake lies at each depth): the profile's depths are remapped
+                # by RANK onto the given area-depth distribution -- depths at evenly spaced area fractions, shallow
+                # to deep.  The shape (where it is deep, how the bed runs to the shore) stays the profile's;
+                # the share of the lake at each depth becomes the lake's own, and the deepest is the last value.
+                vals = np.asarray(hyp, np.float64)
+                rk = (np.argsort(np.argsort(depth, kind="stable"), kind="stable") + 0.5) / depth.size
+                depth = np.interp(rk, np.linspace(0, 1, vals.size), vals).astype(np.float32)
+                dmax = float(vals[-1])
+                log(f"  lake {i}: depths remapped to the recipe's hypsometry ({vals.size} quantiles, deepest {dmax:.1f} m)")
             lake_prior[cells] = (level - depth).astype(np.float32)
             lake_sig[cells] = (P["lake_sigma_frac"] * sd * frac + 1.0).astype(np.float32)
             rr, cc = ndimage.center_of_mass(cells)
@@ -883,6 +895,19 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 log(f"  lower bounds still violated by > 1 m after the pass: {int(still.sum())}")
         sdist = ndimage.distance_transform_edt(~pts, sampling=res)
         mask[(dom & hole) & (sdist <= 3 * P["cond_m"])] = 3
+    # A LAKE'S MODELLED BED NEVER STANDS ABOVE ITS WATER (2026-10-14, Grewingk's SE corner, v5): the shore residuals
+    # pull the bed up to the level at the edge and the conditioning surfaces (harmonic, then the thin-plate spline,
+    # which has no maximum principle) overshoot them -- 0.5-5.6 m above the water on a 10-30 m fringe below a cliff.
+    # Only modelled cells: islands are observations and stay.
+    if lake_level:
+        lv_ = np.full(n + 1, np.nan, np.float32)
+        for i, v in lake_level.items():
+            lv_[i] = v
+        L_ = lv_[lab]
+        up = dom & hole & ~chan & np.isfinite(L_) & np.isfinite(fill) & (fill > L_ - 0.1)
+        if up.any():
+            log(f"  lake bed held below the water: {int(up.sum()) * res * res / 1e6:.4f} km2 (up to {float(np.max(fill[up] - L_[up])):.1f} m above)")
+            fill[up] = L_[up] - 0.1
     # SIGMA
     drim = ndimage.distance_transform_edt(~rim, sampling=res) if rim.any() else np.full(z.shape, 1e4)
     s_prior = P["sigma_prior_m"] + P["sigma_rim_m"] * drim / 100.0

@@ -79,6 +79,13 @@ def read_las_pf6(path):
 
 # --------------------------------------------------------------- tiles
 
+# Footprints of index tiles over the box that are not on disk (filled by tiles_for, written to cellstats.json):
+# a cell there has no returns because nobody fetched them, not because the laser saw water.  Grewingk's first
+# class raster (2026-10-11) was built before the north tiles arrived and its "no returns + flat DTM = water" rule
+# turned the outwash gravels north of y 6610.5 km into ponds (Hig, 2026-10-14).  classify voids these cells.
+MISSING_BOXES = []
+
+
 def tiles_for(survey, box):
     s = SURVEYS[survey]
     x0, y0, x1, y1 = box
@@ -96,6 +103,8 @@ def tiles_for(survey, box):
             continue
         p = Path(s["tiles"]) / ft["properties"]["FileName"].replace(".las", ".laz")
         (out if p.exists() else missing).append(str(p))
+        if not p.exists():
+            MISSING_BOXES.append([min(xs), min(ys), max(xs), max(ys)])
     if missing:
         print(f"  {len(missing)} Grewingk tiles over the box are NOT local (fetch with kbay_reclass_test/grewingk_2021/fetch_one.sh): "
               + ", ".join(Path(m).name for m in missing[:8]) + (" ..." if len(missing) > 8 else ""), file=sys.stderr)
@@ -221,7 +230,7 @@ def cmd_stats(a):
             ds.write(bands[k], i); ds.set_band_description(i, k)
     meta = dict(survey=a.survey, date=SURVEYS[a.survey]["date"], bounds=box, res_m=res, tiles=len(tiles), bands=BANDS,
                 thinning=SURVEYS[a.survey].get("resolution", SURVEYS[a.survey].get("decimate")), seconds=round(time.time() - t0),
-                points=int(acc["n_all"].sum()))
+                points=int(acc["n_all"].sum()), missing_boxes=MISSING_BOXES)
     (out / "cellstats.json").write_text(json.dumps(meta, indent=1))
     cov = (acc["n_all"] > 0).mean()
     print(f"wrote {out / 'cellstats.tif'}: {meta['points']:,} points, {cov:.3f} of cells with returns, {meta['seconds']}s")
@@ -381,6 +390,14 @@ def cmd_classify(a):
             r, v = read_geo(path, grid, grid.full(), "nearest")
             aux[key] = (v & (np.rint(r) == 1)) if kind == "mask" else np.where(v, r, np.nan)
     c = RULES[rules](B, res, dtm, fill, aux)
+    if meta.get("missing_boxes"):
+        # tiles not fetched when the stats ran: no returns there is no evidence of anything -- void, never water
+        from rasterio import features as _ft
+        from shapely.geometry import box as _box
+        miss = _ft.rasterize([_box(*b) for b in meta["missing_boxes"]], out_shape=c.shape, transform=transform, fill=0,
+                             default_value=1, dtype="uint8").astype(bool) & (B["n_all"] <= 0)
+        c[miss] = 0
+        print(f"  {len(meta['missing_boxes'])} tiles were missing: {miss.sum() * res * res / 1e6:.3f} km2 voided")
     prof.update(count=1, dtype="uint8", nodata=255, predictor=2)     # 0 is a real class (void), so nodata is 255
     with rasterio.open(out / "class.tif", "w", **prof) as ds:
         ds.write(c, 1)

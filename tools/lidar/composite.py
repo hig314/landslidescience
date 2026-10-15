@@ -88,6 +88,32 @@ def post_masks(recipe, grid, layers, rules):
         raw = rules["masks"][i]; fix = ~cov & (raw > 0) & L["valid"]
         if fix.any():
             L["auto"] = np.where(fix, raw, L["auto"]).astype(np.float32); cov |= fix
+    # Feather underlay (Hig, 2026-10-14: no feathering where the Grewingk 2021 lidar drops off).  A
+    # feathered edge blends a layer with what is shown below it -- but the base is shown only where the
+    # rules took it, so beside a fallback the ramp sat over nothing, fold_step gave the layer the cell
+    # outright, and the edge stayed a hard step.  Where a layer's weight is partial and nothing below is
+    # shown, the nearest lower layer with data there is laid underneath at full weight -- only within
+    # reach of cells it took itself, so a fallback's hydroflattened lakes never slide in under a lake shore.
+    from scipy import ndimage
+    for i in range(1, len(layers)):
+        a = layers[i]["auto"]
+        need = (a > 0) & (a < 1)
+        if not need.any():
+            continue
+        for L in layers[:i]:
+            need &= ~(L["auto"] > 0)
+        fw = [kw.get("width_m", 0) for st in layers[i]["spec"].get("rules_post", post) for n_, kw in st.items() if n_ == "feather"]
+        reach = (max(fw) if fw else 20.0) + 2 * grid.res
+        for j in range(i - 1, -1, -1):
+            if not need.any():
+                break
+            took = rules["masks"][j] > 0
+            if not took.any():
+                continue
+            near = ndimage.distance_transform_edt(~took) * grid.res <= reach
+            give = need & layers[j]["valid"] & near
+            if give.any():
+                layers[j]["auto"] = np.where(give, 1.0, layers[j]["auto"]).astype(np.float32); need &= ~give
 
 
 def build_window(recipe, grid, win, verbose=True, halo=None, obs_paint=True):

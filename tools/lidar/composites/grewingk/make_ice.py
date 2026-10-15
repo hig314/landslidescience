@@ -33,7 +33,7 @@ R = json.loads((HERE / 'recipe.json').read_text())
 OUT = Path('/Volumes/Nunatak/lidar_build/composite/grewingk/obs'); OUT.mkdir(parents=True, exist_ok=True)
 OUTLINE = '/Volumes/Nunatak/permafrost_src/glaciers/AK_2020_overall_glacier_covered_area.shp'
 DSM = '/Volumes/Nunatak/lidar_build/cog/dixon_2023.tif'
-SEED = '/Volumes/Nunatak/lidar_build/obs/grewingk_2021_lakes/class.tif'      # topobathy codes, water = 2
+SEED = '/Volumes/Nunatak/lidar_build/obs/grewingk_2021_box/class.tif'        # topobathy codes, water = 2 (all tiles, 2026-10-14)
 WATER_TOL_M = 8.0
 BERG_M2 = 2000.0
 ICE_MIN_M2 = 5000.0
@@ -44,6 +44,9 @@ DOWN_M = 5.0          # lidar 2021 above SfM 2023 by more than this: the surface
 DOWN_NEAR_M = 400.0
 HAND_LAKE = [(59.60023, -151.06399, 100.0, 'Hig 2026-10-14: 2021 ice standing as ground, lake by 2023')]
 RETREAT_DOWN_M = 1.0  # in the 2023 water band: down by more than this since 2021 = ice that became lake
+AGREE_MIN = 0.4       # local correlation of 2021-lidar and 2023-SfM DETAIL below this: the SfM does not see that surface
+DETAIL_PX = 4         # detail = surface minus its gaussian (sigma 8 m); correlation over 9 px (18 m), smoothed 11 px
+FLAT_RANGE_M = 0.02   # the vendor's hydroflattened water: 3x3 range below this
 
 
 def on_grid(path, resampling):
@@ -112,6 +115,24 @@ def main():
     lab2_, _ = ndimage.label(c2 | retreat | ice)
     more = ndimage.binary_opening(np.isin(lab2_, np.unique(lab2_[retreat | ice])) & c2, iterations=1)
     retreat |= more
+    # ...and 2021 surface in the 2023 water band that the SfM does not REPRODUCE (Hig, 2026-10-14: the lowest part of
+    # the patch, barely above the water, still stood as rock in v4 -- the SfM over water reads a few metres high, close
+    # enough to low ice to pass a level test).  Agreement in LEVEL is not agreement: the SfM confirms a surface only
+    # if it carries the same detail.  Measured on the SE corner: shore rock correlates 0.9 (p10 0.6), the 2021 ice
+    # now under water 0.05 (p90 0.5), the open lake 0.  Only where the 2021 lidar has detail to judge (rms > 0.2 m),
+    # connected to the retreat or the ice.
+    def detail(a):
+        a = np.where(np.isfinite(a), a, np.nanmedian(a)).astype(np.float64)
+        return a - ndimage.gaussian_filter(a, DETAIL_PX)
+    da, db = detail(g21_), detail(dsm)
+    k = 2 * DETAIL_PX + 1
+    saa, sbb = ndimage.uniform_filter(da * da, k), ndimage.uniform_filter(db * db, k)
+    corr = ndimage.uniform_filter(ndimage.uniform_filter(da * db, k) / np.sqrt(saa * sbb + 1e-6), 11)
+    c3 = water23 & ~g21_lake & ~retreat & ~ice & (corr < AGREE_MIN) & (np.sqrt(saa) > 0.2) & np.isfinite(dsm) & np.isfinite(g21_)
+    lab3_, _ = ndimage.label(c3 | retreat | ice)
+    more3 = ndimage.binary_opening(np.isin(lab3_, np.unique(lab3_[retreat | ice])) & c3, iterations=1)
+    retreat |= more3; more |= more3
+    retreat_unseen_m2 = float(more3.sum()) * R['grid']['res_m'] ** 2
     # the cells inside it that came down less than RETREAT_DOWN_M (noise in a 2021 ice surface) stayed ground and
     # pinned the bed 5-10 m above the water (v4): close the retreat and fill its holes, within the 2023 water band
     closed = ndimage.binary_fill_holes(ndimage.binary_closing(retreat, structure=np.ones((3, 3), bool), iterations=3))
@@ -146,7 +167,7 @@ def main():
                 water_tol_m=WATER_TOL_M, outline_2020_km2=round(out20.sum() * res * res / 1e6, 3),
                 ice_2023_km2=round(ice.sum() * res * res / 1e6, 3),
                 lake_gained_from_2020_outline_km2=round((out20 & water23).sum() * res * res / 1e6, 3),
-                ice_added_by_lowering_km2=round(ice_added_m2 / 1e6, 3), retreat_added_by_lowering_km2=round(retreat_added_m2 / 1e6, 3), retreat_added_lowdrop_km2=round(retreat_lowdrop_m2 / 1e6, 3), down_m=DOWN_M,
+                ice_added_by_lowering_km2=round(ice_added_m2 / 1e6, 3), retreat_added_by_lowering_km2=round(retreat_added_m2 / 1e6, 3), retreat_added_lowdrop_km2=round(retreat_lowdrop_m2 / 1e6, 3), retreat_added_unseen_km2=round(retreat_unseen_m2 / 1e6, 3), agree_min=AGREE_MIN, down_m=DOWN_M,
                 face_cells=int(face.sum()),
                 face_x_range_m=[round(float(T.c + fc.min() * res)), round(float(T.c + fc.max() * res))] if fc.size else None,
                 face_y_range_m=[round(float(T.f - fr.max() * res)), round(float(T.f - fr.min() * res))] if fr.size else None)
@@ -155,8 +176,12 @@ def main():
     # flat surface at 48.55 m; where its point classes are void that surface read ground, and the lake
     # had a "shore" at water level all along the ice face, so the fill never met the ice (2026-10-13).
     # Flat cells within LAKE_TOL_M of the level, the components that touch the point-class lake.
+    # HYDROFLATTENED, not merely near the level (Hig, 2026-10-14: outwash gravel at 48.2-48.9 m beside the outlet
+    # joined the lake): the vendor's lake surface is constant to the centimetre, gravel is not.
     g21, _, _ = on_grid(G21, Resampling.average)
-    flat = np.isfinite(g21) & (np.abs(g21 - LEVEL_2021) < LAKE_TOL_M)
+    g21f = np.nan_to_num(g21, nan=-1e4)
+    rng = ndimage.maximum_filter(g21f, 3) - ndimage.minimum_filter(g21f, 3)
+    flat = np.isfinite(g21) & (np.abs(g21 - LEVEL_2021) < LAKE_TOL_M) & (rng < FLAT_RANGE_M)
     lab3, _ = ndimage.label(flat | seed, structure=np.ones((3, 3), bool))
     lake21 = np.isin(lab3, np.unique(lab3[seed & (lab3 > 0)])) & flat
     lake21 = ndimage.binary_closing(lake21, iterations=2) & np.isfinite(g21) & (g21 < LEVEL_2021 + 1.0)

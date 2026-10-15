@@ -214,6 +214,44 @@ Hig's review of v2, all in `grewingk_topobathy_v3` (dev viewer; an interim from 
   south end). Open: radial streaks in the basin shape's first few hundred metres (distance to the nearest
   shore cell -- the widening window would apply there too, Hig to decide).
 
+### Grewingk Lake v4–v5 (2026-10-14)
+
+v4: the SE-corner patch Hig marked (HAND_LAKE seed, low-drop retreat) and the rim residual capped at the lake
+level. v5, Hig's review of v4 -- with the instruction to solve each thing as the general case, not tune one basin:
+- **Stale class raster (general trap).** The 2021 point classes were built (2026-10-11) before the tiles north
+  of y 6610.5 km were fetched; "no returns + flat DTM = water" turned the outwash gravels there into ponds.
+  observe_points.py now records unfetched tiles' footprints and `classify` voids them; rebuilt over the whole
+  box (obs/grewingk_2021_box). Outwash water 22 % -> 1.6 %.
+- **A hydroflattened lake is exactly flat.** make_ice's lake_2021 was "within 0.35 m of 48.55 and connected",
+  which took gravel at 48.2-48.9 m; now also a 3x3 range < 2 cm. Same idea, generalised: flat_water.py finds
+  hydroflattened water in any bare-earth model (3DEP: Emerald Lake, nine other patches), used as a fallback's
+  water class so a lake where 3DEP is the only data gets a basin.
+- **Agreement means detail, not level.** The last of the SE patch: 2021 ice barely above the water, where the
+  2023 SfM over water (smooth, a few metres high) matched it in level. A later survey confirms an earlier
+  surface only if it reproduces its detail (surface minus an 8 m gaussian, correlated over 18 m): shore rock
+  0.9, 2021 ice now under water 0.05. Retreat where < 0.4 in the 2023 water band, connected to retreat or ice.
+- **Feather underlay (composite.post_masks).** A feathered edge had nothing to blend with where the layer
+  below is a fallback shown only where its rules took it, so the lidar edge was a hard step. The nearest lower
+  layer with data, within reach of its own take, is now laid under any partial edge; feather 15 -> 30 m.
+  Gradient p99 at the lidar edge 4.2 -> 2.7.
+- **A DSM as bare ground (dsm_bare.py).** Beyond the lidar the 2023 SfM rather than 3DEP -- but it is a DSM:
+  0-0.5 m off the lidar on bare ground, 3-7 m high in forest and alder; the ortho's greenness does not find
+  the canopy (dark spruce, shadow). The DSM's 30 m median against 3DEP does: < 1 m above = bare (matches the
+  lidar, -0.3 m), > 2 m mostly canopy. SfM where bare (8.2 km2 beyond the lidar, levelled -0.24 m, NMAD
+  0.78), 3DEP under canopy (5.3 km2), never over water or ice.
+- **Hypsometry as a lake constraint (fill lake_dmax `hypsometry`).** Emerald Lake's sounder data (NAU,
+  via Ed Berg 2017) is likely corrupted (Hig): not conditioning, only its deepest depth and area-depth
+  distribution (nearest-sounding area per 10 m track cell). The lake profile's depths are remapped by rank
+  onto it -- shape from the profile, the share at each depth from the data. Result: 0.373 km2, max 50 m,
+  mean 24 m, 9.1 Mm3.
+- **A lake's modelled bed never stands above its water.** The shore residual + spline overshoot put a
+  10-30 m fringe below the SE cliff 0.5-5.6 m above the water; clamped (0.18 km2 box-wide, incl. an upland
+  pond at 59.58333,-151.11495 whose whole bed sat above its level -- worth a look).
+- v5: lake 4.90 km2, max 175 m, 0.246 km3, above water 0.001 km2; Berg fit +0.01 / NMAD 0.37 (was 0.22 --
+  look at), lead lines +0.2 to +0.6; ice-face bounds: 45 violated (most < 1 m, worst 57 m at the run's
+  south end, which sits on rock in the lidar). Open: creek channel work; glacier "lakes" at 550 m and
+  higher; whether the 3DEP flat patches at 840/448/364 m are all water.
+
 ### Kachemak test: Peterson Bay – China Poot Bay – Halibut Cove (2026-10-10)
 
 `composites/kachemak_pedersen/recipe.json`, Hig's choice of a setting with

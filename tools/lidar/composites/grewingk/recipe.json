@@ -33,7 +33,7 @@
   },
   {
    "feather": {
-    "width_m": 15
+    "width_m": 30
    }
   }
  ],
@@ -48,6 +48,14 @@
      "default": "ground"
     },
     {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/water_3dep.tif",
+      "map": {
+       "1": "water"
+      }
+     }
+    },
+    {
      "fallback": {
       "except": [
        "fill"
@@ -58,7 +66,19 @@
    "sigma_m": 3.0,
    "notes": "Fallback everywhere: USGS 3DEP 1/3 arc-second seamless (~10 m; IfSAR-derived in Alaska), the same data Mapterhorn serves in Alaska (median difference 0 m against this bake, reference_mapterhorn) -- read locally rather than from Mapterhorn's tiles. NAVD88. Date a nominal 2012 (IfSAR era); sigma 3 m, so any survey outranks it and it shows only where nothing else does. Its lakes are hydroflattened: class ground here, so where it is the only data a lake reads as a flat surface -- the class axis from the surveys above still says water there.",
    "resample": "bilinear",
-   "class_notes": "Stands in only where no survey of the stack has a cell (no footprint rasters: the 2021 class raster is ~60% void over this box)."
+   "class_notes": "Stands in only where no survey of the stack has a cell (no footprint rasters: the 2021 class raster is ~60% void over this box). WATER where 3DEP is hydroflattened (flat_water.py: 3x3 range < 1 cm, >= 5000 m2) -- 2026-10-14, so a lake where 3DEP is the only data (Emerald Lake) gets a basin rather than a flat floor."
+  },
+  {
+   "name": "sfm2023bare",
+   "source": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/sfm_bare_2023.tif",
+   "date": "2023-09-19",
+   "class": [
+    {
+     "default": "ground"
+    }
+   ],
+   "sigma_m": 1.0,
+   "notes": "Hig 2026-10-14: beyond the 2021 lidar the 2023 SfM (dixon_2023) rather than 3DEP. It is a DSM, so only where it is BARE (dsm_bare.py: its 30 m median < 1 m above 3DEP; canopy left to 3DEP below), levelled to the shifted 2021 lidar by one constant on the bare overlap (sfm_bare_2023.json), never over lakes, ice or the retreat zone, and kept on a 60 m band inside the lidar edge so the lidar's feather blends into it. sigma 1.0: the lidar (0.15) outranks it wherever both exist."
   },
   {
    "name": "grewingk2021",
@@ -73,7 +93,7 @@
     },
     {
      "raster": {
-      "path": "/Volumes/Nunatak/lidar_build/obs/grewingk_2021_lakes/class.tif",
+      "path": "/Volumes/Nunatak/lidar_build/obs/grewingk_2021_box/class.tif",
       "map": {
        "2": "water"
       }
@@ -128,7 +148,7 @@
      }
     }
    ],
-   "class_notes": "Ground wherever the DGGS DTM has a value, WATER where the 2021 point classification says so (obs/grewingk_2021_lakes, which is ~60% void over this box, so only its water is used), ICE inside the 2020 glacier outline. DTM cells over the lake that the point classes miss read ground at the water level; the fill drops lake observations within lake_surface_tol_m of the level as surface, not evidence. WATER also wherever the DTM is the flat lake surface (48.55 +- 0.35 m, connected to the point-class lake; make_ice.py lake_2021.tif): without it the lake surface read ground along the ice face, and the fill saw a shore at water level between the lake and the ice. In the retreat zone (lake by 2023, ice in the 2020 outline) the 2021 ice surface is classed WATER: classed ice it still won there under a water class_now (sequential rules), standing the old ice in for the lake bed. ISLANDS (2026-10-14): water-classed returns standing > 0.65 m above the flat lake surface in components >= 50 m2 (make_nohf_dtm.py islands_2021.tif) are GROUND, last so neither the lake masks nor the islets rule take them back.",
+   "class_notes": "Ground wherever the DGGS DTM has a value, WATER where the 2021 point classification says so (obs/grewingk_2021_lakes, which is ~60% void over this box, so only its water is used), ICE inside the 2020 glacier outline. DTM cells over the lake that the point classes miss read ground at the water level; the fill drops lake observations within lake_surface_tol_m of the level as surface, not evidence. WATER also wherever the DTM is the flat lake surface (48.55 +- 0.35 m, connected to the point-class lake; make_ice.py lake_2021.tif): without it the lake surface read ground along the ice face, and the fill saw a shore at water level between the lake and the ice. In the retreat zone (lake by 2023, ice in the 2020 outline) the 2021 ice surface is classed WATER: classed ice it still won there under a water class_now (sequential rules), standing the old ice in for the lake bed. ISLANDS (2026-10-14): water-classed returns standing > 0.65 m above the flat lake surface in components >= 50 m2 (make_nohf_dtm.py islands_2021.tif) are GROUND, last so neither the lake masks nor the islets rule take them back. 2026-10-14: the point classes rebuilt over the whole box with every tile on disk (observe_points.py stats/classify -> obs/grewingk_2021_box); the first (2026-10-11) predated the tiles north of y 6610.5 km, and its 'no returns + flat DTM = water' turned the outwash gravels there into ponds (Hig). classify now voids the footprints of unfetched tiles.",
    "source_notes": "2026-10-14 (Hig): the delivered DGGS DTM hydroflattens the lake and with it a real island (59.60571,-151.11924). Rebuilt from the classified points (ground + water returns, mean per 1 m cell, delivered DTM where no return) by make_nohf_dtm.py; was the dataset grewingk_2021."
   },
   {
@@ -191,6 +211,35 @@
     "why": "Hig 2026-10-13: 150 m deep in the middle of the lake",
     "level_m": 48.91,
     "level_why": "the 12 Oct 2021 lidar water surface (flat at 48.55 m). The 2023 SfM water reads 51.6 m median but scatters NMAD 2.9 m (p5-p95 48-58 m) and stands +3.4 m above the lidar even on land near the lake: not a level. Raised 0.36 m to 48.91 with the 2021 lidar's shift (Hig 2026-10-14)."
+   },
+   {
+    "x": 609098,
+    "y": 6611491,
+    "dmax_m": 51.6,
+    "hypsometry": [
+     0.0,
+     6.1,
+     9.1,
+     10.3,
+     11.1,
+     12.9,
+     15.4,
+     16.9,
+     18.7,
+     20.4,
+     22.7,
+     26.0,
+     28.5,
+     29.8,
+     32.9,
+     35.1,
+     37.9,
+     41.4,
+     48.5,
+     49.3,
+     51.6
+    ],
+    "why": "Emerald Lake (Hig 2026-10-14): the NAU sounder data (Emerald_Bathy_Merged.csv, 3,317 points, via Ed Berg 2017) is likely corrupted, so it does NOT condition the bed: used only for the deepest depth (51.6 m) and the hypsometry -- depths at area fractions 0, 0.05 .. 1 of the lake, each 3DEP lake cell taking the median depth of the nearest 10 m sounding cell (tracks ~60 m apart; 92 % of the lake within 60 m of one), shore set to 0."
    }
   ],
   "points": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261014b.csv",
@@ -204,5 +253,6 @@
   "points_dz_m": 0.36,
   "points_dz_notes": "Every Grewingk sounding level is tied to the UNSHIFTED 2021 lidar (48.55 m water; Ed's level to its dry ground), as the soundings database keeps them (the published grewingk_2021 is unshifted too); the composite raises them with the lidar layer's shift_m (Hig 2026-10-14).",
   "rim_widen": true
- }
+ },
+ "rules_post_notes": "feather 15 -> 30 m (2026-10-14, Hig: no feathering where the 2021 lidar drops off -- the feather had nothing underneath to blend with until composite.post_masks laid the nearest lower layer under a partial edge; 30 m because 3DEP and the lidar differ by +-3.5 m (p10/p90) on stable ground)."
 }
