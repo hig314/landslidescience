@@ -1,5 +1,30 @@
 # Topobathy compositing: tools and interface
 
+## Resume here (2026-10-14, evening) — Grewingk at v6, creek next
+
+**Where things are.** Grewingk Lake is at **v6** in the dev viewer (`grewingk_topobathy_v6`), built from
+`composites/grewingk/recipe.json` by `build -> fill -> build` (chain scripts were in the session scratchpad; the
+recipe + `make_ice.py` + `make_nohf_dtm.py` + `topobathy/dsm_bare.py` + `topobathy/flat_water.py` are the
+real record). Branch `topobathy-compositing`, last commit 640225d, **nothing pushed**; the re-levelled
+soundings are in dev only (prod needs Hig's approval). All 194 Grewingk 2021 point tiles are on disk
+(`kbay_reclass_test/grewingk_2021/laz`); the 2021 classes over the whole box are `obs/grewingk_2021_box`.
+Sections "Grewingk Lake v3 / v4–v5 / v6" below are the change log; each v answered Hig's review of the one
+before, always as a general rule rather than a Grewingk tune (Hig's standing instruction).
+
+**v6 numbers.** Lake 4.90 km2, max 173 m, 0.249 km3, 0.001 km2 above water; Berg sounder median +0.01 but
+NMAD 0.38 (was 0.22 at v4 — unexplained); Hig 2026 lead lines +1.3 m (were +0.15 at v4); one 2019/21
+bound violated by 4.2 m; 43 ice-face bounds violated (p90 0.7 m, worst 57 m at the run's south end, which
+sits on lidar rock). Emerald Lake 0.37 km2 / 50 m / 24 m mean by hypsometry.
+
+**Open, in order.** (1) **Grewingk Creek** — roadmap steps (a)–(e) below (reclassify the corridor; one
+non-increasing water surface from the water returns; link pools across bars; channel detection back on
+with the lake excluded; sections per thread). Start with (a)+(b). (2) The ~4,500 m2 shallow strip below
+the SE cliff (59.59976,-151.06609): no soundings within 150 m, basin prior 2–3 m; "shores keep the band"
+was tried and reverted (v6 notes) — needs Hig's call on how a cliff shore should run. (3) Why the Berg
+NMAD and the 2026 lead lines got worse between v4 and v6 (suspects: the KBay layer changed the shore
+rim; the shore-kept-as-ground rule). (4) Radial streaks in the basin shape near shore (widening window;
+Hig to decide). (5) Hig to look at the 3DEP flat patches at 840/448/364 m and the glacier "lakes" ≥ 550 m.
+
 ## State of play (2026-10-09) and how to resume
 
 **The pipeline runs end to end on Portage.** Review of 2026-10-09 (two
