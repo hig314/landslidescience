@@ -66,7 +66,7 @@ from scipy.sparse.linalg import cg, spsolve
 DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, slope_min_deg=1.0, slope_max_deg=60.0, low_tide_m=-2.9,
                 marine_rim_max_m=6.0, lake_depth_m=5.0, sigma_prior_m=1.0, sigma_rim_m=2.0, lake_sigma_m=5.0,
                 cond_m=30.0, cg_iters=300, coarse=16,
-                lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, lake_surface_tol_m=0.2, lake_islet_m2=50, void_shore_m=2.0, points=None,
+                lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, lake_surface_tol_m=0.2, lake_islet_m2=50, lake_island_dz_m=0.65, void_shore_m=2.0, points=None,
                 channel_slope=0.002, channel_drop_m=1.0, channel_ws_smooth_m=20.0, channel_min_m2=2000, channel_wd=15.0, channel_dmax_cap=2.0,
                 channel_surface_tol_m=0.3, channel_tidal_wmax=120.0,
                 points_sigma_m=1.0, points_rim_sigma_m=0.2, points_rim_step_m=10.0, points_grid_m=4.0, points_sigma_per_m=0.15,
@@ -691,6 +691,25 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         tol = np.full(z.shape, P["lake_surface_tol_m"], np.float32)
         lvl[chan] = chan_ws[chan]; tol[chan] = P["channel_surface_tol_m"]      # a channel's level is its own sloping surface
         at_surface = lk & inside_obs & np.isfinite(z) & (cls != classes["bed"]) & (z < lvl + tol)
+        # ...but ground at the level that runs on to dry land beyond the lake is SHORE, not water (Hig, 2026-10-14:
+        # ponds "carved" into Grewingk's outwash -- flat gravel with good returns, within tol of a creek pond's
+        # level, went surface -> water class at the next build -> a larger pond, every pass).  Stray returns off calm
+        # water lie out on the water: a patch whose edge borders more dry land (beyond the domain) than water is
+        # shore and stays ground.  (A seam of calm-water returns across a lake touches the shore only at its ends.)
+        if "water" in classes:
+            cand_ = at_surface & (cls != classes["water"])
+            dry = np.isfinite(z) & ~lk & (cls != classes["water"]) & (cls != classes.get("ice", -1))
+            wet = lk & ~cand_ & ~(inside_obs & (z >= lvl + tol))
+            cl_, cn_ = ndimage.label(cand_)
+            if cn_:
+                ring = ndimage.binary_dilation(cand_) & ~cand_
+                own = ndimage.grey_dilation(cl_, size=3)            # the patch each ring cell borders
+                idx = np.arange(1, cn_ + 1)
+                n_dry = ndimage.sum(ring & dry, own, idx); n_wet = ndimage.sum(ring & wet, own, idx)
+                shore = np.isin(cl_, idx[n_dry > n_wet])
+                if shore.any():
+                    log(f"  ground at the water level joined to dry land kept as shore: {int(shore.sum())} cells")
+                at_surface &= ~shore
         # and a speck of "ground" out on the water (< lake_islet_m2, the survey layers' islets rule) is
         # a stray return, not an island: one 2 m Grewingk cell 0.3 m above the water pulled the
         # bed up 30 m around it (2026-10-12).  Larger islands are kept.
@@ -700,6 +719,23 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             ssz = ndimage.sum(sp, sl, np.arange(1, sn + 1)) * res * res
             specks = np.isin(sl, np.flatnonzero(ssz < P["lake_islet_m2"]) + 1)
             at_surface |= specks
+            # ...and an "island" whose median stands less than lake_island_dz_m clear of the water is the water (Hig, 2026-10-14:
+            # a 112 m2 sliver of 2021 surface 0.4 m above Grewingk's water pinned a 9,000 m2 flat shallow bed below a
+            # cliff that should run deep) -- the threshold make_nohf_dtm uses to find islands in the returns.  Not a
+            # patch that runs on to dry land (shore).
+            idx_ = np.arange(1, sn + 1)
+            top = ndimage.median(np.where(sp, z - lvl, np.nan), sl, idx_)    # median: one noisy 1.1 m cell kept the SE sliver (v6)
+            low_ = np.asarray(top) < P["lake_island_dz_m"]
+            if low_.any():
+                ring_ = ndimage.binary_dilation(sp) & ~sp
+                own_ = ndimage.grey_dilation(sl, size=3)
+                dry_ = np.isfinite(z) & ~lk & (cls != classes.get("water", -1)) & (cls != classes.get("ice", -1))   # a glacier is not a shore
+                n_dry_ = ndimage.sum(ring_ & dry_, own_, idx_); n_wet_ = ndimage.sum(ring_ & lk & ~sp, own_, idx_)
+                low_ &= ~(n_dry_ > n_wet_)
+                lowi = np.isin(sl, idx_[low_]) & ~specks
+                if lowi.any():
+                    log(f"  low 'islands' (< {P['lake_island_dz_m']} m above the water) taken as surface: {int(low_.sum())}, {int(lowi.sum())} cells")
+                    at_surface |= lowi
         # ice inside a lake (bergs, the ragged fringe of a calving face that the closing wraps into the
         # domain) is not evidence of the bed: kept as an "island" at its surface height it pinned the bed
         # 20-30 m ABOVE the water along Grewingk's face (2026-10-13).  Dropped when the face is free.

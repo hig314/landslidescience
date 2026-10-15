@@ -252,6 +252,27 @@ level. v5, Hig's review of v4 -- with the instruction to solve each thing as the
   south end, which sits on rock in the lidar). Open: creek channel work; glacier "lakes" at 550 m and
   higher; whether the 3DEP flat patches at 840/448/364 m are all water.
 
+### Grewingk Lake v6 (2026-10-14)
+
+Hig's review of v5:
+- **KBay 2023 (kbay_2023_reclass_v2) added; the LOWER lidar wins where they differ.** It covers the SW half of
+  the box. On ground it agrees with the shifted 2021 (median -0.05 m), but 2021 stands > 1 m high on 4 %: bad
+  low-density returns 11-13 m high at 59.62226,-151.18886 and in a 2021 data hole at 59.58333,-151.11495
+  (the v5 "upland pond"). kbay2023 sits below grewingk2021, which has the opt-in `lowest` rule (takes only
+  where lower by > 0.3 m over 50 m). Both spots now read KBay.
+- **Ponds carved into the outwash: a feedback loop in the fill.** Ground within 0.2 m of a pond's level was
+  judged "water surface" -> fill_surface.tif -> water class at the next build -> a larger pond. That rule
+  is for stray returns off calm water, which lie out on the water: a patch whose edge borders more dry land
+  (not ice) than water is now shore and stays ground. Outwash water 0.156 -> 0.052 km2; what remains is
+  where class 9 outnumbers ground (the creek itself).
+- **Low "islands" are the water.** Inside a lake, a patch whose MEDIAN stands < 0.65 m above the water
+  (make_nohf_dtm's island threshold) is surface. Removed the last SE sliver (112 m2, 0.2-1.1 m above the
+  water; the maximum let it through once) that had pinned a 9,000 m2 flat bed below the cliff.
+- **Tried and reverted: shores keep the band** (the deeper of the basin shape and the land slope carried on
+  under the water, as the fill's design note says but never coded). It made the cliffs plunge, but max depth
+  went 173 -> 245 m and the 2026 lead lines +1.3 -> +4.8 m. The ~4,500 m2 shallow strip below the SE cliff
+  (59.59976,-151.06609, no soundings within 150 m) remains; its prior is only 2-3 m deep there.
+
 ### Kachemak test: Peterson Bay – China Poot Bay – Halibut Cove (2026-10-10)
 
 `composites/kachemak_pedersen/recipe.json`, Hig's choice of a setting with
