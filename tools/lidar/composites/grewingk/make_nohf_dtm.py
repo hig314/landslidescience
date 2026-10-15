@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Grewingk 2021 lidar WITHOUT hydroflattening, over the grewingk recipe box -- and the islands it hid.
 
-    PATH=/opt/homebrew/bin:$PATH /opt/anaconda3/bin/python3 tools/lidar/composites/grewingk/make_nohf_dtm.py
+    PATH=/opt/homebrew/bin:$PATH /opt/anaconda3/bin/python3 tools/lidar/composites/grewingk/make_nohf_dtm.py [--partial]
 
 Hig (2026-10-14): the delivered DGGS DTM (RDF 2023-2) flattens the lake to one level, and with it a real
 island at 59.60571,-151.11924 (visible in the 2023 SfM too) that constrains the bed.  First pass, no
@@ -16,7 +16,7 @@ lidar_build/kbay_reclass_test/grewingk_2021/laz/ (fetch_one.sh; las_index/ for w
 composite/grewingk/obs/nohf/: tiles/<name>.tif (mean z, water fraction), dtm_1m.tif (COG), islands_2021.tif,
 islands_2021.json.
 """
-import csv, json, os, re, subprocess
+import csv, json, os, re, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import numpy as np
@@ -34,11 +34,17 @@ GDAL = '/opt/homebrew/bin/'
 LEVEL = 48.55            # the delivered DTM's flat lake surface
 ISLAND_DZ_M = 0.65       # water returns over open water read 48.7-48.9 (p99 ~49.0); an island stands above that
 ISLAND_MIN_M2 = 50.0     # the fill's lake_islet_m2: smaller is a stray return (or a berg)
+# Only CONFIRMED islands become ground: the first interim build (2026-10-14) found 13 patches, most of them in
+# water Ed Berg's sounder read 8-74 m deep -- icebergs of October 2021, which as ground pin the bed to the
+# surface.  The 2023 SfM cannot tell them apart (each reads like its surroundings).  The rest are written to
+# islands_2021.json as candidates for Hig.  (lat, lon, who/why)
+ISLANDS_KEEP = [(59.60571, -151.11924, 'Hig 2026-10-14: a real island, also in the 2023 SfM; Ed reads 1.4 m 13 m off')]
+ISLAND_KEEP_R_M = 40.0
 WORKERS = 4
 
 
 def tiles():
-    tmp = OUT / 'index.csv'
+    tmp = OUT / 'index.csv'; tmp.unlink(missing_ok=True)
     x0, y0, x1, y1 = R['grid']['bounds']
     subprocess.run([GDAL + 'ogr2ogr', '-f', 'CSV', str(tmp), str(INDEX), '-spat', *map(str, (x0, y0, x1, y1)),
                     '-lco', 'GEOMETRY=AS_WKT', '-overwrite'], check=True)
@@ -87,8 +93,12 @@ def main():
     X0, Y0, crs = lattice()
     ts = tiles()
     missing = [t[0] for t in ts if not (PTS / 'laz' / t[0]).exists()]
+    if missing and '--partial' not in sys.argv:
+        raise SystemExit(f'{len(missing)} of {len(ts)} tiles not fetched yet: {missing[:5]}... (--partial: use what is here)')
     if missing:
-        raise SystemExit(f'{len(missing)} of {len(ts)} tiles not fetched yet: {missing[:5]}...')
+        # --partial (an interim build while the fetch runs): the missing tiles' ground keeps the delivered DTM
+        print(f'PARTIAL: {len(missing)} of {len(ts)} tiles not fetched; the delivered DTM stands there')
+        ts = [t for t in ts if t[0] not in missing]
     with ThreadPoolExecutor(WORKERS) as ex:
         done = list(ex.map(lambda t: grid_tile(t, X0, Y0), ts))
     print(f'{len(done)} tiles gridded')
@@ -109,16 +119,22 @@ def main():
     high = flat & (np.nan_to_num(nw) > 0) & (np.nan_to_num(zp, nan=-1e9) > LEVEL + ISLAND_DZ_M)
     high = ndimage.binary_closing(high, iterations=1) & flat
     lab, n = ndimage.label(high, structure=np.ones((3, 3), bool))
+    from rasterio.warp import transform as _tr
+    kx, ky = _tr('EPSG:4326', crs, [k[1] for k in ISLANDS_KEEP], [k[0] for k in ISLANDS_KEEP])
     isl, rows = np.zeros_like(high), []
     for i in range(1, n + 1):
         m = lab == i
         a = float(m.sum())
         if a < ISLAND_MIN_M2:
             continue
-        isl |= m
         r, c = np.nonzero(m)
-        rows.append(dict(x=round(x0 + c.mean() + 0.5, 1), y=round(y1 - r.mean() - 0.5, 1), area_m2=int(a),
-                         z_max=round(float(np.nanmax(zp[m])), 2), z_mean=round(float(np.nanmean(zp[m])), 2)))
+        xs, ys = x0 + c + 0.5, y1 - r - 0.5
+        keep = [ISLANDS_KEEP[j][2] for j in range(len(kx)) if np.min(np.hypot(xs - kx[j], ys - ky[j])) < ISLAND_KEEP_R_M]
+        if keep:
+            isl |= m
+        rows.append(dict(x=round(float(xs.mean()), 1), y=round(float(ys.mean()), 1), area_m2=int(a),
+                         z_max=round(float(np.nanmax(zp[m])), 2), z_mean=round(float(np.nanmean(zp[m])), 2),
+                         kept=bool(keep), why=keep[0] if keep else 'candidate (iceberg?), not used'))
     dtm[isl] = np.where(np.isfinite(zp[isl]), zp[isl], dtm[isl])
     prof = dict(driver='GTiff', height=H, width=W, count=1, dtype='float32', crs=crs, transform=T, nodata=np.nan,
                 compress='deflate', predictor=3, tiled=True)
@@ -135,11 +151,11 @@ def main():
                        dtype='uint8', crs=crs, transform=rasterio.transform.from_origin(x0, y1, res, res), nodata=255,
                        compress='deflate') as o:
         o.write(i2.astype(np.uint8), 1)
-    info = dict(level=LEVEL, island_dz_m=ISLAND_DZ_M, island_min_m2=ISLAND_MIN_M2, islands=rows,
+    info = dict(partial=bool(missing), tiles_missing=len(missing), level=LEVEL, island_dz_m=ISLAND_DZ_M, island_min_m2=ISLAND_MIN_M2, islands=rows,
                 cells_from_returns_km2=round(float(np.isfinite(zp).sum()) / 1e6, 2),
                 lake_cells_unflattened_km2=round(float((flat & np.isfinite(zp)).sum()) / 1e6, 3))
     (OUT / 'islands_2021.json').write_text(json.dumps(info, indent=1))
-    print(json.dumps({k: v for k, v in info.items() if k != 'islands'}), f'{len(rows)} islands')
+    print(json.dumps({k: v for k, v in info.items() if k != 'islands'}), f'{len(rows)} patches, {sum(r["kept"] for r in rows)} kept')
     for r in sorted(rows, key=lambda r: -r['area_m2'])[:15]:
         print(' ', r)
 
