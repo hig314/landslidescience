@@ -114,6 +114,29 @@ to inform the assumed one. Done:
   30.8 m at the run's south end, where two ordinary 0.9 m readings sit 2 m from a 61 m bound -- the same
   off-nadir problem just outside Hig's endpoint. Above-water lake cells 0.151 km2 (0.13 in v1).
 
+### Grewingk Lake v3 (2026-10-14)
+
+Hig's review of v2, all in `grewingk_topobathy_v3` (dev viewer; an interim from the tiles then on disk was
+`..._v3_interim`):
+- Berg sounder depths x 1421.6/1500 (seawater speed of sound assumed, cold fresh water): now agrees with
+  the multibeam floor to 0.2 m (was 1.3 m deep); level re-tied to dry 2021 lidar, 50.01 m.
+- Whole composite +0.36 m to the other DEMs: grewingk2021 and sonar2023 layers shift_m 0.36, lake level
+  48.91, fill `points_dz_m` 0.36 (the soundings database stays in the published lidar's datum).
+- 2021 DTM rebuilt from the classified points without hydroflattening (make_nohf_dtm.py; all 194 tiles
+  over the box range-fetched from the DGGS zip). Water-classed returns > 0.65 m above the lake in patches
+  >= 50 m2: 13 found, only Hig's island (59.60571,-151.11924) kept -- the rest sit where Ed reads 8-74 m,
+  i.e. October 2021 icebergs; listed as candidates in obs/nohf/islands_2021.json.
+- Ice where the 2021 lidar stands > 5 m above the 2023 SfM, connected to the glacier (rock near it reads
+  -0.9 m median, outlined ice +11 m): +0.32 km2 ice on the south edge, and the lake's SE corner (2023
+  surface at the water) as retreat.
+- Deep-bed seams: the shore-gradient factor is smoothstep-blended and smoothed over the lake; and its
+  shoreline window WIDENS with distance from shore (Hig: one cliff patch had big effects down-slope), as
+  does the land rim slope in shore bands (`rim_widen`).
+- Result: lake 5.10 km2, max 170 m, 0.248 km3; Berg fit 0.00 / NMAD 0.22, lead lines within ~0.1 m;
+  above-water lake cells 0.12 km2; 30 ice-face bounds still violated (most < 1 m, worst 31 m at the run's
+  south end). Open: radial streaks in the basin shape's first few hundred metres (distance to the nearest
+  shore cell -- the widening window would apply there too, Hig to decide).
+
 ### Kachemak test: Peterson Bay – China Poot Bay – Halibut Cove (2026-10-10)
 
 `composites/kachemak_pedersen/recipe.json`, Hig's choice of a setting with
