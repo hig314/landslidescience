@@ -824,7 +824,14 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     if rim.any() and pin.any():
         _, (pi, pj) = ndimage.distance_transform_edt(~pin, return_indices=True)
         rr_, cc_ = np.nonzero(rim)
-        rim_res[rr_, cc_] = z[rr_, cc_] - prior[pi[rr_, cc_], pj[rr_, cc_]]
+        zr_ = z[rr_, cc_].astype(np.float64)
+        if lk.any():
+            # a lake's shore is AT the water: a cliff standing 20-30 m over Grewingk's south-east corner
+            # (v4, 2026-10-14) pinned the bed beside it 5-15 m above the lake.  Rim cells beside a lake count
+            # at most at its level (lvl: the lake's own level, a channel's sloping surface).
+            lv_ = lvl[pi[rr_, cc_], pj[rr_, cc_]]
+            zr_ = np.where(np.isfinite(lv_), np.minimum(zr_, lv_), zr_)
+        rim_res[rr_, cc_] = zr_ - prior[pi[rr_, cc_], pj[rr_, cc_]]
         del pi, pj
     if inside_obs.any() or np.abs(rim_res).max() > 0:
         rz = np.zeros(z.shape, np.float64)
