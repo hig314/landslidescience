@@ -705,6 +705,8 @@ window.LSScarps = (function () {
       return api + 'api/scarps/?download=1' + (g != null ? '&group=' + g : '');
     },
     drawKind: function () { return drawKind; },
+    // The kinds filtered off the map (ids), for the page's filter UI and URL.
+    hiddenKinds: function () { return Object.keys(hiddenKinds); },
     // Filter kinds off the map (ids), or null for all.
     setHiddenKinds: function (ids) {
       hiddenKinds = {};

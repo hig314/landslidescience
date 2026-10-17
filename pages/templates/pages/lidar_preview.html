@@ -856,6 +856,7 @@ vanish depending on which way you light them.
     status.textContent = p.title + ' · z' + p.min_zoom + '–' +
                          p.max_zoom + ' · ' + p.coverage_km2 + ' km²';
     render();
+    syncUrl();             // picking from the list moves no camera, so no moveend writes it
   }
 
   // Terrain comes through the package's raster-dem passthrough for both
@@ -1366,22 +1367,38 @@ vanish depending on which way you light them.
   }
 
   // ---- URL sync ---------------------------------------------------------
+  // Every write rebuilds the query from the page's state. State that arrives
+  // late (the survey and its difference wait for the catalogue, the group
+  // profile and the trace filters for the traces) is HELD from the link
+  // until it has been applied, as /inventory/ holds li=/ext=/base= -- or an
+  // early write (a pan, a slider, the catalogue failing, Copy link pressed
+  // during load) drops it from the address bar for good.
   var urlTimer = null;
+  var urlHeld = { ds: true, df: true, gp: !!Q.get('gp'), tr: true };
+  function release(k) { urlHeld[k] = false; }
+  function heldOr(p, k, held) {
+    var v = Q.get(k);
+    if (held && v !== null && v !== '') p.set(k, v);
+  }
   function syncUrl() {
     clearTimeout(urlTimer);
-    urlTimer = setTimeout(function () {
+    urlTimer = setTimeout(writeUrl, 250);
+  }
+  function writeUrl() {
+    clearTimeout(urlTimer);
+    {
       var c = map.getCenter();
       var p = new URLSearchParams();
       if (Q.get('catalog') === 'dev') p.set('catalog', 'dev');   // keep the dev catalogue across reloads
       if (wantBm) p.set('bm', wantBm);
-      if (active) p.set('ds', active);
+      if (active) p.set('ds', active); else heldOr(p, 'ds', urlHeld.ds);
       p.set('z', map.getZoom().toFixed(3));
       p.set('lat', c.lat.toFixed(6));
       p.set('lon', c.lng.toFixed(6));
       p.set('b', map.getBearing().toFixed(1));
       p.set('p', map.getPitch().toFixed(1));
       var df = document.getElementById('df').value;
-      if (df) p.set('df', df);
+      if (df) p.set('df', df); else heldOr(p, 'df', urlHeld.df);
       CONTROLS.forEach(function (id) { p.set(id, document.getElementById(id).value); });
       CHECKS.forEach(function (id) { p.set(id, document.getElementById(id).checked ? '1' : '0'); });
       // The group profile: gp=<group id>[,<id>…], gpf=1 flipped (A at the other
@@ -1395,9 +1412,19 @@ vanish depending on which way you light them.
         if (gst.sel) p.set('gpw', Math.round(gst.sel.d0) + ',' + Math.round(gst.sel.d1));
         if (gst.plane) p.set('gpa', [gst.plane.A[1], gst.plane.A[0], gst.plane.B[1], gst.plane.B[0]]
                                      .map(function (v) { return v.toFixed(5); }).join(','));
+      } else if (urlHeld.gp) {
+        ['gp', 'gpf', 'gpl', 'gpw', 'gpa'].forEach(function (k) { heldOr(p, k, true); });
+      }
+      // Trace filters: trk = kinds filtered off, trg = the one group shown.
+      if (urlHeld.tr) { heldOr(p, 'trk', true); heldOr(p, 'trg', true); }
+      else {
+        var hk = LSScarps.hiddenKinds();
+        if (hk.length) p.set('trk', hk.join(','));
+        var tg = document.getElementById('tr-gshow').value;
+        if (tg) p.set('trg', tg);
       }
       history.replaceState(null, '', location.pathname + '?' + p.toString());
-    }, 250);
+    }
   }
   map.on('moveend', syncUrl);      // covers pan, zoom, rotate and pitch
   // Pitching in or out of the fog's useful range has to switch it.
@@ -1474,6 +1501,7 @@ vanish depending on which way you light them.
 
   document.getElementById('copyurl').addEventListener('click', function () {
     var btn = this;
+    writeUrl();            // not the address bar as it stood up to 250 ms ago
     (navigator.clipboard
       ? navigator.clipboard.writeText(location.href)
       : Promise.reject()
@@ -1775,6 +1803,9 @@ vanish depending on which way you light them.
         } else {
           rebuildDem(null);      // no survey: 3D stands on the context alone
         }
+        // Applied (or not in this catalogue -- a restricted survey for someone
+        // signed out): from here the page's own state is the truth.
+        release('ds'); release('df');
         syncContextShade();
         applyNorthUp();
         syncUrl();
@@ -1866,11 +1897,14 @@ vanish depending on which way you light them.
   function traceKindFilter() {
     var box = document.getElementById('tr-kinds');
     box.innerHTML = '';
+    // Rebuilt after every edit (the counts change): the boxes follow the
+    // filter rather than resetting to all-on under a filter still applied.
+    var off = LSScarps.hiddenKinds();
     LSScarps.kinds().forEach(function (k) {
       var n = LSScarps.all().features.filter(function (f) { return (f.properties.kind || 'scarp') === k.id; }).length;
       var l = document.createElement('label');
       l.title = k.hint || '';
-      l.innerHTML = '<input type="checkbox" checked data-k="' + trEsc(k.id) + '">' + trSwatch(k) +
+      l.innerHTML = '<input type="checkbox"' + (off.indexOf(k.id) < 0 ? ' checked' : '') + ' data-k="' + trEsc(k.id) + '">' + trSwatch(k) +
                     trEsc(k.label) + ' <span style="color:#999">' + n + '</span>';
       box.appendChild(l);
     });
@@ -1878,6 +1912,7 @@ vanish depending on which way you light them.
       var off = [];
       box.querySelectorAll('input').forEach(function (c) { if (!c.checked) off.push(c.dataset.k); });
       LSScarps.setHiddenKinds(off);
+      syncUrl();
     };
   }
 
@@ -1924,7 +1959,7 @@ vanish depending on which way you light them.
         if (!window.confirm('Delete the group "' + g.name + '"? Its ' + g.n +
                             ' trace(s) are kept, just ungrouped.')) return;
         LSScarps.updateGroup(g.id, { delete: true })
-          .then(function () { document.getElementById('tr-gshow').value = ''; LSScarps.setGroupFilter(null); traceGroupsUi(); })
+          .then(function () { document.getElementById('tr-gshow').value = ''; LSScarps.setGroupFilter(null); traceGroupsUi(); syncUrl(); })
           .catch(function (e) { box.querySelector('#tg-msg').textContent = e.message; });
       };
       box.querySelector('#tg-cancel').onclick = function () { traceGroupInfo(); };
@@ -1942,6 +1977,7 @@ vanish depending on which way you light them.
   document.getElementById('tr-gshow').addEventListener('change', function () {
     LSScarps.setGroupFilter(this.value === '' ? null : +this.value);
     traceGroupInfo();
+    syncUrl();
   });
 
   // The editor's session: one LSTools mode, a floating panel, Terra Draw.
@@ -2142,15 +2178,27 @@ vanish depending on which way you light them.
                                       flip: Q.get('gpf') === '1', locked: Q.get('gpl') === '1',
                                       sel: w.length === 2 && w.every(isFinite) ? { d0: w[0], d1: w[1] } : null,
                                       plane: pa.length === 4 && pa.every(isFinite) ? { A: [pa[1], pa[0]], B: [pa[3], pa[2]] } : null });
+            release('gp');
           }
         }, 250);
       }
       LSScarps.raise();          // above anything added before the first answer
+      // The link's trace filters: trk = kinds off, trg = the one group shown.
+      if (Q.get('trk')) LSScarps.setHiddenKinds(Q.get('trk').split(','));
       traceKindFilter();
       traceGroupsUi();
+      var trg = +Q.get('trg');
+      if (trg && LSScarps.groupById(trg)) {          // a group since deleted is dropped
+        document.getElementById('tr-gshow').value = String(trg);
+        LSScarps.setGroupFilter(trg);
+        traceGroupInfo();
+      }
+      release('tr');
+      syncUrl();
       if (IS_EDITOR) tpFillKinds();
     }).catch(function (e) {
       document.getElementById('tr-kinds').textContent = 'Traces failed to load: ' + e.message;
+      release('gp'); release('tr');
     });
   });
 
