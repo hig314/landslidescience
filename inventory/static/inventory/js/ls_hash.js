@@ -5,7 +5,14 @@
  * code and never learned `ext`.) The server-side validator charset
  * (views.py _VIEW_STATE_RE) is the one other party to keep in step.
  *
- *   map=<zoom>/<lat>/<lon> & base=<id> & swipe=<id> & sx=<pct>
+ *   map=<zoom>/<lat>/<lon>[/<bearing>/<pitch>] & base=<id> & swipe=<id> & sx=<pct>
+ *         the camera, in MapLibre's own hash order (its `hash: true` option
+ *         writes `#zoom/lat/lon/bearing/pitch`). Bearing and pitch are
+ *         written only when one is non-zero and read as 0 when absent, so a
+ *         `map=` always describes the whole camera and every link written
+ *         before 2026-10-17 reads as it did. A page that locks north-up and
+ *         nadir (/inventory/, /glaciers/) ignores them; trailgeek's 3D views
+ *         ride on them.
  *   & ov=<id>[~s][~<date>].l<pct>r<pct>,…
  *         raster overlays. l/r = which pane it is visible in, with opacity
  *         0–100. `~s` = data-variant flag (smoothed thinning). `~YYYY-MM-DD`
@@ -66,6 +73,9 @@
                     z >= 0 && z <= 24 && lat >= -90 && lat <= 90 &&
                     lon >= -540 && lon <= 540) {
                     out.zoom = z; out.lat = lat; out.lon = lon;
+                    var b = m.length > 3 ? parseFloat(m[3]) : 0, p = m.length > 4 ? parseFloat(m[4]) : 0;
+                    out.bearing = isFinite(b) && Math.abs(b) <= 360 ? b : 0;
+                    out.pitch = isFinite(p) && p >= 0 && p <= 180 ? p : 0;
                 }
             } else if (k === 'base') {
                 if (v) out.base = v;
@@ -143,7 +153,7 @@
 
     function pct(op) { return Math.round((op != null ? op : 1) * 100); }
 
-    /* o: { zoom, lat, lon, base, swipe, sx,
+    /* o: { zoom, lat, lon, bearing, pitch, base, swipe, sx,
      *      ov:  {id: {left, right, opLeft, opRight, smooth, date}},
      *      li:  {id: {preset, presetR, left, right, opLeft, opRight}},
      *      ext: {'source/layer': true}, im: {id: opacity}, ref: {name: true},
@@ -151,12 +161,22 @@
      * Omit/null any part to leave it out of the hash; a list part that is
      * passed is written even when empty (see LIST PARAMS above). Entries are
      * written in the object's own key order, so the caller decides it.
-     * Number formats: zoom 2dp, lat/lon 4dp. */
+     * Number formats: zoom 2 dp; lat/lon by zoom (MapLibre's half-pixel rule,
+     * never fewer than 4 dp: 4 up to z11, 5 at z12-15, 6 at z16-18); bearing
+     * 1 dp and pitch whole degrees, as MapLibre writes them. */
     function encode(o) {
         var parts = [];
         if (o.zoom != null && o.lat != null && o.lon != null) {
-            parts.push('map=' + o.zoom.toFixed(2) + '/' +
-                       o.lat.toFixed(4) + '/' + o.lon.toFixed(4));
+            // lat/lon to MapLibre's rule for its own hash (512 px tiles:
+            // 2^z * 512 / 360 / 10^d < 0.5 px), and never fewer than the 4 dp
+            // every link so far was written with. 4 dp is 11 m: a link
+            // reopened at a lidar zoom used to land several metres off.
+            var d = Math.max(4, Math.ceil((o.zoom * Math.LN2 + Math.log(512 / 360 / 0.5)) / Math.LN10));
+            var cam = o.zoom.toFixed(2) + '/' + o.lat.toFixed(d) + '/' + o.lon.toFixed(d);
+            var b = +o.bearing || 0, pt = +o.pitch || 0;
+            if (b || pt) cam += '/' + (Math.round(b * 10) / 10);
+            if (pt) cam += '/' + Math.round(pt);
+            parts.push('map=' + cam);
         }
         if (o.base) parts.push('base=' + o.base);
         if (o.swipe) {
