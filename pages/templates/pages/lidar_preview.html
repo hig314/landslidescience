@@ -158,6 +158,7 @@ vanish depending on which way you light them.
   <input type="range" id="op" min="0" max="100" value="100">
 
   <h2>Datasets <a class="mlink" href="{% url 'lidar_methods' %}#surveys" title="Methods: the surveys">?</a></h2>
+  <label title="Draw every survey's footprint (outline and a faint fill). Where many surveys overlap, the fills stack up and hide the ground; untick to see it clearly."><input type="checkbox" id="fps" checked> Show DEM footprints</label>
   <label title="List only the surveys whose footprint is on the map now."><input type="checkbox" id="inview"> Only surveys in view</label>
   <div id="datasets">loading catalog…</div>
 
@@ -386,7 +387,7 @@ vanish depending on which way you light them.
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
   var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop', 'vop', 'bop', 'tmesh'];
-  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'ctxlive', 'ctxshade', 'fog', 'inview', 'preslope', 'ortho', 'veg', 'trv', 'sdv'];
+  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'ctxlive', 'ctxshade', 'fog', 'inview', 'preslope', 'ortho', 'veg', 'trv', 'sdv', 'fps'];
   // [checkbox, slider, row, default-when-first-ticked] for the optional ramps.
   // Declared HERE, beside the other boot tables, because syncVisRows() runs
   // during restore: `var` hoists the name but not the value, so leaving this
@@ -411,7 +412,7 @@ vanish depending on which way you light them.
   syncVisRows();
   CHECKS.forEach(function (id) {
     // 3D on by default (Hig, 2026-09-28); a link's own t3d=0 still wins.
-    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'ctxlive' || id === 'ctxshade' || id === 'fog' || id === 'preslope' || id === 't3d' || id === 'trv');
+    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'ctxlive' || id === 'ctxshade' || id === 'fog' || id === 'preslope' || id === 't3d' || id === 'trv' || id === 'fps');
   });
 
   var map = new maplibregl.Map({
@@ -558,6 +559,15 @@ vanish depending on which way you light them.
     map.addLayer({
       id: 'fp-line', type: 'line', source: 'footprints',
       paint: { 'line-color': '#0a7', 'line-width': 1.5 }
+    });
+    applyFootprints();
+  }
+  // "Show DEM footprints" (Hig, 2026-10-18: the fills stack up where surveys overlap). The layers stay --
+  // 'fp-fill' is the stack anchor every survey layer is inserted beneath -- only their visibility changes.
+  function applyFootprints() {
+    var on = document.getElementById('fps').checked;
+    ['fp-fill', 'fp-line'].forEach(function (id) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
     });
   }
 
@@ -1464,6 +1474,9 @@ vanish depending on which way you light them.
   }
   document.getElementById('inview').addEventListener('change', function () {
     updateInView(); syncUrl();
+  });
+  document.getElementById('fps').addEventListener('change', function () {
+    applyFootprints(); syncUrl();
   });
   document.getElementById('preslope').addEventListener('change', function () {
     render(); syncUrl();

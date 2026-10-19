@@ -235,7 +235,7 @@ window.LSProfileChart = (function () {
       });
       // Legend: inside the plot when it fills the panel, below it when a 1:1
       // profile is a thin band with room to spare (the usual case at 1:1).
-      var need = series.length * 13 + 6, below = (H - m.b - (oy + ch)) > need + 18;
+      var need = series.length * 13 + 6, below = !tracks && (H - m.b - (oy + ch)) > need + 18;   // tracks take the room below
       var ly = below ? oy + ch + 30 : oy + 12, lx = ox + 8;
       series.forEach(function (s) {
         if (s.marker) parts.push('<circle cx="' + (lx + 11) + '" cy="' + ly + '" r="3" fill="' + s.color + '"/>');
