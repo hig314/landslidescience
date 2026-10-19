@@ -157,13 +157,23 @@
      *
      * k is rounded, so a 3x export asks for 2 extra levels rather than 1.58:
      * slightly more tiles than strictly needed, which errs toward sharp. */
-    function deepenRasters(style, scale) {
+    function deepenRasters(style, scale, keepDem) {
+        // getStyle() hands back source options as written, and a key left
+        // undefined (/lidar/'s `attribution: cond ? x : undefined`) fails style
+        // validation in the copy: nothing loads and the export is blank.
+        Object.keys(style.sources || {}).forEach(function (id) {
+            var src = style.sources[id];
+            if (src) Object.keys(src).forEach(function (k) { if (src[k] === undefined) delete src[k]; });
+        });
         var k = Math.round(Math.log(scale) / Math.LN2);
         if (k <= 0) return style;
         var f = Math.pow(2, k);
         Object.keys(style.sources || {}).forEach(function (id) {
             var src = style.sources[id];
             if (!src || (src.type !== 'raster' && src.type !== 'raster-dem')) return;
+            // A 3D terrain source is the mesh, not the picture: deepening it
+            // rebuilds the surface from different tiles than the screen used.
+            if (keepDem && src.type === 'raster-dem') return;
             var ts = src.tileSize || 512;
             // Floor of 32 keeps a pathological scale from asking for an
             // absurd zoom that every source would just overzoom back from.
@@ -186,7 +196,8 @@
 
         var m = new maplibregl.Map({
             container: host,
-            style: deepenRasters(src.getStyle(), scale),
+            style: deepenRasters(opts && opts.editStyle ? opts.editStyle(src.getStyle()) || src.getStyle() : src.getStyle(),
+                                 scale, opts && opts.terrain3d),
             center: src.getCenter(),
             zoom: src.getZoom(),
             bearing: src.getBearing(),
@@ -201,8 +212,25 @@
             // Labels and raster tiles cross-fade in; a capture taken mid-fade
             // shows them half-transparent. Zero makes every frame final.
             fadeDuration: 0,
-            transformRequest: opts && opts.transformRequest
+            transformRequest: opts && opts.transformRequest,
+            // 3D: the camera is centre + zoom + the centre's ELEVATION, and
+            // MapLibre resets the elevation from whatever DEM tiles exist each
+            // time terrain is set (0 m on a fresh one), then re-clamps it per
+            // tile -- the clone would be shot from somewhere else, possibly
+            // underground. Unclamped, and the source's camera re-applied
+            // whenever terrain (re)attaches.
+            centerClampedToGround: !(opts && opts.terrain3d)
         });
+        if (opts && opts.terrain3d) {
+            var cam = { center: src.getCenter(), zoom: src.getZoom(), bearing: src.getBearing(),
+                        pitch: src.getPitch(), elevation: src.getCenterElevation() };
+            var put = function () { try { m.jumpTo(cam); } catch (e) {} };
+            m.on('terrain', put);
+            m.on('load', put);
+        }
+        if (opts && opts.onClone) {
+            try { opts.onClone(m); } catch (e) {}
+        }
         if (opts && opts.globe && typeof m.setProjection === 'function') {
             m.on('style.load', function () {
                 try { m.setProjection({ type: 'globe' }); } catch (e) {}
@@ -235,6 +263,17 @@
             var timer = setTimeout(function () { finish('timeout'); }, IDLE_TIMEOUT_MS);
             if (m.loaded() && m.areTilesLoaded()) { finish('already'); return; }
             m.once('idle', function () { finish('idle'); });
+            // A load can end with a tile finishing after the last frame, and
+            // then 'idle' never fires (seen on /lidar/, 2026-10-19): also poll,
+            // and accept three quiet checks in a row.
+            var quiet = 0;
+            var poll = setInterval(function () {
+                if (settled) { clearInterval(poll); return; }
+                var ok = false;
+                try { ok = m.loaded() && m.areTilesLoaded() && !m.isMoving(); } catch (e) {}
+                quiet = ok ? quiet + 1 : 0;
+                if (quiet >= 3) { clearInterval(poll); finish('idle'); }
+            }, 400);
         });
     }
 
@@ -447,6 +486,10 @@
      *   deco           {scaleBar, north, attribution, legend, title}
      *   legendEntries  array for drawLegend (caller supplies; see above)
      *   transformRequest, globe
+     *   terrain3d      true on a 3D terrain map (/lidar/): keep the DEM's tile
+     *                  size and carry the camera's centre elevation
+     *   editStyle(st)  may change the copied style before the copy is built
+     *   onClone(m)     called with the offscreen map once it exists
      */
     function render(opts) {
         var src = opts.map;

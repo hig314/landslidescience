@@ -42,6 +42,12 @@ vanish depending on which way you light them.
   .ds a { color: #06c; font-size: 11px; }
   .val { float: right; color: #666; font-variant-numeric: tabular-nums; }
   #status { margin-top: 10px; color: #666; font-size: 11px; }
+  /* Save image: one row of controls under Copy link. */
+  #exp { margin-top: 6px; }
+  #exp summary { cursor: pointer; font-size: 12px; }
+  #exp .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; font-size: 12px; flex-wrap: wrap; }
+  #exp input[type=text] { flex: 1; min-width: 0; }
+  #exp-status { font-size: 11px; color: #888; }
   .stackhint { color: #777; font-size: 11px; margin-bottom: 2px; }
   .veglegend { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 11px; margin: 4px 0; }
   .veglegend span i { display: inline-block; width: 12px; height: 10px; margin-right: 3px; vertical-align: -1px; border: 1px solid #0002; }
@@ -286,6 +292,17 @@ vanish depending on which way you light them.
 
   <div id="status"></div>
   <button type="button" id="copyurl">Copy link to this view</button>
+  <details id="exp">
+    <summary title="A PNG of the view as it is on screen, rendered again at a higher pixel ratio (not an upscaled screenshot). Surveys gain detail down to their deepest zoom.">Save image (PNG)</summary>
+    <div class="row"><label>Size <select id="exp-scale"></select></label></div>
+    <div class="row"><input type="text" id="exp-title" placeholder="Title (optional; also names the file)"></div>
+    <div class="row">
+      <label title="Only meaningful looking straight down; off by default in a pitched view, where the ground scale changes across the picture."><input type="checkbox" id="exp-scalebar"> Scale bar</label>
+      <label><input type="checkbox" id="exp-north" checked> North arrow</label>
+      <label><input type="checkbox" id="exp-attrib" checked> Credits</label>
+    </div>
+    <div class="row"><button type="button" id="exp-go">Save PNG</button> <span id="exp-status"></span></div>
+  </details>
 </div>
 
 {% if is_inventory_editor %}
@@ -332,6 +349,7 @@ vanish depending on which way you light them.
 <script src="{% static 'inventory/js/ls_tools.js' %}"></script>
 <script src="{% static 'inventory/js/ls_float.js' %}"></script>
 <script src="{% static 'inventory/js/ls_goto.js' %}"></script>
+<script src="{% static 'inventory/js/ls_export.js' %}"></script>
 <script src="{% static 'inventory/js/scarps.js' %}"></script>
 <script src="{% static 'inventory/js/soundings.js' %}"></script>
 <script src="{% static 'inventory/js/dem_read.js' %}"></script>
@@ -1583,6 +1601,91 @@ vanish depending on which way you light them.
        setTimeout(function () { btn.textContent = 'Copy link to this view'; }, 1800);
      });
   });
+
+  // ---- save image (PNG) -------------------------------------------------
+  // The engine is /inventory/'s (ls_export.js): an offscreen copy of the map
+  // from getStyle() at a higher pixelRatio, raster sources asked for deeper
+  // tiles. The protocols (demshade://, pmtiles://) are global, so the copy
+  // shades and reads exactly what the page does. terrain3d keeps the DEM mesh
+  // as on screen and carries the centre elevation (see linkCam), and the
+  // copy's terrain gets the same minimum floor as the page's.
+  (function () {
+    var det = document.getElementById('exp'), sel = document.getElementById('exp-scale');
+    var go = document.getElementById('exp-go'), st = document.getElementById('exp-status');
+    if (!window.LSExport) { det.style.display = 'none'; return; }
+    function fillScales() {
+      var b = map.getContainer().getBoundingClientRect(), max = LSExport.maxScaleFor(map);
+      var keep = sel.value;
+      sel.innerHTML = '';
+      [1, 2, 3, 4, 6, 8].forEach(function (n) {
+        if (n > max) return;
+        var o = document.createElement('option');
+        o.value = n;
+        o.textContent = n + '\u00d7 \u2014 ' + Math.round(b.width * n) + ' \u00d7 ' + Math.round(b.height * n) + ' px';
+        sel.appendChild(o);
+      });
+      sel.value = sel.querySelector('option[value="' + (keep || 2) + '"]') ? (keep || 2) : sel.options[sel.options.length - 1].value;
+    }
+    det.addEventListener('toggle', function () {
+      if (!det.open) return;
+      fillScales();
+      // A ground scale bar is honest only in plan view.
+      document.getElementById('exp-scalebar').checked = map.getPitch() < 5;
+    });
+    window.addEventListener('resize', function () { if (det.open) fillScales(); });
+    function stamp() {
+      var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
+      return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes());
+    }
+    go.addEventListener('click', function () {
+      go.disabled = true;
+      st.style.color = '#888';
+      st.textContent = 'Loading tiles at full resolution\u2026';
+      var title = (document.getElementById('exp-title').value || '').trim();
+      LSExport.render({
+        map: map,
+        scale: parseInt(sel.value, 10) || 2,
+        terrain3d: !!map.getTerrain(),
+        transformRequest: LSBasemaps.transformRequest,
+        // Terrain tiles under their own URLs: the package caches finished
+        // tiles by URL and a buffer MapLibre has already moved to the live
+        // map's worker comes back empty for the copy ("Failed to construct
+        // 'ImageData'"), which left holes in the copy's terrain.
+        editStyle: function (st) {
+          var d = st.sources && st.sources.dem;
+          if (d && d.tiles) d.tiles = d.tiles.map(function (u) { return u + (u.indexOf('?') < 0 ? '?' : '&') + 'export=1'; });
+          return st;
+        },
+        onClone: function (m) {
+          m.on('terrain', function () {
+            var t = m.style && m.style.terrain || m.terrain;
+            if (t) floorTerrainMinimum(t);
+          });
+        },
+        legendEntries: [],
+        deco: {
+          scaleBar: document.getElementById('exp-scalebar').checked,
+          north: document.getElementById('exp-north').checked,
+          attribution: document.getElementById('exp-attrib').checked,
+          legend: false,
+          title: title
+        }
+      }).then(function (res) {
+        var url = URL.createObjectURL(res.blob), a = document.createElement('a');
+        var slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+        a.href = url;
+        a.download = (slug || (active || 'lidar')) + '-' + stamp() + '.png';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+        st.style.color = '#2a7';
+        st.textContent = (res.note ? res.note + ' ' : '') + 'Saved ' + res.width + ' \u00d7 ' + res.height + ' px.';
+        window.LSTrack && LSTrack.event('download', { kind: 'lidar_png' });
+      }).catch(function (e) {
+        st.style.color = '#b00020';
+        st.textContent = 'Failed: ' + (e && e.message ? e.message : e);
+      }).finally(function () { go.disabled = false; });
+    });
+  })();
 
   // ---- north-up lock ----------------------------------------------------
   // Disabled in 3D: a terrain view you cannot rotate is close to useless, and a
