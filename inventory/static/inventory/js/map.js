@@ -259,7 +259,8 @@
         try { localStorage.setItem('ls_map_view', '#' + _viewStateString('saved')); } catch (e) {}
         var newHash = '#' + _viewStateString('url'), qs = _queryWithoutLegacy();
         if (location.hash !== newHash || location.search !== qs) {
-            history.replaceState(null, '', location.pathname + qs + newHash);
+            // Full address, not location.pathname: a // path reads as another host.
+            history.replaceState(null, '', location.href.split(/[?#]/)[0] + qs + newHash);
         }
     }
 

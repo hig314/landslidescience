@@ -1380,6 +1380,72 @@ vanish depending on which way you light them.
     var v = Q.get(k);
     if (held && v !== null && v !== '') p.set(k, v);
   }
+
+  // The link's 3D camera, held until the scene is built (2026-10-19, Hig: a
+  // Barry Arm link at ex=10 reopened underground). In 3D, z/lat/lon say
+  // where the camera is only together with the elevation of the centre, and
+  // a fresh load does not have it: every setTerrain() sets the centre
+  // elevation from whatever DEM tiles the new terrain has at that instant
+  // (none, so 0 m -- and the terrain is built twice or more during a load:
+  // context, then the survey once the catalogue lands), and
+  // trackTerrainCenter's re-solve then keeps the CAMERA where that wrong
+  // elevation put it. At ex=10 over a mountain that is kilometres below the
+  // ground. So the link writes ce= (the centre elevation, in the terrain's
+  // exaggerated metres -- ex= is in the link too), and until the scene has
+  // settled the link's camera is put back whenever it has drifted: centre,
+  // zoom, bearing, pitch and ce, or for a link from before ce= the terrain
+  // height under the centre, which is where the writer's tracker kept it.
+  // Checked on a timer, not on 'idle': a load can end with a tile finishing
+  // after the last frame, and then 'idle' never fires at all (seen headless
+  // on this very link). A gesture by the reader ends the hold.
+  var linkCam = null, linkTimer = null;
+  if (Q.get('z') !== null && Q.get('lat') !== null && document.getElementById('t3d').checked) {
+    var lc = map.getCenter();
+    linkCam = { center: [lc.lng, lc.lat], zoom: map.getZoom(), bearing: map.getBearing(),
+                pitch: map.getPitch(), ce: Q.get('ce') ? +Q.get('ce') : null,
+                pos: null, still: 0, start: Date.now() };
+    if (!isFinite(linkCam.ce)) linkCam.ce = null;
+    linkTimer = setInterval(holdLinkCam, 250);
+  }
+  function releaseLinkCam() {
+    linkCam = null;
+    if (linkTimer) { clearInterval(linkTimer); linkTimer = null; }
+  }
+  map.on('movestart', function (e) { if (e.originalEvent) releaseLinkCam(); });
+  // Where the camera itself is (5.24 has no getFreeCameraOptions on the map;
+  // the transform carries it).
+  function cameraNow() {
+    var t = map.transform;
+    if (!t || typeof t.getCameraLngLat !== 'function') return null;
+    return { ll: t.getCameraLngLat(), alt: t.getCameraAltitude() };
+  }
+  function holdLinkCam() {
+    if (!linkCam) return;
+    if (Date.now() - linkCam.start > 60000) { releaseLinkCam(); return; }
+    var ready = false;
+    try { ready = !urlHeld.ds && !!map.getTerrain() && map.isSourceLoaded('dem'); } catch (err) {}
+    if (!ready) { linkCam.still = 0; return; }
+    var e = linkCam.ce != null ? linkCam.ce : map.queryTerrainElevation(linkCam.center);
+    if (e == null || !isFinite(e)) return;
+    // The tracker's re-solve moves the bookkeeping (centre, zoom), never the
+    // camera, so it is the camera that is compared.
+    var cam = cameraNow();
+    if (!cam) { releaseLinkCam(); return; }
+    var d = linkCam.pos ? Math.hypot(cam.ll.distanceTo(linkCam.pos.ll), cam.alt - linkCam.pos.alt) : Infinity;
+    if (d < 0.5) {
+      // Two seconds still with the survey's terrain loaded: the scene is built.
+      if (++linkCam.still >= 8) {
+        releaseLinkCam();
+        map.triggerRepaint();       // lets 'idle' fire for the tracker's own settle
+      }
+      return;
+    }
+    linkCam.still = 0;
+    map.jumpTo({ center: linkCam.center, zoom: linkCam.zoom, bearing: linkCam.bearing,
+                 pitch: linkCam.pitch, elevation: e });
+    linkCam.pos = cameraNow();
+  }
+
   function syncUrl() {
     clearTimeout(urlTimer);
     urlTimer = setTimeout(writeUrl, 250);
@@ -1392,11 +1458,15 @@ vanish depending on which way you light them.
       if (Q.get('catalog') === 'dev') p.set('catalog', 'dev');   // keep the dev catalogue across reloads
       if (wantBm) p.set('bm', wantBm);
       if (active) p.set('ds', active); else heldOr(p, 'ds', urlHeld.ds);
-      p.set('z', map.getZoom().toFixed(3));
-      p.set('lat', c.lat.toFixed(6));
-      p.set('lon', c.lng.toFixed(6));
-      p.set('b', map.getBearing().toFixed(1));
-      p.set('p', map.getPitch().toFixed(1));
+      // While the link's camera is held, the link's camera is what is written.
+      var lk = linkCam;
+      p.set('z', (lk ? lk.zoom : map.getZoom()).toFixed(3));
+      p.set('lat', (lk ? lk.center[1] : c.lat).toFixed(6));
+      p.set('lon', (lk ? lk.center[0] : c.lng).toFixed(6));
+      p.set('b', (lk ? lk.bearing : map.getBearing()).toFixed(1));
+      p.set('p', (lk ? lk.pitch : map.getPitch()).toFixed(1));
+      if (lk) heldOr(p, 'ce', true);
+      else if (map.getTerrain()) p.set('ce', map.getCenterElevation().toFixed(1));
       var df = document.getElementById('df').value;
       if (df) p.set('df', df); else heldOr(p, 'df', urlHeld.df);
       CONTROLS.forEach(function (id) { p.set(id, document.getElementById(id).value); });
@@ -1423,7 +1493,9 @@ vanish depending on which way you light them.
         var tg = document.getElementById('tr-gshow').value;
         if (tg) p.set('trg', tg);
       }
-      history.replaceState(null, '', location.pathname + '?' + p.toString());
+      // The full address, not location.pathname: a path that starts with //
+      // (localhost:8001//lidar/) reads as another host and replaceState throws.
+      history.replaceState(null, '', location.href.split(/[?#]/)[0] + '?' + p.toString());
     }
   }
   map.on('moveend', syncUrl);      // covers pan, zoom, rotate and pitch
