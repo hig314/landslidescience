@@ -10,7 +10,7 @@ This file is the deep per-feature reference. **Two work streams run in
 parallel in separate worktrees — read [WORKSTREAMS.md](WORKSTREAMS.md)
 before touching anything under `tools/lidar/`.**
 
-## State of play (2026-10-11) — the one dated snapshot in this file
+## State of play (2026-10-19) — the one dated snapshot in this file
 
 Everything else here describes how things work and should stay true.
 **This section is a snapshot and will rot**; correct it or delete it rather
@@ -48,8 +48,27 @@ written down anywhere — read `/lidar/audit/`.
   game cam, 5,183 frames / 28 GB, which arrived with 37 files stored but
   unrecorded — the **reconcile** fix for that shipped 2026-10-06. See
   *Photo drops* below, including *The first drop*.
+- **`/lidar/` links and PNG export** (2026-10-19): 3D links carry the
+  centre elevation (`ce=`) and the link's camera is held until the scene
+  settles (fixes a Barry Arm ex=10 link reopening underground; verified on
+  prod); URL writers use the full href (a `//lidar/` path made
+  `replaceState` throw); *Save image* box exports the view at 2–4× through
+  `ls_export.js`. Commits 9534b42, a43bf5c. See the `/lidar/` URL and
+  *Save image* paragraphs below.
 
 **Open threads**, in no particular order:
+
+- **`/lidar/` loose ends from 2026-10-19.** (1) Switching surveys
+  mid-session can still drop the camera: every terrain rebuild resets the
+  centre elevation and only a link's camera is held. (2) The DemShade
+  package's `trackTerrainCenter` `relativeThreshold` reads
+  `getFreeCameraOptions`, absent in MapLibre 5.24, so it is stuck at its
+  0.5 m fallback. (3) The package's URL-keyed tile cache hands a second map
+  a buffer already transferred to the first map's worker — worked around in
+  the export with `&export=1`; worth raising with the package owner (shared
+  with trailgeek). (4) Export: no legend, HTML markers (A/A′, go-to ring)
+  missing, scale bar off by default when pitched; the export engine's
+  polling-for-done change was not re-tested on `/inventory/`'s export.
 
 - **A corrected online copy of the Portage drop.** The time-corrected,
   stamped frames exist only on Nunatak. Hig's call (2026-10-06): a second
