@@ -178,6 +178,7 @@ pushing untested code to GH.
 | `/inventory/manage/<id>/delete/` | **superusers only** (POST) | Permanent hard-delete (Danger zone); distinct from deprecate |
 | `/inventory/manage/settings/` | inventory_editors + Hig | Map display settings (colors, point sizes) |
 | `/inventory/export/` | public | Download zip of GeoJSON + QGIS .qml styles |
+| `/inventory/api/review/*`, `/inventory/tiles/review/…` | any signed-in account | Imagery review history: log, meta, share, point, tiles — one's own, or another's after they opt in (see *Imagery review history*) |
 | `/lidar/` | public | Standalone lidar/bathymetry viewer + the ranged `pmtiles`/`cog`/catalogue routes |
 | `/lidar/methods/` | public | Reader-facing account of the viewer (`pages/lidar_methods.html`); the sidebar keeps a tooltip per control and a `?` per section linking here |
 | `/lidar/audit/` | data admins | Publish-state check: for every survey, built / on R2 / in the catalogue / what the gate does |
@@ -1603,6 +1604,56 @@ used — it needs a stable address, which a field-based Alaska connection is not
 > There are 3 accounts (2026-09), so region plus time-of-day identifies who is
 > who. That is a reasonable thing to have for a tool built *for* those people,
 > but it is not anonymous, and they should be told it exists.
+
+## Imagery review history (built in dev 2026-10-26)
+
+What each signed-in user has looked at on `/inventory/`, on which basemap,
+for how long — so a reviewer can see what they have covered, and (with the
+date) which release of a swapped-out provider like ESRI World Imagery they
+saw. Server `inventory/review.py` (its docstring is the design note), client
+`ls_review.js`, models `ReviewView` + `ReviewSharing` in **SQLite** (user
+activity, like the audit log; migration `0008`, auto-applied).
+
+- **Recording.** A view = the map at rest with its tiles drawn (`idle`) until
+  the next move, a basemap/wiper change (`LSReview.layoutChanged()` from
+  `setBasemap`, `_swipeEnable/Disable/SetBasemap`, divider drag end), the tab
+  hiding, or 2 min without input (dwell cut back to last input + 2 min).
+  Each wiper pane is its own record. **Below z10 nothing is recorded** (the
+  lidar list's threshold: navigation, not review); `blank` is skipped.
+  **High-res layers win**: a lidar survey on in that pane whose footprint
+  touches the frame, or (main pane) an uploaded image whose bounds do, is
+  taken to be what is looked at, and the view is credited to `lidar:<id>` /
+  `trace:<id>` instead of the basemap (several share it, `k`). Low-res
+  overlays are ignored. `writeHashState` calls `layoutChanged()`, which ends
+  the view only when the frame or that attribution changed. Batches post every 30 s and on `pagehide`. **Anonymous visitors
+  are never recorded**: `home.html` sets `LS_CONFIG.review` and loads the
+  script only for `user.is_authenticated`, and the endpoints refuse
+  anonymous calls (snapshots render anonymously, so they carry none of it).
+- **The measure is density** = dwell ÷ ground area on screen (stored s/km²,
+  **shown s/100 km²**), **one view counting at most 20 s** (`DWELL_CAP_S`;
+  longer is likelier an idle browser — the raw dwell is stored): zoom-
+  aware without being told the zoom, and **additive across visits** (returning
+  to ground adds). Raw dwell, zoom and box are kept so the reading can change.
+  The overlay draws the per-pixel area-weighted sum in ×4 bands from 0.5
+  s/100 km² (`BREAKS` in review.py, served to the key by `api/review/meta/`);
+  the row shows "here, 1 s adds X" as a live calibration.
+- **The overlay** is the last OVERLAYS entry, `review`, category *Review
+  history*, pushed only when `CFG.review`. Its tiles depend on the map they
+  are for (*this pane's basemap* is a choice), which is why `sourceDef(m)`
+  now receives the map from `_ovEnsure` / `_ovSwapSource`. Row controls
+  (`ov.extraUI`): reviewer, imagery (**all imagery** — the default: every
+  basemap and upload, never lidar — this pane's basemap, ESRI
+  `esri-img`, Google `qmsshared-678`, **all lidar** `lidar:*` = every
+  `lidar:` row), since date, key, calibration, the
+  sharing box. A click on it
+  lists the views covering the point (`api/review/point/`, LSTools reference
+  priority 4, under geology). Never written into a stored default view.
+- **Reviewers are separate.** Every query is one user's history; another's is
+  readable only after they opt in. The **one-time notice** (bottom-left of the
+  map, until answered) both asks and tells them recording exists — no
+  superuser bypass.
+- Not yet: floating panels covering the map are ignored; reviewer
+  and since are not in the URL; no pause switch.
 
 ## Inventory explorer — `/inventory/table/`
 

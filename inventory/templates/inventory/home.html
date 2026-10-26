@@ -603,6 +603,10 @@
   // codebase under static/inventory/img/basemap-thumbs/ — small,
   // versioned, and never change without a code update.
   window.LS_CONFIG = window.LS_CONFIG || {};
+  {% if user.is_authenticated %}
+  // Imagery review history (ls_review.js): recorded for signed-in users only.
+  window.LS_CONFIG.review = { csrf: '{{ csrf_token }}' };
+  {% endif %}
   window.LS_CONFIG.basemapThumbs = {
     'streets':      '{% static "inventory/img/basemap-thumbs/streets.png" %}',
     'esri-img':     '{% static "inventory/img/basemap-thumbs/esri-img.png" %}',
@@ -664,5 +668,6 @@
 <script src="{% static 'inventory/js/ls_overlays.js' %}"></script>
 <script src="{% static 'inventory/js/ls_export.js' %}"></script>
 <script src="{% static 'inventory/js/ls_hash.js' %}"></script>
+{% if user.is_authenticated %}<script src="{% static 'inventory/js/ls_review.js' %}"></script>{% endif %}
 <script src="{% static 'inventory/js/map.js' %}"></script>
 {% endblock %}

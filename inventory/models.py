@@ -172,3 +172,49 @@ class TraceRaster(models.Model):
 
     def __str__(self):
         return f'{self.title} ({self.status}, #{self.pk})'
+
+
+class ReviewView(models.Model):
+    """One period of a signed-in user looking at one basemap (inventory/review.py).
+
+    A view starts when the map comes to rest with its tiles drawn and ends
+    at the next move, a basemap or wiper change, the tab hiding, or two
+    minutes without input. With the wiper on, each pane is its own row.
+    `density` = dwell / ground area on screen (s/km²): the zoom-aware
+    measure the review overlay sums, so returning to ground adds to it.
+    The raw dwell is kept so the reading of it can change later.
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name='review_views')
+    basemap = models.CharField(max_length=80)        # basemaps.js / QMS id
+    pane = models.CharField(max_length=1, blank=True)  # '' no wiper, 'l' / 'r'
+    zoom = models.FloatField()
+    west = models.FloatField()
+    south = models.FloatField()
+    east = models.FloatField()
+    north = models.FloatField()
+    # The same box in EPSG:3857 metres, for the tile renderer.
+    x0 = models.FloatField()
+    y0 = models.FloatField()
+    x1 = models.FloatField()
+    y1 = models.FloatField()
+    area_km2 = models.FloatField()
+    dwell_s = models.FloatField()
+    density = models.FloatField()
+    started_at = models.DateTimeField()
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'basemap', 'started_at']),
+            models.Index(fields=['user', 'x0']),
+        ]
+
+
+class ReviewSharing(models.Model):
+    """Whether a user's review history is visible to other signed-in users.
+    No row = not yet asked (the map shows the one-time notice); a row is the
+    answer, changeable later from the overlay row."""
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                primary_key=True, related_name='review_sharing')
+    shared = models.BooleanField(default=False)
+    decided_at = models.DateTimeField(auto_now=True)

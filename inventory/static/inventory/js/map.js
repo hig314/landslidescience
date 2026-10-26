@@ -256,6 +256,9 @@
         return qs ? '?' + qs : '';
     }
     function writeHashState() {
+        // Every layer toggle passes through here; the review recorder ends
+        // its view only if what is being looked at has changed.
+        if (window.LSReview) LSReview.layoutChanged();
         try { localStorage.setItem('ls_map_view', '#' + _viewStateString('saved')); } catch (e) {}
         var newHash = '#' + _viewStateString('url'), qs = _queryWithoutLegacy();
         if (location.hash !== newHash || location.search !== qs) {
@@ -689,6 +692,52 @@
     // Console handles for inspecting layer state (nothing in the code reads them).
     window.__lsMap = map;
     window.__lsSwipeMap = function () { return _swipe.map; };
+    // Imagery review recorder (ls_review.js): signed-in users only (CFG.review
+    // is set by home.html only then; never in a snapshot, which renders anonymously).
+    if (CFG.review && window.LSReview) {
+        LSReview.init({
+            map: map, base: API_BASE, csrf: CFG.review.csrf,
+            basemap: function () { return _currentBasemap; },
+            swipe: function () { return _swipe; },
+            label: function (id) {
+                var m = /^(lidar|trace):(.+)$/.exec(id);
+                if (m && m[1] === 'lidar') {
+                    var f = _lidarCatalog && _lidarCatalog.features.filter(function (x) { return x.properties.id === m[2]; })[0];
+                    return f ? 'lidar: ' + (f.properties.title || m[2]) : 'lidar: ' + m[2];
+                }
+                if (m) { var r = _traceRow(+m[2]); return 'upload: ' + (r ? r.title : m[2]); }
+                var b = findBasemap(id); return b ? b.label : id;
+            },
+            // The high-res layers switched on in a pane: lidar surveys (tested
+            // against their footprints) and, on the main pane, uploaded images
+            // (against their bounds). A view whose frame one of these touches
+            // is credited to it rather than the basemap beneath.
+            layers: function (side) {
+                var out = [];
+                var st = side === 'right' ? (_swipe.on ? _lidarActiveR : {}) : _lidarActive;
+                if (_lidarCatalog && window.turf) Object.keys(st).forEach(function (id) {
+                    var f = _lidarCatalog.features.filter(function (x) { return x.properties.id === id; })[0];
+                    if (!f) return;
+                    out.push({ key: 'lidar:' + id, covers: function (w, s, e, n) {
+                        try { return turf.booleanIntersects(turf.bboxPolygon([w, s, e, n]), f); }
+                        catch (err) { return false; }
+                    } });
+                });
+                if (side === 'left') Object.keys(_traceActive).forEach(function (id) {
+                    var r = _traceRow(+id);
+                    if (!r || r.bounds_w == null) return;
+                    out.push({ key: 'trace:' + id, covers: function (w, s, e, n) {
+                        return r.bounds_e > w && r.bounds_w < e && r.bounds_n > s && r.bounds_s < n;
+                    } });
+                });
+                return out;
+            },
+            visible: function (side) {
+                var st = _ovState && _ovState.review;
+                return !!(st && st[side] && (side === 'left' || _swipe.on));
+            }
+        });
+    }
     // The handler-level switches for the inputs the constructor options miss,
     // and a snap-back for anything that gets past them: whatever rotates or
     // tilts the view, the next frame is north-up and nadir again.
@@ -2409,6 +2458,21 @@
           stepper: _distStepper(_distAnnDate, 'year', 'select',
                                 [{ value: 'all', label: 'all years' }]) },
     ]).concat(DIST_ALERT_ACTIVE ? [DIST_ALERT_OVERLAY] : []);
+    // Imagery review history (ls_review.js, inventory/review.py): signed-in
+    // users only, last in the list. Its tiles depend on the map they are for
+    // -- "this pane's basemap" -- so sourceDef takes the map (_ovEnsure and
+    // _ovSwapSource pass it; every other sourceDef ignores it).
+    if (CFG.review && window.LSReview) {
+        OVERLAYS.push({ id: 'review', layerId: 'ov-review', sourceId: 'ov-review-src',
+            label: 'Review history',
+            sub: 'what you have looked at, by imagery · seconds on screen per km², summed over visits · click for the views',
+            sourceDef: function (m) {
+                return { type: 'raster', tiles: [LSReview.tileUrl(m || map)], tileSize: 256,
+                         minzoom: 3, maxzoom: 18 };
+            },
+            extraUI: function (side) { return LSReview.extraUI(side); },
+            noKey: true, defOpacity: 0.7 });
+    }
     // Which overlays can be AXES of the analysis panel (analysis.js), and how
     // their numbers are read: `key` names a quantity in the server's cube
     // (tools/analysis/quantities.py -- the registry; the terrain density
@@ -2565,6 +2629,7 @@
         OVERLAYS.forEach(function (ov) {
             var st = _ovState[ov.id];
             if (!st || (!st.left && !st.right)) return;
+            if (ov.id === 'review' && pinDates) return;   // personal: never in a public default view
             var e = { left: !!st.left, right: !!st.right, opLeft: st.opLeft, opRight: st.opRight,
                       smooth: !!(ov.variant && ov.variant.get()) };
             // A date the user chose travels with the overlay. One the row is
@@ -2701,7 +2766,7 @@
             }
             m.removeLayer(ov.layerId);
             m.removeSource(ov.sourceId);
-            m.addSource(ov.sourceId, ov.sourceDef());
+            m.addSource(ov.sourceId, ov.sourceDef(m));
             m.addLayer({
                 id: ov.layerId, type: 'raster', source: ov.sourceId,
                 layout: { 'visibility': 'none' },
@@ -2717,7 +2782,7 @@
         // domain answers; ask for it the moment the layers exist.
         if (OVERLAYS.some(function (ov) { return !!ov.stepper; })) _distDatesReady();
         OVERLAYS.forEach(function (ov) {
-            if (!m.getSource(ov.sourceId)) m.addSource(ov.sourceId, ov.sourceDef());
+            if (!m.getSource(ov.sourceId)) m.addSource(ov.sourceId, ov.sourceDef(m));
             if (m.getLayer(ov.layerId)) return;
             if (ov.vector) {
                 // A vector overlay (the contours): a line layer and, where
@@ -2965,6 +3030,7 @@
         // invariant. Full reload wipes sources+layers, then style.load fires
         // _ensureLayers, then idle fires initDataLayers with beforeId — clean.
         map.setStyle(LSBasemaps.styleFor(bm), { diff: false });
+        if (window.LSReview) LSReview.layoutChanged();
         // Globe is re-asserted by the persistent 'style.load' handler above.
         if (_mapReady) writeHashState();
     }
@@ -3525,6 +3591,7 @@
             },
             onEnd: function () {
                 if (_mapReady) writeHashState();   // capture the divider position (sx=)
+                if (window.LSReview) LSReview.layoutChanged();
             }
         });
 
@@ -3564,6 +3631,7 @@
         _syncSwipeUI();   // button label + the right-pane control panel
         if (_mapReady) writeHashState();
         _anOverlaysChanged();
+        if (window.LSReview) LSReview.layoutChanged();
     }
     function _swipeDisable() {
         _swipe.on = false;
@@ -3572,11 +3640,13 @@
         _syncSwipeUI();
         if (_mapReady) writeHashState();
         _anOverlaysChanged();
+        if (window.LSReview) LSReview.layoutChanged();
     }
     function _swipeSetBasemap(id) {
         var bm = findBasemap(id);
         _swipe.basemapId = id;
         if (bm && _swipe.map) _swipe.map.setStyle(_swipeStyleFor(bm), { diff: false });  // style.load re-adds data
+        if (window.LSReview) LSReview.layoutChanged();
     }
     // Keep the wiper UI (Add/Remove button + the floating right-pane panel)
     // in step when swipe state changes programmatically (hash restore,
@@ -3919,7 +3989,8 @@
         // Colour key, for any overlay the ramps endpoint knows about. Added
         // unconditionally and told to say so if there is no ramp, rather than
         // gated on a hardcoded id list that a new overlay would fall out of.
-        row.appendChild(_rampLegendEl(ov));
+        if (ov.extraUI) row.appendChild(ov.extraUI(side));
+        if (!ov.noKey) row.appendChild(_rampLegendEl(ov));
 
         function paintStepper() {
             if (!step) return;
@@ -4042,7 +4113,7 @@
         { key: 'clim',  label: 'Climate',
           ids: ['pf-gruber-maat', 'pf-gruber-maat60', 'pf-obu-magt', 'pf-obu-magt60'] },
         { key: 'sp',    label: 'Surface properties',
-          ids: ['sp-elev', 'sp-slope', 'sp-aspect', 'sp-north'] },
+          ids: ['sp-contours', 'sp-elev', 'sp-slope', 'sp-aspect', 'sp-north'] },
         // 'dist-alert' stays listed although it is retired: _ovRenderGrouped
         // filters ids that are not in OVERLAYS, so this needs no edit if
         // DIST_ALERT_ACTIVE is flipped back on.
@@ -4054,6 +4125,8 @@
           ids: ['glac-outline-2020', 'ice-v', 'ice-amp', 'ice-dvdt', 'ice-dhdt', 'ice-thick', 'ice-bed', 'ice-over'] },
         { key: 'sub',   label: 'Subsurface',
           ids: ['pf-gruber-pzi', 'pf-gruber-pzi60', 'pf-obu-prob', 'pf-obu-prob60', 'pf-pastick-nsp', 'geology'] },
+        // Signed-in only (the entry exists only then; absent ids are skipped).
+        { key: 'review', label: 'Review history', ids: ['review'] },
     ];
     // `onlyAxes` lists just the overlays that can be an analysis axis -- the
     // two pane panels while the analysis panel is open.
@@ -7403,6 +7476,26 @@
     // when the wiper is on and the click is right of the divider). Lowest
     // reference priority: a fault, a scarp or a staged polygon under the same
     // click is the more specific thing to answer about.
+    // Review history: the views that covered the clicked point, in the pane
+    // clicked. Below geology: the more specific answer wins a shared click.
+    if (CFG.review && window.LSReview) LSTools.clicks.register({ id: 'review', kind: 'reference', priority: 4,
+        test: function (e) {
+            var ov = OVERLAYS.filter(function (o) { return o.id === 'review'; })[0];
+            if (!ov || !map.getLayer(ov.layerId)) return false;
+            var right = _swipe.on && e.point.x > map.getContainer().clientWidth * _swipe.x / 100;
+            return _ovVisible(ov, right);
+        },
+        handler: function (f, e) {
+            var right = _swipe.on && e.point.x > map.getContainer().clientWidth * _swipe.x / 100;
+            var popup = new maplibregl.Popup({ closeButton: true, maxWidth: '320px' })
+                .setLngLat(e.lngLat).setHTML('<div style="font:12px system-ui,sans-serif;color:#888;">Reading the history…</div>')
+                .addTo(map);
+            LSTools.popup.show(popup);
+            LSReview.pointHtml(e.lngLat, right ? 'right' : 'left').then(function (h) {
+                if (popup.isOpen()) popup.setHTML(h);
+            }).catch(function () { if (popup.isOpen()) popup.setHTML('Could not read the history.'); });
+        }
+    });
     LSTools.clicks.register({ id: 'geology', kind: 'reference', priority: 5,
         test: function (e) {
             var ov = OVERLAYS.filter(function (o) { return o.id === 'geology'; })[0];

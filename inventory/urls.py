@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import (analysis, dist, external, insar, opera, permafrost, photos, scarps, soundings, susc_dggs, table_data,
+from . import (analysis, dist, external, insar, opera, permafrost, photos, review, scarps, soundings, susc_dggs, table_data,
                trace_views, views)
 
 app_name = 'inventory'
@@ -52,6 +52,13 @@ urlpatterns = [
          name='trace_delete'),
     path('api/trace_rasters/<int:raster_id>/link/', trace_views.trace_link,
          name='trace_link'),
+    # Imagery review history (inventory/review.py): signed-in users only;
+    # each user's own history, or one they have been shown by opt-in.
+    path('tiles/review/<int:z>/<int:x>/<int:y>.png', review.review_tile, name='review_tile'),
+    path('api/review/log/', review.api_review_log, name='api_review_log'),
+    path('api/review/meta/', review.api_review_meta, name='api_review_meta'),
+    path('api/review/share/', review.api_review_share, name='api_review_share'),
+    path('api/review/point/', review.api_review_point, name='api_review_point'),
     re_path(r'^tiles/trace/(?P<raster_id>\d+)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             trace_views.trace_tile, name='trace_tile'),
     re_path(r'^tiles/trace/(?P<raster_id>\d+)/(?P<render>nrg|rgb|gray)\.pmtiles$',
