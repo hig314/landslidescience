@@ -6,6 +6,7 @@ Per-field autosave wiring for the edit/review form. Include after the form
 <script>
   window.LS_AUTOSAVE = {
     url: "{% url 'inventory:manage_edit_field' landslide_id %}",
+    polyUrl: "{% url 'inventory:manage_polygon_role' landslide_id %}",
     csrftoken: "{{ csrf_token }}"
   };
 </script>

@@ -3285,14 +3285,7 @@ def manage_edit_field(request, landslide_id):
         cascaded = (name in rule_inputs) and (name not in rule_targets)
         if cascaded:
             _derived.apply_rules_for_landslide(cur, landslide_id)
-            _DERIVED_COLS = ['area_body', 'area_source', 'area_deposit', 'size_inclusion',
-                             'landslide_class', 'creep_behavior', 'insar_creep',
-                             'volume_estimated', 'volume_preferred', 'volume_method',
-                             'centroid_lat', 'centroid_lon']
-            cur.execute(f"SELECT {', '.join(_DERIVED_COLS)} FROM landslides WHERE id = %s",
-                        (landslide_id,))
-            row = cur.fetchone()
-            derived_vals = dict(zip(_DERIVED_COLS, row)) if row else None
+            derived_vals = _read_derived_cols(cur, landslide_id)
         conn.commit()
     except Exception as exc:
         conn.rollback()
@@ -3311,6 +3304,92 @@ def manage_edit_field(request, landslide_id):
     # Render dates back in the human format for the field's own display refresh.
     out_val = val.strftime('%d-%b-%Y') if hasattr(val, 'strftime') and col['udt'] == 'date' else None
     return JsonResponse({'ok': True, 'derived': derived_vals, 'value': out_val})
+
+
+# Rule-written columns the edit form shows, sent back after an autosave that
+# re-ran the cascade so the form can refresh them in place.
+_AUTOSAVE_DERIVED_COLS = ['area_body', 'area_source', 'area_deposit', 'size_inclusion',
+                          'landslide_class', 'creep_behavior', 'insar_creep',
+                          'volume_estimated', 'volume_preferred', 'volume_method',
+                          'centroid_lat', 'centroid_lon']
+
+
+def _read_derived_cols(cur, landslide_id):
+    cur.execute(f"SELECT {', '.join(_AUTOSAVE_DERIVED_COLS)} FROM landslides WHERE id = %s",
+                (landslide_id,))
+    row = cur.fetchone()
+    return dict(zip(_AUTOSAVE_DERIVED_COLS, row)) if row else None
+
+
+@inventory_editor_required
+@require_POST
+def manage_polygon_role(request, landslide_id):
+    """Autosave one change from the form's polygon role/primary table.
+    Body: {polygon_id, role} or {primary: polygon_id}.
+
+    The counterpart of manage_edit_field for the two inputs that are not
+    landslide columns. A role change also runs derived.normalize_primary, like
+    every other automatic geometry path (switching a catastrophic's body to
+    source should make it the primary); an explicit primary pick does not --
+    the radio stays the manual escape hatch, as in the full-form save. Then
+    the rule cascade. Returns {ok, derived, primary, polygons} -- polygons is
+    the preview map's FeatureCollection, so it recolours without a reload."""
+    from . import derived as _derived
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+    try:
+        pid = int(payload.get('primary') or payload.get('polygon_id') or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    role = payload.get('role')
+    is_primary_pick = payload.get('primary') is not None
+    if not pid or (not is_primary_pick and role not in ('source', 'body', 'deposit')):
+        return JsonResponse({'ok': False, 'error': 'Expected {polygon_id, role} or {primary}.'},
+                            status=400)
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM landslide_polygons WHERE id = %s AND landslide_id = %s",
+                    (pid, landslide_id))
+        if not cur.fetchone():
+            conn.rollback()
+            return JsonResponse({'ok': False, 'error': 'Polygon not found on this landslide.'},
+                                status=404)
+        if is_primary_pick:
+            cur.execute("UPDATE landslide_polygons SET is_primary = (id = %s) "
+                        "WHERE landslide_id = %s", (pid, landslide_id))
+        else:
+            cur.execute("UPDATE landslide_polygons SET role = %s WHERE id = %s",
+                        (role, pid))
+            _derived.normalize_primary(cur, landslide_id)
+        cur.execute("UPDATE landslides SET updated_at = NOW() WHERE id = %s", (landslide_id,))
+        _derived.apply_rules_for_landslide(cur, landslide_id)
+        derived_vals = _read_derived_cols(cur, landslide_id)
+        cur.execute("SELECT id FROM landslide_polygons WHERE landslide_id = %s AND is_primary",
+                    (landslide_id,))
+        r = cur.fetchone()
+        primary = r[0] if r else None
+        cur.execute(LANDSLIDE_POLYGONS_SQL, (landslide_id,))
+        polygons = cur.fetchone()[0]
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        return JsonResponse({'ok': False, 'error': f'Save failed: {exc}'}, status=500)
+    finally:
+        _put_conn(conn)
+
+    from .models import LandslideEditMeta
+    LandslideEditMeta.objects.update_or_create(
+        landslide_id=landslide_id, defaults={'last_edited_by': request.user})
+    _invalidate('features', 'home_counts', 'unclassified_count', 'flagged_count',
+                'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
+    if isinstance(polygons, str):
+        polygons = json.loads(polygons)
+    return JsonResponse({'ok': True, 'derived': derived_vals, 'primary': primary,
+                         'polygons': polygons})
 
 
 @inventory_editor_required

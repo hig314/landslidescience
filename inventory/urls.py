@@ -156,6 +156,8 @@ urlpatterns = [
          name='manage_polygon_detach'),
     path('manage/<int:landslide_id>/field/', views.manage_edit_field,
          name='manage_edit_field'),
+    path('manage/<int:landslide_id>/polygon/', views.manage_polygon_role,
+         name='manage_polygon_role'),
     path('manage/<int:landslide_id>/fetch_planet/', views.manage_edit_fetch_planet,
          name='manage_edit_fetch_planet'),
     # Field photos — editor-gated management endpoints (inventory/photos.py).

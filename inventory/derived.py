@@ -256,6 +256,14 @@ def compute_landslide_class(row):
       - If no numeric year but year_text contains "Holocene" or "Modern",
         use that as the era hint.
       - If neither year nor era hint is resolvable → None (needs review)
+
+    Changing this rule (or compute_creep_behavior / _resolve_event_era) can
+    change which fields a record needs before the map shows it: the edit form
+    marks those from forms.DISPLAY_REQUIRED, which is hand-kept against this
+    rule. Re-check it, and check that every label this can return is in
+    map.js CLASS_ORDER and views._CLASS_COLOR -- a label missing there hides
+    the record from the map without any sign (the bare 'Catastrophic', found
+    2026-10-26).
     """
     t = (row.get('landslide_type') or '').strip().lower()
 

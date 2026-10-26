@@ -2,9 +2,10 @@
 Per-polygon role + primary editor (must sit inside the edit/review form). Lets
 the editor fix polygon roles (needed when switching landslide_type — slow uses
 `body`, catastrophic's centroid comes from `source`/`deposit`) and pick which
-polygon is PRIMARY (the one that defines the centroid). Saved by manage_edit
-(polygon_role_<id>, polygon_primary); the rule cascade then recomputes the
-centroid/areas for the new role/primary.
+polygon is PRIMARY (the one that defines the centroid). Autosaved on change
+by autosave.js → manage_polygon_role (a role change also normalizes the
+primary); manage_edit still reads polygon_role_<id> / polygon_primary on a
+full "Save changes". The rule cascade recomputes the centroid/areas.
 {% endcomment %}
 {% if polygons %}
 <div style="margin: 16px 0; padding:10px 12px; border:1px solid #e0d8ca; border-radius:4px; background:#faf8f3;">

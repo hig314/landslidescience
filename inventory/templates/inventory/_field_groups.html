@@ -54,7 +54,18 @@ group comes back empty and simply doesn't render.
   .cb-sub { margin: 0 0 2px 9px; padding-left: 10px; border-left: 2px solid #ddd3c4; }
   .cb-sub .ls-check > label { font-size: 12px; padding: 1px 0; }
   .cb-sub .ls-check > label:has(input:disabled) { color: #aaa; cursor: default; }
+  .ls-req { color: #b00020; cursor: help; }
 </style>
+{% comment %}
+The * marks come from forms.DISPLAY_REQUIRED (hand-kept against the class
+rule -- see the comment there) plus the database's NOT NULL columns.
+{% endcomment %}
+<p class="ls-req-key" style="font-size:12px; color:#777; margin:4px 0 10px;">
+  <span class="ls-req">*</span> needed for the record to show on the public map
+  (hover a <span class="ls-req">*</span> for what is needed; some are
+  "one of"). The record also needs a polygon whose role matches its type:
+  slow → body, catastrophic → source or deposit.
+</p>
 {% for g in field_groups %}
   <div class="field-group group-{{ g.meta.key }}{% if g.meta.key == 'event' %} grp-event{% endif %}">
     {% if g.meta.collapsed %}

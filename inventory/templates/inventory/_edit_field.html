@@ -8,7 +8,7 @@ Imagery suggestions + the class datalist are inherited from the parent context.
 <div class="ls-field {{ vis }}{% if cell %} cb-cell{% endif %}" data-field="{{ field.name }}" style="margin-bottom: 14px;">
   <label for="{{ field.id_for_label }}"{% if field.field.tip %} title="{{ field.field.tip }}"{% endif %} style="display:block; font-size:13px; color:#555; margin-bottom:3px;">
     {{ field.label }}
-    {% if field.field.required %}<span style="color:#b00020;">*</span>{% endif %}
+    {% if field.field.display_req %}<span class="ls-req" title="{{ field.field.display_req }}">*</span>{% elif field.field.required %}<span class="ls-req" title="Required.">*</span>{% endif %}
   </label>
   {% if field.field.picker %}
     {% include 'inventory/_vocab_picker.html' with field=field vocab=field.field.picker %}
