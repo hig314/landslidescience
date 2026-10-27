@@ -10,7 +10,7 @@ This file is the deep per-feature reference. **Two work streams run in
 parallel in separate worktrees — read [WORKSTREAMS.md](WORKSTREAMS.md)
 before touching anything under `tools/lidar/`.**
 
-## State of play (2026-10-19) — the one dated snapshot in this file
+## State of play (2026-10-26) — the one dated snapshot in this file
 
 Everything else here describes how things work and should stay true.
 **This section is a snapshot and will rot**; correct it or delete it rather
@@ -55,8 +55,31 @@ written down anywhere — read `/lidar/audit/`.
   `replaceState` throw); *Save image* box exports the view at 2–4× through
   `ls_export.js`. Commits 9534b42, a43bf5c. See the `/lidar/` URL and
   *Save image* paragraphs below.
+- **Edit-form fixes** (2026-10-26, c3232c0): the polygon role/primary
+  table autosaves (`manage_polygon_role`), and a red `*` marks the fields a
+  record needs to show on the map (`forms.DISPLAY_REQUIRED`, hand-kept —
+  see *Form ergonomics*).
+- **Imagery review history** (2026-10-26, 0ec6b75; migration 0008 applied
+  on prod at startup). Anonymous checks passed on prod: no script is sent
+  and the endpoints return 403. Hig has **not yet tried it signed in on
+  prod**, so the one-time notice there is unseen. Collaborators see that
+  notice on their first signed-in visit; it is also what tells them
+  recording exists. See *Imagery review history*.
 
 **Open threads**, in no particular order:
+
+- **Tatonduk River C (prod id 1575) is hidden from the map** because its
+  class is a bare `Catastrophic`: full size, 2018, creep not evaluated.
+  That label is not in map.js `CLASS_ORDER`. The fix for this record is
+  to tick *creep evaluated* in prod by hand. **Tatonduk River B 2024**
+  has a `body` polygon on a catastrophic record and should be `source`.
+  Still undecided (Hig deferred it): whether the rule should return
+  NULL/magenta instead of bare `Catastrophic` (and `Slow Cryptic`), or
+  map.js should get a fallback for unknown labels.
+- **Review history loose ends**: floating panels covering the map are
+  ignored; reviewer and since are not in the URL; there is no pause
+  switch. ~40 of Hig's dev review rows were deleted by a test cleanup on
+  2026-10-26 (no backup); dev history restarts from then.
 
 - **`/lidar/` loose ends from 2026-10-19.** (1) Switching surveys
   mid-session can still drop the camera: every terrain rebuild resets the
@@ -1605,7 +1628,7 @@ used — it needs a stable address, which a field-based Alaska connection is not
 > who. That is a reasonable thing to have for a tool built *for* those people,
 > but it is not anonymous, and they should be told it exists.
 
-## Imagery review history (built in dev 2026-10-26)
+## Imagery review history (deployed 2026-10-26)
 
 What each signed-in user has looked at on `/inventory/`, on which basemap,
 for how long — so a reviewer can see what they have covered, and (with the
