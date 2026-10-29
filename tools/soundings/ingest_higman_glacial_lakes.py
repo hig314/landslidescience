@@ -36,6 +36,10 @@ WRAP_2021 = 0.9274
 COLS = ['lon', 'lat', 'observed_at', 'depth_m', 'depth_orig', 'depth_unit', 'level_key', 'sigma_m',
         'flag', 'flag_reason', 'name', 'notes', 'depth_bound']
 COLLECTOR = 'Bretwood Higman'
+KNOWN_LEVELS = {   # level_key: (level_m NAVD88, sigma_m, source)
+    'pg_2022_a': (8.42, 1.0, "3DEP 1/3 arc-second hydroflattened lake surface (flat-patch median), Petrof Lake; 2022 level unknown"),
+    'pg_2022_b': (1.59, 1.0, "3DEP 1/3 arc-second hydroflattened lake surface (flat-patch median), Gore Lake; 2022 level unknown"),
+}
 
 
 def ogr_rows(src):
@@ -185,6 +189,13 @@ def petrof_gore(outdir, arch):
         x = row(lat, lon, when, d, d, 'm', '', nm); x['_year'] = '2022'
         rows.append(x)
     lvs = assign_levels(rows, 'pg', 'Petrof / Gore lakes', 'unknown: no water surface set yet')
+    # Levels set 2026-10-17 from 3DEP's hydroflattened lake surfaces (the median of the exactly-flat patch
+    # around each cluster, NAVD88): no KBay 2023 lidar reaches either lake.  The 2022 lake levels are not
+    # known; sigma 1 m.  A measured level (a gauge, a lidar flight) replaces these.
+    for lv in lvs:
+        k = KNOWN_LEVELS.get(lv['key'])
+        if k:
+            lv.update(level_m=k[0], sigma_m=k[1], source=k[2], observed_on=None)
     keep = archive(arch, slug, [PG_SHP])
     survey = dict(slug=slug, title='Petrof and Gore lake lead-line depths (Higman, 2022)', collector=COLLECTOR,
                   collected_from='2022-05-31', collected_to='2022-06-03', method='lead_line',

@@ -1,0 +1,67 @@
+{
+ "what": "Mapped water sources for the water-bodies stage (topobathy/water.py) and the flat-lake detector (axes.class_raster flat_lakes 'mapped'). A mapped polygon is an observation of its own kind -- where water was seen, by whom, when -- with no level; it never overrides a survey, it adds recall (small ponds under the detector's minimum, lakes the detector misses) and a check on both kinds of error (water.json: mapped_missed / bodies_unmapped).",
+ "sources": [
+  {
+   "id": "hig_lakes",
+   "path": "mapped_hig_lakes.geojson",
+   "who": "Hig",
+   "period": "2017-2022",
+   "edge": "trusted",
+   "edge_note": "the shoreline is trusted (fill._mapped_lake_sides, 2026-10-23): inside a lake polygon, raised land more than mapped_edge_dz_m above the water is floating or ice-cored unless an island polygon touches it; outside, within mapped_edge_near_m, it is shore or glacier. Add an island polygon to keep a real island; move the shoreline to move the glacier face.",
+   "basis": "hand-mapped for the KBSP map (Hig Lakes UTM5.shp, 3144 polygons: 1641 lakes, 1403 islands, 74 rivers); converted 2026-10-15 with ogr2ogr to EPSG:4326",
+   "kind_field": "Type",
+   "kind_map": {
+    "Lake": "lake",
+    "Isl_lake": "lake",
+    "River": "river",
+    "Island": "island",
+    "High": null
+   },
+   "subkind_field": "Class",
+   "subkind_map": {
+    "Manmade": "reservoir"
+   },
+   "name_field": "Name"
+  },
+  {
+   "id": "reviewed",
+   "path": "polygons.geojson",
+   "who": "Hig (review)",
+   "period": "as reviewed",
+   "edge": "trusted",
+   "edge_note": "WATER_REVIEW_PLAN.md W3: the reviewed water polygons. Start from a run's out/polygons_auto.geojson in QGIS, redraw what is wrong, set kind (lake | river | sea | island) and optionally level_m (a lake's one level), and set status to 'reviewed' -- only reviewed features are read. A reviewed polygon replaces the hig_lakes polygons at least half under it.",
+   "basis": "tools/lidar/water/polygons.geojson (EPSG:4326)",
+   "kind_field": "kind",
+   "kind_map": {
+    "lake": "lake",
+    "pond": "lake",
+    "lagoon": "lake",
+    "perched": "lake",
+    "river": "river",
+    "sea": "sea",
+    "tidal": "sea",
+    "island": "island"
+   },
+   "status_field": "status",
+   "status_value": "reviewed",
+   "level_field": "level_m",
+   "name_field": "name",
+   "replaces": [
+    "hig_lakes"
+   ]
+  },
+  {
+   "id": "review_dispositions",
+   "path": "review.geojson",
+   "who": "Hig (review)",
+   "period": "as reviewed",
+   "edge_note": "WATER_REVIEW_PLAN.md section 3: a run's out/water_flags.geojson with the reviewer's `disposition` filled in, saved here. island = the observation stands (an island inside the water); noise = the observation is void inside the water (open space for the interpolation; shore.py). polygon_edit / defer / blank: nothing (the suggestion stands).",
+   "basis": "tools/lidar/water/review.geojson (EPSG:4326)",
+   "kind_field": "disposition",
+   "kind_map": {
+    "island": "island",
+    "noise": "noise"
+   }
+  }
+ ]
+}

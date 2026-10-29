@@ -611,7 +611,7 @@ def snap_extent(bounds, res):
             sx(xmax, math.ceil), sy(ymax, math.ceil))
 
 
-def encode_terrain_rgb(src_path, dst_path):
+def encode_terrain_rgb(src_path, dst_path, encoding="mapbox"):
     """Float32 elevation -> 4-band uint8 (Mapbox terrain-RGB + alpha).
 
     Windowed so an 80 GB level never has to fit in RAM. Nodata encodes to
@@ -619,6 +619,11 @@ def encode_terrain_rgb(src_path, dst_path):
     the alpha channel, so a -10000 fill would put a 10 km cliff along every
     data boundary. Alpha is still written so `--skip-blank` can drop empty
     tiles and the map can mask edges with the footprint.
+
+    encoding="terrarium" (h = R*256 + G + B/256 - 32768) resolves 1/256 m
+    instead of 0.1 m. Used for surfaces that are smooth by construction and
+    get shaded, like a water surface: at 0.1 m a river falling 1 m in 100 m
+    shades as a stripe every 10 m (2026-10-20).
     """
     with rasterio.open(src_path) as src:
         prof = src.profile.copy()
@@ -633,9 +638,13 @@ def encode_terrain_rgb(src_path, dst_path):
                 valid = np.isfinite(dem)
                 if nodata is not None:
                     valid &= dem != nodata
-                # Guard the encodable range: -10000 .. +6553.5 m
-                h = np.where(valid, np.clip(dem, -9999.0, 6553.0), 0.0)
-                v = np.rint((h + 10000.0) / 0.1).astype(np.int64)
+                if encoding == "terrarium":
+                    h = np.where(valid, np.clip(dem, -32767.0, 32767.0), 0.0)
+                    v = np.rint((h + 32768.0) * 256.0).astype(np.int64)
+                else:
+                    # Guard the encodable range: -10000 .. +6553.5 m
+                    h = np.where(valid, np.clip(dem, -9999.0, 6553.0), 0.0)
+                    v = np.rint((h + 10000.0) / 0.1).astype(np.int64)
                 dst.write((v >> 16).astype(np.uint8), 1, window=win)
                 dst.write(((v >> 8) & 0xFF).astype(np.uint8), 2, window=win)
                 dst.write((v & 0xFF).astype(np.uint8), 3, window=win)
@@ -672,7 +681,7 @@ def drop_stale_tiles(tiles, archive, work, patterns, mbtiles=None):
         mbtiles.unlink()
 
 
-def build_web(ds, archive, env, webp=False):
+def build_web(ds, archive, env, webp=False, encoding="mapbox"):
     work = BUILD / ds["id"]
     work.mkdir(parents=True, exist_ok=True)
     tiles = work / "tiles"
@@ -716,7 +725,7 @@ def build_web(ds, archive, env, webp=False):
              archive, elev], env=env)
 
         print(f"  z{z}: encode terrain-RGB")
-        encode_terrain_rgb(elev, rgb)
+        encode_terrain_rgb(elev, rgb, encoding)
 
         # Input is already on the tile grid at exactly this resolution, so
         # nearest is an exact copy -- no resampling of RGB happens here.
@@ -750,9 +759,15 @@ def build_slope_native(ds, archive, env):
     work = BUILD / ds["id"]
     work.mkdir(parents=True, exist_ok=True)
     out = work / "slope_native.tif"
-    if out.exists():
-        print(f"  slope: native raster exists, reusing {out}")
+    # reused only when newer than the archive it was computed from (2026-10-21: the joint pilot's dev publishes reused
+    # run 1's slope raster through runs 3-5 -- a smaller extent, so 5,841 of 6,841 z16 tiles had no slope tile and drew
+    # as flat green without shading, and the rest showed run 1's surface; the tile stage already discards stale tiles)
+    if out.exists() and out.stat().st_mtime >= Path(archive).stat().st_mtime:
+        print(f"  slope: native raster exists and is newer than the archive, reusing {out}")
         return out
+    if out.exists():
+        print(f"  slope: native raster older than the archive -- recomputing")
+        out.unlink()
     print("  slope: gdaldem slope on the archive (degrees, true metres)")
     run([GDAL_BIN / "gdaldem", "slope", archive, out,
          "-compute_edges", "-s", "1",
@@ -786,9 +801,11 @@ def build_slope_web(ds, archive, env, bounds):
     tiles = work / "tiles_slope"
     # Same trap as the elevation pyramid. A constant vertical shift leaves
     # slope untouched, but a resampling or extent change does not.
-    drop_stale_tiles(tiles, archive, work, ("slope_z*.tif", "slopeq_z*.tif"),
-                     mbtiles=work / f"{ds['id']}_slope.mbtiles")
+    # ...judged against the SLOPE raster, the tiles' own source (2026-10-21: judged against the archive, tiles cut from a
+    # stale slope raster survived its recomputation, and --resume kept every one of them)
     native = build_slope_native(ds, archive, env)
+    drop_stale_tiles(tiles, native, work, ("slope_z*.tif", "slopeq_z*.tif"),
+                     mbtiles=work / f"{ds['id']}_slope.mbtiles")
     minz, maxz = ds["min_zoom"], ds["max_zoom"]
     for z in range(maxz, minz - 1, -1):
         res = res_at_zoom(z)

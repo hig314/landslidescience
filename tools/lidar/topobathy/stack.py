@@ -58,7 +58,11 @@ def read_layer(spec, recipe, grid: Grid, win: Window):
         z, valid = read_pixel(path, grid, win)
     else:
         z, valid = read_geo(path, grid, win, spec.get("resample", "nearest"))
-    return apply_shift(spec, z), valid
+    z = apply_shift(spec, z)
+    if spec.get("_cond_dz"):          # a conditioned prior: the pre-pass residual toward the better observations (condition.py)
+        dz, dv = read_geo(spec["_cond_dz"], grid, win, "bilinear")
+        z = np.where(valid & dv, z + dz, z).astype(np.float32)
+    return z, valid
 
 
 def apply_shift(spec, z):

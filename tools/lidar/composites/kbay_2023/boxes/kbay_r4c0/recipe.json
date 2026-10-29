@@ -1,0 +1,607 @@
+{
+ "id": "kbay_r4c0",
+ "dataset_id": "kbay_2023_topobathy",
+ "title": "Kachemak Bay topobathy, whole-survey run (box kbay_r4c0), 2 m",
+ "region": "Kenai Peninsula",
+ "vertical_datum": "NAVD88 (GEOID12B, as the sources)",
+ "note": "Whole-bay run (Hig, 2026-10-16, after approving the Seldovia and Bluff Point v7 patches): the two patch recipes merged into one layer stack over x 557-635 km, y 6566-6636 km (v4, 2026-10-17: the head of Kachemak Bay and Anchor Point added; Kenai 2008 / Homer 2019 / OCM / NCEI / 3DEP there), cut into 25 boxes of 12-16 km whose edges avoid every mapped lake over 5 ha, built with a 2 km margin and cropped on the mosaic (composites/kbay_2023/make_boxes.py, run_boxes.sh). Nothing is tuned per box: every rule is the one the patches settled (conditioned priors, the water-bodies stage, the tidal lens, Hig's mapped lakes, the kelp test where the Seldovia green lidar exists). Rates are the defaults (ground 0.01 m/yr; the Bluff Point patch used 0.05 and will differ there). Seams: a fill domain cut by a box edge is solved on each side separately. 2026-10-18: the Grewingk site recipe merged in (layers sfm2023bare, grewingk2021 +0.36 m with `lowest`, sonar2023 = Katie Hughes' multibeam, GATED, dev only without her permission, dixon2023 ice; as_of 2023-09-19 so the Sept 2023 surfaces count; fill ice_face free, shore_grad 200 m, per-survey sounding offsets; the 150 m lake depth as a water edit).",
+ "grid": {
+  "epsg": 6334,
+  "res_m": 2.0,
+  "bounds": [
+   555000,
+   6618000,
+   574500,
+   6638000
+  ]
+ },
+ "target": "ground_current",
+ "as_of": "2023-09-19",
+ "rates": {
+  "ground": 0.01,
+  "bed": 0.02,
+  "ice": 3.0
+ },
+ "sigma_max": 5.0,
+ "rules": "sequential",
+ "margin_m": 0.0,
+ "rules_post": [
+  {
+   "despeckle": {
+    "min_area_m2": 2000
+   }
+  },
+  {
+   "feather": {
+    "width_m": 30
+   }
+  }
+ ],
+ "halo_px": 96,
+ "layers": [
+  {
+   "name": "ctx3dep",
+   "source": "/Volumes/Nunatak/lidar_build/ctx_3dep/all.vrt",
+   "date": "2012-07-01",
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/kbay_r4c0/obs/water_3dep.tif",
+      "map": {
+       "1": "water",
+       "2": "void"
+      }
+     }
+    },
+    {
+     "fallback": {
+      "except": [
+       "fill"
+      ],
+      "footprints": [
+       "/Volumes/Nunatak/lidar_build/obs/kbay_2023_full/class.vrt"
+      ],
+      "dry_void": "$out/fill_dryvoid.tif",
+      "bodies": "$out/water_bodies.tif"
+     }
+    }
+   ],
+   "sigma_m": 3.0,
+   "resample": "bilinear",
+   "notes": "USGS 3DEP 1/3 arc-second fallback, shown only where no survey has a cell (the KBay point footprint counts as flown). water_3dep.tif (topobathy/flat_water.py, built by the chain): 3DEP's hydroflattened lakes as water, so a lake outside every survey gets a basin and 3DEP never stands as ground inside one."
+  },
+  {
+   "name": "cgoa",
+   "condition": {
+    "against": [
+     "bathy2009",
+     "h12146",
+     "homer2018",
+     "seldovia2019",
+     "ocm2023",
+     "ncei2010"
+    ],
+    "length_m": 2000
+   },
+   "source": "/Volumes/Nunatak/lidar_build/bathy_src/cgoa_zimmermann/cgoa_navd88_100m.tif",
+   "date": "1995-07-01",
+   "sigma_m": 5.0,
+   "resample": "bilinear",
+   "class": [
+    {
+     "default": "bed"
+    },
+    {
+     "below_level": {
+      "level": -1.38,
+      "as": "bed",
+      "else": "void",
+      "bodies": "$out/",
+      "intertidal": "void",
+      "fresh": "void"
+     }
+    }
+   ],
+   "notes": "Zimmermann (AFSC RACE/GAP) Central Gulf of Alaska 100 m bathymetry (CGOA_bathymetry_topo_1, smooth sheets + multibeam, depth below MLLW; from Powder so_ak_crm_v1_flt), -depth - 1.38 m to NAVD88 (2026-10-18, Hig). The outer coast south and east of the peninsula, where no other grid reaches. A prior below NCEI: conditioned against every finer marine layer (2 km decay), bed only below MLLW, void in the intertidal zone and in fresh bodies."
+  },
+  {
+   "name": "ncei2010",
+   "condition": {
+    "against": [
+     "bathy2009",
+     "h12146",
+     "homer2018",
+     "seldovia2019",
+     "ocm2023"
+    ],
+    "length_m": 500
+   },
+   "source": "/Volumes/Nunatak/lidar_build/bathy_src/outer_kachemak/grids/ncei_kachemak_13_mhw.tif",
+   "date": "2010-07-01",
+   "shift_m": 3.91,
+   "sigma_m": 3.0,
+   "resample": "bilinear",
+   "class": [
+    {
+     "default": "bed"
+    },
+    {
+     "below_level": {
+      "level": -1.38,
+      "as": "bed",
+      "else": "void",
+      "bodies": "$out/",
+      "intertidal": "void",
+      "fresh": "void"
+     }
+    }
+   ],
+   "notes": "NCEI Kachemak Bay 1/3 arc-second 2010 grid, MHW +3.91 m to NAVD88; bed only below MLLW; a gridded prior: void inside the intertidal zone."
+  },
+  {
+   "name": "ocm2023",
+   "condition": {
+    "against": [
+     "bathy2009",
+     "h12146",
+     "homer2018",
+     "seldovia2019"
+    ],
+    "length_m": 500
+   },
+   "source": "/Volumes/Nunatak/lidar_build/bathy_src/outer_kachemak/cmp_ocm/cand_2m.tif",
+   "date": "2019-07-01",
+   "date_note": "published 2023; its bathymetry here is the 2018/2019 green lidar plus interpolation (DPR: 81 % GMT surface), and a conditioned prior must not post-date its references",
+   "sigma_m": 1.0,
+   "resample": "bilinear",
+   "class": [
+    {
+     "default": "bed"
+    },
+    {
+     "below_level": {
+      "level": -1.38,
+      "as": "bed",
+      "else": "void",
+      "bodies": "$out/",
+      "intertidal": "void",
+      "fresh": "void"
+     }
+    }
+   ],
+   "notes": "NOAA OCM 2023 seamless 2 m; bed only below MLLW; a gridded prior: void inside the intertidal zone."
+  },
+  {
+   "name": "bathy2009",
+   "source": "/Volumes/Nunatak/lidar_build/bathy_src/kachemak_2008_2009_mllw_nad83_clean.vrt",
+   "date": "2009-07-01",
+   "sigma_m": 0.5,
+   "class": "bed",
+   "notes": "Hydropalooza multibeam, NAVD88 in the archive. The bed reference for the kelp test. 2026-10-18: the cleaned stack (topobathy/clean_bands.py): each depth-band grid loses its outer 2 cells where another band covers them -- the seam at 59.53-59.585 N, 151.576 W was H12090 4 m band 2 of 4 ending in a column 21 m shallow. Path source, so the manifest's MLLW -> NAVD88 shift is given here (-1.38 m).",
+   "shift_m": -1.38
+  },
+  {
+   "name": "h12146",
+   "source": "/Volumes/Nunatak/lidar_build/bathy_src/outer_kachemak/grids/H12146_mllw.tif",
+   "date": "2010-07-01",
+   "shift_m": -1.38,
+   "sigma_m": 0.5,
+   "resample": "bilinear",
+   "class": "bed",
+   "notes": "NOAA H12146 multibeam, MLLW -> NAVD88 (-1.38 m)."
+  },
+  {
+   "name": "seldovia2019",
+   "source": "seldovia_2019",
+   "date": "2019-07-01",
+   "sigma_m": 0.3,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "below_level": {
+      "level": -1.38,
+      "as": "bed",
+      "else": "ground",
+      "bodies": "$out/"
+     }
+    },
+    {
+     "snow_vs": {
+      "ref": "bathy2009",
+      "dz_m": 1.0,
+      "smooth_m": 10,
+      "rough_ratio": 99.0,
+      "min_area_m2": 100,
+      "only": "bed",
+      "as": "canopy"
+     }
+    }
+   ],
+   "notes": "USACE NCMP 2019 topobathy bare earth (Seldovia only); bed below MLLW, ground above; a bed cell > 1 m above the 2009 multibeam over 10 m, >= 100 m2, is kelp canopy."
+  },
+  {
+   "name": "kenai2008",
+   "source": "kenai_2008",
+   "date": "2008-06-01",
+   "sigma_m": 0.3,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/obs/kenai_2008/class.vrt",
+      "map": {
+       "2": "water"
+      }
+     }
+    },
+    {
+     "water_level": {
+      "tol_m": 0.3,
+      "min_frac": 0.02
+     }
+    },
+    {
+     "islets": {
+      "max_m2": 200,
+      "ring_m": 3,
+      "ring_frac": 0.8,
+      "as": "water"
+     }
+    }
+   ],
+   "notes": "Kenai Peninsula 2008 lidar; its returns off the sea at the 2008 tide are water, not ground (Hig's v7 review). islets (2026-10-16, Bluff Point lump): specks of ground under 200 m2 ringed by water/void/bed are returns off the sea surface, classed water. 2026-10-18: water from the point cloud (topobathy/water_taught.py on observe_points.py cellstats: density, intensity, roughness, level, height above the local bottom; taught on mapped lakes, deep seabed and high ground; held-out lake precision 0.97, recall 0.90)."
+  },
+  {
+   "name": "homer2018",
+   "source": "homer_2018",
+   "date": "2018-06-10",
+   "sigma_m": 0.3,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "facets": {
+      "win_m": 10,
+      "resid_m": 0.02,
+      "min_area_m2": 200,
+      "as": "modelled"
+     }
+    },
+    {
+     "below_level": {
+      "level": -1.38,
+      "as": "bed",
+      "else": "ground",
+      "bodies": "$out/"
+     }
+    },
+    {
+     "flat_below": {
+      "max_level_m": 0.0,
+      "rough_m": 0.1,
+      "win_m": 10,
+      "min_area_m2": 2000,
+      "as": "water",
+      "only": false
+     }
+    },
+    {
+     "islets": {
+      "max_m2": 200,
+      "ring_m": 3,
+      "ring_frac": 0.8,
+      "as": "water"
+     }
+    },
+    {
+     "flat_lakes": {
+      "rough_m": 0.03,
+      "win_m": 14,
+      "min_area_m2": 2000,
+      "ring_m": 10,
+      "rim_dz_m": 0.1,
+      "ring_frac": 0.65,
+      "only": [
+       "ground",
+       "void"
+      ],
+      "as": "water",
+      "open_px": 1,
+      "close_px": 2,
+      "range_m": 0.3,
+      "slope_max": 0.01,
+      "range_void_m": 1.0,
+      "mapped": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/sources.json",
+      "mapped_min_area_m2": 100
+     }
+    }
+   ],
+   "notes": "Homer 2018 NCMP green lidar: bed below MLLW, ground above; flat lakes with Hig's mapped prior. islets (2026-10-16, Bluff Point lump): specks of ground under 200 m2 ringed by water/void/bed are returns off the sea surface, classed water. flat_below (2026-10-16, Bluff Point): the green lidar returns the sea surface at its flight tide (-1.6..-0.5 m) as a smooth sheet, which below_level split into bed and ground; a flat sheet below 0 m NAVD88 is water, whether below_level called it bed or ground (so it runs after below_level, on every class). facets (2026-10-18): the vendor DTM bridges its data gaps with a TIN; cells planar to 2 cm over 10 m in patches of 200 m2 or more are \"modelled\", not ground (Beluga Lake south corner: Homer 2019 0.7-4 m above the 2018 surface across a gap)."
+  },
+  {
+   "name": "homer2019",
+   "source": "homer_2019",
+   "date": "2019-06-03",
+   "sigma_m": 0.15,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "facets": {
+      "win_m": 10,
+      "resid_m": 0.02,
+      "min_area_m2": 200,
+      "as": "modelled"
+     }
+    },
+    {
+     "water_level": {
+      "tol_m": 0.3,
+      "min_frac": 0.02
+     }
+    },
+    {
+     "flat_lakes": {
+      "rough_m": 0.03,
+      "win_m": 14,
+      "min_area_m2": 2000,
+      "ring_m": 10,
+      "rim_dz_m": 0.1,
+      "ring_frac": 0.65,
+      "only": [
+       "ground",
+       "void"
+      ],
+      "as": "water",
+      "open_px": 1,
+      "close_px": 2,
+      "range_m": 0.3,
+      "slope_max": 0.01,
+      "range_void_m": 1.0,
+      "mapped": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/sources.json",
+      "mapped_min_area_m2": 100
+     }
+    }
+   ],
+   "notes": "Homer 2019 lidar: flat at the modal sea level = water; flat lakes with Hig's mapped prior. facets (2026-10-18): the vendor DTM bridges its data gaps with a TIN; cells planar to 2 cm over 10 m in patches of 200 m2 or more are \"modelled\", not ground (Beluga Lake south corner: Homer 2019 0.7-4 m above the 2018 surface across a gap)."
+  },
+  {
+   "name": "sfm2023bare",
+   "source": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/sfm_bare_2023.tif",
+   "date": "2023-09-19",
+   "class": [
+    {
+     "default": "ground"
+    }
+   ],
+   "sigma_m": 1.0,
+   "notes": "Hig 2026-10-14: beyond the 2021 lidar the 2023 SfM (dixon_2023) rather than 3DEP. It is a DSM, so only where it is BARE (dsm_bare.py: its 30 m median < 1 m above 3DEP; canopy left to 3DEP below), levelled to the shifted 2021 lidar by one constant on the bare overlap (sfm_bare_2023.json), never over lakes, ice or the retreat zone, and kept on a 60 m band inside the lidar edge so the lidar's feather blends into it. sigma 1.0: the lidar (0.15) outranks it wherever both exist. (from composites/grewingk/recipe.json, 2026-10-18: the site layers in the whole-bay template, Hig: \"Grewingk is not using the best data\")"
+  },
+  {
+   "name": "kbay2023",
+   "source": "kbay_2023_reclass_v2",
+   "date": "2023-08-01",
+   "sigma_m": 0.15,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/obs/kbay_2023_full/class.vrt",
+      "codes": true
+     }
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/lake_2021.tif",
+      "map": {
+       "1": "water"
+      }
+     }
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/retreat_2023.tif",
+      "map": {
+       "1": "water"
+      }
+     }
+    },
+    {
+     "islets": {
+      "max_m2": 50,
+      "ring_m": 3,
+      "ring_frac": 0.8
+     }
+    },
+    {
+     "flat_lakes": {
+      "rough_m": 0.03,
+      "win_m": 14,
+      "min_area_m2": 2000,
+      "ring_m": 10,
+      "rim_dz_m": 0.1,
+      "ring_frac": 0.65,
+      "only": [
+       "ground",
+       "void"
+      ],
+      "as": "water",
+      "open_px": 1,
+      "close_px": 2,
+      "range_m": 0.3,
+      "slope_max": 0.01,
+      "range_void_m": 1.0,
+      "density": {
+       "path": "/Volumes/Nunatak/lidar_build/obs/kbay_2023_full/cellstats.vrt",
+       "band": 1,
+       "sparse_n": 8,
+       "min_frac": 0.5
+      },
+      "mapped": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/sources.json",
+      "mapped_min_area_m2": 100
+     }
+    }
+   ],
+   "notes": "KBay 2023/24 reclass v2 with the whole-survey point classification (obs/kbay_2023_full/class.vrt): void where the laser got nothing back, water where the reclass holds the sea at its level; flat lakes with return density and Hig's mapped prior."
+  },
+  {
+   "name": "grewingk2021",
+   "source": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/nohf_full/dtm_1m.tif",
+   "date": "2021-10-12",
+   "shift_m": 0.36,
+   "notes": "shift_m +0.36: MEASURED 2026-10-10, not from metadata. On bare smooth flat ground (both DTMs < 0.05 m rough, slope < 3 deg, 2-20 m: beaches, flats, fans) KBay 2023 reads +0.36 m above Grewingk 2021 with NMAD 0.06 m (n 108k at 2 m), while KBay reads +0.014 m (NMAD 0.048) against Seldovia 2019 NCMP topobathy, the survey the 2009 bathymetry's MLLW->NAVD88 shift was tied to, and the reclass matches the vendor DEM to 1 cm. Two independent products against one: Grewingk sits ~0.36 m low in the collection's NAVD88(GEOID12B) frame despite its metadata. No third witness overlaps it (Homer 2019 and Lower Kenai have no data over it). Belongs in datasets.json as vertical_shift_m for hosting to apply after its own check; applied here explicitly so the test composite has no 0.4 m seam at Grewingk's edge. (from composites/grewingk/recipe.json, 2026-10-18: the site layers in the whole-bay template, Hig: \"Grewingk is not using the best data\") 2026-10-18 (Hig: good Grewingk lidar unused at 59.64797,-151.15728): the WHOLE 2021 survey -- make_nohf_dtm.py --full (x 600-617, y 6597-6618.4 km, identical to the box version inside it) and the full-survey point classes.",
+   "sigma_m": 0.15,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/obs/grewingk_2021_full/class.tif",
+      "map": {
+       "2": "water"
+      }
+     }
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/outline_2020.tif",
+      "map": {
+       "1": "ice"
+      }
+     }
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/lake_2021.tif",
+      "map": {
+       "1": "water"
+      }
+     }
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/retreat_2023.tif",
+      "map": {
+       "1": "water"
+      }
+     }
+    },
+    {
+     "raster": {
+      "path": "$out/fill_surface.tif",
+      "map": {
+       "1": "water"
+      },
+      "only": "ground"
+     }
+    },
+    {
+     "islets": {
+      "max_m2": 50,
+      "ring_m": 3,
+      "ring_frac": 0.8
+     }
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/nohf/islands_2021.tif",
+      "map": {
+       "1": "ground"
+      }
+     }
+    }
+   ],
+   "class_notes": "Ground wherever the DGGS DTM has a value, WATER where the 2021 point classification says so (obs/grewingk_2021_lakes, which is ~60% void over this box, so only its water is used), ICE inside the 2020 glacier outline. DTM cells over the lake that the point classes miss read ground at the water level; the fill drops lake observations within lake_surface_tol_m of the level as surface, not evidence. WATER also wherever the DTM is the flat lake surface (48.55 +- 0.35 m, connected to the point-class lake; make_ice.py lake_2021.tif): without it the lake surface read ground along the ice face, and the fill saw a shore at water level between the lake and the ice. In the retreat zone (lake by 2023, ice in the 2020 outline) the 2021 ice surface is classed WATER: classed ice it still won there under a water class_now (sequential rules), standing the old ice in for the lake bed. ISLANDS (2026-10-14): water-classed returns standing > 0.65 m above the flat lake surface in components >= 50 m2 (make_nohf_dtm.py islands_2021.tif) are GROUND, last so neither the lake masks nor the islets rule take them back. 2026-10-14: the point classes rebuilt over the whole box with every tile on disk (observe_points.py stats/classify -> obs/grewingk_2021_box); the first (2026-10-11) predated the tiles north of y 6610.5 km, and its 'no returns + flat DTM = water' turned the outwash gravels there into ponds (Hig). classify now voids the footprints of unfetched tiles.",
+   "source_notes": "2026-10-14 (Hig): the delivered DGGS DTM hydroflattens the lake and with it a real island (59.60571,-151.11924). Rebuilt from the classified points (ground + water returns, mean per 1 m cell, delivered DTM where no return) by make_nohf_dtm.py; was the dataset grewingk_2021."
+  },
+  {
+   "name": "sonar2023",
+   "source": "grewingk_sonar_2023",
+   "date": "2023-05-18",
+   "class": "bed",
+   "sigma_m": 0.3,
+   "notes": "The pass-levelled re-grid (level_passes.py), published 2026-10-13. (from composites/grewingk/recipe.json, 2026-10-18: the site layers in the whole-bay template, Hig: \"Grewingk is not using the best data\")",
+   "shift_m": 0.36,
+   "shift_notes": "Hig 2026-10-14: the whole topobathy raised 0.36 m to the other DEMs (Grewingk 2021 reads 0.36 m low against KBay 2023 and Seldovia 2019). The multibeam agrees with Ed Berg's sound-corrected track, whose level is tied to the UNSHIFTED 2021 lidar, to 0.2 m -- so it is in that datum and takes the same shift."
+  },
+  {
+   "name": "dixon2023",
+   "source": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/dixon_ice_2023.tif",
+   "date": "2023-09-19",
+   "sigma_m": 0.5,
+   "class": [
+    {
+     "default": "ice"
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/retreat_2023.tif",
+      "map": {
+       "1": "water"
+      }
+     }
+    }
+   ],
+   "notes": "Mark Laker's SfM DSM (USFWS, dixon_2023), 19 Sep 2023, NAVD88 converted, read from make_ice.py's copy that holds ONLY the 2023 ice and the retreat zone (the lake gained from the 2020 outline): ICE on the tongue, WATER in the retreat zone. Nowhere else -- SfM is poor over water and at the lake shore (Hig, 2026-10-13; here NMAD 2.9 m over the lake, +3.4 m above the lidar on land beside it), and given everywhere it became the newest class over the lake. (from composites/grewingk/recipe.json, 2026-10-18: the site layers in the whole-bay template, Hig: \"Grewingk is not using the best data\")"
+  },
+  {
+   "name": "fill",
+   "optional": true,
+   "source": "$out/fill.tif",
+   "date": "2023-08-01",
+   "class": "modelled",
+   "sigma_m": 1.0,
+   "sigma": [
+    {
+     "raster": {
+      "path": "$out/fill_sigma.tif"
+     }
+    }
+   ],
+   "rules_post": []
+  }
+ ],
+ "fill": {
+  "low_tide_m": -1.38,
+  "close_m": 60,
+  "marine_rim_max_m": 6.0,
+  "fill_margin": true,
+  "points": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261017.csv",
+  "notes": "low_tide_m = MLLW in NAVD88 (-1.38 m). tidal_lens (default): marine domains take the observed water surface as the bed; measured beds (multibeam, green-lidar returns, the soundings export: Riordan 2018 KBSP lakes, Grewingk, Petrof and Gore 2022 (levels from 3DEP)) condition it.",
+  "ice_face": "free",
+  "shore_grad_m": 200.0,
+  "shore_grad_r_m": 150.0,
+  "shore_grad_n0": 3.0,
+  "rim_widen": true,
+  "points_dz_m": {
+   "berg_grewingk_2017": 0.36,
+   "berg_grewingk_2017_hand": 0.36,
+   "higman_grewingk_2019_2021": 0.36,
+   "higman_grewingk_2026": 0.36
+  }
+ },
+ "water": {
+  "mapped": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/sources.json",
+  "intertidal_near_m": 100,
+  "notes": "stage B as in the patches: bodies with kinds, the tidal lens, intertidal.tif anchored to observed ground. max_px 9100 (2026-10-17): the body stage at the grid's own 2 m for a 16 km box (+1 km margin = 9000 cells) -- at 4 m the pool bodies and the zone differed from the patches at their rims.",
+  "max_px": 10100
+ },
+ "lowest": {
+  "grewingk2021": {
+   "tol_m": 0.3,
+   "smooth_m": 50
+  }
+ }
+}

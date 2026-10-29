@@ -30,7 +30,7 @@ import rasterio
 from rasterio.windows import Window
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from topobathy import Recipe, fold
+from topobathy import Recipe, fold, axes
 from topobathy.stack import read_layer
 from topobathy.masks import layer_mask, to_uint8, despeckle, smooth, OPS
 
@@ -78,7 +78,26 @@ def post_masks(recipe, grid, layers, rules):
             (name, kw), = step.items()
             if name == "despeckle": m = despeckle(m, kw["min_area_m2"], grid.res)
             elif name == "smooth": m = smooth(m, kw["size_m"], grid.res)
+            elif name == "feather" and "cls" in L:
+                # The feather is for SEAMS (a footprint edge, a boundary with another survey's take), never
+                # for the layer's own class holes: ramping a lidar's mask to 0 across 30 m into its water
+                # (or void, or canopy) blended its shore with whatever lay beneath -- the Seldovia lagoon
+                # pool got a trough of OCM's -2.3 m along its rim, "spikes" where the blend varied, from
+                # KBay returns that read 0.74 there (Hig, 2026-10-15).  The ramp is measured from the edge
+                # of the mask UNION its holes, so a hole keeps a hard edge and a seam still blends.
+                from topobathy.masks import feather as _feather
+                from topobathy.axes import CLASSES as _C
+                w_ = kw.get("width_m", 0)
+                hole = L["valid"] & np.isin(L["cls"], [_C["water"], _C["void"], _C["canopy"]])
+                ext = ((m > 0.5) | hole).astype(np.float32)
+                m = (_feather(ext, w_, grid.res) * (m > 0.5)).astype(np.float32)
             elif name in OPS: m = OPS[name](m, kw.get("width_m", kw.get("sigma_m", kw.get("dist_m"))), grid.res)
+        # whatever the post-processing did (a despeckle closes small holes in a take mask), a cell this layer
+        # does not call a SURFACE is never shown: OCM's void-classed -0.54 m (its SDB value above the water
+        # cutoff) came back at full weight inside its taken bed at Bluff Point (2026-10-16, the "lump")
+        if "cls" in L and L.get("cls") is not None:
+            from topobathy.axes import CLASSES as _C
+            m = np.where(L["valid"] & ~np.isin(L["cls"], [_C["void"], _C["water"], _C["canopy"]]), m, 0.0)
         L["auto"] = m.astype(np.float32)
     cov = layers[0]["auto"] > 0
     for L in layers[1:]:
@@ -88,6 +107,38 @@ def post_masks(recipe, grid, layers, rules):
         raw = rules["masks"][i]; fix = ~cov & (raw > 0) & L["valid"]
         if fix.any():
             L["auto"] = np.where(fix, raw, L["auto"]).astype(np.float32); cov |= fix
+    # Feather underlay (Hig, 2026-10-14: no feathering where the Grewingk 2021 lidar drops off).  A
+    # feathered edge blends a layer with what is shown below it -- but the base is shown only where the
+    # rules took it, so beside a fallback the ramp sat over nothing, fold_step gave the layer the cell
+    # outright, and the edge stayed a hard step.  Where a layer's weight is partial and nothing below is
+    # shown, the nearest lower layer with data there is laid underneath at full weight -- only within
+    # reach of cells it took itself, so a fallback's hydroflattened lakes never slide in under a lake shore.
+    from scipy import ndimage
+    for i in range(1, len(layers)):
+        a = layers[i]["auto"]
+        need = (a > 0) & (a < 1)
+        if not need.any():
+            continue
+        for L in layers[:i]:
+            need &= ~(L["auto"] > 0)
+        fw = [kw.get("width_m", 0) for st in layers[i]["spec"].get("rules_post", post) for n_, kw in st.items() if n_ == "feather"]
+        reach = (max(fw) if fw else 20.0) + 2 * grid.res
+        for j in range(i - 1, -1, -1):
+            if not need.any():
+                break
+            took = rules["masks"][j] > 0
+            if not took.any():
+                continue
+            near = ndimage.distance_transform_edt(~took) * grid.res <= reach
+            # ...and only a cell the lower layer calls a SURFACE: "has data" admitted OCM's void-classed
+            # -0.54 m (its SDB value above the water cutoff) under a feathered edge at Bluff Point, shown at
+            # full weight 300 m offshore in a -4 m seabed (2026-10-16, the last layer of the "lump")
+            from topobathy.axes import CLASSES as _C
+            surf = layers[j]["valid"] if layers[j].get("cls") is None else \
+                (layers[j]["valid"] & ~np.isin(layers[j]["cls"], [_C["void"], _C["water"], _C["canopy"]]))
+            give = need & surf & near
+            if give.any():
+                layers[j]["auto"] = np.where(give, 1.0, layers[j]["auto"]).astype(np.float32); need &= ~give
 
 
 def build_window(recipe, grid, win, verbose=True, halo=None, obs_paint=True):
@@ -163,9 +214,23 @@ def _build_window(recipe, grid, win, verbose=True, obs_paint=True):
             for step in (cs if isinstance(cs, list) else []):     # $out/ paths in class steps (the fill's surface mask)
                 if "raster" in step and str(step["raster"].get("path", "")).startswith("$out/"):
                     step["raster"]["path"] = str(recipe.resolve(step["raster"]["path"]))
-            L["cls"] = axes.class_raster(L["spec"], L["z"], L["valid"], below, grid.res, L["info"], others, grid, win)
-            if obs_paint: _obs_paint(recipe, L, grid, win)
-            else: L["info"]["_cls"] = L["cls"]
+                if "fallback" in step and str(step["fallback"].get("bodies", "")).startswith("$out/"):
+                    step["fallback"]["bodies"] = str(recipe.resolve(step["fallback"]["bodies"]))
+                if "fallback" in step and str(step["fallback"].get("dry_void", "")).startswith("$out/"):
+                    step["fallback"]["dry_void"] = str(recipe.resolve(step["fallback"]["dry_void"]))   # the fill's dry voids
+                if "below_level" in step and str(step["below_level"].get("bodies", "")).startswith("$out/"):
+                    step["below_level"]["bodies"] = str(recipe.resolve(step["below_level"]["bodies"]))   # the water-bodies stage's out dir
+                if "blind_water" in step and str(step["blind_water"].get("bodies", "")).startswith("$out/"):
+                    step["blind_water"]["bodies"] = str(recipe.resolve(step["blind_water"]["bodies"]))   # the shoreline stage's water_blind.tif
+            steps = cs if isinstance(cs, list) else []
+            L["_defer"] = any("fallback" in st for st in steps)     # a fallback needs the others' classes (below)
+            if L["_defer"]:
+                L["cls"] = None
+            else:
+                L["cls"] = axes.class_raster(L["spec"], L["z"], L["valid"], below, grid.res, L["info"], others, grid, win)
+                _apply_class_void(L, grid.res)
+                if obs_paint: _obs_paint(recipe, L, grid, win)
+                else: L["info"]["_cls"] = L["cls"]
             for step in L["spec"].get("sigma", []):          # give raster steps the grid/window to read onto
                 if "raster" in step:
                     step["raster"]["path"] = str(recipe.resolve(step["raster"]["path"])); step["raster"]["_grid"] = grid; step["raster"]["_win"] = win
@@ -174,6 +239,15 @@ def _build_window(recipe, grid, win, verbose=True, obs_paint=True):
             L["date"] = axes.years(recipe.layer_date(L["spec"]))
             if "class_sigma_max" in L["spec"]: L["class_sigma_max"] = float(L["spec"]["class_sigma_max"])
             prov = L["z"].copy() if prov is None else fold_step(prov, L["z"], footprint(L["valid"]))
+        for L in layers:                                         # the deferred fallback layers, with the others' classes
+            if not L.get("_defer"):
+                continue
+            others = {M["name"]: (M["z"], M["valid"]) for M in layers if M is not L}
+            others_cls = {M["name"]: M["cls"] for M in layers if M is not L and M.get("cls") is not None}
+            L["cls"] = axes.class_raster(L["spec"], L["z"], L["valid"], L["below"], grid.res, L["info"], others, grid, win, others_cls)
+            _apply_class_void(L, grid.res)
+            if obs_paint: _obs_paint(recipe, L, grid, win)
+            else: L["info"]["_cls"] = L["cls"]
         if recipe.d.get("rules", "sequential") == "global":
             rules = axes.state_rules(layers, target, recipe.d.get("as_of"), recipe.d.get("rates"),
                                      recipe.d.get("sigma_max", 5.0), recipe.d.get("lowest_tol_m", 0.2))
@@ -302,6 +376,10 @@ def water_level_pins(recipe, grid, f=None, verbose=True):
 def apply_pins(recipe, pins):
     for lname, kind, idx, level in pins:
         spec = next(L for L in recipe.layers if L["name"] == lname)
+        if kind == "cond":            # a conditioned prior (topobathy/condition.py): residual on read, sigma from the raster
+            spec["_cond_dz"] = idx; spec["_prior"] = True
+            spec.setdefault("sigma", []).append({"raster": {"path": level}})
+            continue
         step = spec["class"][idx] if kind == "class" else spec["mask"]["auto"][idx]
         (name, kw), = step.items()
         kw["level"] = level
@@ -401,7 +479,8 @@ def _report(recipe, grid, acc, layers_meta, pins, seconds, axes_mode):
                built=time.strftime("%Y-%m-%dT%H:%M:%S"), seconds=round(seconds, 1),
                grid=dict(crs=str(grid.crs), res_m=grid.res, width=grid.width, height=grid.height, bounds=list(grid.bounds())),
                target=recipe.d.get("target"), as_of=recipe.d.get("as_of"),
-               water_levels=[dict(layer=l, kind=k, step=i, level_m=round(v, 3)) for l, k, i, v in pins],
+               water_levels=[dict(layer=l, kind=k, step=i, level_m=round(v, 3)) for l, k, i, v in pins if k != "cond"],
+               conditioning=(json.load(open(recipe.resolve("$out/condition.json"))) if any(k == "cond" for _, k, _, _ in pins) else {}),
                composite=dict(cells=acc["cells"], finite_km2=round(acc["finite"] * res2, 4),
                               fallback_km2=round(acc["fallback"] * res2, 4),
                               source_km2={**{names[i]: round(float(acc["source"][i]) * res2, 4) for i in range(len(names))},
@@ -522,10 +601,27 @@ def _tile_job(args):
         for L in layers:                                     # oldest first, so the newest water wins
             if L.get("cls") is None or L["spec"].get("optional"):
                 continue
+            if axes.is_prior(L["spec"]):
+                # a PRIOR's water level is no evidence (2026-10-23): 3DEP's hydroflattened 41.3 m stood in water_z
+                # wherever no survey saw water, inside Grewingk Lake at 48.9 -- the fill read it as the lake's own
+                # water and kept 41.3 m "lakes" there. A prior's water stays in its class raster and in the water
+                # stage's body levels (a lake only 3DEP saw keeps its level there), never in the observed surface.
+                continue
             m = (L["cls"] == _C["water"]) & L["valid"] & np.isfinite(L["z"])
             wz[m] = L["z"][m]
         slim[0]["rules"]["water_z"] = wz
     return box, out, slim, stats
+
+
+def _apply_class_void(L, res):
+    """A class step may find cells whose height is no longer the surface (axes.py raster step, ceiling_m: a water
+    stamp over an older survey's ice); they leave the layer entirely -- no height, no class -- so the stack sees a hole."""
+    vd = L["info"].pop("_void", None)
+    if vd is not None and vd.any():
+        L["valid"] &= ~vd
+        L["z"][vd] = np.nan
+        L["cls"][vd] = 0
+        L["info"]["void_by_class_km2"] = round(float(vd.sum()) * float(res) ** 2 / 1e6, 4)
 
 
 def cog_translate(src, dst, metadata, env=None):
@@ -551,6 +647,8 @@ def build_full(recipe, grid, tile=2048, jobs=4, diag=False, cog=True, verbose=Fa
     print(f"[{recipe.id}] grid {grid.width}x{grid.height} @ {grid.res} m, {len(names)} layers, "
           f"{'axes' if axes_mode else 'mask'} recipe -> {recipe.work_dir}")
     pins = water_level_pins(recipe, grid)
+    from topobathy.condition import condition_layers
+    pins = pins + condition_layers(recipe, grid)
     apply_pins(recipe, pins)
     boxes = [(int(w.row_off), int(w.row_off + w.height), int(w.col_off), int(w.col_off + w.width)) for w in tiles(grid, tile)]
     outputs = Outputs(recipe, grid, names, axes_mode, diag)
@@ -608,7 +706,8 @@ def cmd_build(a):
     win = parse_window(a.window, grid)
     print(f"[{recipe.id}] grid {grid.width}x{grid.height} @ {grid.res} m, window {win}")
     if a.pin:
-        pins = water_level_pins(recipe, grid); apply_pins(recipe, pins)
+        from topobathy.condition import condition_layers
+        pins = water_level_pins(recipe, grid) + condition_layers(recipe, grid); apply_pins(recipe, pins)
     out, layers = build_window(recipe, grid, win)
     out_path = a.out or f"{recipe.id}_window.tif"
     write_tif(out_path, out, grid, win)
@@ -797,19 +896,55 @@ def cmd_fill(a):
         with rasterio.open(out / "coverage.tif") as ds:
             outside = ds.read(1) == 0
     # idempotent: cells the fill layer itself won last time are holes again (never evidence)
-    fill_names = [L["name"] for L in recipe.d["layers"] if L.get("optional")]
-    if fill_names and (out / "source_index.tif").exists():
+    # ...by the RAW layer index: source_index was written by a build that had the fill layer, which Recipe drops
+    # from .layers while its file is absent (a crop cut from build 3, 2026-10-24: the old fill stood as observations)
+    si = None
+    if (out / "source_index.tif").exists():
         with rasterio.open(out / "source_index.tif") as ds:
             si = ds.read(1)
-        for nm in fill_names:
-            if nm in [L["name"] for L in recipe.layers]:
-                z[si == [L["name"] for L in recipe.layers].index(nm)] = np.nan
+    if si is not None:
+        for k_, L in enumerate(recipe.d["layers"]):
+            if L.get("optional"):
+                nf_ = int((si == k_).sum())
+                if nf_:
+                    z[si == k_] = np.nan; print(f"  a previous fill's cells are holes again: {nf_ * res * res / 1e6:.3f} km2")
+    # a MEASURED BED is bed to the fill, whatever the surface's class there (2026-10-21, joint pilot run 5, Hig: "the
+    # multibeam is not being joined into the process that makes the interpolated lake bottom"): class_now is the class
+    # of the cell NOW, and over Grewingk Lake the newest layer (the joint lidar, 2023-08) says water above the May 2023
+    # multibeam. Read as water-classed observations 10-25 m under the lake's level, the multibeam was dropped as "returns
+    # at the water level" (270,000 cells), the bed was modelled without it, and the build pasted it back over that bed
+    # in steps of several metres. The class the fill sees at an observed cell is the WINNING layer's when that is bed.
+    if si is not None:
+        nbed = 0
+        for k_, L in enumerate(recipe.layers):
+            cp = out / f"class_{L['name']}.tif"
+            if L.get("optional") or not cp.exists():
+                continue
+            won = (si == k_) & np.isfinite(z)
+            if not won.any():
+                continue
+            with rasterio.open(cp) as ds:
+                c_ = ds.read(1)
+            if c_.shape == cls.shape:
+                b_ = won & (c_ == CLASSES["bed"]) & (cls != CLASSES["bed"])
+                cls[b_] = CLASSES["bed"]; nbed += int(b_.sum())
+        if nbed:
+            print(f"  measured beds under a surface class (the winning layer's class is bed): {nbed * res * res / 1e6:.4f} km2 read as bed")
     params = dict(recipe.d.get("fill", {}))
     if a.param:
         for kv in a.param:
             k, v = kv.split("="); params[k] = float(v)
     print(f"[{recipe.id}] fill: {z.shape[1]}x{z.shape[0]} @ {res} m, holes {np.isnan(z).mean():.4f} of the grid; params {params}")
     params["_transform"] = prof["transform"]; params["_outside"] = outside
+    # the water bodies (stage B, topobathy/water.py): a wet domain takes its body's kind (a perched lagoon
+    # or a lake is not marine) and consensus level, and the edits' depths
+    from topobathy.water import load_bodies
+    B = load_bodies(out)
+    if B is not None:
+        from topobathy.shore import read_on_grid
+        bid = read_on_grid(B[0], prof, np.int32)   # a coarse lattice or a full-box raster: aligned by georeference
+        params["_bodies"] = (bid, B[1])
+        print(f"  water bodies: {len(B[1])} from {B[0]}")
     # the observed water surface (lake levels) and the surface cells judged last time: those are
     # water-classed holes now, so this pass cannot see them -- without carrying them over the next
     # build calls them ground again (Grewingk 2021's 50.14 m strips came back as pimples, 2026-10-12)
@@ -818,8 +953,75 @@ def cmd_fill(a):
             with rasterio.open(out / name) as ds:
                 arr = ds.read(1)
                 params[key] = (np.where(arr == ds.nodata, np.nan, arr).astype(np.float32) if key == "_water_z" else arr > 0)
+    # FLOATING ICE evidence (Hig, 2026-10-20, Grewingk Lake's bergs): how many survey layers saw LAND at each
+    # cell (ground, built, canopy, snow -- not ice, not water, not bed), and the hand-mapped islands. A raised
+    # patch out on a lake is an island only when a second layer or the map corroborates it; a berg is seen once.
+    land_codes = [CLASSES[k] for k in ("ground", "built", "canopy", "snow")]
+    land_n = np.zeros(z.shape, np.uint8)
+    for L in recipe.layers:
+        cp = out / f"class_{L['name']}.tif"
+        if L.get("optional") or not cp.exists():
+            continue
+        with rasterio.open(cp) as ds:
+            c_ = ds.read(1)
+        if c_.shape == z.shape:
+            lnd = np.isin(c_, land_codes)
+            sup = L.get("land_support")
+            if sup and os.path.exists(str(sup)):
+                # a POOLED layer (the joint point-cloud lidar, 2026-10-21) is several surveys in one class raster: it
+                # counts as the number of surveys that saw ground in the cell, not as one. Counted as one, every patch of
+                # ground out in Grewingk Lake's closed water was "seen by one survey only" -- 108 patches (gravel bars,
+                # the outlet's banks) were judged inside the lake's domain, which ran down the creek to the tide flats,
+                # and 126 were dropped as floating ice.
+                from rasterio.warp import reproject, Resampling
+                s_ = np.zeros(z.shape, np.float32)
+                with rasterio.open(sup) as ds:
+                    reproject(rasterio.band(ds, 1), s_, dst_transform=prof["transform"], dst_crs=prof["crs"],
+                              resampling=Resampling.max, dst_nodata=0)
+                land_n += np.where(lnd, np.clip(np.maximum(np.rint(s_), 1), 0, 255), 0).astype(np.uint8)
+            else:
+                land_n += lnd.astype(np.uint8)
+    params["_land_n"] = land_n
+    # a PRIOR's water level is no evidence (the skeleton, 2026-10-22): where a prior layer won the cell, its water value
+    # (3DEP's hydroflattened 41.3 m strip in Grewingk Lake at 48.9) must not read as a drop to the fill's split
+    pri = [k_ for k_, L in enumerate(recipe.layers) if axes.is_prior(L)]
+    if si is not None and pri:
+        params["_water_prior"] = np.isin(si, pri)
+        params["_prior_layers"] = [recipe.layers[k_]["name"] for k_ in pri]   # a body levelled by a prior alone has no level (fill.split_by_level)
+    from topobathy.shore import water_blind_mask
+    wb_ = water_blind_mask(recipe, prof, si, log=print)
+    # ...and the shoreline stage's own water_blind.tif, which also holds the observations the review called noise
+    # (tools/lidar/water/review.geojson, 2026-10-28): no observation inside the water, open space for the fill
+    if (out / "water_blind.tif").exists():
+        from topobathy.shore import read_on_grid
+        sb_ = read_on_grid(str(out / "water_blind.tif"), prof, np.int32) == 1
+        wb_ = sb_ if wb_ is None else (wb_ | sb_)
+    if wb_ is not None:
+        params["_water_blind"] = wb_                      # inside the water, a hole (fill.fill_holes)
+    wcfg = recipe.d.get("water") or {}
+    if wcfg.get("mapped"):
+        from topobathy.water import load_mapped
+        from rasterio import features as _rf
+        isl = [(f["geom"], 1) for f in load_mapped(wcfg["mapped"], prof["crs"]) if f["kind"] == "island"]
+        if isl:
+            params["_mapped_island"] = _rf.rasterize(isl, out_shape=z.shape, transform=prof["transform"], fill=0, dtype="uint8").astype(bool)
+        # lakes from a source that trusts its shoreline (sources.json "edge": "trusted"): inside, tall raised land is floating or
+        # ice-cored unless a mapped island; outside, it is shore or glacier (fill._mapped_lake_sides)
+        lk_ = [(f["geom"], 1) for f in load_mapped(wcfg["mapped"], prof["crs"]) if f["kind"] == "lake" and f.get("edge") == "trusted"]
+        if lk_:
+            params["_mapped_lake"] = _rf.rasterize(lk_, out_shape=z.shape, transform=prof["transform"], fill=0, dtype="uint8").astype(bool)
+            print(f"  trusted mapped shorelines: {len(lk_)} lake polygons, {int(params['_mapped_lake'].sum()) * res * res / 1e6:.2f} km2")
+    # the shoreline stage's products (topobathy/shore.py): the label and the level decide the shore in the fill
+    for key, name, dt in (("_shore_label", "shore_label.tif", np.uint8), ("_shore_level", "shore_level.tif", np.float32), ("_shore_slope", "shore_slope.tif", np.float32)):
+        if (out / name).exists():
+            with rasterio.open(out / name) as ds:
+                arr = ds.read(1)
+                params[key] = arr.astype(np.uint8) if dt is np.uint8 else np.where(arr == ds.nodata, np.nan, arr).astype(np.float32)
+    if "_shore_label" in params:
+        print(f"  shoreline stage: {out / 'shore_label.tif'} (and its level) decide the shore")
     R = FL.fill_holes(z, cls, res, CLASSES, params, log=print)
-    for k in ("_outside", "_transform", "_water_z", "_surface_prev"):
+    for k in ("_outside", "_transform", "_water_z", "_water_prior", "_water_blind", "_surface_prev", "_bodies", "_land_n", "_mapped_island", "_mapped_lake", "_ml_near",
+              "_shore_label", "_shore_level", "_shore_slope"):
         params.pop(k, None)
     if R.get("lakes"):
         T = prof["transform"]
@@ -838,6 +1040,12 @@ def cmd_fill(a):
             d.write(np.where(np.isfinite(arr), arr, nodata).astype(dtype) if dtype == "float32" else arr.astype(dtype), 1)
     w("fill.tif", R["fill"]); w("fill_prior.tif", R["prior"]); w("fill_sigma.tif", R["sigma"])
     w("fill_mask.tif", R["mask"], "uint8", 0, 2)
+    if R.get("ceiling") is not None:                                     # where the ceiling held the bed (1 fit, 2 guard): the flags read it
+        w("fill_ceiling.tif", R["ceiling"], "uint8", 0, 2)
+    if R.get("dryvoid") is not None:                                     # the dry domains left void: the fallback shows there (build 3)
+        w("fill_dryvoid.tif", R["dryvoid"].astype(np.uint8), "uint8", 0, 2)
+    if R.get("water_level") is not None:                                 # the level the fill used per wet cell (a lake's, a channel's
+        w("fill_water_level.tif", R["water_level"])                        # sloping surface, the tidal lens): water_surface.py's --wse
     # observations the fill judged to be the water surface (inside a lake, not bed, at the level):
     # survey layers read it as a class step ({"raster": {"path": "$out/fill_surface.tif",
     # "map": {"1": "water"}, "only": "ground"}}) so a stale "ground" there stops gating the fill out
@@ -852,6 +1060,32 @@ def cmd_fill(a):
                 sigma_p50=round(float(np.nanmedian(R["sigma"])), 2), domains=int(R["marine"].size), marine=int(R["marine"].sum()), seconds=round(time.time() - t0))
     (out / "fill.json").write_text(json.dumps(summ, indent=1))
     print(f"  {out / (recipe.id + '_filled.tif')}  {json.dumps(summ)}")
+
+
+def cmd_shore(a):
+    """Stage C (topobathy/shore.py): the shoreline as one model -- a level per water cell, land / water / floating /
+    glacier labels by a graph cut over the ambiguous band, the bank slope through the waterline, shoreline.geojson.
+    Needs build 2's composite and the water stage."""
+    from topobathy import shore as SH
+    recipe = Recipe(a.recipe)
+    if not (recipe.out_dir / f"{recipe.id}.tif").exists():
+        sys.exit(f"build first: {recipe.out_dir / (recipe.id + '.tif')} missing")
+    rep = SH.run(recipe, log=print)
+    return 0 if rep is not None else 1
+
+
+def cmd_water(a):
+    """Stage B (topobathy/water.py): per-survey water observations, the bodies they add up to with a
+    kind and a consensus level, the hand edits applied -- out/water_obs.geojson, water_bodies.{geojson,tif},
+    water.json.  Needs the per-layer class rasters of `build --diag`."""
+    from topobathy import water as W
+    recipe = Recipe(a.recipe); grid = recipe.grid()
+    edits = a.edits or str(Path(__file__).resolve().parent / "water" / "edits.geojson")
+    if a.coarse:
+        recipe.d.setdefault("water", {})["coarse"] = int(a.coarse)
+    print(f"[{recipe.id}] water bodies: grid {grid.width}x{grid.height} @ {grid.res} m; edits {edits}")
+    W.run(recipe, grid, edits_path=edits)          # None when no survey saw water: nothing to write, not a failure
+    return 0
 
 
 def cmd_publish(a):
@@ -889,9 +1123,14 @@ def main():
     ex = sp.add_parser("export-mask"); ex.add_argument("recipe"); ex.add_argument("--layer", required=True); ex.add_argument("--out", required=True)
     ex.add_argument("--which", default="effective", choices=["effective", "auto"])
     pb = sp.add_parser("publish"); pb.add_argument("recipe"); pb.add_argument("--write", action="store_true", help="add the entry to datasets.json")
+    sh = sp.add_parser("shore", help="the shoreline stage (stage C): level per water cell, land/water/floating/glacier labels, bank slope, shoreline.geojson (topobathy/shore.py)")
+    sh.add_argument("recipe")
+    wt = sp.add_parser("water", help="water bodies (stage B): per-survey observations, bodies with a kind and consensus level, edits (topobathy/water.py)")
+    wt.add_argument("recipe"); wt.add_argument("--edits", help="edits GeoJSON (default tools/lidar/water/edits.geojson)")
+    wt.add_argument("--coarse", type=int, help="read every Nth cell (auto when the grid is large)")
     a = p.parse_args()
     sys.exit({"build": cmd_build, "regress": cmd_regress, "masks": cmd_masks, "import-mask": cmd_import_mask,
-              "export-mask": cmd_export_mask, "publish": cmd_publish, "fill": cmd_fill}[a.cmd](a) or 0)
+              "export-mask": cmd_export_mask, "publish": cmd_publish, "fill": cmd_fill, "water": cmd_water, "shore": cmd_shore}[a.cmd](a) or 0)
 
 
 if __name__ == "__main__":

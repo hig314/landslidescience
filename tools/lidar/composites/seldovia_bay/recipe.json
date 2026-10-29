@@ -1,0 +1,261 @@
+{
+ "id": "seldovia_bay",
+ "dataset_id": "seldovia_bay_topobathy",
+ "title": "Outer Seldovia Bay topobathy patch (kelp in the green lidar), 2 m",
+ "region": "Kenai Peninsula",
+ "vertical_datum": "NAVD88 (GEOID12B, as the sources)",
+ "note": "Messy-data patch (Hig, 2026-10-15): the Seldovia 2019 NCMP green lidar reads the kelp canopy as seabed; the Hydropalooza multibeam under it is the bed. Rule, general: where the green lidar's bed stands more than 1 m above a bed reference it is classed canopy (axes snow_vs with only=bed, as=canopy), and a canopy class-now admits any survey's bed observation, so the multibeam shows through the kelp. Where no multibeam exists the kelp stays (no reference to judge it against). Land from the KBay 2023 reclass v2 with the whole-survey point classification (obs/kbay_2023_full). Box x 568-576 km, y 6587-6595 km, 2 m. First pass; see TOPOBATHY_REVIEW.md section 7.",
+ "grid": {
+  "epsg": 6334,
+  "res_m": 2.0,
+  "bounds": [
+   568000,
+   6587000,
+   576000,
+   6595000
+  ]
+ },
+ "target": "ground_current",
+ "as_of": "2023-08-01",
+ "rates": {
+  "ground": 0.01,
+  "bed": 0.02,
+  "ice": 3.0
+ },
+ "sigma_max": 5.0,
+ "rules": "sequential",
+ "margin_m": 0.0,
+ "rules_post": [
+  {
+   "despeckle": {
+    "min_area_m2": 2000
+   }
+  },
+  {
+   "feather": {
+    "width_m": 30
+   }
+  }
+ ],
+ "halo_px": 96,
+ "layers": [
+  {
+   "name": "ctx3dep",
+   "source": "/Volumes/Nunatak/lidar_build/ctx_3dep/all.vrt",
+   "date": "2012-07-01",
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/seldovia_bay/obs/water_3dep.tif",
+      "map": {
+       "1": "water"
+      }
+     }
+    },
+    {
+     "fallback": {
+      "except": [
+       "fill"
+      ],
+      "footprints": [
+       "/Volumes/Nunatak/lidar_build/obs/kbay_2023_full/blocks/b_567000_6586000/class.tif"
+      ],
+      "dry_void": "$out/fill_dryvoid.tif",
+      "bodies": "$out/water_bodies.tif"
+     }
+    }
+   ],
+   "sigma_m": 3.0,
+   "resample": "bilinear",
+   "notes": "USGS 3DEP 1/3 arc-second fallback, shown only where no survey has a cell (KBay's point footprint counts as flown). water_3dep.tif (topobathy/flat_water.py, built by the chain): 3DEP's hydroflattened lakes as water, so a lake outside every survey gets a basin and 3DEP never stands as ground inside one."
+  },
+  {
+   "name": "ncei2010",
+   "condition": {
+    "against": [
+     "bathy2009",
+     "seldovia2019",
+     "ocm2023"
+    ],
+    "length_m": 500
+   },
+   "source": "/Volumes/Nunatak/lidar_build/bathy_src/outer_kachemak/grids/ncei_kachemak_13_mhw.tif",
+   "date": "2010-07-01",
+   "shift_m": 3.91,
+   "sigma_m": 3.0,
+   "resample": "bilinear",
+   "class": [
+    {
+     "default": "bed"
+    },
+    {
+     "below_level": {
+      "level": -1.38,
+      "as": "bed",
+      "else": "void",
+      "bodies": "$out/",
+      "intertidal": "void",
+      "fresh": "void"
+     }
+    }
+   ],
+   "notes": "NCEI Kachemak Bay 1/3 arc-second 2010 grid, MHW +3.91 m to NAVD88 (bathy_src/outer_kachemak/README.md); bed only below MLLW. A gridded prior: void inside the intertidal zone (tidal lens, 2026-10-16)."
+  },
+  {
+   "name": "ocm2023",
+   "condition": {
+    "against": [
+     "bathy2009",
+     "seldovia2019"
+    ],
+    "length_m": 500
+   },
+   "source": "/Volumes/Nunatak/lidar_build/bathy_src/outer_kachemak/cmp_ocm/cand_2m.tif",
+   "date": "2019-07-01",
+   "date_note": "published 2023; its bathymetry here is the 2018/2019 green lidar plus interpolation (DPR: 81 % GMT surface), and a conditioned prior must not post-date its references",
+   "sigma_m": 1.0,
+   "resample": "bilinear",
+   "class": [
+    {
+     "default": "bed"
+    },
+    {
+     "below_level": {
+      "level": -1.38,
+      "as": "bed",
+      "else": "void",
+      "bodies": "$out/",
+      "intertidal": "void",
+      "fresh": "void"
+     }
+    }
+   ],
+   "notes": "NOAA OCM 2023 seamless 2 m (satellite-derived bathymetry in the shallows), -novshift warp from cmp_ocm; sigma 1.0; bed only below MLLW. A gridded prior: void inside the intertidal zone (tidal lens, 2026-10-16)."
+  },
+  {
+   "name": "bathy2009",
+   "source": "kachemak_bathy_2009",
+   "date": "2009-07-01",
+   "sigma_m": 0.5,
+   "class": "bed",
+   "notes": "Hydropalooza multibeam, NAVD88 in the archive. The bed reference for the kelp test."
+  },
+  {
+   "name": "seldovia2019",
+   "source": "seldovia_2019",
+   "date": "2019-07-01",
+   "sigma_m": 0.3,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "below_level": {
+      "level": -1.38,
+      "as": "bed",
+      "else": "ground",
+      "bodies": "$out/"
+     }
+    },
+    {
+     "snow_vs": {
+      "ref": "bathy2009",
+      "dz_m": 1.0,
+      "smooth_m": 10,
+      "rough_ratio": 99.0,
+      "min_area_m2": 100,
+      "only": "bed",
+      "as": "canopy"
+     }
+    }
+   ],
+   "notes": "USACE NCMP 2019 topobathy bare earth, 1 m, +1.42 m xGEOID17B correction in the archive. Bed below MLLW, ground above. KELP: a bed cell more than 1 m above the 2009 multibeam, averaged over 10 m, in patches >= 100 m2, is canopy (rough_ratio 99 disables the smoothness test: kelp is rougher than the bed, not smoother). Sigma 0.3 for both land and bed in this first pass."
+  },
+  {
+   "name": "kbay2023",
+   "source": "kbay_2023_reclass_v2",
+   "date": "2023-08-01",
+   "sigma_m": 0.15,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/obs/kbay_2023_full/blocks/b_567000_6586000/class.tif",
+      "codes": true
+     }
+    },
+    {
+     "islets": {
+      "max_m2": 50,
+      "ring_m": 3,
+      "ring_frac": 0.8
+     }
+    },
+    {
+     "flat_lakes": {
+      "rough_m": 0.03,
+      "win_m": 14,
+      "min_area_m2": 2000,
+      "ring_m": 10,
+      "rim_dz_m": 0.1,
+      "ring_frac": 0.65,
+      "only": [
+       "ground",
+       "void"
+      ],
+      "as": "water",
+      "open_px": 1,
+      "close_px": 2,
+      "range_m": 0.3,
+      "slope_max": 0.01,
+      "range_void_m": 1.0,
+      "density": {
+       "path": "/Volumes/Nunatak/lidar_build/obs/kbay_2023_full/cellstats.vrt",
+       "band": 1,
+       "sparse_n": 8,
+       "min_frac": 0.5,
+       "notes": "n_all per 2 m cell from observe_points stats: a patch must be mostly sparse (<= 8 returns) to be a lake; a wet mudflat returns like dry ground"
+      },
+      "mapped": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/sources.json",
+      "mapped_min_area_m2": 100
+     }
+    }
+   ],
+   "notes": "KBay 2023/24 reclass v2 with the whole-survey point classification (observe_points classify over obs/kbay_2023_full, 2026-10-15): void where the laser got nothing back, water where the reclass holds the sea at its level, built for roofs. flat_lakes (2026-10-15): a ground patch flat to 3 cm over 14 m, >= 2000 m2, lower than 60 % of a 10 m ring by 0.1 m, is water at its level (the lakes with no water returns, TOPOBATHY_REVIEW 8.1)."
+  },
+  {
+   "name": "fill",
+   "optional": true,
+   "source": "$out/fill.tif",
+   "date": "2023-08-01",
+   "class": "modelled",
+   "sigma_m": 1.0,
+   "sigma": [
+    {
+     "raster": {
+      "path": "$out/fill_sigma.tif"
+     }
+    }
+   ],
+   "rules_post": []
+  }
+ ],
+ "fill": {
+  "low_tide_m": -1.38,
+  "close_m": 60,
+  "marine_rim_max_m": 6.0,
+  "fill_margin": true,
+  "notes": "low_tide_m = MLLW in NAVD88 (-1.38 m), not a flight-day tide. tidal_lens (default): marine domains take the observed water surface as the bed, no low-tide floor, no channel by width; measured beds under it (multibeam, green-lidar returns, soundings) still condition it."
+ },
+ "water": {
+  "notes": "stage B (topobathy/water.py): per-survey water observations and bodies; a lake's or a perched lagoon's own level is the bed cutoff in the below_level steps (bodies: $out/), and the fill takes the body's kind. Chain: build --diag -> water -> build -> fill -> build. Tidal lens (Hig, 2026-10-16): water the tide reaches (kinds sea/tidal/perched) is a flat at its observed surface until measured; intertidal.tif = those bodies + within intertidal_near_m of ground/water observed between the fill's low_tide_m and tide_max_m, where the priors (ncei2010, ocm2023) are void.",
+  "mapped": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/sources.json",
+  "mapped_notes": "Hig's hand-mapped lakes (water/sources.json): a prior for the flat-lake detector (inside a mapped polygon: min area 100 m2, no ring test), islands for the hole rule, and the mapped-vs-bodies report; never a stamp.",
+  "intertidal_near_m": 100
+ }
+}

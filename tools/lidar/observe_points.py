@@ -53,6 +53,13 @@ SURVEYS = {
                      index="/Volumes/Nunatak/lidar_build/kbay_reclass_test/grewingk_2021/las_index/data/lidar_las_index/rdf2023-2-grewingk-lidar-2021-las-index.shp",
                      decimate=4,            # every 4th point of ~33/m2
                      date="2021-10-12"),
+    # Kenai 2008 (USGS 3DEP AK_Kenai_2008, Aero-Metric, May-Sep 2008): the local EPT mirror, EPSG:3857, Z metres
+    # NAVD88 (verified 2026-09-12 against Homer 2019).  Vendor classes (LAS 1.1, non-standard): 2 ground, 7 / 10
+    # noise, 11 first-and-only, 13 / 14 / 15 first / second / third of many, 16 last of many -- 11-16 are mapped to
+    # 1 (unclassified) so the bins read them as "not ground".  NO water class: water is found from the evidence
+    # (rules_kenai2008).  ~1.2-1.7 returns/m2, not thinned.  Read in `chunk_m` squares (the "tiles" here).
+    "kenai2008": dict(kind="ept", ept="/Volumes/Nunatak/lidar_src/kenai_2008/ept/ept.json", chunk_m=2000, threads=2,
+                      remap={"11:16": 1}, date="2008-06-01"),
 }
 
 # LAS 1.4 point data record format 6: 30 bytes
@@ -79,9 +86,23 @@ def read_las_pf6(path):
 
 # --------------------------------------------------------------- tiles
 
+# Footprints of index tiles over the box that are not on disk (filled by tiles_for, written to cellstats.json):
+# a cell there has no returns because nobody fetched them, not because the laser saw water.  Grewingk's first
+# class raster (2026-10-11) was built before the north tiles arrived and its "no returns + flat DTM = water" rule
+# turned the outwash gravels north of y 6610.5 km into ponds (Hig, 2026-10-14).  classify voids these cells.
+MISSING_BOXES = []
+
+
 def tiles_for(survey, box):
     s = SURVEYS[survey]
     x0, y0, x1, y1 = box
+    if s["kind"] == "ept":                       # chunks of the box, named by their corner: "ept_<x0>_<y0>_<x1>_<y1>"
+        c = float(s["chunk_m"]); out = []
+        xs = np.arange(x0, x1, c); ys = np.arange(y0, y1, c)
+        for cx in xs:
+            for cy in ys:
+                out.append(f"ept_{int(cx)}_{int(cy)}_{int(min(cx + c, x1))}_{int(min(cy + c, y1))}")
+        return out
     if s["kind"] == "copc":
         idx = json.loads(Path(s["index"]).read_text())
         return [str(Path(s["tiles"]) / k) for k, v in idx.items()
@@ -96,6 +117,8 @@ def tiles_for(survey, box):
             continue
         p = Path(s["tiles"]) / ft["properties"]["FileName"].replace(".las", ".laz")
         (out if p.exists() else missing).append(str(p))
+        if not p.exists():
+            MISSING_BOXES.append([min(xs), min(ys), max(xs), max(ys)])
     if missing:
         print(f"  {len(missing)} Grewingk tiles over the box are NOT local (fetch with kbay_reclass_test/grewingk_2021/fetch_one.sh): "
               + ", ".join(Path(m).name for m in missing[:8]) + (" ..." if len(missing) > 8 else ""), file=sys.stderr)
@@ -105,7 +128,16 @@ def tiles_for(survey, box):
 def _pipeline(survey, tile, box, dst):
     s = SURVEYS[survey]
     x0, y0, x1, y1 = box
-    if s["kind"] == "copc":
+    if s["kind"] == "ept":
+        a0, b0, a1, b1 = (int(v) for v in Path(tile).name.split("_")[1:5])
+        stages = [{"type": "readers.ept", "filename": s["ept"], "threads": s.get("threads", 2),
+                   "bounds": f"([{a0 - 5},{a1 + 5}],[{b0 - 5},{b1 + 5}])/EPSG:{EPSG}"},
+                  {"type": "filters.range", "limits": "Classification![7:7],Classification![10:10]"}]
+        for rng, code in (s.get("remap") or {}).items():
+            stages.append({"type": "filters.assign", "value": f"Classification = {code} WHERE Classification >= {rng.split(':')[0]} && Classification <= {rng.split(':')[1]}"})
+        stages += [{"type": "filters.reprojection", "out_srs": f"EPSG:{EPSG}"},
+                   {"type": "filters.crop", "bounds": f"([{a0},{a1}],[{b0},{b1}])"}]
+    elif s["kind"] == "copc":
         stages = [{"type": "readers.copc", "filename": tile, "resolution": s["resolution"], "bounds": f"([{x0},{x1}],[{y0},{y1}])"}]
     else:
         stages = [{"type": "readers.las", "filename": tile}, {"type": "filters.decimation", "step": s["decimate"]},
@@ -221,7 +253,7 @@ def cmd_stats(a):
             ds.write(bands[k], i); ds.set_band_description(i, k)
     meta = dict(survey=a.survey, date=SURVEYS[a.survey]["date"], bounds=box, res_m=res, tiles=len(tiles), bands=BANDS,
                 thinning=SURVEYS[a.survey].get("resolution", SURVEYS[a.survey].get("decimate")), seconds=round(time.time() - t0),
-                points=int(acc["n_all"].sum()))
+                points=int(acc["n_all"].sum()), missing_boxes=MISSING_BOXES)
     (out / "cellstats.json").write_text(json.dumps(meta, indent=1))
     cov = (acc["n_all"] > 0).mean()
     print(f"wrote {out / 'cellstats.tif'}: {meta['points']:,} points, {cov:.3f} of cells with returns, {meta['seconds']}s")
@@ -338,15 +370,18 @@ def rules_grewingk(B, res, dtm=None, fill=None, aux=None):
         sizes = ndimage.sum(np.ones_like(lab), lab, np.arange(1, k + 1))
         unc &= ~np.isin(lab, np.flatnonzero(sizes * res * res < 2000) + 1)
     c[unc & (c == CLASSES["ground"])] = CLASSES["snow"]
-    # nothing but noise, or nothing at all: void -- unless the DTM there is flat at region
-    # scale (hydroflattened water: roughness < 0.05 m over 5x5, opened, blobs >= 2000 m2)
+    # nothing but noise, or nothing at all: void -- unless the DTM there is LEVEL (the vendor
+    # hydroflattened it: one constant per lake, 3x3 range < 0.02 m, opened, blobs >= 2000 m2).
+    # Level, not smooth (2026-10-15, TOPOBATHY_REVIEW.md L4): "roughness < 0.05 over 5x5" also
+    # passed the vendor's 35-46 deg TIN planes bridging return-free slopes -- ten false lakes in
+    # the Grewingk box.  A level patch is water whether or not it has returns (a lake with
+    # returns in 13 % of its cells was still flattened; returns off calm water are not ground).
     empty = has_dtm & (real == 0)
     c[empty] = CLASSES["void"]
     if dtm is not None:
-        d = np.where(has_dtm, dtm, np.nan)
-        rough = np.abs(d - ndimage.uniform_filter(np.nan_to_num(d), 5))
-        flat = empty & (rough < 0.05)
-        flat = ndimage.binary_opening(flat, iterations=1)
+        d = np.where(has_dtm, dtm, np.nan); dz = np.nan_to_num(d, nan=-1e5)
+        level = has_dtm & (ndimage.maximum_filter(dz, 3) - ndimage.minimum_filter(dz, 3) < 0.02)
+        flat = ndimage.binary_opening(level, iterations=1)
         lab, k = ndimage.label(flat)
         if k:
             sizes = ndimage.sum(np.ones_like(lab), lab, np.arange(1, k + 1))
@@ -381,6 +416,14 @@ def cmd_classify(a):
             r, v = read_geo(path, grid, grid.full(), "nearest")
             aux[key] = (v & (np.rint(r) == 1)) if kind == "mask" else np.where(v, r, np.nan)
     c = RULES[rules](B, res, dtm, fill, aux)
+    if meta.get("missing_boxes"):
+        # tiles not fetched when the stats ran: no returns there is no evidence of anything -- void, never water
+        from rasterio import features as _ft
+        from shapely.geometry import box as _box
+        miss = _ft.rasterize([_box(*b) for b in meta["missing_boxes"]], out_shape=c.shape, transform=transform, fill=0,
+                             default_value=1, dtype="uint8").astype(bool) & (B["n_all"] <= 0)
+        c[miss] = 0
+        print(f"  {len(meta['missing_boxes'])} tiles were missing: {miss.sum() * res * res / 1e6:.3f} km2 voided")
     prof.update(count=1, dtype="uint8", nodata=255, predictor=2)     # 0 is a real class (void), so nodata is 255
     with rasterio.open(out / "class.tif", "w", **prof) as ds:
         ds.write(c, 1)

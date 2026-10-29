@@ -1,0 +1,101 @@
+{
+ "type": "FeatureCollection",
+ "name": "water_edits",
+ "meta": {
+  "what": "Hand facts about water bodies, applied by `composite.py water` (topobathy/water.py) to every composite whose grid holds them. Matched BY LOCATION: a Point to the body holding it (or the nearest within 50 m), a Polygon to the bodies it covers by half. Stable across builds and ids.",
+  "properties": {
+   "id": "short unique tag",
+   "kind": "sea | tidal | perched | lake | river | ephemeral -- overrides the observations' kind (noted in water.json when they disagree)",
+   "level_m": "the body's water level, NAVD88 m -- overrides the consensus",
+   "dmax_m": "the deepest depth below the level, m -- the fill's lake basin takes it instead of its estimate",
+   "hypsometry": "depths at evenly spaced area fractions, shallow to deep (fill: the lake's area-depth distribution)",
+   "who / date / why": "provenance; `why` is carried into the body's notes",
+   "withdrawn": "set when the fact no longer stands (who, date, why); a withdrawn edit stays in the file as the record and is not applied"
+  },
+  "see": "TOPOBATHY_PLAN.md, 'Water bodies (stage B)'"
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "id": "seldovia_lagoon_pool",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -151.75007,
+     59.44675
+    ]
+   },
+   "properties": {
+    "id": "seldovia_lagoon_pool",
+    "kind": "perched",
+    "dmax_m": 1.0,
+    "who": "Hig",
+    "date": "2026-10-15",
+    "why": "The pool in this lagoon is very shallow, likely ~1 m; consistent with extrapolating the shoreline of the pool. The v1/v2 composites carved 4-5 m under it (OCM values under the water admitted as bed below MLLW only, the rest a tidal channel by width).",
+    "withdrawn": "Hig 2026-10-16: the raw KBay surface over the 'pool' is pretty good; it may not have been a pool at all, just mud so flat and wet you could not tell standing in it. The ~1 m was a guess. Under the tidal lens the observed surface is the surface, and this edit would carve a basin into it."
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "grewingk_lake_depth",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -151.10408,
+     59.60456
+    ]
+   },
+   "properties": {
+    "id": "grewingk_lake_depth",
+    "kind": "lake",
+    "dmax_m": 150.0,
+    "level_m": 48.91,
+    "who": "Hig",
+    "date": "2026-10-13",
+    "why": "Grewingk Lake is ~150 m deep in the middle (Hig 2026-10-13); level 48.91 m = the 12 Oct 2021 lidar water surface (48.55 m) raised 0.36 m with that lidar (the Grewingk recipe's level). Moved from the Grewingk recipe's fill.lake_dmax to an edit, 2026-10-18."
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "emerald_lake_hypsometry",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -151.06559,
+     59.62727
+    ]
+   },
+   "properties": {
+    "id": "emerald_lake_hypsometry",
+    "kind": "lake",
+    "dmax_m": 51.6,
+    "hypsometry": [
+     0.0,
+     6.1,
+     9.1,
+     10.3,
+     11.1,
+     12.9,
+     15.4,
+     16.9,
+     18.7,
+     20.4,
+     22.7,
+     26.0,
+     28.5,
+     29.8,
+     32.9,
+     35.1,
+     37.9,
+     41.4,
+     48.5,
+     49.3,
+     51.6
+    ],
+    "who": "Hig",
+    "date": "2026-10-14",
+    "why": "Emerald Lake (Hig 2026-10-14): the NAU sounder data (Emerald_Bathy_Merged.csv, 3,317 points, via Ed Berg 2017) is likely corrupted, so it does NOT condition the bed: used only for the deepest depth (51.6 m) and the hypsometry -- depths at area fractions 0, 0.05 .. 1 of the lake, each 3DEP lake cell taking the median depth of the nearest 10 m sounding cell (tracks ~60 m apart; 92 % of the lake within 60 m of one), shore set to 0. Moved from the Grewingk recipe's fill.lake_dmax to an edit, 2026-10-24 (joint_v3 run 18 had no basin for it: the lake read 1.7 m deep off the SfM's surface)."
+   }
+  }
+ ]
+}
