@@ -595,7 +595,13 @@
      "water": [
       9
      ],
-     "date": "2008-06-01"
+     "date": "2008-06-01",
+     "water_raster": {
+      "path": "/Volumes/Nunatak/lidar_build/obs/kenai_2008/class.vrt",
+      "water": [
+       2
+      ]
+     }
     },
     {
      "name": "homer2019",
@@ -617,7 +623,8 @@
      "date": "2019-06-15"
     }
    ]
-  }
+  },
+  "derived_fine_m": 10.0
  },
  "shore": {
   "glaciers": "/Volumes/Nunatak/permafrost_src/glaciers/AK_2020_overall_glacier_covered_area.shp",

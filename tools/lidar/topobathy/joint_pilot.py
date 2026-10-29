@@ -283,8 +283,20 @@ def do_unit_spec(args):
             col = np.clip(((p['x'] - b[0]) // 1).astype(int), 0, v.shape[1] - 1); row = np.clip(((b[3] - p['y']) // 1).astype(int), 0, v.shape[0] - 1)
             gm &= np.abs(p['z'] - v[row, col]) <= float(g.get('tol_m', 0.25))
         wm = np.isin(p['c'], s.get('water', [9]))
+        # a survey whose classes carry no water (Kenai 2008) takes its validated per-cell water classification
+        # (water_raster: water_taught.py's class.vrt, 2 = water; held-out precision 0.97): ground returns in a cell the
+        # model calls water are WATER returns (2026-10-29, Bluff Point: its sea-surface returns at -0.8 m stood as
+        # land, one a cell, between the bed at -6 m -- the pimples and the chaotic terrain)
+        if s.get('water_raster'):
+            wr = s['water_raster']
+            with rasterio.open(wr['path']) as r:
+                cv = r.read(1, window=from_bounds(*b, r.transform), boundless=True, fill_value=0, out_shape=(H, W))
+            col = np.clip(((p['x'] - b[0]) // 1).astype(int), 0, W - 1); row = np.clip(((b[3] - p['y']) // 1).astype(int), 0, H - 1)
+            inw = np.isin(cv[row, col], wr.get('water', [2]))
+            info.setdefault(n, {})['taught_water'] = int((gm & inw).sum())
+            wm = wm | (gm & inw); gm = gm & ~inw
         G = grid(p, gm, wm, b, H, W); _savez(d / f'{n}.npz', G)
-        info[n] = dict(points=int(len(p['z'])), ground=int(gm.sum()), water=int(wm.sum()), tiles=len(ts))
+        info[n] = dict(info.get(n, {}), points=int(len(p['z'])), ground=int(gm.sum()), water=int(wm.sum()), tiles=len(ts))
         if s.get('bed'):
             bm = np.isin(p['c'], s['bed'])
             if bm.any():

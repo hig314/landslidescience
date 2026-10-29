@@ -55,7 +55,7 @@ from scipy import ndimage
 
 CLS = {"void": 0, "ground": 1, "water": 2, "bed": 3, "ice": 4}
 DEFAULTS = dict(res_m=1.0, pool_years={"ground": 5.0, "bed": 30.0, "ice": 0.5}, rates={"ground": 0.01, "bed": 0.02, "ice": 3.0}, tol_m=0.15, tol_low_m=1.0, xc_sigma_m=2.0, xc_minw=1.5,
-                over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, surf_near_m=30.0,
+                over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, derived_fine_m=0.0, derived_fine_frac=0.05, surf_near_m=30.0,
                 sigma_floor_m=0.03, gap_m=2.0, wet_m=15.0, steep_deg=20.0, prior_slope_res_m=5.0, hole_rim_tol_m=1.0, grid_wc=0.1, grid_better=0.75,
                 lidar_sigma_m=0.08, grid_xy_sigma_m=0.0, align_min_cells=1000)
 
@@ -491,6 +491,24 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             var_c = np.maximum(qs / np.maximum(ds, 1e-12) - (ns / np.maximum(ds, 1e-12)) ** 2, 0.0)
             s_c = np.sqrt(var_c)
             F = _up(F_c.astype(np.float32)); s_ = _up(s_c.astype(np.float32))
+            # 2c. the FINE stage (2026-10-29, Bluff Point: Homer 2018's green-lidar bed in 12 % of cells, 2 points each,
+            # stood 1-1.5 m proud of NCEI's 10 m cells between them -- spikes at the survey's margin; the 150 m field
+            # cannot fit a residual that changes over tens of metres). What remains at the measured cells after the
+            # coarse field is spread over derived_fine_m (normalised Gaussian at full resolution) and applied with a
+            # weight that is 1 among the measured cells and fades to 0 a few sigma away: the compilation passes
+            # THROUGH sparse measured points instead of standing beside them, and is untouched far from them.
+            kf = float(cfg.get("derived_fine_m", 0.0))
+            if kf > 0:
+                sf = kf / res
+                rres = np.where(den > 0, num / np.maximum(den, 1e-12) - F, 0.0).astype(np.float32)
+                wf = (den > 0).astype(np.float32)
+                nf = ndimage.gaussian_filter(rres * wf, sf); df = ndimage.gaussian_filter(wf, sf)
+                conf = np.clip(df / max(float(cfg.get("derived_fine_frac", 0.05)), 1e-6), 0.0, 1.0)   # 1 where >= 5 % of the kernel is measured
+                Ff = np.where(df > 1e-6, nf / np.maximum(df, 1e-6), 0.0) * conf
+                F = (F + Ff).astype(np.float32)
+                rep.setdefault("derived_fine", {})[n] = dict(fine_m=kf, applied_km2=round(float((np.abs(Ff) > 0.05).sum()) * res * res / 1e6, 3),
+                                                            p5_95=[round(float(v), 2) for v in np.percentile(Ff[np.abs(Ff) > 0.05], [5, 95])] if (np.abs(Ff) > 0.05).any() else [0, 0])
+                del rres, wf, nf, df, conf, Ff
             has = np.isfinite(Z[n])
             Z[n] = np.where(has, Z[n] + F, np.nan).astype(np.float32)
             SG[n] = np.where(has, np.hypot(np.nan_to_num(SG[n], nan=S[n].sigma_m), s_), SG[n]).astype(np.float32)

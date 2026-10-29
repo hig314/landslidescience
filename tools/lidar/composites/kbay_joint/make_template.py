@@ -49,7 +49,8 @@ j['units'] = dict(out=UNITS, buf=30, workers=4, surveys=[
          drop=[7, 18, 23], ground=dict(classes=[2]), water=[9], bed=[29], date='2019-07-17'),
     # Kenai 2008, our PTD reclassification in 2 km tiles named by their corner; the USGS classes carry no water
     dict(name='kenai2008', reader='las', tiles='/Volumes/Powder/lidar_build/kenai_2008/classified', glob='t_*.laz',
-         index=dict(regex=r't_(\d+)_(\d+)', size_m=2000), drop=[7, 18], ground=dict(classes=[2]), water=[9], date='2008-06-01'),
+         index=dict(regex=r't_(\d+)_(\d+)', size_m=2000), drop=[7, 18], ground=dict(classes=[2]), water=[9], date='2008-06-01',
+         water_raster=dict(path=f'{NUN}/obs/kenai_2008/class.vrt', water=[2])),
     dict(name='homer2019', reader='las', tiles='/Volumes/Nunatak/lidar_build/homer_2019_pc/laz/dds4/homer_2019/laz', glob='pt*.laz',
          drop=[7, 18], ground=dict(classes=[2]), water=[9], date='2019-06-15'),
 ])
@@ -85,6 +86,7 @@ j['vintage'] = [
     dict(name='floodplain', allow='newest', floodplain=dict(chan=f'{SEEDS}/chan.tif', eta=f'{SEEDS}/eta.tif', hand_m=3.0, veg_m=1.0, dist_m=600.0)),
     dict(name='beach', allow='newest', beach=dict(sea=f'{SEEDS}/sea.tif', dilate_m=20.0, zmax_m=8.0)),
 ]
+j['derived_fine_m'] = 10.0   # the fine calibration stage (joint.py 2c): a compilation passes through sparse measured beds (Bluff Point, 2026-10-29)
 j['notes'] = 'BAY_SOURCES.md 2026-10-29. Lidar from the shared units cache (joint_pilot.py units --recipe), grids as observations.'
 t['joint'] = j
 
