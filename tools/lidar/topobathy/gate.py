@@ -46,6 +46,11 @@ class Win:
         return (self.d / name).exists()
 
     def __getitem__(self, name):
+        if name == "joint_v3.tif" and not self.has(name):         # the product is <id>.tif (2026-10-29: the bay boxes)
+            prod = [p for p in self.d.glob("*.tif") if p.stem == self.d.parent.name or p.stem == self.d.parent.name.split("/")[-1]]
+            if not prod and self.d.name.startswith("out_"):
+                prod = [p for p in self.d.glob("*.tif") if p.stem == self.d.parent.name]
+            if prod: name = prod[0].name
         if name not in self._c:
             with rasterio.open(self.d / name) as s:
                 if self.x is None:
