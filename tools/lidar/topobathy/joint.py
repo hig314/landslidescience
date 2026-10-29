@@ -155,7 +155,10 @@ def obs_lidar(s: Source, win, res, cfg):
         files = sorted(p.glob("u_*/" + s.d.get("unit_file", f"{s.name}.npz")))
         if not files: return None
         for f in files:
-            _, ux, uy = f.parent.name.split("_"); b = (int(ux) * 1000, int(uy) * 1000); g = np.load(f); buf = s.d.get("unit_buf", 30)
+            _, ux, uy = f.parent.name.split("_"); b = (int(ux) * 1000, int(uy) * 1000)
+            if b[0] >= win[2] or b[0] + 1000 <= win[0] or b[1] >= win[3] or b[1] + 1000 <= win[1]:
+                continue                                             # a unit of another box (the units cache is shared)
+            g = np.load(f); buf = s.d.get("unit_buf", 30)
             _paste(o, {k: g[k][buf:buf + 1000, buf:buf + 1000] for k in o}, (b[0], b[1], b[0] + 1000, b[1] + 1000), win, res)
     else:
         g = np.load(p); gb = tuple(g["bounds"]) if "bounds" in g else tuple(s.d["bounds"])
@@ -277,7 +280,8 @@ def vintage_map(vint, obs, srcs, win, res, epsg, cfg, rep):
     """uint8 zone code per cell (0 pooled, k = the k-th vintage entry); zone k allows only entry k's sources."""
     H, W = win_shape(win, res); V = np.zeros((H, W), np.uint8); rep["vintage_km2"] = {}
     byname = {s.name: i for i, s in enumerate(srcs)}
-    for k, e in enumerate(vint, 1):
+    out = []                                                     # the entries as applied (an "allow": "newest" entry expands)
+    for e in vint:
         if "mask" in e:
             m = np.nan_to_num(read_to(e["mask"], win, res, epsg, "nearest"), nan=0) > 0
         elif "floodplain" in e:
@@ -285,9 +289,23 @@ def vintage_map(vint, obs, srcs, win, res, epsg, cfg, rep):
         elif "beach" in e:
             m = _beach(e["beach"], obs, srcs, byname, win, res, epsg)
         else:
-            raise ValueError(f"vintage entry {k}: mask | floodplain | beach")
-        V[m] = k; rep["vintage_km2"][e.get("name", f"zone{k}")] = round(float(m.sum()) * res * res / 1e6, 3)
-    return V
+            raise ValueError(f"vintage entry {e.get('name')}: mask | floodplain | beach")
+        if e.get("allow") == "newest":
+            # (2026-10-29, the whole bay) the zone takes, cell by cell, the NEWEST lidar survey that has ground there:
+            # one zone per survey in date order, each over the cells the newer ones left. Cells no lidar saw stay pooled.
+            lid = sorted([s for s in srcs if s.kind == "lidar" and obs.get(s.name) is not None and np.isfinite(s.date)],
+                         key=lambda s: -s.date)
+            left = m & (V == 0)
+            for s in lid:
+                mk = left & np.isfinite(obs[s.name]["z_g"])
+                if not mk.any(): continue
+                k = len(out) + 1; V[mk] = k; left &= ~mk
+                out.append(dict(e, name=f"{e.get('name', 'zone')}_{s.name}", allow=[s.name]))
+                rep["vintage_km2"][out[-1]["name"]] = round(float(mk.sum()) * res * res / 1e6, 3)
+        else:
+            k = len(out) + 1; V[m] = k; out.append(e)
+            rep["vintage_km2"][e.get("name", f"zone{k}")] = round(float(m.sum()) * res * res / 1e6, 3)
+    return V, out
 
 
 def _solid_z(obs, srcs, order):
@@ -310,10 +328,17 @@ def _floodplain(p, obs, srcs, byname, win, res, epsg):
     seed = chan & np.isfinite(eta)
     if not seed.any(): return np.zeros(chan.shape, bool)
     idx = ndimage.distance_transform_edt(~seed, return_distances=False, return_indices=True); eta_near = eta[idx[0], idx[1]]
-    sv = p["survey"]; S = obs.get(sv)
-    zb = _solid_z(obs, srcs, [sv] + [s.name for s in srcs if s.name != sv])
+    sv = p.get("survey"); S = obs.get(sv) if sv else None
+    lid = [s.name for s in sorted((s for s in srcs if s.kind == "lidar" and np.isfinite(s.date)), key=lambda s: -s.date)]
+    zb = _solid_z(obs, srcs, ([sv] if sv else []) + [n for n in lid if n != sv] + [s.name for s in srcs if s.name != sv and s.name not in lid])
     hand = zb - eta_near
-    veg = (S["zmax"] - S["z_g"]) if S is not None else np.full(zb.shape, np.nan, np.float32)
+    if S is not None:
+        veg = S["zmax"] - S["z_g"]
+    else:                                                        # no fixed survey ("allow": "newest"): bare if ANY lidar sees it bare
+        veg = np.full(zb.shape, np.nan, np.float32)
+        for n in lid:
+            o = obs.get(n)
+            if o is not None and "zmax" in o: veg = np.fmin(veg, o["zmax"] - o["z_g"])
     anyw = np.zeros(zb.shape, bool)
     for o in obs.values():
         if o is not None and "n_w" in o: anyw |= o["n_w"] > 0
@@ -392,7 +417,7 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         if age > 0: SG[n] = np.hypot(SG[n], float(rates.get(S[n].cls, 0.01)) * age).astype(np.float32)
     rep["age_sigma_m"] = {n: round(float(rates.get(S[n].cls, 0.01)) * max(0.0, newest - S[n].date), 3) for n in names if np.isfinite(S[n].date)}
     # ---- 1. vintage map
-    V = vintage_map(vint, obs, srcs, win, res, epsg, cfg, rep)
+    V, vint = vintage_map(vint, obs, srcs, win, res, epsg, cfg, rep)
     # a zone arbitrates among the sources that see the moving surface -- by default the lidar surveys. A beach zone
     # that excluded every source but KBay 2023 also excluded the multibeam across the bay (full box, 2026-10-22)
     allow = {n: np.ones((H, W), bool) for n in names}

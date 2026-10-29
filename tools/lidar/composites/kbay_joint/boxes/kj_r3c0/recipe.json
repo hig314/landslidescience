@@ -1,0 +1,627 @@
+{
+ "id": "kj_r3c0",
+ "dataset_id": "kbay_joint_kj_r3c0",
+ "title": "Kachemak Bay point-first topobathy, box kj_r3c0",
+ "region": "Kenai Peninsula",
+ "vertical_datum": "NAVD88 (GEOID12B, as the sources)",
+ "note": "Whole-bay point-first build (2026-10-29, BAY_SOURCES.md): every lidar from its returns, the beds from the multibeam, BAGs and compilations, Chugachmiut as a cleaned DTM, 3DEP only where nothing saw the ground; the joint box recipe's water, shore and fill settings.",
+ "grid": {
+  "epsg": 6334,
+  "res_m": 2.0,
+  "bounds": [
+   555000,
+   6589500,
+   574500,
+   6606000
+  ]
+ },
+ "target": "ground_current",
+ "as_of": "2023-09-19",
+ "rates": {
+  "ground": 0.01,
+  "bed": 0.02,
+  "ice": 3.0
+ },
+ "sigma_max": 5.0,
+ "rules": "sequential",
+ "margin_m": 0.0,
+ "rules_post": [
+  {
+   "despeckle": {
+    "min_area_m2": 2000
+   }
+  },
+  {
+   "feather": {
+    "width_m": 30
+   }
+  }
+ ],
+ "halo_px": 96,
+ "layers": [
+  {
+   "name": "ctx3dep",
+   "source": "/Volumes/Nunatak/lidar_build/ctx_3dep/all.vrt",
+   "date": "2012-07-01",
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/kj_r3c0/obs/water_3dep.tif",
+      "map": {
+       "1": "water",
+       "2": "void"
+      }
+     }
+    },
+    {
+     "fallback": {
+      "except": [
+       "fill"
+      ],
+      "footprints": [
+       "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r3c0/layer_class.tif"
+      ],
+      "dry_void": "$out/fill_dryvoid.tif",
+      "bodies": "$out/water_bodies.tif",
+      "water_z": "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r3c0/water_level.tif",
+      "stamps": [
+       "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/lake_2021.tif",
+       "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/retreat_2023.tif"
+      ],
+      "near_m": 60.0
+     }
+    }
+   ],
+   "sigma_m": 3.0,
+   "resample": "bilinear",
+   "notes": "USGS 3DEP 1/3 arc-second fallback, shown only where no survey has a cell (the KBay point footprint counts as flown). water_3dep.tif (topobathy/flat_water.py, built by the chain): 3DEP's hydroflattened lakes as water, so a lake outside every survey gets a basin and 3DEP never stands as ground inside one."
+  },
+  {
+   "name": "homer2019",
+   "source": "homer_2019",
+   "date": "2019-06-03",
+   "sigma_m": 0.15,
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "facets": {
+      "win_m": 10,
+      "resid_m": 0.02,
+      "min_area_m2": 200,
+      "as": "modelled"
+     }
+    },
+    {
+     "water_level": {
+      "tol_m": 0.3,
+      "min_frac": 0.02
+     }
+    },
+    {
+     "flat_lakes": {
+      "rough_m": 0.03,
+      "win_m": 14,
+      "min_area_m2": 2000,
+      "ring_m": 10,
+      "rim_dz_m": 0.1,
+      "ring_frac": 0.65,
+      "only": [
+       "ground",
+       "void"
+      ],
+      "as": "water",
+      "open_px": 1,
+      "close_px": 2,
+      "range_m": 0.3,
+      "slope_max": 0.01,
+      "range_void_m": 1.0,
+      "mapped": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/sources.json",
+      "mapped_min_area_m2": 100
+     }
+    }
+   ],
+   "notes": "Homer 2019 lidar: flat at the modal sea level = water; flat lakes with Hig's mapped prior. facets (2026-10-18): the vendor DTM bridges its data gaps with a TIN; cells planar to 2 cm over 10 m in patches of 200 m2 or more are \"modelled\", not ground (Beluga Lake south corner: Homer 2019 0.7-4 m above the 2018 surface across a gap). In the bay build its points are a joint source where the tiles are complete; the DTM stands only where they are not."
+  },
+  {
+   "name": "joint",
+   "source": "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r3c0/layer_z.tif",
+   "date": "2023-08-01",
+   "sigma_m": 0.12,
+   "notes": "topobathy/joint.py over the whole box at 2 m: KBay 2023 + Grewingk 2021 + Grewingk 2019 returns, the multibeam, BAGs, OCM, NCEI, CGOA, the SfM bare model and the Dixon ice as sources; layer_class codes ground/water/bed/ice/void.",
+   "class": [
+    {
+     "default": "ground"
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r3c0/layer_class.tif",
+      "codes": true
+     }
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/outline_2020.tif",
+      "map": {
+       "1": "ice"
+      }
+     }
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/lake_2021.tif",
+      "map": {
+       "1": "water"
+      },
+      "ceiling_m": 1.0
+     }
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/retreat_2023.tif",
+      "map": {
+       "1": "water"
+      },
+      "ceiling_m": 1.0
+     }
+    },
+    {
+     "raster": {
+      "path": "$out/fill_surface.tif",
+      "map": {
+       "1": "water"
+      },
+      "only": "ground"
+     }
+    },
+    {
+     "islets": {
+      "max_m2": 50,
+      "ring_m": 3,
+      "ring_frac": 0.8
+     }
+    },
+    {
+     "raster": {
+      "path": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/nohf/islands_2021.tif",
+      "map": {
+       "1": "ground"
+      }
+     }
+    },
+    {
+     "blind_water": {
+      "bodies": "$out/"
+     }
+    }
+   ],
+   "land_support": "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r3c0/joint_nland.tif",
+   "source_bits": "/Volumes/Nunatak/lidar_build/composite/joint_v3/powder_mirror/joint_src.tif",
+   "water_blind": [
+    "sfm2023bare"
+   ],
+   "water_blind_notes": "photogrammetry cannot observe a water surface or a bed: over Emerald Lake the 2023 SfM reconstructed a noisy surface 1-3 m under the 3DEP level (p5-p95 347.3-351.7 at 351.1) that run 18 took for the shore and the bed. Inside a body or a trusted polygon, cells the SfM alone won are unobserved to the shoreline stage and holes to the fill (shore.water_blind_mask).",
+   "land_support_notes": "joint.py: surveys with a surviving ground/bed cell (the berg rule counts surveys, not layers)",
+   "water_returns": "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r3c0/water_z.tif"
+  },
+  {
+   "name": "fill",
+   "optional": true,
+   "source": "$out/fill.tif",
+   "date": "2023-08-01",
+   "class": "modelled",
+   "sigma_m": 1.0,
+   "sigma": [
+    {
+     "raster": {
+      "path": "$out/fill_sigma.tif"
+     }
+    }
+   ],
+   "rules_post": []
+  }
+ ],
+ "fill": {
+  "low_tide_m": -1.38,
+  "close_m": 60,
+  "marine_rim_max_m": 6.0,
+  "fill_margin": true,
+  "points": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261017.csv",
+  "notes": "low_tide_m = MLLW in NAVD88 (-1.38 m). tidal_lens (default): marine domains take the observed water surface as the bed; measured beds (multibeam, green-lidar returns, the soundings export: Riordan 2018 KBSP lakes, Grewingk, Petrof and Gore 2022 (levels from 3DEP)) condition it.",
+  "ice_face": "free",
+  "shore_grad_m": 200.0,
+  "shore_grad_r_m": 150.0,
+  "shore_grad_n0": 3.0,
+  "rim_widen": true,
+  "points_dz_m": {
+   "berg_grewingk_2017": 0.36,
+   "berg_grewingk_2017_hand": 0.36,
+   "higman_grewingk_2019_2021": 0.36,
+   "higman_grewingk_2026": 0.36
+  }
+ },
+ "water": {
+  "mapped": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/sources.json",
+  "intertidal_near_m": 100,
+  "notes": "stage B as in the patches: bodies with kinds, the tidal lens, intertidal.tif anchored to observed ground. max_px 9100 (2026-10-17): the body stage at the grid's own 2 m for a 16 km box (+1 km margin = 9000 cells) -- at 4 m the pool bodies and the zone differed from the patches at their rims. max_px 12000 (2026-10-22): the full 23.5 km box at its own 2 m.",
+  "max_px": 10100
+ },
+ "joint": {
+  "out": "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r3c0",
+  "res_m": 2.0,
+  "prior": "/Volumes/Nunatak/lidar_build/ctx_3dep/all.vrt",
+  "notes": "BAY_SOURCES.md 2026-10-29. Lidar from the shared units cache (joint_pilot.py units --recipe), grids as observations.",
+  "vintage": [
+   {
+    "name": "floodplain",
+    "allow": "newest",
+    "floodplain": {
+     "chan": "/Volumes/Nunatak/lidar_build/kbay_joint/seeds/kj_r3c0/chan.tif",
+     "eta": "/Volumes/Nunatak/lidar_build/kbay_joint/seeds/kj_r3c0/eta.tif",
+     "hand_m": 3.0,
+     "veg_m": 1.0,
+     "dist_m": 600.0
+    }
+   },
+   {
+    "name": "beach",
+    "allow": "newest",
+    "beach": {
+     "sea": "/Volumes/Nunatak/lidar_build/kbay_joint/seeds/kj_r3c0/sea.tif",
+     "dilate_m": 20.0,
+     "zmax_m": 8.0
+    }
+   }
+  ],
+  "sources": [
+   {
+    "name": "kbay2023",
+    "kind": "lidar",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units",
+    "unit_file": "kbay2023.npz",
+    "date": "2023-08-01",
+    "sigma_m": 0.05,
+    "reference": true
+   },
+   {
+    "name": "gk2021",
+    "kind": "lidar",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units",
+    "unit_file": "gk2021.npz",
+    "date": "2021-10-12",
+    "sigma_m": 0.08
+   },
+   {
+    "name": "gk2019",
+    "kind": "lidar",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units",
+    "unit_file": "gk2019.npz",
+    "date": "2019-06-03",
+    "sigma_m": 0.08
+   },
+   {
+    "name": "homer2018",
+    "kind": "lidar",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units",
+    "unit_file": "homer2018.npz",
+    "date": "2018-06-10",
+    "sigma_m": 0.08
+   },
+   {
+    "name": "homer2018bed",
+    "kind": "lidar",
+    "cls": "bed",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units",
+    "unit_file": "homer2018_bed.npz",
+    "date": "2018-06-10",
+    "sigma_m": 0.3
+   },
+   {
+    "name": "seldovia2019",
+    "kind": "lidar",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units",
+    "unit_file": "seldovia2019.npz",
+    "date": "2019-07-17",
+    "sigma_m": 0.08
+   },
+   {
+    "name": "seldovia2019bed",
+    "kind": "lidar",
+    "cls": "bed",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units",
+    "unit_file": "seldovia2019_bed.npz",
+    "date": "2019-07-17",
+    "sigma_m": 0.3
+   },
+   {
+    "name": "kenai2008",
+    "kind": "lidar",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units",
+    "unit_file": "kenai2008.npz",
+    "date": "2008-06-01",
+    "sigma_m": 0.15
+   },
+   {
+    "name": "homer2019",
+    "kind": "lidar",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units",
+    "unit_file": "homer2019.npz",
+    "date": "2019-06-15",
+    "sigma_m": 0.08
+   },
+   {
+    "name": "chugachmiut",
+    "kind": "grid",
+    "cls": "ground",
+    "derived": true,
+    "src": "/Volumes/Nunatak/lidar_build/kbay_joint/obs/chugachmiut_clean.tif",
+    "date": "2018-07-01",
+    "sigma_m": 0.3
+   },
+   {
+    "name": "sonar2023",
+    "kind": "grid",
+    "cls": "bed",
+    "src": "/Volumes/Nunatak/lidar_build/grewingk_sonar_level/levelled_1m.tif",
+    "date": "2023-05-18",
+    "sigma_m": 0.3,
+    "shift_m": 0.36
+   },
+   {
+    "name": "bathy2009",
+    "kind": "grid",
+    "cls": "bed",
+    "src": "/Volumes/Nunatak/lidar_build/bathy_src/kachemak_2008_2009_mllw_nad83_clean.vrt",
+    "date": "2009-07-01",
+    "sigma_m": 0.5,
+    "shift_m": -1.38
+   },
+   {
+    "name": "h12146",
+    "kind": "grid",
+    "cls": "bed",
+    "src": "/Volumes/Nunatak/lidar_build/bathy_src/outer_kachemak/grids/H12146_mllw.tif",
+    "date": "2010-07-01",
+    "sigma_m": 0.5,
+    "shift_m": -1.38
+   },
+   {
+    "name": "ocm2023",
+    "derived": true,
+    "kind": "grid",
+    "cls": "bed",
+    "src": "/Volumes/Nunatak/lidar_build/bathy_src/outer_kachemak/cmp_ocm/cand_2m.tif",
+    "date": "2019-07-01",
+    "sigma_m": 1.0,
+    "valid_below_m": -1.38
+   },
+   {
+    "name": "cudem2022",
+    "derived": true,
+    "kind": "grid",
+    "cls": "bed",
+    "src": "/Volumes/Nunatak/lidar_build/bathy_src/outer_kachemak/cmp_cudem/cand_4m.tif",
+    "date": "2022-07-01",
+    "sigma_m": 1.0,
+    "valid_below_m": -1.38
+   },
+   {
+    "name": "ncei2010",
+    "derived": true,
+    "kind": "grid",
+    "cls": "bed",
+    "src": "/Volumes/Nunatak/lidar_build/bathy_src/outer_kachemak/grids/ncei_kachemak_13_mhw.tif",
+    "date": "2010-07-01",
+    "sigma_m": 3.0,
+    "shift_m": 3.91,
+    "valid_below_m": -1.38
+   },
+   {
+    "name": "cgoa",
+    "derived": true,
+    "kind": "grid",
+    "cls": "bed",
+    "src": "/Volumes/Nunatak/lidar_build/bathy_src/cgoa_zimmermann/cgoa_navd88_100m.tif",
+    "date": "1995-07-01",
+    "sigma_m": 5.0,
+    "valid_below_m": -1.38
+   },
+   {
+    "name": "sfm2023bare",
+    "kind": "grid",
+    "cls": "ground",
+    "src": "/Volumes/Powder/lidar_build/joint_v3/obs/sfm_bare_2023.tif",
+    "date": "2023-09-19",
+    "sigma_m": 1.0
+   },
+   {
+    "name": "dixon2023",
+    "kind": "grid",
+    "cls": "ice",
+    "src": "/Volumes/Powder/lidar_build/joint_v3/obs/dixon_ice_2023.tif",
+    "date": "2023-09-19",
+    "sigma_m": 0.5
+   }
+  ],
+  "units": {
+   "out": "/Volumes/Powder/lidar_build/kbay_joint/units",
+   "buf": 30,
+   "workers": 4,
+   "surveys": [
+    {
+     "name": "kbay2023",
+     "reader": "copc",
+     "tiles": "/Volumes/Powder/lidar_src/kbay_2023_laz/tiles",
+     "glob": "*.laz",
+     "index": "/Volumes/Nunatak/lidar_build/kbay_reclass_test/full/tileindex.json",
+     "drop": [
+      6,
+      7,
+      17,
+      18
+     ],
+     "ground": {
+      "classes": [
+       1,
+       2,
+       22
+      ],
+      "support": "/Volumes/Nunatak/lidar_build/cog/kbay_2023_reclass_v2.tif",
+      "tol_m": 0.25
+     },
+     "water": [
+      9
+     ],
+     "date": "2023-08-01"
+    },
+    {
+     "name": "gk2021",
+     "reader": "las",
+     "tiles": "/Volumes/Nunatak/lidar_build/kbay_reclass_test/grewingk_2021/laz",
+     "index": "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/nohf_full/index.csv",
+     "drop": [
+      7,
+      18
+     ],
+     "ground": {
+      "classes": [
+       2
+      ]
+     },
+     "water": [
+      9
+     ],
+     "shift_m": 0.36,
+     "date": "2021-10-12"
+    },
+    {
+     "name": "gk2019",
+     "reader": "las",
+     "tiles": "/Volumes/Powder/lidar_src/grewingk_2019/dds4/grewingk_2019/laz",
+     "index": "/Volumes/Powder/lidar_src/grewingk_2019/tiles.txt",
+     "drop": [
+      7,
+      18
+     ],
+     "ground": {
+      "classes": [
+       2
+      ]
+     },
+     "water": [
+      9
+     ],
+     "date": "2019-06-03"
+    },
+    {
+     "name": "homer2018",
+     "reader": "copc",
+     "tiles": "/Volumes/Nunatak/lidar_src/homer_2018_ncmp",
+     "glob": "*.copc.laz",
+     "drop": [
+      7,
+      18,
+      23
+     ],
+     "ground": {
+      "classes": [
+       2
+      ]
+     },
+     "water": [
+      9
+     ],
+     "bed": [
+      29
+     ],
+     "date": "2018-06-10"
+    },
+    {
+     "name": "seldovia2019",
+     "reader": "copc",
+     "tiles": "/Volumes/Nunatak/lidar_src/seldovia_2019_ncmp",
+     "glob": "*.copc.laz",
+     "srs": "EPSG:6393",
+     "drop": [
+      7,
+      18,
+      23
+     ],
+     "ground": {
+      "classes": [
+       2
+      ]
+     },
+     "water": [
+      9
+     ],
+     "bed": [
+      29
+     ],
+     "date": "2019-07-17"
+    },
+    {
+     "name": "kenai2008",
+     "reader": "las",
+     "tiles": "/Volumes/Powder/lidar_build/kenai_2008/classified",
+     "glob": "t_*.laz",
+     "index": {
+      "regex": "t_(\\d+)_(\\d+)",
+      "size_m": 2000
+     },
+     "drop": [
+      7,
+      18
+     ],
+     "ground": {
+      "classes": [
+       2
+      ]
+     },
+     "water": [
+      9
+     ],
+     "date": "2008-06-01"
+    },
+    {
+     "name": "homer2019",
+     "reader": "las",
+     "tiles": "/Volumes/Nunatak/lidar_build/homer_2019_pc/laz/dds4/homer_2019/laz",
+     "glob": "pt*.laz",
+     "drop": [
+      7,
+      18
+     ],
+     "ground": {
+      "classes": [
+       2
+      ]
+     },
+     "water": [
+      9
+     ],
+     "date": "2019-06-15"
+    }
+   ],
+   "win": [
+    555000,
+    6589000,
+    575000,
+    6606000
+   ]
+  }
+ },
+ "shore": {
+  "glaciers": "/Volumes/Nunatak/permafrost_src/glaciers/AK_2020_overall_glacier_covered_area.shp",
+  "notes": "stage C (topobathy/shore.py, 2026-10-24). The glacier is any ice component over glacier_min_km2 or one touching the 2020 NSIDC G10040 outline; a proglacial body expects bergs, the sea structures only, other lakes nothing afloat."
+ },
+ "water_stamps": [
+  "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/lake_2021.tif",
+  "/Volumes/Nunatak/lidar_build/composite/grewingk/obs/retreat_2023.tif"
+ ],
+ "notes_boxes": "make_boxes.py: grid bounds, /Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r3c0, /Volumes/Nunatak/lidar_build/composite/kj_r3c0, /Volumes/Nunatak/lidar_build/kbay_joint/seeds/kj_r3c0 per box."
+}

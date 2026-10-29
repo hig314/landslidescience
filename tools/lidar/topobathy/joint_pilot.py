@@ -61,13 +61,20 @@ def gk_tiles(b):
     return out
 
 
-def pull(srcs, reader, b, out, expr):
-    """PDAL: read the sources inside b, keep `expr`, write X,Y,Z,Classification,ReturnNumber,NumberOfReturns."""
+def pull(srcs, reader, b, out, expr, srs=None):
+    """PDAL: read the sources inside b, keep `expr`, write X,Y,Z,Classification,ReturnNumber,NumberOfReturns.
+    srs: the files' CRS when it is not the working UTM (the Seldovia 2019 COPC is Alaska Albers): the COPC read is
+    bounded in that CRS (with a 50 m margin), then reprojected to EPSG:6334 before the crop."""
     if not srcs: return None
+    rb = b
+    if srs:
+        from rasterio.warp import transform_bounds
+        rb = transform_bounds('EPSG:6334', srs, b[0] - 50, b[1] - 50, b[2] + 50, b[3] + 50)
     pipe = [{"type": reader, "filename": str(s), "tag": f"r{i}",
-             **({"bounds": f"([{b[0]},{b[2]}],[{b[1]},{b[3]}])"} if reader == 'readers.copc' else {})} for i, s in enumerate(srcs)]
-    pipe += [{"type": "filters.merge", "inputs": [f"r{i}" for i in range(len(srcs))]},
-             {"type": "filters.crop", "bounds": f"([{b[0]},{b[2]}],[{b[1]},{b[3]}])"},
+             **({"bounds": f"([{rb[0]},{rb[2]}],[{rb[1]},{rb[3]}])"} if reader == 'readers.copc' else {})} for i, s in enumerate(srcs)]
+    pipe += [{"type": "filters.merge", "inputs": [f"r{i}" for i in range(len(srcs))]}]
+    if srs: pipe += [{"type": "filters.reprojection", "in_srs": srs, "out_srs": "EPSG:6334"}]
+    pipe += [{"type": "filters.crop", "bounds": f"([{b[0]},{b[2]}],[{b[1]},{b[3]}])"},
              {"type": "filters.expression", "expression": expr},
              {"type": "writers.arrow", "filename": str(out), "format": "feather"}]
     pj = out.with_suffix('.json'); pj.write_text(json.dumps(pipe))
@@ -162,6 +169,139 @@ def do_unit(u):
     return u, info
 
 
+# ----------------------------------------------------------------------------------------- recipe-driven units
+# (2026-10-29, for the whole-bay run): the surveys come from the recipe's joint.units block instead of the three
+# constants above, so a box's recipe names what it reads. joint.py obs_lidar reads the units directory directly
+# (src = the units dir, unit_file = <name>.npz), so no mosaic is needed.
+#
+#   "units": {"out": "/Volumes/Powder/lidar_build/kbay_joint/units", "buf": 30, "workers": 4,
+#             "surveys": [
+#               {"name": "kbay2023", "reader": "copc", "tiles": ".../kbay_2023_laz/tiles", "index": ".../tileindex.json",
+#                "drop": [6, 7, 17, 18], "ground": {"classes": [1, 2, 22], "support": ".../kbay_2023_reclass_v2.tif", "tol_m": 0.25},
+#                "water": [9]},
+#               {"name": "homer2018", "reader": "copc", "tiles": ".../homer_2018_ncmp", "glob": "*.copc.laz",
+#                "ground": {"classes": [2]}, "water": [41, 42], "bed": [40]},          -> homer2018.npz + homer2018_bed.npz
+#               {"name": "kenai2008", "reader": "las", "tiles": ".../classified", "glob": "t_*.laz",
+#                "index": {"regex": "t_(\\d+)_(\\d+)", "size_m": 2000}, "ground": {"classes": [2]}},
+#               {"name": "gk2021", "reader": "las", "tiles": ..., "index": "<csv with WKT>", "shift_m": 0.36, ...}]}
+#   index: a JSON {file: {minx, miny, maxx, maxy}} (the `index` stage writes <out>/index_<name>.json with pdal info),
+#          a CSV with FileName + WKT (the Grewingk 2021 index), a TXT "name x0 y0 x1 y1 n" (Grewingk 2019), or
+#          {"regex", "size_m"} for tiles named by their corner. Missing -> <out>/index_<name>.json (build it first).
+
+def _spec(recipe):
+    r = json.load(open(recipe)); u = r['joint']['units']
+    u.setdefault('buf', 30); u['out'] = Path(u['out'])
+    return u
+
+
+def _index_path(u, s):
+    ix = s.get('index')
+    if isinstance(ix, dict) or (ix and Path(ix).exists()): return ix
+    return u['out'] / f"index_{s['name']}.json"
+
+
+def load_index(u, s):
+    """-> list of (path, (minx, miny, maxx, maxy))."""
+    import csv, re
+    ix = _index_path(u, s); tiles = Path(s['tiles']); out = []
+    if isinstance(ix, dict):
+        rx = re.compile(ix['regex']); sz = float(ix['size_m'])
+        for f in sorted(tiles.glob(s.get('glob', '*.laz'))):
+            m = rx.search(f.name)
+            if m: x, y = float(m.group(1)), float(m.group(2)); out.append((f, (x, y, x + sz, y + sz)))
+        return out
+    ix = Path(ix)
+    if ix.suffix == '.json':
+        for k, v in json.load(open(ix)).items():
+            f = Path(k) if Path(k).is_absolute() else tiles / k
+            out.append((f, (v['minx'], v['miny'], v['maxx'], v['maxy'])))
+    elif ix.suffix == '.csv':
+        for r in csv.DictReader(open(ix)):
+            xs = [float(v) for v in re.findall(r'[-\d.]+', r['WKT'])]; X, Y = xs[0::2], xs[1::2]
+            f = tiles / r['FileName'].replace('.las', '.laz')
+            out.append((f, (min(X), min(Y), max(X), max(Y))))
+    else:
+        for line in open(ix):
+            p = line.split()
+            if len(p) >= 5: out.append((tiles / p[0], tuple(float(v) for v in p[1:5])))
+    return [(f, b) for f, b in out if f.exists()]
+
+
+def build_index(u, s):
+    """pdal info --metadata per file -> <out>/index_<name>.json (skipped when the recipe names an existing index)."""
+    ix = _index_path(u, s)
+    if isinstance(ix, dict) or Path(ix).exists(): return ix, 0
+    tiles = Path(s['tiles']); d = {}
+    for f in sorted(tiles.glob(s.get('glob', '*.laz'))):
+        r = subprocess.run([PDAL, 'info', '--metadata', str(f)], capture_output=True, text=True, env=env())
+        try:
+            m = json.loads(r.stdout)['metadata']
+            bb = (m['minx'], m['miny'], m['maxx'], m['maxy'])
+            if s.get('srs'):                                           # index in the working UTM whatever the files use
+                from rasterio.warp import transform_bounds
+                bb = transform_bounds(s['srs'], 'EPSG:6334', *bb)
+            d[str(f.relative_to(tiles))] = dict(minx=bb[0], miny=bb[1], maxx=bb[2], maxy=bb[3], count=m.get('count'))
+        except Exception as e:
+            print(f'  {f.name}: {type(e).__name__} {str(e)[:60]}', flush=True)
+    u['out'].mkdir(parents=True, exist_ok=True); Path(ix).write_text(json.dumps(d, indent=0))
+    return ix, len(d)
+
+
+def do_unit_spec(args):
+    """One unit, every survey of the spec: <name>.npz (ground/water) and <name>_bed.npz (bed classes) per survey."""
+    import rasterio
+    from rasterio.windows import from_bounds
+    u, spec, idx = args
+    x, y = u; buf = spec['buf']; b = (x - buf, y - buf, x + 1000 + buf, y + 1000 + buf); H = W = 1000 + 2 * buf
+    d = spec['out'] / 'units' / f'u_{x // 1000}_{y // 1000}'; d.mkdir(parents=True, exist_ok=True)
+    info = {}; t0 = time.time()
+    for s in spec['surveys']:
+        n = s['name']
+        if (d / f'{n}.npz').exists() or (d / f'NO_{n}').exists(): continue
+        ts = [f for f, bb in idx[n] if bb[2] > b[0] and bb[0] < b[2] and bb[3] > b[1] and bb[1] < b[3]]
+        if not ts: (d / f'NO_{n}').write_text(''); continue
+        drop = s.get('drop', [7, 18])
+        expr = ' && '.join(f'Classification != {c}' for c in drop) or 'true'
+        reader = {'copc': 'readers.copc', 'las': 'readers.las'}[s.get('reader', 'las')]
+        try:
+            p = pull(ts, reader, b, d / f'{n}.feather', expr, srs=s.get('srs'))
+        except subprocess.CalledProcessError as e:
+            info[n] = dict(error=str(e)[:120]); continue
+        if p is None or not len(p['z']): (d / f'NO_{n}').write_text(''); continue
+        if s.get('shift_m'): p['z'] = p['z'] + float(s['shift_m'])
+        g = s.get('ground', {'classes': [2]})
+        gm = np.isin(p['c'], g.get('classes', [2]))
+        if g.get('support'):
+            with rasterio.open(g['support']) as r:
+                v = r.read(1, window=from_bounds(*b, r.transform), boundless=True, fill_value=r.nodata).astype(np.float64)
+                v[v == r.nodata] = np.nan
+            col = np.clip(((p['x'] - b[0]) // 1).astype(int), 0, v.shape[1] - 1); row = np.clip(((b[3] - p['y']) // 1).astype(int), 0, v.shape[0] - 1)
+            gm &= np.abs(p['z'] - v[row, col]) <= float(g.get('tol_m', 0.25))
+        wm = np.isin(p['c'], s.get('water', [9]))
+        G = grid(p, gm, wm, b, H, W); np.savez_compressed(d / f'{n}.npz', **G)
+        info[n] = dict(points=int(len(p['z'])), ground=int(gm.sum()), water=int(wm.sum()), tiles=len(ts))
+        if s.get('bed'):
+            bm = np.isin(p['c'], s['bed'])
+            if bm.any():
+                B = grid(p, bm, np.zeros(len(p['z']), bool), b, H, W, zall=False); np.savez_compressed(d / f'{n}_bed.npz', **B)
+                info[n]['bed'] = int(bm.sum())
+        del p
+    info['seconds'] = round(time.time() - t0)
+    if info: (d / 'info_spec.json').write_text(json.dumps(info))
+    return u, info
+
+
+def units_spec(recipe, workers, win=None):
+    spec = _spec(recipe)
+    w = win or spec.get('win') or WIN
+    idx = {s['name']: load_index(spec, s) for s in spec['surveys']}
+    for n, v in idx.items(): print(f'{n}: {len(v)} tiles indexed', flush=True)
+    us = [(x, y) for x in range(int(w[0]), int(w[2]), 1000) for y in range(int(w[1]), int(w[3]), 1000)]
+    print(f'{len(us)} units over {w} -> {spec["out"]}', flush=True)
+    with ProcessPoolExecutor(workers) as ex:
+        for u, info in ex.map(do_unit_spec, [(u, spec, idx) for u in us]): print(u, json.dumps(info), flush=True)
+
+
 def mosaic():
     """Units (cores only) -> one grid per survey and quantity over the window."""
     H, W = WIN[3] - WIN[1], WIN[2] - WIN[0]
@@ -178,8 +318,16 @@ def mosaic():
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('stage'); ap.add_argument('--workers', type=int, default=3); ap.add_argument('--tag', default='')
+    ap.add_argument('--recipe', help='recipe with a joint.units block (stages index, units)')
+    ap.add_argument('--win', type=float, nargs=4, metavar=('X0', 'Y0', 'X1', 'Y1'), help='units window (km-aligned), overrides the spec and JOINT_WIN')
     a = ap.parse_args()
-    if a.stage == 'units':
+    if a.stage == 'index':
+        spec = _spec(a.recipe)
+        for s in spec['surveys']:
+            ix, n = build_index(spec, s); print(s['name'], ix, f'{n} files' if n else '(existing)', flush=True)
+    elif a.stage == 'units' and a.recipe:
+        units_spec(a.recipe, a.workers, a.win)
+    elif a.stage == 'units':
         us = units(); print(f'{len(us)} units', flush=True)
         with ProcessPoolExecutor(a.workers) as ex:
             for u, info in ex.map(do_unit, us): print(u, json.dumps(info), flush=True)

@@ -105,6 +105,37 @@ The four vendor DTMs now in the Grewingk recipe as B layers (OCM 2019 grid, Kena
   support is 1 per cell, so it can neither out-vote a lidar nor be judged "sparse"; facets and flat water are its
   only internal evidence. That is the assumption Hig accepted in taking it at face value with a sigma.
 
+## 5. Set up (2026-10-29, late morning) — what was built and what the first reads showed
+
+**Built** (all committed): `topobathy/dtm_clean.py` (a DTM with no cloud → cleaned grid + mask); `joint_pilot.py index`
+and `units --recipe` (surveys from the recipe's `joint.units` block: COPC/LAS readers, per-survey classes, tile
+indexes by `pdal info` or by name, a per-file CRS with reprojection, bed classes to `<name>_bed.npz`, a shared cache
+on Powder, units outside a box's window skipped); `joint.py` vintage `"allow": "newest"` (one zone per lidar in date
+order) and floodplain zones without a fixed survey; `gate.py --gate-dir` with site rows outside the product skipped;
+`composites/kbay_joint/` — `make_template.py` (from the Grewingk recipe), `make_boxes.py` (30 boxes, 6 × 5, the extra
+southern row), `make_seeds.py` (sea / channel / water-surface seeds from the v7 boxes), `run_box.sh`, `run_bay.sh`.
+
+**Read from the data, and changed accordingly:**
+
+- **NCMP classes are not the USACE scheme.** OCM delivers Homer 2018 and Seldovia 2019 as 1 unclassified, 2 ground,
+  23 submerged aquatic vegetation, **29 bathymetric point**; there is no water-surface class. The template takes 2 as
+  ground, 29 as bed, drops 23 (kelp canopy). Open water is a hole between ground and bed, for the hole rule.
+- **Seldovia's COPC is in Alaska Albers (EPSG:6393)**, Homer's in UTM 5N. Reads are bounded in the file's CRS and
+  reprojected; the index is written in UTM.
+- **Chugachmiut is not hydro-flattened to the centimetre and has almost no TIN facets**: the clean pass kept
+  254.3 km², removed 0.025 km² of facets and no flat water (3 min). So its lakes stay "ground" at a near-flat level
+  and only the mapped polygons / 3DEP flat water can call them water — an open item (a looser flatness test on it, or
+  trust the mapped lakes there). Its offset against KBay 2023 is **not one number**: −0.26 m (NMAD 0.11) on one
+  2 km crop, −0.02 m (NMAD 0.15) on another, which is why it enters as `derived: true` and takes the fuse's smooth
+  calibration field rather than one shift.
+- **Homer 2019**: 85 of 157 tiles readable (the rest fail `pdal info`, the known unfinalised export); indexed.
+- Smoke units (one each): Seldovia 28.7 M points → 33 % of cells ground, 5 % bed (35 s); Homer 2018 offshore unit
+  3.9 M points, all bed at −8 m (6 s); Kenai 2008 3.3 M points, 1.9 M ground (8 s); KBay 2023 20 M points (16 s).
+
+**To run (afternoon):** `caffeinate -is zsh composites/kbay_joint/run_bay.sh run1 kj_r1c1` first — the Seldovia /
+Bluff Point box (the outer-coast test against the v8 patches), then `run_bay.sh run1` for the rest (resumable; each
+box's gate in `composite/<box>/gate/`). The units stage is the long pole: ~5,500 units at 10–50 s each on 4 workers.
+
 ## 4. What to build before the run
 
 1. `joint_pilot.py`: a source list instead of three hard-wired surveys — readers for COPC (Homer 2018, Seldovia

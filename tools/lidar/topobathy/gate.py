@@ -18,7 +18,15 @@ import numpy as np, rasterio
 from rasterio.windows import Window
 from scipy import ndimage
 
-GATE_DIR = Path("/Volumes/Nunatak/lidar_build/composite/joint_v3/gate")
+import os
+GATE_DIR = Path(os.environ.get("GATE_DIR", "/Volumes/Nunatak/lidar_build/composite/joint_v3/gate"))   # --gate-dir / $GATE_DIR: one dir per box
+
+
+def inside(d, x, y):
+    """Does the site (x, y) lie inside the product in d? Site rows of another box are skipped, not MISSING (2026-10-29)."""
+    with rasterio.open(Path(d) / "shore_label.tif") as s:
+        b = s.bounds
+    return b.left <= x <= b.right and b.bottom <= y <= b.top
 LAND_CLS = (1, 5, 6, 7)      # class_now codes that are solid ground (ground, built, canopy, ice) -- as regress18
 BED_CLS = 3
 TIDE_MAX = 4.5               # shore.py tide_max_m
@@ -275,6 +283,8 @@ def measure(d):
     for name, win, fn, _, _, needs_fill, _ in ROWS:
         if needs_fill and not full:
             continue
+        if win is not None and not inside(d, win[0], win[1]):
+            continue                                                 # a site in another box
         w = whole if win is None else Win(d, *win)
         try:
             out[name] = round(float(fn(w)), 4)
@@ -289,7 +299,10 @@ def main():
     ap.add_argument("--base", default="", help="comma-separated stored tags to compare with (default: all stored)")
     ap.add_argument("--save", action="store_true")
     ap.add_argument("--shore", action="store_true", help="shore-stage rows only, at the shore stage's level")
+    ap.add_argument("--gate-dir", default=None, help="where the stored results live (default $GATE_DIR or the joint_v3 dir)")
     a = ap.parse_args()
+    global GATE_DIR
+    if a.gate_dir: GATE_DIR = Path(a.gate_dir)
     Win.shore_only = a.shore
     m = measure(a.out_dir)
     tags = [t for t in a.base.split(",") if t] or sorted(p.stem for p in GATE_DIR.glob("*.json") if p.stem != a.tag)
