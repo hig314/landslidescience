@@ -247,6 +247,11 @@ def build_index(u, s):
     return ix, len(d)
 
 
+def _savez(path, G):
+    """tmp + rename: a unit file is either whole or absent (a run interrupted mid-write resumes cleanly)."""
+    tmp = path.with_name(path.name + '.tmp.npz'); np.savez_compressed(tmp, **G); os.replace(tmp, path)
+
+
 def do_unit_spec(args):
     """One unit, every survey of the spec: <name>.npz (ground/water) and <name>_bed.npz (bed classes) per survey."""
     import rasterio
@@ -278,12 +283,12 @@ def do_unit_spec(args):
             col = np.clip(((p['x'] - b[0]) // 1).astype(int), 0, v.shape[1] - 1); row = np.clip(((b[3] - p['y']) // 1).astype(int), 0, v.shape[0] - 1)
             gm &= np.abs(p['z'] - v[row, col]) <= float(g.get('tol_m', 0.25))
         wm = np.isin(p['c'], s.get('water', [9]))
-        G = grid(p, gm, wm, b, H, W); np.savez_compressed(d / f'{n}.npz', **G)
+        G = grid(p, gm, wm, b, H, W); _savez(d / f'{n}.npz', G)
         info[n] = dict(points=int(len(p['z'])), ground=int(gm.sum()), water=int(wm.sum()), tiles=len(ts))
         if s.get('bed'):
             bm = np.isin(p['c'], s['bed'])
             if bm.any():
-                B = grid(p, bm, np.zeros(len(p['z']), bool), b, H, W, zall=False); np.savez_compressed(d / f'{n}_bed.npz', **B)
+                B = grid(p, bm, np.zeros(len(p['z']), bool), b, H, W, zall=False); _savez(d / f'{n}_bed.npz', B)
                 info[n]['bed'] = int(bm.sum())
         del p
     info['seconds'] = round(time.time() - t0)

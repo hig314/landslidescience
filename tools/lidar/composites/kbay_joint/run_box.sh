@@ -8,8 +8,8 @@ export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES PATH=/opt/homebrew/bin:$PATH
 PY=/opt/anaconda3/bin/python3
 HERE=${0:a:h}; TL=${HERE:h:h}; cd $TL
 BOX=$1; TAG=${2:-run1}
-RECIPE=$HERE/boxes/$BOX/recipe.json; [[ -f $RECIPE ]] || { echo "no recipe for $BOX (make_boxes.py)"; exit 1; }
-WORK=/Volumes/Nunatak/lidar_build/composite/$BOX; JOUT=/Volumes/Powder/lidar_build/kbay_joint/boxes/$BOX
+RECIPE=$HERE/boxes/$BOX/recipe.json; [[ -f $RECIPE ]] || RECIPE=$HERE/crops/$BOX/recipe.json; [[ -f $RECIPE ]] || { echo "no recipe for $BOX (make_boxes.py / make_crop.py)"; exit 1; }
+WORK=/Volumes/Nunatak/lidar_build/composite/$BOX; JOUT=$($PY -c "import json,sys; print(json.load(open(sys.argv[1]))['joint']['out'])" $RECIPE)
 mkdir -p $WORK $JOUT; LOG=$WORK/chain.log
 stamp() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $BOX $TAG: $1" | tee -a $LOG; }
 for v in /Volumes/Nunatak /Volumes/Powder; do [[ -d $v/lidar_build ]] || { echo "$v not mounted"; exit 1; }; done
