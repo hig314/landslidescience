@@ -892,6 +892,12 @@ def preflight(recipe_path):
             if not p or not isinstance(p, str) or not os.path.isabs(p):
                 continue
             try:
+                if os.path.isdir(p):                                 # a units directory (joint_pilot.py --recipe): read one unit file
+                    uf = s_.get("unit_file", f"{s_.get('name')}.npz")
+                    files = sorted(Path(p).glob("u_*/" + uf))[:1]
+                    if not files:                                    # nothing gridded yet (the units stage runs first): the dir must read
+                        os.listdir(p); continue
+                    p = str(files[0])
                 with open(p, "rb") as f:
                     f.read(1)
             except OSError as e:

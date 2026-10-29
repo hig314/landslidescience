@@ -53,15 +53,16 @@ j['units'] = dict(out=UNITS, buf=30, workers=4, surveys=[
     dict(name='homer2019', reader='las', tiles='/Volumes/Nunatak/lidar_build/homer_2019_pc/laz/dds4/homer_2019/laz', glob='pt*.laz',
          drop=[7, 18], ground=dict(classes=[2]), water=[9], date='2019-06-15'),
 ])
-lid = lambda n, **k: dict(name=n, kind='lidar', src=UNITS, unit_file=f'{n}.npz', **k)
+UDIR = f'{UNITS}/units'                                  # joint_pilot.py writes <out>/units/u_<x>_<y>/<name>.npz
+lid = lambda n, **k: dict(name=n, kind='lidar', src=UDIR, unit_file=f'{n}.npz', **k)
 j['sources'] = [
     lid('kbay2023', date='2023-08-01', sigma_m=0.05, reference=True),
     lid('gk2021', date='2021-10-12', sigma_m=0.08),
     lid('gk2019', date='2019-06-03', sigma_m=0.08),
     lid('homer2018', date='2018-06-10', sigma_m=0.08),
-    dict(name='homer2018bed', kind='lidar', cls='bed', src=UNITS, unit_file='homer2018_bed.npz', date='2018-06-10', sigma_m=0.3),
+    dict(name='homer2018bed', kind='lidar', cls='bed', src=UDIR, unit_file='homer2018_bed.npz', date='2018-06-10', sigma_m=0.3),
     lid('seldovia2019', date='2019-07-17', sigma_m=0.08),
-    dict(name='seldovia2019bed', kind='lidar', cls='bed', src=UNITS, unit_file='seldovia2019_bed.npz', date='2019-07-17', sigma_m=0.3),
+    dict(name='seldovia2019bed', kind='lidar', cls='bed', src=UDIR, unit_file='seldovia2019_bed.npz', date='2019-07-17', sigma_m=0.3),
     lid('kenai2008', date='2008-06-01', sigma_m=0.15),
     lid('homer2019', date='2019-06-15', sigma_m=0.08),
     # a DTM with no cloud: one observation per cell, calibrated to the measured lidar by the derived field, never rejecting one
