@@ -153,6 +153,23 @@ box's gate in `composite/<box>/gate/`). The units stage is the long pole: ~5,500
   Chugachmiut ground, which is not hydro-flattened.
 - **Seeds** for the beach zones outside the v7 product: 3DEP's sea (flat at 0 m) where v7 had nothing.
 
+## 7. Bluff Point crop, Hig's review (2026-10-29, 11:15) — why this patch was worse, and the fixes
+
+Bluff Point has **no KBay 2023**: no reference survey (so no alignment) and no dense lidar. The surface there is
+sparse older surveys interleaved with NCEI's 10 m compilation, and two things the raster chain did are missing in
+the point-first one:
+
+| Hig's site | run 1 | cause | fix |
+|---|---|---|---|
+| pimples 59.67027, −151.71544 | Kenai 2008 "ground" at −0.84 m in 39 % of cells, 1 point each, between the bed at −6 m; 86 % land | Kenai 2008's sea-surface returns: its classes carry no water, and the raster chain removed them with the taught water model (`obs/kenai_2008/class.vrt`, precision 0.97) | units: `water_raster` per survey — ground returns in cells the model calls water are water |
+| chaotic 59.66450, −151.70424 | the same returns at −0.76 m in 12 % of cells among NCEI at −10 m; classes mixed cell by cell | the same | the same |
+| spikes 59.66086, −151.74702 | Homer 2018 green-lidar bed at −17.7 m in 12 % of cells beside NCEI at −19 m | NCEI's calibration is a 150 m field; at the green lidar's margin it cannot fit locally | joint 2c: a fine stage (`derived_fine_m` 10) spreads the residual at measured cells over 10 m, fading to 0 away from them |
+
+Run 2 (`kbay_joint_bluff_t2`): rough cells (|Laplacian| > 1 m) at the three sites 6 / 50 / 47 % → 0 / 0 / 0 %; whole
+crop 4.2 → 2.5 %, below MLLW 1.7 → 0.7 %; 2.1 km² of false land back to water; every invariant row 0. The fine stage
+is opt-in (`derived_fine_m` 0 by default, 10 in the bay template) so the Grewingk recipe is unchanged until its bay
+boxes are gated.
+
 ## 4. What to build before the run
 
 1. `joint_pilot.py`: a source list instead of three hard-wired surveys — readers for COPC (Homer 2018, Seldovia
