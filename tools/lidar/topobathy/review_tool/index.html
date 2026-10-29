@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Water review</title>
+<link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  :root { --bg:#fafaf7; --fg:#1c1c1c; --mut:#6b6b66; --line:#dcdcd6; --acc:#1f5fbf; --ok:#2b8a3e; --warn:#b4530a;
+          --k-above:#d7263d; --k-ceil:#f28c28; --k-sill:#7b3fbf; --k-edge:#d4b000; --k-ice:#15a8c4; --k-level:#2d9c8a; }
+  html, body { margin:0; height:100%; font:13px/1.4 -apple-system, "Helvetica Neue", Arial, sans-serif; color:var(--fg); background:var(--bg); }
+  #app { display:grid; grid-template-columns:380px 1fr; height:100%; }
+  #side { border-right:1px solid var(--line); display:flex; flex-direction:column; min-height:0; }
+  #side h1 { font-size:15px; margin:0; padding:10px 12px 2px; }
+  #side .sub { color:var(--mut); padding:0 12px 8px; font-size:12px; }
+  #prog { height:6px; background:#e6e6e0; margin:0 12px 8px; border-radius:3px; overflow:hidden; }
+  #prog i { display:block; height:100%; background:var(--ok); width:0; }
+  #chips { display:flex; flex-wrap:wrap; gap:4px; padding:0 12px 8px; }
+  .chip { border:1px solid var(--line); border-radius:12px; padding:2px 9px; cursor:pointer; background:#fff; font-size:12px; white-space:nowrap; }
+  .chip.on { border-color:var(--fg); background:#f0f0ea; }
+  .chip b { font-weight:600; }
+  .chip .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; vertical-align:-1px; }
+  #tools { display:flex; gap:6px; padding:0 12px 8px; align-items:center; flex-wrap:wrap; }
+  #tools label { color:var(--mut); font-size:12px; }
+  select, input[type=text], input[type=number], textarea { font:inherit; border:1px solid var(--line); border-radius:4px; padding:3px 6px; background:#fff; }
+  button { font:inherit; border:1px solid var(--line); border-radius:5px; padding:4px 9px; background:#fff; cursor:pointer; }
+  button:hover { background:#f2f2ec; }
+  button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
+  button.primary:disabled { opacity:.45; cursor:default; }
+  button.on { background:#e7eefb; border-color:var(--acc); }
+  #list { flex:1; overflow:auto; border-top:1px solid var(--line); }
+  .row { padding:7px 12px; border-bottom:1px solid #eeeee8; cursor:pointer; display:grid; grid-template-columns:14px 1fr auto; gap:8px; align-items:start; }
+  .row:hover { background:#f4f4ee; }
+  .row.sel { background:#e7eefb; }
+  .row .k { width:10px; height:10px; border-radius:50%; margin-top:4px; }
+  .row .t { font-weight:600; }
+  .row .m { color:var(--mut); font-size:12px; }
+  .row .d { font-size:11px; border-radius:10px; padding:1px 7px; background:#eee; color:#333; white-space:nowrap; }
+  .row .d.island { background:#dff3e3; } .row .d.noise { background:#fde9d9; } .row .d.polygon_edit { background:#e3ecfb; } .row .d.defer { background:#f1f1f1; }
+  #foot { padding:8px 12px; border-top:1px solid var(--line); display:flex; gap:6px; align-items:center; font-size:12px; color:var(--mut); }
+  #foot .dirty { color:var(--warn); }
+  #mapwrap { position:relative; min-height:0; }
+  #map { position:absolute; inset:0; }
+  #bar { position:absolute; top:8px; left:8px; z-index:5; display:flex; gap:6px; flex-wrap:wrap; }
+  #bar .grp { background:rgba(255,255,255,.95); border:1px solid var(--line); border-radius:6px; padding:4px 6px; display:flex; gap:6px; align-items:center; font-size:12px; }
+  #bar label { display:inline-flex; gap:3px; align-items:center; cursor:pointer; }
+  #card { position:absolute; right:8px; bottom:8px; z-index:5; width:360px; max-height:70%; overflow:auto; background:rgba(255,255,255,.97); border:1px solid var(--line); border-radius:8px; padding:10px 12px; box-shadow:0 2px 10px rgba(0,0,0,.12); display:none; }
+  #card h2 { font-size:14px; margin:0 0 6px; display:flex; justify-content:space-between; align-items:center; }
+  #card h2 .x { cursor:pointer; color:var(--mut); font-weight:400; }
+  #card table { border-collapse:collapse; width:100%; font-size:12px; margin-bottom:8px; }
+  #card td { padding:2px 4px; vertical-align:top; border-bottom:1px solid #f0f0ea; }
+  #card td:first-child { color:var(--mut); white-space:nowrap; width:38%; }
+  #card .sug { background:#fbf6e6; border-left:3px solid var(--k-edge); padding:5px 8px; margin:6px 0; font-size:12px; }
+  #card .disp { display:flex; gap:4px; flex-wrap:wrap; margin:6px 0; }
+  #card textarea { width:100%; box-sizing:border-box; min-height:44px; }
+  #card .nav { display:flex; justify-content:space-between; margin-top:8px; }
+  .kbd { font-family:ui-monospace, Menlo, monospace; font-size:11px; background:#f0f0ea; border:1px solid var(--line); border-radius:3px; padding:0 4px; }
+  #toast { position:absolute; left:50%; bottom:16px; transform:translateX(-50%); z-index:6; background:#222; color:#fff; padding:6px 12px; border-radius:6px; font-size:12px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  #help { position:absolute; left:8px; bottom:8px; z-index:5; background:rgba(255,255,255,.92); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:11px; color:var(--mut); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="side">
+    <h1>Water review <span id="runname" style="font-weight:400;color:var(--mut)"></span></h1>
+    <div class="sub" id="survey"></div>
+    <div id="prog"><i></i></div>
+    <div id="chips"></div>
+    <div id="tools">
+      <label>sort</label>
+      <select id="sort"><option value="area">area, largest first</option><option value="dz">height over level</option><option value="undecided">undecided first</option></select>
+      <label><input type="checkbox" id="onlyopen"> undecided only</label>
+    </div>
+    <div id="list"></div>
+    <div id="foot">
+      <button class="primary" id="save" disabled>Save review</button>
+      <button id="savepoly" disabled>Save polygons</button>
+      <span id="status"></span>
+    </div>
+  </div>
+  <div id="mapwrap">
+    <div id="map"></div>
+    <div id="bar">
+      <div class="grp">
+        <label><input type="radio" name="base" value="shade" checked> hillshade</label>
+        <label><input type="radio" name="base" value="imagery"> imagery</label>
+        <label><input type="radio" name="base" value="both"> both</label>
+      </div>
+      <div class="grp">
+        <label><input type="checkbox" id="ly-flags" checked> flags</label>
+        <label><input type="checkbox" id="ly-auto" checked> auto polygons</label>
+        <label><input type="checkbox" id="ly-mapped"> mapped lakes</label>
+        <label><input type="checkbox" id="ly-rev" checked> reviewed</label>
+      </div>
+      <div class="grp">
+        <button id="draw">✎ Draw polygon</button>
+        <span id="drawhint" style="color:var(--mut);display:none">click vertices · Enter finishes · Esc cancels</span>
+      </div>
+    </div>
+    <div id="card"></div>
+    <div id="help"><span class="kbd">j</span>/<span class="kbd">k</span> next/prev · <span class="kbd">1</span> island <span class="kbd">2</span> noise <span class="kbd">3</span> polygon edit <span class="kbd">4</span> defer <span class="kbd">0</span> clear · <span class="kbd">s</span> save</div>
+    <div id="toast"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
+<script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
+<script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>
+<script>
+(function () {
+  'use strict';
+  var KIND = {
+    above_water_obs: { c: '#d7263d', l: 'above-water observation' },
+    ceiling_bound:   { c: '#f28c28', l: 'ceiling bound' },
+    sill_fail:       { c: '#7b3fbf', l: 'sill fail (now the sea)' },
+    edge_mismatch:   { c: '#d4b000', l: 'edge mismatch' },
+    ice_face:        { c: '#15a8c4', l: 'ice face' },
+    level_conflict:  { c: '#2d9c8a', l: 'level conflict' }
+  };
+  var POLYC = { sea: '#2b6cb0', tidal: '#2b6cb0', lake: '#1a9e8f', pond: '#1a9e8f', lagoon: '#1a9e8f', perched: '#8a5cc4', river: '#3a9d3a', island: '#8b5a2b' };
+  var DISP = ['island', 'noise', 'polygon_edit', 'defer'];
+  var DISP_WHAT = {
+    island: 'the observation stands: land inside the water, cut from the polygon',
+    noise: 'no observation inside the water: open space for the interpolation',
+    polygon_edit: 'resolved by redrawing the polygon (draw it here, or in QGIS)',
+    defer: 'left for later; the suggestion stands'
+  };
+  var S = { flags: [], stale: [], auto: null, reviewed: [], mapped: null, sel: null, dirty: false, dirtyPoly: false,
+            kinds: {}, polySel: null, drawing: false };
+  var map, td, protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol('pmtiles', protocol.tile);
+
+  function $(id) { return document.getElementById(id); }
+  function toast(t) { var e = $('toast'); e.textContent = t; e.style.opacity = 1; clearTimeout(e._t); e._t = setTimeout(function () { e.style.opacity = 0; }, 1800); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function fmt(v, d) { return v == null ? '–' : (typeof v === 'number' ? v.toFixed(d == null ? 1 : d) : esc(v)); }
+  function area(m2) { return m2 >= 1e4 ? (m2 / 1e4).toFixed(1) + ' ha' : Math.round(m2) + ' m²'; }
+
+  // ---------------------------------------------------------------- load
+  fetch('/api/state').then(function (r) { return r.json(); }).then(function (st) {
+    S.flags = st.flags.features; S.stale = st.stale; S.auto = st.auto; S.reviewed = st.reviewed.features; S.mapped = st.mapped;
+    S.files = st.files; S.pm = st.pmtiles; S.survey = st.survey;
+    $('runname').textContent = st.run.split('/').pop();
+    $('survey').textContent = st.survey.title + ' · ' + S.flags.length + ' flags, ' + st.auto.features.length + ' automatic polygons, ' + S.reviewed.length + ' reviewed';
+    KIND.__order = Object.keys(KIND).filter(function (k) { return S.flags.some(function (f) { return f.properties.kind === k; }); });
+    KIND.__order.forEach(function (k) { S.kinds[k] = true; });
+    buildMap(st);
+    renderChips(); renderList();
+  });
+
+  // ---------------------------------------------------------------- map
+  function buildMap(st) {
+    var b = st.survey.bounds || [-151.3, 59.5, -150.8, 59.75];
+    var origin = location.origin;
+    var style = { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#e9e9e2' } }] };
+    style.sources.imagery = { type: 'raster', tileSize: 256, maxzoom: 19, attribution: 'Esri World Imagery',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'] };
+    style.layers.push({ id: 'imagery', type: 'raster', source: 'imagery', layout: { visibility: 'none' } });
+    if (st.pmtiles.dem) {
+      style.sources.dem = { type: 'raster-dem', url: 'pmtiles://' + origin + st.pmtiles.dem, encoding: 'mapbox', tileSize: 256,
+        minzoom: st.survey.min_zoom, maxzoom: st.survey.max_zoom, bounds: b };
+      style.layers.push({ id: 'shade', type: 'hillshade', source: 'dem', paint: { 'hillshade-exaggeration': 0.55, 'hillshade-shadow-color': '#2a2a2a', 'hillshade-highlight-color': '#ffffff', 'hillshade-illumination-direction': 315 } });
+    }
+    map = new maplibregl.Map({ container: 'map', style: style, bounds: b, fitBoundsOptions: { padding: 20 }, maxPitch: 0, attributionControl: { compact: true } });
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+    map.on('load', function () {
+      // the water picture: automatic polygons filled faintly by kind, outlined by agreement with the mapped prior
+      map.addSource('auto', { type: 'geojson', data: S.auto });
+      map.addLayer({ id: 'auto-fill', type: 'fill', source: 'auto', paint: { 'fill-color': polyColor(), 'fill-opacity': 0.18 } });
+      map.addLayer({ id: 'auto-line', type: 'line', source: 'auto', paint: { 'line-color': polyColor(), 'line-width': 1.2,
+        'line-opacity': ['case', ['==', ['coalesce', ['get', 'agree'], 1], null], 0.9, ['interpolate', ['linear'], ['coalesce', ['get', 'agree'], 1], 0, 0.9, 1, 0.9]] } });
+      map.addSource('mapped', { type: 'geojson', data: S.mapped });
+      map.addLayer({ id: 'mapped-line', type: 'line', source: 'mapped', layout: { visibility: 'none' }, paint: { 'line-color': '#444', 'line-width': 1, 'line-dasharray': [3, 2] } });
+      map.addSource('rev', { type: 'geojson', data: revFC() });
+      map.addLayer({ id: 'rev-fill', type: 'fill', source: 'rev', filter: ['!=', ['get', 'status'], 'withdrawn'], paint: { 'fill-color': polyColor(), 'fill-opacity': 0.12 } });
+      map.addLayer({ id: 'rev-case', type: 'line', source: 'rev', filter: ['!=', ['get', 'status'], 'withdrawn'], paint: { 'line-color': '#fff', 'line-width': 4 } });
+      map.addLayer({ id: 'rev-line', type: 'line', source: 'rev', paint: { 'line-color': polyColor(), 'line-width': 2,
+        'line-dasharray': ['case', ['==', ['get', 'status'], 'withdrawn'], ['literal', [1, 2]], ['literal', [1, 0]]] } });
+      map.addSource('flags', { type: 'geojson', data: flagFC() });
+      map.addLayer({ id: 'flag-fill', type: 'fill', source: 'flags', paint: { 'fill-color': kindColor(), 'fill-opacity': ['case', ['==', ['get', 'disposition'], ''], 0.35, 0.12] } });
+      map.addLayer({ id: 'flag-line', type: 'line', source: 'flags', paint: { 'line-color': kindColor(), 'line-width': ['case', ['==', ['get', 'disposition'], ''], 2, 1.2],
+        'line-dasharray': ['case', ['==', ['get', 'disposition'], ''], ['literal', [1, 0]], ['literal', [2, 2]]] } });
+      // small flags need a marker to be seen zoomed out
+      map.addSource('flagpts', { type: 'geojson', data: flagPts() });
+      map.addLayer({ id: 'flag-pt', type: 'circle', source: 'flagpts', maxzoom: 15, paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 3, 15, 7], 'circle-color': kindColor(),
+        'circle-opacity': ['case', ['==', ['get', 'disposition'], ''], 0.9, 0.35], 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } });
+      map.addSource('sel', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({ id: 'sel-line', type: 'line', source: 'sel', paint: { 'line-color': '#1f5fbf', 'line-width': 3 } });
+      map.on('click', 'flag-pt', function (e) { select(e.features[0].properties.id); e.originalEvent._hit = 1; });
+      map.on('click', 'flag-fill', function (e) { if (e.originalEvent._hit) return; select(e.features[0].properties.id); e.originalEvent._hit = 1; });
+      map.on('click', 'rev-fill', function (e) { if (e.originalEvent._hit || S.drawing) return; polyCard(e.features[0], 'rev'); e.originalEvent._hit = 1; });
+      map.on('click', 'auto-fill', function (e) { if (e.originalEvent._hit || S.drawing) return; polyCard(e.features[0], 'auto'); e.originalEvent._hit = 1; });
+      ['flag-pt', 'flag-fill', 'auto-fill', 'rev-fill'].forEach(function (id) {
+        map.on('mouseenter', id, function () { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', id, function () { map.getCanvas().style.cursor = ''; });
+      });
+    });
+    document.querySelectorAll('input[name=base]').forEach(function (r) { r.addEventListener('change', setBase); });
+    $('ly-flags').addEventListener('change', function () { vis(['flag-fill', 'flag-line', 'flag-pt'], this.checked); });
+    $('ly-auto').addEventListener('change', function () { vis(['auto-fill', 'auto-line'], this.checked); });
+    $('ly-mapped').addEventListener('change', function () { vis(['mapped-line'], this.checked); });
+    $('ly-rev').addEventListener('change', function () { vis(['rev-fill', 'rev-case', 'rev-line'], this.checked); });
+    $('draw').addEventListener('click', toggleDraw);
+  }
+  function setBase() {
+    var v = document.querySelector('input[name=base]:checked').value;
+    vis(['imagery'], v !== 'shade'); vis(['shade'], v !== 'imagery');
+    if (map.getLayer('shade')) map.setPaintProperty('shade', 'hillshade-exaggeration', v === 'both' ? 0.35 : 0.55);
+  }
+  function vis(ids, on) { ids.forEach(function (id) { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); }); }
+  function kindColor() { var m = ['match', ['get', 'kind']]; Object.keys(KIND).forEach(function (k) { if (k[0] !== '_') { m.push(k); m.push(KIND[k].c); } }); m.push('#888'); return m; }
+  function polyColor() { var m = ['match', ['get', 'kind']]; Object.keys(POLYC).forEach(function (k) { m.push(k); m.push(POLYC[k]); }); m.push('#777'); return m; }
+  function flagFC() { return { type: 'FeatureCollection', features: S.flags }; }
+  function revFC() { return { type: 'FeatureCollection', features: S.reviewed }; }
+  function flagPts() { return { type: 'FeatureCollection', features: S.flags.map(function (f) { return { type: 'Feature', properties: f.properties, geometry: { type: 'Point', coordinates: [f.properties.lon, f.properties.lat] } }; }) }; }
+  function refreshFlags() { if (!map || !map.getSource('flags')) return; map.getSource('flags').setData(flagFC()); map.getSource('flagpts').setData(flagPts()); }
+  function refreshRev() { if (map && map.getSource('rev')) map.getSource('rev').setData(revFC()); }
+
+  // ---------------------------------------------------------------- list
+  function visible() {
+    var only = $('onlyopen').checked, srt = $('sort').value;
+    var fs = S.flags.filter(function (f) { return S.kinds[f.properties.kind] && (!only || !f.properties.disposition); });
+    fs.sort(function (a, b) {
+      var A = a.properties, B = b.properties;
+      if (srt === 'undecided' && (!A.disposition) !== (!B.disposition)) return A.disposition ? 1 : -1;
+      if (srt === 'dz') return (B.dz_max_m || 0) - (A.dz_max_m || 0);
+      return (B.area_m2 || 0) - (A.area_m2 || 0);
+    });
+    return fs;
+  }
+  function renderChips() {
+    var h = '';
+    KIND.__order.forEach(function (k) {
+      var all = S.flags.filter(function (f) { return f.properties.kind === k; });
+      var done = all.filter(function (f) { return f.properties.disposition; }).length;
+      h += '<span class="chip' + (S.kinds[k] ? ' on' : '') + '" data-k="' + k + '"><span class="dot" style="background:' + KIND[k].c + '"></span>' + KIND[k].l + ' <b>' + done + '/' + all.length + '</b></span>';
+    });
+    if (S.stale.length) h += '<span class="chip" style="border-style:dashed" title="decisions in review.geojson on flags this run no longer raises; kept on save">stale ' + S.stale.length + '</span>';
+    $('chips').innerHTML = h;
+    $('chips').querySelectorAll('.chip[data-k]').forEach(function (c) { c.addEventListener('click', function () { S.kinds[c.dataset.k] = !S.kinds[c.dataset.k]; renderChips(); renderList(); }); });
+    var done = S.flags.filter(function (f) { return f.properties.disposition; }).length;
+    $('prog').firstElementChild.style.width = (S.flags.length ? 100 * done / S.flags.length : 0) + '%';
+  }
+  function renderList() {
+    var fs = visible(), h = '';
+    fs.forEach(function (f) {
+      var p = f.properties, k = KIND[p.kind] || { c: '#888', l: p.kind };
+      var m = area(p.area_m2 || 0);
+      if (p.dz_max_m != null) m += ' · ' + p.dz_max_m.toFixed(1) + ' m over';
+      if (p.depth_p50_m != null) m += ' · depth ' + p.depth_p50_m.toFixed(2) + ' m';
+      if (p.level_m != null) m += ' · level ' + p.level_m.toFixed(2);
+      if (p.sources) m += ' · ' + p.sources.join(', ');
+      h += '<div class="row' + (S.sel === p.id ? ' sel' : '') + '" data-id="' + p.id + '"><div class="k" style="background:' + k.c + '"></div>' +
+           '<div><div class="t">' + k.l + ' <span style="font-weight:400;color:var(--mut)">' + esc(p.id.split('-').pop()) + '</span></div><div class="m">' + esc(m) + '</div></div>' +
+           '<div class="d ' + (p.disposition || '') + '">' + (p.disposition || 'open') + '</div></div>';
+    });
+    $('list').innerHTML = h || '<div style="padding:12px;color:var(--mut)">nothing to show</div>';
+    $('list').querySelectorAll('.row').forEach(function (r) { r.addEventListener('click', function () { select(r.dataset.id); }); });
+    $('status').textContent = fs.length + ' shown' + (S.dirty ? ' · unsaved' : '');
+    $('status').className = S.dirty ? 'dirty' : '';
+    $('save').disabled = !S.dirty; $('savepoly').disabled = !S.dirtyPoly;
+  }
+  $('sort').addEventListener('change', renderList); $('onlyopen').addEventListener('change', renderList);
+
+  // ---------------------------------------------------------------- selection and the card
+  function flag(id) { return S.flags.filter(function (f) { return f.properties.id === id; })[0]; }
+  function bbox(g) {
+    var b = [Infinity, Infinity, -Infinity, -Infinity];
+    (function walk(c) { if (typeof c[0] === 'number') { b[0] = Math.min(b[0], c[0]); b[1] = Math.min(b[1], c[1]); b[2] = Math.max(b[2], c[0]); b[3] = Math.max(b[3], c[1]); } else c.forEach(walk); })(g.coordinates);
+    return b;
+  }
+  function select(id, noFly) {
+    var f = flag(id); if (!f) return;
+    S.sel = id; S.polySel = null;
+    map.getSource('sel').setData({ type: 'FeatureCollection', features: [f] });
+    if (!noFly) {
+      var b = bbox(f.geometry), w = Math.max(b[2] - b[0], (b[3] - b[1]) * 2, 0.0025);
+      map.fitBounds([[b[0] - w * 0.6, b[1] - w * 0.3], [b[2] + w * 0.6, b[3] + w * 0.3]], { duration: 500, maxZoom: 17 });
+    }
+    renderList(); card(f);
+    var row = $('list').querySelector('.row.sel'); if (row) row.scrollIntoView({ block: 'nearest' });
+  }
+  function card(f) {
+    var p = f.properties, k = KIND[p.kind] || { c: '#888', l: p.kind };
+    var rows = [['id', p.id], ['where', p.lat.toFixed(5) + ', ' + p.lon.toFixed(5) + '  (' + p.x + ', ' + p.y + ')'], ['area', area(p.area_m2 || 0)]];
+    if (p.kind === 'above_water_obs' || p.kind === 'edge_mismatch') {
+      rows.push(['over the level', fmt(p.dz_max_m, 2) + ' m max, ' + fmt(p.dz_p50_m, 2) + ' median'], ['level', fmt(p.level_m, 2) + ' m'],
+                ['labels', Object.keys(p.labels || {}).map(function (l) { return l + ' ' + Math.round(100 * p.labels[l]) + '%'; }).join(', ')],
+                ['ice', Math.round(100 * (p.ice_frac || 0)) + '%'], ['sources', (p.sources || []).join(', ')],
+                ['in mapped polygon', p.in_mapped ? 'yes' : 'no'], ['in water stamp', p.in_stamp ? 'yes' : 'no']);
+      if (p.side) rows.push(['side', p.side]);
+    } else if (p.kind === 'ceiling_bound') {
+      rows.push(['guard fraction', fmt(p.guard_frac, 2)], ['depth median', fmt(p.depth_p50_m, 2) + ' m']);
+    } else if (p.kind === 'sill_fail') {
+      rows.push(['body', p.body], ['was', p.was_kind], ['level', fmt(p.level_m, 2) + ' m'], ['mapped', p.mapped ? 'yes' : 'no']);
+    } else if (p.kind === 'ice_face') {
+      rows.push(['length', fmt(p.length_m, 0) + ' m']);
+    }
+    var h = '<h2><span><span class="dot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + k.c + ';margin-right:6px"></span>' + k.l + '</span><span class="x" title="close (Esc)">✕</span></h2>';
+    h += '<table>' + rows.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + (r[0] === 'id' ? '<code>' + esc(r[1]) + '</code>' : esc(r[1])) + '</td></tr>'; }).join('') + '</table>';
+    h += '<div class="sug"><b>suggested:</b> ' + esc(p.suggested || '') + '</div>';
+    h += '<div class="disp">' + DISP.map(function (d, i) { return '<button data-d="' + d + '" class="' + (p.disposition === d ? 'on' : '') + '" title="' + esc(DISP_WHAT[d]) + ' (' + (i + 1) + ')">' + d.replace('_', ' ') + '</button>'; }).join('') +
+         '<button data-d="" title="clear (0)">clear</button></div>';
+    h += '<div style="font-size:11px;color:var(--mut);margin-bottom:4px">' + esc(p.disposition ? DISP_WHAT[p.disposition] : 'no decision: the suggestion stands') + '</div>';
+    h += '<textarea id="note" placeholder="note (why)">' + esc(p.note || '') + '</textarea>';
+    h += '<div class="nav"><button data-nav="-1">← prev (k)</button><button data-nav="1">next (j) →</button></div>';
+    var c = $('card'); c.innerHTML = h; c.style.display = 'block';
+    c.querySelector('.x').addEventListener('click', closeCard);
+    c.querySelectorAll('.disp button').forEach(function (b) { b.addEventListener('click', function () { setDisp(f, b.dataset.d); }); });
+    c.querySelectorAll('[data-nav]').forEach(function (b) { b.addEventListener('click', function () { step(+b.dataset.nav); }); });
+    $('note').addEventListener('input', function () { p.note = this.value; markDirty(); });
+  }
+  function closeCard() { $('card').style.display = 'none'; S.sel = null; S.polySel = null; if (map.getSource('sel')) map.getSource('sel').setData({ type: 'FeatureCollection', features: [] }); renderList(); }
+  function setDisp(f, d) { f.properties.disposition = d; markDirty(); refreshFlags(); renderChips(); card(f); renderList(); }
+  function markDirty() { S.dirty = true; renderList(); }
+  function step(n) {
+    var fs = visible(); if (!fs.length) return;
+    var i = fs.findIndex(function (f) { return f.properties.id === S.sel; });
+    i = i < 0 ? 0 : (i + n + fs.length) % fs.length;
+    select(fs[i].properties.id);
+  }
+
+  // ---------------------------------------------------------------- polygons: adopt, draw, edit
+  function polyCard(feat, src) {
+    var p = feat.properties, isRev = src === 'rev';
+    S.sel = null; S.polySel = { src: src, idx: isRev ? S.reviewed.findIndex(function (r) { return JSON.stringify(r.geometry) === JSON.stringify(feat.geometry) || (p.fid != null && r.properties.fid === p.fid); }) : null, feat: feat };
+    map.getSource('sel').setData({ type: 'FeatureCollection', features: [feat] });
+    var levels = p.levels ? (typeof p.levels === 'string' ? JSON.parse(p.levels) : p.levels) : null;
+    var h = '<h2><span>' + (isRev ? 'reviewed polygon' : 'automatic polygon') + ' · ' + esc(p.kind) + '</span><span class="x">✕</span></h2><table>';
+    if (!isRev) {
+      h += '<tr><td>body</td><td>' + esc(p.body) + '</td></tr><tr><td>level</td><td>' + fmt(p.level_m, 2) + ' m' + (p.level_range_m ? ' (range ' + esc(JSON.stringify(p.level_range_m)) + ')' : '') + '</td></tr>';
+      if (levels) h += '<tr><td>levels seen</td><td>' + levels.map(function (l) { return esc(l.survey) + ' ' + esc(l.date) + ': ' + fmt(l.level_m, 2); }).join('<br>') + '</td></tr>';
+      h += '<tr><td>area</td><td>' + area(p.area_m2 || 0) + '</td></tr><tr><td>basis</td><td>' + esc(p.basis) + '</td></tr><tr><td>mapped</td><td>' + esc(p.mapped || '–') + (p.agree != null ? ' · agree ' + fmt(p.agree, 2) : '') + '</td></tr>';
+      if (p.sill_below_m != null) h += '<tr><td>sill below level</td><td>' + fmt(p.sill_below_m, 2) + ' m</td></tr>';
+    } else {
+      h += '<tr><td>status</td><td>' + esc(p.status) + '</td></tr><tr><td>name</td><td>' + esc(p.name || '–') + '</td></tr><tr><td>note</td><td>' + esc(p.note || '–') + '</td></tr>';
+    }
+    h += '</table>';
+    h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0"><label>kind <select id="pk">' + ['lake', 'river', 'sea', 'island'].map(function (k) { return '<option' + (({ sea: 'sea', tidal: 'sea', lake: 'lake', pond: 'lake', lagoon: 'lake', perched: 'lake', river: 'river', island: 'island' }[p.kind] === k) ? ' selected' : '') + '>' + k + '</option>'; }).join('') + '</select></label>' +
+         '<label>level <input type="number" id="pl" step="0.01" style="width:80px" value="' + (p.level_m != null ? p.level_m : '') + '"></label>' +
+         '<label>name <input type="text" id="pn" style="width:110px" value="' + esc(p.name || p.mapped || '') + '"></label></div>';
+    h += '<div style="display:flex;gap:6px">' + (isRev ? '<button class="primary" id="pupd">Update</button><button id="pwd">Withdraw</button>' : '<button class="primary" id="padopt">Adopt as reviewed</button>') + '</div>';
+    h += '<div style="font-size:11px;color:var(--mut);margin-top:6px">' + (isRev ? 'a reviewed polygon is a constraint: its edge holds; its kind and level set the bodies under it' : 'adopting copies this polygon into polygons.geojson as reviewed (trusted); redraw with ✎ if its edge is wrong') + '</div>';
+    var c = $('card'); c.innerHTML = h; c.style.display = 'block';
+    c.querySelector('.x').addEventListener('click', closeCard);
+    function vals() { var l = $('pl').value; return { kind: $('pk').value, level_m: l === '' ? null : +l, name: $('pn').value }; }
+    if (isRev) {
+      $('pupd').addEventListener('click', function () { var r = S.reviewed[S.polySel.idx]; if (!r) return; Object.assign(r.properties, vals(), { status: 'reviewed' }); S.dirtyPoly = true; refreshRev(); renderList(); toast('updated'); });
+      $('pwd').addEventListener('click', function () { var r = S.reviewed[S.polySel.idx]; if (!r) return; r.properties.status = 'withdrawn'; S.dirtyPoly = true; refreshRev(); renderList(); closeCard(); toast('withdrawn (kept in the file)'); });
+    } else {
+      $('padopt').addEventListener('click', function () {
+        var v = vals();
+        S.reviewed.push({ type: 'Feature', geometry: feat.geometry, properties: Object.assign({ fid: 'adopt-' + p.body + '-' + Date.now().toString(36), status: 'reviewed', basis: 'adopted from ' + $('runname').textContent + ' body ' + p.body, body: p.body }, v) });
+        S.dirtyPoly = true; refreshRev(); renderList(); closeCard(); toast('adopted as reviewed ' + v.kind);
+      });
+    }
+  }
+  function toggleDraw() {
+    if (S.drawing) { stopDraw(); return; }
+    var TD = window.terraDraw, AD = window.terraDrawMaplibreGlAdapter;
+    if (!TD || !AD) { toast('Terra Draw did not load'); return; }
+    td = new TD.TerraDraw({ adapter: new AD.TerraDrawMapLibreGLAdapter({ map: map }),
+      modes: [new TD.TerraDrawPolygonMode({ pointerDistance: 8, keyEvents: { finish: 'Enter', cancel: 'Escape' } }), new TD.TerraDrawSelectMode()] });
+    td.start(); td.setMode('polygon'); S.drawing = true; $('draw').classList.add('on'); $('drawhint').style.display = '';
+    map.doubleClickZoom.disable();
+    td.on('finish', function (id) {
+      var f = td.getSnapshot().filter(function (x) { return x.id === id; })[0];
+      if (!f) return;
+      var geom = f.geometry; try { td.removeFeatures([id]); } catch (e) {}
+      stopDraw();
+      S.reviewed.push({ type: 'Feature', geometry: geom, properties: { fid: 'draw-' + Date.now().toString(36), kind: 'lake', level_m: null, name: '', status: 'reviewed', basis: 'drawn in review_tool over ' + S.survey.id } });
+      S.dirtyPoly = true; refreshRev(); renderList();
+      polyCard(S.reviewed[S.reviewed.length - 1], 'rev'); S.polySel.idx = S.reviewed.length - 1;
+      toast('polygon added: set its kind and level, then Save polygons');
+    });
+  }
+  function stopDraw() { if (td) { try { td.stop(); } catch (e) {} td = null; } S.drawing = false; $('draw').classList.remove('on'); $('drawhint').style.display = 'none'; map.doubleClickZoom.enable(); }
+
+  // ---------------------------------------------------------------- save
+  function save() {
+    if (!S.dirty) return;
+    var feats = S.flags.concat(S.stale);
+    fetch('/api/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ features: feats }) })
+      .then(function (r) { return r.json(); }).then(function (r) { S.dirty = false; renderList(); toast('saved ' + r.n + ' decisions → ' + r.path.split('/').slice(-3).join('/')); })
+      .catch(function (e) { toast('save failed: ' + e); });
+  }
+  function savePoly() {
+    if (!S.dirtyPoly) return;
+    fetch('/api/polygons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ features: S.reviewed }) })
+      .then(function (r) { return r.json(); }).then(function (r) { if (!r.ok) throw new Error(r.description || 'refused'); S.dirtyPoly = false; renderList(); toast('saved ' + r.n + ' polygons → ' + r.path.split('/').slice(-3).join('/')); })
+      .catch(function (e) { toast('save failed: ' + e); });
+  }
+  $('save').addEventListener('click', save); $('savepoly').addEventListener('click', savePoly);
+  window.addEventListener('beforeunload', function (e) { if (S.dirty || S.dirtyPoly) { e.preventDefault(); e.returnValue = ''; } });
+
+  // ---------------------------------------------------------------- keys
+  document.addEventListener('keydown', function (e) {
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || S.drawing) return;
+    if (e.key === 'j') step(1); else if (e.key === 'k') step(-1);
+    else if (e.key === 's' && !e.metaKey) { save(); savePoly(); }
+    else if (e.key === 'Escape') closeCard();
+    else if (/^[0-4]$/.test(e.key) && S.sel) { var f = flag(S.sel); setDisp(f, e.key === '0' ? '' : DISP[+e.key - 1]); }
+    else return;
+    e.preventDefault();
+  });
+})();
+</script>
+</body>
+</html>
