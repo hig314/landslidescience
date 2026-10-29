@@ -37,6 +37,20 @@
  *   });
  *   ch.setData(data) / setStatus(text) / setTitle(text) / open() / close() / isOpen()
  *   ch.locked() / setLocked(bool) / window() / setWindow({d0, d1} | null) / stats(series)
+ *   ch.hoverAt(d | null)   show the guide and readout at d from outside (a map or
+ *                          another chart); does not call onHover, so hosts can't loop
+ *
+ * Tracks (trailgeek's refine tool, 2026-10-18): rows under the profile that
+ * share its x axis, its hover guide and its brushed window. The host draws
+ * them; the chart leaves room and says where:
+ *
+ *   tracks: {height: px, draw(geom) -> SVG string}
+ *     geom = {ox, sx, L, top, width, height}: x of d is ox + d * sx, the rows
+ *     fill [top, top + height] and [ox, ox + width].
+ *   marginRight: px                 // room right of the plot (default 14), e.g. track labels
+ *
+ * With tracks, the profile sits at the top of the plot area even at 1:1 (it
+ * is centred without them), so the rows stay right under it.
  *
  * Map marker paint for the hover position: LSProfileChart.CURSOR_PAINT.
  */
@@ -144,7 +158,8 @@ window.LSProfileChart = (function () {
       var series = data.series;
       var rect = el.body.getBoundingClientRect();
       var W = Math.max(200, rect.width), H = Math.max(120, rect.height);
-      var m = { l: 52, r: 14, t: 16, b: 28 };
+      var tracks = o.tracks && o.tracks.height > 0 ? o.tracks : null, TG = 22;   // TG: the x labels between profile and tracks
+      var m = { l: 52, r: o.marginRight || 14, t: 16, b: 28 + (tracks ? tracks.height + TG : 0) };
       var iw = W - m.l - m.r, ih = H - m.t - m.b;
       var zmin = Infinity, zmax = -Infinity;
       series.forEach(function (s) { s.runs.forEach(function (run) { run.forEach(function (q) {
@@ -157,7 +172,7 @@ window.LSProfileChart = (function () {
       if (locked) { sx = sy = Math.min(iw / L, ih / range); ve = 1; }   // one scale, the profile fits
       else { sx = iw / L; sy = ih / range; ve = sy / sx; }
       var cw = sx * L, ch = sy * range;
-      var ox = m.l, oy = m.t + (ih - ch) / 2;        // centre vertically when locked
+      var ox = m.l, oy = m.t + (tracks ? 0 : (ih - ch) / 2);   // centre vertically when locked, unless tracks follow
       var X = function (d) { return ox + d * sx; };
       var Y = function (z) { return oy + (zmax - z) * sy; };
       var parts = ['<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#fff"/>'];
@@ -176,6 +191,16 @@ window.LSProfileChart = (function () {
                    '" fill="#5D4037" fill-opacity="0.10" stroke="#5D4037" stroke-opacity="0.6"/>');
       }
       parts.push('<rect x="' + ox + '" y="' + oy + '" width="' + cw + '" height="' + ch + '" fill="none" stroke="#999"/>');
+      var ty = oy + ch + TG, gy1 = oy + ch;
+      if (tracks) {
+        parts.push(tracks.draw({ ox: ox, sx: sx, L: L, top: ty, width: cw, height: tracks.height }) || '');
+        if (sel) {
+          var tx0 = X(Math.max(0, Math.min(sel.d0, sel.d1))), tx1 = X(Math.min(L, Math.max(sel.d0, sel.d1)));
+          parts.push('<rect x="' + tx0 + '" y="' + ty + '" width="' + Math.max(0, tx1 - tx0) + '" height="' + tracks.height +
+                     '" fill="#5D4037" fill-opacity="0.10" stroke="#5D4037" stroke-opacity="0.6" pointer-events="none"/>');
+        }
+        gy1 = ty + tracks.height;
+      }
       parts.push('<text x="' + (ox - 36) + '" y="' + (oy + ch / 2) + '" font-size="10" fill="#555" text-anchor="middle" transform="rotate(-90 ' + (ox - 36) + ' ' + (oy + ch / 2) + ')">elevation (m)</text>');
       if (o.ends) {
         parts.push('<text x="' + (ox + 2) + '" y="' + (oy - 4) + '" font-size="11" font-weight="700" fill="#111">' + esc(o.ends[0]) + '</text>');
@@ -210,7 +235,7 @@ window.LSProfileChart = (function () {
       });
       // Legend: inside the plot when it fills the panel, below it when a 1:1
       // profile is a thin band with room to spare (the usual case at 1:1).
-      var need = series.length * 13 + 6, below = (H - m.b - (oy + ch)) > need + 18;
+      var need = series.length * 13 + 6, below = !tracks && (H - m.b - (oy + ch)) > need + 18;   // tracks take the room below
       var ly = below ? oy + ch + 30 : oy + 12, lx = ox + 8;
       series.forEach(function (s) {
         if (s.marker) parts.push('<circle cx="' + (lx + 11) + '" cy="' + ly + '" r="3" fill="' + s.color + '"/>');
@@ -223,12 +248,12 @@ window.LSProfileChart = (function () {
                  (o.ends ? 'middle' : 'end') + '" fill="#333">' +
                  (locked ? 'VE 1:1' : 'VE ×' + (ve >= 10 ? ve.toFixed(0) : ve.toFixed(1))) + '</text>');
       // Hover marks (positioned by the mouse handler; left out of the SVG download).
-      parts.push('<line class="pc-guide" x1="0" y1="' + oy + '" x2="0" y2="' + (oy + ch) + '" stroke="#333" stroke-dasharray="2 2" visibility="hidden"/>');
+      parts.push('<line class="pc-guide" x1="0" y1="' + oy + '" x2="0" y2="' + gy1 + '" stroke="#333" stroke-dasharray="2 2" visibility="hidden"/>');
       parts.push('<circle class="pc-hit" r="4" fill="#ffeb3b" stroke="#333" stroke-width="1.5" visibility="hidden"/>');
       el.svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
       el.svg.setAttribute('width', W); el.svg.setAttribute('height', H);
       el.svg.innerHTML = parts.join('');
-      el.svg._geom = { ox: ox, sx: sx, L: L };
+      el.svg._geom = { ox: ox, sx: sx, L: L, Y: Y };
       paintStats();
     }
 
@@ -252,6 +277,11 @@ window.LSProfileChart = (function () {
         if (d >= 0 && d <= g.L) hit = { d: d };
       }
       if (!hit) { leave(); return; }
+      showHit(hit, e);
+      if (o.onHover) o.onHover(hit);
+    }
+    function showHit(hit, e) {
+      var g = el.svg._geom;
       var gx = g.ox + hit.d * g.sx;
       var guide = el.svg.querySelector('.pc-guide'), dot = el.svg.querySelector('.pc-hit');
       if (guide) { guide.setAttribute('x1', gx); guide.setAttribute('x2', gx); guide.setAttribute('visibility', 'visible'); }
@@ -259,10 +289,9 @@ window.LSProfileChart = (function () {
         if (hit.point) { dot.setAttribute('cx', hit.point._px); dot.setAttribute('cy', hit.point._py); dot.setAttribute('visibility', 'visible'); }
         else dot.setAttribute('visibility', 'hidden');
       }
-      if (o.onHover) o.onHover(hit);
       var t = o.tip ? o.tip(hit) : null;
       el.read.textContent = (t && t.read) || '';
-      if (!t || !t.html) { el.tip.style.display = 'none'; return; }
+      if (!e || !t || !t.html) { el.tip.style.display = 'none'; return; }
       el.tip.innerHTML = t.html;
       el.tip.style.display = 'block';
       // Keep the box inside the panel: flip to the left of the cursor near the right edge.
@@ -271,12 +300,20 @@ window.LSProfileChart = (function () {
       el.tip.style.left = (px + 14 + tw > bw ? px - tw - 10 : px + 14) + 'px';
       el.tip.style.top = Math.max(4, Math.min(el.body.clientHeight - el.tip.offsetHeight - 4, e.clientY - br.top - 10)) + 'px';
     }
-    function leave() {
+    function hoverAt(d) {
+      if (!data || !el.svg._geom) return;
+      if (d == null || d < 0 || d > el.svg._geom.L) { clearHover(); return; }
+      showHit({ d: d }, null);
+    }
+    function clearHover() {
       var guide = el.svg.querySelector('.pc-guide'), dot = el.svg.querySelector('.pc-hit');
       if (guide) guide.setAttribute('visibility', 'hidden');
       if (dot) dot.setAttribute('visibility', 'hidden');
       el.tip.style.display = 'none';
       el.read.innerHTML = '&nbsp;';
+    }
+    function leave() {
+      clearHover();
       if (o.onHover) o.onHover(null);
     }
     el.svg.addEventListener('mousemove', onMove);
@@ -367,6 +404,7 @@ window.LSProfileChart = (function () {
       locked: function () { return locked; }, setLocked: setLocked,
       window: function () { return sel ? { d0: Math.min(sel.d0, sel.d1), d1: Math.max(sel.d0, sel.d1) } : null; },
       setWindow: function (w) { sel = w ? { d0: w.d0, d1: w.d1 } : null; draw(); },
+      hoverAt: hoverAt,
       stats: function (s) { return sel ? windowStats(s, sel) : null; }
     };
   }
