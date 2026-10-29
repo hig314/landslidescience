@@ -2,6 +2,18 @@
  "what": "Mapped water sources for the water-bodies stage (topobathy/water.py) and the flat-lake detector (axes.class_raster flat_lakes 'mapped'). A mapped polygon is an observation of its own kind -- where water was seen, by whom, when -- with no level; it never overrides a survey, it adds recall (small ponds under the detector's minimum, lakes the detector misses) and a check on both kinds of error (water.json: mapped_missed / bodies_unmapped).",
  "sources": [
   {
+   "id": "3dep_lakes",
+   "path": "mapped_3dep_lakes.geojson",
+   "who": "USGS 3DEP 1/3\" (hydro-flattened), water/make_3dep_lakes.py",
+   "period": "2012",
+   "edge_note": "a PRIOR, no `edge`: the water stage's detector pass runs inside, the kind is a prior for the body; the shore stage gives it no shoreline cost. Replaced by hig_lakes where Hig mapped the same water (2026-10-29). level_m is carried as a property only (2012 hydro-flattening), never set as the body level.",
+   "basis": "tools/lidar/water/mapped_3dep_lakes.geojson (EPSG:4326)",
+   "kind_field": "Type",
+   "kind_map": {
+    "Lake": "lake"
+   }
+  },
+  {
    "id": "hig_lakes",
    "path": "mapped_hig_lakes.geojson",
    "who": "Hig",
@@ -21,7 +33,10 @@
    "subkind_map": {
     "Manmade": "reservoir"
    },
-   "name_field": "Name"
+   "name_field": "Name",
+   "replaces": [
+    "3dep_lakes"
+   ]
   },
   {
    "id": "reviewed",

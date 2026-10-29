@@ -136,6 +136,23 @@ southern row), `make_seeds.py` (sea / channel / water-surface seeds from the v7 
 Bluff Point box (the outer-coast test against the v8 patches), then `run_bay.sh run1` for the rest (resumable; each
 box's gate in `composite/<box>/gate/`). The units stage is the long pole: ~5,500 units at 10–50 s each on 4 workers.
 
+## 6. Hig's answers (2026-10-29, late morning) and what changed
+
+- **Extent: x 540–635, y 6540–6636 km** (lon −152.3 to −150.65, lat 58.98 to 59.85), west and south far enough for the
+  tip of the Kenai Peninsula (Cape Elizabeth x 560 / y 6558, the Chugach Islands to y 6548.5): a logical map
+  boundary that nests in a coarse model grid. 48 boxes (6 × 8), the southern and western ones mostly open water.
+  Beyond CGOA's 1995 100 m grid (x < 545, y < 6550) the only bed is NCEI's Coastal Relief Model (~0.5 km, already
+  on disk; warped to `bathy_src/crm_southak/crm_6334_500m.tif`), added as the last derived source (σ 10 m).
+  South of 59.32° N nothing finer than CGOA exists in the stack.
+- **Hig's mapped lakes stay the prior they were**: `water/sources.json` `hig_lakes` (edge trusted, 2017–2022) → the
+  water stage's detector pass inside each polygon and the kind as a prior; the shore stage's shoreline cost
+  (`prior_cost`) and rule 5 (unobserved cells inside are water); replaced where a reviewed polygon covers it.
+- **3DEP's lakes as a prior too**: `flat_water.py` over the whole extent at 10 m → `water/make_3dep_lakes.py` →
+  `water/mapped_3dep_lakes.geojson`, listed in `sources.json` before `hig_lakes` with no `edge` (detector pass and
+  kind prior, no shoreline cost); `hig_lakes` replaces it where both map the same water. This is what reaches the
+  Chugachmiut ground, which is not hydro-flattened.
+- **Seeds** for the beach zones outside the v7 product: 3DEP's sea (flat at 0 m) where v7 had nothing.
+
 ## 4. What to build before the run
 
 1. `joint_pilot.py`: a source list instead of three hard-wired surveys — readers for COPC (Homer 2018, Seldovia

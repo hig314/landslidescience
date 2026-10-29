@@ -73,7 +73,12 @@ for n in ('sonar2023', 'bathy2009', 'h12146', 'ocm2023'):
     j['sources'].append(dict(beds[n]))
 j['sources'].append(dict(name='cudem2022', derived=True, kind='grid', cls='bed', src=f'{NUN}/bathy_src/outer_kachemak/cmp_cudem/cand_4m.tif',
                          date='2022-07-01', sigma_m=1.0, valid_below_m=-1.38))
-for n in ('ncei2010', 'cgoa', 'sfm2023bare', 'dixon2023'):
+for n in ('ncei2010', 'cgoa'):
+    j['sources'].append(dict(beds[n]))
+# beyond CGOA (x < 545, y < 6550, the open water off the peninsula's tip) only NCEI's Coastal Relief Model, ~0.5 km: the last resort
+j['sources'].append(dict(name='crm', derived=True, kind='grid', cls='bed', src=f'{NUN}/bathy_src/crm_southak/crm_6334_500m.tif',
+                         date='2010-07-01', sigma_m=10.0, valid_below_m=-1.38))
+for n in ('sfm2023bare', 'dixon2023'):
     j['sources'].append(dict(beds[n]))
 # vintage zones from the v7 bay product's seeds (make_seeds.py), each taking the newest lidar that saw the cell
 j['vintage'] = [

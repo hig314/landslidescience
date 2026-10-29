@@ -9,10 +9,10 @@
   "epsg": 6334,
   "res_m": 2.0,
   "bounds": [
-   570500,
-   6556000,
-   589500,
-   6568000
+   555000,
+   6538000,
+   574500,
+   6551000
   ]
  },
  "target": "ground_current",
@@ -431,6 +431,16 @@
     "valid_below_m": -1.38
    },
    {
+    "name": "crm",
+    "derived": true,
+    "kind": "grid",
+    "cls": "bed",
+    "src": "/Volumes/Nunatak/lidar_build/bathy_src/crm_southak/crm_6334_500m.tif",
+    "date": "2010-07-01",
+    "sigma_m": 10.0,
+    "valid_below_m": -1.38
+   },
+   {
     "name": "sfm2023bare",
     "kind": "grid",
     "cls": "ground",
@@ -608,10 +618,10 @@
     }
    ],
    "win": [
-    570000,
-    6556000,
-    590000,
-    6568000
+    555000,
+    6538000,
+    575000,
+    6551000
    ]
   }
  },

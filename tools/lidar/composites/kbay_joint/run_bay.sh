@@ -10,7 +10,7 @@ HERE=${0:a:h}; TL=${HERE:h:h}
 WORK=/Volumes/Nunatak/lidar_build/composite; LOG=$WORK/kbay_joint_run.log
 TAG=${1:-run1}; shift || true
 stamp() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG; }
-ORDER=(kj_r1c1 kj_r2c0 kj_r0c0 kj_r0c1 kj_r4c1 kj_r3c2 kj_r4c2 kj_r4c3 kj_r3c3 kj_r3c1 kj_r2c1 kj_r2c2 kj_r2c3 kj_r1c0 kj_r1c2 kj_r1c3 kj_r3c0 kj_r4c0 kj_r5c1 kj_r5c2 kj_r5c3 kj_r5c0 kj_r5c4 kj_r4c4 kj_r3c4 kj_r2c4 kj_r1c4 kj_r0c2 kj_r0c3 kj_r0c4)
+ORDER=(kj_r4c1 kj_r4c2 kj_r6c2 kj_r6c3 kj_r6c4 kj_r5c3 kj_r5c2 kj_r5c1 kj_r4c3 kj_r4c4 kj_r5c4 kj_r3c1 kj_r3c2 kj_r3c3 kj_r3c4 kj_r6c1 kj_r7c1 kj_r7c2 kj_r7c3 kj_r7c4 kj_r2c1 kj_r2c2 kj_r2c3 kj_r2c4 kj_r1c1 kj_r1c2 kj_r1c3 kj_r1c4 kj_r0c1 kj_r0c2 kj_r0c3 kj_r0c4 kj_r3c5 kj_r4c5 kj_r5c5 kj_r6c5 kj_r7c5 kj_r2c5 kj_r1c5 kj_r0c5 kj_r0c0 kj_r1c0 kj_r2c0 kj_r3c0 kj_r4c0 kj_r5c0 kj_r6c0 kj_r7c0)   # 48 boxes (2026-10-29 extent): Seldovia/Bluff first, the Grewingk box (r6c3/c4), the bay, then the outer coast and the open water
 if (( $# > 0 )); then ORDER=("$@"); fi
 for id in $ORDER; do
   if [[ -f $WORK/$id/BOX_DONE_$TAG ]]; then stamp "$id already done"; continue; fi

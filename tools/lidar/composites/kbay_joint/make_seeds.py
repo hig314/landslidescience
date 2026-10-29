@@ -21,9 +21,12 @@ RES = 2.0
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--v7', default=str(TL / 'composites' / 'kbay_2023' / 'boxes.json'))
+    ap.add_argument('--sea3dep', default='/Volumes/Nunatak/lidar_build/kbay_joint/obs/water_3dep_bay10.tif',
+                    help="flat_water.py over the whole extent: code 2 (3DEP's sea at 0 m) is the sea seed wherever the v7 product has nothing")
     a = ap.parse_args()
     v7 = json.load(open(a.v7)); new = json.load(open(HERE / 'boxes.json'))
-    X0 = min(b['crop'][0] for b in v7); Y0 = min(b['crop'][1] for b in v7); X1 = max(b['crop'][2] for b in v7); Y1 = max(b['crop'][3] for b in v7)
+    # the bay-wide grid covers every NEW box (the extent grew past v7 on 2026-10-29)
+    X0 = min(b['build'][0] for b in new); Y0 = min(b['build'][1] for b in new); X1 = max(b['build'][2] for b in new); Y1 = max(b['build'][3] for b in new)
     H, W = int((Y1 - Y0) / RES), int((X1 - X0) / RES)
     sea = np.zeros((H, W), np.uint8); chan = np.zeros((H, W), np.uint8); eta = np.full((H, W), np.nan, np.float32)
     for b in v7:
@@ -46,6 +49,17 @@ def main():
         sea[r0:r0 + h, c0:c0 + w] |= s_.astype(np.uint8); chan[r0:r0 + h, c0:c0 + w] |= c_.astype(np.uint8)
         e_ = eta[r0:r0 + h, c0:c0 + w]; m = c_ & np.isfinite(wz); e_[m] = wz[m]
         print(b['id'], f'sea {s_.sum() * 4 / 1e6:.1f} km2 chan {c_.sum() * 4 / 1e6:.2f} km2', flush=True)
+    covered = sea.copy()                                        # where v7 had a product at all
+    for b in v7:
+        x0, y0, x1, y1 = b['crop']; r0 = int((Y1 - y1) / RES); c0 = int((x0 - X0) / RES)
+        covered[max(r0, 0):int((Y1 - y0) / RES), max(c0, 0):int((x1 - X0) / RES)] = 1
+    if a.sea3dep and Path(a.sea3dep).exists():
+        with rasterio.open(a.sea3dep) as s:
+            from rasterio.vrt import WarpedVRT
+            with WarpedVRT(s, crs='EPSG:6334', transform=from_origin(X0, Y1, RES, RES), width=W, height=H, resampling=rasterio.enums.Resampling.nearest) as v:
+                s3 = v.read(1)
+        add = (s3 == 2) & (covered == 0); sea[add] = 1
+        print(f'3DEP sea outside the v7 product: {add.sum() * RES * RES / 1e6:.1f} km2 added to the sea seed')
     T = from_origin(X0, Y1, RES, RES)
     for nb in new:
         x0, y0, x1, y1 = nb['build']; d = SEEDS / nb['id']; d.mkdir(parents=True, exist_ok=True)
