@@ -39,7 +39,7 @@ LAZ tiles. Server honours Range but throttles ~175 KB/s PER CONNECTION:
 zip_ranges.py reads the central directory, fetch_one.sh pulls each member on
 its own connection and verifies CRC. 13 tiles (1.2 GB) cover the patch
 (tiles.txt/ranges.txt). NB the elevation portal's "Grewingk 2019" (project
-295, dataset 1388) is a DIFFERENT, 2019-11 survey that barely reaches here.
+295, dataset 1388) is a DIFFERENT survey (DGGS RDF 2021-6, flown 2019-06-03 per its metadata) that barely reaches here.
 
 LESSON (2026-09-25): never pipe point data to stdout in a background task --
 the captured output lands on the boot disk and filled it.

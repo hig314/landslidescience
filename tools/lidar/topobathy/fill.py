@@ -50,11 +50,17 @@ LAKE OVERRIDES (lake_dmax: [{x, y, dmax_m, level_m}]): the lake holding (x, y) t
 and water level instead of the estimates.
 
 Marine vs lake: a domain is marine when the median elevation of its land rim is below
-`marine_rim_max_m`; its floor is `low_tide_m`.  A lake's floor is its rim median minus
+`marine_rim_max_m` (or the water bodies call it sea / tidal / perched).  THE TIDAL LENS (`tidal_lens`,
+default, Hig 2026-10-16, water.py): a marine domain has no floor and no channel model -- its bed is the
+observed water surface (per cell where a survey saw it, else its level), sigma `tidal_sigma_m` growing
+with distance from shore, conditioned by whatever was measured under it (multibeam, green-lidar bed,
+soundings); a hand-set depth (an edit) still makes a basin.  `tidal_lens: false` restores the first
+conception: floor `low_tide_m` and the tidal channel by width.  A lake's floor is its rim median minus
 `lake_depth_m`.  Both are first guesses that the soundings override wherever they exist.
 
 Outputs (in the composite's out/): fill.tif (the filled surface, NaN outside domains),
-fill_mask.tif (0 none, 1 band, 2 interior prior, 3 conditioned by soundings, 4 margin hole left
+fill_mask.tif (0 none, 1 band, 2 interior prior, 3 conditioned by soundings, 4 margin hole left, 7 tidal lens:
+at the observed water surface,
 empty, 5 lake shape prior, 6 channel section -- see channel_beds), fill_sigma.tif, fill_prior.tif (the synthetic DEM alone), and <id>_filled.tif (the
 composite with holes filled) as a COG.
 """
@@ -66,12 +72,13 @@ from scipy.sparse.linalg import cg, spsolve
 DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, slope_min_deg=1.0, slope_max_deg=60.0, low_tide_m=-2.9,
                 marine_rim_max_m=6.0, lake_depth_m=5.0, sigma_prior_m=1.0, sigma_rim_m=2.0, lake_sigma_m=5.0,
                 cond_m=30.0, cg_iters=300, coarse=16,
-                lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, lake_surface_tol_m=0.2, lake_islet_m2=50, lake_island_dz_m=0.65, void_shore_m=2.0, points=None,
+                lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, lake_surface_tol_m=0.2, lake_islet_m2=50, lake_island_dz_m=0.65, floating_ice=True, floating_ice_corr=0.25, floating_ice_max_m2=20000, mapped_edge_near_m=200.0, mapped_edge_dz_m=1.0, points_despike_m=5.0, points_despike_r_m=40.0, points_despike_n=6, void_shore_m=2.0, dry_max_km2=1.0, points=None,
                 channel_slope=0.002, channel_drop_m=1.0, channel_ws_smooth_m=20.0, channel_min_m2=2000, channel_wd=15.0, channel_dmax_cap=2.0,
-                channel_surface_tol_m=0.3, channel_tidal_wmax=120.0,
+                channel_surface_tol_m=0.3, channel_tidal_wmax=120.0, channel_braid_win=4.0, channel_wd_min=5.0,
                 points_sigma_m=1.0, points_rim_sigma_m=0.2, points_rim_step_m=10.0, points_grid_m=4.0, points_sigma_per_m=0.15,
+                points_decay_m=150.0, points_decay_scale_m=150.0, ceiling_margin_m=0.5, ceiling_passes=2,
                 ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0,
-                rim_widen=True, points_dz_m=0.0)
+                rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -219,7 +226,7 @@ def _keep_big(ch, res, min_m2):
     return ch
 
 
-def channel_beds(lab, nw, wz, res, P, marine_ids=(), log=print):
+def channel_beds(lab, nw, wz, res, P, marine_ids=(), skip_ids=(), whole_ids=(), log=print):
     """CHANNELS (Hig, 2026-10-12: "recognize sloping water surfaces as flowing water channels and
     build bathymetry that is river-aware ... a constant cross-sectional area with a simple curve,
     such that there are wide shallow areas and narrow deep spots").  Per wet domain (labels 1..nw):
@@ -243,10 +250,12 @@ def channel_beds(lab, nw, wz, res, P, marine_ids=(), log=print):
                      reaches are shallow and narrow ones deep.  A = w_med^2 / channel_wd (mean
                      depth w_med / channel_wd at the median width).  dmax capped at
                      channel_dmax_cap x its value at the median width, smoothed over ~w_med.
+                     w is the TOTAL wetted width over channel_braid_win x w_med (parallel braid
+                     threads share A), and depth <= own width / channel_wd_min (2026-10-19).
       BED            water surface - depth.
 
-    Returns (chan mask, bed, water surface, table).  A first take: no flow model, no bars, braid
-    threads each get the whole section -- soundings (points) still condition it like the lakes."""
+    Returns (chan mask, bed, water surface, table).  A first take: no flow model, no bars; braid
+    threads share the section -- soundings (points) still condition it like the lakes."""
     from skimage.morphology import skeletonize
     chan = np.zeros(lab.shape, bool); bed = np.full(lab.shape, np.nan, np.float32)
     wsurf = np.full(lab.shape, np.nan, np.float32); tab = []
@@ -254,7 +263,7 @@ def channel_beds(lab, nw, wz, res, P, marine_ids=(), log=print):
         return chan, bed, wsurf, tab
     sg = max(P["channel_ws_smooth_m"] / res, 1.0); pad = int(3 * sg) + 2
     for i, sl in enumerate(ndimage.find_objects(np.where(lab <= nw, lab, 0)), 1):
-        if sl is None:
+        if sl is None or i in skip_ids:             # skip_ids: the tidal lens's domains (no channel model)
             continue
         sl = tuple(slice(max(s.start - pad, 0), min(s.stop + pad, n)) for s, n in zip(sl, lab.shape))
         cells = lab[sl] == i
@@ -286,7 +295,9 @@ def channel_beds(lab, nw, wz, res, P, marine_ids=(), log=print):
             hw = _half_width(cells, dt, w_med, res)
             taper = np.clip((wmax - 2 * hwt) / (0.3 * wmax), 0, 1)
         else:
-            if drop < P["channel_drop_m"]:
+            if i in whole_ids:                 # a river domain (split_by_level): the channel over all of it
+                pass
+            elif drop < P["channel_drop_m"]:
                 continue
             # slope of the surface: outside the domain filled with the nearest inside value, so the
             # gradient at the bank is the surface's own, not a cliff to NaN
@@ -294,10 +305,10 @@ def channel_beds(lab, nw, wz, res, P, marine_ids=(), log=print):
             gy, gx = np.gradient(ws[ii, jj], res)
             slope = np.hypot(gx, gy)
             ch = _keep_big(cells & (slope > P["channel_slope"]), res, P["channel_min_m2"])
+            if i in whole_ids or ch.sum() > 0.5 * cells.sum():
+                ch = cells.copy()
             if not ch.any():
                 continue
-            if ch.sum() > 0.5 * cells.sum():
-                ch = cells.copy()
             sk = skeletonize(cells) & cells
             if not sk.any():
                 continue
@@ -308,7 +319,18 @@ def channel_beds(lab, nw, wz, res, P, marine_ids=(), log=print):
         y = np.clip(hw - dt, 0, hw)
         A = w_med ** 2 / P["channel_wd"]
         dmax_ref = 1.5 * A / w_med
-        dmax = np.minimum(1.5 * A / (2 * hw), P["channel_dmax_cap"] * dmax_ref)
+        # BRAIDS SHARE THE SECTION (2026-10-19, the Woz delta: every side thread and pool took the whole river's
+        # area, so the narrowest were carved deepest -- to the 2x cap, ~10 m -- and the delta read as hard-edged
+        # pits).  The width that carries A is the TOTAL wetted width across the flow, estimated as wet area per
+        # unit length over a window of channel_braid_win x w_med (a single thread: its own width, unchanged);
+        # and no channel is deeper than its own width / channel_wd_min.
+        if not tidal:
+            kb = max(int(round(P["channel_braid_win"] * w_med / res)) | 1, 3)
+            wtot = ndimage.uniform_filter(cells.astype(np.float32), size=kb) * kb * res
+            w_eff = np.maximum(2 * hw, wtot)
+        else:
+            w_eff = 2 * hw
+        dmax = np.minimum(np.minimum(1.5 * A / w_eff, P["channel_dmax_cap"] * dmax_ref), 2 * hw / P["channel_wd_min"])
         sgw = max(w_med / res, 1.0)
         dmax = (ndimage.gaussian_filter(np.where(cells, dmax, 0), sgw)
                 / np.maximum(ndimage.gaussian_filter(cells.astype(np.float64), sgw), 1e-3))
@@ -355,6 +377,13 @@ def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, nam
     _, first = np.unique((br // k) * 1_000_003 + bc // k, return_index=True)
     br, bc = br[first], bc[first]
     bx = T.c + (bc + 0.5) * res; by = T.f - (br + 0.5) * res
+    if len(bx) == 0:
+        # no boundary site pins the correction to zero anywhere: the field is a free thin plate through the soundings,
+        # and a domain whose prior sits far from its soundings (run 14: a pool at the water level over 22 lower bounds
+        # 130 m down) is dragged wholesale -- 22 cells to -254 m. Unanchored, the soundings are left to the log.
+        log(f"  soundings spline, domain {name}: {len(sx)} sounding cells, no boundary sites -- unanchored, not applied "
+            f"(residual to the prior p50 {np.median(sr):+.2f} m)")
+        return np.full(base.shape, np.nan, np.float32)
     X = np.column_stack([np.r_[sx, bx], np.r_[sy, by]]); zv = np.r_[sr, np.zeros(len(bx))]
     sg = np.r_[sgp, np.full(len(bx), sg_rim)]
     m = len(X); ns = len(sx)
@@ -389,6 +418,15 @@ def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, nam
         q = Q[s:s + 4096]; d2 = ((q[:, None, :] - xy[None, :, :]) ** 2).sum(-1)
         Kq = np.where(d2 > 0, 0.5 * d2 * np.log(np.maximum(d2, 1e-12)), 0.0)
         val[s:s + 4096] = Kq @ w + cp[0] + q @ cp[1:]
+    # THE CORRECTION FADES AWAY FROM ITS DATA (2026-10-28, WATER_REVIEW_PLAN.md section 2): a thin plate extrapolates
+    # without bound -- with no boundary at Grewingk's ice face (free) the correction ran to +45 m 150-260 m beyond the
+    # nearest sounding and lifted the bed through the water.  Beyond points_decay_m of the nearest data site (a sounding,
+    # a lower bound or a ceiling site) it is tapered to zero over points_decay_scale_m (Gaussian), and the prior stands.
+    D0 = float(P.get("points_decay_m") or 0.0)
+    if D0 > 0:
+        from scipy.spatial import cKDTree
+        dd, _ = cKDTree(xy[:ns]).query(Q, k=1)
+        val *= np.exp(-(np.maximum(dd * 1000.0 - D0, 0.0) / float(P["points_decay_scale_m"])) ** 2)
     out = np.full(base.shape, np.nan, np.float32)
     out[rs_, cs_] = map_coordinates(val.reshape(GR.shape), [(rs_ - r0) / g, (cs_ - c0_) / g], order=1, mode="nearest")
     fit = sr - lam * sgp ** 2 * w[:ns]
@@ -398,12 +436,228 @@ def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, nam
     return out
 
 
+def _mapped_lake_sides(ml, labels, idx, res, P, z=None, wz=None):
+    """Raised patches (labels, idx) against the TRUSTED mapped shorelines `ml` (water/sources.json "edge": "trusted"):
+    (inside, outside, tall) -- inside: more than half the patch within a polygon; outside: not inside, more than half
+    within mapped_edge_near_m of one (neither where no trusted polygon is near: the old rules); tall: the patch's median
+    stands more than mapped_edge_dz_m above the water observed around it (`wz` on its ring; no water seen: tall)."""
+    near = P.get("_ml_near")
+    if near is None:
+        near = ndimage.distance_transform_edt(~ml, sampling=res) <= P["mapped_edge_near_m"]; P["_ml_near"] = near
+    fin = np.asarray(ndimage.mean(ml.astype(np.float32), labels, idx)); fnr = np.asarray(ndimage.mean(near.astype(np.float32), labels, idx))
+    inside = fin > 0.5; outside = (~inside) & (fnr > 0.5)
+    tall = np.ones(len(idx), bool)
+    if z is not None and wz is not None and inside.any():
+        own = ndimage.grey_dilation(labels, size=5); ring = (own > 0) & (labels == 0) & np.isfinite(wz)
+        n_ = len(idx) + 1
+        nw = np.bincount(own[ring], minlength=n_)[1:]; sw = np.bincount(own[ring], weights=wz[ring], minlength=n_)[1:]
+        lev = np.where(nw > 0, sw / np.maximum(nw, 1), np.nan)
+        zmed = np.asarray(ndimage.median(np.where(labels > 0, z, 0.0), labels, idx))
+        tall = ~np.isfinite(lev) | (zmed - lev > P["mapped_edge_dz_m"])
+    return inside, outside, tall
+
+
+def split_by_level(lw, nw, wz, res, P, bodies=None, log=print):
+    """Split wet domains by the WATER STAGE'S BODIES (2026-10-23, after a slope-based split cut Grewingk Lake into
+    pieces on the noise of its water returns): each flat body (lake, perched, ephemeral) at its judged level is a
+    domain of its own -- bodies within channel_drop_m of each other are one domain whatever their connectivity (a
+    lake's parts between berg fields); a small flat ABOVE a far larger one takes its level (berg tops classed water);
+    a small flat BELOW the dominant one is a pool of the river. A sloped body (river), the pools, and body-less
+    water standing off its nearest flat's level form RIVER domains (the channel model over all of it, see
+    channel_beds whole_ids); a tidal body is its own (marine). Body-less wet cells with no level (void: no returns)
+    go with the nearest body. Returns (labels, n, domains split, the river domains' labels)."""
+    out = lw.copy(); n = nw; nsplit = 0; rivers = set()
+    if bodies is None or nw == 0:
+        return out, n, nsplit, rivers
+    from .water import FLAT_KINDS, TIDAL_KINDS
+    bid, btab = bodies; mx = int(bid.max()) if bid.size else 0
+    lev_b = np.full(mx + 1, np.nan); kind_b = np.zeros(mx + 1, np.int8)          # 1 flat, 2 river, 3 tidal
+    prior_layers = set(P.get("_prior_layers") or ())
+    for k, b in btab.items():
+        k = int(k)
+        if not (0 < k <= mx):
+            continue
+        if b.get("kind") in FLAT_KINDS:
+            kind_b[k] = 1; v = b.get("consensus_level_m")
+            # a level resting on a PRIOR alone (3DEP's hydroflattening where no survey returned from the water) is no
+            # level: the body goes with the dominant flat around it (2026-10-23, run 10: 3DEP's 41.3 m "lake" inside
+            # Grewingk's outlet arm at 48.9 became a pool, then a river domain, 7.6 m under the lake at pit 1)
+            lv = [l for l in (b.get("levels") or []) if l.get("level_m") is not None]
+            if prior_layers and lv and all(l.get("survey") in prior_layers for l in lv):
+                v = None
+            lev_b[k] = float(v) if v is not None else np.nan
+        elif b.get("kind") in TIDAL_KINDS:
+            kind_b[k] = 3
+        else:
+            kind_b[k] = 2
+    drop = P["channel_drop_m"]
+    for i, sl in enumerate(ndimage.find_objects(lw), 1):
+        if sl is None:
+            continue
+        cells = lw[sl] == i
+        if cells.sum() * res * res < 2 * P["channel_min_m2"]:
+            continue
+        b = np.where(cells, bid[sl], 0)
+        present = [int(k) for k in np.unique(b[b > 0])]
+        if len(present) < 2:
+            continue
+        has = b > 0
+        _, (ii, jj) = ndimage.distance_transform_edt(~has, return_indices=True)
+        ba = np.where(cells, b[ii, jj], 0)
+        area = {k: int((ba == k).sum()) for k in present}
+        flats = [k for k in present if kind_b[k] == 1]
+        grp = {}; glev = []; garea = []
+        for k in sorted(flats, key=lambda k: -area[k]):
+            L = lev_b[k]; g = None
+            if np.isfinite(L):
+                for gi, gl in enumerate(glev):
+                    if np.isfinite(gl) and abs(gl - L) <= drop:
+                        g = gi; break
+            if g is None:
+                glev.append(L); garea.append(0); g = len(glev) - 1
+            grp[k] = g; garea[g] += area[k]
+        lev_g = [gi for gi, gl in enumerate(glev) if np.isfinite(gl)]         # the dominant flat is a LEVELLED one
+        dom_g = (max(lev_g, key=lambda gi: garea[gi]) if lev_g else int(np.argmax(garea))) if glev else -1
+        Ld = glev[dom_g] if glev else np.nan
+        piece = np.zeros(cells.shape, np.int64)                        # 2 river, 3 tidal, 10 + group: flat
+        w = wz[sl] if wz is not None else None
+        G_ = np.array([gl if np.isfinite(gl) else np.inf for gl in glev], np.float64) if glev else None
+        for k in present:
+            m = ba == k
+            if kind_b[k] == 3:
+                piece[m] = 3
+            elif kind_b[k] == 2:
+                piece[m] = 2
+                # ONLY RIVERS SLOPE (the flat-water rule; run 20i): a "river" whose water stands at one flat group's level
+                # -- 90 % of its levelled cells within 0.1 m -- is that flat's water.  Bodies 136 and 432 at Grewingk's
+                # face held the lake's 48.91 m, were river domains outside the soundings fit and its ceiling, and the
+                # guard's clip left 1,060 cells of flat shelf 0.1 m under the water.
+                if w is not None and G_ is not None and np.isfinite(G_).any():
+                    wk = w[m & np.isfinite(w)]
+                    if wk.size >= 20:
+                        dv = np.abs(wk[:, None] - G_[None, :]); gi_ = np.argmin(dv, axis=1)
+                        at_ = dv[np.arange(len(gi_)), gi_] <= min(drop, 0.1)
+                        g0 = int(np.bincount(gi_[at_], minlength=len(G_)).argmax()) if at_.any() else -1
+                        if g0 >= 0 and (at_ & (gi_ == g0)).mean() >= 0.9:
+                            piece[m] = 10 + g0
+            else:
+                g = grp[k]; small = g != dom_g and garea[g] * 5 <= garea[dom_g]
+                if small and np.isfinite(glev[g]) and np.isfinite(Ld) and glev[g] > Ld + drop:
+                    piece[m] = 10 + dom_g
+                elif small and np.isfinite(glev[g]) and np.isfinite(Ld) and glev[g] < Ld - drop:
+                    piece[m] = 2
+                elif not np.isfinite(glev[g]) and dom_g >= 0:
+                    piece[m] = 10 + dom_g
+                else:
+                    piece[m] = 10 + g
+        # water observed BELOW its flat's level by more than channel_drop_m is the river: between the pools (body-less),
+        # and a flat body's own tail (the water stage's p10-p90 test reads a body 90 % lake, 10 % outlet as flat, and
+        # its level is the lake's; the river mouth 3 km away was in it, crop test 2026-10-23). Above the level is not
+        # water (berg tops classed water): it stays with the lake.
+        w = wz[sl] if wz is not None else None
+        off = np.zeros(cells.shape, bool)
+        if w is not None:
+            off = cells & np.isfinite(w) & (kind_b[ba] == 1) & np.isfinite(lev_b[ba]) & (w < lev_b[ba] - drop) & (piece >= 10)
+            piece[off] = 2
+        # EVIDENCE DECIDES, THE NEAREST EVIDENCE FOR THE REST (2026-10-23, run 14, Hig: "hills of water" on the creek's
+        # banks 5 km below Grewingk Lake with pits 20 m under them): a body-less cell (a bank, a bar, void water) took
+        # the nearest body's KIND, and a flat body with no level took the dominant flat's level -- the lake's 48.91 m --
+        # so patches of the river's bank became the lake's domain and were dug to its basin. Decided cells are a river's,
+        # a tidal body's, a levelled flat's, and water observed below its flat (off); every other cell of the domain
+        # goes with the nearest decided cell's piece.
+        dec = (has & ((kind_b[b] != 1) | np.isfinite(lev_b[b]))) | off
+        und = cells & ~dec
+        # ...and THE LEVEL DECIDES FIRST (2026-10-25, run 19): a body-less wet cell whose observed level -- the shoreline
+        # stage's, routed through the water -- is a flat group's level (within 0.1 m, the stage's flatness) is that flat's water,
+        # whatever body lies nearest. The water the stage took beyond the bodies at Grewingk's face stood at the lake's
+        # 48.91 but lay nearest a marginal stream (a river body at 65 m): a river domain, so no lake level held its bed,
+        # and the harmonic residual lifted it to the 2012 ice beside it (55-114 m under the water).
+        if und.any() and w is not None and glev:
+            G = np.array([gl if np.isfinite(gl) else np.inf for gl in glev], np.float64)
+            uw = und & np.isfinite(w)
+            if uw.any() and np.isfinite(G).any():
+                dv = np.abs(w[uw][:, None] - G[None, :]); gi_ = np.argmin(dv, axis=1); ok_ = dv[np.arange(len(gi_)), gi_] <= min(drop, 0.1)   # a routed level IS the body's, to the cm; a sea-surface pool near a flat's level stays with the nearest evidence
+                ri, ci = np.nonzero(uw)
+                piece[ri[ok_], ci[ok_]] = 10 + gi_[ok_]
+                und[ri[ok_], ci[ok_]] = False
+        if und.any() and dec.any():
+            _, (i2, j2) = ndimage.distance_transform_edt(~dec, return_indices=True)
+            piece = np.where(und, piece[i2, j2], piece)
+        # the river is one thing: its cells closed across the gaps between returns, and a speck under channel_min_m2
+        # that is still on its own goes back to the flat it lies in (587 river domains of a few cells, crop test)
+        riv = piece == 2
+        if riv.any():
+            riv = (ndimage.binary_closing(riv, structure=np.ones((3, 3), bool), iterations=2) & cells & (piece != 3)) | riv
+            cl, cn = ndimage.label(riv, structure=np.ones((3, 3), bool))
+            if cn:
+                sz = np.bincount(cl.ravel(), minlength=cn + 1)[1:] * res * res
+                speck = np.isin(cl, np.flatnonzero(sz < P["channel_min_m2"]) + 1)
+                riv &= ~speck
+            flat_of = np.where((kind_b[ba] == 1) & (ba > 0), 10 + np.array([grp.get(int(k), 0) for k in range(mx + 1)])[ba], 0)
+            piece = np.where(riv, 2, np.where((piece == 2) & (flat_of > 0), flat_of, piece))
+        labels = np.zeros(cells.shape, np.int64); k_ = 0; flat_codes = sorted(set(int(v) for v in np.unique(piece[piece >= 10])))
+        for code in flat_codes:
+            k_ += 1; labels[piece == code] = k_
+        nflat = k_; riv_lab = []
+        for code in (2, 3):
+            cl, cn = ndimage.label(piece == code, structure=np.ones((3, 3), bool))
+            for j in range(1, cn + 1):
+                k_ += 1; labels[cl == j] = k_
+                if code == 2:
+                    riv_lab.append(k_)
+        if k_ < 2:
+            continue
+        cnt = np.bincount(labels.ravel(), minlength=k_ + 1); cnt[0] = 0; big = int(cnt.argmax())
+        remap = np.zeros(k_ + 1, np.int64); nxt = n
+        for j in range(1, k_ + 1):
+            if j == big:
+                remap[j] = i
+            else:
+                nxt += 1; remap[j] = nxt
+        sub = out[sl]; sub[cells] = remap[labels[cells]]
+        for j in riv_lab:
+            rivers.add(int(remap[j]))
+        n = nxt; nsplit += 1
+        if cells.sum() * res * res > 1e6:
+            log(f"    split domain {i} ({cells.sum() * res * res / 1e6:.2f} km2): flats " +
+                ", ".join(f"{cnt[j] * res * res / 1e6:.2f} km2" + (f" @ {glev[code - 10]:.2f}" if np.isfinite(glev[code - 10]) else "") for j, code in zip(range(1, nflat + 1), flat_codes)) +
+                f"; river domains {len(riv_lab)} ({sum(int(cnt[j]) for j in riv_lab) * res * res / 1e6:.3f} km2); tidal {k_ - nflat - len(riv_lab)}")
+    return out, n, nsplit, rivers
+
+
 def fill_holes(z, cls, res, classes, p=None, log=print):
     """z: composite (NaN = hole); cls: class_now codes; classes: name -> code.  Returns dict of
     arrays: fill, prior, mask, sigma."""
     P = dict(DEFAULTS); P.update(p or {})
     H, W = z.shape
     hole = ~np.isfinite(z)
+    # THE SHORELINE STAGE DECIDES (topobathy/shore.py, 2026-10-24): where its label and level exist, the land / water /
+    # floating / glacier label replaces the fill's own shore rules below (the domain-closure judgement, the surface,
+    # speck, low-island and floating-ice tests), and the observed water surface the fill reads IS the stage's level
+    # over every water cell -- one level a body, a monotone level down a river, the tide's observed surface.
+    shore_lab = P.get("_shore_label"); shore_lev = P.get("_shore_level"); shore_slp = P.get("_shore_slope")
+    shore = shore_lab is not None and shore_lev is not None
+    if shore:
+        wet_l = np.isin(shore_lab, (2, 3))
+        wzs = P.get("_water_z")
+        wzs = np.full(z.shape, np.nan, np.float32) if wzs is None else wzs
+        P["_water_z"] = np.where(wet_l & np.isfinite(shore_lev), shore_lev, np.where(wet_l, wzs, np.nan)).astype(np.float32)
+        prior_won = P.get("_water_prior")                      # a prior's cells: inside the water they are never evidence
+        P["_water_prior"] = None                               # (the level raster holds no prior's level to mask)
+        log(f"  shoreline stage: labels land {int((shore_lab == 1).sum()) * res * res / 1e6:.2f}, water {int((shore_lab == 2).sum()) * res * res / 1e6:.2f}, "
+            f"floating {int((shore_lab == 3).sum()) * res * res / 1e4:.2f} ha, glacier {int((shore_lab == 4).sum()) * res * res / 1e6:.2f} km2; its level is the water surface")
+        # a PRIOR's cell, or a water-blind source's, inside the water is a HOLE, not an observation of the bed (3DEP's 2012
+        # ice at 110 m inside the 2023 lake stood as the bed at the ice face; the 2023 SfM's surface 1-3 m under Emerald
+        # Lake's level was its bed, 1.7 m deep -- run 18)
+        drop_ = np.zeros(z.shape, bool)
+        if prior_won is not None:
+            drop_ |= prior_won
+        if P.get("_water_blind") is not None:
+            drop_ |= P["_water_blind"]
+        drop_ &= wet_l
+        if drop_.any():
+            z = np.where(drop_, np.nan, z).astype(np.float32); hole = ~np.isfinite(z)
+            log(f"  shoreline stage: {int(drop_.sum()) * res * res / 1e4:.2f} ha of a prior's or a water-blind source's cells inside the water are holes")
     outside = P.get("_outside")
     if outside is not None:
         hole &= ~outside                                       # no survey here: not a hole, left empty
@@ -420,9 +674,102 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     landfin = np.isfinite(z) & np.isin(cls, land_codes)
     inside_land = landfin & dom
     li, ln = ndimage.label(inside_land)
-    if ln:
+    if shore:
+        # every OBSERVED cell the stage labelled land or glacier stands, whatever class its return carried (returns
+        # classed water that stand above the water, 20 m up the ice margin, were dug to the sonar bed in run 17)
+        cut_ = np.isfinite(z) & dom & np.isin(shore_lab, (1, 4))
+        stay_ = np.isfinite(z) & dom & (shore_lab == 3)
+        dom &= ~cut_
+        log(f"  shoreline stage: {int(cut_.sum()) * res * res / 1e4:.2f} ha of land and glacier inside the closed water cut from the domain; "
+            f"{int(stay_.sum()) * res * res / 1e4:.2f} ha floating stays inside")
+    elif ln:
         sz = ndimage.sum(inside_land, li, np.arange(1, ln + 1)) * res * res
-        big = np.isin(li, np.flatnonzero(sz >= P["island_max_m2"]) + 1)
+        bigl = sz >= P["island_max_m2"]
+        # ...and a larger one the lake closes around that no second survey saw as land, nor a mapped island
+        # touches, is judged in there too (2026-10-20, Grewingk Lake): bergs up to ~1.8 ha seen once by
+        # Grewingk 2021 were cut out of the domain as shore, and the bed rose to just under the water around
+        # each -- the floating-ice rule below only sees what is inside the domain
+        ln_ = P.get("_land_n"); mi_ = P.get("_mapped_island"); ml_ = P.get("_mapped_lake")
+        ml_in = ml_out = ml_tall = None
+        if P.get("floating_ice", True) and (ln_ is not None or mi_ is not None or ml_ is not None) and bigl.any():
+            idl = np.arange(1, ln + 1)
+            corr = np.zeros(ln, bool); corr_isl = np.zeros(ln, bool)
+            if ln_ is not None:
+                corr |= np.asarray(ndimage.sum(inside_land & (ln_ >= 2), li, idl)) >= P["floating_ice_corr"] * (sz / (res * res))
+            if mi_ is not None:
+                corr_isl = np.asarray(ndimage.maximum(ndimage.binary_dilation(mi_, iterations=2), li, idl)) > 0
+                corr |= corr_isl
+            judge = bigl & ~corr & (sz <= P["floating_ice_max_m2"])
+            if ml_ is not None:
+                wzz = P.get("_water_z")
+                if wzz is not None and P.get("_water_prior") is not None:
+                    wzz = np.where(P["_water_prior"], np.nan, wzz)
+                ml_in, ml_out, ml_tall = _mapped_lake_sides(ml_, li, idl, res, P, z, wzz)
+                if ml_out.any() and "ice" in classes:
+                    # ice outside the shoreline is the glacier only where it hangs together with ice beyond the shoreline's
+                    # near-zone; an ice patch on its own within the zone is a berg the water has drifted past the drawn line
+                    # (the lake grows, the line is older: crop test 2026-10-23, bergs 40-170 m past Hig's 2017-22 shoreline
+                    # stood as pillars in water filled to -30..-100 m) and floats like one inside
+                    ice_f = landfin & (cls == classes["ice"])
+                    il, inn = ndimage.label(ice_f, structure=np.ones((3, 3), bool))
+                    if inn:
+                        far = np.unique(il[ice_f & ~P["_ml_near"]]); far = far[far > 0]
+                        glacier = np.isin(il, far)
+                        icy = np.asarray(ndimage.mean((cls == classes["ice"]).astype(np.float32), li, idl)) > 0.5
+                        anchored = np.asarray(ndimage.maximum(glacier, li, idl)) > 0
+                        berg = ml_out & icy & ~anchored
+                        if berg.any():
+                            log(f"  ice outside the shoreline not joined to the glacier: {int(berg.sum())} patches ({float(sz[berg].sum()) / 1e4:.2f} ha) float")
+                            ml_out &= ~berg; ml_in |= berg; ml_tall |= berg
+            # ...and only out on a LAKE, above it: a berg floats, so the patch must be ringed mostly by a body the water
+            # stage calls a lake and stand above that body's level (2026-10-21, joint pilot run 5: with one pooled lidar
+            # layer and no second survey over the outwash, 108 patches -- the creek's gravel bars and banks, metres BELOW
+            # Grewingk Lake -- were judged inside, the lake's domain ran down the creek to the tide flats, and the bed
+            # there was modelled as the lake's 150 m basin). No bodies: the old test alone.
+            if judge.any() and P.get("_bodies") is not None:
+                bid_, btab_ = P["_bodies"]
+                mx = int(bid_.max()) if bid_.size else 0
+                lev_ = np.full(mx + 1, np.nan)
+                for k_, b_ in btab_.items():
+                    if b_.get("kind") == "lake" and 0 <= int(k_) <= mx:
+                        v_ = b_.get("consensus_level_m") if b_.get("consensus_level_m") is not None else b_.get("latest_level_m")
+                        if v_ is not None:
+                            lev_[int(k_)] = float(v_)
+                jm = np.isin(li, np.flatnonzero(judge) + 1)
+                own_ = ndimage.grey_dilation(np.where(jm, li, 0), size=5)
+                ring_ = (own_ > 0) & ~jm
+                pid_ = own_[ring_]; bl_ = lev_[np.clip(bid_[ring_], 0, mx)]
+                inl = np.isfinite(bl_)
+                n_r = np.bincount(pid_, minlength=ln + 1)[1:]
+                n_l = np.bincount(pid_, weights=inl, minlength=ln + 1)[1:]
+                s_l = np.bincount(pid_[inl], weights=bl_[inl], minlength=ln + 1)[1:]
+                lev_p = np.where(n_l > 0, s_l / np.maximum(n_l, 1), np.nan)
+                zmed_ = np.asarray(ndimage.median(np.where(inside_land, z, np.nan), li, idl))
+                on_lake = (n_l >= 0.5 * np.maximum(n_r, 1)) & np.isfinite(lev_p) & (zmed_ > lev_p)
+                n_off = int((judge & ~on_lake).sum())
+                if n_off:
+                    log(f"  ...of which not out on a lake above its level (river, tide flat, shore below the lake): {n_off} kept as land")
+                judge &= on_lake
+            if judge.any():
+                log(f"  large raised land inside the closed water seen by one survey only, judged inside the domain: "
+                    f"{int(judge.sum())} patches (m2 {np.sort(np.round(sz[judge]).astype(int))[::-1][:8].tolist()}); "
+                    f"over {P['floating_ice_max_m2']:g} m2 kept as land: {int((bigl & ~corr & ~judge).sum())}")
+            if ml_in is not None:
+                # A TRUSTED MAPPED SHORELINE ARBITRATES (2026-10-23, run 14, Hig: "big negative and positive sharp-bounded
+                # features in the upper lake -- not just pits, also pillars"): along Grewingk's face the closing wrapped a
+                # ragged fringe of 2023 ice and SfM 'ground' (bergs, ice-cored debris) into the lake; patch by patch some
+                # were judged inside and filled to the basin (-70 m), their neighbours kept as surface at 60-90 m, and a
+                # second survey's agreement kept others (ice-cored debris persists for years). Inside a polygon whose
+                # source trusts its edge, raised land standing more than mapped_edge_dz_m above the water is in the lake
+                # unless a mapped island touches it; outside it, within mapped_edge_near_m, raised land is the shore or
+                # the glacier -- never floating, whatever its size, and cut from the domain so the face is one line.
+                add_ = bigl & ml_in & ml_tall & ~corr_isl & ~judge; drop_ = judge & ml_out
+                judge = (judge & ~ml_out) | (bigl & ml_in & ml_tall & ~corr_isl)
+                log(f"  trusted mapped shoreline: {int(add_.sum())} raised patches inside judged in the lake ({float(sz[add_].sum()) / 1e4:.2f} ha), "
+                    f"{int(drop_.sum())} outside kept as shore/ice; {int((ml_out & ~bigl).sum())} small patches outside cut from the domain")
+                bigl |= ml_out
+            bigl &= ~judge
+        big = np.isin(li, np.flatnonzero(bigl) + 1)
         dom &= ~(landfin & big)
     else:
         dom &= ~landfin
@@ -441,13 +788,26 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # into one domain by the closing, Halibut Cove lake (475 ha) shared a domain with the void
     # ground around it, failed the lake test and got no basin.  Separate labels: wet = water-
     # classed holes plus the observations inside the domain; dry = the rest.
-    wet = dom & ((hole & (cls == classes["water"])) | np.isfinite(z))
+    if shore:
+        wet = dom & np.isin(shore_lab, (2, 3))         # the stage decides what is wet: a class-water hole it gave no level is no water
+    else:
+        wet = dom & ((hole & (cls == classes["water"])) | np.isfinite(z))
     lw, nw = ndimage.label(wet); ld, nd = ndimage.label(dom & ~wet)
     # ...but a void patch OF a lake (no returns off calm water: China Poot Lake's east bay,
     # 2026-10-12) is wet: it touches a wet domain and its shore stands near that water (within
     # void_shore_m of the observed level).  Void ground above a lake (Halibut Cove) stays dry.
     wz = P.get("_water_z")
-    if nw and nd and wz is not None:
+    # a PRIOR's water level is no evidence (2026-10-23): the cells a fallback layer won (3DEP's hydroflattening,
+    # 41.3 m inside Grewingk Lake at 48.9) are masked out of every judgement of a domain's own water below
+    wz_s = wz
+    if wz is not None and P.get("_water_prior") is not None:
+        wz_s = np.where(P["_water_prior"], np.nan, wz)
+    prior_layers = set(P.get("_prior_layers") or ())
+    # ...but NOT when the shoreline stage ran (2026-10-26, Hig's review of run 20: "small basin-cuts into good 2021
+    # lidar with no water surface"): the stage already judged every void patch beside water (its level reaches it, or
+    # it is flat at its prior, or it is no water), and a patch it called no water joined here was cut as river channel
+    # with no level over it -- 31.5 ha in run 20c.  The stage decides what is wet.
+    if nw and nd and wz is not None and not shore:
         wlev = ndimage.labeled_comprehension(np.nan_to_num(wz, nan=-1e9), lw, np.arange(1, nw + 1),
                                              lambda v: np.median(v[v > -1e8]) if (v > -1e8).sum() >= 20 else np.nan, float, np.nan)
         land_obs = np.isfinite(z) & np.isin(cls, land_codes) & ~dom
@@ -471,6 +831,30 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             log(f"  void patches of lakes joined to them: {int(merge.sum()) * res * res / 1e6:.4f} km2")
             wet |= merge
             lw, nw = ndimage.label(wet); ld, nd = ndimage.label(dom & ~wet)
+    # ONE LEVEL A DOMAIN (2026-10-23, joint_v2 run 7): with the point-first joint layer a river reads as water, not
+    # as ground interpolated across it, so Grewingk Lake (48.9 m), its outlet river and the tide flat (0.6 m) became
+    # ONE wet domain of 7.95 km2 -- kinded a lake, given the lake's basin and its soundings spline, and dug 5-15 m
+    # under the tide flat and the river mouth. A wet domain whose observed surface drops more than channel_drop_m is
+    # split where the water slopes: sloping water (> channel_slope, pieces over channel_min_m2) is its own domain
+    # (a river: the channel model), and each flat piece between is its own (a lake at its level, or the sea's tide
+    # flat, kinded by its own water body). Flat pieces under channel_min_m2 are pools of the river.
+    rivers = set()
+    if nw and P.get("level_split", True):
+        lw, nw, nsplit, rivers = split_by_level(lw, nw, wz_s, res, P, bodies=P.get("_bodies"), log=log)
+        if nsplit:
+            log(f"  wet domains split by their bodies' levels: {nsplit} (lakes, rivers and tidal water now their own domains; river domains {len(rivers)})")
+    # A LARGE dry void is not a hole to model (2026-10-16, whole-bay run: the mountains the KBay 2023 survey
+    # never reached, 100 km2 a box, were "filled" as one dry domain each with the lake machinery -- a smooth
+    # blob 300 m off the real ground at the box seams).  Dry domains above dry_max_km2 are left void: the
+    # context fallback (3DEP) is the honest surface there, and a hole says so where even that is missing.
+    dryvoid = np.zeros(z.shape, bool)                            # the dry domains left void (fill_dryvoid.tif: the fallback shows there)
+    if nd:
+        szd = np.bincount(ld.ravel(), minlength=nd + 1)[1:] * res * res / 1e6
+        big = np.flatnonzero(szd > float(P.get("dry_max_km2", 1.0))) + 1
+        if big.size:
+            drop = np.isin(ld, big)
+            log(f"  dry (void) domains above {float(P.get('dry_max_km2', 1.0)):g} km2 left void: {big.size}, {szd[big - 1].sum():.3f} km2")
+            dryvoid |= drop; dom &= ~drop; ld, nd = ndimage.label(dom & ~wet)
     lab = np.where(wet, lw, np.where(ld > 0, ld + nw, 0)); n = nw + nd
     log(f"  wet domains {nw}, dry (void) domains {nd}")
     log(f"  domains: {n} (margin holes left empty: {int((margin & hole).sum()) * res * res / 1e6:.3f} km2); "
@@ -502,6 +886,9 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     fin_land = np.isfinite(S) & np.isin(cls, land_codes) & ~dom
     srim = _nmean(np.nan_to_num(S), fin_land, max(int(round(2 * P["inland_m"] / res)) + 1, 3))
     srim = np.clip(np.nan_to_num(srim, nan=P["slope_min_deg"]), P["slope_min_deg"], P["slope_max_deg"])
+    if shore and shore_slp is not None:
+        ok_ = rim & np.isfinite(shore_slp)
+        srim[ok_] = np.clip(shore_slp[ok_], P["slope_min_deg"], P["slope_max_deg"])
     # per-domain floor: marine or lake
     ids = np.arange(1, n + 1)
     # a rim cell beside both a lake and dry ground belongs to the lake (its shore)
@@ -510,14 +897,79 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     zr = np.where(land_rim, z, np.nan)
     med = ndimage.labeled_comprehension(np.nan_to_num(zr, nan=1e9), rim_lab, ids, lambda v: np.median(v[v < 1e8]) if (v < 1e8).any() else np.nan, float, np.nan)
     marine = np.isfinite(med) & (med < P["marine_rim_max_m"])
+    # WATER BODIES (stage B, water.py, 2026-10-15): a wet domain whose body the observations call a perched
+    # lagoon, a lake or an ephemeral pond is NOT marine whatever its rim (the Seldovia lagoon: rim < 6 m, so
+    # it took the low-tide floor and a 5 m tidal channel under water ponded at +0.8); one the observations
+    # call the sea or tidal IS marine whatever its rim (a tidal channel under a cliff).  bover carries the
+    # body's consensus level and the edits' depth into the lake loop below.
+    bover = {}; tover = {}
+    lens = bool(P.get("tidal_lens", True))
+    from .water import TIDAL_KINDS
+    if P.get("_bodies") is not None:
+        bid, btab = P["_bodies"]; n_offlevel = 0
+        for i in range(1, nw + 1):
+            if i in rivers:                      # a river domain: the channel model, never a body's level or basin
+                continue
+            v = bid[lab == i]; v = v[v > 0]
+            if not v.size:
+                continue
+            u, c = np.unique(v, return_counts=True); b = btab.get(int(u[np.argmax(c)]))
+            if b is None:
+                continue
+            has_fact = b.get("dmax_m") is not None or bool(b.get("hypsometry"))
+            if lens and b["kind"] in TIDAL_KINDS and not has_fact:
+                # THE TIDAL LENS (Hig, 2026-10-16): water the tide reaches is a flat at its observed surface until
+                # measured -- marine, and marine below means the water surface itself.  An edit's depth still makes
+                # a basin (the lake loop).
+                marine[i - 1] = True; tover[i] = dict(kind=b["kind"], body=b["id"], level_m=b.get("consensus_level_m"))
+            elif b["kind"] in ("sea", "tidal"):
+                marine[i - 1] = True
+            elif b["kind"] in ("lake", "perched", "ephemeral"):
+                marine[i - 1] = False
+                e = dict(kind=b["kind"], body=b["id"])
+                # the body's level and depth only where this domain's own water stands at that level: a piece split
+                # off the body (a pool of its outlet river 28 m below Grewingk Lake, 2026-10-23) keeps its own
+                # ...judged on the domain's p25 AND p75 of its observed water: a prior's hydroflattened values low in
+                # the same raster (3DEP's 41.3 m in Grewingk Lake at 48.9) pulled a median to 45.4 and the lake's
+                # own piece off its level (test crop 2026-10-23)
+                wz_ = wz_s; own = (np.nan, np.nan)
+                if wz_ is not None:
+                    v_ = wz_[lab == i]; v_ = v_[np.isfinite(v_)]
+                    if v_.size >= 20: own = tuple(np.percentile(v_, [25, 75]).tolist())
+                blev = b.get("consensus_level_m")
+                # a level resting on a PRIOR alone stands only where no survey saw water in the domain or on its rim:
+                # with survey water there, THAT is the level (2026-10-23, run 10: two 3DEP "ephemeral" patches at
+                # 41.3 m, each its own hole inside Grewingk Lake's arm, kept 41.3 m beds under lidar water at 49.1)
+                lv_ = [l for l in (b.get("levels") or []) if l.get("level_m") is not None]
+                if blev is not None and wz_ is not None and prior_layers and lv_ and all(l.get("survey") in prior_layers for l in lv_):
+                    sl_ = ndimage.find_objects(lab == i, max_label=1)[0]
+                    sl_ = tuple(slice(max(s_.start - 3, 0), s_.stop + 3) for s_ in sl_)
+                    near_ = ndimage.binary_dilation(lab[sl_] == i, iterations=3)
+                    v_ = wz_[sl_][near_]; v_ = v_[np.isfinite(v_)]
+                    if v_.size >= 20:
+                        blev = float(np.median(v_)); e["level_from"] = "survey water on the rim"; own = (blev, blev)
+                if blev is not None and np.isfinite(own[0]) and min(abs(own[0] - float(blev)), abs(own[1] - float(blev))) > P["channel_drop_m"]:
+                    n_offlevel += 1
+                    bover[i] = e
+                    continue
+                if blev is not None: e["level_m"] = float(blev)
+                if b.get("dmax_m") is not None: e["dmax_m"] = float(b["dmax_m"])
+                if b.get("hypsometry"): e["hypsometry"] = b["hypsometry"]
+                if "dmax_m" not in e and b.get("dmax_cap_m") is not None:
+                    e["dmax_cap_m"] = float(b["dmax_cap_m"])
+                bover[i] = e
+        if bover:
+            log(f"  water bodies: {len(bover)} wet domains take their body's kind/level/depth "
+                f"({', '.join(sorted({e['kind'] for e in bover.values()}))}); own water off the body's level, kind only: {n_offlevel}")
     # floors only for the sea (low tide).  A non-marine domain has none (2026-10-11, Hig: "a short
     # steep slope down to a perfectly flat bottom"): a wet one gets the lake basin below, a dry one
     # (void: the laser missed the ground) the plain harmonic surface from its rim.
-    floor_by = np.where(marine, P["low_tide_m"], np.nan)
-    floor_by = np.where(np.isfinite(med), floor_by, P["low_tide_m"])
+    # ...and under the tidal lens a marine domain has no floor either: its bed is the water surface (below)
+    floor_by = np.where(marine & ~lens, P["low_tide_m"], np.nan)
+    floor_by = np.where(np.isfinite(med) | lens, floor_by, P["low_tide_m"])
     floor = np.full(z.shape, np.nan, np.float32); floor[dom] = floor_by[lab[dom] - 1]
     log(f"  land rim {int(land_rim.sum())} cells, bed rim {int(bed_rim.sum())}, soundings inside {int(inside_obs.sum())}; "
-        f"marine domains {int(marine.sum())} / lakes {int((~marine).sum())}; rim slope p10/50/90 "
+        f"marine domains {int(marine.sum())}{' (tidal lens: bed at the observed water surface)' if lens else ''} / lakes {int((~marine).sum())}; rim slope p10/50/90 "
         f"{np.percentile(srim[land_rim], [10, 50, 90]).round(1) if land_rim.any() else '-'} deg")
     # PRIOR: nearest land-rim extension
     prior = np.full(z.shape, np.nan, np.float32)
@@ -561,9 +1013,15 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # sigma.  Shape: depth = Dmax*(l/L)^p with p from the target volume development Vd
     # (Hakanson: Vd = 2/((p+1)(p+2)); 0.5 is the flatter glacial norm, 1/3 a cone).  Shores
     # keep the band: the deeper of the rim-slope extension (capped at Dmax) and the shape.
+    mids = {int(i) for i in ids[marine]}
+    # a body the water stage (or Hig's map) calls a LAKE never gets the channel model, however elongated
+    # (Wosnesenski Lake, 2026-10-18: 4 km by 1 km, elong 8.8 -- channel sections ran down its middle and left
+    # ridges and plateaus around its islands)
+    lake_body_ids = {i for i, e in bover.items() if e.get("kind") == "lake"} if bover else set()
     chan, chan_bed, chan_ws, chan_tab = channel_beds(lab, nw, P.get("_water_z"), res, P,
-                                                     marine_ids={int(i) for i in ids[marine]}, log=log)
-    lake_tab = []; lake_level = {}
+                                                     marine_ids=set() if lens else mids, skip_ids=((mids if lens else set()) | lake_body_ids) - rivers, whole_ids=rivers, log=log)
+    lake_tab = []; lake_level = {}; lake_floor = {}
+    tidal_cells = np.zeros(z.shape, bool)          # the tidal lens's cells (fill_mask 7)
     surface = np.zeros(z.shape, bool)              # observations judged to be the water surface (-> fill_surface.tif)
     lake_prior = np.full(z.shape, np.nan, np.float32); lake_sig = np.full(z.shape, np.nan, np.float32)
     if land_rim.any():
@@ -576,7 +1034,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             land_noice = np.isfinite(z) & np.isin(cls, [classes[n] for n in LAND_CLASSES if n in classes and n != "ice"]) & ~dom
             dshore = ndimage.distance_transform_edt(~land_noice, sampling=res)
         vd = float(P["lake_vd"]); pexp = (-3 + np.sqrt(1 + 8 / vd)) / 2
-        lake_ids = [i for i in ids if not marine[i - 1]]
+        lake_ids = [i for i in ids if not marine[i - 1] and i not in rivers]
         # per-lake overrides (lake_dmax: [{x, y, dmax_m, level_m?}]): the lake whose domain holds (x, y)
         # takes dmax_m as its deepest depth instead of the estimate, and level_m as its water level
         # (Grewingk, 2026-10-13: 150 m, Hig; the SfM water surface is too noisy to be a level)
@@ -590,6 +1048,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 over[int(lab[rr_, cc_])] = e
             else:
                 log(f"  lake_dmax entry at {e['x']},{e['y']} is not in a fill domain")
+        for i, e in bover.items():                 # the water bodies' level / depth (edits via water.py); a recipe's lake_dmax wins
+            over[i] = {**e, **over.get(i, {})}
         for i in lake_ids:
             cells = (lab == i) & ~chan                              # a channel's cells are the channel's
             n_c = int(cells.sum()); A = n_c * res * res
@@ -602,7 +1062,12 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             # a basin only where the class axis says water: a void domain (only noise returns --
             # glacier ice, steep high ground) is not a lake, whatever its rim (2026-10-11, the
             # lakes box carved 200-400 m "basins" into three of them)
-            wfrac = float(np.mean(cls[cells & hole] == classes["water"])) if (cells & hole).any() else 0.0
+            if shore:
+                # the STAGE's label says what is water here, not the class axis: a water-blind source's cells and a
+                # prior's are classed ground / whatever they were, and Emerald Lake's domain was no lake for it (crop, run 19)
+                wfrac = float(np.mean(np.isin(shore_lab[cells & hole], (2, 3)))) if (cells & hole).any() else 0.0
+            else:
+                wfrac = float(np.mean(cls[cells & hole] == classes["water"])) if (cells & hole).any() else 0.0
             if wfrac < P["lake_water_frac"]:
                 continue
             sbar = float(np.median(srim[rl])); level = float(med[i - 1])
@@ -611,7 +1076,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             # Best is the water surface itself (water_z: the water-classed observation that won each
             # cell, written by the build); the returns classed ground near the shore read ~1 m high on
             # China Poot Lake (2026-10-12), and then island ground within 1.5 m of the water was dropped
-            wz = P.get("_water_z")
+            wz = wz_s
             wcell = cells & np.isfinite(wz) if wz is not None else None
             surf = cells & inside_obs & (cls != classes["bed"]) & (z > level - 3.0) & (z < level + 0.5)
             if wcell is not None and int(wcell.sum()) >= 20:
@@ -629,13 +1094,20 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             # scaling gave a 1.2 km2, 180 m wide creek 74 m of depth (2026-10-11).  Width sets its
             # depth, so Hollister alone.
             elong = A / (np.pi * L * L)
-            if elong > P["channel_elong"]:
+            is_lake_body = i in over and over[i].get("kind") == "lake"      # a known lake takes the lake estimate whatever its shape
+            if elong > P["channel_elong"] and not is_lake_body:
                 dmax = float(max(d_h, 0.5))
-            sd = abs(d_h - d_g) / 2 + 5.0 if elong <= P["channel_elong"] else max(d_h, 1.0)
-            if i in over:
+            sd = abs(d_h - d_g) / 2 + 5.0 if (elong <= P["channel_elong"] or is_lake_body) else max(d_h, 1.0)
+            if i in over and over[i].get("dmax_m") is not None:
                 dmax = float(over[i]["dmax_m"])
-                log(f"  lake {i}: Dmax {dmax:.0f} m and level {level:.2f} m set by the recipe "
+                log(f"  lake {i}: Dmax {dmax:.0f} m and level {level:.2f} m set by {'the recipe' if 'body' not in over[i] else 'water body ' + str(over[i]['body']) + ' (' + over[i]['kind'] + ')'} "
                     f"(estimates: Hollister {d_h:.0f}, glacial {d_g:.0f} m)")
+            elif i in over and over[i].get("dmax_cap_m") is not None:
+                # a PERCHED lagoon (water.py): the shore slope extrapolated, but no deeper than perched_dmax_m --
+                # the tide reaches it, its sill is at its level, and nothing says it is a basin (Hig, 2026-10-15,
+                # Seldovia: "very shallow - likely ~1 m ... consistent with extrapolating the shoreline")
+                dmax = float(min(max(d_h, 0.3), over[i]["dmax_cap_m"])); sd = max(dmax, 0.5)
+                log(f"  lake {i}: perched (water body {over[i]['body']}), Dmax {dmax:.1f} m = min(shore slope {d_h:.1f}, cap {over[i]['dmax_cap_m']:.1f}), level {level:.2f} m")
             # ONE smooth profile (2026-10-11, replaces max(shape, rim slope capped at Dmax), which on a
             # steep shore hit Dmax within metres and held it -- a wall and a flat floor):
             #   depth = Dmax * (1 - (1 - l/L)^q),  q = L tan(s) / Dmax  clipped to [1, 4]
@@ -669,11 +1141,54 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 dmax = float(vals[-1])
                 log(f"  lake {i}: depths remapped to the recipe's hypsometry ({vals.size} quantiles, deepest {dmax:.1f} m)")
             lake_prior[cells] = (level - depth).astype(np.float32)
+            # a hand-set depth (an edit via water.py) or a perched body's cap is also a FLOOR for the modelled
+            # bed: level - dmax - slack, applied after the conditioning below (the same floor water.level_raster
+            # gives the class step) -- an outlet whose rim is the tidal channel's bed is a sill, not a ramp
+            if i in over and (over[i].get("dmax_m") is not None or over[i].get("dmax_cap_m") is not None):
+                lake_floor[i] = level - dmax - max(0.5, 0.5 * dmax)
             lake_sig[cells] = (P["lake_sigma_frac"] * sd * frac + 1.0).astype(np.float32)
             rr, cc = ndimage.center_of_mass(cells)
             lake_tab.append(dict(id=int(i), area_m2=int(A), L_m=round(L, 1), rim_slope_deg=round(sbar, 1), level_m=round(level, 2),
                                  dmax_set=bool(i in over),
                                  dmax_hollister_m=round(d_h, 1), dmax_glacial_m=round(d_g, 1), dmax_m=round(dmax, 1), q=round(q, 2), elong=round(elong, 1), row=int(rr), col=int(cc)))
+        # THE TIDAL LENS: a marine domain's bed is its observed water surface -- per cell where a survey saw it
+        # (water_z, smoothed over channel_ws_smooth_m: a creek's surface slopes), else the body's level, else the
+        # median of the surface seen, else the rim median -- with sigma tidal_sigma_m growing with distance from
+        # shore.  The observations under it (multibeam, green-lidar bed, soundings) condition it below like any
+        # lake's; nothing else deepens it (Hig, 2026-10-16: "conservatively flat assumptions to start with").
+        if lens and mids:
+            wz_ = P.get("_water_z")
+            sgt = max(P["channel_ws_smooth_m"] / res, 1.0)
+            objs = ndimage.find_objects(lab)
+            n_t = 0
+            for i in sorted(mids):
+                sl = objs[i - 1] if i - 1 < len(objs) else None
+                if sl is None:
+                    continue
+                cells = (lab[sl] == i) & ~chan[sl]
+                if not cells.any():
+                    continue
+                w_ = wz_[sl] if wz_ is not None else None
+                v_ = w_[cells] if w_ is not None else np.zeros(0); v_ = v_[np.isfinite(v_)]
+                lv_ = tover.get(i, {}).get("level_m")
+                if lv_ is None:
+                    lv_ = float(np.median(v_)) if v_.size >= 20 else (float(med[i - 1]) if np.isfinite(med[i - 1]) else None)
+                if lv_ is None:
+                    continue
+                if w_ is not None and v_.size >= 20:
+                    known = cells & np.isfinite(w_)
+                    num = ndimage.gaussian_filter(np.where(known, w_, 0.0).astype(np.float64), sgt)
+                    den = ndimage.gaussian_filter(known.astype(np.float64), sgt)
+                    s_ = np.where(den > 1e-3, num / np.maximum(den, 1e-3), lv_).astype(np.float32)
+                else:
+                    s_ = np.full(cells.shape, lv_, np.float32)
+                lp = lake_prior[sl]; ls = lake_sig[sl]
+                lp[cells] = s_[cells]
+                ls[cells] = (P["tidal_sigma_m"] + P["sigma_rim_m"] * dshore[sl][cells] / 100.0).astype(np.float32)
+                tidal_cells[sl] |= cells
+                lake_level[i] = float(lv_); n_t += 1
+            log(f"  tidal lens: {n_t} marine domains at their observed water surface, {int(tidal_cells.sum()) * res * res / 1e6:.3f} km2 "
+                f"(sigma {P['tidal_sigma_m']} m at the shore + {P['sigma_rim_m']} m per 100 m)")
         # channels (channel_beds): their bed replaces band + interior like a lake's shape
         lake_prior[chan] = chan_bed[chan]
         lake_sig[chan] = (0.5 * np.clip(chan_ws[chan] - chan_bed[chan], 0, None) + 0.5).astype(np.float32)
@@ -690,13 +1205,20 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         lvl = np.full(z.shape, np.nan, np.float32); lvl[lk] = lvt[lab[lk]]
         tol = np.full(z.shape, P["lake_surface_tol_m"], np.float32)
         lvl[chan] = chan_ws[chan]; tol[chan] = P["channel_surface_tol_m"]      # a channel's level is its own sloping surface
+        lvl[tidal_cells] = lake_prior[tidal_cells]                              # the tidal lens: the surface itself (a creek slopes)
         at_surface = lk & inside_obs & np.isfinite(z) & (cls != classes["bed"]) & (z < lvl + tol)
+        if shore:
+            # the surface: at or above the level (a solid return BELOW the level inside the water is the bed, kept)
+            at_surface = lk & inside_obs & np.isfinite(z) & (cls != classes["bed"]) & np.isin(shore_lab, (2, 3)) & ~(z < lvl - tol)
+            if prior_won is not None:
+                at_surface |= lk & inside_obs & prior_won & np.isin(shore_lab, (2, 3))      # a prior's value under the water is no bed
+            log(f"  shoreline stage: {int(at_surface.sum())} observed cells inside the water are its surface or float on it -- not evidence of the bed")
         # ...but ground at the level that runs on to dry land beyond the lake is SHORE, not water (Hig, 2026-10-14:
         # ponds "carved" into Grewingk's outwash -- flat gravel with good returns, within tol of a creek pond's
         # level, went surface -> water class at the next build -> a larger pond, every pass).  Stray returns off calm
         # water lie out on the water: a patch whose edge borders more dry land (beyond the domain) than water is
         # shore and stays ground.  (A seam of calm-water returns across a lake touches the shore only at its ends.)
-        if "water" in classes:
+        if "water" in classes and not shore:
             cand_ = at_surface & (cls != classes["water"])
             dry = np.isfinite(z) & ~lk & (cls != classes["water"]) & (cls != classes.get("ice", -1))
             wet = lk & ~cand_ & ~(inside_obs & (z >= lvl + tol))
@@ -714,7 +1236,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         # a stray return, not an island: one 2 m Grewingk cell 0.3 m above the water pulled the
         # bed up 30 m around it (2026-10-12).  Larger islands are kept.
         sp = lk & inside_obs & np.isfinite(z) & (cls != classes["bed"]) & ~at_surface
-        sl, sn = ndimage.label(sp)
+        sl, sn = ndimage.label(sp) if not shore else (None, 0)
         if sn:
             ssz = ndimage.sum(sp, sl, np.arange(1, sn + 1)) * res * res
             specks = np.isin(sl, np.flatnonzero(ssz < P["lake_islet_m2"]) + 1)
@@ -736,10 +1258,54 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 if lowi.any():
                     log(f"  low 'islands' (< {P['lake_island_dz_m']} m above the water) taken as surface: {int(low_.sum())}, {int(lowi.sum())} cells")
                     at_surface |= lowi
+        # FLOATING ICE (Hig, 2026-10-20, Grewingk Lake): what stands above a lake's water is not always an island.
+        # Grewingk 2021's returns off icebergs -- mostly classed water, some ground -- stood 0.3-15 m above the
+        # lake, passed every rule above as "islands", and the bed was then held just under the water at each:
+        # 123 needles rising a median 14 m off the lake floor, 113 under a lump in the water surface. Two rules,
+        # for lakes only (a channel's or the tidal lens's level is a sloping surface of its own):
+        #   * a water-classed observation out on a lake is the surface or something floating on it, never bed;
+        #   * a raised LAND patch is an island only when corroborated -- a second survey layer saw land on at
+        #     least floating_ice_corr of it, or a hand-mapped island touches it. A berg drifts: it is seen once.
+        if P.get("floating_ice", True) and not shore:
+            lake_only = lk & ~chan & ~tidal_cells
+            raised = lake_only & inside_obs & np.isfinite(z) & (cls != classes["bed"]) & ~at_surface
+            if "ice" in classes:
+                raised &= cls != classes["ice"]                      # the ice rule below has its own say
+            wat_r = raised & (cls == classes.get("water", -1))
+            land_r = raised & ~wat_r
+            drop = wat_r.copy()
+            n_land_drop = 0
+            if land_r.any():
+                ln_ = P.get("_land_n"); mi_ = P.get("_mapped_island")
+                rl_, rn_ = ndimage.label(land_r, structure=np.ones((3, 3), bool))
+                idr = np.arange(1, rn_ + 1)
+                sz_ = ndimage.sum(land_r, rl_, idr)
+                corr = np.zeros(rn_, bool); corr_isl = np.zeros(rn_, bool); ml_ = P.get("_mapped_lake")
+                if ln_ is not None:
+                    corr |= np.asarray(ndimage.sum(land_r & (ln_ >= 2), rl_, idr)) >= P["floating_ice_corr"] * np.asarray(sz_)
+                if mi_ is not None:
+                    corr_isl = np.asarray(ndimage.maximum(ndimage.binary_dilation(mi_, iterations=2), rl_, idr)) > 0
+                    corr |= corr_isl
+                if ln_ is None and mi_ is None and ml_ is None:
+                    corr[:] = True                                   # no evidence to judge by: keep the old behaviour
+                if ml_ is not None:
+                    # the trusted mapped shoreline arbitrates here too (the domain closure above): inside, tall raised
+                    # land is floating or ice-cored unless a mapped island; outside, it is the shore
+                    in_, out_, tall_ = _mapped_lake_sides(ml_, rl_, idr, res, P, z, lvl)
+                    corr = np.where(in_ & tall_, corr_isl, np.where(out_, True, corr))
+                lost = np.isin(rl_, idr[~corr])
+                drop |= lost; n_land_drop = int((~corr).sum())
+                if n_land_drop:
+                    big_ = np.sort(np.asarray(sz_)[~corr])[::-1][:5] * res * res
+                    log(f"  raised land on lakes with no second survey or mapped island (floating ice): {n_land_drop} patches, "
+                        f"{int(lost.sum())} cells (largest m2 {np.round(big_).astype(int).tolist()}); kept as islands: {int(corr.sum())}")
+            if wat_r.any():
+                log(f"  water-classed observations standing above a lake (the surface or floating ice) dropped as evidence: {int(wat_r.sum())} cells")
+            at_surface |= drop
         # ice inside a lake (bergs, the ragged fringe of a calving face that the closing wraps into the
         # domain) is not evidence of the bed: kept as an "island" at its surface height it pinned the bed
         # 20-30 m ABOVE the water along Grewingk's face (2026-10-13).  Dropped when the face is free.
-        if P.get("ice_face") == "free" and "ice" in classes:
+        if P.get("ice_face") == "free" and "ice" in classes and not shore:
             ice_in = lk & inside_obs & np.isfinite(z) & (cls == classes["ice"])
             if ice_in.any():
                 log(f"  ice inside lakes dropped as evidence (bergs, face fringe): {int(ice_in.sum())} cells")
@@ -767,6 +1333,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # stay out of z and condition the fill afterwards through a smoothing spline (SOUNDINGS below).
     pts = np.zeros(z.shape, bool)                  # cells holding a sounding (bookkeeping only)
     sound = []                                     # (row, col, x, y, z)
+    sound_sv = []                                  # each sounding's survey (the despike works per survey)
     bounds = []                                    # lower bounds (row, col, x, y, z_max, sigma): bed at or below z
     if P.get("points"):
         import csv
@@ -785,14 +1352,54 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 if not (0 <= rr < z.shape[0] and 0 <= cc < z.shape[1]) or not (dom[rr, cc] and hole[rr, cc]):
                     continue
                 if row.get("z") not in (None, ""):
-                    zz = float(row["z"]) + float(P.get("points_dz_m") or 0.0)
+                    dz_ = P.get("points_dz_m") or 0.0
+                    # a dict is per SURVEY (2026-10-18, the whole bay: the Grewingk sounding levels are tied to the
+                    # unshifted 2021 lidar, +0.36 m; Riordan's are not) -- a number shifts every point, as at Grewingk
+                    dz_ = float(dz_.get(row.get("survey", ""), 0.0)) if isinstance(dz_, dict) else float(dz_)
+                    zz = float(row["z"]) + dz_
                 else:
                     zz = float(med[lab[rr, cc] - 1]) - float(row["depth"])
                 sg = float(row["sigma"]) if row.get("sigma") not in (None, "") else P["points_sigma_m"]
                 if is_bound:
                     bounds.append((rr, cc, x, y, zz, sg)); nbound += 1
                     continue
-                sound.append((rr, cc, x, y, zz, sg)); pts[rr, cc] = True
+                sound.append((rr, cc, x, y, zz, sg)); pts[rr, cc] = True; sound_sv.append(row.get("survey", ""))
+        # DESPIKE (Hig, 2026-10-20, Grewingk Lake): a single sounding far SHALLOWER than its own survey's
+        # neighbours -- the sounder catching a berg's keel, a fish, a side lobe -- is not the bed; the spline
+        # honoured each (misfit 1 m) and built a cone to it (17 of 35 deep bumps sat on a 2017 sounding 5-20 m
+        # above its track). Judged against a plane through the same survey's soundings 5..points_despike_r_m
+        # away, so a steady slope is not a spike; only the shallow side (a second-bottom echo is a different
+        # problem). Needs points_despike_n neighbours; dropped, not down-weighted.
+        if sound and P.get("points_despike_m"):
+            from scipy.spatial import cKDTree
+            S_ = np.array([(t[2], t[3], t[4]) for t in sound]); sv_ = np.array(sound_sv)
+            keep_ = np.ones(len(sound), bool); per = {}
+            for name in np.unique(sv_):
+                ii = np.flatnonzero(sv_ == name)
+                if ii.size < P["points_despike_n"] + 1:
+                    continue
+                tr_ = cKDTree(S_[ii, :2])
+                for a_, nb in zip(ii, tr_.query_ball_point(S_[ii, :2], P["points_despike_r_m"])):
+                    nb = ii[np.asarray(nb, int)]
+                    dxy = S_[nb, :2] - S_[a_, :2]
+                    nb = nb[np.hypot(dxy[:, 0], dxy[:, 1]) > 5.0]
+                    if nb.size < P["points_despike_n"]:
+                        continue
+                    d_ = S_[nb, :2] - S_[a_, :2]
+                    G = np.c_[np.ones(nb.size), d_]
+                    cf, *_ = np.linalg.lstsq(G, S_[nb, 2], rcond=None)
+                    res_n = S_[nb, 2] - G @ cf
+                    scale = 1.4826 * np.median(np.abs(res_n - np.median(res_n)))
+                    if S_[a_, 2] - cf[0] > max(P["points_despike_m"], 3.0 * scale):
+                        keep_[a_] = False; per[name] = per.get(name, 0) + 1
+            if (~keep_).any():
+                for t in np.asarray(sound, dtype=object)[~keep_]:
+                    pts[t[0], t[1]] = False
+                sound = [t for t, k in zip(sound, keep_) if k]
+                for t in sound:
+                    pts[t[0], t[1]] = True
+                log(f"  soundings shallower than their own track by > {P['points_despike_m']} m (a keel, a fish, a side lobe) dropped: "
+                    f"{int((~keep_).sum())} -- " + ", ".join(f"{k} {v}" for k, v in sorted(per.items())))
         log(f"  sparse points: {len(sound)} inside domain holes from {P['points']}"
             + (f"; {nbound} lower bounds held for the active-set pass" if nbound else ""))
     # SHORE GRADIENT (Hig, 2026-10-14, Grewingk's outlet: "use measured gradients from shore nearby to
@@ -863,6 +1470,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     fill = prior.copy()
     mask = np.zeros(z.shape, np.uint8); mask[band] = 1; mask[interior] = 2; mask[margin & hole] = 4; mask[lk & hole] = 5
     mask[chan & hole] = 6
+    mask[tidal_cells & hole] = 7
     cond = np.zeros(z.shape, bool)
     # the residual at the RIM is the rim's own misfit to the prior beside it (2026-10-11; it was 0,
     # so the fill met the rim at the prior's level -- a step wherever the shore stood off the lake
@@ -893,6 +1501,20 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             dso = ndimage.distance_transform_edt(~inside_obs, sampling=res)
             cond = ok & (dso <= 3 * P["cond_m"])
             mask[cond] = 3
+    # THE CEILING (rule 3: a level is an inequality on the bed) on every modelled wet cell: its lake's level, else the
+    # shoreline stage's level on that cell (a river's sloping surface, a pool's) ...
+    lv_ = np.full(n + 1, np.nan, np.float32)
+    for i, v in (lake_level or {}).items():
+        lv_[i] = v
+    L_ = lv_[lab]
+    wzc = P.get("_water_z")
+    if wzc is not None:
+        L_ = np.where(np.isfinite(L_), L_, wzc).astype(np.float32)
+    # ...and a CHANNEL's cells too, at the channel's own surface (2026-10-28, run 20h: a channel at Grewingk's ice face
+    # sat in the lake's domain, the lake's soundings spline lifted it 40-70 m above its 48.9 m surface, and the hold
+    # skipped channel cells -- 882 water cells with a bed at 87-117 m)
+    L_ = np.where(chan & np.isfinite(chan_ws), chan_ws, L_).astype(np.float32)
+    ceil_mask = np.zeros(z.shape, np.uint8)        # 1 = held by a ceiling site in the soundings' fit, 2 = clipped by the guard
     # SOUNDINGS (2026-10-12, replaces "honoured exactly, harmonic residual in between"): a harmonic
     # residual is a cone at each sounding and a ridge along a sounding line (China Poot Lake: the
     # bed fell back to the prior a few tens of metres either side of every line).  What Portage
@@ -929,21 +1551,78 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             still = fill[br_, bc_] > B_[:, 4] + 1.0
             if still.any():
                 log(f"  lower bounds still violated by > 1 m after the pass: {int(still.sum())}")
+        # THE CEILING IN THE FIT (2026-10-28, WATER_REVIEW_PLAN.md section 2): where the fitted bed stands within
+        # 0.1 m of its water or above it (what the guard below would clip), sites at level - ceiling_margin_m (one per points_rim_step_m block,
+        # sigma points_rim_sigma_m) join the domain's soundings and the domain is refitted, up to ceiling_passes times --
+        # the surface bends down under its water instead of being cut flat at it.  Lower bounds already added stay in.
+        mg_ = float(P["ceiling_margin_m"])
+        k_ = max(int(round(P["points_rim_step_m"] / res)), 1)
+        Sd_all = {int(i): S_[slab == i] for i in np.unique(slab)}
+        if bounds:
+            for i in np.unique(lab[br_[viol], bc_[viol]]):
+                Sd_all[int(i)] = np.vstack([Sd_all.get(int(i), np.zeros((0, 6))), B_[viol & (lab[br_, bc_] == i)]])
+        Tf = P.get("_transform")
+        # only cells the guard below would clip (within 0.1 m of the water or above), and away from the domain's edge: at
+        # the shoreline the bed meets the water by the boundary condition, and a site there would contradict it
+        inner = ndimage.distance_transform_edt(hole, sampling=res) > float(P["points_rim_step_m"])
+        for pass_ in range(int(P["ceiling_passes"])):
+            over = (dom & hole & inner & ~tidal_cells & np.isfinite(L_) & np.isfinite(fill) & (fill > L_ - 0.1)
+                    & np.isin(lab, list(Sd_all)))
+            if not over.any() or Tf is None:
+                break
+            orr, occ = np.nonzero(over)
+            _, first = np.unique((orr // k_) * 1_000_003 + occ // k_, return_index=True)
+            orr, occ = orr[first], occ[first]
+            add = np.column_stack([orr, occ, Tf.c + (occ + 0.5) * res, Tf.f - (orr + 0.5) * res,
+                                   L_[orr, occ] - mg_, np.full(len(orr), float(P["points_rim_sigma_m"]))])
+            dl = lab[orr, occ]
+            log(f"  ceiling pass {pass_ + 1}: {int(over.sum())} cells within 0.1 m of their water or above it "
+                f"(up to {float(np.max(fill[over] - L_[over])):.1f} m above) in {len(np.unique(dl))} domains; {len(add)} ceiling sites")
+            ceil_mask[over] = np.maximum(ceil_mask[over], 1)
+            for i in np.unique(dl):
+                Sd_all[int(i)] = np.vstack([Sd_all[int(i)], add[dl == i]])
+                spline_domain(i, Sd_all[int(i)], tag=f" +ceiling{pass_ + 1}")
         sdist = ndimage.distance_transform_edt(~pts, sampling=res)
         mask[(dom & hole) & (sdist <= 3 * P["cond_m"])] = 3
     # A LAKE'S MODELLED BED NEVER STANDS ABOVE ITS WATER (2026-10-14, Grewingk's SE corner, v5): the shore residuals
     # pull the bed up to the level at the edge and the conditioning surfaces (harmonic, then the thin-plate spline,
     # which has no maximum principle) overshoot them -- 0.5-5.6 m above the water on a 10-30 m fringe below a cliff.
     # Only modelled cells: islands are observations and stay.
-    if lake_level:
-        lv_ = np.full(n + 1, np.nan, np.float32)
-        for i, v in lake_level.items():
-            lv_[i] = v
-        L_ = lv_[lab]
-        up = dom & hole & ~chan & np.isfinite(L_) & np.isfinite(fill) & (fill > L_ - 0.1)
-        if up.any():
-            log(f"  lake bed held below the water: {int(up.sum()) * res * res / 1e6:.4f} km2 (up to {float(np.max(fill[up] - L_[up])):.1f} m above)")
-            fill[up] = L_[up] - 0.1
+    # ...and the same inequality (rule 3) in EVERY wet domain, not only a lake's (2026-10-25, run 19c: Grewingk's
+    # marginal stream, a 97 m river body under channel_min_m2 so without a channel bed, had its conditioned bed 1-6 m
+    # above its 65 m level -- the ice beside it as its rim): a modelled wet cell with a level -- its lake's, else the
+    # shoreline stage's level on that cell (a river's sloping surface, a pool's) -- never stands above it.
+    # ...since 2026-10-28 (WATER_REVIEW_PLAN.md section 2) the ceiling is a constraint INSIDE the soundings' fit (above),
+    # and this clip is the last-resort guard: a clipped surface is a plateau exactly at the constraint -- the flat
+    # shelves 10 cm under Grewingk's 48.91 m lake at its ice face in run 20h2 were this clip -- so every cell it holds is
+    # recorded (fill_ceiling.tif = 2) for the review's flags.
+    up = dom & hole & ~tidal_cells & np.isfinite(L_) & np.isfinite(fill) & (fill > L_ - 0.1)
+    if up.any():
+        nl_ = int((up & np.isfinite(lv_[lab])).sum())
+        log(f"  bed held below the water (the guard): {int(up.sum()) * res * res / 1e6:.4f} km2 (up to {float(np.max(fill[up] - L_[up])):.1f} m above; "
+            f"{nl_} cells in lakes, {int(up.sum()) - nl_} in rivers and pools at the stage's level)")
+        fill[up] = L_[up] - 0.1
+        ceil_mask[up] = 2
+    # the tidal lens: the water surface is a CEILING -- the conditioning (rim residual, spline) never lifts the bed above it
+    upt = tidal_cells & hole & np.isfinite(fill) & np.isfinite(lake_prior) & (fill > lake_prior)
+    if upt.any():
+        log(f"  tidal lens: bed held at or below the water surface on {int(upt.sum()) * res * res / 1e4:.2f} ha (up to {float(np.max(fill[upt] - lake_prior[upt])):.2f} m above)")
+        fill[upt] = lake_prior[upt]
+    if lake_floor:
+        fl_ = np.full(n + 1, np.nan, np.float32)
+        for i, v in lake_floor.items():
+            # a MEASURED bed inside the lake lowers its floor to the measurement (Trena Lake, Seldovia v6: the
+            # perched cap's floor stood 2 m above the green lidar's bed and the fill made a plateau between the returns)
+            ob = inside_obs & (lab == i) & (cls == classes.get("bed", -1))
+            if ob.any():
+                v = min(v, float(np.nanmin(z[ob])))
+            fl_[i] = v
+        F_ = fl_[lab]
+        low = dom & hole & np.isfinite(F_) & np.isfinite(fill) & (fill < F_)
+        if low.any():
+            log(f"  lake bed held above its floor (hand-set / capped depth): {int(low.sum()) * res * res / 1e4:.2f} ha "
+                f"(up to {float(np.max(F_[low] - fill[low])):.1f} m below)")
+            fill[low] = F_[low]
     # SIGMA
     drim = ndimage.distance_transform_edt(~rim, sampling=res) if rim.any() else np.full(z.shape, 1e4)
     s_prior = P["sigma_prior_m"] + P["sigma_rim_m"] * drim / 100.0
@@ -961,5 +1640,31 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     log(f"  filled {int(np.isfinite(fill).sum()) * res * res / 1e6:.3f} km2: band {int(band.sum()) * res * res / 1e6:.3f}, "
         f"interior {int(interior.sum()) * res * res / 1e6:.3f}, conditioned {int(cond.sum()) * res * res / 1e6:.3f} km2; "
         f"sigma p50 {np.nanmedian(sigma):.2f} m")
-    return dict(fill=fill, prior=prior, mask=mask, sigma=sigma, domain=dom, marine=marine, lakes=lake_tab, surface=surface,
+    # A BODY'S LEVEL OVER ITS WHOLE FOOTPRINT (2026-10-23, run 14, Hig: the multibeam's bed inside Grewingk Lake "shown
+    # as dry ground -- the water DEM has a hole"): the level was written on the lake DOMAIN only -- its holes and the
+    # observations judged inside -- so a measured bed inside the body (the sonar, a green-lidar return) had no water
+    # over it in the water-surface DEM. Every cell of a flat body with a level gets the level where the fill set none.
+    lvl_ = locals().get("lvl")
+    if shore:
+        lvl_ = np.full(z.shape, np.nan, np.float32) if lvl_ is None else lvl_.copy()
+        take_ = wet_l & np.isfinite(shore_lev)
+        lvl_[take_] = shore_lev[take_]
+        lvl_[~wet_l] = np.nan                                  # and nowhere else: a dry domain has no water surface
+        log(f"  shoreline stage: the water surface is its level on {int(take_.sum()) * res * res / 1e6:.3f} km2 of water (flat per body, monotone down a river)")
+    if lvl_ is not None and P.get("_bodies") is not None:
+        from .water import FLAT_KINDS as _FK
+        bid_, btab_ = P["_bodies"]; mx_ = int(bid_.max()) if bid_.size else 0
+        lv_ = np.full(mx_ + 1, np.nan, np.float32)
+        for k_, b_ in btab_.items():
+            k_ = int(k_); v_ = b_.get("consensus_level_m")
+            if 0 < k_ <= mx_ and b_.get("kind") in _FK and v_ is not None:
+                lv_[k_] = float(v_)
+        vals_ = lv_[np.clip(bid_, 0, mx_)]
+        add_ = ~np.isfinite(lvl_) & (bid_ > 0) & np.isfinite(vals_)
+        if shore:
+            add_ &= wet_l                                      # a body's cells the stage judged land or floating carry no level
+        if add_.any():
+            lvl_ = lvl_.copy(); lvl_[add_] = vals_[add_]
+            log(f"  water level written over the measured bed inside flat bodies: {int(add_.sum()) * res * res / 1e4:.2f} ha")
+    return dict(fill=fill, prior=prior, mask=mask, sigma=sigma, domain=dom, marine=marine, lakes=lake_tab, surface=surface, dryvoid=dryvoid, water_level=lvl_, ceiling=ceil_mask,
                 channels=chan_tab)

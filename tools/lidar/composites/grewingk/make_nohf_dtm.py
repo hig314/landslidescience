@@ -30,6 +30,15 @@ PTS = Path('/Volumes/Nunatak/lidar_build/kbay_reclass_test/grewingk_2021')
 INDEX = PTS / 'las_index/data/lidar_las_index/rdf2023-2-grewingk-lidar-2021-las-index.shp'
 VENDOR = '/Volumes/Nunatak/lidar_build/cog/grewingk_2021.tif'
 OUT = Path('/Volumes/Nunatak/lidar_build/composite/grewingk/obs/nohf'); (OUT / 'tiles').mkdir(parents=True, exist_ok=True)
+BOUNDS = R['grid']['bounds']
+# --full (2026-10-18, Hig: "good Grewingk lidar isn't being used" north of the recipe box, at 59.64797,-151.15728):
+# the whole 2021 survey (the delivered DTM's extent) into obs/nohf_full/, the per-tile grids shared with nohf/tiles
+if '--full' in sys.argv:
+    BOUNDS = (600000, 6597000, 617000, 6618400)
+    _shared = OUT / 'tiles'
+    OUT = OUT.with_name('nohf_full'); OUT.mkdir(parents=True, exist_ok=True)
+    if not (OUT / 'tiles').exists():
+        (OUT / 'tiles').symlink_to(_shared)
 GDAL = '/opt/homebrew/bin/'
 LEVEL = 48.55            # the delivered DTM's flat lake surface
 ISLAND_DZ_M = 0.65       # water returns over open water read 48.7-48.9 (p99 ~49.0); an island stands above that
@@ -45,7 +54,7 @@ WORKERS = 4
 
 def tiles():
     tmp = OUT / 'index.csv'; tmp.unlink(missing_ok=True)
-    x0, y0, x1, y1 = R['grid']['bounds']
+    x0, y0, x1, y1 = BOUNDS
     subprocess.run([GDAL + 'ogr2ogr', '-f', 'CSV', str(tmp), str(INDEX), '-spat', *map(str, (x0, y0, x1, y1)),
                     '-lco', 'GEOMETRY=AS_WKT', '-overwrite'], check=True)
     out = []
@@ -105,7 +114,7 @@ def main():
     vrt = OUT / 'tiles.vrt'
     subprocess.run([GDAL + 'gdalbuildvrt', '-q', '-overwrite', '-srcnodata', '-9999', str(vrt), *map(str, done)], check=True)
     # the merged DTM: the returns where there are any, the delivered DTM elsewhere -- on the recipe box, 1 m
-    x0, y0, x1, y1 = R['grid']['bounds']
+    x0, y0, x1, y1 = BOUNDS
     W, H = int(x1 - x0), int(y1 - y0)
     T = rasterio.transform.from_origin(x0, y1, 1.0, 1.0)
     from rasterio.vrt import WarpedVRT

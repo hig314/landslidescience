@@ -189,6 +189,19 @@ def main():
                        crs=f"EPSG:{R['grid']['epsg']}", transform=T, nodata=255, compress='deflate') as ds:
         ds.write(lake21.astype(np.uint8), 1)
     info['lake_2021_km2'] = round(lake21.sum() * res * res / 1e6, 3)
+    # THE SEAM between the two stamps is lake (Hig, 2026-10-27, run 20g: "false land in a band crossing through
+    # 59.60059,-151.06669"): the retreat's rules exclude the 2021 lake by its level alone (g21_lake), the 2021 lake
+    # stamp is the hydroflattened surface (lake21), and between them ran a line of 2023 water band in neither, 290
+    # cells where the SfM's surface over the water (51 m, 2.4 m over the lake) stood as land.  A 2023 water-band cell
+    # the two stamps close over (3 cells) is lake: the retreat takes it.
+    seam = (ndimage.binary_closing(lake21 | retreat, structure=np.ones((3, 3), bool), iterations=3)
+            & water23 & ~lake21 & ~retreat & ~ice)
+    if seam.any():
+        retreat |= seam
+        with rasterio.open(OUT / 'retreat_2023.tif', 'w', driver='GTiff', height=shape[0], width=shape[1], count=1, dtype='uint8',
+                           crs=f"EPSG:{R['grid']['epsg']}", transform=T, nodata=255, compress='deflate') as ds:
+            ds.write(retreat.astype(np.uint8), 1)
+    info['retreat_added_seam_km2'] = round(float(seam.sum()) * res * res / 1e6, 4)
     (OUT / 'ice_2023.json').write_text(json.dumps(info, indent=1))
     # The SfM as a composite layer: ONLY over the 2023 ice and the retreat zone (nodata elsewhere).  Given
     # everywhere with a 'canopy' default it was the newest class over the lake and the shores, so the lake
