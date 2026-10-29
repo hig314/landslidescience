@@ -164,6 +164,7 @@ vanish depending on which way you light them.
   <input type="range" id="op" min="0" max="100" value="100">
 
   <h2>Datasets <a class="mlink" href="{% url 'lidar_methods' %}#surveys" title="Methods: the surveys">?</a></h2>
+  <label title="Draw every survey's footprint (outline and a faint fill). Where many surveys overlap, the fills stack up and hide the ground; untick to see it clearly."><input type="checkbox" id="fps" checked> Show DEM footprints</label>
   <label title="List only the surveys whose footprint is on the map now."><input type="checkbox" id="inview"> Only surveys in view</label>
   <div id="datasets">loading catalog…</div>
 
@@ -180,6 +181,20 @@ vanish depending on which way you light them.
     <label>Opacity <span class="val" id="vopv">0.70</span></label>
     <input type="range" id="vop" min="0" max="100" value="70">
     <div id="veglegend" class="veglegend"></div>
+  </div>
+
+  <div id="water-box" style="display:none">
+    <h2>Water <a class="mlink" href="{% url 'lidar_methods' %}#water" title="Methods: the water layer">?</a></h2>
+    <label title="The water as a surface of its own, drawn over the bed: lakes at their level, rivers at their surface, the sea flooded to the level below over the ground connected to it. In 3D it is a separate translucent surface at the water's height, so the bed shows through it."><input type="checkbox" id="wat"> Show the water surface</label>
+    <label title="Blue hillshade: the water's own surface, lit by the sun above. Depth: shallow cyan to deep navy. Flat: one blue.">Style
+      <select id="wsty"><option value="shade">Blue hillshade</option><option value="depth">Depth</option><option value="flat">Flat</option></select></label>
+    <label title="Exaggerates the water surface's relief in its shading only (rivers fall gently; a lake is flat whatever this says).">Surface relief <span class="val" id="wrelv">×5</span></label>
+    <input type="range" id="wrel" min="1" max="50" value="5">
+    <label title="The sea only; lakes and rivers keep their own surface. Buttons are the tidal datums carried with this surface (NAVD88).">Sea level <span class="val" id="wtidev">+3.98 m</span></label>
+    <input type="range" id="wtide" min="-250" max="600" value="398">
+    <div class="btnrow" id="wtidebtns"></div>
+    <label title="How much of the bed shows through.">Water opacity <span class="val" id="wopv">0.60</span></label>
+    <input type="range" id="wop" min="0" max="100" value="60">
   </div>
 
   <h2>Layer stack <a class="mlink" href="{% url 'lidar_methods' %}#layers" title="Methods: hillshade, slope, mod 5 m, aspect">?</a></h2>
@@ -353,6 +368,7 @@ vanish depending on which way you light them.
 <script src="{% static 'inventory/js/scarps.js' %}"></script>
 <script src="{% static 'inventory/js/soundings.js' %}"></script>
 <script src="{% static 'inventory/js/dem_read.js' %}"></script>
+<script src="{% static 'inventory/js/ls_water.js' %}"></script>
 <script src="{% static 'inventory/js/profile_chart.js' %}"></script>
 <script src="{% static 'inventory/js/trace_profile.js' %}"></script>
 <script>
@@ -403,8 +419,8 @@ vanish depending on which way you light them.
   // that a link reproduces what the sender was looking at, which means the
   // shading stack and the 3D camera too — so the URL is managed by hand.
   // Written with replaceState so panning doesn't fill up the back button.
-  var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop', 'vop', 'bop', 'tmesh'];
-  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'ctxlive', 'ctxshade', 'fog', 'inview', 'preslope', 'ortho', 'veg', 'trv', 'sdv'];
+  var CONTROLS = ['az', 'alt', 'op', 've', 'hs', 'bl', 'sl', 'md', 'as', 'ex', 'dmax', 'dop', 'oop', 'vop', 'bop', 'tmesh', 'wtide', 'wop', 'wrel', 'wsty'];
+  var CHECKS = ['t3d', 'nup', 'nadir', 'warm', 'ctx', 'ctxlive', 'ctxshade', 'fog', 'inview', 'preslope', 'ortho', 'veg', 'trv', 'sdv', 'wat', 'fps'];
   // [checkbox, slider, row, default-when-first-ticked] for the optional ramps.
   // Declared HERE, beside the other boot tables, because syncVisRows() runs
   // during restore: `var` hoists the name but not the value, so leaving this
@@ -429,7 +445,7 @@ vanish depending on which way you light them.
   syncVisRows();
   CHECKS.forEach(function (id) {
     // 3D on by default (Hig, 2026-09-28); a link's own t3d=0 still wins.
-    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'ctxlive' || id === 'ctxshade' || id === 'fog' || id === 'preslope' || id === 't3d' || id === 'trv');
+    document.getElementById(id).checked = qbool(id, id === 'warm' || id === 'ctx' || id === 'ctxlive' || id === 'ctxshade' || id === 'fog' || id === 'preslope' || id === 't3d' || id === 'trv' || id === 'fps');
   });
 
   var map = new maplibregl.Map({
@@ -576,6 +592,16 @@ vanish depending on which way you light them.
     map.addLayer({
       id: 'fp-line', type: 'line', source: 'footprints',
       paint: { 'line-color': '#0a7', 'line-width': 1.5 }
+    });
+    applyFootprints();
+  }
+  // "Show DEM footprints" (Hig, 2026-10-18: the fills stack up where surveys overlap). The layers stay --
+  // 'fp-fill' is the stack anchor every survey layer is inserted beneath -- only their visibility changes.
+  // (First committed on the profile-chart-tracks branch, which never reached main; re-applied 2026-10-20.)
+  function applyFootprints() {
+    var on = document.getElementById('fps').checked;
+    ['fp-fill', 'fp-line'].forEach(function (id) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
     });
   }
 
@@ -827,8 +853,90 @@ vanish depending on which way you light them.
     }).join('') : '';
   }
 
+  // ---- water surface (2026-10-20, Hig: water as a DEM of its own, linked to the topobathy DEM and
+  // drawn see-through over it, default a blue hillshade; ice the same way later). The survey's catalogue
+  // entry links the surfaces (ls_water.js has the contract). In 2D the water is a raster drape over the
+  // bed's shading; in 3D it is its own translucent mesh at the water's height (a custom WebGL layer
+  // depth-tested against the terrain), because MapLibre's terrain is one surface and a drape would put
+  // the water on the lake bed.
+  var WATER_SRC = 'watersrc', WATER_LAYER = 'waterlayer', waterSeq = 0, WATER_SRC_FOR = null;
+  LSWater.register(maplibregl);
+  function waterState() {
+    var p = active && props4[active];
+    return { p: p, tide: V('wtide') / 100, style: document.getElementById('wsty').value || 'shade',
+             az: V('az'), alt: V('alt'), relief: V('wrel'), opacity: V('wop') / 100 * V('op') / 100, seq: waterSeq };
+  }
+  var water3d = null;
+  function removeWater() {
+    if (map.getLayer(WATER_LAYER)) map.removeLayer(WATER_LAYER);
+    if (map.getSource(WATER_SRC)) map.removeSource(WATER_SRC);
+    WATER_SRC_FOR = null;
+  }
+  function removeWater3d() {
+    if (water3d && map.getLayer(water3d.id)) map.removeLayer(water3d.id);
+    water3d = null;
+  }
+  function waterTideText() {
+    var v = V('wtide') / 100, p = active && props4[active], lv = (p && p.tide_levels) || {};
+    var name = Object.keys(lv).filter(function (k) { return Math.abs(lv[k] - v) < 0.005; })[0];
+    document.getElementById('wtidev').textContent = (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(2) + ' m' + (name ? ' (' + name + ')' : '');
+    document.getElementById('wopv').textContent = (V('wop') / 100).toFixed(2);
+    document.getElementById('wrelv').textContent = '×' + V('wrel');
+  }
+  function syncWater() {
+    var p = active && props4[active];
+    var has = LSWater.has(p);
+    document.getElementById('water-box').style.display = has ? '' : 'none';
+    var btns = document.getElementById('wtidebtns');
+    btns.innerHTML = '';
+    if (has && p.tide_levels) {
+      Object.keys(p.tide_levels).forEach(function (k) {
+        var b = document.createElement('button'); b.type = 'button'; b.textContent = k;
+        b.title = k + ' ' + p.tide_levels[k].toFixed(2) + ' m NAVD88';
+        b.addEventListener('click', function () {
+          document.getElementById('wtide').value = Math.round(p.tide_levels[k] * 100); updateWater(); syncUrl();
+        });
+        btns.appendChild(b);
+      });
+    }
+    waterTideText();
+    if (!has || !document.getElementById('wat').checked) { removeWater(); removeWater3d(); return; }
+    var in3d = !!map.getTerrain();
+    if (WATER_SRC_FOR !== p.id) {
+      removeWater();
+      map.addSource(WATER_SRC, { type: 'raster', tiles: [LSWater.url2d(p, waterState())], tileSize: 256,
+                                 minzoom: p.min_zoom, maxzoom: p.max_zoom, attribution: p.title + ' water surface' });
+      map.addLayer({ id: WATER_LAYER, type: 'raster', source: WATER_SRC,
+                     paint: { 'raster-opacity': 0, 'raster-opacity-transition': { duration: 0, delay: 0 }, 'raster-fade-duration': 0 }
+                   }, 'fp-fill');
+      WATER_SRC_FOR = p.id;
+      // imagery stays the top of the drape, as for the difference layer
+      if (map.getLayer('ortho-' + p.id)) map.moveLayer('ortho-' + p.id, 'fp-fill');
+      if (water3d) water3d.reset();
+    }
+    // 2D: the drape; 3D: the mesh, and the drape stays loaded at zero opacity for the way back
+    map.setPaintProperty(WATER_LAYER, 'raster-opacity', in3d ? 0 : V('wop') / 100 * V('op') / 100);
+    if (in3d && !water3d) {
+      try { water3d = LSWater.layer3d(map, waterState); map.addLayer(water3d); }
+      catch (e) { console.warn('water 3D layer failed', e); water3d = null; }
+    } else if (!in3d) removeWater3d();
+    if (water3d) map.triggerRepaint();
+  }
+  var waterTimer = null;
+  function updateWater() {             // sea level, style, sun, relief: retile the drape, rebuild/repaint the mesh
+    waterTideText();
+    clearTimeout(waterTimer);
+    waterTimer = setTimeout(function () {
+      var p = active && props4[active];
+      waterSeq++;
+      if (p && map.getSource(WATER_SRC)) map.getSource(WATER_SRC).setTiles([LSWater.url2d(p, waterState())]);
+      if (water3d) { water3d.refresh(); map.triggerRepaint(); }
+    }, 150);
+  }
+
   function syncOrthoControl() {
     syncVegControl();
+    syncWater();
     var p = props4[active];
     var has = !!(p && p.ortho_url);
     document.getElementById('imagery-box').style.display = has ? '' : 'none';
@@ -1132,6 +1240,7 @@ vanish depending on which way you light them.
       skyOn = false;
       if (untrackTerrain) { untrackTerrain(); untrackTerrain = null; }
     }
+    syncWater();         // the water swaps between its 2D drape and its 3D mesh
   }
 
   // ---- difference layer -------------------------------------------------
@@ -1555,6 +1664,9 @@ vanish depending on which way you light them.
   document.getElementById('inview').addEventListener('change', function () {
     updateInView(); syncUrl();
   });
+  document.getElementById('fps').addEventListener('change', function () {
+    applyFootprints(); syncUrl();
+  });
   document.getElementById('preslope').addEventListener('change', function () {
     render(); syncUrl();
   });
@@ -1572,6 +1684,14 @@ vanish depending on which way you light them.
   document.getElementById('vop').addEventListener('input', function () {
     document.getElementById('vopv').textContent = (V('vop') / 100).toFixed(2);
     applyOpacity(); syncUrl();
+  });
+  document.getElementById('wat').addEventListener('change', function () { syncWater(); syncUrl(); });
+  ['wtide', 'wrel', 'az', 'alt'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', function () { updateWater(); syncUrl(); });
+  });
+  document.getElementById('wsty').addEventListener('change', function () { updateWater(); syncUrl(); });
+  ['wop', 'op'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', function () { waterTideText(); syncWater(); });
   });
   // Opacity is a paint property, so this is instant and needs no retile.
   document.getElementById('oop').addEventListener('input', function () {
@@ -1831,6 +1951,8 @@ vanish depending on which way you light them.
 
   CONTROLS.forEach(function (id) {
     var el = document.getElementById(id);
+    // the water's controls touch only the water (its own listeners); retiling the survey shading for them was waste
+    if (/^w(tide|op|rel|sty)$/.test(id)) return;
     el.addEventListener('input', function () { render(); syncUrl(); });
     el.addEventListener('change', function () { render(); syncUrl(); });
   });

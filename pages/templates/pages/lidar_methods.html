@@ -86,7 +86,41 @@ Anchors are load-bearing: lidar_preview.html links to them.
   ground cannot do: there the surface has invented a feature.
 </p>
 
-<h3 id="layers">5. Layer stack: hillshade, slope, mod 5 m, aspect</h3>
+<h3 id="water">5. Water surface</h3>
+<p>
+  Shown where a surface carries water layers (today the topobathy composites in
+  development). The water is a surface of its own, linked to the bed: the
+  inland water surface, with lakes at their level and rivers at their observed
+  surface (on Grewingk Creek, the surface of a flow model run over the inverted
+  channel bed); and the ground connected to the sea below about 5.5&nbsp;m.
+  Water is drawn wherever its surface stands above the bed, so the shoreline
+  is where the two surfaces cross, not the edge of a drawn outline.
+</p>
+<p>
+  <strong>Style.</strong> <em>Blue hillshade</em> (the default) lights the
+  water's own surface with the same sun as the ground; a lake is flat, so it
+  reads as one even blue, and a river shows its fall. <em>Surface relief</em>
+  exaggerates that fall in the shading only. <em>Depth</em> shades from cyan
+  to dark blue with depth below the surface; <em>Flat</em> is one blue.
+  <em>Water opacity</em> sets how much of the bed shows through.
+</p>
+<p>
+  <strong>In 3D</strong> the water stands at its own height as a separate
+  translucent surface over the 3D bed, so the lake floor and its relief are
+  seen through the water rather than the water being painted onto the floor.
+  The surface is built from the water tiles in view and fills in tile by tile
+  as they arrive.
+</p>
+<p>
+  The sea level is a control, not a measurement: the buttons are the tidal
+  datums at Homer (CO-OPS 9455558, epoch 2012&ndash;2016), tied to NAVD88 by
+  the collection's MLLW of &minus;1.38&nbsp;m. Lakes and rivers keep their own
+  surface; a high tide backs up the lowest reach of a river. Everything below
+  the sea-connected limit is flooded, so a pond behind a low ridge on a tidal
+  flat fills with the tide even where a real one might not.
+</p>
+
+<h3 id="layers">6. Layer stack: hillshade, slope, mod 5 m, aspect</h3>
 <p>
   The shading is computed in the browser from the elevation tiles, which is
   what makes the sun movable: re-lighting a slope from a different azimuth is
@@ -123,7 +157,7 @@ Anchors are load-bearing: lidar_preview.html links to them.
   Kachemak Bay maps, so a site rendered here matches one rendered there.
 </p>
 
-<h3 id="difference">6. Difference</h3>
+<h3 id="difference">7. Difference</h3>
 <p>
   Colours the overlap of two surveys by how far the ground moved between them,
   on the ColorBrewer PRGn ramp: green where it rose, purple where it fell,
@@ -142,7 +176,7 @@ Anchors are load-bearing: lidar_preview.html links to them.
   at catching (see <a href="#heights">Heights and vertical datums</a>).
 </p>
 
-<h3 id="view">7. View</h3>
+<h3 id="view">8. View</h3>
 <p>
   <strong>North up</strong> and <strong>Nadir</strong> lock the bearing and
   the pitch. <strong>Keep overlapping DEMs warm</strong> preloads every survey
@@ -157,7 +191,7 @@ Anchors are load-bearing: lidar_preview.html links to them.
   so a location copied here or on the inventory map pastes straight back.
 </p>
 
-<h3 id="3d">8. 3D terrain and context</h3>
+<h3 id="3d">9. 3D terrain and context</h3>
 <p>
   <strong>Context.</strong> Without context a survey stands on a flat plane as
   a block of towers. Context is USGS 3DEP (1/3 arc-second) from a pre-baked
@@ -194,7 +228,7 @@ Anchors are load-bearing: lidar_preview.html links to them.
   certain contour, so turn it off there.
 </p>
 
-<h3 id="traces">9. Landform traces</h3>
+<h3 id="traces">10. Landform traces</h3>
 <p>
   Lines traced on these surfaces by the inventory's editors: scarps (of any
   origin &mdash; not a fault map), moraine crests, trimlines, strandlines
@@ -229,7 +263,7 @@ Anchors are load-bearing: lidar_preview.html links to them.
   projected all the same, so read offsets before reading a trend.
 </p>
 
-<h3 id="soundings">10. Lake soundings</h3>
+<h3 id="soundings">11. Lake soundings</h3>
 <p>
   Depths measured in lakes and near shore that are too sparse to be a survey
   of their own: soundings from a handheld sounder or a lead line, and depth
@@ -254,7 +288,7 @@ Anchors are load-bearing: lidar_preview.html links to them.
   uncertainty as a bar.
 </p>
 
-<h3 id="heights">11. Heights and vertical datums</h3>
+<h3 id="heights">12. Heights and vertical datums</h3>
 <p>
   Heights are in metres, in each survey's own vertical datum; the catalogue
   records it per survey, nearly always NAVD88. Two cautions. NAVD88 is a

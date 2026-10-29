@@ -12,6 +12,7 @@
  *   LSDemRead.elevationAt(src, z, lon, lat)  // Promise<metres | NaN>
  *   LSDemRead.zoomFor(src, lat, step)   // deepest zoom no finer than step/2
  *   LSDemRead.metersPerPixel(lat, z, size)
+ *   LSDemRead.tileFor(src, z, x, y)    // Promise<{w, h, data: Float32Array} | null>, cached
  *
  * A source is {id, title, encoding: 'mapbox'|'terrarium', maxzoom,
  * tileSize?, pmtiles? | tiles?, sea?, datum?}. Voids (alpha < 255) read NaN;
@@ -113,7 +114,7 @@ window.LSDemRead = (function () {
     return z;
   }
 
-  return { MAPTERHORN: MAPTERHORN, surveySource: surveySource, archive: archive,
+  return { MAPTERHORN: MAPTERHORN, surveySource: surveySource, archive: archive, tileFor: tileFor,
            elevationAt: elevationAt, readAt: readAt, zoomFor: zoomFor,
            metersPerPixel: metersPerPixel };
 })();
