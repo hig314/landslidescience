@@ -102,7 +102,8 @@ def process_one(row):
         taken = _parse_taken_at(_exif_taken_at(img.getexif()))
         img = ImageOps.exif_transpose(img)
         update['width'], update['height'] = img.size
-        update['taken_at'] = taken
+        # emailed camera photos carry no EXIF date; keep the one mailcam set
+        update['taken_at'] = taken or row.taken_at
         img = img.convert('RGB')
         img.thumbnail((THUMB_LONG_EDGE, THUMB_LONG_EDGE))
         out = io.BytesIO()
