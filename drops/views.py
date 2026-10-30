@@ -416,6 +416,7 @@ def camera_latest_json(request, camera):
         'camera': camera,
         # camera clock, no zone (Spartan stamps local time on the frame)
         'taken_at': f.taken_at.strftime('%Y-%m-%dT%H:%M:%S') if f.taken_at else None,
+        'received_at': f.uploaded_at.isoformat() if f.uploaded_at else None,   # email Date, UTC
         'image': request.build_absolute_uri(f'/drops/cam/{camera}/latest.jpg'),
         'width': f.width, 'height': f.height,
     })
