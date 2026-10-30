@@ -1475,10 +1475,18 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # the residual at the RIM is the rim's own misfit to the prior beside it (2026-10-11; it was 0,
     # so the fill met the rim at the prior's level -- a step wherever the shore stood off the lake
     # level or the nearest-rim extension): harmonic, the misfit fades smoothly into the domain
-    pin = dom & np.isfinite(prior)
-    rim_res = np.zeros(z.shape, np.float64)
-    if rim.any() and pin.any():
+    # ...and the prior a residual is taken against is the HOLE's, for the rim and the soundings inside alike (2026-10-29,
+    # Hig's review of Seldovia: a one-cell hole in the 2009 multibeam at -14.1 m filled to -21.3 m -- the soundings round
+    # it took their residual against the prior on their own cells, ~7 m above the hole's, and the hole added it to its
+    # own: wherever the prior steps between a hole and the measurements beside it, the fill stepped by as much)
+    pin = dom & hole & np.isfinite(prior)
+    if not pin.any():
+        pin = dom & np.isfinite(prior)
+    pi = pj = None
+    if pin.any() and (rim.any() or inside_obs.any()):
         _, (pi, pj) = ndimage.distance_transform_edt(~pin, return_indices=True)
+    rim_res = np.zeros(z.shape, np.float64)
+    if rim.any() and pi is not None:
         rr_, cc_ = np.nonzero(rim)
         zr_ = z[rr_, cc_].astype(np.float64)
         if lk.any():
@@ -1488,12 +1496,17 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             lv_ = lvl[pi[rr_, cc_], pj[rr_, cc_]]
             zr_ = np.where(np.isfinite(lv_), np.minimum(zr_, lv_), zr_)
         rim_res[rr_, cc_] = zr_ - prior[pi[rr_, cc_], pj[rr_, cc_]]
-        del pi, pj
     if inside_obs.any() or np.abs(rim_res).max() > 0:
         rz = np.zeros(z.shape, np.float64)
-        rz[inside_obs] = z[inside_obs] - np.nan_to_num(prior[inside_obs], nan=0.0)   # the prior is defined at sounding cells
+        if pi is not None:
+            oi_, oj_ = np.nonzero(inside_obs)
+            rz[oi_, oj_] = z[oi_, oj_] - np.nan_to_num(prior[pi[oi_, oj_], pj[oi_, oj_]], nan=0.0)
+            del oi_, oj_
+        else:
+            rz[inside_obs] = z[inside_obs] - np.nan_to_num(prior[inside_obs], nan=0.0)
         rfix = inside_obs | rim
         rval = np.where(inside_obs, rz, np.nan_to_num(rim_res))
+        del pi, pj
         r = harmonic(rval, rfix, dom & hole, coarse=P["coarse"], iters=P["cg_iters"])
         ok = (dom & hole) & np.isfinite(r)
         fill[ok] = (prior[ok] + r[ok]).astype(np.float32)

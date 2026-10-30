@@ -72,6 +72,11 @@ j['sources'] = [
 beds = {s['name']: s for s in src['joint']['sources'] if s.get('kind') == 'grid'}
 for n in ('sonar2023', 'bathy2009', 'h12146', 'ocm2023'):
     j['sources'].append(dict(beds[n]))
+# the boat surveys of the sea: a sounding lies under a hull's draft of water at the highest tide (joint.py obs_grid;
+# Seldovia Bay's swath-edge blobs at high water, 2026-10-29). Not Grewingk's lake sonar: the tide does not reach it.
+for s_ in j['sources']:
+    if s_['name'] in ('bathy2009', 'h12146'):
+        s_['marine_sonar'] = True
 j['sources'].append(dict(name='cudem2022', derived=True, kind='grid', cls='bed', src=f'{NUN}/bathy_src/outer_kachemak/cmp_cudem/cand_4m.tif',
                          date='2022-07-01', sigma_m=1.0, valid_below_m=-1.38))
 for n in ('ncei2010', 'cgoa'):
@@ -86,7 +91,8 @@ j['vintage'] = [
     dict(name='floodplain', allow='newest', floodplain=dict(chan=f'{SEEDS}/chan.tif', eta=f'{SEEDS}/eta.tif', hand_m=3.0, veg_m=1.0, dist_m=600.0)),
     dict(name='beach', allow='newest', beach=dict(sea=f'{SEEDS}/sea.tif', dilate_m=20.0, zmax_m=8.0)),
 ]
-j['derived_fine_m'] = 10.0   # the fine calibration stage (joint.py 2c): a compilation passes through sparse measured beds (Bluff Point, 2026-10-29)
+j['derived_ground_gap_m'] = 50.0   # a compilation's bed yields in gaps of measured ground up to 50 m (Hoen's Lagoon's pits, 2026-10-29)
+j['derived_fine_m'] = 10.0   # the finest stage of the calibration cascade (joint.py 2c): a compilation passes through sparse measured beds (Bluff Point, 2026-10-29)
 j['notes'] = 'BAY_SOURCES.md 2026-10-29. Lidar from the shared units cache (joint_pilot.py units --recipe), grids as observations.'
 t['joint'] = j
 

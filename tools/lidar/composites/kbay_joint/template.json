@@ -378,7 +378,8 @@
     "src": "/Volumes/Nunatak/lidar_build/bathy_src/kachemak_2008_2009_mllw_nad83_clean.vrt",
     "date": "2009-07-01",
     "sigma_m": 0.5,
-    "shift_m": -1.38
+    "shift_m": -1.38,
+    "marine_sonar": true
    },
    {
     "name": "h12146",
@@ -387,7 +388,8 @@
     "src": "/Volumes/Nunatak/lidar_build/bathy_src/outer_kachemak/grids/H12146_mllw.tif",
     "date": "2010-07-01",
     "sigma_m": 0.5,
-    "shift_m": -1.38
+    "shift_m": -1.38,
+    "marine_sonar": true
    },
    {
     "name": "ocm2023",
@@ -624,6 +626,7 @@
     }
    ]
   },
+  "derived_ground_gap_m": 50.0,
   "derived_fine_m": 10.0
  },
  "shore": {
