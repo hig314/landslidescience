@@ -278,8 +278,13 @@ def valid_view_state(v):
 
 
 # A default view is served to every visitor (slug redirects, permalinks,
-# snapshots), so it may only name layers every visitor can see. These return
-# the offending references so the editor is told what to change.
+# snapshots), but it may name layers only some of them can see: an admin-only
+# QMS basemap, a gated lidar survey, an editor-only upload. It is stored as the
+# editor set it (Hig, 2026-10-30: refusing such a view was wrong when the layer
+# was nowhere near the frame), and each visitor is served it minus what they
+# may not see (`view_state_for_user`). The editor is warned only about the
+# restricted layers inside the frame; that test needs the viewport, so it is
+# the client's, from the list `view_state_private_layers` returns.
 _VIEW_BASE_RE = re.compile(r'(?:^|&)(base|swipe)=([^&]*)')
 _VIEW_LI_RE = re.compile(r'(?:^|&)li=([^&]*)')
 _VIEW_IM_RE = re.compile(r'(?:^|&)im=([^&]*)')
@@ -296,37 +301,49 @@ def _public_lidar_ids():
 
 
 def view_state_private_layers(v):
-    """Layers in a view-state string that non-admin visitors cannot see: an
-    editor's browser-local QMS layer (`qms-<id>`), a shared QMS layer that is
-    not marked public (`qmsshared-<id>`), or a lidar survey (`li=`) absent from
-    the public catalog. Empty list = safe to store as a default view."""
+    """Layers in a view-state string that not every visitor can see.
+
+    One dict per layer: `kind` (base | swipe | lidar | imagery), `id` (as
+    written in the string), `who` -- who CAN see it: 'restricted' (data users
+    and editors), 'editors', or 'nobody' (a browser-local QMS layer, a layer
+    that no longer exists) -- and `why`, a phrase for the editor. Empty list =
+    everyone sees the whole view."""
     from .models import QmsLayer
-    problems = []
+    out = []
     for key, bid in _VIEW_BASE_RE.findall(v or ''):
         if bid.startswith('qms-'):
-            problems.append(f'{key}: "{bid}" is a browser-local QMS layer (share it first)')
+            out.append({'kind': key, 'id': bid, 'who': 'nobody',
+                        'why': f'"{bid}" is a browser-local QMS layer'})
         elif bid.startswith('qmsshared-'):
             try:
                 qid = int(bid.split('-', 1)[1])
             except ValueError:
-                problems.append(f'{key}: bad layer id "{bid}"')
+                out.append({'kind': key, 'id': bid, 'who': 'nobody',
+                            'why': f'bad layer id "{bid}"'})
                 continue
             lay = QmsLayer.objects.filter(qms_id=qid).first()
             if lay is None:
-                problems.append(f'{key}: QMS layer #{qid} is no longer shared')
+                out.append({'kind': key, 'id': bid, 'who': 'nobody',
+                            'why': f'QMS layer #{qid} is no longer shared'})
             elif not lay.public:
-                problems.append(f'{key}: "{lay.name}" is shared with data admins only')
+                out.append({'kind': key, 'id': bid, 'who': 'editors',
+                            'why': f'"{lay.name}" is shared with data admins only'})
     m = _VIEW_LI_RE.search(v or '')
     if m and m.group(1):
-        public_ids = _public_lidar_ids()
+        from landslidescience.lidar_serve import gated_ids
+        public_ids, gated = _public_lidar_ids(), gated_ids()
         for ent in m.group(1).split(','):
             lid = ent.split('.', 1)[0]
             if lid and lid not in public_ids:
-                problems.append(f'lidar "{lid}" is not in the public catalog')
+                if lid in gated:
+                    out.append({'kind': 'lidar', 'id': lid, 'who': 'restricted',
+                                'why': f'lidar "{lid}" is restricted'})
+                else:
+                    out.append({'kind': 'lidar', 'id': lid, 'who': 'nobody',
+                                'why': f'lidar "{lid}" is not in the catalog'})
     # Imagery overlays. An uploaded scene is usually licensed and is served to
-    # editors only, so naming one in a default view would show a visitor
-    # nothing. A Sentinel-2 window is openly licensed and public, so it is
-    # exactly what a default view should be allowed to open on.
+    # editors only. A Sentinel-2 window is openly licensed and public, so it is
+    # exactly what a default view should be able to open on.
     m = _VIEW_IM_RE.search(v or '')
     if m and m.group(1):
         from .models import TraceRaster
@@ -340,12 +357,46 @@ def view_state_private_layers(v):
             for pk in want:
                 r = rows.get(pk)
                 if r is None:
-                    problems.append(f'imagery #{pk} no longer exists')
+                    out.append({'kind': 'imagery', 'id': str(pk), 'who': 'nobody',
+                                'why': f'imagery #{pk} no longer exists'})
                 elif not r.public:
-                    problems.append(f'imagery "{r.title}" is an editor-only upload')
-                elif r.status != TraceRaster.STATUS_READY:
-                    problems.append(f'imagery "{r.title}" is not finished baking')
-    return problems
+                    out.append({'kind': 'imagery', 'id': str(pk), 'who': 'editors',
+                                'why': f'imagery "{r.title}" is an editor-only upload'})
+    return out
+
+
+def _may_see(who, user):
+    from .auth import can_view_restricted, is_inventory_editor
+    if who == 'restricted':
+        return can_view_restricted(user)
+    if who == 'editors':
+        return is_inventory_editor(user)
+    return False
+
+
+def view_state_for_user(v, user):
+    """The stored view as this user should receive it: lidar and imagery
+    entries they may not see are dropped from `li=`/`im=` (a gated survey's
+    id is not public, so it must not reach them even unused). An unseeable
+    `base=`/`swipe=` is left for the client to ignore: the map keeps its
+    current basemap, or opens no wiper. A list left empty stays present and
+    empty, which still means "none of these"."""
+    if not v:
+        return v
+    hidden = {(p['kind'], p['id']) for p in view_state_private_layers(v)
+              if p['kind'] in ('lidar', 'imagery') and not _may_see(p['who'], user)}
+    if not hidden:
+        return v
+    parts = []
+    for part in v.split('&'):
+        key, eq, val = part.partition('=')
+        if eq and key in ('li', 'im') and val:
+            kind = 'lidar' if key == 'li' else 'imagery'
+            val = ','.join(e for e in val.split(',')
+                           if (kind, e.split('.', 1)[0]) not in hidden)
+            part = key + '=' + val
+        parts.append(part)
+    return '&'.join(parts)
 
 
 def _slugify(name):
@@ -517,6 +568,7 @@ def slug_redirect(request, slug):
     lon, lat, dview = row
     dview = (dview or '').strip()
     if valid_view_state(dview):
+        dview = view_state_for_user(dview, request.user)
         return redirect('/inventory/#{}&id={}'.format(dview, landslide_id))
     if lon is None:
         return redirect('/inventory/#id={}'.format(landslide_id))
@@ -1061,6 +1113,8 @@ def api_detail(request, landslide_id):
         return JsonResponse({"error": "not found"}, status=404)
     data = row[0]
     data['slug'] = _slug_for_id(data['id'])
+    if data.get('default_map_view'):
+        data['default_map_view'] = view_state_for_user(data['default_map_view'], request.user)
     return HttpResponse(json.dumps(data, default=str), content_type="application/json")
 
 
@@ -3253,17 +3307,11 @@ def manage_edit_field(request, landslide_id):
             return JsonResponse({'ok': False, 'error': (
                 'Not a valid map-view string (expected '
                 '"map=zoom/lat/lon&base=…[&swipe=…&sx=…][&ov=…][&li=…][&tab=…][&an=…]").')}, status=400)
-        # ...and it must not lean on layers visitors cannot see (admin-only
-        # QMS layers, browser-local QMS layers, gated lidar): the view is
-        # public the moment it is stored.
-        if name == 'default_map_view' and val:
-            private = view_state_private_layers(val)
-            if private:
-                conn.rollback()
-                return JsonResponse({'ok': False, 'error': (
-                    'Default views are shown to everyone, so they cannot use '
-                    'admin-only layers: ' + '; '.join(private) + '. Share the layer '
-                    'with everyone or pick a public one, then set the view again.')}, status=400)
+        # Layers some visitors cannot see do not block the save (each visitor
+        # is served the view minus those); the response lists them so the
+        # editor can be warned about the ones inside the frame.
+        private_layers = (view_state_private_layers(val)
+                          if name == 'default_map_view' and val else None)
 
         # planet_story_link keeps the N:M story tables in step (this autosave
         # endpoint is the main path scalar fields save through — without the
@@ -3307,7 +3355,10 @@ def manage_edit_field(request, landslide_id):
 
     # Render dates back in the human format for the field's own display refresh.
     out_val = val.strftime('%d-%b-%Y') if hasattr(val, 'strftime') and col['udt'] == 'date' else None
-    return JsonResponse({'ok': True, 'derived': derived_vals, 'value': out_val})
+    resp = {'ok': True, 'derived': derived_vals, 'value': out_val}
+    if private_layers:
+        resp['private_layers'] = private_layers
+    return JsonResponse(resp)
 
 
 # Rule-written columns the edit form shows, sent back after an autosave that

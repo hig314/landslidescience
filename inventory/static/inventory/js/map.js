@@ -3724,17 +3724,32 @@
     function _currentViewString() {
         return _viewStateString('view');
     }
-    // Basemaps named by a view string that non-admin visitors cannot see:
-    // an editor's browser-local QMS layer, or a shared QMS layer still scoped
-    // to data admins. Lidar is checked server-side against the public catalog.
-    function _viewPrivateLayers(v) {
-        var s = parseHashState('#' + v), out = [];
-        [s.base, s.swipe].forEach(function (id) {
-            if (!id) return;
-            var bm = findBasemap(id);
-            if (!bm) return;
-            if (bm._qms) out.push('"' + bm.label + '" (only in your browser)');
-            else if (bm.category === 'Shared' && !bm.public) out.push('"' + bm.label + '" (admins only)');
+    // Of the restricted layers the server found in a just-saved default view
+    // (`private_layers` in its reply), the ones inside the current frame, as
+    // phrases for the warning. A basemap covers every frame; a lidar survey
+    // counts when its footprint touches the frame, an upload when its bounds
+    // do. Visitors get the view without them either way, so the save stands.
+    function _viewPrivateInFrame(list) {
+        var b = map.getBounds(), w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth();
+        var out = [];
+        (list || []).forEach(function (p) {
+            var inFrame = true, label = p.why;
+            if (p.kind === 'lidar') {
+                var f = _lidarCatalog && _lidarCatalog.features.filter(function (x) {
+                    return x.properties.id === p.id; })[0];
+                if (f && window.turf) {
+                    try { inFrame = turf.booleanIntersects(turf.bboxPolygon([w, s, e, n]), f); }
+                    catch (err) { inFrame = true; }
+                }
+            } else if (p.kind === 'imagery') {
+                var r = _traceRow(+p.id);
+                if (r && r.bounds_w != null)
+                    inFrame = r.bounds_e > w && r.bounds_w < e && r.bounds_n > s && r.bounds_s < n;
+            } else {
+                var bm = findBasemap(p.id);
+                if (bm) label = '"' + bm.label + '"' + (bm._qms ? ' (only in your browser)' : ' (admins only)');
+            }
+            if (inFrame) out.push(label);
         });
         return out;
     }
@@ -8380,6 +8395,13 @@
                 if (res.ok && res.j.ok) {
                     d.default_map_view = value;
                     renderDetail(d);
+                    var priv = _viewPrivateInFrame(res.j.private_layers);
+                    var st1 = priv.length && document.getElementById('defview-status');
+                    if (st1) {
+                        st1.style.color = '#b26a00';
+                        st1.textContent = 'Saved. Visitors who can\u2019t see ' + priv.join(', ') +
+                            ' get this view without it.';
+                    }
                 } else {
                     stat.style.color = '#c00';
                     stat.textContent = (res.j && res.j.error) || 'save failed';
@@ -8388,18 +8410,9 @@
         }
         var dvSet = document.getElementById('defview-set');
         if (dvSet) dvSet.addEventListener('click', function () {
-            // A default view is public the moment it is stored: refuse one that
-            // leans on layers visitors cannot see (the server checks too, and
-            // also covers gated lidar, which this client-side list cannot).
+            // Stored as is, even with restricted layers on: each visitor is
+            // served it minus what they cannot see (views.view_state_for_user).
             var view = _currentViewString();
-            var priv = _viewPrivateLayers(view);
-            if (priv.length) {
-                var st0 = document.getElementById('defview-status');
-                st0.style.color = '#c00';
-                st0.textContent = 'Not saved — visitors can\u2019t see ' + priv.join(', ') +
-                    '. Share the layer with everyone (its admins/everyone tag) or pick a public one.';
-                return;
-            }
             _saveDefView(view, 'saving…');
         });
         var dvClear = document.getElementById('defview-clear');

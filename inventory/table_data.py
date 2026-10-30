@@ -349,6 +349,12 @@ def _build_payload(editor):
     for name, base_type in all_cols:
         col_idx = by_name[name]
         raw = [r[col_idx] for r in rows]
+        if name == 'default_map_view' and not editor:
+            # One cached payload serves every non-editor, so strip as for an
+            # anonymous visitor: a gated survey's id is not public.
+            from django.contrib.auth.models import AnonymousUser
+            anon = AnonymousUser()
+            raw = [views.view_state_for_user(v, anon) for v in raw]
 
         ctype = base_type
         if base_type == 'multi':
