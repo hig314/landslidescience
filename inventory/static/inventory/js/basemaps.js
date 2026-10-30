@@ -7,7 +7,7 @@
  *   { id, label, category, coverage, attr,
  *     tiles | style,            // raster XYZ template, or a vector style URL
  *     labelTiles?, labelAttr?,  // optional raster drawn over the base: labels, or a
- *                               // second coverage (Toporama over USGS Topo)
+ *     labelMinzoom?,            // second coverage (Toporama over USGS Topo)
  *     scheme?,                  // 'tms' for bottom-origin tiles
  *     tileSize?, minzoom?, maxzoom?, thumb?,
  *     reproject? }              // 'epsg3395' → reproject Yandex-style tiles on the fly
@@ -55,12 +55,16 @@
       attr: '© Esri, USGS, NOAA' },
     // Id kept from when this was USGS alone: stored views and links name it.
     // NRCan's Toporama WMS (CanVec 1:50k / NTDB 1:250k) is transparent outside
-    // Canada and where it has no fill, so it sits over USGS Topo as one map.
+    // Canada and where it has no fill, so it sits over USGS Topo as one map —
+    // but only from z11: below that it draws a small-scale atlas whose land
+    // and sea fills cover Alaska too (measured: Anchorage tile opaque to z10,
+    // empty at z11), so USGS Topo shows alone there.
     { id: 'usgs-topo', label: 'US / Canada Topo', category: 'Topo',
       coverage: 'US (USGS) + Canada (NRCan Toporama)',
       tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
       labelTiles: 'https://maps.geogratis.gc.ca/wms/toporama_en?service=WMS&version=1.1.1&request=GetMap&layers=WMS-Toporama&styles=&srs=EPSG:3857&format=image/png&transparent=true&width=256&height=256&bbox={bbox-epsg-3857}',
       labelAttr: 'Toporama © Natural Resources Canada (Open Government Licence – Canada)',
+      labelMinzoom: 11,
       thumb: 'inventory/img/basemap-thumbs/usgs-topo.png',
       attr: 'USGS National Map' },
     { id: 'usgs-img', label: 'USGS Imagery', category: 'Imagery', coverage: 'Global (high-res in US only)',
@@ -218,6 +222,7 @@
     if (bm.labelTiles) {
       sources.labels = { type: 'raster', tiles: [bm.labelTiles], tileSize: 256,
                          attribution: bm.labelAttr || '' };
+      if (bm.labelMinzoom != null) sources.labels.minzoom = bm.labelMinzoom;
       layers.push({ id: 'labels', type: 'raster', source: 'labels' });
     }
     var style = { version: 8, sources: sources, layers: layers };
