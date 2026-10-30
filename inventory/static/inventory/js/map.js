@@ -1930,6 +1930,20 @@
     }
 
 
+    // NRCan GeoDatacube WMS (land deformation). Long-wavelength signal
+    // (postglacial rebound, tectonics) was filtered out by NRCan.
+    function _nrcanInsarSourceDef(layer) {
+        return {
+            type: 'raster',
+            tiles: ['https://datacube.services.geo.ca/ows/land-deformation?service=WMS&version=1.3.0' +
+                    '&request=GetMap&layers=' + layer + '&styles=&crs=EPSG:3857&format=image/png' +
+                    '&transparent=true&width=256&height=256&bbox={bbox-epsg-3857}'],
+            tileSize: 256,
+            attribution: 'Active deformation map © Natural Resources Canada (Samsonov, CCMEO), ' +
+                         'Open Government Licence – Canada; contains modified Copernicus Sentinel data'
+        };
+    }
+
     // ---------------------------------------------------------------------------
     // OPERA DIST — land-surface disturbance (NASA GIBS upstream, proxied and
     // cached same-origin by inventory/dist.py). Two layers over one code space:
@@ -2418,6 +2432,14 @@
         { id: 'opera-desc', layerId: 'ov-opera-desc',   sourceId: 'ov-opera-desc-src',
           label: 'OPERA velocity — descending', sub: 'InSAR, ±30 mm/yr · NASA/JPL + ASF',
           sourceDef: function () { return _operaSourceDef('desc'); }, defOpacity: 0.75 },
+        // NRCan's pilot national deformation map (Samsonov, CCMEO; Sentinel-1
+        // 2017-2024, snow-free season, MSBAS). Canada plus SE Alaska. Only
+        // the ascending LOS mosaic is on their WMS; descending / vertical /
+        // east exist only as 33 GB COGs. Pre-coloured tiles, CORS open.
+        { id: 'nrcan-asc', layerId: 'ov-nrcan-asc', sourceId: 'ov-nrcan-asc-src',
+          label: 'NRCan velocity — ascending',
+          sub: 'InSAR, ±120 mm/yr · Sentinel-1 2017–2024 snow-free · Canada + SE Alaska · pilot map, expect artifacts',
+          sourceDef: function () { return _nrcanInsarSourceDef('mosaic-asc'); }, defOpacity: 0.75 },
     ].concat(window.LSOverlays.glacierOverlays({
         itsliveBase: CFG.itsliveTileBase,
         hugonnetBase: CFG.hugonnetTileBase
@@ -4118,7 +4140,7 @@
         // filters ids that are not in OVERLAYS, so this needs no edit if
         // DIST_ALERT_ACTIVE is flipped back on.
         { key: 'surf',  label: 'Surface change',
-          ids: ['opera-asc', 'opera-desc', 'coh-summer', 'dist-ann', 'dist-alert'] },
+          ids: ['opera-asc', 'opera-desc', 'nrcan-asc', 'coh-summer', 'dist-ann', 'dist-alert'] },
         { key: 'susc',  label: 'Landslide susceptibility',
           ids: ['susc-lw', 'susc-n10', 'susc-dggs'] },
         { key: 'glac',  label: 'Glaciers',

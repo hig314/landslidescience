@@ -1,0 +1,21 @@
+# NRCan "Pilot national scale maps of active deformation processes in Canada"
+# (Samsonov, CCMEO; Sentinel-1 2017-2024, snow-free season, MSBAS v10) —
+# line-of-sight velocity ramp.
+#
+# Like opera_color_vel.txt, gdaldem never reads this: the tiles come
+# pre-coloured from NRCan's GeoDatacube WMS (layer mosaic-asc, style
+# blue-red). This file exists only for the colour key and the PNG-export
+# legend. Stops were sampled from NRCan's own legend image
+# (datacube.services.geo.ca/assets/legend/legend_land_deformation.png),
+# a turbo-like ramp spanning -0.12..+0.12 m/yr, written here in mm/yr.
+# Negative = motion away from the satellite (subsidence, or eastward on the
+# ascending track), the same sign convention as OPERA.
+-120  60  50 134 255
+ -90  69 130 248 255
+ -60  29 204 216 255
+ -30  68 247 133 255
+   0 173 250  54 255
+  30 241 203  58 255
+  60 250 130  28 255
+  90 212  50   4 255
+ 120 131   8   0 255

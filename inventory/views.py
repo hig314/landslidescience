@@ -1271,6 +1271,10 @@ _RAMP_SPECS = {
                    'label': 'InSAR velocity — ascending', 'units': 'mm/yr, line of sight'},
     'opera-desc': {'file': 'opera_color_vel.txt',
                    'label': 'InSAR velocity — descending', 'units': 'mm/yr, line of sight'},
+    # NRCan Sentinel-1 deformation (pre-coloured WMS; this file is NRCan's
+    # legend written down, see its header).
+    'nrcan-asc':  {'file': 'nrcan_insar_color_vel.txt',
+                   'label': 'InSAR velocity — NRCan ascending', 'units': 'mm/yr, line of sight'},
     'ice-v':     {'file': 'itslive_color_v.txt',    'label': 'Glacier speed', 'units': 'm/yr'},
     'ice-amp':   {'file': 'itslive_color_vamp.txt', 'label': 'Seasonal amplitude', 'units': 'm/yr'},
     'ice-dvdt':  {'file': 'itslive_color_dvdt.txt', 'label': 'Speed trend', 'units': 'm/yr per yr'},
