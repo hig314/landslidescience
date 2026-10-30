@@ -381,3 +381,44 @@ def manifest(request, slug):
     resp = HttpResponse('\n'.join(lines) + '\n', content_type='text/plain; charset=utf-8')
     resp['Content-Disposition'] = f'attachment; filename="{d.slug}_links.txt"'
     return resp
+
+
+# ---- public: latest good frame from an emailed camera ----------------------
+# The one public window into drops (owner's decision, 2026-10-29): the
+# newest frame from a mailcam camera that is neither night nor obscured
+# (drops/mailcam.py), for the monitoring dashboards. Only paths under a
+# camera id are reachable, so hand-uploaded drops stay behind the login.
+
+LATEST_TTL = 3600
+LATEST_MAX_AGE = 300              # new frames arrive hourly at most
+
+
+def _latest_or_404(camera):
+    from .mailcam import latest_good
+    f = latest_good(camera)
+    if f is None:
+        raise Http404('no usable frame yet')
+    return f
+
+
+@require_GET
+def camera_latest_jpg(request, camera):
+    f = _latest_or_404(camera)
+    resp = redirect(r2.presign_get(f.key, expires=LATEST_TTL, filename=f.name))
+    resp['Cache-Control'] = f'public, max-age={LATEST_MAX_AGE}'
+    return resp
+
+
+@require_GET
+def camera_latest_json(request, camera):
+    f = _latest_or_404(camera)
+    resp = JsonResponse({
+        'camera': camera,
+        # camera clock, no zone (Spartan stamps local time on the frame)
+        'taken_at': f.taken_at.strftime('%Y-%m-%dT%H:%M:%S') if f.taken_at else None,
+        'image': request.build_absolute_uri(f'/drops/cam/{camera}/latest.jpg'),
+        'width': f.width, 'height': f.height,
+    })
+    resp['Cache-Control'] = f'public, max-age={LATEST_MAX_AGE}'
+    resp['Access-Control-Allow-Origin'] = '*'
+    return resp

@@ -78,6 +78,18 @@ def _parse_taken_at(s):
         return None
 
 
+BANNER_FRACTION = 0.06     # Spartan's info strip is the bottom ~4%
+
+
+def image_stats(img):
+    """(mean, stddev) of grey level, ignoring the bottom banner strip."""
+    from PIL import ImageStat
+    w, h = img.size
+    grey = img.convert('L').crop((0, 0, w, h - int(h * BANNER_FRACTION)))
+    st = ImageStat.Stat(grey)
+    return round(st.mean[0], 1), round(st.stddev[0], 1)
+
+
 def process_one(row):
     """Thumbnail + EXIF for one row; always leaves it in a terminal state."""
     update = {'thumb_error': ''}
@@ -106,6 +118,7 @@ def process_one(row):
         update['taken_at'] = taken or row.taken_at
         img = img.convert('RGB')
         img.thumbnail((THUMB_LONG_EDGE, THUMB_LONG_EDGE))
+        update['brightness'], update['contrast'] = image_stats(img)
         out = io.BytesIO()
         img.save(out, 'JPEG', quality=THUMB_QUALITY, optimize=True)
         thumb_key = f'{row.drop.thumb_prefix}{row.pk}.jpg'

@@ -1,6 +1,7 @@
 from django.urls import path, re_path
 
 from . import views
+from .mailcam import CAMERA_RE
 from .models import SLUG_RE
 
 app_name = 'drops'
@@ -9,6 +10,11 @@ S = f'(?P<slug>{SLUG_RE})'
 
 urlpatterns = [
     path('', views.index, name='index'),
+    # Public: newest good frame from an emailed camera (drops/mailcam.py).
+    re_path(rf'^cam/(?P<camera>{CAMERA_RE})/latest\.jpg$', views.camera_latest_jpg,
+            name='camera_latest_jpg'),
+    re_path(rf'^cam/(?P<camera>{CAMERA_RE})/latest\.json$', views.camera_latest_json,
+            name='camera_latest_json'),
     re_path(rf'^{S}/$', views.upload, name='upload'),
     re_path(rf'^{S}/toggle/$', views.toggle, name='toggle'),
     re_path(rf'^{S}/reconcile/$', views.reconcile_view, name='reconcile'),

@@ -340,6 +340,19 @@ file counts, close/reopen. Both land in the same table.
   of each frame and records the raw value in EXIF `UserComment`; its
   docstring records how the Portage offset was estimated from the
   night-mode switch.
+- **Emailed game cameras (2026-10-29)** feed the closed drop "Game cam
+  email feed" (`LjSRG_RBBCZL`): `manage.py drops_mailcam` reads
+  camfeed@groundtruthalaska.org over IMAP, accepts only DMARC-passing
+  hcowireless.com mail with a Spartan subject, and files frames as
+  `<camera>/<date>/<name>`. Design and thresholds in `drops/mailcam.py`.
+  Root cron every 15 min runs `/usr/local/bin/landslidescience-mailcam.sh`
+  (= `tools/drops/mailcam_cron.sh`; reinstall after editing it), log
+  `/var/log/mailcam.log`. The IMAP app password stays in
+  `/opt/monitoring/.env` (`CAMFEED_IMAP_*`), never this repo's `.env`.
+  Thumbnailing now also stores `brightness`/`contrast`; the **only public
+  drops URLs** are `/drops/cam/<camera>/latest.jpg` (302 to a presigned GET)
+  and `latest.json` (CORS `*`), the newest frame that is neither night nor
+  obscured. Camera GL-VLTEb-272464 watches Portage.
 - **Nothing in the UI deletes bytes.** Close a drop to refuse uploads;
   deleting is rclone + Django admin, on purpose.
 - Robots: `/drops/` disallowed and every template is `noindex`.

@@ -45,8 +45,25 @@ from .models import DropFile, clean_rel_path
 log = logging.getLogger(__name__)
 
 SENDER_DOMAIN = 'hcowireless.com'
-SUBJECT_RE = re.compile(r'^\s*(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) - (GL-VLTEb-\d+)\s*$')
+CAMERA_RE = r'GL-VLTEb-\d+'
+SUBJECT_RE = re.compile(rf'^\s*(\d{{4}}-\d\d-\d\d \d\d:\d\d:\d\d) - ({CAMERA_RE})\s*$')
 STATE_PATH = settings.BASE_DIR / 'data' / 'drops_mailcam.json'
+
+# A photo counts as "good" for the public latest-photo view when it is
+# neither night (mean grey < 40) nor almost wholly obscured (spread < 15).
+# Set on the first 28 Portage frames, 2026-10-29: night frames sit at
+# mean ~5, the dawn frame at 20, and hazy or overcast daylight frames
+# (mean 108-134, spread 43-56) stay in on purpose.
+MIN_BRIGHTNESS = 40
+MIN_CONTRAST = 15
+
+
+def latest_good(camera):
+    """Newest emailed frame from `camera` that passes the thresholds."""
+    return (DropFile.objects
+            .filter(path__startswith=f'{camera}/', thumb_state='done',
+                    brightness__gte=MIN_BRIGHTNESS, contrast__gte=MIN_CONTRAST)
+            .order_by('-taken_at', '-pk').first())
 FETCH_BATCH = 20
 
 

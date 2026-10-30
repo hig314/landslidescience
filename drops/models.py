@@ -142,6 +142,11 @@ class DropFile(models.Model):
     taken_at = models.DateTimeField(null=True, blank=True)
     width = models.IntegerField(null=True, blank=True)
     height = models.IntegerField(null=True, blank=True)
+    # Grey-level mean and standard deviation (0-255) of the thumbnail, less
+    # the bottom strip where a game camera stamps its banner. Low mean =
+    # night; low spread = lens covered by fog, snow or frost.
+    brightness = models.FloatField(null=True, blank=True)
+    contrast = models.FloatField(null=True, blank=True)
     thumb_key = models.CharField(max_length=600, blank=True)
     thumb_state = models.CharField(max_length=10, choices=THUMB_STATES, default='pending')
     thumb_error = models.CharField(max_length=300, blank=True)
