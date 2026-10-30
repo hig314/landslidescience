@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import (analysis, dist, external, insar, opera, permafrost, photos, review, scarps, soundings, susc_dggs, table_data,
+from . import (analysis, bcortho, dist, external, insar, opera, permafrost, photos, review, scarps, soundings, susc_dggs, table_data,
                trace_views, views)
 
 app_name = 'inventory'
@@ -66,6 +66,10 @@ urlpatterns = [
     # OPERA velocity value-tile proxy (public; see inventory/opera.py).
     re_path(r'^tiles/opera/(?P<track>asc|desc)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             opera.opera_tile, name='opera_tile'),
+    # BC orthophoto mosaic 1995-2004, proxied+cached from GeoBC's WMS
+    # (public; see inventory/bcortho.py — their CORS is broken).
+    re_path(r'^tiles/bcortho/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
+            bcortho.bcortho_tile, name='bcortho_tile'),
     # OPERA DIST disturbance tiles, proxied+cached from NASA GIBS (public;
     # see inventory/dist.py). z/x/y here; the GIBS y/x swap happens in there.
     re_path(r'^tiles/dist/(?P<layer>alert|ann)/(?P<date>\d{4}-\d{2}-\d{2}|all)'

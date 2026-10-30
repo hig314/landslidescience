@@ -6,7 +6,8 @@
  * A basemap *descriptor*:
  *   { id, label, category, coverage, attr,
  *     tiles | style,            // raster XYZ template, or a vector style URL
- *     labelTiles?,              // optional raster label overlay
+ *     labelTiles?, labelAttr?,  // optional raster drawn over the base: labels, or a
+ *                               // second coverage (Toporama over USGS Topo)
  *     scheme?,                  // 'tms' for bottom-origin tiles
  *     tileSize?, minzoom?, maxzoom?, thumb?,
  *     reproject? }              // 'epsg3395' → reproject Yandex-style tiles on the fly
@@ -52,8 +53,14 @@
       tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
       thumb: 'inventory/img/basemap-thumbs/esri-topo.png',
       attr: '© Esri, USGS, NOAA' },
-    { id: 'usgs-topo', label: 'USGS Topo', category: 'Topo', coverage: 'Global (detailed in US only)',
+    // Id kept from when this was USGS alone: stored views and links name it.
+    // NRCan's Toporama WMS (CanVec 1:50k / NTDB 1:250k) is transparent outside
+    // Canada and where it has no fill, so it sits over USGS Topo as one map.
+    { id: 'usgs-topo', label: 'US / Canada Topo', category: 'Topo',
+      coverage: 'US (USGS) + Canada (NRCan Toporama)',
       tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
+      labelTiles: 'https://maps.geogratis.gc.ca/wms/toporama_en?service=WMS&version=1.1.1&request=GetMap&layers=WMS-Toporama&styles=&srs=EPSG:3857&format=image/png&transparent=true&width=256&height=256&bbox={bbox-epsg-3857}',
+      labelAttr: 'Toporama © Natural Resources Canada (Open Government Licence – Canada)',
       thumb: 'inventory/img/basemap-thumbs/usgs-topo.png',
       attr: 'USGS National Map' },
     { id: 'usgs-img', label: 'USGS Imagery', category: 'Imagery', coverage: 'Global (high-res in US only)',
@@ -64,6 +71,14 @@
       tiles: 'https://apps.geo.fpac.usda.gov/nrcs-imagery/rest/services/ortho_imagery/ahap_1978_to_1986_150cm_colorbalance/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=jpgpng&f=image',
       thumb: 'inventory/img/basemap-thumbs/nrcs-ahap.png',
       attr: 'Alaska High-Altitude Photography (1978-1986), USDA NRCS / FPAC Geospatial Business Branch' },
+    // GeoBC's 1 m orthophoto mosaic, proxied same-origin (their CORS header is
+    // broken; inventory/bcortho.py also turns the black nodata transparent).
+    // Blank outside its coverage, like AHAP.
+    { id: 'bc-ortho', label: 'BC Orthophoto 1995-2004', category: 'Historical',
+      coverage: 'British Columbia (partial), 1 m',
+      tiles: '/inventory/tiles/bcortho/{z}/{x}/{y}.png', maxzoom: 17,
+      thumb: 'inventory/img/basemap-thumbs/bc-ortho.jpg',
+      attr: 'Orthophoto 1995-2004, GeoBC — contains information licensed under the Open Government Licence – British Columbia' },
     { id: 'usgs-hist', label: 'USGS Hist. Topo', category: 'Historical', coverage: 'United States',
       tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}',
       thumb: 'inventory/img/basemap-thumbs/usgs-hist.png',
@@ -201,7 +216,8 @@
     var sources = { basemap: base };
     var layers = [{ id: 'basemap', type: 'raster', source: 'basemap' }];
     if (bm.labelTiles) {
-      sources.labels = { type: 'raster', tiles: [bm.labelTiles], tileSize: 256 };
+      sources.labels = { type: 'raster', tiles: [bm.labelTiles], tileSize: 256,
+                         attribution: bm.labelAttr || '' };
       layers.push({ id: 'labels', type: 'raster', source: 'labels' });
     }
     var style = { version: 8, sources: sources, layers: layers };
