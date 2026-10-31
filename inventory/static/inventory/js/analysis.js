@@ -6,8 +6,8 @@
  *   TERRAIN    the joint density of the pair over every land cell of a 1 km
  *              EPSG:3338 lattice, point-sampled from the native product
  *              (api/analysis/density/, the quantity cube in
- *              inventory/analysis.py), as a log backdrop -- with the
- *              subset's cells on it in orange.
+ *              inventory/analysis.py), in discrete log classes -- or,
+ *              with a subset, the subset's terrain alone.
  *   LANDSLIDES every landslide at its own values (ls_quantities.json,
  *              tools/analysis/sample_quantities.py) as points, or per cell
  *              as a count or as landslides per 1000 km² of terrain with those
@@ -42,8 +42,7 @@
  * a landslide when its centroid's cell is), read by the server with the
  * landslides in it, so a rate's numerator and denominator share one
  * footprint: the landslide plot counts the subset's landslides over the
- * subset's terrain, and the terrain plot shows the subset in orange over
- * all of the reviewed area in blue. A sample's counted cells are outlined
+ * subset's terrain, and the terrain plot shows that terrain alone. A sample's counted cells are outlined
  * on the map (an-cells), so the blockiness of what was counted is visible.
  *
  * SAMPLE: the ◎ button is a tool. While it is on, a ghost of the circle
@@ -51,7 +50,7 @@
  * the sample there (LSSample), and the tool stays on so the next click
  * moves it; turning the tool off (or closing the panel) removes the sample
  * and its highlights. The circle is a subset (above): its 1 km cells are
- * the orange on the terrain plot, with a median / range summary in the
+ * the terrain plot, with a median / range summary in the
  * footer, the landslide plot is its landslides, and they are ringed on the
  * map. With permafrost products on both axes a "Permafrost detail"
  * button opens the four-plot patch panel (permafrost.js).
@@ -89,6 +88,9 @@ window.LSAnalysis = (function () {
   // below the bottom of the scale" (the susceptibility scatter's scheme).
   var LS_RAMP = ['#ffeda0', '#fed976', '#feb24c', '#fd8d3c', '#fc4e2a', '#e31a1c', '#b10026'];
   var LS_CATCH = '#bcbddc', LOG_DECADES = 3;
+  // Terrain = ColorBrewer Blues, discrete like the landslide grid (Hig,
+  // 2026-10-31), on a log scale from 1 km² to the plot's fullest cell.
+  var T_RAMP = ['#eff3ff', '#c6dbef', '#9ecae1', '#6baed6', '#4292c6', '#2171b5', '#084594'];
   // The rate scale is ABSOLUTE and the same at every grid level: a scale
   // re-normalised to each level's maximum made coarsening look like rates
   // rising, when the maximum was falling (Hig, 2026-10-10 — slope x
@@ -100,8 +102,8 @@ window.LSAnalysis = (function () {
   var SLIDER_KEYS = ['lw', 'n10'];
   var DEFAULT = ['lw', 'n10'];
   var HL = 'an-highlight', MIN_BINS = 4;
-  // The paint is the sample's orange: map -> plot is the orange subset, plot
-  // -> map is the orange paint (Hig, 2026-10-10), drawn on top of every
+  // The paint is the sample's orange (the circle and its cells on the map;
+  // Hig, 2026-10-10), drawn on top of every
   // data layer so it reads over any overlay.
   var PAINT = 'an-paint', PAINT_RGBA = [255, 143, 0, 150], PAINT_MINZ = 8;
   var SAMPLE_LAYERS = ['ls-sample-fill', 'ls-sample-line', 'ls-sample-ghost-fill', 'ls-sample-ghost'];
@@ -431,11 +433,6 @@ window.LSAnalysis = (function () {
       return Math.max(1, Math.min(n, Math.floor((Math.log(v) - a) / d * n) + 1));
     } };
   }
-  function blues(t) {   // white -> #08306b
-    var s = [[247, 251, 255], [198, 219, 239], [107, 174, 214], [33, 113, 181], [8, 48, 107]];
-    var k = Math.min(3.999, Math.max(0, t) * 4), i = Math.floor(k), f = k - i, a = s[i], b = s[i + 1];
-    return 'rgb(' + Math.round(a[0] + (b[0] - a[0]) * f) + ',' + Math.round(a[1] + (b[1] - a[1]) * f) + ',' + Math.round(a[2] + (b[2] - a[2]) * f) + ')';
-  }
 
   // ---- draw --------------------------------------------------------------------------------
   function draw() {
@@ -490,27 +487,23 @@ window.LSAnalysis = (function () {
     var lg = coarsen(lsRaw, nx, ny, level);                              // landslides, merged
     var grid = lsMode !== 'points', i, xi, yi, r;
 
-    // pane 0: the terrain density, log blues -- and a faint copy of it under
+    // pane 0: the terrain density. It shows the denominator itself: the subset's terrain
+    // when there is one, else all of the reviewed area (Hig, 2026-10-31: the
+    // global density is not drawn beside a subset). A faint copy sits under
     // the landslide pane, so the two read against the same ground.
-    // With a subset the faint copy under the landslides is the SUBSET's
-    // terrain (the denominator actually used), and the subset is drawn over
-    // the terrain pane in orange.
-    var tMax = 0;
-    var logPaint = function (g, pane, alpha, color) {
-      var mx = 0, j; for (j = 0; j < g.g.length; j++) if (g.g[j] > mx) mx = g.g[j];
-      var lm = Math.log(mx + 1);
+    var tMax = 0, tBins = null;
+    if (tg) {
+      for (i = 0; i < tg.g.length; i++) if (tg.g[i] > tMax) tMax = tg.g[i];
+      tBins = logRangeBinner(1, Math.max(2, tMax), T_RAMP.length);
       for (yi = 0; yi < cny; yi++) for (xi = 0; xi < cnx; xi++) {
-        var tv = g.g[yi * cnx + xi]; if (!tv) continue;
-        var t = Math.log(tv + 1) / lm;
-        if (color) { ctx.globalAlpha = 0.25 + 0.7 * t; ctx.fillStyle = color; } else { ctx.globalAlpha = alpha; ctx.fillStyle = blues(t); }
-        r = panes[pane].cell(xi, yi); ctx.fillRect(r[0], r[1], r[2], r[3]);
+        var tv = tg.g[yi * cnx + xi]; if (!tv) continue;
+        ctx.fillStyle = T_RAMP[Math.max(1, tBins.bin(tv)) - 1];
+        r = panes[0].cell(xi, yi); ctx.fillRect(r[0], r[1], r[2], r[3]);
+        ctx.globalAlpha = 0.28;
+        r = panes[1].cell(xi, yi); ctx.fillRect(r[0], r[1], r[2], r[3]);
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
-      return mx;
-    };
-    if (tAll) tMax = logPaint(tAll, 0, 1);
-    if (tg) logPaint(tg, 1, 0.28);
-    if (tSub) logPaint(tSub, 0, 1, 'rgb(255,143,0)');
+    }
     // pane 1: the landslide grid. A merged cell's count is the sum of its
     // raw cells' counts and its terrain the sum of their km², so the rate
     // (count / km² x 1000) is the area-weighted mean of the raw rates with
@@ -539,7 +532,7 @@ window.LSAnalysis = (function () {
     // svg: frames, ticks, labels, points, brush
     var svg = el.svg; while (svg.firstChild) svg.removeChild(svg.firstChild);
     var sampled = kind === 'sample', where = kind === 'sample' ? 'the sample' : 'the map view';
-    var titles = ['Terrain · km² per cell' + (kind ? ' · orange: ' + where : ''),
+    var titles = ['Terrain · km² per cell' + (kind ? ' · in ' + where : ''),
                   'Landslides · ' + (lsMode === 'points' ? 'points' : lsMode === 'count' ? 'count per cell' : 'per 1000 km²') + (kind ? ' · in ' + where : '')];
     panes.forEach(function (p, pi) {
       svg.appendChild(svgEl('rect', { x: p.x0, y: p.y0, width: d.w, height: d.h, fill: 'none', stroke: '#ddd' }));
@@ -604,7 +597,7 @@ window.LSAnalysis = (function () {
     if (nFilt) note += (note ? ' · ' : '') + nFilt + ' hidden by the map’s filters';
     if (brush && !canPaint()) note += (note ? ' · ' : '') + 'the box paints the map only where both axes have 60 m value archives';
     el.note.textContent = note;
-    foot(qx, qy, tMax, lBins, pts.length, noTerrain, kind, haveSub);
+    foot(qx, qy, tBins, lBins, pts.length, noTerrain, kind, haveSub);
   }
   // Ticks for an axis `px` pixels long: about one label per 55 px, so a
   // narrow panel thins them rather than overprinting; a class axis keeps
@@ -628,15 +621,15 @@ window.LSAnalysis = (function () {
       return '<span class="leg-tick" style="left:' + (t.at * 100).toFixed(2) + '%"><i></i>' + t.label + '</span>';
     }).join('') + '</div></div>';
   }
-  function foot(qx, qy, tMax, lBins, nLs, noTerrain, kind, haveSub) {
+  function foot(qx, qy, tBins, lBins, nLs, noTerrain, kind, haveSub) {
     var html = '';
-    if (tMax) {   // the terrain's log scale, as a gradient from 1 km² to the fullest cell; ticks at the decades
-      var n = 6, stops = [], ticks = [], lm = Math.log(tMax + 1);
-      for (var i = 0; i <= n; i++) stops.push(blues(i / n));
-      for (var v = 1; v <= tMax; v *= 10) ticks.push({ at: Math.log(v + 1) / lm, label: fmtNum(v) });
-      if (ticks.length && ticks[ticks.length - 1].at < 0.9) ticks.push({ at: 1, label: fmtNum(tMax) });
-      html += '<div class="leg-row"><span class="leg-title">Terrain km²/cell</span>' +
-              legendBar('<div class="leg-bar" style="background:linear-gradient(to right,' + stops.join(',') + ')"></div>', ticks) + '</div>';
+    if (tBins) {   // discrete, like the landslide key: a swatch per class, numbers at the boundaries
+      var tn = T_RAMP.length;
+      var tbar = '<div class="leg-bar">' + T_RAMP.map(function (c, i) {
+        return '<span style="background:' + c + '" title="' + fmtNum(tBins.edges[i + 1]) + ' – ' + fmtNum(tBins.edges[i + 2]) + ' km²"></span>';
+      }).join('') + '</div>';
+      var tt = []; for (var ti = 1; ti < tBins.edges.length; ti++) tt.push({ at: (ti - 1) / tn, label: fmtNum(tBins.edges[ti]) });
+      html += '<div class="leg-row"><span class="leg-title" title="Scaled to this plot’s fullest cell.">Terrain km²/cell</span>' + legendBar(tbar, tt) + '</div>';
     }
     if (lBins) {
       var cells = LS_RAMP.length + 1;   // the catch swatch, then the ramp

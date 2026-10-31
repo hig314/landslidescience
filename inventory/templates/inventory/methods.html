@@ -465,8 +465,9 @@
   slopes would be a smoother distribution than the one the landslides are
   drawn from, so the comparison would mislead. The density of any pair is
   computed on request from those samples (land cells with a value for
-  both, inside the reviewed area &mdash; below) and drawn log-scaled in
-  blue as the <em>terrain</em> plot. Beside
+  both, inside the reviewed area &mdash; below) and drawn in
+  discrete log classes of km² per cell (scaled to the plot&rsquo;s
+  fullest cell) as the <em>terrain</em> plot. Beside
   it, on the same axes and over a faint copy of the same terrain, the
   <em>landslides</em> plot draws each landslide as a point, or per cell as
   a count or a rate (landslides per 1000&nbsp;km² of terrain with those
@@ -514,9 +515,8 @@
   cell is &mdash; so the landslides counted and the terrain they are
   counted over share one footprint, and a sample&rsquo;s cells are
   outlined on the map so the blockiness of that footprint is visible.
-  The subset&rsquo;s terrain is drawn in orange over the whole reviewed
-  area&rsquo;s in blue, with the median and 10&ndash;90&nbsp;% range of
-  each axis; the landslide plot shows only the subset&rsquo;s landslides,
+  The terrain plot then shows the subset&rsquo;s terrain alone, with the
+  median and 10&ndash;90&nbsp;% range of each axis; the landslide plot shows only the subset&rsquo;s landslides,
   and its rate divides them by the subset&rsquo;s terrain. The map&rsquo;s
   filters (types, classes, ages, sizes, features) also apply to the
   landslides counted; they do not change the terrain. While the panel is open each side of the wiper
