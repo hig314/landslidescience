@@ -184,6 +184,10 @@ window.LSProfile = (function () {
                    pmtiles: LSDemRead.archive(p.pmtiles_url) });
       });
     }
+    // ArcticDEM where it might be (north of 50°N); a line it does not cover
+    // comes back all void and is dropped in sample(), not drawn as a gap.
+    var mid = (bbox[1] + bbox[3]) / 2;
+    if (LSDemRead.arcticCovers(mid)) out.push(Object.assign({ optional: true }, LSDemRead.ARCTICDEM));
     out.push(LSDemRead.MAPTERHORN);
     return out;
   }
@@ -218,6 +222,7 @@ window.LSProfile = (function () {
         });
       });
       Promise.all(reads).then(function (zs) {
+        if (s.optional && !zs.some(function (v) { return !isNaN(v); })) { result.pending--; draw(); return; }
         result.series.push({ id: s.id, title: s.title, color: PALETTE[i % PALETTE.length], z: zs, zoom: z });
         result.pending--;
         draw();
@@ -242,14 +247,19 @@ window.LSProfile = (function () {
                   datum: p.vertical_datum || 'not declared by the source',
                   pmtiles: LSDemRead.archive(p.pmtiles_url) });
     });
+    if (LSDemRead.arcticCovers(lat)) srcs.push(Object.assign({ optional: true }, LSDemRead.ARCTICDEM));
     srcs.push(LSDemRead.MAPTERHORN);
     return Promise.all(srcs.map(function (s) {
       return elevationAt(s, s.maxzoom, lon, lat).then(function (v) {
         if (s.sea !== undefined && v <= s.sea) v = NaN;
-        return { id: s.id, title: s.title, z: v, zoom: s.maxzoom, datum: s.datum,
+        return { id: s.id, title: s.title, z: v, zoom: s.maxzoom, datum: s.datum, optional: s.optional,
                  res: metersPerPixel(lat, s.maxzoom, s.tileSize || 256) };
       });
-    }));
+    })).then(function (rows) {
+      // ArcticDEM outside its mosaic is left out, like a survey whose
+      // footprint misses the point.
+      return rows.filter(function (r) { return !(r.optional && isNaN(r.z)); });
+    });
   }
 
   // ---- panel + chart (profile_chart.js) ---------------------------------

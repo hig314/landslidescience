@@ -15,8 +15,15 @@
  *   LSDemRead.tileFor(src, z, x, y)    // Promise<{w, h, data: Float32Array} | null>, cached
  *
  * A source is {id, title, encoding: 'mapbox'|'terrarium', maxzoom,
- * tileSize?, pmtiles? | tiles?, sea?, datum?}. Voids (alpha < 255) read NaN;
- * `sea` (Mapterhorn's 0 m) is masked by the caller via readAt().
+ * tileSize?, pmtiles? | tiles? | imageServer?, sea?, datum?}. Voids (alpha <
+ * 255) read NaN; `sea` (Mapterhorn's 0 m) is masked by the caller via readAt().
+ *
+ *   LSDemRead.ARCTICDEM                 // PGC's 2 m mosaic, orthometric, read live
+ *   LSDemRead.arcticCovers(lat)         // worth asking ArcticDEM here at all?
+ *
+ * An `imageServer` source is an ArcGIS ImageServer read as float32 TIFF
+ * exports of each 256 px web-mercator tile (decoded here; ArcGIS writes them
+ * uncompressed), with an optional `renderingRule`.
  */
 window.LSDemRead = (function () {
   'use strict';
@@ -29,6 +36,21 @@ window.LSDemRead = (function () {
                      encoding: 'terrarium', maxzoom: 13, native: 10, tileSize: 512, sea: 0,
                      tiles: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
                      datum: 'NAVD88 (3DEP, Alaska); EGM2008 (Copernicus, Canada)' };
+
+  // ArcticDEM v4.1 mosaic from the Polar Geospatial Center's public image
+  // service, the same one the Shaded relief overlays shade. Read here as
+  // 'Height Orthometric' (PGC's EGM2008 conversion), not the service's raw
+  // ellipsoidal heights: at Barry Arm those sit ~14 m above the sea, which
+  // on a profile beside NAVD88 surveys reads as a 14 m error. 2 m is about
+  // z16 at these latitudes.
+  var ARCTICDEM = { id: 'arcticdem', title: 'ArcticDEM 2 m (PGC)', maxzoom: 16, native: 2,
+                    imageServer: 'https://di-pgc.img.arcgis.com/arcgis/rest/services/arcticdem_latest/ImageServer',
+                    renderingRule: { rasterFunction: 'Height Orthometric' },
+                    datum: 'EGM2008 (PGC orthometric heights)' };
+  // ArcticDEM is the Arctic plus Alaska and the coast ranges south of 60°N
+  // (it reaches Stewart, 56.5°N). South of 50°N there is nothing to ask for.
+  function arcticCovers(lat) { return lat >= 50; }
+  var NODATA = -999999;
 
   function metersPerPixel(lat, z, size) {
     return TILE_CIRC * Math.cos(lat * Math.PI / 180) / (size * Math.pow(2, z));
@@ -53,6 +75,53 @@ window.LSDemRead = (function () {
     }
     return { w: c.width, h: c.height, data: out };
   }
+  // An uncompressed float32 TIFF (strips or tiles, either byte order) ->
+  // {w, h, data}; null for anything else. ArcGIS exportImage writes exactly
+  // this for format=tiff&pixelType=F32 (2026-10-30: little-endian, 128 px
+  // tiles), so a full TIFF library is not needed.
+  function decodeTiff(buf) {
+    var v = new DataView(buf);
+    if (buf.byteLength < 8) return null;
+    var le = v.getUint16(0) === 0x4949;
+    var u16 = function (o) { return v.getUint16(o, le); }, u32 = function (o) { return v.getUint32(o, le); };
+    if (u16(2) !== 42) return null;
+    var ifd = u32(4), n = u16(ifd), tags = {};
+    for (var i = 0; i < n; i++) {
+      var e = ifd + 2 + 12 * i, tag = u16(e), type = u16(e + 2), cnt = u32(e + 4);
+      var size = type === 3 ? 2 : 4, at = cnt * size <= 4 ? e + 8 : u32(e + 8), vals = [];
+      for (var k = 0; k < cnt; k++) vals.push(size === 2 ? u16(at + 2 * k) : u32(at + 4 * k));
+      tags[tag] = vals;
+    }
+    var w = tags[256][0], h = tags[257][0];
+    if ((tags[259] || [1])[0] !== 1 || (tags[258] || [0])[0] !== 32 || (tags[339] || [1])[0] !== 3) return null;
+    var out = new Float32Array(w * h);
+    var put = function (off, bw, bh, x0, y0, rows) {
+      for (var y = 0; y < rows; y++) {
+        var gy = y0 + y; if (gy >= h) break;
+        for (var x = 0; x < bw; x++) {
+          var gx = x0 + x; if (gx >= w) continue;
+          var val = v.getFloat32(off + 4 * (y * bw + x), le);
+          out[gy * w + gx] = (val <= NODATA || val !== val) ? NaN : val;
+        }
+      }
+    };
+    if (tags[324]) {                         // tiled
+      var tw = tags[322][0], th = tags[323][0], across = Math.ceil(w / tw);
+      tags[324].forEach(function (off, t) { put(off, tw, th, (t % across) * tw, Math.floor(t / across) * th, th); });
+    } else {                                 // strips
+      var rps = (tags[278] || [h])[0];
+      tags[273].forEach(function (off, si) { put(off, w, rps, 0, si * rps, rps); });
+    }
+    return { w: w, h: h, data: out };
+  }
+  function imageServerUrl(source, z, x, y) {
+    var s = TILE_CIRC / Math.pow(2, z), x0 = -TILE_CIRC / 2 + x * s, y1 = TILE_CIRC / 2 - y * s;
+    var q = 'bbox=' + [x0, y1 - s, x0 + s, y1].join(',') + '&bboxSR=3857&imageSR=3857&size=256,256' +
+            '&format=tiff&pixelType=F32&noData=' + NODATA + '&noDataInterpretation=esriNoDataMatchAny' +
+            '&interpolation=RSP_BilinearInterpolation&f=image';
+    if (source.renderingRule) q += '&renderingRule=' + encodeURIComponent(JSON.stringify(source.renderingRule));
+    return source.imageServer + '/exportImage?' + q;
+  }
   function archive(url) {
     var u = new URL(url, location.href).href;
     return archives[u] || (archives[u] = new pmtiles.PMTiles(u));
@@ -71,6 +140,14 @@ window.LSDemRead = (function () {
         if (!res || !res.data) return null;
         return createImageBitmap(new Blob([res.data])).then(function (bm) { return decode(bm, source.encoding); });
       });
+    } else if (source.imageServer) {
+      p = fetch(imageServerUrl(source, z, x, y)).then(function (r) { return r.ok ? r.arrayBuffer() : null; })
+        .then(function (b) {
+          var t = b && decodeTiff(b);
+          if (!t) return null;
+          for (var i = 0; i < t.data.length; i++) if (t.data[i] === t.data[i]) return t;
+          return null;                       // all void: outside the mosaic
+        });
     } else {
       var url = source.tiles.replace('{z}', z).replace('{x}', x).replace('{y}', y);
       p = fetch(url).then(function (r) { return r.ok ? r.blob() : null; })
@@ -114,7 +191,8 @@ window.LSDemRead = (function () {
     return z;
   }
 
-  return { MAPTERHORN: MAPTERHORN, surveySource: surveySource, archive: archive, tileFor: tileFor,
+  return { MAPTERHORN: MAPTERHORN, ARCTICDEM: ARCTICDEM, arcticCovers: arcticCovers,
+           decodeTiff: decodeTiff, surveySource: surveySource, archive: archive, tileFor: tileFor,
            elevationAt: elevationAt, readAt: readAt, zoomFor: zoomFor,
            metersPerPixel: metersPerPixel };
 })();

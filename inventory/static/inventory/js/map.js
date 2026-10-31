@@ -7496,7 +7496,7 @@
             html += '</table>';
             if (!Object.keys(ids).length) {
                 html += '<div class="ep-note">Turn on a lidar survey (Elevation &amp; imagery overlays) to read it here too.</div>';
-            } else if (rows.length - 1 < Object.keys(ids).length) {
+            } else if (rows.filter(function (r) { return ids[r.id]; }).length < Object.keys(ids).length) {
                 html += '<div class="ep-note">Surveys turned on whose footprint misses this point are not listed.</div>';
             }
             html += '<button type="button" class="ep-copy">Copy</button></div>';
