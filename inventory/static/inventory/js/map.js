@@ -2358,6 +2358,33 @@
         // from Mapterhorn's terrarium tiles (3DEP 1/3" in Alaska), interval by
         // zoom -- 1000 m zoomed out to 10 m zoomed in. Nothing baked, nothing
         // hosted; the DEM tiles are the same ones the profile tool reads.
+        // Shaded relief anywhere (2026-10-30, Hig): our own shading
+        // (maplibre-gl-demshade, the lidar's Hillshade and Preset) of two DEMs
+        // nobody here hosts -- Mapterhorn's global terrarium tiles and PGC's
+        // ArcticDEM image service, read as raw elevation. `underlay` puts them
+        // straight above the basemap, under lidar, uploads, the other
+        // overlays and the basemap's labels. No zoom floor: zoomed out they
+        // at least show where there is data.
+        { id: 'relief-mt-hs', layerId: 'ov-relief-mt-hs', sourceId: 'ov-relief-mt-hs-src',
+          label: 'Hillshade — Mapterhorn (global)',
+          sub: 'USGS 3DEP in the US (1/3″, ~10 m), Copernicus 30 m elsewhere, national lidar where Mapterhorn has it',
+          keyNote: 'Shaded in the browser from Mapterhorn\u2019s global terrain tiles, the same way as the lidar surveys.',
+          underlay: true, sourceDef: function () { return _reliefSourceDef('mapterhorn', 'hillshade'); }, defOpacity: 1 },
+        { id: 'relief-mt-pre', layerId: 'ov-relief-mt-pre', sourceId: 'ov-relief-mt-pre-src',
+          label: 'Preset — Mapterhorn (global)',
+          sub: 'the lidar Preset (mod-5 m bands, slope, hillshade) on the same tiles · bands are noise until zoomed in',
+          keyNote: 'The lidar viewer\u2019s Preset shading, computed in the browser from Mapterhorn\u2019s global terrain tiles.',
+          underlay: true, sourceDef: function () { return _reliefSourceDef('mapterhorn', 'preset'); }, defOpacity: 1 },
+        { id: 'relief-adem-hs', layerId: 'ov-relief-adem-hs', sourceId: 'ov-relief-adem-hs-src',
+          label: 'Hillshade — ArcticDEM 2 m',
+          sub: 'PGC mosaic, WorldView stereo 2007–2022 · Alaska and the north · ~0.5 s a tile from PGC\u2019s service',
+          keyNote: 'Shaded in the browser from ArcticDEM elevations read live from the Polar Geospatial Center\u2019s image service. Heights are WGS84 ellipsoidal.',
+          underlay: true, sourceDef: function () { return _reliefSourceDef('arcticdem', 'hillshade'); }, defOpacity: 1 },
+        { id: 'relief-adem-pre', layerId: 'ov-relief-adem-pre', sourceId: 'ov-relief-adem-pre-src',
+          label: 'Preset — ArcticDEM 2 m',
+          sub: 'the lidar Preset on ArcticDEM · bands follow ellipsoidal heights, so they are not NAVD88 contours',
+          keyNote: 'The lidar viewer\u2019s Preset shading of ArcticDEM, read live from the Polar Geospatial Center\u2019s image service. Heights are WGS84 ellipsoidal.',
+          underlay: true, sourceDef: function () { return _reliefSourceDef('arcticdem', 'preset'); }, defOpacity: 1 },
         { id: 'sp-contours', layerId: 'ov-sp-contours', sourceId: 'ov-sp-contours-src',
           label: 'Contours', sub: 'interval by zoom: 1000 m (z≤6) · 500 · 200 · 100 (z10) · 50 · 20 · 10 m (z≥14) · labels every 5th line',
           keyNote: 'Elevation contours from USGS 3DEP (Mapterhorn), drawn as you zoom: 1000 m lines at state scale, 10 m lines at site scale, with the heavier line labelled.',
@@ -2564,6 +2591,37 @@
     var SP_ATTR = 'Terrain: USGS 3DEP via Mapterhorn';
     // maplibre-contour: one DEM source for the contour overlay, set up once.
     var _contourDem = null;
+    // The two DEMs behind the Shaded relief rows, registered with the shading
+    // package on first use. Mapterhorn as /lidar/ reads it (512 px terrarium,
+    // z13 its deepest in Alaska, over-zoomed above; the sea is a flat 0 m,
+    // made a void so it stays transparent). ArcticDEM from PGC's image
+    // service as float32 exports (no renderingRule, so WGS84 ellipsoidal
+    // heights); 2 m is about z16 at these latitudes.
+    var RELIEF_ATTR = {
+        mapterhorn: '<a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">Mapterhorn</a> ' +
+                    '(USGS 3DEP; Copernicus DEM © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, ' +
+                    'provided under COPERNICUS by the EU and ESA)',
+        arcticdem: 'ArcticDEM: <a href="https://www.pgc.umn.edu/data/arcticdem/" target="_blank" rel="noopener">Polar ' +
+                   'Geospatial Center</a>, University of Minnesota (NGA, NSF)'
+    };
+    var _reliefReady = {};
+    function _reliefSourceDef(src, preset) {
+        if (!_reliefReady[src] && window.DemShade) {
+            _reliefReady[src] = true;
+            if (src === 'mapterhorn') {
+                DemShade.addDataset('mapterhorn', null, {
+                    tiles: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
+                    encoding: 'terrarium', tileSize: 512,
+                    minzoom: 0, maxzoom: 13, overzoom: true, nodataAtOrBelow: 0 });
+            } else {
+                DemShade.addImageServer('arcticdem',
+                    'https://di-pgc.img.arcgis.com/arcgis/rest/services/arcticdem_latest/ImageServer',
+                    { maxzoom: 16 });
+            }
+        }
+        return { type: 'raster', tiles: [DemShade.url(src, LIDAR_PRESETS[preset].opts)], tileSize: 256,
+                 minzoom: 0, maxzoom: src === 'mapterhorn' ? 14 : 16, attribution: RELIEF_ATTR[src] };
+    }
     function _contourSourceDef() {
         if (!_contourDem && typeof mlcontour !== 'undefined') {
             _contourDem = new mlcontour.DemSource({ url: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
@@ -2797,6 +2855,18 @@
         });
         _ovApplyAll();
     }
+    // An `underlay` overlay (shaded relief) goes straight above the basemap:
+    // before the first layer that is not the basemap itself, which is the
+    // basemap's labels where it has them, else the bottom of the data stack.
+    // Lidar, uploads and pending records, added later before pending-poly-fill
+    // or the overlay slot, then land above it.
+    function _ovUnderlayBefore(m) {
+        var ls = m.getStyle().layers || [];
+        for (var i = 0; i < ls.length; i++) {
+            if (ls[i].id !== 'background' && ls[i].id !== 'basemap') return ls[i].id;
+        }
+        return undefined;
+    }
     // Add all overlay sources+layers to a map (idempotent; called wherever the
     // susceptibility layers used to be added, main + swipe).
     function _ovEnsure(m, beforeId) {
@@ -2829,8 +2899,8 @@
             m.addLayer({
                 id: ov.layerId, type: 'raster', source: ov.sourceId,
                 layout: { 'visibility': 'none' },
-                paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest' }
-            }, beforeId);
+                paint: { 'raster-opacity': 1, 'raster-resampling': ov.underlay ? 'linear' : 'nearest' }
+            }, ov.underlay ? _ovUnderlayBefore(m) : beforeId);
         });
         _ovApply(m, m !== map);
     }
@@ -4149,6 +4219,8 @@
     var _OV_CATS = [
         { key: 'clim',  label: 'Climate',
           ids: ['pf-gruber-maat', 'pf-gruber-maat60', 'pf-obu-magt', 'pf-obu-magt60'] },
+        { key: 'relief', label: 'Shaded relief',
+          ids: ['relief-mt-hs', 'relief-mt-pre', 'relief-adem-hs', 'relief-adem-pre'] },
         { key: 'sp',    label: 'Surface properties',
           ids: ['sp-contours', 'sp-elev', 'sp-slope', 'sp-aspect', 'sp-north'] },
         // 'dist-alert' stays listed although it is retired: _ovRenderGrouped
