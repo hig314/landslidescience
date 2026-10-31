@@ -465,7 +465,8 @@
   slopes would be a smoother distribution than the one the landslides are
   drawn from, so the comparison would mislead. The density of any pair is
   computed on request from those samples (land cells with a value for
-  both) and drawn log-scaled in blue as the <em>terrain</em> plot. Beside
+  both, inside the reviewed area &mdash; below) and drawn log-scaled in
+  blue as the <em>terrain</em> plot. Beside
   it, on the same axes and over a faint copy of the same terrain, the
   <em>landslides</em> plot draws each landslide as a point, or per cell as
   a count or a rate (landslides per 1000&nbsp;km² of terrain with those
@@ -477,12 +478,27 @@
   the sum of their areas, so its rate is the area-weighted mean of the
   rates below it, empty cells included &mdash; never a mean of rates. The
   rate's colour scale is fixed (0.1 to 1000 landslides per 1000&nbsp;km²,
-  the statewide mean being about 0.6), so the same colour means the same
+  the mean over the reviewed area being about 1.0), so the same colour means the same
   rate at every grid step and on every pair of axes, and coarsening shows
   rates falling as the landslides are spread over more terrain; the count
   scale is relative to the plot's fullest cell. A cell holding landslides
   but no sampled terrain has no rate and is shown in the off-scale colour
-  rather than dropped. The DGGS susceptibility
+  rather than dropped.
+  <strong>The reviewed area.</strong> A rate means something only over
+  ground that has been searched for landslides, so the terrain counted,
+  and the landslides counted, are those inside the <em>reviewed area</em>:
+  today Alaska's land (1.5&nbsp;million&nbsp;km²), to which areas are
+  added as they are reviewed &mdash; added as further polygons, never by
+  editing the first. The lattice extends into Yukon, British Columbia and
+  the Northwest Territories, and until 2026-10-31 that ground (830,000
+  km², almost none of it yet reviewed) was counted too, which put every
+  rate at about two thirds of its value. A cell is inside when its centre
+  is, and a landslide when its centroid's cell is; the panel says how many
+  landslides fall outside and are left out. Review is not uniform across
+  Alaska, but nowhere in it has been left out, which is what the
+  denominator assumes. The two USGS susceptibility models cover Alaska
+  only and are left blank beyond it (their rasters carry zeros over
+  Canadian ground, which would otherwise read as unsusceptible). The DGGS susceptibility
   classes are ordinal, so that axis is spaced by class position, not class
   number; a flat cell has no aspect and is left out of that axis.
 </p>

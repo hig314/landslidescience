@@ -29,7 +29,7 @@ import rasterio
 from rasterio.warp import transform
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from quantities import QUANTITIES, ROOT      # noqa: E402
+from quantities import GRID, QUANTITIES, ROOT, alaska_mask      # noqa: E402
 
 CENTROIDS = ROOT / 'data' / 'landslide_centroids_3338.json'
 OUT = ROOT / 'inventory' / 'static' / 'inventory' / 'ls_quantities.json'
@@ -75,6 +75,13 @@ def main():
     ids = [int(p[0]) for p in pts]
     x = [float(p[1]) for p in pts]; y = [float(p[2]) for p in pts]
     keys = list(QUANTITIES)
+    # The lattice cell of each centroid, for the Alaska-only products: the
+    # same cell-centre test the cube uses, so a landslide and the terrain
+    # behind it are cut at the same line.
+    a, _, c, _, e, f = GRID['transform']
+    ak = alaska_mask()
+    in_ak = np.array([0 <= int((yy - f) // e) < GRID['height'] and 0 <= int((xx - c) // a) < GRID['width']
+                      and bool(ak[int((yy - f) // e), int((xx - c) // a)]) for xx, yy in zip(x, y)])
     cols = {}
     for k in keys:
         q = QUANTITIES[k]
@@ -93,6 +100,8 @@ def main():
             bad |= v == nd
         if 'classes' in q:
             bad |= ~np.isin(v, q['classes'])
+        if q.get('alaska_only'):
+            bad |= ~in_ak
         v[bad] = np.nan
         cols[k] = [None if np.isnan(t) else (int(t) if q.get('integer') or 'classes' in q else round(float(t), 4)) for t in v]
         print(f'  {k:8s} {int((~bad).sum()):5d} of {len(ids)} with a value')

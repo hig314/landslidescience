@@ -13,10 +13,17 @@ once per process. Three endpoints:
       the overlay registry: an overlay whose values.key is here is pickable).
   GET api/analysis/density/?x=<key>&y=<key>
       -> {x: {...}, y: {...}, xsize, ysize, grid: [row-major y*xsize+x],
-          max, total}
-      the 2-D histogram of every land cell with a value for both, computed
-      on request (5.9 M cells, tens of ms) and cached per pair for the
-      process. An ordinal quantity (DGGS) bins by class position.
+          max, total, reviewed}
+      the 2-D histogram of every land cell INSIDE THE REVIEWED AREA with a
+      value for both, computed on request (5.9 M cells, tens of ms) and
+      cached per pair (and reviewed-area version) for the process. An
+      ordinal quantity (DGGS) bins by class position.
+  GET api/analysis/reviewed/
+      -> {version, cells, outside: [landslide ids]}
+      the reviewed area (table reviewed_areas, migrate_reviewed_areas): its
+      land cells, and the landslides whose centroid's lattice cell is
+      outside it, which the panel leaves out of its counts. Ground nobody
+      has searched must neither dilute a rate nor add landslides to it.
   GET api/analysis/sample/?lon=&lat=&r=<km>&q=<key>,<key>
       -> {n, lon: [...], lat: [...], <key>: [...], ...}
       the lattice cells inside a circle (r <= 50 km), columnar; the sample
@@ -48,6 +55,80 @@ def _grid(key):
     if key not in meta['arrays']:
         meta['arrays'][key] = np.load(CUBE / f'{key}.npy', mmap_mode='r')
     return meta['arrays'][key]
+
+
+def _reviewed():
+    """The reviewed area on the lattice: {version, mask (bool, H x W) | None}.
+
+    The union of reviewed_areas, rasterised at cell centres (the cell's
+    value is its centre's, so the cell is in when its centre is), checked
+    against the table on every call (one cheap query) and rebuilt only when
+    a row was added or removed. No table yet (migrate_reviewed_areas not
+    run) = no mask: every land cell counts, as before.
+    """
+    from . import views
+    conn = views._get_conn()
+    try:
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT count(*), coalesce(max(id), 0), coalesce(max(added_at)::text, '') FROM reviewed_areas")
+        except Exception:
+            conn.rollback()
+            return {'version': None, 'mask': None}
+        version = '%s.%s.%s' % cur.fetchone()
+        hit = _cache.get('reviewed')
+        if hit and hit['version'] == version:
+            return hit
+        cur.execute("SELECT ST_AsGeoJSON(ST_Transform(geom, 3338)) FROM reviewed_areas")
+        shapes = [(json.loads(r[0]), 1) for r in cur.fetchall()]
+    finally:
+        views._put_conn(conn)
+    meta = _cube()
+    mask = None
+    if shapes:
+        from affine import Affine
+        from rasterio.features import rasterize
+        mask = rasterize(shapes, out_shape=(meta['height'], meta['width']), transform=Affine(*meta['transform'][:6]),
+                         fill=0, dtype='uint8').astype(bool)
+    _cache['reviewed'] = {'version': version, 'mask': mask}
+    _cache.pop('outside', None)
+    return _cache['reviewed']
+
+
+def api_reviewed(request):
+    if not _installed():
+        return JsonResponse({'error': 'the quantity cube is not installed on this server'}, status=503)
+    from . import views
+    rv = _reviewed()
+    if rv['mask'] is None:
+        return JsonResponse({'version': rv['version'], 'cells': None, 'outside': []})
+    # The landslides change too; key their test on the inventory's version as well.
+    key = (rv['version'], views._data_version)
+    hit = _cache.get('outside')
+    if not hit or hit['key'] != key:
+        meta = _cube()
+        conn = views._get_conn()
+        try:
+            cur = conn.cursor()
+            # The same centroid tools/analysis/sample_quantities.py samples at.
+            cur.execute("SELECT landslide_id, ST_X(c), ST_Y(c) FROM (SELECT landslide_id, "
+                        "ST_Transform(ST_Centroid(ST_Collect(geom)), 3338) c FROM landslide_polygons "
+                        "GROUP BY landslide_id) s")
+            rows = cur.fetchall()
+        finally:
+            views._put_conn(conn)
+        a, _, c, _, e, f = meta['transform']
+        outside = []
+        for lid, x, y in rows:
+            if x is None:
+                continue
+            col, row = int((x - c) // a), int((y - f) // e)
+            inside = 0 <= row < meta['height'] and 0 <= col < meta['width'] and rv['mask'][row, col]
+            if not inside:
+                outside.append(lid)
+        land = np.asarray(meta['land'])
+        hit = _cache['outside'] = {'key': key, 'outside': sorted(outside), 'cells': int((land & rv['mask']).sum())}
+    return JsonResponse({'version': rv['version'], 'cells': hit['cells'], 'outside': hit['outside']})
 
 
 def _installed():
@@ -84,18 +165,22 @@ def api_density(request):
     kx, ky = request.GET.get('x', ''), request.GET.get('y', '')
     if kx not in meta['quantities'] or ky not in meta['quantities']:
         return JsonResponse({'error': 'unknown quantity'}, status=400)
-    key = f'{kx}|{ky}'
+    rv = _reviewed()
+    key = f'{kx}|{ky}|{rv["version"]}'
     if key not in _cache:
         qx, qy = meta['quantities'][kx], meta['quantities'][ky]
         x = _positions(qx, np.asarray(_grid(kx))); y = _positions(qy, np.asarray(_grid(ky)))
         ok = np.asarray(meta['land']) & np.isfinite(x) & np.isfinite(y)
+        if rv['mask'] is not None:
+            ok &= rv['mask']
         ex, ey = _axis(qx), _axis(qy)
         # The top edge is inclusive so an integer quantity's maximum (81 of 81)
         # lands in its own bin rather than falling off the axis.
         h, _, _ = np.histogram2d(np.clip(x[ok], ex[0], ex[-1] - 1e-9), np.clip(y[ok], ey[0], ey[-1] - 1e-9), bins=[ex, ey])
         h = h.T.astype(np.int64)                      # [y][x]
         _cache[key] = {'x': qx, 'y': qy, 'xsize': len(ex) - 1, 'ysize': len(ey) - 1,
-                       'grid': h.ravel().tolist(), 'max': int(h.max()), 'total': int(h.sum())}
+                       'grid': h.ravel().tolist(), 'max': int(h.max()), 'total': int(h.sum()),
+                       'reviewed': rv['version']}
     return JsonResponse(_cache[key])
 
 

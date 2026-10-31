@@ -98,6 +98,9 @@ window.LSAnalysis = (function () {
 
   var map = null, o = {}, el = {}, fp = null;
   var quantities = null, cubeError = null;      // the server registry
+  // The reviewed area (api/analysis/reviewed/): the terrain density counts
+  // only land inside it, so the landslides counted are those inside it too.
+  var outside = null, rvCells = null;
   var axes = [], byKey = {}, byOv = {};         // the overlays that can be axes
   var lsv = null, kidx = {};                    // ls_quantities.json
   var X = null, Y = null, lsMode = 'points', level = 0;
@@ -160,6 +163,12 @@ window.LSAnalysis = (function () {
     fetch(o.apiBase + 'api/analysis/quantities/').then(function (r) { return r.json(); })
       .then(function (j) { quantities = j.quantities || {}; if (j.error) cubeError = j.error; fillPickers(); loadDensity(); syncGrid(); draw(); })
       .catch(function () { cubeError = 'quantity registry unavailable'; draw(); });
+    fetch(o.apiBase + 'api/analysis/reviewed/').then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.error) return;
+        outside = {}; (j.outside || []).forEach(function (id) { outside[id] = true; });
+        rvCells = j.cells; draw();
+      }).catch(function () {});
     // ls_quantities.json, through map.js's own fetch of it (one request).
     o.values().then(function (j) {
       if (!j) return;
@@ -408,10 +417,11 @@ window.LSAnalysis = (function () {
 
     // the landslides on this plane (pixel positions in the landslide pane)
     var pts = [], fd = o.features ? o.features() : null, test = o.inView ? o.inView() : null;
-    var lsRaw = new Float64Array(nx * ny), B = panes[1];
+    var lsRaw = new Float64Array(nx * ny), B = panes[1], nOut = 0;
     if (lsv && fd && fd.features) {
       fd.features.forEach(function (ft) {
         var id = ft.properties.landslide_id != null ? ft.properties.landslide_id : ft.properties.id;
+        if (outside && outside[id]) { nOut++; return; }
         var vx = lsVal(id, X), vy = lsVal(id, Y);
         if (vx == null || vy == null) return;
         var c = ft.geometry && ft.geometry.coordinates;
@@ -547,6 +557,8 @@ window.LSAnalysis = (function () {
     }).length : 0;
     if (missing) note += (note ? ' · ' : '') + missing + ' landslide' + (missing === 1 ? ' has' : 's have') + ' no sampled values (added since the values file was built' +
                           (lsv.built ? ' ' + lsv.built.slice(0, 10) : '') + ') — tools/analysis/sample_quantities.py --centroids';
+    if (nOut) note += (note ? ' · ' : '') + nOut + ' landslide' + (nOut === 1 ? '' : 's') + ' outside the reviewed area' +
+                      (rvCells ? ' (' + rvCells.toLocaleString() + ' km² of land)' : '') + ' not counted';
     if (brush && !canPaint()) note += (note ? ' · ' : '') + 'the box paints the map only where both axes have 60 m value archives';
     el.note.textContent = note;
     foot(qx, qy, tMax, lBins, inSample, noTerrain);

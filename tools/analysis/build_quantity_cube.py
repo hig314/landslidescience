@@ -37,7 +37,7 @@ from rasterio.vrt import WarpedVRT
 from rasterio.windows import Window
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from quantities import GRID, LAND_SRC, QUANTITIES, ROOT, public     # noqa: E402
+from quantities import GRID, LAND_SRC, QUANTITIES, ROOT, alaska_mask, public     # noqa: E402
 
 OUT = ROOT / 'data' / 'quantities'
 BAND_BYTES = 300 * 2 ** 20          # read the source in bands of about this size
@@ -113,6 +113,8 @@ def build(key, xs, ys):
         # "north" put 57,580 cells (2.5 % of land) in the first bin, a 3x
         # spike (found by Hig, 2026-10-10). A flat cell has no aspect.
         bad |= np.load(OUT / 'slope.npy') == 0
+    if q.get('alaska_only'):
+        bad |= ~alaska_mask()
     g[bad] = np.nan
     np.save(OUT / f'{key}.npy', g)
     ok = np.isfinite(g)

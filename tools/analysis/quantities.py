@@ -23,6 +23,14 @@ ROOT = Path(__file__).resolve().parents[2]
 B = Path('/Volumes/Nunatak/permafrost_build')
 DATA = ROOT / 'data'
 
+# Alaska (the `alaska` region subset, in EPSG:3338), for products that cover
+# Alaska only: a raster whose model stops at the border but writes 0 beyond
+# it (the USGS susceptibility models -- 98 % zeros over Canadian ground that
+# is steeper than Alaska's on average) would otherwise put 800,000 km² of
+# false "not susceptible" into every plot. Export it from the database:
+#   psql ... -At -c "SELECT ST_AsGeoJSON(ST_Transform(region_geom,3338)) FROM subsets WHERE slug='alaska'"
+ALASKA = DATA / 'regions_seed' / 'alaska_3338.geojson'
+
 # The lattice: the permafrost 1 km grid (EPSG:3338).
 GRID = {'crs': 'EPSG:3338', 'width': 2706, 'height': 2179,
         'transform': [1000.0, 0.0, -1041000.0, 0.0, -1000.0, 2622000.0]}
@@ -59,9 +67,11 @@ QUANTITIES = {
                     note='Alaska only; water, ice, barren and developed ground have no value'),
     # ---- Landslide susceptibility --------------------------------------------
     'lw':     dict(overlay='susc-lw', label='Susceptibility lw (USGS)', units='of 81', range=(0, 82), bins=82, res='90 m',
-                   src=DATA / 'usgs_susceptibility/lw_susc/lw_ak.tif', nodata=[2147483647], integer=True),
+                   src=DATA / 'usgs_susceptibility/lw_susc/lw_ak.tif', nodata=[2147483647], integer=True,
+                   alaska_only=True, note='Alaska only'),
     'n10':    dict(overlay='susc-n10', label='Susceptibility n10 (USGS)', units='of 81', range=(0, 82), bins=82, res='90 m',
-                   src=DATA / 'usgs_susceptibility/n10_susc/n10_ak.tif', nodata=[2147483647], integer=True),
+                   src=DATA / 'usgs_susceptibility/n10_susc/n10_ak.tif', nodata=[2147483647], integer=True,
+                   alaska_only=True, note='Alaska only'),
     'dggs':   dict(overlay='susc-dggs', label='Susceptibility class (DGGS)', units='class', res='20 m',
                    src=Path('/Volumes/Nunatak/lidar_src/dggs_susc/dggs_susc_20m.vrt'),
                    classes=[0, 3, 5, 6, 7, 8, 9, 10], nodata=[200, 255],
@@ -81,6 +91,15 @@ QUANTITIES = {
 
 # The land mask: the 60 m terrain grid's own (sea = nodata there).
 LAND_SRC = B / 'out/elev60_land.tif'
+
+
+def alaska_mask():
+    """ALASKA rasterised onto the lattice at cell centres -> bool (height, width)."""
+    import json
+    from affine import Affine
+    from rasterio.features import rasterize
+    return rasterize([(json.loads(ALASKA.read_text()), 1)], out_shape=(GRID['height'], GRID['width']),
+                     transform=Affine(*GRID['transform']), fill=0, dtype='uint8').astype(bool)
 
 
 def public(key):

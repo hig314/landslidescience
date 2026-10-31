@@ -104,6 +104,7 @@ urlpatterns = [
     path('api/analysis/quantities/', analysis.api_quantities, name='api_analysis_quantities'),
     path('api/analysis/density/', analysis.api_density, name='api_analysis_density'),
     path('api/analysis/sample/', analysis.api_sample, name='api_analysis_sample'),
+    path('api/analysis/reviewed/', analysis.api_reviewed, name='api_analysis_reviewed'),
     path('api/scarps/create/', scarps.api_scarp_create, name='api_scarp_create'),
     re_path(r'^api/scarps/(?P<scarp_id>\d+)/$', scarps.api_scarp_update,
             name='api_scarp_update'),
