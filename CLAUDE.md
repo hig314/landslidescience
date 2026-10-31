@@ -10,7 +10,7 @@ This file is the deep per-feature reference. **Two work streams run in
 parallel in separate worktrees — read [WORKSTREAMS.md](WORKSTREAMS.md)
 before touching anything under `tools/lidar/`.**
 
-## State of play (2026-10-26) — the one dated snapshot in this file
+## State of play (2026-10-31) — the one dated snapshot in this file
 
 Everything else here describes how things work and should stay true.
 **This section is a snapshot and will rot**; correct it or delete it rather
@@ -65,8 +65,30 @@ written down anywhere — read `/lidar/audit/`.
   prod**, so the one-time notice there is unseen. Collaborators see that
   notice on their first signed-in visit; it is also what tells them
   recording exists. See *Imagery review history*.
+- **Canadian layers** (2026-10-29; 4f4c5af, 9c504c2, 5a24b7d): *US / Canada
+  Topo* (Toporama over USGS from z11), *BC Orthophoto 1995-2004* (proxied),
+  and the NRCan InSAR ascending overlay. Started from promoting Brideau's
+  PCLD records near Stewart BC. See *Canadian basemaps* and *NRCan InSAR
+  velocity overlay*.
+- **Default views with restricted layers** (2026-10-30, 806b024): stored as
+  set, warned only for restricted layers in frame, served per visitor minus
+  what they cannot see. See *Default views are public, but may name
+  restricted layers*.
+- **Shaded relief overlays** (2026-10-30, 30dd97f) and **ArcticDEM in the ∿
+  profile and Alt-click probe** (bd1a6a9). Hig approved both in dev. On
+  prod only page loads and served JS were checked; nobody has yet drawn a
+  profile there. See *Shaded relief overlays*.
 
 **Open threads**, in no particular order:
+
+- **Droplet disk is tight**: 6.5 GB free (92%) after the 2026-10-30
+  deploys. Docker build cache is 4.1 GB, of which `docker builder prune`
+  would reclaim ~1.3 GB. Offered to Hig, not answered, not run.
+- **Shaded relief / ArcticDEM follow-ons, deferred** (not to start
+  unprompted): bake the 2 m ArcticDEM ourselves; deeper Mapterhorn zooms
+  outside Alaska; ArcticDEM through the tile Worker. The PGC service gives
+  flat grey, blocky shading at low zoom (z5): that is display quality, not
+  speed. Hig accepted it.
 
 - **Tatonduk River C (prod id 1575) is hidden from the map** because its
   class is a bare `Catastrophic`: full size, 2018, creep not evaluated.
