@@ -79,6 +79,18 @@ written down anywhere — read `/lidar/audit/`.
   prod only page loads and served JS were checked; nobody has yet drawn a
   profile there. See *Shaded relief overlays*.
 
+- **Analysis panel: reviewed area + subsets** (2026-10-31; df4d19c..e0d93cb,
+  tested in dev and approved). Rates are divided by the *reviewed area*
+  (`reviewed_areas`, seeded with Alaska; it grows by added rows, which have
+  no UI yet), not the whole lattice, which reached into Canada (rates had
+  been ~2/3 of their value); lw/n10 are blank outside Alaska; the values
+  file is sampled from **prod** centroids (it had been built from dev, whose
+  ids 1490–1497 are other records). Map view and sample are exclusive
+  subsets of whole 1 km cells, the map's filters apply, the terrain plot is
+  discrete. On prod: `migrate_reviewed_areas` run, `data/quantities/`
+  lw/n10/grid.json rsynced, endpoints checked (1,500,379 km², 23 landslides
+  outside). See *The analysis panel*.
+
 **Open threads**, in no particular order:
 
 - **Droplet disk is tight**: 6.5 GB free (92%) after the 2026-10-30
