@@ -319,15 +319,16 @@ def vintage_map(vint, obs, srcs, win, res, epsg, cfg, rep):
     return V, out
 
 
-def _solid_z(obs, srcs, order):
-    """First finite solid value among the named sources, in order."""
+def _solid_z(obs, srcs, order, shape):
+    """First finite solid value among the named sources, in order (all NaN where none of them is in the box: a box of
+    open water has no lidar at all, and None here crashed the beach rule on 21 of the bay's 48 boxes, run2)."""
     z = None
     for n in order:
         o = obs.get(n)
         if o is None: continue
         zk = o["z_g"] if "z_g" in o else o["z"]
         z = zk.copy() if z is None else np.where(np.isfinite(z), z, zk)
-    return z
+    return np.full(shape, np.nan, np.float32) if z is None else z
 
 
 def _floodplain(p, obs, srcs, byname, win, res, epsg):
@@ -341,7 +342,7 @@ def _floodplain(p, obs, srcs, byname, win, res, epsg):
     idx = ndimage.distance_transform_edt(~seed, return_distances=False, return_indices=True); eta_near = eta[idx[0], idx[1]]
     sv = p.get("survey"); S = obs.get(sv) if sv else None
     lid = [s.name for s in sorted((s for s in srcs if s.kind == "lidar" and np.isfinite(s.date)), key=lambda s: -s.date)]
-    zb = _solid_z(obs, srcs, ([sv] if sv else []) + [n for n in lid if n != sv] + [s.name for s in srcs if s.name != sv and s.name not in lid])
+    zb = _solid_z(obs, srcs, ([sv] if sv else []) + [n for n in lid if n != sv] + [s.name for s in srcs if s.name != sv and s.name not in lid], chan.shape)
     hand = zb - eta_near
     if S is not None:
         veg = S["zmax"] - S["z_g"]
@@ -370,7 +371,7 @@ def _beach(p, obs, srcs, byname, win, res, epsg):
     """Sea-connected ground (the water layer's sea raster, dilated) below zmax_m: one survey, steps allowed."""
     sea = np.isfinite(read_to(p["sea"], win, res, epsg))
     lid = [s.name for s in srcs if s.kind == "lidar"]
-    zb = _solid_z(obs, srcs, ([p["survey"]] if p.get("survey") else []) + lid)
+    zb = _solid_z(obs, srcs, ([p["survey"]] if p.get("survey") else []) + lid, sea.shape)
     it = max(1, int(round(p.get("dilate_m", 20.0) / res)))
     # the band of sea-connected GROUND: within dilate_m of the sea, lidar ground below zmax_m, and not the sea itself
     # (the open bay is no beach: 78 km2 of 'beach' over the full box before this)
