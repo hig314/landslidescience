@@ -7160,6 +7160,7 @@
             _applyLandslideFilter(map, hideAll);
             _swipeFilter = hideAll;   // so a swipe map enabled later doesn't resurrect the old filter
             _swipeSetFilter(hideAll);
+            if (typeof LSAnalysis !== 'undefined') LSAnalysis.onFilter();
             updateHistogram();
             updateTimeline();
             scheduleSidebarCountUpdate();
@@ -7248,7 +7249,7 @@
         updateTimeline();
         scheduleSidebarCountUpdate();
         updateSuscCount();
-        if (typeof LSAnalysis !== 'undefined') LSAnalysis.onFilter();   // lw x n10 box follows the sliders
+        if (typeof LSAnalysis !== 'undefined') LSAnalysis.onFilter();   // the panel follows the filter; lw x n10 box follows the sliders
         writeUrlState();
     }
 
@@ -7351,6 +7352,36 @@
     // visible edge. That errs toward counting — the failure mode that
     // motivated this rewrite was queryRenderedFeatures collapsing to near
     // zero — and it never drops a point that is actually on screen.
+    // The landslide filter expression evaluated in JS, for the analysis panel:
+    // the ops buildFilter and _ftExpressions emit (all any ! in == != >= <=
+    // coalesce get literal case), with MapLibre's semantics for them. A new op
+    // in buildFilter must be added here, or the panel throws on it.
+    function _exprEval(e, p) {
+        if (!Array.isArray(e)) return e;
+        var op = e[0], i, v;
+        switch (op) {
+        case 'literal':  return e[1];
+        case 'get':      v = p[e[1]]; return v === undefined ? null : v;
+        case 'all':      for (i = 1; i < e.length; i++) if (!_exprEval(e[i], p)) return false; return true;
+        case 'any':      for (i = 1; i < e.length; i++) if (_exprEval(e[i], p)) return true; return false;
+        case '!':        return !_exprEval(e[1], p);
+        case 'coalesce': for (i = 1; i < e.length; i++) { v = _exprEval(e[i], p); if (v != null) return v; } return null;
+        case 'case':
+            for (i = 1; i + 1 < e.length; i += 2) if (_exprEval(e[i], p)) return _exprEval(e[i + 1], p);
+            return _exprEval(e[e.length - 1], p);
+        case 'in': {
+            var needle = _exprEval(e[1], p), hay = _exprEval(e[2], p);
+            if (hay == null) return false;
+            return (typeof hay === 'string') ? hay.indexOf(String(needle)) >= 0 : hay.indexOf(needle) >= 0;
+        }
+        case '==': return _exprEval(e[1], p) === _exprEval(e[2], p);
+        case '!=': return _exprEval(e[1], p) !== _exprEval(e[2], p);
+        case '>=': return _exprEval(e[1], p) >= _exprEval(e[2], p);
+        case '<=': return _exprEval(e[1], p) <= _exprEval(e[2], p);
+        }
+        throw new Error('_exprEval: unsupported op ' + op);
+    }
+
     function makeViewportTest() {
         var b = map.getBounds();
         var west = b.getWest(), east = b.getEast();
@@ -7418,6 +7449,7 @@
         updateSidebarCounts();
         updateHistogram();
         updateTimeline();
+        if (typeof LSAnalysis !== 'undefined') LSAnalysis.onLimitView();   // its header box, and the sample is put away
         writeUrlState();
     });
 
@@ -9811,7 +9843,19 @@
             makePanel: makeFloatingPanel,
             features: function () { return _featuresData; },
             values: function () { return _suscValuesPromise; },
-            inView: function () { return (cbLimitView && cbLimitView.checked) ? makeViewportTest() : null; },
+            // The map's filter, tested in JS against the same expression the
+            // layers draw with (one decision path: _exprEval below).
+            passes: function (ft) { return !_swipeFilter || !!_exprEval(_swipeFilter, ft.properties || {}); },
+            // "Limit counts to map view": one checkbox, mirrored in the panel
+            // header; a change from either place goes through its listener.
+            limitView: {
+                get: function () { return !!(cbLimitView && cbLimitView.checked); },
+                set: function (on) {
+                    if (!cbLimitView || cbLimitView.checked === !!on) return;
+                    cbLimitView.checked = !!on;
+                    cbLimitView.dispatchEvent(new Event('change'));
+                }
+            },
             axes: function () {
                 return OVERLAYS.filter(function (ov) { return ov.values; }).map(function (ov) {
                     return { ov: ov.id, key: ov.values.key, fine: ov.values.fine || null, label: ov.label,

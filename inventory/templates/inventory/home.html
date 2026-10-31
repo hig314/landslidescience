@@ -491,14 +491,15 @@
           <select id="an-y"></select></label>
         <label class="an-grid" title="Coarsen both plots together: each step merges 2×2 of the cells below it, so the terrain density and the landslide grid stay on one scale.">grid
           <input type="range" id="an-grid" min="0" max="0" step="1" value="0"><span id="an-gridv">1×</span></label>
-        <label class="an-axis" title="The landslide plot: each landslide as a point at its own values; or per cell, as a count or as landslides per 1000 km² of terrain with those values. With a sample set, the landslides inside it are always drawn as points.">slides
+        <label class="an-axis" title="The landslide plot: each landslide as a point at its own values; or per cell, as a count or as landslides per 1000 km² of terrain with those values. With a sample or the map view, only the landslides in it, over its terrain.">slides
           <select id="an-ls">
             <option value="points" selected>points</option>
             <option value="count">count / cell</option>
             <option value="prop">per 1000 km²</option>
           </select></label>
-        <button type="button" id="an-sample" title="Sample tool: a circle of this radius follows the cursor over the map; each click reads every cell inside it onto the terrain plot (60 m where both axes have value archives, else the 1 km cells) and draws the landslides inside it as points. Click again, or Esc, to put the tool away.">&#9678; Sample</button>
+        <button type="button" id="an-sample" title="Sample tool: a circle of this diameter follows the cursor over the map; each click makes the 1 km cells inside it (outlined on the map) the subset: their terrain in orange on the terrain plot, their landslides on the landslide plot, counted over their terrain. Turns “map view” off. Click again, or Esc, to put the tool away.">&#9678; Sample</button>
         <span class="pf-unit" title="Sample diameter">&#8960;</span><input type="number" id="an-radius" min="1" max="100" step="1" value="20" title="Sample diameter, km (the circle is this wide)"><span class="pf-unit">km</span>
+        <label class="an-axis" title="Count only the landslides and terrain in the current map view (whole 1 km cells; the same box as “Limit counts to map view” on the Inventory tab). Exclusive with the sample: checking it puts the sample away, and turning the sample on unchecks it."><input type="checkbox" id="an-limit"> map view</label>
         <button type="button" id="an-pf" style="display:none" title="The permafrost patch plots for this sample: the published 1 km cells and the 60 m downscale against elevation, with the fitted lapse and curve.">Permafrost detail</button>
         <label class="an-axis" title="Paint the map where the ground's two values fall inside the brush box (needs 60 m value archives on both axes: elevation, slope, aspect, northness and the four permafrost downscales). Shows from zoom 8."><input type="checkbox" id="an-paint" checked> paint map</label>
         <span id="an-count"></span>

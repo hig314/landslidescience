@@ -561,6 +561,7 @@ body.inv-article-body {
 #pf-patch-float .pf-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .pf-header select, .pf-header input { font-size: 11px; padding: 1px 3px; }
 .pf-header input#an-radius { width: 42px; }
+.an-header #an-sample.an-dim { opacity: 0.45; }   /* the map-view subset is on; a click turns the sample on instead */
 .pf-header .pf-unit { margin-left: -3px; color: #777; }
 .pf-header button { font-size: 11px; padding: 1px 7px; border: 1px solid #ccc; border-radius: 3px; background: #fff; cursor: pointer; color: #444; }
 .pf-header button:hover { background: #f0ebe9; }

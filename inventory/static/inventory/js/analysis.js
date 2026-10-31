@@ -6,8 +6,8 @@
  *   TERRAIN    the joint density of the pair over every land cell of a 1 km
  *              EPSG:3338 lattice, point-sampled from the native product
  *              (api/analysis/density/, the quantity cube in
- *              inventory/analysis.py), as a log backdrop -- with the sample's
- *              cells on it as the orange blotch.
+ *              inventory/analysis.py), as a log backdrop -- with the
+ *              subset's cells on it in orange.
  *   LANDSLIDES every landslide at its own values (ls_quantities.json,
  *              tools/analysis/sample_quantities.py) as points, or per cell
  *              as a count or as landslides per 1000 km² of terrain with those
@@ -33,16 +33,27 @@
  * to the first, and an overlay turned on replaces the pane's previous one
  * (Hig, 2026-10-10).
  *
+ * SUBSETS (Hig, 2026-10-31): the reviewed area (api/analysis/reviewed/)
+ * always; the map's filters (opts.passes, the same expression the map draws
+ * with); and at most one of LIMIT TO MAP VIEW (the Inventory tab's checkbox,
+ * mirrored in the header) or the SAMPLE -- exclusive: checking the box puts
+ * the sample away and dims its button, arming the sample unchecks the box.
+ * A subset is a set of whole 1 km cells (a cell is in when its centre is,
+ * a landslide when its centroid's cell is), read by the server with the
+ * landslides in it, so a rate's numerator and denominator share one
+ * footprint: the landslide plot counts the subset's landslides over the
+ * subset's terrain, and the terrain plot shows the subset in orange over
+ * all of the reviewed area in blue. A sample's counted cells are outlined
+ * on the map (an-cells), so the blockiness of what was counted is visible.
+ *
  * SAMPLE: the ◎ button is a tool. While it is on, a ghost of the circle
  * follows the cursor over the map at the chosen radius; every click sets
  * the sample there (LSSample), and the tool stays on so the next click
  * moves it; turning the tool off (or closing the panel) removes the sample
- * and its highlights. The circle's cells light up on the terrain plot -- the 60 m
- * value archives where both axes have them, else the cube's lattice
- * cells -- with a median / range summary in the footer, and the landslides
- * inside the circle are drawn on the landslide plot as points whatever the
- * landslide layer mode (over the grid, with hover and click), and ringed on
- * the map. With permafrost products on both axes a "Permafrost detail"
+ * and its highlights. The circle is a subset (above): its 1 km cells are
+ * the orange on the terrain plot, with a median / range summary in the
+ * footer, the landslide plot is its landslides, and they are ringed on the
+ * map. With permafrost products on both axes a "Permafrost detail"
  * button opens the four-plot patch panel (permafrost.js).
  *
  * BRUSH: click either plot for a small box around the click (+/- BRUSH_FRAC
@@ -89,11 +100,12 @@ window.LSAnalysis = (function () {
   var SLIDER_KEYS = ['lw', 'n10'];
   var DEFAULT = ['lw', 'n10'];
   var HL = 'an-highlight', MIN_BINS = 4;
-  // The paint is the sample's orange: map -> plot is the orange blotch, plot
+  // The paint is the sample's orange: map -> plot is the orange subset, plot
   // -> map is the orange paint (Hig, 2026-10-10), drawn on top of every
   // data layer so it reads over any overlay.
   var PAINT = 'an-paint', PAINT_RGBA = [255, 143, 0, 150], PAINT_MINZ = 8;
   var SAMPLE_LAYERS = ['ls-sample-fill', 'ls-sample-line', 'ls-sample-ghost-fill', 'ls-sample-ghost'];
+  var CELLS = 'an-cells';   // the sample's counted 1 km cells, outlined on the map
   var BRUSH_FRAC = 0.05;   // a click on the plot brushes +/- this much of each axis
 
   var map = null, o = {}, el = {}, fp = null;
@@ -106,7 +118,7 @@ window.LSAnalysis = (function () {
   var X = null, Y = null, lsMode = 'points', level = 0;
   var densCache = {}, dens = null, densSeq = 0;
   var brush = null;                             // {x0, x1, y0, y1} in value space
-  var blotch = null, blotchSeq = 0;             // the sample on the current axes
+  var sub = null, subSeq = 0, subTimer = null;  // the subset (view or sample) on the current axes: the density response + idset
   var P = null;                                 // the drawn plot: {d, qx, qy, panes:[{sx,sy,...}], pts, tg, lg, f}
   var syncing = false, pendingState = null, _hl = [];
   var paintOn = true, paintSeq = 0, paintSpec = null;   // {fx, fy, box} read by the protocol; null = nothing to paint
@@ -117,7 +129,7 @@ window.LSAnalysis = (function () {
     o = opts; map = opts.map;
     var panel = document.getElementById('an-float'); if (!panel) return;
     el.panel = panel;
-    ['x', 'y', 'ls', 'grid', 'gridv', 'sample', 'radius', 'paint', 'count', 'pf', 'clear', 'close', 'body', 'heat', 'svg', 'foot', 'note'].forEach(function (k) {
+    ['x', 'y', 'ls', 'grid', 'gridv', 'sample', 'radius', 'limit', 'paint', 'count', 'pf', 'clear', 'close', 'body', 'heat', 'svg', 'foot', 'note'].forEach(function (k) {
       el[k] = panel.querySelector('#an-' + k);
     });
     el.tip = document.createElement('div'); el.tip.className = 'pf-tip'; el.body.appendChild(el.tip);
@@ -132,8 +144,9 @@ window.LSAnalysis = (function () {
     el.grid.addEventListener('input', function () { setLevel(+el.grid.value, true); });
     el.sample.addEventListener('click', function (e) {
       e.preventDefault();
-      if (LSSample.isArmed()) LSSample.disarm(); else LSSample.arm(radius());
+      if (LSSample.isArmed()) LSSample.disarm(); else LSSample.arm(radius());   // arming unchecks the view box (onArm)
     });
+    if (el.limit) el.limit.addEventListener('change', function () { if (o.limitView) o.limitView.set(el.limit.checked); });
     // A new radius re-reads an existing sample in place and sizes the ghost.
     el.radius.addEventListener('change', function () {
       var r = radius(); LSSample.setRadius(r);
@@ -156,7 +169,15 @@ window.LSAnalysis = (function () {
       });
     });
     LSSample.on(onSample);
-    LSSample.init({ map: map, apiBase: o.apiBase, onArm: function (on) { el.sample.classList.toggle('active', on); } });
+    LSSample.init({ map: map, apiBase: o.apiBase, onArm: function (on) {
+      el.sample.classList.toggle('active', on);
+      if (on && limitOn()) o.limitView.set(false);    // the two subsets are exclusive
+    } });
+    // The view subset follows the map.
+    map.on('moveend', function () {
+      if (subsetKind() !== 'view' || !fp || !fp.isOpen()) return;
+      clearTimeout(subTimer); subTimer = setTimeout(loadSubset, 250);
+    });
     map.on('style.load', function () { ensureLayers(map); });
     if (map.isStyleLoaded()) ensureLayers(map);
 
@@ -219,8 +240,8 @@ window.LSAnalysis = (function () {
     if (x === X && y === Y) { if (how.push) pushWiper(); return; }
     X = x; Y = y;
     if (el.x) { el.x.value = X; el.y.value = Y; }
-    brush = null; blotch = null;
-    loadDensity(); refreshBlotch(); syncGrid(); draw(); syncSlidersToBrush(); updatePaint();
+    brush = null; sub = null;
+    loadDensity(); loadSubset(); syncGrid(); draw(); syncSlidersToBrush(); updatePaint();
     if (how.push) pushWiper();
     o.onChange();
     window.LSTrack && LSTrack.event('explore_chart', { chart: 'analysis', x: X, y: Y });
@@ -289,10 +310,11 @@ window.LSAnalysis = (function () {
     if (fp.isOpen()) {
       if (!adoptWiper() && !X) setAxes(DEFAULT[0], DEFAULT[1], {});
       pushWiper();           // show the two quantities on the map (creates the wiper if needed)
-      draw();
+      syncLimit(); loadSubset(); draw();
     } else {
       LSSample.disarm();     // takes the sample with it
       highlight([]);         // and the brush's rings on the map
+      outline(null);
     }
     updatePaint();           // the paint shows only while the panel is open
     o.onChange();
@@ -316,21 +338,42 @@ window.LSAnalysis = (function () {
     var row = lsv.values[String(id)], i = kidx[key];
     return (row && i != null) ? row[i] : null;
   }
-  // The sample's values on the current axes.
-  function refreshBlotch() {
-    var c = LSSample.get(), my = ++blotchSeq;
-    blotch = null;
-    if (!c || !X || !Y) return;
-    var fx = byKey[X] && byKey[X].fine, fy = byKey[Y] && byKey[Y].fine;
-    var p = (fx && fy)
-      ? LSSample.fine([fx, fy]).then(function (r) { return r && { x: r[fx], y: r[fy], n: r.n, fine: true }; })
-      : LSSample.cells([X, Y]).then(function (r) { return r && !r.error && { x: r[X], y: r[Y], n: r.n, fine: false }; });
-    p.then(function (b) { if (my !== blotchSeq) return; blotch = b; draw(); }).catch(function () {});
+  // ---- the subset ------------------------------------------------------------------------
+  function limitOn() { return !!(o.limitView && o.limitView.get()); }
+  function subsetKind() { return LSSample.get() ? 'sample' : limitOn() ? 'view' : null; }
+  // The view box and the sample button: the box is mirrored from the
+  // Inventory tab; while it is on, the sample is put away and its button dims.
+  function syncLimit() {
+    var on = limitOn();
+    if (el.limit) el.limit.checked = on;
+    if (el.sample) el.sample.classList.toggle('an-dim', on);
+  }
+  // map.js calls this when the Inventory tab's checkbox changes (either place).
+  function onLimitView() {
+    syncLimit();
+    if (limitOn()) LSSample.disarm();
+    loadSubset(); draw(); o.onChange();
+  }
+  // The subset's terrain density, landslides and outline, from the server.
+  function loadSubset() {
+    var k = subsetKind(), my = ++subSeq;
+    if (sub && sub.subset && sub.subset.kind !== (k === 'sample' ? 'circle' : k)) sub = null;
+    if (!k || !X || !Y || !fp || !fp.isOpen()) { sub = null; outline(null); return; }
+    var arg;
+    if (k === 'view') { var b = map.getBounds(); arg = 'view=' + [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(function (v) { return v.toFixed(4); }).join(','); }
+    else { var c = LSSample.get(); arg = 'circle=' + c.lon.toFixed(5) + ',' + c.lat.toFixed(5) + ',' + c.r; }
+    fetch(o.apiBase + 'api/analysis/density/?x=' + X + '&y=' + Y + '&' + arg).then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (my !== subSeq) return;
+        if (j.error) { cubeError = j.error; draw(); return; }
+        j.idset = {}; j.subset.ids.forEach(function (id) { j.idset[id] = true; });
+        sub = j; outline(k === 'sample' ? j.subset.outline : null); draw();
+      }).catch(function () {});
   }
   function onSample() {
     var c = LSSample.get();
     if (c && el.radius && Math.abs(parseFloat(el.radius.value) - 2 * c.r) > 0.01) el.radius.value = 2 * c.r;   // a sample from the URL
-    refreshBlotch(); draw(); o.onChange();
+    loadSubset(); draw(); o.onChange();
   }
 
   // ---- geometry ------------------------------------------------------------------------
@@ -416,16 +459,19 @@ window.LSAnalysis = (function () {
     var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, d.W, d.H);
 
     // the landslides on this plane (pixel positions in the landslide pane)
-    var pts = [], fd = o.features ? o.features() : null, test = o.inView ? o.inView() : null;
-    var lsRaw = new Float64Array(nx * ny), B = panes[1], nOut = 0;
-    if (lsv && fd && fd.features) {
+    // Counted: passes the map's filters, and is in the subset (by its cell,
+    // from the server) or, with no subset, in the reviewed area.
+    var kind = subsetKind(), subOk = !kind || !!(sub && sub.idset);
+    var pts = [], fd = o.features ? o.features() : null;
+    var lsRaw = new Float64Array(nx * ny), B = panes[1], nOut = 0, nFilt = 0;
+    if (lsv && fd && fd.features && subOk) {
       fd.features.forEach(function (ft) {
         var id = ft.properties.landslide_id != null ? ft.properties.landslide_id : ft.properties.id;
-        if (outside && outside[id]) { nOut++; return; }
+        if (kind ? !sub.idset[id] : (outside && outside[id])) { if (!kind) nOut++; return; }
+        if (o.passes && !o.passes(ft)) { nFilt++; return; }
         var vx = lsVal(id, X), vy = lsVal(id, Y);
         if (vx == null || vy == null) return;
         var c = ft.geometry && ft.geometry.coordinates;
-        if (test && c && !test(c[0], c[1])) return;
         var px = pos(qx, vx), py = pos(qy, vy);
         if (px == null || py == null) return;
         var xi = Math.min(nx - 1, Math.max(0, Math.floor((px - qx.min) / (qx.max - qx.min) * nx)));
@@ -437,25 +483,34 @@ window.LSAnalysis = (function () {
       });
     }
     var haveDens = dens && dens.xsize === nx && dens.ysize === ny;
-    var tg = haveDens ? coarsen(dens.grid, nx, ny, level) : null;      // terrain, merged
+    var tAll = haveDens ? coarsen(dens.grid, nx, ny, level) : null;    // terrain, merged: all the reviewed area
+    var haveSub = kind && sub && sub.xsize === nx && sub.ysize === ny;
+    var tSub = haveSub ? coarsen(sub.grid, nx, ny, level) : null;     // ... and the subset
+    var tg = kind ? tSub : tAll;                                       // the denominator
     var lg = coarsen(lsRaw, nx, ny, level);                              // landslides, merged
     var grid = lsMode !== 'points', i, xi, yi, r;
 
     // pane 0: the terrain density, log blues -- and a faint copy of it under
     // the landslide pane, so the two read against the same ground.
+    // With a subset the faint copy under the landslides is the SUBSET's
+    // terrain (the denominator actually used), and the subset is drawn over
+    // the terrain pane in orange.
     var tMax = 0;
-    if (tg) {
-      for (i = 0; i < tg.g.length; i++) if (tg.g[i] > tMax) tMax = tg.g[i];
-      var lmax = Math.log(tMax + 1);
+    var logPaint = function (g, pane, alpha, color) {
+      var mx = 0, j; for (j = 0; j < g.g.length; j++) if (g.g[j] > mx) mx = g.g[j];
+      var lm = Math.log(mx + 1);
       for (yi = 0; yi < cny; yi++) for (xi = 0; xi < cnx; xi++) {
-        var tv = tg.g[yi * cnx + xi]; if (!tv) continue;
-        ctx.fillStyle = blues(Math.log(tv + 1) / lmax);
-        r = panes[0].cell(xi, yi); ctx.fillRect(r[0], r[1], r[2], r[3]);
-        ctx.globalAlpha = 0.28;
-        r = panes[1].cell(xi, yi); ctx.fillRect(r[0], r[1], r[2], r[3]);
-        ctx.globalAlpha = 1;
+        var tv = g.g[yi * cnx + xi]; if (!tv) continue;
+        var t = Math.log(tv + 1) / lm;
+        if (color) { ctx.globalAlpha = 0.25 + 0.7 * t; ctx.fillStyle = color; } else { ctx.globalAlpha = alpha; ctx.fillStyle = blues(t); }
+        r = panes[pane].cell(xi, yi); ctx.fillRect(r[0], r[1], r[2], r[3]);
       }
-    }
+      ctx.globalAlpha = 1;
+      return mx;
+    };
+    if (tAll) tMax = logPaint(tAll, 0, 1);
+    if (tg) logPaint(tg, 1, 0.28);
+    if (tSub) logPaint(tSub, 0, 1, 'rgb(255,143,0)');
     // pane 1: the landslide grid. A merged cell's count is the sum of its
     // raw cells' counts and its terrain the sum of their km², so the rate
     // (count / km² x 1000) is the area-weighted mean of the raw rates with
@@ -481,24 +536,11 @@ window.LSAnalysis = (function () {
         ctx.fillRect(r[0], r[1], r[2], r[3]);
       }
     }
-    // the sample, on the terrain pane
-    if (blotch && blotch.x) {
-      var A = panes[0];
-      ctx.fillStyle = blotch.fine ? COLOR.patch : COLOR.patchDot;
-      for (i = 0; i < blotch.x.length; i++) {
-        var bx = blotch.x[i], by = blotch.y[i];
-        if (bx == null || by == null || isNaN(bx) || isNaN(by)) continue;
-        var ppx = pos(qx, bx), ppy = pos(qy, by); if (ppx == null || ppy == null) continue;
-        if (blotch.fine) ctx.fillRect(A.sx(ppx) - 1, A.sy(ppy) - 1, 2, 2);
-        else { ctx.beginPath(); ctx.arc(A.sx(ppx), A.sy(ppy), 2.5, 0, 6.283); ctx.fill(); }
-      }
-    }
-
     // svg: frames, ticks, labels, points, brush
     var svg = el.svg; while (svg.firstChild) svg.removeChild(svg.firstChild);
-    var sampled = !!LSSample.get();
-    var titles = ['Terrain · km² per cell', 'Landslides · ' + (lsMode === 'points' ? 'points' : lsMode === 'count' ? 'count per cell' : 'per 1000 km²') +
-                  (grid && sampled ? ' · sample as points' : '')];
+    var sampled = kind === 'sample', where = kind === 'sample' ? 'the sample' : 'the map view';
+    var titles = ['Terrain · km² per cell' + (kind ? ' · orange: ' + where : ''),
+                  'Landslides · ' + (lsMode === 'points' ? 'points' : lsMode === 'count' ? 'count per cell' : 'per 1000 km²') + (kind ? ' · in ' + where : '')];
     panes.forEach(function (p, pi) {
       svg.appendChild(svgEl('rect', { x: p.x0, y: p.y0, width: d.w, height: d.h, fill: 'none', stroke: '#ddd' }));
       txt(svg, titles[pi], p.x0, p.y0 - 6, 'start', '#555');
@@ -516,15 +558,15 @@ window.LSAnalysis = (function () {
     yl.setAttribute('transform', 'rotate(-90 10 ' + (d.panes[0].y0 + d.h / 2) + ')');
     txt(svg, 'click either plot for a small brush, drag for any box · drag the header to move · grab the corner to resize', d.W / 2, d.H - 3, 'middle', '#bbb');
 
-    // points: all of them in points mode; in the grid modes only the sample's,
-    // as points over the grid (Hig, 2026-10-10) -- the grid itself is unchanged.
-    var hl = [], inSample = 0, drawn = [];
+    // points in points mode; in the grid modes, rings for the brushed ones.
+    // Every point is in the subset now, so a sample's landslides are all of
+    // them (and are ringed on the map).
+    var hl = [], drawn = [];
     pts.forEach(function (p) {
       var inB = brush && p.vx >= brush.x0 && p.vx <= brush.x1 && p.vy >= brush.y0 && p.vy <= brush.y1;
-      var inS = p.lon != null && LSSample.inside(p.lon, p.lat);
-      if (inS) inSample++;
+      var inS = sampled;
       if (inB || inS) hl.push(p);
-      if (!grid || inS) {
+      if (!grid) {
         svg.appendChild(svgEl('circle', { cx: p.x, cy: p.y, r: (inB || inS) ? 4 : 3, fill: COLOR[p.type], 'fill-opacity': grid ? 0.95 : 0.8,
                                           stroke: (inB || inS) ? COLOR.ring : '#fff', 'stroke-width': (inB || inS) ? 1.5 : 0.6 }));
         drawn.push(p);
@@ -545,7 +587,7 @@ window.LSAnalysis = (function () {
     el.clear.classList.toggle('disabled', !brush);
     el.pf.style.display = (sampled && PF_KEYS.indexOf(X) >= 0 && PF_KEYS.indexOf(Y) >= 0) ? '' : 'none';
     // count + notes
-    var msg = pts.length ? pts.length + ' landslides' : (lsv ? 'no values' : 'loading…');
+    var msg = (kind && !haveSub) ? 'reading…' : pts.length ? pts.length + ' landslides' : (lsv ? (kind ? 'no landslides' : 'no values') : 'loading…');
     if (hl.length) msg += ' · ' + hl.length + ' selected';
     el.count.textContent = msg;
     var note = cubeError ? cubeError : (dens ? '' : (quantities && !q(X) || quantities && !q(Y) ? 'no terrain density for this pair on this server' : ''));
@@ -559,9 +601,10 @@ window.LSAnalysis = (function () {
                           (lsv.built ? ' ' + lsv.built.slice(0, 10) : '') + ') — tools/analysis/sample_quantities.py --centroids';
     if (nOut) note += (note ? ' · ' : '') + nOut + ' landslide' + (nOut === 1 ? '' : 's') + ' outside the reviewed area' +
                       (rvCells ? ' (' + rvCells.toLocaleString() + ' km² of land)' : '') + ' not counted';
+    if (nFilt) note += (note ? ' · ' : '') + nFilt + ' hidden by the map’s filters';
     if (brush && !canPaint()) note += (note ? ' · ' : '') + 'the box paints the map only where both axes have 60 m value archives';
     el.note.textContent = note;
-    foot(qx, qy, tMax, lBins, inSample, noTerrain);
+    foot(qx, qy, tMax, lBins, pts.length, noTerrain, kind, haveSub);
   }
   // Ticks for an axis `px` pixels long: about one label per 55 px, so a
   // narrow panel thins them rather than overprinting; a class axis keeps
@@ -585,7 +628,7 @@ window.LSAnalysis = (function () {
       return '<span class="leg-tick" style="left:' + (t.at * 100).toFixed(2) + '%"><i></i>' + t.label + '</span>';
     }).join('') + '</div></div>';
   }
-  function foot(qx, qy, tMax, lBins, inSample, noTerrain) {
+  function foot(qx, qy, tMax, lBins, nLs, noTerrain, kind, haveSub) {
     var html = '';
     if (tMax) {   // the terrain's log scale, as a gradient from 1 km² to the fullest cell; ticks at the decades
       var n = 6, stops = [], ticks = [], lm = Math.log(tMax + 1);
@@ -612,27 +655,25 @@ window.LSAnalysis = (function () {
               ' · ' + qy.label.replace(/ \(.*\)$/, '') + ' ' + fmtV(qy, brush.y0) + '–' + fmtV(qy, brush.y1) + (qy.units ? ' ' + qy.units : '') +
               (paintOn && canPaint() ? ' · painted on the map from zoom ' + PAINT_MINZ : '') + '</div>';
     }
-    var c = LSSample.get();
-    if (c) {
-      var s = 'Sample ⌀ ' + (2 * c.r) + ' km at ' + c.lat.toFixed(3) + ' N ' + (-c.lon).toFixed(3) + ' W';
-      if (blotch && blotch.x) {
-        s += ' · ' + blotch.n + (blotch.fine ? ' cells at 60 m' : ' cells at 1 km') +
-             ' · ' + summary(qx, blotch.x) + ' · ' + summary(qy, blotch.y) + ' · ' + inSample + ' landslide' + (inSample === 1 ? '' : 's') + ' inside';
+    if (kind) {
+      var c = LSSample.get();
+      var s = kind === 'sample' ? 'Sample ⌀ ' + (2 * c.r) + ' km at ' + c.lat.toFixed(3) + ' N ' + (-c.lon).toFixed(3) + ' W' : 'Map view';
+      if (haveSub) {
+        var st = sub.subset.stats;
+        s += ' · ' + sub.subset.cells.toLocaleString() + ' km² of land (1 km cells' + (kind === 'sample' ? ', outlined on the map' : '') + ')' +
+             ' · ' + summary(qx, st.x) + ' · ' + summary(qy, st.y) + ' · ' + nLs + ' landslide' + (nLs === 1 ? '' : 's');
       } else s += ' · reading…';
       html += '<div class="an-sample">' + s + '</div>';
     }
     el.foot.innerHTML = html;
     el.foot.style.display = html ? '' : 'none';
   }
-  function summary(ax, vals) {
-    var v = []; for (var i = 0; i < vals.length; i++) { var t = vals[i]; if (t != null && !isNaN(t)) v.push(t); }
-    if (!v.length) return ax.label + ': none';
-    v.sort(function (a, b) { return a - b; });
-    var at = function (f) { return v[Math.min(v.length - 1, Math.floor(f * v.length))]; };
-    if (ax.classes) return ax.label + ' mode ' + fmtV(ax, mode(v));
-    return ax.label.replace(/ \(.*\)$/, '') + ' median ' + fmtV(ax, at(0.5)) + ' (' + fmtV(ax, at(0.1)) + '–' + fmtV(ax, at(0.9)) + ')' + (ax.units ? ' ' + ax.units : '');
+  function summary(ax, st) {
+    var name = ax.label.replace(/ \(.*\)$/, '');
+    if (!st) return name + ': none';
+    if (st.mode != null) return name + ' mode ' + fmtV(ax, st.mode);
+    return name + ' median ' + fmtV(ax, st.p50) + ' (' + fmtV(ax, st.p10) + '–' + fmtV(ax, st.p90) + ')' + (ax.units ? ' ' + ax.units : '');
   }
-  function mode(v) { var c = {}, best = v[0], bn = 0; v.forEach(function (t) { c[t] = (c[t] || 0) + 1; if (c[t] > bn) { bn = c[t]; best = t; } }); return best; }
 
   // ---- the map layers: the brush's rings and its paint, on both panes --------------------------
   function maps() { var sm = o.swipeMap ? o.swipeMap() : null; return sm ? [map, sm] : [map]; }
@@ -647,6 +688,9 @@ window.LSAnalysis = (function () {
       m.addLayer({ id: PAINT, type: 'raster', source: PAINT, layout: { visibility: paintSpec ? 'visible' : 'none' },
                    paint: { 'raster-opacity': 1, 'raster-resampling': 'nearest', 'raster-fade-duration': 0 } });
     } else m.moveLayer(PAINT);
+    if (!m.getSource(CELLS)) m.addSource(CELLS, { type: 'geojson', data: _cells });
+    if (!m.getLayer(CELLS)) m.addLayer({ id: CELLS, type: 'line', source: CELLS, paint: { 'line-color': '#ff8f00', 'line-width': 1.2 } });
+    else m.moveLayer(CELLS);
     SAMPLE_LAYERS.forEach(function (id) { if (m.getLayer(id)) m.moveLayer(id); });
     if (!m.getSource(HL)) m.addSource(HL, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     if (!m.getLayer(HL)) {
@@ -656,6 +700,11 @@ window.LSAnalysis = (function () {
     highlight(_hl);
   }
   function onLayers(m) { ensureLayers(m); updatePaint(); }
+  var _cells = { type: 'FeatureCollection', features: [] };
+  function outline(fc) {
+    _cells = fc || { type: 'FeatureCollection', features: [] };
+    maps().forEach(function (m) { if (m.getSource(CELLS)) m.getSource(CELLS).setData(_cells); });
+  }
   function highlight(pts) {
     _hl = pts;
     var fc = { type: 'FeatureCollection', features: pts.filter(function (p) { return p.lon != null; }).map(function (p) {
@@ -812,7 +861,8 @@ window.LSAnalysis = (function () {
   }
   // map.js buildFilter: the sliders moved; mirror them into the box.
   function onFilter() {
-    if (!sliderAxes() || syncing || !fp || !fp.isOpen()) return;
+    if (!fp || !fp.isOpen()) return;
+    if (!sliderAxes() || syncing) { draw(); return; }   // the landslides counted follow the map's filter
     var s = o.sliders.get(); if (!s) return;
     var lx = s[X], ly = s[Y];
     var active = lx.lo > lx.min || lx.hi < lx.max || ly.lo > ly.min || ly.hi < ly.max;
@@ -880,5 +930,5 @@ window.LSAnalysis = (function () {
   function keys() { return X && Y ? [X, Y] : null; }
 
   return { init: init, panel: panel, openWith: openWith, onOverlays: onOverlays, onFilter: onFilter, onLayers: onLayers,
-           redraw: draw, state: state, setState: setState, keys: keys };
+           onLimitView: onLimitView, redraw: draw, state: state, setState: setState, keys: keys };
 })();

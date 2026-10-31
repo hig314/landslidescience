@@ -505,13 +505,21 @@
 <p>
   <strong>Sample and brush.</strong> The <em>Sample</em> tool shows a
   circle of the chosen diameter (up to 100&nbsp;km) under the cursor as it
-  moves over the map; each click reads the ground inside it onto the
-  terrain plot as an orange cloud &mdash; from 60&nbsp;m value archives
-  where both axes have them, otherwise the lattice cells &mdash; with the
-  median and 10&ndash;90&nbsp;% range of each axis, and the landslides
-  inside the circle are drawn as points on the landslide plot (over the
-  grid, when a grid mode is on) and marked on the map; turning the tool
-  off removes the sample. While the panel is open each side of the wiper
+  moves over the map; each click makes the ground inside it the
+  <em>subset</em>, and turning the tool off removes it. The other subset
+  is the map view (<em>map view</em> in the panel, the same box as
+  <em>Limit counts to map view</em> on the Inventory tab); the two are
+  exclusive. A subset is a set of whole 1&nbsp;km lattice cells &mdash; a
+  cell is in when its centre is, a landslide when its centroid&rsquo;s
+  cell is &mdash; so the landslides counted and the terrain they are
+  counted over share one footprint, and a sample&rsquo;s cells are
+  outlined on the map so the blockiness of that footprint is visible.
+  The subset&rsquo;s terrain is drawn in orange over the whole reviewed
+  area&rsquo;s in blue, with the median and 10&ndash;90&nbsp;% range of
+  each axis; the landslide plot shows only the subset&rsquo;s landslides,
+  and its rate divides them by the subset&rsquo;s terrain. The map&rsquo;s
+  filters (types, classes, ages, sizes, features) also apply to the
+  landslides counted; they do not change the terrain. While the panel is open each side of the wiper
   shows exactly one overlay, and only one that can be an axis &mdash;
   choosing another replaces it and the plot follows. A click on either
   plot brushes a small box around it, a drag any box; the landslides
