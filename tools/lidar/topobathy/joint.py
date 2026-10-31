@@ -778,11 +778,12 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
     ow_pre = {}
     for passno, (k, n) in [(p_, kn_) for p_ in (0, 1) for kn_ in enumerate(names)]:
         others = [m for m in names if m != n]
-        wo = sum(np.where(sup[m], 0, Wt[m]) for m in others)
-        wc = sum((WcB[m] if (S[n].kind == "grid" and S[m].kind == "grid" and S[m].sigma_m <= cfg["grid_better"] * S[n].sigma_m) else Wc[m]) for m in others)
-        zo = sum(np.where(sup[m] | ~np.isfinite(Z[m]), 0, Z[m] * Wt[m]) for m in others)
+        z0 = np.zeros((H, W), np.float32)        # sum()'s start: a box with ONE source has no others (an empty sum is 0)
+        wo = sum((np.where(sup[m], 0, Wt[m]) for m in others), z0)
+        wc = sum(((WcB[m] if (S[n].kind == "grid" and S[m].kind == "grid" and S[m].sigma_m <= cfg["grid_better"] * S[n].sigma_m) else Wc[m]) for m in others), z0)
+        zo = sum((np.where(sup[m] | ~np.isfinite(Z[m]), 0, Z[m] * Wt[m]) for m in others), z0)
         zo = np.where(wo > 0, zo / np.maximum(wo, 1e-12), np.nan)
-        so = sum(np.where(sup[m] | ~np.isfinite(Z[m]), 0, np.nan_to_num(SG[m], nan=1.0) * Wt[m]) for m in others)
+        so = sum((np.where(sup[m] | ~np.isfinite(Z[m]), 0, np.nan_to_num(SG[m], nan=1.0) * Wt[m]) for m in others), z0)
         so = np.where(wo > 0, so / np.maximum(wo, 1e-12), np.nan)
         R, s = local_surface(zo, wc, xs, minw); sR, _ = local_surface(so, wc, xs, minw)
         sk = np.nan_to_num(SG[n], nan=S[n].sigma_m); sR = np.nan_to_num(sR, nan=0)

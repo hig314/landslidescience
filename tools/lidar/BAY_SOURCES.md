@@ -183,3 +183,57 @@ boxes are gated.
    window per box and the units cache shared; the gate's invariant rows only, Grewingk's site rows as a per-box
    list.
 6. One outer-coast box first (Seldovia or Bluff Point) against the v8 patches, then the rest.
+
+## 8. Bay run2 (2026-10-30/31) — Hig's review and the plan
+
+**Run.** 48 boxes on 5ba5174. 27 built first time; 21 edge and open-water boxes crashed in seconds. The first
+cause was `_solid_z` returning None in a box with no lidar (fixed, 250912a). The rerun built 2 more (kj_r2c3,
+kj_r1c2) and exposed two more: the cross-check's `sum()` over no other sources collapsed to a scalar (fixed,
+z0 start), and the water stage writes no bodies when no lidar saw water, which stops the shore stage (open). Gated:
+kj_r4c1 (bed_labelled_land 1857/1151 = Seldovia Lagoon; solid_over_level 98/3 at 59.38243,-151.89133 and
+59.45017,-151.72057), kj_r6c4 (face_sounding_misfit MISSING), kj_r3c0/kj_r4c0 (three water rows MISSING, no water).
+The run log says "ok" for gated boxes: run_box.sh exits 0 when the gate fails (fix after runs).
+
+**Hig's sites and the causes found.**
+- 59.33061,-151.91360: a lake's surface at 10.41 m kept as ground from the Chugachmiut DTM (hydro-flattened). The
+  DTM clean found 0 km2 of flat water: `flat_range` 0.01 m, the lake surface spans ~0.1 m.
+- 59.43963,-151.18614 Upper Hazel (level ~528.6): KBay 2023 classed the lake surface ground at 528.95; Riordan's
+  soundings reach 491 m. Soundings enter only at the fill, so the sea-sheet rule never saw them as a measured bed.
+- 59.81125,-150.96966 upper bay: no solid observation; the tidal lens set the bed at a survey's 4.88 m water surface
+  (above MHHW 4.24) and the shore stage labelled it land: a flat.
+- 59.49045,-151.23921 Lower Hazel: level 90.24, soundings min 61.6 / median 65.9; the fill reached 48.9 between lines.
+- 59.24565,-151.87629: be_mosaic.tif has no data within 100 m (it covers 26 % of its box); the surface there is the
+  3DEP prior. The sea beside it has no bed source: NCEI/OCM/CUDEM end north of it, and our CGOA and CRM copies read
+  nodata there (to check: clipped or land-masked when prepared?).
+- 59.77316,-151.00348 upper bay void: lidars saw water; NCEI (+0.95) and OCM (+0.55) have values but are valid only
+  below MLLW.
+- 59.30840,-151.03540 south coast: near-shore voids filled with square flat plates (coarse grids upsampled).
+
+**Hig's answers (2026-10-31).**
+1. Where no source fills a gap, the surface must still cross it smoothly: no void, no terrace or step (the upper-bay
+   void; the south coast's near-shore voids and plates).
+2. Lakes by hypsometry, not a hard floor: soundings are a sample of the lake's depth distribution. Some of the lake
+   is probably deeper than the deepest sounding, but it is very unlikely that many soundings at ~62 m sit over a
+   true deepest part near 50 m. The fill's depth distribution should match the soundings', with a tail of about
+   the area one more sample would find beyond the deepest.
+3. The ocean is a basin that drops below the land: where no bed source exists, the sea floor still descends from
+   the shore. ArcticDEM will not help there, and it is not hydro-flattened: it interpolates through water.
+4. ArcticDEM (2 m) for mountains and upper-bay tide flats (Hig: decent there, better than Mapterhorn): about equal to
+   IfSAR. Where IfSAR reads lower (less snow) IfSAR is the better reading. Lower quality than lidar but like it in
+   that way. Use its data mask so interpolated surfaces through water never count.
+5. Rerun selectively: first the areas with known or suspected issues, then the boxes that look good (Grewingk) as
+   time permits.
+
+**Plan, in order.**
+1. Edge boxes: commit the one-source fix; a box with no lidar water still gets its sea (compilation bed below MLLW
+   is the sea); the fill bridges every gap smoothly between what is known; and where the sea has no bed source the
+   floor descends from the shore (a basin, not a void and not a plate at the coarse grid's cell).
+2. Water surfaces and lakes: the DTM clean's flat-water test widened to a broad, near-level sheet at a lake's level;
+   soundings count as a measured bed in the sea-sheet rule; the fill's lake interior mapped onto the soundings'
+   depth distribution (rank-preserving), then conditioned to the soundings.
+3. ArcticDEM 2 m mosaic (data mask, count, MAD), a derived ground source below every lidar, calibrated to lidar
+   ground; yields to the 3DEP/IfSAR prior where that is lower by more than the snow tolerance; never over water.
+   Check the CGOA and CRM copies.
+4. Crop tests, gated: Upper Hazel, Lower Hazel, the upper-bay flats, the Chugachmiut lake, and outer-coast sites with
+   voids and coarse-grid plates (59.24565,-151.87629; 59.30840,-151.03540; more found on the way).
+5. Rerun the boxes with known or suspected issues; the good ones (Grewingk) as time permits.
