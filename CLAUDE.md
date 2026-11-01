@@ -330,10 +330,23 @@ file counts, close/reopen. Both land in the same table.
 - **Uploader** = Uppy **4.13.3** from the Transloadit CDN with our own
   callbacks (`drops/static/drops/upload.js`); Uppy 5+ dropped those for its
   "Companion" server protocol, so do not bump the major without rewriting
-  the API. Single presigned PUT under 100 MB, S3 multipart above. **Resume
-  is "drop the folder again"**: the client fetches `{path: size}` of what
-  the server has and skips matches — simpler and more robust for a folder
-  than IndexedDB state. Completion is recorded only after the server HEADs
+  the API. Single presigned PUT under 100 MB, S3 multipart above (32 MB
+  parts, `MULTIPART_PART_SIZE`; never change it while uploads are in
+  flight — a resume re-cuts the file by the same rule). **Resume is "drop
+  the folder again"**: the client fetches `{path: size}` of what the server
+  has and skips matches — simpler and more robust for a folder than
+  IndexedDB state. **A big file resumes mid-file** (2026-10-31, for
+  multi-GB photogrammetry rasters): `DropUpload` (SQLite, migration 0003)
+  remembers each unfinished multipart upload by path + size + the browser's
+  `lastModified`; before a batch, a preprocessor asks `multipart/resume/`
+  and, on a hit, sets the file's `s3Multipart {uploadId, key}` — Uppy 4's
+  own restore path, which lists the stored parts and sends the rest. A
+  different file under the same path aborts the old upload; an upload R2
+  has expired (its default lifecycle rule, ~7 days; the token cannot read
+  it) answers 410 and starts afresh. **A same-size file under an existing
+  path is skipped as received** (the folder resume compares size only), so
+  a revised release goes in a new drop or folder, not over the old one.
+  Completion is recorded only after the server HEADs
   the object (`api_record`), so a row always means real bytes — but **the
   reverse did not hold** until 2026-10-06: that record call is a second
   request after the bytes are safe, and on a flaky link it was lost (37 of
