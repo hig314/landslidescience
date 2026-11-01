@@ -75,25 +75,25 @@ def load_prior(sources_path, crs):
     return shapes
 
 
-def level_water_mask(z, valid, res, win_m, rng, min_m2, min_level, prior):
-    """2 = a lake surface the DTM did not flatten (2026-10-31, Hig: a lake at 10.4 m kept as ground -- its surface varies 0.1 m,
-    3x3 range median 0.09): LEVEL over a wide window (max - min within win_m < rng), in a patch >= min_m2 above min_level,
-    and (with a prior) mostly inside a mapped lake."""
-    zz = np.where(valid, z, np.nan); k = max(int(round(win_m / res)) | 1, 3)
-    mx = ndimage.maximum_filter(np.nan_to_num(zz, nan=-1e9), size=k); mn = ndimage.minimum_filter(np.nan_to_num(zz, nan=1e9), size=k)
-    level = valid & ((mx - mn) < rng)
-    lab, n = ndimage.label(level)
+def level_water_mask(z, valid, res, win_m, rng, min_m2, min_level, prior_shapes, transform):
+    """2 = a lake surface the DTM did not flatten (2026-10-31, Hig: a lake at 10.4 m kept as ground). Its surface is level
+    but not flat: 3x3 range median 0.09 m, max - min over 60 m 0.45 m (spikes), so no flatness test finds it and no window
+    range separates it from ground. Judged per MAPPED LAKE polygon instead (the prior, with modest agreement -- Hig,
+    2026-10-29): where the DTM inside a polygon is level (p90 - p10 < rng), the polygon's cells within rng of its median
+    are water; islands and spilled-over shore stand higher and stay. `win_m` is unused here (kept for the report)."""
     out = np.zeros(z.shape, np.uint8)
-    if n == 0: return out
-    idx = np.arange(1, n + 1)
-    area = ndimage.sum(np.ones(lab.shape, np.float32), lab, idx) * res * res
-    lev = ndimage.median(zz, lab, idx)
-    ok = (area >= min_m2) & (lev > min_level)
-    if prior is not None:
-        inp = ndimage.mean(prior.astype(np.float32), lab, idx)
-        ok &= inp >= 0.5
-    code = np.zeros(n + 1, np.uint8); code[1:][ok] = 2
-    return code[lab]
+    if not prior_shapes: return out
+    from rasterio import features
+    zz = np.where(valid, z, np.nan)
+    pid = features.rasterize([(g, i + 1) for i, g in enumerate(prior_shapes)], out_shape=z.shape, transform=transform, fill=0, dtype='int32')
+    ids = np.unique(pid); ids = ids[ids > 0]
+    for i in ids:
+        m = (pid == i) & valid
+        if m.sum() * res * res < min_m2: continue
+        v = zz[m]; p10, p50, p90 = np.percentile(v, [10, 50, 90])
+        if p90 - p10 >= rng or p50 <= min_level: continue
+        out[m & (np.abs(zz - p50) < rng)] = 2
+    return out
 
 
 def main():
@@ -107,7 +107,7 @@ def main():
     ap.add_argument('--no-facets', action='store_true')
     ap.add_argument('--level-win-m', type=float, default=0.0, help='the level test (0 = off): max - min over this window < --level-range')
     ap.add_argument('--level-range', type=float, default=0.3); ap.add_argument('--level-min-m2', type=float, default=20000.0)
-    ap.add_argument('--water-prior', help='water/sources.json: a level patch is water only where >= 50 %% of it lies in a mapped lake')
+    ap.add_argument('--water-prior', help='water/sources.json: the mapped lakes the level test judges (required for it)')
     a = ap.parse_args()
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True); t0 = time.time()
     with rasterio.open(a.dem) as s:
@@ -124,7 +124,6 @@ def main():
         pz = dict(prof, dtype='float32', nodata=-9999.0); pm = dict(prof, dtype='uint8', nodata=255)
         counts = np.zeros(4, np.int64)
         prior_shapes = load_prior(a.water_prior, s.crs) if a.water_prior else None
-        from rasterio import features
         with rasterio.open(out / f'{a.name}_clean.tif', 'w', **pz) as dz, rasterio.open(out / f'{a.name}_mask.tif', 'w', **pm) as dm:
             for br in range(0, H, a.block):
                 for bc in range(0, W, a.block):
@@ -138,11 +137,8 @@ def main():
                         fw = flat_water_mask(z, valid, res, a.flat_range, a.flat_min_m2, a.min_level, a.sea_tol)
                         m[fw > 0] = fw[fw > 0]
                         if a.level_win_m > 0:
-                            pri = None
-                            if prior_shapes is not None:
-                                tr_ = s.window_transform(Window(c0 + hc0, r0 + hr0, hc1 - hc0, hr1 - hr0))
-                                pri = features.rasterize(prior_shapes, out_shape=z.shape, transform=tr_, fill=0, dtype='uint8').astype(bool) if prior_shapes else np.zeros(z.shape, bool)
-                            lw = level_water_mask(z, valid & (m == 0), res, a.level_win_m, a.level_range, a.level_min_m2, a.min_level, pri)
+                            tr_ = s.window_transform(Window(c0 + hc0, r0 + hr0, hc1 - hc0, hr1 - hr0))
+                            lw = level_water_mask(z, valid & (m == 0), res, a.level_win_m, a.level_range, a.level_min_m2, a.min_level, prior_shapes, tr_)
                             m[(lw > 0) & (m == 0)] = 2
                         if not a.no_facets:
                             fm = facet_mask(z, valid & (m == 0), res, a.facet_tol, a.facet_min_m2)

@@ -359,7 +359,7 @@
     "kind": "grid",
     "cls": "ground",
     "derived": true,
-    "src": "/Volumes/Nunatak/lidar_build/kbay_joint/obs/chugachmiut_clean.tif",
+    "src": "/Volumes/Nunatak/lidar_build/kbay_joint/obs/chugachmiut_v2_clean.tif",
     "date": "2018-07-01",
     "sigma_m": 0.3
    },

@@ -70,7 +70,8 @@ j['sources'] = [
     lid('kenai2008', date='2008-06-01', sigma_m=0.15),
     lid('homer2019', date='2019-06-15', sigma_m=0.08),
     # a DTM with no cloud: one observation per cell, calibrated to the measured lidar by the derived field, never rejecting one
-    dict(name='chugachmiut', kind='grid', cls='ground', derived=True, src=f'{OBS}/chugachmiut_clean.tif', date='2018-07-01', sigma_m=0.3),
+    # _v2 (2026-10-31): dtm_clean's level test took the lake surfaces the DTM carries unflattened (2.45 km2, judged per mapped lake)
+    dict(name='chugachmiut', kind='grid', cls='ground', derived=True, src=f'{OBS}/chugachmiut_v2_clean.tif', date='2018-07-01', sigma_m=0.3),
 ]
 beds = {s['name']: s for s in src['joint']['sources'] if s.get('kind') == 'grid'}
 for n in ('sonar2023', 'bathy2009', 'h12146', 'ocm2023'):
