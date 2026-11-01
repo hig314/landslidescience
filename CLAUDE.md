@@ -330,9 +330,11 @@ file counts, close/reopen. Both land in the same table.
 - **Uploader** = Uppy **4.13.3** from the Transloadit CDN with our own
   callbacks (`drops/static/drops/upload.js`); Uppy 5+ dropped those for its
   "Companion" server protocol, so do not bump the major without rewriting
-  the API. Single presigned PUT under 100 MB, S3 multipart above (32 MB
-  parts, `MULTIPART_PART_SIZE`; never change it while uploads are in
-  flight — a resume re-cuts the file by the same rule). **Resume is "drop
+  the API. Single presigned PUT under 100 MB, S3 multipart above (8 MB
+  parts, `MULTIPART_PART_SIZE` — 32 MB saved nothing in a 30 s test on a
+  field uplink, since a part counts only once whole; each upload records
+  its part size, so changing it restarts uploads in flight rather than
+  mis-pairing parts). **Resume is "drop
   the folder again"**: the client fetches `{path: size}` of what the server
   has and skips matches — simpler and more robust for a folder than
   IndexedDB state. **A big file resumes mid-file** (2026-10-31, for

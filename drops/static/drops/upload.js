@@ -104,7 +104,7 @@
         const r = await api('multipart/resume/', { path: file.meta.relpath, size: file.size, mtime });
         if (r.resume) {
           uppy.setFileState(id, { s3Multipart: { uploadId: r.uploadId, key: r.key } });
-          n++; bytes += r.bytes;
+          if (r.parts) { n++; bytes += r.bytes; }
         }
       } catch (e) { /* no resume: it starts from the beginning */ }
     }));

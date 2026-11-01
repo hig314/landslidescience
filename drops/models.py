@@ -186,6 +186,9 @@ class DropUpload(models.Model):
     mtime = models.BigIntegerField(null=True, blank=True)
     key = models.CharField(max_length=600)
     upload_id = models.CharField(max_length=1024)
+    # The part size it was cut with; a resume under another size would
+    # pair part numbers with the wrong byte ranges, so it starts afresh.
+    part_size = models.BigIntegerField(default=0)
     started_at = models.DateTimeField(default=timezone.now)
 
     class Meta:

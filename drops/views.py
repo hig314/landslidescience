@@ -31,12 +31,14 @@ from .reconcile import reconcile
 # Files above this go up in parts (resumable, parallel); below it one PUT.
 # Game-cam JPEGs are a few MB, so nearly everything takes the single PUT.
 MULTIPART_THRESHOLD = 100 * 1024 * 1024
-# Part size for multipart (S3 allows 10,000 parts, so a file over ~312 GB
-# gets bigger parts). Larger means fewer sign requests through the droplet;
-# smaller means less lost per dropped part. Must not change while uploads
-# are in flight: a resumed upload is re-cut by the same rule, and parts
-# are matched by number.
-MULTIPART_PART_SIZE = 32 * 1024 * 1024
+# Part size for multipart (S3 allows 10,000 parts, so a file over ~78 GB
+# gets bigger parts). A part counts only once it has fully arrived, and six
+# go up at once, so on a ~1.5 MB/s field uplink 32 MB parts saved nothing
+# for the first two minutes (Hig's first dev test, 2026-10-31); 8 MB parts
+# land within ~30 s and an interruption loses at most ~48 MB. Each
+# DropUpload records the size it was cut with, so changing this only
+# makes uploads in flight start afresh, never mis-pairs parts.
+MULTIPART_PART_SIZE = 8 * 1024 * 1024
 PAGE_SIZE = 240
 THUMB_URL_TTL = 2 * 3600          # the gallery page is re-rendered per visit
 FILE_URL_TTL = 2 * 3600
@@ -275,7 +277,8 @@ def api_mp_create(request, slug):
         old.delete()
     upload_id = r2.mp_create(key, (body.get('type') or '')[:100])
     DropUpload.objects.create(drop=d, path=rel, size=size if size is not None else -1,
-                              mtime=mtime, key=key, upload_id=upload_id)
+                              mtime=mtime, key=key, upload_id=upload_id,
+                              part_size=MULTIPART_PART_SIZE)
     return JsonResponse({'uploadId': upload_id, 'key': key})
 
 
@@ -316,7 +319,8 @@ def api_mp_resume(request, slug):
         return _err(f'bad path: {e}')
     size, mtime = _identity(body)
     row = DropUpload.objects.filter(drop=d, path=rel).first()
-    if row is None or size is None or mtime is None or not row.same_file(size, mtime):
+    if row is None or size is None or mtime is None or not row.same_file(size, mtime) \
+            or row.part_size != MULTIPART_PART_SIZE:
         return JsonResponse({'resume': False})
     try:
         parts = r2.mp_list_parts(row.key, row.upload_id)

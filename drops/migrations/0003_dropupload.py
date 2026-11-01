@@ -19,6 +19,7 @@ class Migration(migrations.Migration):
                 ('mtime', models.BigIntegerField(blank=True, null=True)),
                 ('key', models.CharField(max_length=600)),
                 ('upload_id', models.CharField(max_length=1024)),
+                ('part_size', models.BigIntegerField(default=0)),
                 ('started_at', models.DateTimeField(default=django.utils.timezone.now)),
                 ('drop', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='uploads', to='drops.drop')),
             ],
