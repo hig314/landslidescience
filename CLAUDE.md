@@ -91,6 +91,14 @@ written down anywhere — read `/lidar/audit/`.
   lw/n10/grid.json rsynced, endpoints checked (1,500,379 km², 23 landslides
   outside). See *The analysis panel*.
 
+- **Drops resume mid-file** (2026-10-31, a400820; tested in dev by Hig,
+  migration 0003 applied on prod). First use: the drop *Grand Plateau
+  Glacier photogrammetry* (`z2udka3Z6dGU`) for multi-GB SfM rasters;
+  private now, the finalized release is to be fully public (publish it
+  through the lidar pipeline, gated or not, deciding before the first
+  push). The first upload may be provisional pre-release data: a final
+  release should go in a new drop or folder (same name + size = skipped).
+
 **Open threads**, in no particular order:
 
 - **Droplet disk is tight**: 6.5 GB free (92%) after the 2026-10-30
