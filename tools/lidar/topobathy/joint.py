@@ -702,26 +702,29 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
                 continue
             zf_ = np.isfinite(Z[n]) & allow[n]
             mx_ = ndimage.maximum_filter(np.where(zf_, Z[n], -1e9), 5); mn_ = ndimage.minimum_filter(np.where(zf_, Z[n], 1e9), 5)
-            flat_ = zf_ & ((mx_ - mn_) <= float(cfg["stand_flat_m"])) & (Z[n] <= tm_)
+            # every flat sheet; the SEA rules below take only those within the tide's reach (<= tide_max_m), the sparse-bed
+            # rule any height (a lake's surface sheet over its soundings, 2026-10-31: Upper Hazel Lake at 528 m)
+            flat_ = zf_ & ((mx_ - mn_) <= float(cfg["stand_flat_m"]))
             del mx_, mn_
             if not flat_.any():
                 continue
             lab_, nl_ = ndimage.label(flat_, structure=np.ones((3, 3), bool))
             cnt_ = np.bincount(lab_.ravel(), minlength=nl_ + 1)
             cnt = lambda m_: np.bincount(lab_.ravel(), weights=m_.ravel(), minlength=nl_ + 1)
+            tide_ = np.zeros(nl_ + 1, bool); tide_[1:] = np.asarray(ndimage.maximum(Z[n], lab_, np.arange(1, nl_ + 1))) <= tm_
             und_n = cnt(flat_ & np.isfinite(zwmin) & (zwmin < Z[n] - float(cfg["stand_dz_m"])))
-            bad_w = (und_n >= smc) & (und_n >= float(cfg["stand_frac"]) * cnt_)
+            bad_w = tide_ & (und_n >= smc) & (und_n >= float(cfg["stand_frac"]) * cnt_)
             ub_n = cnt(flat_ & np.isfinite(zbmin) & (zbmin < Z[n] - float(cfg["bed_stand_dz_m"])))
-            bad_b = (ub_n >= smc) & (ub_n >= float(cfg["stand_frac"]) * cnt_)
+            bad_b = tide_ & (ub_n >= smc) & (ub_n >= float(cfg["stand_frac"]) * cnt_)
             if np.isfinite(zbpmin).any():
                 # ...or over a SPARSE measured bed (2026-10-31, Upper Hazel Lake: KBay 2023's 'ground' sheet at 528.95 m over
-                # Riordan's soundings at 491-528): sparse_bed_min_n soundings under a sheet are enough, whatever its size
+                # Riordan's soundings at 491-528): sparse_bed_min_n soundings under a sheet are enough, whatever its size or height
                 ubp_n = cnt(flat_ & np.isfinite(zbpmin) & (zbpmin < Z[n] - float(cfg["bed_stand_dz_m"])))
                 bad_b |= (ubp_n >= float(cfg["sparse_bed_min_n"])) & (cnt_ >= smc)
             bad_ = bad_w | bad_b; bad_[0] = False
             st_ = bad_[lab_]
             sp_ = np.zeros((H, W), bool)
-            spk = (cnt_ < smc) & (ub_n >= 0.5 * cnt_) & ~bad_; spk[0] = False
+            spk = tide_ & (cnt_ < smc) & (ub_n >= 0.5 * cnt_) & ~bad_; spk[0] = False
             if spk.any() and st_.any():
                 dn_, (iy_, ix_) = ndimage.distance_transform_edt(~st_, sampling=res, return_indices=True)
                 lev_ = Z[n][iy_, ix_]; del iy_, ix_
