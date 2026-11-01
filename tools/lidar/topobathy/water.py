@@ -220,6 +220,51 @@ def run(recipe, grid: Grid, edits_path=None, log=print):
     min_px = max(int(round(cfg["min_m2"] / cell_m2)), 1)
     layers = []                                                  # per survey: name, lab, zw, table
     missing = []
+    def _add_layer(name, spec, water, zw, z, cls, date, sigma, method):
+        """One water layer from a water mask and its surface heights: bodies, levels, the sea that day (the per-survey
+        step, and the compilations' sea below when no survey saw one)."""
+        lab, n = ndimage.label(water, structure=S4)
+        if n == 0:
+            return
+        ids = np.arange(1, n + 1)
+        cnt = ndimage.sum(water, lab, ids)
+        keep = cnt >= min_px
+        edge = np.zeros(n + 1, bool); edge[np.unique(np.r_[lab[0], lab[-1], lab[:, 0], lab[:, -1]])] = True
+        table = {}
+        for i in ids[keep]:
+            m = lab == i
+            vals = zw[m]; vals = vals[np.isfinite(vals)]
+            p2, p10, p50, p90, p98 = _pct(vals, [2, 10, 50, 90, 98])
+            sloped = (p90 - p10) > cfg["flat_tol_m"]
+            table[int(i)] = dict(area_m2=int(cnt[i - 1] * cell_m2), level_m=round(p50, 2), level_p10_m=round(p10, 2), level_p90_m=round(p90, 2),
+                                 level_std_m=round(float(np.std(vals)), 3) if vals.size else None,
+                                 level_kind="sloped" if sloped else "flat",
+                                 level_up_m=round(p98, 2) if sloped else None, level_down_m=round(p2, 2) if sloped else None,
+                                 touches_edge=bool(edge[i]), n_cells=int(cnt[i - 1]))
+        lab[~keep[np.maximum(lab - 1, 0)] | (lab == 0)] = 0
+        # the sea that day: the largest edge-touching body below tide_max_m
+        sea = [i for i, t in table.items() if t["touches_edge"] and t["level_m"] < cfg["tide_max_m"]]
+        sea_id = max(sea, key=lambda i: table[i]["area_m2"]) if sea else None
+        sea_rng = None
+        if sea_id:
+            # the sea's RANGE that day (flight lines at different tides): from the sea body's level histogram,
+            # the modal 0.1 m bin extended both ways while bins stay populated (>= 0.5 % of its cells) -- a
+            # pool that the water class joins to the sea (a lagoon at +0.79 over a TIN ramp) is a separate
+            # mode beyond an empty gap and must not widen the range (it did: sea_hi 0.85, Seldovia 2026-10-15)
+            sv = zw[lab == sea_id]; sv = sv[np.isfinite(sv)]
+            h, e = np.histogram(sv, np.arange(np.floor(sv.min() * 10) / 10, sv.max() + 0.1, 0.1))
+            i0 = int(np.argmax(h)); thr = 0.005 * sv.size
+            lo = i0
+            while lo > 0 and h[lo - 1] >= thr: lo -= 1
+            hi = i0
+            while hi < len(h) - 1 and h[hi + 1] >= thr: hi += 1
+            sea_rng = [float(e[lo]), float(e[hi + 1])]
+        layers.append(dict(name=name, spec=spec, lab=lab, zw=zw, zl=np.where(cls > 0, z, np.nan).astype(np.float32), cls=cls, table=table, date=date, yr=years(date),
+                           season=_season(date), sigma=sigma, sea_id=sea_id,
+                           sea_level_m=table[sea_id]["level_m"] if sea_id else None, sea_range=sea_rng, method=method))
+        log(f"  {name:<12} water {water.sum() * cell_m2 / 1e6:.3f} km2 in {int(keep.sum())} bodies >= {cfg['min_m2']:.0f} m2"
+            f"{'; sea ' + format(layers[-1]['sea_level_m'], '.2f') + ' m' if sea_id else '; no sea seen'}  ({name}: {method})")
+
     for spec in recipe.layers:
         if spec.get("optional") or spec.get("_prior"):
             continue
@@ -249,51 +294,28 @@ def run(recipe, grid: Grid, edits_path=None, log=print):
                 log(f"  {spec['name']:12s} water returns over its measured bed: {int(bedw.sum()) * cg.res * cg.res / 1e6:.3f} km2 are water")
         if not water.any():
             continue
-        lab, n = ndimage.label(water, structure=S4)
-        if n == 0:
-            continue
-        ids = np.arange(1, n + 1)
-        cnt = ndimage.sum(water, lab, ids)
-        keep = cnt >= min_px
-        edge = np.zeros(n + 1, bool); edge[np.unique(np.r_[lab[0], lab[-1], lab[:, 0], lab[:, -1]])] = True
         zw = np.where(water, np.where(bedw, wr_ if wr_ is not None else z, z), np.nan)
-        table = {}
-        for i in ids[keep]:
-            m = lab == i
-            vals = zw[m]; vals = vals[np.isfinite(vals)]
-            p2, p10, p50, p90, p98 = _pct(vals, [2, 10, 50, 90, 98])
-            sloped = (p90 - p10) > cfg["flat_tol_m"]
-            table[int(i)] = dict(area_m2=int(cnt[i - 1] * cell_m2), level_m=round(p50, 2), level_p10_m=round(p10, 2), level_p90_m=round(p90, 2),
-                                 level_std_m=round(float(np.std(vals)), 3) if vals.size else None,
-                                 level_kind="sloped" if sloped else "flat",
-                                 level_up_m=round(p98, 2) if sloped else None, level_down_m=round(p2, 2) if sloped else None,
-                                 touches_edge=bool(edge[i]), n_cells=int(cnt[i - 1]))
-        lab[~keep[np.maximum(lab - 1, 0)] | (lab == 0)] = 0
-        # the sea that day: the largest edge-touching body below tide_max_m
-        sea = [i for i, t in table.items() if t["touches_edge"] and t["level_m"] < cfg["tide_max_m"]]
-        sea_id = max(sea, key=lambda i: table[i]["area_m2"]) if sea else None
-        date = recipe.layer_date(spec)
-        sea_rng = None
-        if sea_id:
-            # the sea's RANGE that day (flight lines at different tides): from the sea body's level histogram,
-            # the modal 0.1 m bin extended both ways while bins stay populated (>= 0.5 % of its cells) -- a
-            # pool that the water class joins to the sea (a lagoon at +0.79 over a TIN ramp) is a separate
-            # mode beyond an empty gap and must not widen the range (it did: sea_hi 0.85, Seldovia 2026-10-15)
-            sv = zw[lab == sea_id]; sv = sv[np.isfinite(sv)]
-            h, e = np.histogram(sv, np.arange(np.floor(sv.min() * 10) / 10, sv.max() + 0.1, 0.1))
-            i0 = int(np.argmax(h)); thr = 0.005 * sv.size
-            lo = i0
-            while lo > 0 and h[lo - 1] >= thr: lo -= 1
-            hi = i0
-            while hi < len(h) - 1 and h[hi + 1] >= thr: hi += 1
-            sea_rng = [float(e[lo]), float(e[hi + 1])]
-        layers.append(dict(name=spec["name"], spec=spec, lab=lab, zw=zw, zl=np.where(cls > 0, z, np.nan).astype(np.float32), cls=cls, table=table, date=date, yr=years(date),
-                           season=_season(date), sigma=float(spec.get("sigma_m", 1.0)), sea_id=sea_id,
-                           sea_level_m=table[sea_id]["level_m"] if sea_id else None, sea_range=sea_rng, method=_methods(spec)))
-        log(f"  {spec['name']:<12} water {water.sum() * cell_m2 / 1e6:.3f} km2 in {int(keep.sum())} bodies >= {cfg['min_m2']:.0f} m2"
-            f"{'; sea ' + format(layers[-1]['sea_level_m'], '.2f') + ' m' if sea_id else '; no sea seen'}  ({spec.get('name')}: {layers[-1]['method']})")
+        _add_layer(spec["name"], spec, water, zw, z, cls, recipe.layer_date(spec), float(spec.get("sigma_m", 1.0)), _methods(spec))
     if missing:
         log(f"  no per-layer class raster for {missing} (build --diag writes them)")
+    if not any(L["sea_id"] for L in layers):
+        # THE SEA FROM THE COMPILATIONS (2026-10-31, the bay's open-water boxes: no lidar saw water, the stage wrote no
+        # bodies and the shore stage stopped): the joint layer's bed below low tide, where it reaches the grid edge, is the
+        # sea at that level. Only at the edge -- a lake's sonar bed is below low tide too and is no sea.
+        jl = next((sp for sp in recipe.layers if sp.get("name") == "joint"), None)
+        cp = out / "class_joint.tif"
+        if jl is not None and cp.exists():
+            cls, cv = read_geo(str(cp), cg, cg.full(), "nearest"); cls = np.where(cv, np.rint(cls), 0).astype(np.uint8)
+            z, v = read_geo(str(recipe.source_path(jl)), cg, cg.full(), "bilinear"); z = np.where(v, z, np.nan).astype(np.float32)
+            lt = cfg.get("low_tide_m"); lt = float(lt) if lt is not None else float(recipe.d.get("fill", {}).get("low_tide_m", -2.9))
+            lb, nb = ndimage.label((cls == CLASSES["bed"]) & np.isfinite(z) & (z < lt), structure=S4)
+            ed = np.unique(np.r_[lb[0], lb[-1], lb[:, 0], lb[:, -1]]); ed = ed[ed > 0]
+            water = np.isin(lb, ed) if ed.size else np.zeros(cls.shape, bool); del lb
+            if water.any():
+                zw = np.where(water, np.float32(lt), np.nan).astype(np.float32)
+                sp_ = {"name": "compilation_sea", "source": str(recipe.source_path(jl)), "sigma_m": 1.0, "class": []}
+                _add_layer("compilation_sea", sp_, water, zw, z, cls, recipe.d.get("as_of") or jl.get("date"), 1.0, "compilation bed below low tide at the grid edge")
+                log(f"  no survey saw a sea: the joint layer's bed below {lt:.2f} m at the edge is the sea at that level ({float(water.sum()) * cell_m2 / 1e6:.3f} km2)")
     if not layers:
         log("  no water observed by any survey"); return None
     # ---- observations file

@@ -242,7 +242,8 @@
    "berg_grewingk_2017_hand": 0.36,
    "higman_grewingk_2019_2021": 0.36,
    "higman_grewingk_2026": 0.36
-  }
+  },
+  "lens_max_m": 4.3
  },
  "water": {
   "mapped": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/sources.json",
@@ -437,7 +438,7 @@
     "derived": true,
     "kind": "grid",
     "cls": "bed",
-    "src": "/Volumes/Nunatak/lidar_build/bathy_src/crm_southak/crm_6334_500m.tif",
+    "src": "/Volumes/Nunatak/lidar_build/bathy_src/crm_southak/crm_6334_500m_v2.tif",
     "date": "2010-07-01",
     "sigma_m": 10.0,
     "valid_below_m": -1.38
@@ -457,6 +458,20 @@
     "src": "/Volumes/Powder/lidar_build/joint_v3/obs/dixon_ice_2023.tif",
     "date": "2023-09-19",
     "sigma_m": 0.5
+   },
+   {
+    "name": "soundings",
+    "kind": "points",
+    "cls": "bed",
+    "src": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261017.csv",
+    "date": "2018-07-01",
+    "sigma_m": 1.0,
+    "shift_by_survey": {
+     "berg_grewingk_2017": 0.36,
+     "berg_grewingk_2017_hand": 0.36,
+     "higman_grewingk_2019_2021": 0.36,
+     "higman_grewingk_2026": 0.36
+    }
    }
   ],
   "units": {

@@ -55,7 +55,7 @@ from scipy import ndimage
 
 CLS = {"void": 0, "ground": 1, "water": 2, "bed": 3, "ice": 4}
 DEFAULTS = dict(res_m=1.0, pool_years={"ground": 5.0, "bed": 30.0, "ice": 0.5}, rates={"ground": 0.01, "bed": 0.02, "ice": 3.0}, tol_m=0.15, tol_low_m=1.0, xc_sigma_m=2.0, xc_minw=1.5,
-                over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, bed_stand_dz_m=2.0, speck_near_m=300.0, speck_sparse_frac=0.25, derived_ground_gap_m=0.0, derived_ground_dense_frac=0.5, sonar_min_depth_m=1.5, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, derived_fine_m=0.0, derived_fine_frac=0.05, surf_near_m=30.0,
+                over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, bed_stand_dz_m=2.0, speck_near_m=300.0, speck_sparse_frac=0.25, derived_ground_gap_m=0.0, derived_ground_dense_frac=0.5, sonar_min_depth_m=1.5, sparse_bed_min_n=5, coarse_factor=4.0, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, derived_fine_m=0.0, derived_fine_frac=0.05, surf_near_m=30.0,
                 sigma_floor_m=0.03, gap_m=2.0, wet_m=15.0, steep_deg=20.0, prior_slope_res_m=5.0, hole_rim_tol_m=1.0, grid_wc=0.1, grid_better=0.75,
                 lidar_sigma_m=0.08, grid_xy_sigma_m=0.0, align_min_cells=1000)
 
@@ -206,7 +206,17 @@ def obs_grid(s: Source, win, res, epsg, cfg):
     # at or finer than the working grid: the mean of its cells in ours (nearest picked every other column of a 1 m
     # multibeam and let its sprinkled no-data toggle the pool cell by cell); coarser: bilinear (nearest made a 10 m
     # product a staircase of 2 m cells) -- 2026-10-23, the "gridding artifacts" of run 7
-    z = read_to(s.src, win, res, epsg, "average" if D <= res else "bilinear") + s.shift_m
+    coarse_ = D > float(cfg.get("coarse_factor", 4.0)) * res
+    z = read_to(s.src, win, res, epsg, "average" if D <= res else ("cubic_spline" if coarse_ else "bilinear")) + s.shift_m
+    if coarse_:
+        # A COARSE grid (2026-10-31, Hig: "square flat plates" off the south coast -- CGOA's 100 m cells at its own coastline):
+        # a resampler has no neighbour on the land side of an edge cell, so each comes through as a flat square; and
+        # bilinear across 100-500 m cells is a field of kinks. Cubic spline inside, and the ring of source cells with a
+        # no-data neighbour is dropped: the fill bridges from the shore to the grid's interior.
+        vD = ndimage.binary_erosion(np.isfinite(read_to(s.src, win, D, epsg, "nearest")), np.ones((3, 3), bool), border_value=1)
+        f_ = max(int(round(D / res)), 1); k_ = np.kron(vD, np.ones((f_, f_), bool)); vz = np.zeros(z.shape, bool)
+        h_, w_ = min(k_.shape[0], z.shape[0]), min(k_.shape[1], z.shape[1]); vz[:h_, :w_] = k_[:h_, :w_]
+        z = np.where(vz, z, np.nan); del vD, k_, vz
     z = np.where(s.valid(z), z, np.nan).astype(np.float32)
     # a MARINE SONAR sounding (marine_sonar: true) lies under at least a hull's draft of water at the highest tide (2026-10-29, Hig's review: the
     # 2009 multibeam's swath edges in Seldovia Bay carry 138 blobs ~30 m across at +4.0..+4.8 m -- the sea surface at
@@ -237,6 +247,8 @@ def obs_points(s: Source, win, res, cfg):
     rows = list(csv.DictReader(open(s.src)))
     if not rows: return None
     x = np.array([float(r["x"]) for r in rows]); y = np.array([float(r["y"]) for r in rows]); zz = np.array([float(r["z"]) for r in rows]) + s.shift_m
+    sbs = s.d.get("shift_by_survey") or {}                   # a mixed file's per-survey shift (the fill's points_dz_m)
+    if sbs: zz = zz + np.array([float(sbs.get(r.get("survey", ""), 0.0)) for r in rows])
     sig = np.array([float(r.get("sigma") or s.sigma_m) for r in rows])
     keep = np.array([(r.get("bound") or "") == "" for r in rows]) if "bound" in rows[0] else np.ones(len(rows), bool)
     c = ((x - win[0]) // res).astype(int); r = ((win[3] - y) // res).astype(int)
@@ -679,6 +691,10 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
     for m in names:
         if S[m].cls == "bed" and not S[m].derived:
             zbmin = np.fmin(zbmin, np.where(np.isfinite(Z[m]) & allow[m], Z[m], np.inf))
+    zbpmin = np.full((H, W), np.inf, np.float32)             # the sparse measured beds alone (soundings)
+    for m in names:
+        if S[m].kind == "points" and S[m].cls == "bed" and not S[m].derived:
+            zbpmin = np.fmin(zbpmin, np.where(np.isfinite(Z[m]) & allow[m], Z[m], np.inf))
     if np.isfinite(zwmin).any() or np.isfinite(zbmin).any() or any("z_w" in obs[n] for n in names):
         tm_ = float(cfg.get("tide_max_m", np.inf)); smc = float(cfg["stand_min_cells"]); tol_ = float(cfg["over_water_tol_m"])
         for n in names:
@@ -697,6 +713,11 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             bad_w = (und_n >= smc) & (und_n >= float(cfg["stand_frac"]) * cnt_)
             ub_n = cnt(flat_ & np.isfinite(zbmin) & (zbmin < Z[n] - float(cfg["bed_stand_dz_m"])))
             bad_b = (ub_n >= smc) & (ub_n >= float(cfg["stand_frac"]) * cnt_)
+            if np.isfinite(zbpmin).any():
+                # ...or over a SPARSE measured bed (2026-10-31, Upper Hazel Lake: KBay 2023's 'ground' sheet at 528.95 m over
+                # Riordan's soundings at 491-528): sparse_bed_min_n soundings under a sheet are enough, whatever its size
+                ubp_n = cnt(flat_ & np.isfinite(zbpmin) & (zbpmin < Z[n] - float(cfg["bed_stand_dz_m"])))
+                bad_b |= (ubp_n >= float(cfg["sparse_bed_min_n"])) & (cnt_ >= smc)
             bad_ = bad_w | bad_b; bad_[0] = False
             st_ = bad_[lab_]
             sp_ = np.zeros((H, W), bool)
@@ -735,7 +756,7 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
                 rep.setdefault("sea_sheets", {})[n] = dict(over_water=int(bad_w.sum()), over_bed=int(bad_b.sum()),
                                                            speck_cells=int(sp_.sum()), ha=round(float(st_.sum()) * res * res / 1e4, 2))
             del lab_, flat_, sp_
-    del zwmin, zbmin
+    del zwmin, zbmin, zbpmin
     # A DERIVED bed in a GAP OF MEASURED GROUND (2026-10-29, Hig's review of Hoen's Lagoon: OCM's -2.4 m stood in 20-40 m
     # patches of KBay 2023's horizontal mud flat at 0.8 m, where the lidar's returns there were water at the flat's own
     # level -- "pits"): the compilation is no independent evidence, and inside a measured survey's ground, closed over

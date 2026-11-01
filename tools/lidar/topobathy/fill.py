@@ -78,7 +78,7 @@ DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, s
                 points_sigma_m=1.0, points_rim_sigma_m=0.2, points_rim_step_m=10.0, points_grid_m=4.0, points_sigma_per_m=0.15,
                 points_decay_m=150.0, points_decay_scale_m=150.0, ceiling_margin_m=0.5, ceiling_passes=2,
                 ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0,
-                rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0)
+                rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0, lens_max_m=None, sound_hyps_min_n=30)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -347,6 +347,31 @@ def channel_beds(lab, nw, wz, res, P, marine_ids=(), skip_ids=(), whole_ids=(), 
         log(f"  channels: {len(tab)} ({sum(t['tidal'] for t in tab)} tidal) in wet domains, {int(chan.sum()) * res * res / 1e6:.3f} km2; "
             f"width p50 {np.median([t['w_med_m'] for t in tab]):.0f} m, section {np.median([t['area_section_m2'] for t in tab]):.1f} m2 p50")
     return chan, bed, wsurf, tab
+
+
+def _points_in_grid(P, T, shape, med, lab):
+    """The soundings file's points (no bounds) that land in a domain: (rows, cols) and z -- the lake loop's hypsometry sample."""
+    import csv
+    rr_, cc_, zz_ = [], [], []
+    dz_ = P.get("points_dz_m") or 0.0
+    with open(P["points"]) as fh:
+        for row in csv.DictReader(fh):
+            if row.get("bound"):
+                continue
+            cc, rr = ~T * (float(row["x"]), float(row["y"])); rr, cc = int(rr), int(cc)
+            if not (0 <= rr < shape[0] and 0 <= cc < shape[1]) or lab[rr, cc] == 0:
+                continue
+            d_ = float(dz_.get(row.get("survey", ""), 0.0)) if isinstance(dz_, dict) else float(dz_)
+            if row.get("z") not in (None, ""):
+                zz = float(row["z"]) + d_
+            elif row.get("depth") not in (None, "") and np.isfinite(med[lab[rr, cc] - 1]):
+                zz = float(med[lab[rr, cc] - 1]) - float(row["depth"])
+            else:
+                continue
+            rr_.append(rr); cc_.append(cc); zz_.append(zz)
+    if not rr_:
+        return None, None
+    return (np.array(rr_), np.array(cc_)), np.array(zz_, np.float64)
 
 
 def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, name=0):
@@ -852,6 +877,17 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         szd = np.bincount(ld.ravel(), minlength=nd + 1)[1:] * res * res / 1e6
         big = np.flatnonzero(szd > float(P.get("dry_max_km2", 1.0))) + 1
         if big.size:
+            # ...unless the void is LOW (the ring of finite cells round it has a median under marine_rim_max_m): the head-of-bay
+            # flats no survey saw (2026-10-31, Hig: "a smooth transition across a data gap, rather than a void or terrace")
+            # are the sea's -- kept as a domain, marine below, the shore descending into it and bridging to the bed
+            ring = np.where((ld == 0) & np.isfinite(z), ndimage.grey_dilation(ld, size=3), 0)
+            medr = np.asarray(ndimage.labeled_comprehension(np.nan_to_num(z, nan=1e9), ring, big,
+                                                            lambda v: np.median(v[v < 1e8]) if (v < 1e8).any() else np.nan, float, np.nan))
+            low_ = np.isfinite(medr) & (medr < float(P["marine_rim_max_m"])); del ring
+            if low_.any():
+                log(f"  ...of which LOW (rim median < {P['marine_rim_max_m']:g} m), kept as the sea's to bridge: {int(low_.sum())}, {szd[big[low_] - 1].sum():.3f} km2")
+            big = big[~low_]
+        if big.size:
             drop = np.isin(ld, big)
             log(f"  dry (void) domains above {float(P.get('dry_max_km2', 1.0)):g} km2 left void: {big.size}, {szd[big - 1].sum():.3f} km2")
             dryvoid |= drop; dom &= ~drop; ld, nd = ndimage.label(dom & ~wet)
@@ -965,7 +1001,14 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # steep slope down to a perfectly flat bottom"): a wet one gets the lake basin below, a dry one
     # (void: the laser missed the ground) the plain harmonic surface from its rim.
     # ...and under the tidal lens a marine domain has no floor either: its bed is the water surface (below)
-    floor_by = np.where(marine & ~lens, P["low_tide_m"], np.nan)
+    # ...except a marine domain with NO observed water surface and no tidal body (2026-10-31: the low voids above, a bay
+    # no survey flew): nothing for the lens to hold, so the first conception -- the shore descends to low tide and the
+    # interior bridges to whatever bed bounds it (Hig: "the ocean is a basin that drops below the land")
+    nwz_ = np.bincount(lab[dom & np.isfinite(wz_s)].ravel(), minlength=n + 1)[1:] if wz_s is not None else np.zeros(n, int)
+    nolens = marine & (nwz_ < 20) & np.array([i not in tover for i in ids], bool)
+    if lens and nolens.any():
+        log(f"  marine domains with no observed water surface and no tidal body: {int(nolens.sum())} take the low-tide floor, not the lens")
+    floor_by = np.where(marine & (~lens | nolens), P["low_tide_m"], np.nan)
     floor_by = np.where(np.isfinite(med) | lens, floor_by, P["low_tide_m"])
     floor = np.full(z.shape, np.nan, np.float32); floor[dom] = floor_by[lab[dom] - 1]
     log(f"  land rim {int(land_rim.sum())} cells, bed rim {int(bed_rim.sum())}, soundings inside {int(inside_obs.sum())}; "
@@ -1050,6 +1093,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 log(f"  lake_dmax entry at {e['x']},{e['y']} is not in a fill domain")
         for i, e in bover.items():                 # the water bodies' level / depth (edits via water.py); a recipe's lake_dmax wins
             over[i] = {**e, **over.get(i, {})}
+        snd_rc, snd_z = _points_in_grid(P, T_, z.shape, med, lab) if (P.get("points") and T_ is not None) else (None, None)
         for i in lake_ids:
             cells = (lab == i) & ~chan                              # a channel's cells are the channel's
             n_c = int(cells.sum()); A = n_c * res * res
@@ -1129,6 +1173,16 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             frac = np.minimum(frac, np.maximum(frs, 0))                 # smoothing never deepens the shore
             depth = dmax * frac
             hyp = over.get(i, {}).get("hypsometry")
+            if not hyp and snd_rc is not None:
+                # THE SOUNDINGS' OWN HYPSOMETRY (Hig, 2026-10-31, Lower Hazel Lake: the fill ran to 48.9 m between lines whose
+                # deepest was 61.6): the soundings are a sample of the lake's depth distribution -- part of the lake is
+                # probably deeper than the deepest, but not much of it and not by much: one quantile beyond the deepest, by
+                # the last gap again. The basin's shape stays the prior's; the share of the lake at each depth is the sample's.
+                in_ = cells[snd_rc[0], snd_rc[1]]
+                if int(in_.sum()) >= int(P["sound_hyps_min_n"]):
+                    dep = np.sort(np.clip(level - snd_z[in_], 0.0, None))
+                    hyp = np.r_[dep, dep[-1] + (dep[-1] - dep[-2])].tolist()
+                    log(f"  lake {i}: hypsometry from its {dep.size} soundings (median depth {np.median(dep):.1f} m, deepest {dep[-1]:.1f}, tail {hyp[-1]:.1f})")
             if hyp:
                 # HYPSOMETRY (Hig, 2026-10-14, Emerald Lake: soundings too damaged to condition the bed, good for
                 # its deepest depth and how much of the lake lies at each depth): the profile's depths are remapped
@@ -1160,7 +1214,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             wz_ = P.get("_water_z")
             sgt = max(P["channel_ws_smooth_m"] / res, 1.0)
             objs = ndimage.find_objects(lab)
-            n_t = 0
+            n_t = 0; n_hi = 0
             for i in sorted(mids):
                 sl = objs[i - 1] if i - 1 < len(objs) else None
                 if sl is None:
@@ -1171,10 +1225,10 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 w_ = wz_[sl] if wz_ is not None else None
                 v_ = w_[cells] if w_ is not None else np.zeros(0); v_ = v_[np.isfinite(v_)]
                 lv_ = tover.get(i, {}).get("level_m")
+                if lv_ is None and v_.size < 20:
+                    continue                             # no observed surface, no tidal body: the floor path (nolens, above)
                 if lv_ is None:
-                    lv_ = float(np.median(v_)) if v_.size >= 20 else (float(med[i - 1]) if np.isfinite(med[i - 1]) else None)
-                if lv_ is None:
-                    continue
+                    lv_ = float(np.median(v_))
                 if w_ is not None and v_.size >= 20:
                     known = cells & np.isfinite(w_)
                     num = ndimage.gaussian_filter(np.where(known, w_, 0.0).astype(np.float64), sgt)
@@ -1182,13 +1236,22 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     s_ = np.where(den > 1e-3, num / np.maximum(den, 1e-3), lv_).astype(np.float32)
                 else:
                     s_ = np.full(cells.shape, lv_, np.float32)
+                if P.get("lens_max_m") is not None:
+                    # a surface above lens_max_m (MHHW) is high water over everything and says nothing of the bed (2026-10-31,
+                    # Hig: a flat at 4.88 m in the upper bay's intertidal): those cells are left to the prior between the rest
+                    hi_ = cells & (s_ > float(P["lens_max_m"]))
+                    if hi_.any():
+                        n_hi += int(hi_.sum()); cells = cells & ~hi_
+                        if not cells.any():
+                            continue
                 lp = lake_prior[sl]; ls = lake_sig[sl]
                 lp[cells] = s_[cells]
                 ls[cells] = (P["tidal_sigma_m"] + P["sigma_rim_m"] * dshore[sl][cells] / 100.0).astype(np.float32)
                 tidal_cells[sl] |= cells
                 lake_level[i] = float(lv_); n_t += 1
             log(f"  tidal lens: {n_t} marine domains at their observed water surface, {int(tidal_cells.sum()) * res * res / 1e6:.3f} km2 "
-                f"(sigma {P['tidal_sigma_m']} m at the shore + {P['sigma_rim_m']} m per 100 m)")
+                f"(sigma {P['tidal_sigma_m']} m at the shore + {P['sigma_rim_m']} m per 100 m)"
+                + (f"; {int(n_hi) * res * res / 1e4:.2f} ha of surface above lens_max_m {P['lens_max_m']} m left to the prior" if n_hi else ""))
         # channels (channel_beds): their bed replaces band + interior like a lake's shape
         lake_prior[chan] = chan_bed[chan]
         lake_sig[chan] = (0.5 * np.clip(chan_ws[chan] - chan_bed[chan], 0, None) + 0.5).astype(np.float32)

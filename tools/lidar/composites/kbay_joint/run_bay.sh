@@ -15,7 +15,11 @@ if (( $# > 0 )); then ORDER=("$@"); fi
 for id in $ORDER; do
   if [[ -f $WORK/$id/BOX_DONE_$TAG ]]; then stamp "$id already done"; continue; fi
   stamp "$id start"
-  if zsh $HERE/run_box.sh $id $TAG >> $WORK/${id}_run.out 2>&1; then stamp "$id ok"; else stamp "$id FAILED or gated (see $WORK/${id}_run.out)"; fi
+  # run_box exits 0 when its GATE fails (the box still builds and joins the mosaic; it just is not marked done), so the
+  # log reads the marker, not the exit code (run2 logged kj_r4c1 "ok" with two rows regressed, 2026-10-30)
+  if zsh $HERE/run_box.sh $id $TAG >> $WORK/${id}_run.out 2>&1; then
+    if [[ -f $WORK/$id/BOX_DONE_$TAG ]]; then stamp "$id ok"; else stamp "$id GATED: $(tail -1 $WORK/$id/gate.log 2>/dev/null)"; fi
+  else stamp "$id FAILED (see $WORK/${id}_run.out)"; fi
 done
 # ---- mosaic of every box that finished (gated or not: the gate decides publishing, not the mosaic)
 stamp "mosaic"

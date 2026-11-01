@@ -27,6 +27,9 @@ t['note'] = ('Whole-bay point-first build (2026-10-29, BAY_SOURCES.md): every li
              'BAGs and compilations, Chugachmiut as a cleaned DTM, 3DEP only where nothing saw the ground; the joint box recipe\'s '
              'water, shore and fill settings.')
 t['grid'] = dict(src['grid'], bounds=[0, 0, 0, 0])
+# the tidal lens holds no surface above MHHW (Seldovia 4.24 m NAVD88 + 0.06): a water surface that high is high water over
+# everything, no bed (2026-10-31, Hig: a flat at 4.88 m in the upper bay's intertidal); those cells are bridged by the prior
+t['fill'] = dict(src['fill'], lens_max_m=4.3)
 
 # ---------------------------------------------------------------- joint: units + sources
 j = dict(src['joint'])
@@ -81,11 +84,19 @@ j['sources'].append(dict(name='cudem2022', derived=True, kind='grid', cls='bed',
                          date='2022-07-01', sigma_m=1.0, valid_below_m=-1.38))
 for n in ('ncei2010', 'cgoa'):
     j['sources'].append(dict(beds[n]))
-# beyond CGOA (x < 545, y < 6550, the open water off the peninsula's tip) only NCEI's Coastal Relief Model, ~0.5 km: the last resort
-j['sources'].append(dict(name='crm', derived=True, kind='grid', cls='bed', src=f'{NUN}/bathy_src/crm_southak/crm_6334_500m.tif',
+# beyond CGOA (x < 545, y < 6550, the open water off the peninsula's tip) only NCEI's Coastal Relief Model, ~0.5 km: the last resort.
+# v2 (2026-10-31): the first warp was EMPTY -- the netCDF's longitudes run 170..230 E, so nothing landed in the window and CRM
+# contributed nothing to run2; rebuilt with the longitudes wrapped to -180..180 (gdal_translate -a_ullr, then the warp)
+j['sources'].append(dict(name='crm', derived=True, kind='grid', cls='bed', src=f'{NUN}/bathy_src/crm_southak/crm_6334_500m_v2.tif',
                          date='2010-07-01', sigma_m=10.0, valid_below_m=-1.38))
 for n in ('sfm2023bare', 'dixon2023'):
     j['sources'].append(dict(beds[n]))
+# the soundings as a MEASURED bed in the fuse too (2026-10-31, Upper Hazel Lake: KBay 2023's lake-surface 'ground' sheet stood
+# over Riordan's 491 m soundings, which only the fill saw): joint.py's sparse-bed test takes a sheet down over
+# sparse_bed_min_n of them. The fill's per-survey shift (points_dz_m) applies here as shift_by_survey.
+if src['fill'].get('points'):
+    j['sources'].append(dict(name='soundings', kind='points', cls='bed', src=src['fill']['points'], date='2018-07-01', sigma_m=1.0,
+                             shift_by_survey=src['fill'].get('points_dz_m') if isinstance(src['fill'].get('points_dz_m'), dict) else None))
 # vintage zones from the v7 bay product's seeds (make_seeds.py), each taking the newest lidar that saw the cell
 j['vintage'] = [
     dict(name='floodplain', allow='newest', floodplain=dict(chan=f'{SEEDS}/chan.tif', eta=f'{SEEDS}/eta.tif', hand_m=3.0, veg_m=1.0, dist_m=600.0)),
