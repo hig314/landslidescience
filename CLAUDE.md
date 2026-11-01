@@ -1384,8 +1384,12 @@ droplet). Methods §1
   the 60 m layers ~200 MB each). Pushed with
   `tools/permafrost/r2_sync_overlays.sh` (bucket prefix `overlays/`, 7.2 GB
   on 2026-10-09 including the value archives and Surface properties).
-- **Pipeline, `tools/permafrost/`**, data on Nunatak (`permafrost_src/`
-  sources incl. `glaciers/`, `permafrost_build/` working grids, EPSG:3338,
+- **Pipeline, `tools/permafrost/`**, sources on Nunatak (`permafrost_src/`,
+  incl. `glaciers/`); the working grids `permafrost_build/` are **only on
+  R2** since 2026-10-31 (lidar bucket, `permafrost_build/`, public,
+  `/vsicurl`-readable at `https://lidar.landslidescience.org/permafrost_build/…`;
+  the Nunatak copy was deleted after a 0-difference `rclone check`, so a
+  rebuild first pulls it back with rclone or sets `PF_BUILD`). EPSG:3338,
   `-te -1041000 443000 1665000 2622000`): `fetch_mapterhorn*.sh` →
   `mapterhorn_mosaic.py` → `terrain60.sh` (elev/slope/aspect/northness at
   60 m + 1 km means) → **`kernel_fit.py`** → **`apply_downscale.py`** →
