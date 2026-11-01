@@ -104,7 +104,8 @@ IceBridge guard, the manifest additions, and docs.
   request at an edge triggers a cache-fill attempt that fails and returns a
   **200 full body** (a `/vsicurl` open would pull the whole file); later
   requests get 206. Hig's Cache Rule (host `lidar.landslidescience.org`, path
-  `/cog/` → Bypass cache, 2026-09-08) fixes it — verified against a fresh
+  `/cog/` → Bypass cache, 2026-09-08; `/pmtiles/` added 2026-09-11,
+  `/permafrost_build/` 2026-10-31) fixes it — verified against a fresh
   700 MB object, first request 206 / `cf-cache-status: DYNAMIC`. Re-verify the
   same way if the rule changes; an already-requested object will not reproduce
   the fault.
