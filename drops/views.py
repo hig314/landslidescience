@@ -31,14 +31,16 @@ from .reconcile import reconcile
 # Files above this go up in parts (resumable, parallel); below it one PUT.
 # Game-cam JPEGs are a few MB, so nearly everything takes the single PUT.
 MULTIPART_THRESHOLD = 100 * 1024 * 1024
-# Part size for multipart (S3 allows 10,000 parts, so a file over ~78 GB
-# gets bigger parts). A part counts only once it has fully arrived, and six
-# go up at once, so on a ~1.5 MB/s field uplink 32 MB parts saved nothing
-# for the first two minutes (Hig's first dev test, 2026-10-31); 8 MB parts
-# land within ~30 s and an interruption loses at most ~48 MB. Each
+# Part size for multipart: the S3 minimum (10,000 parts allowed, so a file
+# over ~48 GB gets bigger parts). A part counts only once it has fully
+# arrived, and the parts in flight share the uplink, so on a slow field
+# connection big parts and many at once mean nothing is safe for minutes:
+# 6 x 32 MB and then 7 x 8 MB both saved nothing in 30-45 s tests at
+# ~0.6 MB/s (Hig, 2026-10-31). With 5 MB and upload.js's limit of 3, a
+# part lands every ~15 MB sent. Each
 # DropUpload records the size it was cut with, so changing this only
 # makes uploads in flight start afresh, never mis-pairs parts.
-MULTIPART_PART_SIZE = 8 * 1024 * 1024
+MULTIPART_PART_SIZE = 5 * 1024 * 1024
 PAGE_SIZE = 240
 THUMB_URL_TTL = 2 * 3600          # the gallery page is re-rendered per visit
 FILE_URL_TTL = 2 * 3600

@@ -45,6 +45,7 @@
       <span>Received so far: <b id="drop-n">{{ totals.n }}</b> file{{ totals.n|pluralize }}, <b id="drop-bytes">{{ totals.bytes|filesizeformat }}</b></span>
       <span class="muted" id="drop-skipped" hidden></span>
       <span class="muted" id="drop-resumed" hidden></span>
+      <span class="muted" id="drop-safe" hidden></span>
       <span class="muted" id="drop-err" style="color:#b00020;"></span>
     </p>
     {% if can_view %}<p style="font-size:13px; margin-top:10px;"><a href="files/">Browse what has arrived</a></p>{% endif %}

@@ -85,11 +85,27 @@
     locale: { strings: { dropPasteBoth: 'Drop a folder here, %{browseFiles} or %{browseFolders}' } },
   });
 
+  const chunkSize = (size) => Math.max(cfg.partSize, Math.ceil(size / 10000));
   function mtimeOf(file) {
     const m = file.data && file.data.lastModified;
     return Number.isFinite(m) ? m : null;
   }
 
+  // "Safe so far": bytes of big files whose parts have fully arrived, i.e.
+  // what an interruption would not lose. Uppy's own bar counts partial
+  // parts too, which is what made an early close look like a resume failure.
+  const safe = {};
+  function showSafe() {
+    const b = Object.values(safe).reduce((a, x) => a + x, 0);
+    const el = $('drop-safe');
+    el.hidden = b === 0;
+    el.textContent = 'Large files: ' + fmtBytes(b) + ' safely stored';
+  }
+  uppy.on('s3-multipart:part-uploaded', (file, part) => {
+    if (!file) return;
+    safe[file.id] = Math.min(file.size, (safe[file.id] || 0) + chunkSize(file.size));
+    showSafe();
+  });
   // Before a batch starts: pick up any unfinished upload of the same file.
   // Setting s3Multipart is what Uppy's own restore path reads (the
   // MultipartUploader treats uploadId + key as "restoring").
@@ -104,7 +120,7 @@
         const r = await api('multipart/resume/', { path: file.meta.relpath, size: file.size, mtime });
         if (r.resume) {
           uppy.setFileState(id, { s3Multipart: { uploadId: r.uploadId, key: r.key } });
-          if (r.parts) { n++; bytes += r.bytes; }
+          if (r.parts) { n++; bytes += r.bytes; safe[id] = r.bytes; }
         }
       } catch (e) { /* no resume: it starts from the beginning */ }
     }));
@@ -118,8 +134,10 @@
   uppy.use(AwsS3, {
     shouldUseMultipart: (file) => file.size > cfg.multipartThreshold,
     // Deterministic, so a resumed upload is cut into the same parts.
-    getChunkSize: (data) => Math.max(cfg.partSize, Math.ceil(data.size / 10000)),
-    limit: 6,
+    getChunkSize: (data) => chunkSize(data.size),
+    // Requests in flight. Parts share the uplink and count only when whole,
+    // so fewer at once means something is safe sooner (see views.py).
+    limit: 3,
     getUploadParameters: (file) =>
       api('sign/', { path: file.meta.relpath, type: file.type, size: file.size }),
     createMultipartUpload: (file) =>
