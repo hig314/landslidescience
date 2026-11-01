@@ -168,4 +168,34 @@ class DropFile(models.Model):
         return self.name.lower().endswith(IMAGE_EXTS)
 
 
+
+class DropUpload(models.Model):
+    """A multipart upload that has been started but not completed: what lets
+    a big file resume part-way after the tab closes or the laptop sleeps.
+
+    R2 keeps the parts of an unfinished upload under its uploadId; this row
+    remembers which uploadId belongs to which file, so dropping the same
+    file again continues it instead of starting over. "The same file" is
+    path + size + the browser's lastModified (ms): a re-export under the
+    same name and size but a new mtime starts afresh, and the stale upload
+    is aborted rather than mixed with new parts. Deleted on complete/abort.
+    """
+    drop = models.ForeignKey(Drop, on_delete=models.CASCADE, related_name='uploads')
+    path = models.CharField(max_length=500)
+    size = models.BigIntegerField()
+    mtime = models.BigIntegerField(null=True, blank=True)
+    key = models.CharField(max_length=600)
+    upload_id = models.CharField(max_length=1024)
+    started_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        unique_together = [('drop', 'path')]
+
+    def __str__(self):
+        return f'{self.path} (in progress)'
+
+    def same_file(self, size, mtime):
+        return self.size == size and self.mtime == mtime
+
+
 IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.heic', '.heif', '.tif', '.tiff', '.webp')

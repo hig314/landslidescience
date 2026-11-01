@@ -25,12 +25,18 @@ from django.views.decorators.http import require_GET, require_POST
 from inventory.auth import inventory_editor_required, is_inventory_editor
 
 from . import r2, thumbs
-from .models import Drop, DropFile, PathError
+from .models import Drop, DropFile, DropUpload, PathError
 from .reconcile import reconcile
 
 # Files above this go up in parts (resumable, parallel); below it one PUT.
 # Game-cam JPEGs are a few MB, so nearly everything takes the single PUT.
 MULTIPART_THRESHOLD = 100 * 1024 * 1024
+# Part size for multipart (S3 allows 10,000 parts, so a file over ~312 GB
+# gets bigger parts). Larger means fewer sign requests through the droplet;
+# smaller means less lost per dropped part. Must not change while uploads
+# are in flight: a resumed upload is re-cut by the same rule, and parts
+# are matched by number.
+MULTIPART_PART_SIZE = 32 * 1024 * 1024
 PAGE_SIZE = 240
 THUMB_URL_TTL = 2 * 3600          # the gallery page is re-rendered per visit
 FILE_URL_TTL = 2 * 3600
@@ -154,6 +160,7 @@ def upload(request, slug):
     ctx['config'] = {
         'api': f'/drops/{d.slug}/api/',
         'multipartThreshold': MULTIPART_THRESHOLD,
+        'partSize': MULTIPART_PART_SIZE,
         'uppy': UPPY_VERSION,
     }
     return render(request, 'drops/upload.html', ctx)
@@ -258,8 +265,71 @@ def api_mp_create(request, slug):
         key = d.key_for(body.get('path'))
     except PathError as e:
         return _err(f'bad path: {e}')
+    size, mtime = _identity(body)
+    rel = d.rel_path_of(key)
+    # One upload in flight per path. A different file under the same path
+    # (new size or mtime) supersedes the old upload, whose parts are
+    # dropped rather than left for R2's lifecycle rule.
+    for old in DropUpload.objects.filter(drop=d, path=rel):
+        _abort_quietly(old.key, old.upload_id)
+        old.delete()
     upload_id = r2.mp_create(key, (body.get('type') or '')[:100])
+    DropUpload.objects.create(drop=d, path=rel, size=size if size is not None else -1,
+                              mtime=mtime, key=key, upload_id=upload_id)
     return JsonResponse({'uploadId': upload_id, 'key': key})
+
+
+def _identity(body):
+    """(size, mtime) from the browser, each an int or None."""
+    out = []
+    for k in ('size', 'mtime'):
+        try:
+            out.append(int(body[k]) if body.get(k) is not None else None)
+        except (TypeError, ValueError):
+            out.append(None)
+    return tuple(out)
+
+
+def _abort_quietly(key, upload_id):
+    try:
+        r2.mp_abort(key, upload_id)
+    except Exception:                       # noqa: BLE001 — already gone is fine
+        pass
+
+
+@require_POST
+def api_mp_resume(request, slug):
+    """Is there an unfinished upload of this very file? The client asks
+    before starting a big file; a hit returns the uploadId + key, and Uppy
+    then lists the parts already stored and sends only the rest.
+
+    The row is trusted only if R2 still has the upload (R2 aborts
+    unfinished uploads after a while by lifecycle rule) and its parts are
+    consistent with the file's size."""
+    d, bad = _api_drop(request, slug)
+    if bad:
+        return bad
+    body = _json(request)
+    try:
+        rel = d.rel_path_of(d.key_for(body.get('path')))
+    except PathError as e:
+        return _err(f'bad path: {e}')
+    size, mtime = _identity(body)
+    row = DropUpload.objects.filter(drop=d, path=rel).first()
+    if row is None or size is None or mtime is None or not row.same_file(size, mtime):
+        return JsonResponse({'resume': False})
+    try:
+        parts = r2.mp_list_parts(row.key, row.upload_id)
+    except r2.NoSuchUpload:
+        row.delete()
+        return JsonResponse({'resume': False})
+    stored = sum(p['Size'] for p in parts)
+    if stored > size:
+        _abort_quietly(row.key, row.upload_id)
+        row.delete()
+        return JsonResponse({'resume': False})
+    return JsonResponse({'resume': True, 'uploadId': row.upload_id, 'key': row.key,
+                         'parts': len(parts), 'bytes': stored})
 
 
 def _mp_args(d, body):
@@ -296,7 +366,11 @@ def api_mp_list(request, slug):
         key, upload_id = _mp_args(d, _json(request))
     except PathError as e:
         return _err(f'bad request: {e}')
-    return JsonResponse(r2.mp_list_parts(key, upload_id), safe=False)
+    try:
+        return JsonResponse(r2.mp_list_parts(key, upload_id), safe=False)
+    except r2.NoSuchUpload:
+        DropUpload.objects.filter(drop=d, upload_id=upload_id).delete()
+        return _err('that upload has expired on the storage side — remove the file and add it again', 410)
 
 
 @require_POST
@@ -313,6 +387,7 @@ def api_mp_complete(request, slug):
     except PathError as e:
         return _err(f'bad request: {e}')
     r2.mp_complete(key, upload_id, parts)
+    DropUpload.objects.filter(drop=d, upload_id=upload_id).delete()
     _record(d, d.rel_path_of(key))
     return JsonResponse({'location': ''})
 
@@ -326,7 +401,8 @@ def api_mp_abort(request, slug):
         key, upload_id = _mp_args(d, _json(request))
     except PathError as e:
         return _err(f'bad request: {e}')
-    r2.mp_abort(key, upload_id)
+    _abort_quietly(key, upload_id)
+    DropUpload.objects.filter(drop=d, upload_id=upload_id).delete()
     return JsonResponse({'ok': True})
 
 

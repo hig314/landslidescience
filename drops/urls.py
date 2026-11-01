@@ -27,6 +27,7 @@ urlpatterns = [
     re_path(rf'^{S}/api/record/$', views.api_record),
     re_path(rf'^{S}/api/reconcile/$', views.api_reconcile),
     re_path(rf'^{S}/api/multipart/create/$', views.api_mp_create),
+    re_path(rf'^{S}/api/multipart/resume/$', views.api_mp_resume),
     re_path(rf'^{S}/api/multipart/sign/$', views.api_mp_sign),
     re_path(rf'^{S}/api/multipart/list/$', views.api_mp_list),
     re_path(rf'^{S}/api/multipart/complete/$', views.api_mp_complete),

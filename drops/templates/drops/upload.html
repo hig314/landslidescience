@@ -2,7 +2,7 @@
 {% load static %}
 {% block robots %}<meta name="robots" content="noindex, nofollow">{% endblock %}
 {% block title %}{{ drop.title }} — upload{% endblock %}
-{% block page_title %}Photo upload{% endblock %}
+{% block page_title %}Upload{% endblock %}
 {% block body_class %}inv-article-body{% endblock %}
 {% block extra_styles %}
   {% if config %}<link rel="stylesheet" href="https://releases.transloadit.com/uppy/v{{ config.uppy }}/uppy.min.css">{% endif %}
@@ -34,9 +34,9 @@
     <div class="drop-closed">Uploads are not switched on for this server yet. Please try again later.</div>
   {% else %}
     <ol class="drop-how">
-      <li>Drag the <b>whole folder</b> from your camera card or computer into the box below (or <i>browse folders</i>). Thousands of files are fine; the folder structure is kept.</li>
+      <li>Drag the <b>whole folder</b> from your camera card or computer into the box below (or <i>browse folders</i>). Thousands of files are fine, and so are files of many gigabytes; the folder structure is kept.</li>
       <li>Click <b>Upload</b> and leave this tab open. Files go straight to secure storage, several at a time.</li>
-      <li>If it is interrupted — laptop closed, connection dropped — come back to this same link and drop the folder again. Files already received are skipped automatically.</li>
+      <li>If it is interrupted — laptop closed, connection dropped — come back to this same link and drop the folder again. Files already received are skipped automatically, and a large file that was part-way through carries on from where it stopped (within a few days).</li>
     </ol>
 
     <div id="uppy"></div>
@@ -44,6 +44,7 @@
     <p class="drop-status">
       <span>Received so far: <b id="drop-n">{{ totals.n }}</b> file{{ totals.n|pluralize }}, <b id="drop-bytes">{{ totals.bytes|filesizeformat }}</b></span>
       <span class="muted" id="drop-skipped" hidden></span>
+      <span class="muted" id="drop-resumed" hidden></span>
       <span class="muted" id="drop-err" style="color:#b00020;"></span>
     </p>
     {% if can_view %}<p style="font-size:13px; margin-top:10px;"><a href="files/">Browse what has arrived</a></p>{% endif %}

@@ -114,11 +114,21 @@ def mp_sign_part(key, upload_id, part_number, expires=3600):
         ExpiresIn=expires)
 
 
+class NoSuchUpload(Exception):
+    """The multipart upload is gone (completed, aborted, or expired)."""
+
+
 def mp_list_parts(key, upload_id):
+    from botocore.exceptions import ClientError
     parts, marker = [], 0
     while True:
-        r = client().list_parts(Bucket=bucket(), Key=key, UploadId=upload_id,
-                                PartNumberMarker=marker)
+        try:
+            r = client().list_parts(Bucket=bucket(), Key=key, UploadId=upload_id,
+                                    PartNumberMarker=marker)
+        except ClientError as e:
+            if e.response.get('Error', {}).get('Code') in ('NoSuchUpload', '404', 'NotFound'):
+                raise NoSuchUpload(upload_id) from e
+            raise
         for p in r.get('Parts', []):
             parts.append({'PartNumber': p['PartNumber'], 'Size': p['Size'],
                           'ETag': p['ETag']})

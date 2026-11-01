@@ -8,6 +8,10 @@
 // "Resume" is deliberately simple: before anything is added we fetch the
 // {path: size} map of what the server already has and skip matches. So the
 // instruction to an interrupted uploader is just "drop the folder again".
+// A big file caught half-way resumes too: before it starts, we ask the
+// server whether this very file (path, size, lastModified) has an
+// unfinished multipart upload, and if so hand Uppy that uploadId; Uppy then
+// lists the parts already stored and sends only the rest.
 (async function () {
   const cfg = JSON.parse(document.getElementById('drop-config').textContent);
   const csrf = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/)?.[1] || '';
@@ -81,13 +85,45 @@
     locale: { strings: { dropPasteBoth: 'Drop a folder here, %{browseFiles} or %{browseFolders}' } },
   });
 
+  function mtimeOf(file) {
+    const m = file.data && file.data.lastModified;
+    return Number.isFinite(m) ? m : null;
+  }
+
+  // Before a batch starts: pick up any unfinished upload of the same file.
+  // Setting s3Multipart is what Uppy's own restore path reads (the
+  // MultipartUploader treats uploadId + key as "restoring").
+  uppy.addPreProcessor(async (fileIDs) => {
+    let n = 0, bytes = 0;
+    await Promise.all(fileIDs.map(async (id) => {
+      const file = uppy.getFile(id);
+      if (!file || file.size <= cfg.multipartThreshold || file.s3Multipart?.uploadId) return;
+      const mtime = mtimeOf(file);
+      if (mtime == null) return;
+      try {
+        const r = await api('multipart/resume/', { path: file.meta.relpath, size: file.size, mtime });
+        if (r.resume) {
+          uppy.setFileState(id, { s3Multipart: { uploadId: r.uploadId, key: r.key } });
+          n++; bytes += r.bytes;
+        }
+      } catch (e) { /* no resume: it starts from the beginning */ }
+    }));
+    if (n) {
+      const el = $('drop-resumed');
+      el.hidden = false;
+      el.textContent = 'Resuming ' + n + ' interrupted file' + (n === 1 ? '' : 's') + ' (' + fmtBytes(bytes) + ' already stored)';
+    }
+  });
+
   uppy.use(AwsS3, {
     shouldUseMultipart: (file) => file.size > cfg.multipartThreshold,
+    // Deterministic, so a resumed upload is cut into the same parts.
+    getChunkSize: (data) => Math.max(cfg.partSize, Math.ceil(data.size / 10000)),
     limit: 6,
     getUploadParameters: (file) =>
       api('sign/', { path: file.meta.relpath, type: file.type, size: file.size }),
     createMultipartUpload: (file) =>
-      api('multipart/create/', { path: file.meta.relpath, type: file.type, size: file.size }),
+      api('multipart/create/', { path: file.meta.relpath, type: file.type, size: file.size, mtime: mtimeOf(file) }),
     signPart: (file, { uploadId, key, partNumber }) =>
       api('multipart/sign/', { uploadId, key, partNumber }),
     listParts: (file, { uploadId, key }) =>
