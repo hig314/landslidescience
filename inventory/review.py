@@ -166,8 +166,11 @@ def _filtered(request, user):
     qs = ReviewView.objects.filter(user=user)
     b = request.GET.get('b') or '*'
     # 'all imagery' and 'all lidar' are disjoint (Hig, 2026-10-26): imagery is
-    # every basemap and uploaded image, lidar every survey.
-    if b == 'lidar:*':
+    # every basemap and uploaded image, lidar every survey. 'all high-res'
+    # (2026-10-31, the overlay's default) is their union: every view.
+    if b == 'hr:*':
+        pass
+    elif b == 'lidar:*':
         qs = qs.filter(basemap__startswith='lidar:')
     elif b == '*':
         qs = qs.exclude(basemap__startswith='lidar:')

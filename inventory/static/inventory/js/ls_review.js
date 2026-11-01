@@ -40,8 +40,8 @@
 
     var host = null, cur = null, queue = [], lastAct = Date.now();
     var meta = null, metaP = null;
-    var state = { u: '', b: '*', since: '', v: 1 };
-    // The imagery choices besides 'all' and 'this pane': the two sources most
+    var state = { u: '', b: 'hr:*', since: '', v: 1 };
+    // The imagery choices besides 'all high-res', 'all imagery' and 'this pane': the two sources most
     // worth tracking (Google is a shared QMS layer; its QMS id is the same in
     // every environment).
     var SOURCES = [['esri-img', 'ESRI imagery'], ['qmsshared-678', 'Google imagery'],
@@ -235,7 +235,8 @@
         var l2 = line(); lab(l2, 'Imagery');
         var bSel = document.createElement('select'); bSel.style.cssText = selCss; l2.appendChild(bSel);
         bSel.title = '"This pane\'s basemap" shows, in each pane, the history of the basemap it is showing. ' +
-                     '"All imagery" (basemaps and uploaded images) and "all lidar" never overlap.';
+                     '"All imagery" (basemaps and uploaded images) and "all lidar" never overlap; ' +
+                     '"all high-res" (the default) is both together.';
         bSel.addEventListener('change', function () { setState('b', bSel.value); });
 
         var l3 = line(); lab(l3, 'Since');
@@ -278,7 +279,7 @@
             l1.style.display = rs.length > 1 ? '' : 'none';
 
             bSel.innerHTML = '';
-            var opts = [['*', 'all imagery'], ['@pane', 'this pane\'s basemap']].concat(SOURCES);
+            var opts = [['hr:*', 'all high-res'], ['*', 'all imagery'], ['@pane', 'this pane\'s basemap']].concat(SOURCES);
             opts.forEach(function (o) {
                 var el = document.createElement('option'); el.value = o[0]; el.textContent = o[1];
                 bSel.appendChild(el);
@@ -345,7 +346,7 @@
             if (!j.ok) return box + esc(j.error || 'Could not read the history.') + '</div>';
             var who = j.user === (meta && meta.reviewers && meta.reviewers[0].username) ? 'You' : esc(j.user);
             if (!j.views) return box + who + ' have no recorded views here' +
-                (state.b === '*' ? '' : ' on this imagery') + (state.since ? ' since ' + state.since : '') + '.</div>';
+                (state.b === 'hr:*' ? '' : ' on this imagery') + (state.since ? ' since ' + state.since : '') + '.</div>';
             var h = box + '<div><b>' + who + '</b>: ' + j.views + ' view' + (j.views === 1 ? '' : 's') +
                     ' here, ' + j.density.toPrecision(2) + ' ' + esc(j.units) + ' in all</div>' +
                     '<table style="margin-top:4px;font-size:11px;border-collapse:collapse;">' +

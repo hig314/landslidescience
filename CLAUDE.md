@@ -1744,8 +1744,9 @@ activity, like the audit log; migration `0008`, auto-applied).
   history*, pushed only when `CFG.review`. Its tiles depend on the map they
   are for (*this pane's basemap* is a choice), which is why `sourceDef(m)`
   now receives the map from `_ovEnsure` / `_ovSwapSource`. Row controls
-  (`ov.extraUI`): reviewer, imagery (**all imagery** — the default: every
-  basemap and upload, never lidar — this pane's basemap, ESRI
+  (`ov.extraUI`): reviewer, imagery (**all high-res** `hr:*` — the default
+  since 2026-10-31: every view, imagery and lidar — **all imagery** `*`:
+  every basemap and upload, never lidar — this pane's basemap, ESRI
   `esri-img`, Google `qmsshared-678`, **all lidar** `lidar:*` = every
   `lidar:` row), since date, key, calibration, the
   sharing box. A click on it
