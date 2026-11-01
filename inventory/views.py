@@ -1342,7 +1342,12 @@ _RAMP_SPECS = {
     # downscale used, as overlays in their own right -- the axes most analyses
     # want (ANALYSIS_TOOL_PLAN.md).
     'sp-elev':   {'file': 'permafrost/sp_color_elev.txt',   'label': 'Elevation', 'units': 'm · 3DEP via Mapterhorn, 60 m'},
-    'sp-slope':  {'file': 'permafrost/sp_color_slope.txt',  'label': 'Slope', 'units': 'degrees · 60 m'},
+    'sp-slope-local': {'file': 'permafrost/sp_color_slope.txt', 'label': 'Slope — local', 'units': 'degrees · ordinary slope, ~9 m'},
+    'sp-slope':  {'file': 'permafrost/sp_color_slope.txt',  'label': 'Slope — 60 m', 'units': 'degrees · steepest 60 m line centred on the pixel'},
+    'sp-slope-200': {'file': 'permafrost/sp_color_slope.txt', 'label': 'Slope — 200 m', 'units': 'degrees · steepest 200 m line centred on the pixel'},
+    'sp-slope-500': {'file': 'permafrost/sp_color_slope.txt', 'label': 'Slope — 500 m', 'units': 'degrees · steepest 500 m line centred on the pixel'},
+    'sp-slope-1k':  {'file': 'permafrost/sp_color_slope.txt', 'label': 'Slope — 1 km', 'units': 'degrees · steepest 1 km line centred on the pixel'},
+    'sp-slope-2k':  {'file': 'permafrost/sp_color_slope.txt', 'label': 'Slope — 2 km', 'units': 'degrees · steepest 2 km line centred on the pixel'},
     'sp-aspect': {'file': 'permafrost/sp_color_aspect.txt', 'label': 'Aspect', 'units': 'degrees clockwise from north · 60 m (flat reads as north)'},
     'sp-north':  {'file': 'permafrost/sp_color_north.txt',  'label': 'Northness', 'units': 'cos(aspect)·sin(slope): −1 steep south face … +1 steep north face'},
     'glac-outline-2020': {'file': 'permafrost/glac_color_outline.txt', 'label': 'Glacier covered area, Alaska 2020', 'units': 'ice (fill) · outline · NSIDC G10040, Landsat, 30 m'},

@@ -1917,6 +1917,7 @@
         // dem_shade.js/pmtiles are only loaded on the pages that need them; the
         // raster panel degrades to "no lidar" rather than throwing if absent.
         if (window.DemShade) DemShade.register(maplibregl);
+        if (window.LSSlope) LSSlope.register(maplibregl);
     }
 
     function _operaSourceDef(track) {
@@ -2400,9 +2401,23 @@
         { id: 'sp-elev', layerId: 'ov-sp-elev', sourceId: 'ov-sp-elev-src',
           label: 'Elevation', sub: 'm, hypsometric · 3DEP via Mapterhorn, 60 m',
           sourceDef: function () { return _pfSourceDef('sp_elev', 10, SP_ATTR); }, defOpacity: 0.7 },
-        { id: 'sp-slope', layerId: 'ov-sp-slope', sourceId: 'ov-sp-slope-src',
-          label: 'Slope', sub: 'degrees, 60 m · flat ground nearly transparent',
-          sourceDef: function () { return _pfSourceDef('sp_slope', 10, SP_ATTR); }, defOpacity: 0.7 },
+        // Slope at six fixed horizontal scales (2026-11-01, tools/terrain/
+        // bake_slope.py), one colour ramp, baked z3-z11; zooming out averages
+        // the picture and never changes the measure. `sp-slope` was one layer
+        // whose scale followed the zoom; the id stays for stored views and is
+        // now the 60 m row. See _slopeSourceDef for z12.
+        _slopeRow('sp-slope-local', 'Slope — local', 'local',
+                  'ordinary slope on the ~9 m grid · Alaska'),
+        _slopeRow('sp-slope', 'Slope — 60 m', '60',
+                  'steepest line 60 m long centred on each pixel · Alaska'),
+        _slopeRow('sp-slope-200', 'Slope — 200 m', '200',
+                  'steepest line 200 m long centred on each pixel · Alaska'),
+        _slopeRow('sp-slope-500', 'Slope — 500 m', '500',
+                  'steepest line 500 m long centred on each pixel · Alaska'),
+        _slopeRow('sp-slope-1k', 'Slope — 1 km', '1k',
+                  'steepest line 1 km long centred on each pixel · Alaska'),
+        _slopeRow('sp-slope-2k', 'Slope — 2 km', '2k',
+                  'steepest line 2 km long centred on each pixel · Alaska'),
         { id: 'sp-aspect', layerId: 'ov-sp-aspect', sourceId: 'ov-sp-aspect-src',
           label: 'Aspect', sub: 'N blue · E green · S yellow · W magenta, 60 m · flat cells read as north',
           sourceDef: function () { return _pfSourceDef('sp_aspect', 10, SP_ATTR); }, defOpacity: 0.7 },
@@ -2531,7 +2546,9 @@
     // on each entry, because ice-v lives in the shared ls_overlays.js.
     var _QUANTITY_OF = {
         'sp-elev':   { key: 'elev',   fine: 'elev60',   short: 'Elevation' },
-        'sp-slope':  { key: 'slope',  fine: 'slope60',  short: 'Slope' },
+        // The axis is still ordinary slope on the 60 m Albers grid (cube, value
+        // archive, paint), not the 60 m row's steepest line; hence the label.
+        'sp-slope':  { key: 'slope',  fine: 'slope60',  short: 'Slope (60 m grid)' },
         'sp-aspect': { key: 'aspect', fine: 'aspect60', short: 'Aspect' },
         'sp-north':  { key: 'north',  fine: 'north60',  short: 'Northness' },
         'pf-gruber-maat':   { key: 'maat',   short: 'MAAT — Gruber 1 km' },
@@ -2640,6 +2657,23 @@
         };
     }
     var GLAC_ATTR = 'Glacier area 2020: Roberts-Pierel, Kirchner, Kilbride & Kennedy (2022), NSIDC G10040, doi:10.7265/8esq-w553';
+    function _slopeRow(id, label, sid, sub) {
+        return { id: id, layerId: 'ov-' + id, sourceId: 'ov-' + id + '-src', label: label, sub: sub,
+                 sourceDef: function () { return _slopeSourceDef(sid); }, defOpacity: 0.7 };
+    }
+    // The slope rows' tiles. local and 60 m are computed in the page at z12
+    // (slope_scales.js) from the same tiles the bake read; the coarser four
+    // gain nothing past z11. Without slope_scales.js they stop at z11 too.
+    function _slopeSourceDef(sid) {
+        var fine = window.LSSlope && (sid === 'local' || sid === '60');
+        return {
+            type: 'raster',
+            tiles: [fine ? 'lsslope://' + sid + '/{z}/{x}/{y}'
+                         : 'pmtiles://' + location.origin + '/overlays/sp_slope_' + sid + '.pmtiles/{z}/{x}/{y}'],
+            tileSize: 512, minzoom: 3, maxzoom: fine ? 12 : 11,
+            attribution: SP_ATTR
+        };
+    }
     function _pfSourceDef(id, maxzoom, attr) {
         return {
             type: 'raster',
@@ -4219,10 +4253,17 @@
     var _OV_CATS = [
         { key: 'clim',  label: 'Climate',
           ids: ['pf-gruber-maat', 'pf-gruber-maat60', 'pf-obu-magt', 'pf-obu-magt60'] },
-        { key: 'relief', label: 'Shaded relief',
-          ids: ['relief-mt-hs', 'relief-mt-pre', 'relief-adem-hs', 'relief-adem-pre'] },
-        { key: 'sp',    label: 'Surface properties',
-          ids: ['sp-contours', 'sp-elev', 'sp-slope', 'sp-aspect', 'sp-north'] },
+        // Surface (2026-11-01, Hig): one group, two levels. Statistics are
+        // values a pixel carries (an axis can be one); visualizations are
+        // pictures of the DEM. The keys 'sp' / 'relief' are only fold-state
+        // names, so they stay.
+        { key: 'surface', label: 'Surface', subs: [
+            { key: 'sp',     label: 'DEM statistics',
+              ids: ['sp-elev', 'sp-slope-local', 'sp-slope', 'sp-slope-200', 'sp-slope-500',
+                    'sp-slope-1k', 'sp-slope-2k', 'sp-aspect', 'sp-north'] },
+            { key: 'relief', label: 'DEM visualizations',
+              ids: ['relief-mt-hs', 'relief-mt-pre', 'relief-adem-hs', 'relief-adem-pre', 'sp-contours'] },
+        ] },
         // 'dist-alert' stays listed although it is retired: _ovRenderGrouped
         // filters ids that are not in OVERLAYS, so this needs no edit if
         // DIST_ALERT_ACTIVE is flipped back on.
@@ -4251,25 +4292,31 @@
         OVERLAYS.forEach(function (ov) { byId[ov.id] = ov; });
         var placed = {};
         var ok = function (ov) { return ov && (!onlyAxes || ov.values); };
-        var cats = _OV_CATS.map(function (c) {
+        var leaf = function (c) {
             var ovs = c.ids.map(function (id) { placed[id] = 1; return byId[id]; })
                            .filter(ok);
             return { key: c.key, label: c.label, ovs: ovs };
+        };
+        var cats = _OV_CATS.map(function (c) {
+            if (!c.subs) return leaf(c);
+            var subs = c.subs.map(leaf).filter(function (s) { return s.ovs.length; });
+            return { key: c.key, label: c.label, subs: subs,
+                     ovs: [].concat.apply([], subs.map(function (s) { return s.ovs; })) };
         });
         // Anything unlisted still renders (a new overlay must never silently
         // vanish from the panel because nobody categorized it).
         var rest = OVERLAYS.filter(function (ov) { return !placed[ov.id] && ok(ov); });
         if (rest.length) cats.push({ key: 'other', label: 'Other', ovs: rest });
 
-        cats.forEach(function (c) {
-            if (!c.ovs.length) return;
-            // Two different questions, and they were being answered by one
-            // number. The COUNT has to describe THIS pane, because so does
-            // every checkbox under it: the sidebar section drives the left
-            // pane, the wiper's panel the right. Counting either pane made a
-            // group read "1 on" with all of its boxes unticked -- and with no
-            // wiper open, the right-pane state being counted was not on
-            // screen anywhere, so the label pointed at nothing at all.
+        // One foldable group (a category, or a subgroup inside one).
+        // Two different questions, and they were being answered by one
+        // number. The COUNT has to describe THIS pane, because so does
+        // every checkbox under it: the sidebar section drives the left
+        // pane, the wiper's panel the right. Counting either pane made a
+        // group read "1 on" with all of its boxes unticked -- and with no
+        // wiper open, the right-pane state being counted was not on
+        // screen anywhere, so the label pointed at nothing at all.
+        var group = function (c, nested) {
             var activeHere = function () {
                 return c.ovs.filter(function (ov) {
                     var st = _ovState[ov.id];
@@ -4278,9 +4325,11 @@
             };
             var det = document.createElement('details');
             var sum = document.createElement('summary');
-            sum.className = 'refmaps-category ov-cat-summary';
+            sum.className = 'refmaps-category ov-cat-summary' + (nested ? ' ov-subcat-summary' : '');
             det.appendChild(sum);
-            c.ovs.forEach(function (ov) { det.appendChild(_overlayRow(ov, side, scope)); });
+            if (nested) det.className = 'ov-subcat';
+            if (c.subs) c.subs.forEach(function (s) { det.appendChild(group(s, true)); });
+            else c.ovs.forEach(function (ov) { det.appendChild(_overlayRow(ov, side, scope)); });
             var fold = function () {
                 var n = activeHere();
                 det.open = n > 0;
@@ -4288,7 +4337,11 @@
             };
             _ovRowSync[(scope || side) + '-cat-' + c.key] = fold;
             fold();
-            container.appendChild(det);
+            return det;
+        };
+        cats.forEach(function (c) {
+            if (!c.ovs.length) return;
+            container.appendChild(group(c, false));
         });
     }
 
@@ -9837,7 +9890,9 @@
     // _anWiperGet / _anWiperSet; lw x n10 brushes drive the two sliders.
     if (typeof LSAnalysis !== 'undefined') {
         var _anCatOf = {};
-        _OV_CATS.forEach(function (c) { c.ids.forEach(function (id) { _anCatOf[id] = c.label; }); });
+        _OV_CATS.forEach(function (c) {
+            (c.subs || [c]).forEach(function (l) { l.ids.forEach(function (id) { _anCatOf[id] = l.label; }); });
+        });
         LSAnalysis.init({
             map: map, apiBase: API_BASE, staticBase: STATIC_BASE, dataV: DATA_V,
             makePanel: makeFloatingPanel,

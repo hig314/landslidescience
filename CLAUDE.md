@@ -101,6 +101,11 @@ written down anywhere — read `/lidar/audit/`.
 
 **Open threads**, in no particular order:
 
+- **Overlay regrouping + fixed-scale slope: built, in dev, awaiting Hig's test**
+  (2026-11-01). Archives are on Nunatak only, nothing on R2. After approval:
+  push, deploy, R2 sync (see *Surface properties*), then retire the old
+  `sp_slope` archive. Coverage stops at the Alaska border, so the Canadian side
+  of St. Elias is blank until coverage grows.
 - **Droplet disk is tight**: 6.5 GB free (92%) after the 2026-10-30
   deploys. Docker build cache is 4.1 GB, of which `docker builder prune`
   would reclaim ~1.3 GB. Offered to Hig, not answered, not run.
@@ -1423,12 +1428,41 @@ droplet). Methods §1
     Mapterhorn is exactly 0 over sea, land near sea level is not; 342 M
     zero cells vs 227 k in (0, 5 cm)). The first bake used Gruber's 1 km
     validity and the coast came out in 1 km blocks, wrong both ways.
-  - **Slope is computed per zoom** (`bake_slope_pyramid.py`): elevation
-    averaged to each zoom's ground resolution (z3 ≈ 9 km … z10 = 60 m),
-    THEN slope, colour, and that zoom's tiles only — so zoomed out, only
-    ground steep at that scale is coloured (Hig's ask). The ramp is the
-    lidar viewer's slope standard (`dem_shade.js` `SLOPE_STOPS`: white to
-    32°, yellow 40, red 45, purple 50), nearly clear below 32°.
+  - **Slope at fixed horizontal scales** (`tools/terrain/`, Hig 2026-11-01;
+    replaced `bake_slope_pyramid.py`, whose per-zoom slope tied the scale to
+    the pyramid). Six rows on one ramp: *local* (ordinary Horn slope on the
+    ~9 m z12 grid) and 60 m, 200 m, 500 m, 1 km, 2 km, each the **steepest
+    diameter of a circle of that diameter centred on the pixel** (24
+    directions, bilinear ends; `chord_slope.py`, whose `selftest` checks a
+    plane reads its own slope). Scales are computed on grids of about L/12
+    (z12, z12, z11, z10, z9, z8 in 512 px tiles) from Mapterhorn tiles fetched
+    by `fetch_mapterhorn.sh` (coverage polygon + 3 km), kept on Nunatak. Going
+    down the pyramid averages the **coloured picture** (premultiplied RGBA,
+    2x2), never the slope: a scale's meaning stays constant at every zoom.
+    `bake_slope.py` masks sea (height <= 0 or exactly flat in an 11 px window:
+    some source cells carry a constant -3 m or +2.5 m) and coverage only for
+    colouring, not in the calculation, so a coastal cliff keeps its height
+    difference. Coverage is `data/regions_seed/alaska_3338.geojson`, to grow
+    with the reviewed area. Blocks are z8, fail independently, resume from
+    `done_blocks.txt`. **Prebaked to z11**, `sp_slope_<sid>.pmtiles`, 17 GB in
+    all (local 5.7, 60 m 4.2, 200 m 2.8, 500 m 1.9, 1 km 1.3, 2 km 1.0), ~3.5 h
+    on 6 workers. **local and 60 m run at z12 in the browser**
+    (`slope_scales.js`, `lsslope://`, same Mapterhorn tiles, a worker pool);
+    the z11 parent's alpha is the mask, so the client needs no polygon and
+    open sea or Canada costs no Mapterhorn request. Check after changing either
+    calculation: `LSSlope._compare(sid, x11, y11)` must match the baked tile
+    (2026-11-01: alpha rms 0.5 of 255; differences only at the mask edge, where
+    half-resolution masking leaves a fringe of at most one z12 pixel). **In
+    dev the archives stay on Nunatak**: the local override line mounts
+    `/Volumes/Nunatak/terrain_build/pmtiles` at `/app/nunatak_overlays` (not
+    committed, like the COG line) and `data/overlays/sp_slope_*.pmtiles` are
+    symlinks to it, because Docker refuses a file mount inside the `data/`
+    bind. Push with `OVERLAYS_SRC=/Volumes/Nunatak/terrain_build/pmtiles
+    tools/permafrost/r2_sync_overlays.sh`. Row id `sp-slope` is the 60 m row,
+    kept so stored views still work. The ramp is the lidar viewer's slope
+    standard (`dem_shade.js` `SLOPE_STOPS`: white to 32 deg, yellow 40, red 45,
+    purple 50), nearly clear below 32 deg. The new scales are not yet analysis
+    axes or brush sources.
   - **Contours are generated in the browser** by maplibre-contour (unpkg,
     MIT) from Mapterhorn's terrarium tiles — nothing baked or hosted — with
     the interval by zoom (1000 m at z≤6 … 10 m at z≥14) in
@@ -1867,7 +1901,7 @@ There is no on-map legend or floating basemap-picker — those got removed in fa
 
 **Canadian basemaps (2026-10-29).** *US / Canada Topo* is the old `usgs-topo` entry (id kept: stored views and `/lidar/`'s default name it) with NRCan's **Toporama WMS** drawn over it through the descriptor's `labelTiles` slot (`labelAttr` carries its credit), **from z11 only** (`labelMinzoom`): below that Toporama draws a small-scale atlas whose land and sea fills cover Alaska too. From z11 it is transparent outside Canada and where it has no fill, and it sends CORS. *BC Orthophoto 1995-2004* (`bc-ortho`, Historical) is GeoBC's 1 m mosaic via **`inventory/bcortho.py`**, a same-origin proxy + disk cache (`data/bcortho_tiles/`) at `/inventory/tiles/bcortho/z/x/y.png`: their ERDAS WMS sends `access-control-allow-origin: (null)` so a browser cannot use it directly, and its nodata is opaque black, which the proxy turns transparent (brightest channel <= 4; very dark shadow can show as pinholes). Tiles outside the province's box are refused without an upstream call. Cold tiles hold a gunicorn worker ~0.5 s each, like the OPERA proxy.
 
-**Shaded relief overlays (2026-10-30).** Category *Shaded relief* in `_OV_CATS`: Hillshade and Preset (the lidar's `LIDAR_PRESETS`) of two DEMs nobody here hosts, shaded by the vendored maplibre-gl-demshade package (`/inventory/` uses it through `dem_shade_bridge.js`, not `dem_shade.js`). `mapterhorn` = the same spec `/lidar/` uses (512 px terrarium, maxzoom 13 + overzoom, sea 0 m → void); `arcticdem` = `DemShade.addImageServer` on PGC's public `di-pgc.img.arcgis.com/.../arcticdem_latest/ImageServer` (float32 TIFF exports, ~260 KB and ~0.5 s a tile, no renderingRule so **WGS84 ellipsoidal heights**; the old Esri `elevation2` ArcticDEM service is gone). Registered on first use in `_reliefSourceDef`. The rows carry `underlay: true`, which `_ovEnsure` places before the first non-basemap layer (`_ovUnderlayBefore`: under the basemap's labels, lidar, uploads and the other overlays). No zoom floor (Hig: zoomed out they show where there is data). `DemShade.loadTile` returns an `ImageBitmap`, not `{data}` — the shape to expect when probing tiles headless. **The ∿ profile and the Alt-click probe read ArcticDEM too** (2026-10-30): `LSDemRead.ARCTICDEM` is an `imageServer` source on the same PGC service, asked for `Height Orthometric` (EGM2008) rather than the raw ellipsoidal heights the shading uses (those sit ~14 m high at Barry Arm; orthometric reads ~1 m above Mapterhorn's NAVD88 in Anchorage and Palmer); its float32 TIFFs are decoded by `LSDemRead.decodeTiff` (uncompressed, strips or tiles). Asked only north of 50°N (`arcticCovers`), and dropped from the chart/popup when it returns no data. It reads the sea as ~0 m rather than a void.
+**Shaded relief overlays (2026-10-30).** Now in *Surface → DEM visualizations* in `_OV_CATS` (a category may carry `subs`; *Surface* holds *DEM statistics* and *DEM visualizations*, the latter with Contours): Hillshade and Preset (the lidar's `LIDAR_PRESETS`) of two DEMs nobody here hosts, shaded by the vendored maplibre-gl-demshade package (`/inventory/` uses it through `dem_shade_bridge.js`, not `dem_shade.js`). `mapterhorn` = the same spec `/lidar/` uses (512 px terrarium, maxzoom 13 + overzoom, sea 0 m → void); `arcticdem` = `DemShade.addImageServer` on PGC's public `di-pgc.img.arcgis.com/.../arcticdem_latest/ImageServer` (float32 TIFF exports, ~260 KB and ~0.5 s a tile, no renderingRule so **WGS84 ellipsoidal heights**; the old Esri `elevation2` ArcticDEM service is gone). Registered on first use in `_reliefSourceDef`. The rows carry `underlay: true`, which `_ovEnsure` places before the first non-basemap layer (`_ovUnderlayBefore`: under the basemap's labels, lidar, uploads and the other overlays). No zoom floor (Hig: zoomed out they show where there is data). `DemShade.loadTile` returns an `ImageBitmap`, not `{data}` — the shape to expect when probing tiles headless. **The ∿ profile and the Alt-click probe read ArcticDEM too** (2026-10-30): `LSDemRead.ARCTICDEM` is an `imageServer` source on the same PGC service, asked for `Height Orthometric` (EGM2008) rather than the raw ellipsoidal heights the shading uses (those sit ~14 m high at Barry Arm; orthometric reads ~1 m above Mapterhorn's NAVD88 in Anchorage and Palmer); its float32 TIFFs are decoded by `LSDemRead.decodeTiff` (uncompressed, strips or tiles). Asked only north of 50°N (`arcticCovers`), and dropped from the chart/popup when it returns no data. It reads the sea as ~0 m rather than a void.
 
 **Self-hosted lidar DEMs and bathymetry.** Alaska elevation surveys hosted as
 **two products each** (archive COG + web PMTiles), built by

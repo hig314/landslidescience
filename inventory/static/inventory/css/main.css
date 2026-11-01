@@ -1071,6 +1071,9 @@ body.inv-article-body {
 .ov-cat-summary::-webkit-details-marker { display: none; }
 .ov-cat-summary::before { content: '▸ '; font-size: 9px; color: #999; }
 details[open] > .ov-cat-summary::before { content: '▾ '; }
+/* a subgroup inside a category (Surface → DEM statistics / DEM visualizations) */
+.ov-subcat { margin-left: 10px; }
+.ov-subcat-summary { font-size: 11px; text-transform: none; letter-spacing: 0; }
 
 /* --- InSAR time-series tool (its button lives in .inv-tools-ctrl above) --- */
 .insar-panel { width: 560px; height: 320px; display: flex; flex-direction: column; }

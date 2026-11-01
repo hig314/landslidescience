@@ -281,9 +281,9 @@
   thinning rate, flow speed, its seasonality, and its trend.
 </p>
 
-<h4>Shaded relief overlays (Mapterhorn and ArcticDEM)</h4>
+<h4>DEM visualizations (Mapterhorn and ArcticDEM)</h4>
 <p>
-  Four rows under <em>Shaded relief</em> shade two elevation models in the
+  Four rows under <em>Surface &rarr; DEM visualizations</em> (beside the contours) shade two elevation models in the
   browser, with the same Hillshade and Preset (5&nbsp;m elevation bands,
   slope and hillshade) used for the lidar surveys. Neither model is hosted
   here. <strong>Mapterhorn</strong> is a global terrain tile set: USGS 3DEP
@@ -301,11 +301,12 @@
   is data; ArcticDEM's coarse levels shade faintly.
 </p>
 
-<h4>Surface properties overlays</h4>
+<h4>DEM statistics overlays</h4>
 <p>
-  <strong>Elevation</strong>, <strong>slope</strong>, <strong>aspect</strong>
+  Under <em>Surface &rarr; DEM statistics</em>,
+  <strong>elevation</strong>, <strong>aspect</strong>
   and <strong>northness</strong> (cos&nbsp;aspect&nbsp;&times;&nbsp;sin&nbsp;slope,
-  &minus;1 a steep south face to +1 a steep north face) are drawn from one
+  &minus;1 a steep south face to +1 a steep north face), and the analysis panel's slope axis, are drawn from one
   60&nbsp;m terrain grid over Alaska and the Yukon margin, built from
   USGS 3DEP 1/3&nbsp;arc-second elevation as served by Mapterhorn and
   projected to Alaska Albers; they are the same grids the permafrost
@@ -322,18 +323,49 @@
   to four times the neighbouring degrees; invisible above 1&deg;); it is
   a property of the derived grid, so read the aspect axis of nearly flat
   ground with that in mind. Sea is masked
-  at the grid's own 60&nbsp;m. Two of these layers behave differently from
-  an ordinary map: <strong>slope is recomputed at every zoom level</strong>
-  from elevation averaged to that level's ground resolution (about
-  9&nbsp;km at the statewide view, 60&nbsp;m when zoomed in), so zoomed out
-  only ground that is steep <em>at that scale</em> is coloured, and the
-  colour standard is the lidar viewer's &mdash; nearly clear below
-  32&deg;, then yellow at 40&deg;, red at 45&deg; and purple at 50&deg;,
-  the band around the angle of repose where the information is; and
-  <strong>contours</strong> are drawn in the browser from the same 3DEP
+  at the grid's own 60&nbsp;m. <strong>Contours</strong>, under
+  <em>DEM visualizations</em>,
+  are drawn in the browser from the same 3DEP
   terrain tiles rather than stored, at an interval that follows the zoom
   &mdash; 1000&nbsp;m at the state scale down to 10&nbsp;m at site scale
   &mdash; with the heavier line labelled.
+</p>
+
+<h4>Slope at fixed horizontal scales</h4>
+<p>
+  Slope depends on the distance it is measured over, so the map offers it at
+  six scales rather than one, and <strong>a row's scale does not change as you
+  zoom</strong>. <strong>Local</strong> is ordinary slope (the Horn gradient) on
+  a grid of about 9&nbsp;m. The other five, <strong>60&nbsp;m, 200&nbsp;m,
+  500&nbsp;m, 1&nbsp;km and 2&nbsp;km</strong>, measure the steepest line of
+  that horizontal length centred on each pixel: of all the diameters of a
+  circle of that diameter around the pixel, the one whose two ends differ most
+  in height sets the pixel's slope. On a plane this is the plane's own slope at
+  every scale. On real ground it falls as the scale grows, because few slopes
+  stay steep for long: a pixel is coloured at 2&nbsp;km only where the ground
+  drops steeply across a full kilometre either side of it, so that row picks out
+  the great walls rather than the gullies and ledges in them.
+</p>
+<p>
+  The heights are USGS 3DEP 1/3&nbsp;arc-second as served by Mapterhorn. Each
+  scale is computed on a grid about a twelfth of its length (9&nbsp;m for
+  60&nbsp;m, up to about 140&nbsp;m for 2&nbsp;km), with heights averaged to that
+  grid, and the 24 directions tried leave a plane at most 0.2&nbsp;% shallow.
+  Water keeps its own height in the calculation, so a sea cliff reads as a
+  cliff, and is then left uncoloured. The source carries some sea as a constant
+  height rather than 0&nbsp;m, so exactly flat ground below 5&nbsp;m is treated
+  as water too; lakes above that are drawn as flat ground. Coverage is Alaska
+  only for now. All six rows share the colour standard of the lidar viewer:
+  nearly clear below 32&deg;, then yellow at 40&deg;, red at 45&deg; and purple
+  at 50&deg;, the band around the angle of repose where the information is.
+</p>
+<p>
+  <strong>Zooming out averages the picture, not the slope.</strong> Each
+  coarser level is the mean of the coloured image beneath it, so ground with
+  scattered cliffs takes a faint wash of colour in proportion to how much of
+  it is steep. A pale pixel zoomed out can therefore hold a small cliff; zoom
+  in to read angles. The analysis panel's slope axis is still ordinary slope on
+  the 60&nbsp;m Albers grid described above, not these rows.
 </p>
 
 <h4>Permafrost overlays</h4>
