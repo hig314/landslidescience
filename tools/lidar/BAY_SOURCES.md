@@ -237,3 +237,24 @@ The run log says "ok" for gated boxes: run_box.sh exits 0 when the gate fails (f
 4. Crop tests, gated: Upper Hazel, Lower Hazel, the upper-bay flats, the Chugachmiut lake, and outer-coast sites with
    voids and coarse-grid plates (59.24565,-151.87629; 59.30840,-151.03540; more found on the way).
 5. Rerun the boxes with known or suspected issues; the good ones (Grewingk) as time permits.
+
+**Steps 1-2 built and tested (2026-10-31 evening, 14e9261..600d7c7; crops tag fix1, hazel_u fix2; dev surface
+kbay_joint_fix1_crops).**
+- Plates (plates_t): coarse grids by cubic spline, their no-data ring dropped (joint obs_grid, coarse_factor 4): the profile
+  across 59.30840,-151.03540 runs -66 .. -2 .. shore with no square.
+- Open-water boxes (kj_r5c0): the compilations' sea when no survey saw one (water.py `_add_layer`, bed below MLLW at the
+  grid edge): 346.5 km2 of sea at -1.38, the box builds; gate rows for water steps MISSING (none to count).
+- Upper bay (upbay_t): the 8.6 km2 low void is a marine domain bridged at ~0.2 m (fill_mask 2); the 4.88 m flat is a
+  slope at 3.6-4.6 m (449.79 ha of lens surface above lens_max_m 4.3 left to the prior). Class there is `modelled`
+  with no shore label -- to look at.
+- Upper Hazel (hazel_u fix2): the soundings a joint `points` source; the sparse-bed sheet rule (sparse_bed_min_n 5)
+  judges sheets at any height (the sea rules keep the tide ceiling per sheet): KBay 2023's 27.7 ha surface sheet at
+  528.95 came down, the lake is water at 528.58 with its bed by the soundings' hypsometry (130; 25 m at Hig's point).
+- Lower Hazel (hazel_l): hypsometry from 197 soundings, tail by the last gap again (36.0 -> 43.3): modelled depth
+  p10/50/90/max 2.8/20.6/27.5/41.1 vs the soundings' 2.8/20.4/26.2/36.0; Hig's point 30 m deep (was 41).
+- Chugachmiut lake (chug_t): dtm_clean's level test per mapped lake polygon (p90-p10 < 0.3 m inside the polygon;
+  the surface was level, not flat: 3x3 range median 0.09 m): 2.45 km2 of lake surface out of the DTM (v2), the lake
+  is water at 10.51 with a modelled basin.
+- Tip (tip_t): fully covered now -- CRM v2 (3.2 km2 of bed) and the bridge; 68 % is the 3DEP prior on land. The
+  Chugachmiut DTM has no data at 59.24565,-151.87629 (26 % of that box): the surface there is 3DEP.
+Open: ArcticDEM (12 GB downloading to Powder, ~0.2 MB/s); the selective rerun.
