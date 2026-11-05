@@ -35,7 +35,7 @@ SEED = [
      'Activity has increased since 2012.'),
     ('Creeping permafrost mass', 'slow', 'creeping_permafrost_mass',
      'A creeping permafrost mass. Its volume is estimated with a uniform 20 m thickness.'),
-    ('Glacier contact', 'slow', 'glacier_contact',
+    ('Glacier contact', 'both', 'glacier_contact',
      'The moving mass is in contact with a glacier.'),
 ]
 
