@@ -1,5 +1,81 @@
 # Topobathy compositing: tools and interface
 
+## Resume here (2026-11-05, late morning) — full-bay run cm16 stopped after 13 boxes; three shore-model faults found; fixes next
+
+**State.** The contour shore model (high shore authoritative, low level from real bed slopes, rocks as soundings,
+convex ramp; branch commit `5fa0168`, local only, not pushed or merged) ran the nine test boxes and then the full
+bay under tag `cm16`. Hig stopped it on 2026-11-05 after reviewing an interim mosaic: the queue was emptied and the
+main loop killed, so no mosaic or publish follows. `kj_r6c2` and `kj_r6c3` were left to finish (in their fill step
+at ~10:30; kept awake by `caffeinate -w` on their run_box pids); they ran the old rules and must be checked for the
+faults below before they are kept. The 35 boxes never started are listed in
+`/private/tmp/claude-506/-Users-Hig-Claude-projects-landslidescience-topobathy/139a4b79-d429-427d-9429-157512d2ad84/scratchpad/queue_cm16_left.txt`
+(the same list is `ORDER` in `run_bay_parallel.sh` minus the 13 run boxes).
+
+**Finished under cm16** (archives `$W/<box>/out_cm16`, `W=/Volumes/Nunatak/lidar_build/composite`): passed the
+gate `kj_r3c4 kj_r3c5 kj_r2c4`; gate-held `kj_r3c3 kj_r2c3 kj_r2c2 kj_r2c1 kj_r4c4 kj_r3c2 kj_r4c2 kj_r4c1`.
+Held rows (current vs best): r3c3 solid-over-level 460 cells (0), r4c1 336 (3) + bed-labelled-land 1943 (1151) +
+perched-over-deep 0.69 ha (0), r2c3 142 (0), r3c2 129 (0), r4c2 97 (28) + perched-over-deep 12.92 ha (3.12, NOT
+yet explained), r2c2 90 (0); land/water km2 "moved" rows on most, some by a lot (r2c1 land 3.05 -> 36.86) — probably
+comparisons with much older runs, unconfirmed. Boxes ran 1-1.5 h each except r4c1/r4c2 (~4 h; their fill 2.7 h
+against ~1 h on fix2h — cause unknown).
+
+**On the dev viewer:** `kbay_joint_cm16`, "Contour shore model, 11 boxes so far", an interim feathered mosaic of
+the 11 boxes done by 09:19 (published by hand with run_bay_parallel.sh's own mosaic/merge/publish steps; merged
+review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unexamined). Also kept:
+`kbay_joint_cm16_r3c4`, `kbay_joint_cm16_r3c3`, `kbay_joint_cm15_taylor`, `joint_v3j` (its removal asked, unanswered).
+
+**Hig's review of the interim mosaic, and what each fault is** (all new in cm16; earlier runs cm1/cm5/fix2h were right):
+
+| Spot (Hig) | cm16 | fix2h | Fault |
+|---|---|---|---|
+| 59.18565,-151.59493 (r2c2) | -2.3 m plate ~130 ha, casts to -61 m "not fit" | -48.8 | 1 |
+| 59.18479,-151.77715 (r2c1) | -3.4 m plate 1.4 ha amid -50..-110 m | -66.7 | 1 (code and setting match; reach not tested there) |
+| 59.17311,-151.42426 (r2c3) | flat top at -90.96 m, 9 ha | -118.6 | 2 |
+| 59.44631,-151.74859 Hoen's (r4c1, r4c2's margin) | -3.7 m over 3.4 ha where lidar reads 0.80 | 0.80 | 3 |
+
+1. **Mapped-shore band swallows open sea** (`shoreface.py`, the "THE MAPPED SHORES ARE THE MODEL'S SHORES" block):
+   `m_band = C & Hw_ & ~Lw_ & within shore_mapped_reach_m (1000 m) of a low line` is "between the shores", and
+   `tide_low_water.geojson` covers only the mapped coast (1,481 km2 against high water's 2,745), so open sea past the
+   low polygon's extent within 1 km of a low line becomes intertidal (fill_mask 9, at the base contour) and its deep
+   casts are set aside as "not fit, for review". Tested at r2c2: 185.6 of the 185.9 ha the rule predicts carry
+   fill_mask 9; the plate's south edge is 1 km from the low line. Same signature (clusters of deep not-fit casts) at
+   59.29378,-150.74956 (r3c5, 62 casts up to 58 m off) and 59.20888,-151.79502 (r2c1, 16 casts up to 19 m). Bay-wide
+   up to 6,056 ha (2,228 ha wider than 200 m) — an upper bound, as real flats are in it too; largest piece 940 ha at
+   59.70158,-151.27993 (unrun box). Fix: only between a low line and a high line that face each other (not past the
+   low polygon's mapped extent), and a good cast deeper than the low level puts its cell back in the sea.
+2. **no_peaks clips deep-water peaks flat** (`high_line.py no_peaks`, called from `composite.py` ~line 910): the
+   spline's -79.6 m overshoot between casts of -82.2 and -93.2 was cut to -90.96, the surface at the -82.2 cast's
+   cell (itself 8.8 m deep of the cast: basin soundings aggregate to ~210 m sites). r2c3's highline log: peaks 135 ha
+   (max 12 m), pits 268 ha (mean 5.2, max 23 m). Fix: limit no_peaks to the shallow water near the mapped shore (it
+   was written for the shore), or anchor to the cast's value and never cut a flat top in deep water.
+3. **Hoen's inner flat dug as sea**: its returns are classed water at its own level (joint.py's comment ~line 684:
+   Hig, October — a horizontal mud flat at 0.8 m; no measured bed to tell it from water), and the low-water polygon
+   takes it in, so the new rule makes it sea right up to the low line. **Hig, 2026-11-05: the lidar height is right;
+   fix it in the classification, as a reviewer edit, not a universal rule** ("nearly perfectly flat mud ... genuinely
+   a little hard to tell whether it's mud or water even when you're standing there"). Draft polygon
+   `tools/lidar/water/hoens_ground_draft.geojson` (EPSG:6334, 9 pieces, 6.7 ha, main 4.9 ha; KBay 2023 water-class
+   cells within 0.15 m of 0.8 m, closed, filled, 2 m buffer), properties in the edits.geojson style with
+   `kind: "ground"`, `draft: true`. Hig may edit it in QGIS. To build: a `ground` edit kind (polygon) applied in the
+   class step — water-class cells inside become ground, so the lidar stands — then move the feature into
+   `water/edits.geojson`. The outer lagoon's slough stays water.
+
+**Next, in order** (none of it started; the fixes edit run-read files, so wait for r6c2/r6c3 to end):
+1. Check r6c2 and r6c3 for faults 1-3; keep them if clean.
+2. Build fixes 1 and 2 and the `ground` edit kind; take Hig's polygon (or the draft) into `edits.geojson`.
+3. Test on `kj_r2c2`, `kj_r2c3`, `kj_r4c1` under a new tag; gate against cm16 and the best earlier runs.
+4. **Rerun only the boxes with an identified fault** (Hig, 2026-11-05): `kj_r2c2 kj_r2c1 kj_r2c3 kj_r3c5 kj_r4c1
+   kj_r4c2` (+ r6c2/r6c3 if step 1 finds one). Then the 35 unrun boxes under the fixed rules, and the mosaic of all 48.
+   The mosaic takes each box's `out_<tag>/<id>.tif` for one tag, so a mixed-tag mosaic (cm16 for kept boxes, the new
+   tag for reruns) needs `mosaic_blend.py` to take a per-box tag, or the kept archives copied under the new tag.
+
+**Housekeeping on 2026-11-05:** Hig deleted the Time Machine local snapshots (boot disk 16 -> 133 GB free). Local
+copies of 46 public COGs, 106 pyramids, 19 overlays and 6 sp_slope pyramids were deleted earlier the same night after
+md5 checks against R2 (five COGs kept for topobathy: kbay_2023_reclass_v2, homer_2019, grewingk_2021, seldovia_2019,
+dixon_2023). Until Hig adds `http://127.0.0.1:8001` to the R2 CORS policy, dev `/lidar/` works only at
+`localhost:8001`. Still open: the r4c2 perched-over-deep 12.92 ha; the 1310 unhonoured edit checks; methods docs;
+the earlier shore items (2 casts > 3 m, cast dimples, 5.4 ha basin overshoot, creases at inward corners, the rough
+river rule).
+
 ## Resume here (2026-10-29) — run 20j on dev; the branch committed; what the regressions taught
 
 **State.** The dev viewer (`/lidar/?catalog=dev`) carries three Grewingk-box surfaces side by side, each with its
