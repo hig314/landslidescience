@@ -874,6 +874,66 @@ def dataset_entry(recipe, grid, rep=None):
     return entry
 
 
+def cmd_highline(a):
+    """The mapped high-tide line over the finished surface (topobathy/high_line.py): rewrites <id>.tif, <id>_filled.tif and shore_contours.geojson; high_line.tif says what moved."""
+    from topobathy import high_line as HL
+    from topobathy.shoreface import _contours
+    recipe = Recipe(a.recipe); out = recipe.out_dir; F = recipe.d.get("fill") or {}
+    if not F.get("tide_lines") or not F.get("tide_sea") or not Path(F["tide_lines"]).exists():
+        print("  no tide lines in this recipe"); return
+    src = out / f"{recipe.id}.tif"
+    with rasterio.open(src) as ds:
+        z = ds.read(1).astype(np.float32); z[z == ds.nodata] = np.nan; prof = ds.profile; T = ds.transform; res = ds.res[0]; tags = ds.tags()
+    from shapely.geometry import box, shape as _shape, mapping as _mapping
+    b_ = box(*rasterio.transform.array_bounds(z.shape[0], z.shape[1], T))
+    lines = [f for f in json.load(open(F["tide_lines"]))["features"] if _shape(f["geometry"]).intersects(b_)]
+    sea = [_mapping(g) for g in (_shape(f["geometry"]) for f in json.load(open(F["tide_sea"]))["features"]) if g.intersects(b_)]
+    lidar_ = HL.lidar_on_grid(T, prof["crs"], z.shape)
+    new, code, rep_ = HL.apply(z, T, res, lines, sea, lidar_)
+    hw_ = Path(F["tide_sea"]).with_name("tide_high_water.geojson")
+    if hw_.exists() and (out / "fill_mask.tif").exists():
+        from rasterio import features as _features
+        import shapely as _shapely
+        g_ = _shapely.clip_by_rect(_shape(json.load(open(hw_))["features"][0]["geometry"]), *b_.bounds)
+        Hw_ = _features.rasterize([(_mapping(g_), 1)], out_shape=z.shape, transform=T, fill=0, dtype="uint8") > 0 if not g_.is_empty else np.zeros(z.shape, bool)
+        with rasterio.open(out / "fill_mask.tif") as ds:
+            md_ = ds.read(1) > 0
+        an_ = np.zeros(z.shape, bool)
+        an_ = _features.rasterize([(f_["geometry"], 1) for f_ in lines], out_shape=z.shape, transform=T, fill=0, dtype="uint8") > 0 if lines else an_
+        for nm_ in ("cast_review.geojson", "rock_review.geojson"):
+            if (out / nm_).exists():
+                for f_ in json.load(open(out / nm_))["features"]:
+                    if f_["properties"].get("status") in ("used", "sounding"):
+                        cc_, rr_ = ~T * tuple(f_["geometry"]["coordinates"][:2]); rr_, cc_ = int(rr_), int(cc_)
+                        if 0 <= rr_ < z.shape[0] and 0 <= cc_ < z.shape[1]:
+                            an_[rr_, cc_] = True
+        new, low_ = HL.no_peaks(new, Hw_, md_ & ~lidar_, an_, res)
+        code[low_ & (code == 0)] = 1
+        rep_["peaks_pits_moved_ha"] = round(float(low_.sum()) * res * res / 1e4, 2)
+    (out / "high_line.json").write_text(json.dumps(rep_, indent=1))
+    pr = dict(prof, driver="GTiff", tiled=True, blockxsize=512, blockysize=512, compress="zstd", bigtiff="yes")
+    with rasterio.open(out / "high_line.tif", "w", **dict(pr, dtype="uint8", nodata=0, predictor=2)) as d:
+        d.write(code, 1)
+    if not code.any():
+        return
+    m = code > 0
+    for p, arr in ((src, new), (out / f"{recipe.id}_filled.tif", None)):
+        if not p.exists():
+            continue
+        if arr is None:
+            with rasterio.open(p) as ds:
+                arr = ds.read(1).astype(np.float32); arr[arr == ds.nodata] = np.nan; arr[m] = new[m]
+        raw = p.with_suffix(".raw.tif")
+        with rasterio.open(raw, "w", **dict(pr, dtype="float32", nodata=-9999.0, predictor=3)) as d:
+            d.write(np.where(np.isfinite(arr), arr, -9999.0).astype(np.float32), 1)
+        tmp = p.with_suffix(".new.tif"); cog_translate(raw, tmp, dict(tags, high_line="topobathy/high_line.py")); raw.unlink(); tmp.replace(p)     # a new file: an archive's hard link keeps the old one
+    if (out / "shore_contours.geojson").exists():
+        with rasterio.open(out / "fill_mask.tif") as ds:
+            C = (ds.read(1) > 0) | m
+        P = dict(F); P.setdefault("low_tide_m", -1.38); Z0 = float(P.get("shore_base_m", float(P["low_tide_m"]) - 2.0))
+        (out / "shore_contours.geojson").write_text(json.dumps(_contours(new, new, C, Z0, res, T, P, prof["crs"])))
+
+
 def cmd_fill(a):
     """Fill the composite's holes with a context-aware first guess conditioned by the soundings
     (topobathy/fill.py): out/fill*.tif and out/<id>_filled.tif."""
@@ -933,9 +993,13 @@ def cmd_fill(a):
     params = dict(recipe.d.get("fill", {}))
     if a.param:
         for kv in a.param:
-            k, v = kv.split("="); params[k] = float(v)
+            k, v = kv.split("=", 1)
+            try:
+                params[k] = float(v)
+            except ValueError:
+                params[k] = v                                      # a path or a name (2026-11-02: ground_water=<water_3dep.tif>)
     print(f"[{recipe.id}] fill: {z.shape[1]}x{z.shape[0]} @ {res} m, holes {np.isnan(z).mean():.4f} of the grid; params {params}")
-    params["_transform"] = prof["transform"]; params["_outside"] = outside
+    params["_transform"] = prof["transform"]; params["_outside"] = outside; params["_crs"] = prof["crs"].to_string()   # a string: the params are written to the COG's tags
     # the water bodies (stage B, topobathy/water.py): a wet domain takes its body's kind (a perched lagoon
     # or a lake is not marine) and consensus level, and the edits' depths
     from topobathy.water import load_bodies
@@ -945,6 +1009,12 @@ def cmd_fill(a):
         bid = read_on_grid(B[0], prof, np.int32)   # a coarse lattice or a full-box raster: aligned by georeference
         params["_bodies"] = (bid, B[1])
         print(f"  water bodies: {len(B[1])} from {B[0]}")
+        if outside is not None:
+            from topobathy.water import surveyed_sea
+            ss_ = surveyed_sea(B, bid) & outside
+            if ss_.any():
+                outside &= ~ss_; params["_outside"] = outside
+                print(f"  the sea the points surveyed is not outside: {ss_.sum() * res * res / 1e6:.3f} km2")
     # the observed water surface (lake levels) and the surface cells judged last time: those are
     # water-classed holes now, so this pass cannot see them -- without carrying them over the next
     # build calls them ground again (Grewingk 2021's 50.14 m strips came back as pimples, 2026-10-12)
@@ -1039,6 +1109,15 @@ def cmd_fill(a):
         with rasterio.open(out / name, "w", **pr) as d:
             d.write(np.where(np.isfinite(arr), arr, nodata).astype(dtype) if dtype == "float32" else arr.astype(dtype), 1)
     w("fill.tif", R["fill"]); w("fill_prior.tif", R["prior"]); w("fill_sigma.tif", R["sigma"])
+    if R.get("sound_prior") is not None: w("fill_sound_prior.tif", R["sound_prior"])   # debug (2026-11-02)
+    if R.get("tide_contours") is not None:                               # the model's tide-level contours: the file to edit (shoreface.py)
+        (out / "shore_contours.geojson").write_text(json.dumps(R["tide_contours"]))
+    if R.get("cast_review") is not None:                                 # what the model did with every cast, for review (shoreface._cast_review)
+        (out / "cast_review.geojson").write_text(json.dumps(R["cast_review"]))
+        (out / "cast_lines.geojson").write_text(json.dumps(R["cast_lines"]))
+        (out / "edit_check.json").write_text(json.dumps(R.get("edit_check") or []))
+    if R.get("rock_review") is not None:                                 # what the model did with every active rock (shoreface._rock_floors)
+        (out / "rock_review.geojson").write_text(json.dumps(R["rock_review"]))
     w("fill_mask.tif", R["mask"], "uint8", 0, 2)
     if R.get("ceiling") is not None:                                     # where the ceiling held the bed (1 fit, 2 guard): the flags read it
         w("fill_ceiling.tif", R["ceiling"], "uint8", 0, 2)
@@ -1123,6 +1202,7 @@ def main():
     ex = sp.add_parser("export-mask"); ex.add_argument("recipe"); ex.add_argument("--layer", required=True); ex.add_argument("--out", required=True)
     ex.add_argument("--which", default="effective", choices=["effective", "auto"])
     pb = sp.add_parser("publish"); pb.add_argument("recipe"); pb.add_argument("--write", action="store_true", help="add the entry to datasets.json")
+    hl = sp.add_parser("highline", help="the mapped high-tide line over the finished surface (topobathy/high_line.py)"); hl.add_argument("recipe")
     sh = sp.add_parser("shore", help="the shoreline stage (stage C): level per water cell, land/water/floating/glacier labels, bank slope, shoreline.geojson (topobathy/shore.py)")
     sh.add_argument("recipe")
     wt = sp.add_parser("water", help="water bodies (stage B): per-survey observations, bodies with a kind and consensus level, edits (topobathy/water.py)")
@@ -1130,7 +1210,7 @@ def main():
     wt.add_argument("--coarse", type=int, help="read every Nth cell (auto when the grid is large)")
     a = p.parse_args()
     sys.exit({"build": cmd_build, "regress": cmd_regress, "masks": cmd_masks, "import-mask": cmd_import_mask,
-              "export-mask": cmd_export_mask, "publish": cmd_publish, "fill": cmd_fill, "water": cmd_water, "shore": cmd_shore}[a.cmd](a) or 0)
+              "export-mask": cmd_export_mask, "publish": cmd_publish, "fill": cmd_fill, "water": cmd_water, "shore": cmd_shore, "highline": cmd_highline}[a.cmd](a) or 0)
 
 
 if __name__ == "__main__":

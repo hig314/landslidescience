@@ -26,12 +26,22 @@
  * under the landform traces) where the page has it.
  *
  * Layers survive a basemap switch: they are re-added on style.load.
+ *
+ * DENSE surveys (2026-11-01: the NOS hydrographic surveys' digital soundings and the CRM cell centres the
+ * topobathy fill infers the sea bed from -- 350 k points, Hig: "expose the data you're using to build the
+ * bathymetry as sounding points, like we do with lake soundings"): the first fetch brings the lake surveys
+ * whole and lists the dense ones without their points; from DENSE_MINZ the points inside the view (padded)
+ * are fetched on every moveend (?dense=1&bbox=) and merged into the same source, so they draw, click,
+ * profile and stand in 3D exactly like the lake soundings.  LSSoundings.denseInfo() says what is loaded.
  */
 window.LSSoundings = (function () {
   'use strict';
   var SRC = 'soundings', PT = 'soundings-pt', REJ = 'soundings-rej', HIT = 'soundings-hit',
       CON = 'soundings-con', LBL = 'soundings-lbl', BARS = 'soundings-3d';
   var map = null, api = '/inventory/', data = null, shown = false, loading = null, wired = false;
+  var dense = null, denseAny = false, denseReq = 0, denseTruncated = 0, denseTimer = null;   // the dense surveys' points in view
+  var DENSE_MINZ = 12.5;    // below this a view holds too many hydrographic soundings (the API caps a response at 80 k)
+  var rebuild3d = null;     // set by barLayer(): re-upload the markers when the data change
   var bars = false, seeThrough = 0;          // 3D bars (opts.bars, /lidar/) and their opacity
   var listeners = [];                         // onChange(fn): data loaded or visibility changed (the profile redraws)
   function changed() { listeners.forEach(function (fn) { try { fn(); } catch (e) { console.error(e); } }); }
@@ -42,6 +52,16 @@ window.LSSoundings = (function () {
               0, '#c6e6f5', 5, '#7fc4e8', 15, '#3b8fd0', 30, '#1f5fa8', 60, '#14336e', 100, '#0a1838'];
 
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+  // the lake surveys (whole) plus the dense surveys' points in view, as one collection
+  function merged() {
+    if (!data) return null;
+    return { type: 'FeatureCollection', features: dense ? data.features.concat(dense.features) : data.features };
+  }
+  function refreshSource() {
+    var src = map && map.getSource(SRC);
+    if (src) src.setData(merged());
+    if (rebuild3d) rebuild3d();
+  }
   function vis() { return shown ? 'visible' : 'none'; }
   // In 3D (the bars layer, terrain on) the soundings are drawn at their own elevation by the custom layer, so the
   // dots draped on the terrain -- the modelled bed, not the sounding -- are hidden (Hig, 2026-10-21: "the soundings
@@ -58,7 +78,7 @@ window.LSSoundings = (function () {
     if (!map || !data || map.getSource(SRC)) return;
     // A link's ref= can arrive before the style has (isStyleLoaded() is also false
     // while tiles load, so it cannot be the test): try, and wait for the style if refused.
-    try { map.addSource(SRC, { type: 'geojson', data: data }); }
+    try { map.addSource(SRC, { type: 'geojson', data: merged() }); }
     catch (e) { map.once('style.load', addLayers); return; }
     map.addLayer({ id: CON, type: 'line', source: SRC, layout: { visibility: vis() },
       filter: ['==', ['get', 'kind'], 'contour'],
@@ -141,10 +161,11 @@ window.LSSoundings = (function () {
              '   float wi = 0.48 * (0.95 - 0.16 - y) / 0.85; if (y < 0.2 || x > wi) col = vec3(0.07); }' +
              '  else { if (r > 0.5) discard; if (r > 0.36) col = vec3(1.0); } }' +
              ' gl_FragColor = vec4(col * u_alpha, u_alpha); }';
+    var glRef = null;
     function build(gl) {
       // two vertices per sounding (surface, bed) for the bars, then every sounding again as a marker
       var top = [], mk = [];
-      data.features.forEach(function (f) {
+      merged().features.forEach(function (f) {
         var p = f.properties;
         if (p.kind !== 'sounding' || p.z == null) return;
         var ll = f.geometry.coordinates, c = rampRgb(p.depth_m), lv = levels[p.level_id];
@@ -172,6 +193,12 @@ window.LSSoundings = (function () {
     return {
       id: BARS, type: 'custom', renderingMode: '3d',
       onAdd: function (m, gl) {
+        glRef = gl;
+        rebuild3d = function () {
+          if (!glRef || !prog) return;
+          if (buf) glRef.deleteBuffer(buf);
+          build(glRef); map.triggerRepaint();
+        };
         prog = gl.createProgram();
         gl.attachShader(prog, sh(gl, gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl, gl.FRAGMENT_SHADER, FS));
         gl.linkProgram(prog);
@@ -203,7 +230,7 @@ window.LSSoundings = (function () {
         gl.uniform1f(loc.u_dot, 1); gl.drawArrays(gl.POINTS, 2 * n, nm);
         gl.disableVertexAttribArray(loc.a_kind);
       },
-      onRemove: function (m, gl) { if (buf) gl.deleteBuffer(buf); if (prog) gl.deleteProgram(prog); buf = prog = null; }
+      onRemove: function (m, gl) { if (buf) gl.deleteBuffer(buf); if (prog) gl.deleteProgram(prog); buf = prog = null; rebuild3d = null; }
     };
   }
   // 0 = bars hidden (the surface is opaque), 1 = fully drawn. /lidar/ passes 1 - lidar opacity.
@@ -234,6 +261,37 @@ window.LSSoundings = (function () {
     });
     map.on('style.load', function () { if (data) addLayers(); });
     map.on('terrain', syncDrape);              // 2D <-> 3D: draped dots or the markers in space
+    map.on('moveend', denseSchedule);          // the dense surveys follow the view
+  }
+
+  // ---- the dense surveys: their points inside the (padded) view, from DENSE_MINZ ----
+  function denseSchedule() { clearTimeout(denseTimer); denseTimer = setTimeout(denseSync, 350); }
+  function denseSync() {
+    if (!map || !data || !denseAny) return;
+    if (!shown || map.getZoom() < DENSE_MINZ) {
+      if (dense) { dense = null; denseTruncated = 0; refreshSource(); changed(); }
+      return;
+    }
+    var b = map.getBounds(), dx = (b.getEast() - b.getWest()) * 0.15, dy = (b.getNorth() - b.getSouth()) * 0.15;
+    var bbox = [b.getWest() - dx, b.getSouth() - dy, b.getEast() + dx, b.getNorth() + dy]
+      .map(function (v) { return v.toFixed(5); }).join(',');
+    var req = ++denseReq;
+    fetch(api + 'api/soundings/?dense=1&bbox=' + bbox, { credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error('soundings: HTTP ' + r.status); return r.json(); })
+      .then(function (fc) {
+        if (req !== denseReq) return;                    // a later view asked since
+        fc.features.forEach(function (f) { delete f.id; });
+        (fc.levels || []).forEach(function (l) { levels[l.id] = l; });
+        dense = fc; denseTruncated = fc.truncated || 0;
+        refreshSource(); changed();
+      })
+      .catch(function (e) { console.warn(e); });
+  }
+  // what the dense surveys are doing, for a page's status line
+  function denseInfo() {
+    var ds = data ? (data.surveys || []).filter(function (s) { return s.dense; }) : [];
+    return { surveys: ds.length, loaded: dense ? dense.features.length : 0, truncated: denseTruncated,
+             minZoom: DENSE_MINZ, inRange: !!(map && map.getZoom() >= DENSE_MINZ) };
   }
 
   function fmtWhen(s) { return s ? s.replace('T', ' ').replace(/:\d\d(\+00:00|Z)$/, ' UTC') : ''; }
@@ -277,11 +335,13 @@ window.LSSoundings = (function () {
         data = fc; surveys = {}; levels = {};
         (fc.surveys || []).forEach(function (s) { surveys[s.id] = s; });
         (fc.levels || []).forEach(function (l) { levels[l.id] = l; });
+        denseAny = (fc.surveys || []).some(function (s) { return s.dense; });
         // MapLibre reads feature-state ids and expressions from properties; sounding ids
         // are numbers, contour ids strings -- keep them out of the top-level id.
         fc.features.forEach(function (f) { delete f.id; });
         addLayers();
         changed();
+        denseSync();
         return data;
       });
     return loading;
@@ -301,6 +361,7 @@ window.LSSoundings = (function () {
     });
     syncDrape();
     if (map && map.getLayer(BARS)) map.triggerRepaint();
+    denseSchedule();
   }
 
   // Soundings within maxM of a polyline, projected onto it: d along, off across.
@@ -311,7 +372,7 @@ window.LSSoundings = (function () {
     var P = coords.map(function (c) { return [c[0] * kx, c[1] * ky]; }), cum = [0], i;
     for (i = 1; i < P.length; i++) cum.push(cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
     var out = [];
-    data.features.forEach(function (f) {
+    merged().features.forEach(function (f) {
       var p = f.properties;
       if (p.kind !== 'sounding' || p.z == null || p.flag === 'rejected') return;
       var q = [f.geometry.coordinates[0] * kx, f.geometry.coordinates[1] * ky], best = null;
@@ -326,8 +387,14 @@ window.LSSoundings = (function () {
     return out.sort(function (a, b) { return a.d - b.d; });
   }
 
+  // all(): the lake surveys plus the dense points in view, with the survey and level lists
+  function all() {
+    var m = merged();
+    if (m) { m.surveys = data.surveys; m.levels = data.levels; }
+    return m;
+  }
   return { init: init, setVisible: setVisible, setSeeThrough: setSeeThrough,
            onChange: function (fn) { listeners.push(fn); }, visible: function () { return shown; },
-           all: function () { return data; }, near: near, survey: function (id) { return surveys[id]; },
-           level: function (id) { return levels[id]; } };
+           all: all, near: near, survey: function (id) { return surveys[id]; },
+           level: function (id) { return levels[id]; }, denseInfo: denseInfo };
 })();

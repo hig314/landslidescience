@@ -1,0 +1,28 @@
+{
+ "changed": 10,
+ "held_out": [],
+ "no_level": [],
+ "seen": 854,
+ "km_changed_lines": 51.675557874971126,
+ "km_edited": 11.903326062095154,
+ "removed_from_copy": 22,
+ "km_edited_kept": 1.06,
+ "km_edited_tossed": 10.56,
+ "tossed_why": {
+  "below the low shore: the soundings decide": {
+   "-3.38": 1.49,
+   "-1.38": 0.32,
+   "0.0": 0.27
+  },
+  "the shore's level": {
+   "-1.38": 1.23,
+   "3.4": 2.43
+  },
+  "not between the shores": {
+   "0.0": 0.17,
+   "2.9": 0.44,
+   "2.0": 0.59
+  }
+ },
+ "vector_lines": 5367
+}

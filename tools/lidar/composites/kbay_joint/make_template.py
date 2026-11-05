@@ -1,4 +1,5 @@
 #!/opt/anaconda3/bin/python3
+# NOT the source of template.json: the template was patched by hand after this was written (running this drops the sparse-bed sources, ArcticDEM and the contour model). Patch template.json and the boxes directly.
 """The whole-bay point-first template, derived from the Grewingk box's recipe (composites/joint_v3/recipe.json) so
 the two cannot drift: the same joint, fill, water and shore settings, with the source list of BAY_SOURCES.md.
 

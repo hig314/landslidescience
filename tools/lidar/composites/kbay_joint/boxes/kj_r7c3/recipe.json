@@ -200,9 +200,10 @@
     }
    ],
    "land_support": "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r7c3/joint_nland.tif",
-   "source_bits": "/Volumes/Nunatak/lidar_build/composite/joint_v3/powder_mirror/joint_src.tif",
+   "source_bits": "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r7c3/joint_src.tif",
    "water_blind": [
-    "sfm2023bare"
+    "sfm2023bare",
+    "arcticdem"
    ],
    "water_blind_notes": "photogrammetry cannot observe a water surface or a bed: over Emerald Lake the 2023 SfM reconstructed a noisy surface 1-3 m under the 3DEP level (p5-p95 347.3-351.7 at 351.1) that run 18 took for the shore and the bed. Inside a body or a trusted polygon, cells the SfM alone won are unobserved to the shoreline stage and holes to the fill (shore.water_blind_mask).",
    "land_support_notes": "joint.py: surveys with a surviving ground/bed cell (the berg rule counts surveys, not layers)",
@@ -230,8 +231,13 @@
   "close_m": 60,
   "marine_rim_max_m": 6.0,
   "fill_margin": true,
-  "points": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261017.csv",
-  "notes": "low_tide_m = MLLW in NAVD88 (-1.38 m). tidal_lens (default): marine domains take the observed water surface as the bed; measured beds (multibeam, green-lidar returns, the soundings export: Riordan 2018 KBSP lakes, Grewingk, Petrof and Gore 2022 (levels from 3DEP)) condition it.",
+  "points": [
+   "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261017.csv",
+   "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1977_1984_edited.csv",
+   "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1915_1931_edited.csv",
+   "/Volumes/Nunatak/lidar_build/obs/soundings/crm_far_20261104.csv"
+  ],
+  "notes": "low_tide_m = MLLW in NAVD88 (-1.38 m). tidal_lens (default): marine domains take the observed water surface as the bed; measured beds (multibeam, green-lidar returns, the soundings export: Riordan 2018 KBSP lakes, Grewingk, Petrof and Gore 2022 (levels from 3DEP)) condition it. Since 2026-10-31 the points also carry the NOS hydrographic surveys' digital soundings (topobathy/nos_soundings_csv.py: MLLW -1.38; 1977-84 echo sounder sigma 0.8 m on flats, growing with the bed slope; 1915-31 lead line 2 m, to the 10 m cap on slopes and lone lines) and CRM's 500 m cell centres below low tide away from 3DEP land at sigma 10 (the compilation as the shape between soundings, never an observation); the water stage finds the sea from these points when no survey saw one.",
   "ice_face": "free",
   "shore_grad_m": 200.0,
   "shore_grad_r_m": 150.0,
@@ -243,7 +249,15 @@
    "higman_grewingk_2019_2021": 0.36,
    "higman_grewingk_2026": 0.36
   },
-  "lens_max_m": 4.3
+  "lens_max_m": 4.3,
+  "ground_prior": "/Volumes/Nunatak/lidar_build/ctx_3dep/all.vrt",
+  "void_ground_m": 4.5,
+  "shore_model": "contour",
+  "ground_water": "/Volumes/Nunatak/lidar_build/composite/kj_r7c3/obs/water_3dep.tif",
+  "shore_base_m": -3.38,
+  "tide_lines": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/tide_lines.geojson",
+  "rocks": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/rocks.geojson",
+  "tide_sea": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/tide_sea.geojson"
  },
  "water": {
   "mapped": "/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water/sources.json",
@@ -255,7 +269,13 @@
   "out": "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r7c3",
   "res_m": 2.0,
   "prior": "/Volumes/Nunatak/lidar_build/ctx_3dep/all.vrt",
-  "notes": "BAY_SOURCES.md 2026-10-29. Lidar from the shared units cache (joint_pilot.py units --recipe), grids as observations.",
+  "sheet_points": [
+   "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261017.csv",
+   "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1977_1984_edited.csv",
+   "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1915_1931_edited.csv",
+   "/Volumes/Nunatak/lidar_build/obs/soundings/crm_far_20261104.csv"
+  ],
+  "notes": "BAY_SOURCES.md 2026-10-29. Lidar from the shared units cache (joint_pilot.py units --recipe), grids as observations. sheet_points (2026-10-31): the fill's points as the sparse measured bed under a lidar's flat sheet (joint.py's sheet rule), evidence only -- they are not cells of the layer.",
   "vintage": [
    {
     "name": "floodplain",
@@ -424,24 +444,17 @@
     "valid_below_m": -1.38
    },
    {
-    "name": "cgoa",
-    "derived": true,
+    "name": "arcticdem",
     "kind": "grid",
-    "cls": "bed",
-    "src": "/Volumes/Nunatak/lidar_build/bathy_src/cgoa_zimmermann/cgoa_navd88_100m.tif",
-    "date": "1995-07-01",
-    "sigma_m": 5.0,
-    "valid_below_m": -1.38
-   },
-   {
-    "name": "crm",
+    "cls": "ground",
     "derived": true,
-    "kind": "grid",
-    "cls": "bed",
-    "src": "/Volumes/Nunatak/lidar_build/bathy_src/crm_southak/crm_6334_500m_v2.tif",
-    "date": "2010-07-01",
-    "sigma_m": 10.0,
-    "valid_below_m": -1.38
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/obs/arcticdem_ground_2m_v3_tide.tif",
+    "date": "2016-07-01",
+    "sigma_m": 1.5,
+    "footprint_close_m": 10,
+    "notes": "ArcticDEM mosaic v4.1 (2011-2021 strips, dated at their middle), NAVD88 via GEOID12B and the ITRF-NAD83 shift, real data only (datamask), and only where it stands < 1 m above 3DEP (topobathy/arcticdem_ground_cand.py: a surface model -- canopy and snow stand on it; where it reads lower than or level with the IfSAR it matches the lidar bare earth as well as or better than 3DEP, Hig 2026-10-31). Derived: calibrated against the lidar it overlaps (+0.7 m over the Homer bench) and yielding to it. The compilations cgoa and crm left the layer the same day: NOS soundings (nos_*.csv) and CRM's cell centres are fill points instead.",
+    "adjust_global_m": 0.0,
+    "adjust_stable_m": 5.0
    },
    {
     "name": "sfm2023bare",

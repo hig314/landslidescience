@@ -1,0 +1,847 @@
+{
+"type": "FeatureCollection",
+"crs": {
+"type": "name",
+"properties": {
+"name": "EPSG:6334"
+}
+},
+"features": [
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+611955.09,
+6576469.34
+]
+},
+"properties": {
+"key": "nos_h05101:34247",
+"survey": "nos_h05101",
+"z": -14.68,
+"decision": "move",
+"x0": 611951.41,
+"y0": 6576431.69,
+"dx": 3.68,
+"dy": 37.65,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612433.02,
+6577409.71
+]
+},
+"properties": {
+"key": "nos_h05101:34394",
+"survey": "nos_h05101",
+"z": -14.68,
+"decision": "move",
+"x0": 612425.16,
+"y0": 6577397.98,
+"dx": 7.86,
+"dy": 11.73,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612396.24,
+6577483.76
+]
+},
+"properties": {
+"key": "nos_h05101:34396",
+"survey": "nos_h05101",
+"z": -5.18,
+"decision": "move",
+"x0": 612374.41,
+"y0": 6577467.68,
+"dx": 21.83,
+"dy": 16.08,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612267.63,
+6577587.11
+]
+},
+"properties": {
+"key": "nos_h05101:34397",
+"survey": "nos_h05101",
+"z": -12.88,
+"decision": "move",
+"x0": 612243.01,
+"y0": 6577575.78,
+"dx": 24.62,
+"dy": 11.33,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612098.84,
+6577231.24
+]
+},
+"properties": {
+"key": "nos_h05101:34398",
+"survey": "nos_h05101",
+"z": -3.38,
+"decision": "move",
+"x0": 612080.51,
+"y0": 6577238.06,
+"dx": 18.33,
+"dy": -6.82,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612140.82,
+6577622.94
+]
+},
+"properties": {
+"key": "nos_h05101:34399",
+"survey": "nos_h05101",
+"z": -3.38,
+"decision": "move",
+"x0": 612060.83,
+"y0": 6577610.07,
+"dx": 79.99,
+"dy": 12.87,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612205.8,
+6577724.44
+]
+},
+"properties": {
+"key": "nos_h05101:34400",
+"survey": "nos_h05101",
+"z": -24.68,
+"decision": "move",
+"x0": 612126.13,
+"y0": 6577692.11,
+"dx": 79.67,
+"dy": 32.33,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+611947.44,
+6576521.46
+]
+},
+"properties": {
+"key": "nos_h05101:34555",
+"survey": "nos_h05101",
+"z": -46.68,
+"decision": "move",
+"x0": 611944.76,
+"y0": 6576501.13,
+"dx": 2.68,
+"dy": 20.33,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612059.49,
+6576531.58
+]
+},
+"properties": {
+"key": "nos_h05101:34556",
+"survey": "nos_h05101",
+"z": -46.68,
+"decision": "move",
+"x0": 612056.12,
+"y0": 6576509.31,
+"dx": 3.37,
+"dy": 22.27,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612142.94,
+6576484.84
+]
+},
+"properties": {
+"key": "nos_h05101:35035",
+"survey": "nos_h05101",
+"z": -20.58,
+"decision": "move",
+"x0": 612135.17,
+"y0": 6576430.86,
+"dx": 7.77,
+"dy": 53.98,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612087.47,
+6577166.81
+]
+},
+"properties": {
+"key": "nos_h05101:35055",
+"survey": "nos_h05101",
+"z": -2.48,
+"decision": "move",
+"x0": 612075.94,
+"y0": 6577166.95,
+"dx": 11.53,
+"dy": -0.14,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+610111.72,
+6573388.62
+]
+},
+"properties": {
+"key": "nos_h05101:35463",
+"survey": "nos_h05101",
+"z": -7.38,
+"decision": "move",
+"x0": 610100.42,
+"y0": 6573385.1,
+"dx": 11.3,
+"dy": 3.52,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612152.93,
+6577786.28
+]
+},
+"properties": {
+"key": "nos_h05101:35780",
+"survey": "nos_h05101",
+"z": -3.68,
+"decision": "move",
+"x0": 612044.33,
+"y0": 6577756.55,
+"dx": 108.6,
+"dy": 29.73,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612199.94,
+6577824.92
+]
+},
+"properties": {
+"key": "nos_h05101:35781",
+"survey": "nos_h05101",
+"z": -18.28,
+"decision": "move",
+"x0": 612139.31,
+"y0": 6577782.3,
+"dx": 60.63,
+"dy": 42.62,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+604013.21,
+6572515.61
+]
+},
+"properties": {
+"key": "nos_h05101:35788",
+"survey": "nos_h05101",
+"z": -14.68,
+"decision": "move",
+"x0": 603995.59,
+"y0": 6572519.15,
+"dx": 17.62,
+"dy": -3.54,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+604024.07,
+6572592.85
+]
+},
+"properties": {
+"key": "nos_h05101:35789",
+"survey": "nos_h05101",
+"z": -39.38,
+"decision": "move",
+"x0": 604018.8,
+"y0": 6572591.98,
+"dx": 5.27,
+"dy": 0.87,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612242.78,
+6577505.35
+]
+},
+"properties": {
+"key": "nos_h05101:36141",
+"survey": "nos_h05101",
+"z": -39.38,
+"decision": "move",
+"x0": 612209.81,
+"y0": 6577494.69,
+"dx": 32.97,
+"dy": 10.66,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612194.72,
+6577335.53
+]
+},
+"properties": {
+"key": "nos_h05101:36324",
+"survey": "nos_h05101",
+"z": -24.68,
+"decision": "move",
+"x0": 612150.4,
+"y0": 6577342.18,
+"dx": 44.32,
+"dy": -6.65,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612240.03,
+6577785.56
+]
+},
+"properties": {
+"key": "nos_h05101:36505",
+"survey": "nos_h05101",
+"z": -6.78,
+"decision": "move",
+"x0": 612166.41,
+"y0": 6577732.07,
+"dx": 73.62,
+"dy": 53.49,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612261.17,
+6577634.88
+]
+},
+"properties": {
+"key": "nos_h05101:36714",
+"survey": "nos_h05101",
+"z": -10.98,
+"decision": "move",
+"x0": 612231.44,
+"y0": 6577624.35,
+"dx": 29.73,
+"dy": 10.53,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+611864.99,
+6576459.73
+]
+},
+"properties": {
+"key": "nos_h05101:36908",
+"survey": "nos_h05101",
+"z": -11.58,
+"decision": "move",
+"x0": 611873.42,
+"y0": 6576435.53,
+"dx": -8.43,
+"dy": 24.2,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612125.2,
+6577403.39
+]
+},
+"properties": {
+"key": "nos_h05101:37074",
+"survey": "nos_h05101",
+"z": -2.78,
+"decision": "move",
+"x0": 612072.31,
+"y0": 6577404.28,
+"dx": 52.89,
+"dy": -0.89,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+603948.03,
+6572392.88
+]
+},
+"properties": {
+"key": "nos_h05101:37096",
+"survey": "nos_h05101",
+"z": -18.28,
+"decision": "move",
+"x0": 603945.77,
+"y0": 6572395.24,
+"dx": 2.26,
+"dy": -2.36,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612319.93,
+6577555.3
+]
+},
+"properties": {
+"key": "nos_h05101:37184",
+"survey": "nos_h05101",
+"z": -3.08,
+"decision": "move",
+"x0": 612299.29,
+"y0": 6577546.58,
+"dx": 20.64,
+"dy": 8.72,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612139.2,
+6577486.32
+]
+},
+"properties": {
+"key": "nos_h05101:37185",
+"survey": "nos_h05101",
+"z": -3.38,
+"decision": "move",
+"x0": 612072.08,
+"y0": 6577466.23,
+"dx": 67.12,
+"dy": 20.09,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612152.8,
+6577728.25
+]
+},
+"properties": {
+"key": "nos_h05101:37210",
+"survey": "nos_h05101",
+"z": -3.38,
+"decision": "move",
+"x0": 612056.61,
+"y0": 6577704.99,
+"dx": 96.19,
+"dy": 23.26,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612152.89,
+6576537.08
+]
+},
+"properties": {
+"key": "nos_h05101:37349",
+"survey": "nos_h05101",
+"z": -37.48,
+"decision": "move",
+"x0": 612149.43,
+"y0": 6576515.18,
+"dx": 3.46,
+"dy": 21.9,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612129.44,
+6577546.69
+]
+},
+"properties": {
+"key": "nos_h05101:37562",
+"survey": "nos_h05101",
+"z": -3.38,
+"decision": "move",
+"x0": 612065.9,
+"y0": 6577534.68,
+"dx": 63.54,
+"dy": 12.01,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+611857.75,
+6576507.49
+]
+},
+"properties": {
+"key": "nos_h05101:37676",
+"survey": "nos_h05101",
+"z": -48.48,
+"decision": "move",
+"x0": 611850.09,
+"y0": 6576487.21,
+"dx": 7.66,
+"dy": 20.28,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612115.76,
+6577341.29
+]
+},
+"properties": {
+"key": "nos_h05101:37845",
+"survey": "nos_h05101",
+"z": -3.38,
+"decision": "move",
+"x0": 612080.33,
+"y0": 6577352.48,
+"dx": 35.43,
+"dy": -11.19,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612260.72,
+6577699.31
+]
+},
+"properties": {
+"key": "nos_h05101:37981",
+"survey": "nos_h05101",
+"z": -3.68,
+"decision": "move",
+"x0": 612212.05,
+"y0": 6577681.38,
+"dx": 48.67,
+"dy": 17.93,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612190.35,
+6577479.13
+]
+},
+"properties": {
+"key": "nos_h05101:37982",
+"survey": "nos_h05101",
+"z": -30.18,
+"decision": "move",
+"x0": 612158.06,
+"y0": 6577478.34,
+"dx": 32.29,
+"dy": 0.79,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612228.01,
+6577597.5
+]
+},
+"properties": {
+"key": "nos_h05101:37983",
+"survey": "nos_h05101",
+"z": -32.08,
+"decision": "move",
+"x0": 612154.33,
+"y0": 6577595.22,
+"dx": 73.68,
+"dy": 2.28,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612040.68,
+6576480.0
+]
+},
+"properties": {
+"key": "nos_h05101:37989",
+"survey": "nos_h05101",
+"z": -16.98,
+"decision": "move",
+"x0": 612032.64,
+"y0": 6576435.87,
+"dx": 8.04,
+"dy": 44.13,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612152.86,
+6577834.63
+]
+},
+"properties": {
+"key": "nos_h05101:38013",
+"survey": "nos_h05101",
+"z": -2.48,
+"decision": "move",
+"x0": 612052.14,
+"y0": 6577787.42,
+"dx": 100.72,
+"dy": 47.21,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612106.53,
+6577288.88
+]
+},
+"properties": {
+"key": "nos_h05101:38536",
+"survey": "nos_h05101",
+"z": -3.38,
+"decision": "move",
+"x0": 612079.5,
+"y0": 6577293.41,
+"dx": 27.03,
+"dy": -4.53,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+612338.42,
+6577517.22
+]
+},
+"properties": {
+"key": "nos_h05101:38639",
+"survey": "nos_h05101",
+"z": -5.18,
+"decision": "move",
+"x0": 612321.77,
+"y0": 6577508.47,
+"dx": 16.65,
+"dy": 8.75,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+596981.31,
+6575185.72
+]
+},
+"properties": {
+"key": "nos_h05101:38647",
+"survey": "nos_h05101",
+"z": -2.78,
+"decision": "move",
+"x0": 596963.76,
+"y0": 6575180.19,
+"dx": 17.55,
+"dy": 5.53,
+"basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
+"date": "2026-11-04"
+}
+}
+]
+}

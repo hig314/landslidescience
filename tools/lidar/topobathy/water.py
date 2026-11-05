@@ -69,6 +69,24 @@ from .axes import CLASSES, years
 DEFAULTS = dict(min_m2=400.0, flat_tol_m=0.3, perched_tol_m=0.3, tide_max_m=4.5, dry_frac=0.5,
                 match_frac=0.3, max_px=6000, coarse=None, level_split_m=0.3,
                 intertidal_near_m=100.0, low_tide_m=None)          # low_tide_m: the fill's when None
+def surveyed_sea(B, bid):
+    """Cells of the bodies the stage built from the compilations / the fill's points (level survey 'compilation_sea'):
+    water that soundings DID survey, so no 'outside' for the shore stage or the fill (2026-10-31, tip_t: with the grid
+    compilations gone no layer covered the open sea, coverage was 0 there, and 7.2 km2 of found sea stayed undecided)."""
+    if B is None or bid is None:
+        return np.zeros(bid.shape if bid is not None else (0, 0), bool)
+    ids = [int(k) for k, b in B[1].items() if compilation_body(b)]
+    return np.isin(bid, ids) if ids else np.zeros(bid.shape, bool)
+
+
+def compilation_body(b):
+    """A body whose every observation is the compilations' sea (observations ['compilation_sea:<n>'], no survey levels):
+    its level is low tide by construction, not an observed surface."""
+    obs = b.get("observations") or []; lv = b.get("levels") or []
+    return bool(obs) and all(str(o).split(":")[0] == "compilation_sea" for o in obs) \
+        and all(l.get("survey") == "compilation_sea" or l.get("level_m") is None for l in lv)   # a layer that saw it dry, no level: not a survey of its water
+
+
 FLAT_KINDS = ("lake", "perched", "ephemeral")      # kinds with one level, used as the bed ceiling
 TIDAL_KINDS = ("sea", "tidal", "perched")          # the tidal lens: water the tide reaches is a flat until measured
 S4 = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], bool)   # 4-connectivity: one polygon per label in features.shapes
@@ -308,13 +326,68 @@ def run(recipe, grid: Grid, edits_path=None, log=print):
             cls, cv = read_geo(str(cp), cg, cg.full(), "nearest"); cls = np.where(cv, np.rint(cls), 0).astype(np.uint8)
             z, v = read_geo(str(recipe.source_path(jl)), cg, cg.full(), "bilinear"); z = np.where(v, z, np.nan).astype(np.float32)
             lt = cfg.get("low_tide_m"); lt = float(lt) if lt is not None else float(recipe.d.get("fill", {}).get("low_tide_m", -2.9))
-            lb, nb = ndimage.label((cls == CLASSES["bed"]) & np.isfinite(z) & (z < lt), structure=S4)
+            below = (cls == CLASSES["bed"]) & np.isfinite(z) & (z < lt)
+            # ...AND THE FILL'S POINTS below low tide (2026-10-31: the compilations left the joint layer; the sea's evidence in
+            # an open-water box is the NOS soundings and CRM's cell centres, 100-500 m apart, which no connected-component
+            # test joins).  Bed cells and points are blocked to sea_block_m, the blocks closed over sea_close_m (filled
+            # between, not grown outward), and the blocks that reach the grid edge are the sea -- less any cell the layer
+            # shows standing at or above low tide.
+            import csv
+            pts_ = recipe.d.get("fill", {}).get("points"); npt = 0
+            for pp in ([pts_] if isinstance(pts_, str) else (pts_ or [])):
+                with open(pp) as fh:
+                    for row in csv.DictReader(fh):
+                        if row.get("bound") or row.get("z") in (None, ""):
+                            continue
+                        zz = float(row["z"])
+                        if zz >= lt:
+                            continue
+                        c_, r_ = ~cg.transform * (float(row["x"]), float(row["y"])); r_, c_ = int(r_), int(c_)
+                        if 0 <= r_ < below.shape[0] and 0 <= c_ < below.shape[1]:
+                            below[r_, c_] = True; npt += 1
+            # ...AND THE PRIOR'S HYDROFLATTENED SEA (2026-11-01, plates_t: the points' closing stopped 300 m short of the shore and
+            # the fill bridged a 1-4 m shelf between): where no survey saw the shore, 3DEP's exactly flat surface (its
+            # hydroflattening; natural ground is never flat to a centimetre over 50 m) at or below tide_max_m is the sea's extent.
+            tmx_ = float(cfg.get("tide_max_m", recipe.d.get("shore", {}).get("tide_max_m", 4.5)))
+            pp_ = recipe.d.get("joint", {}).get("prior"); pz_ = pv_ = None
+            if pp_:
+                pz_, pv_ = read_geo(str(pp_), cg, cg.full(), "bilinear")
+                k_ = max(int(round(50.0 / cg.res)), 3)
+                flat_ = pv_ & ((ndimage.maximum_filter(pz_, k_) - ndimage.minimum_filter(pz_, k_)) <= 0.01) & (pz_ <= tmx_) & (pz_ >= lt - 1.0)
+                if flat_.any():
+                    below |= flat_
+                    log(f"  the sea from the compilations: the prior's hydroflattened surface at or below {tmx_:g} m joins the points ({float(flat_.sum()) * cell_m2 / 1e6:.3f} km2)")
+                del flat_
+            bk = max(int(round(float(cfg.get("sea_block_m", 50.0)) / cg.res)), 1)
+            Hc, Wc = -(-below.shape[0] // bk), -(-below.shape[1] // bk)
+            pad = np.zeros((Hc * bk, Wc * bk), bool); pad[:below.shape[0], :below.shape[1]] = below
+            coarse = pad.reshape(Hc, bk, Wc, bk).any(axis=(1, 3)); del pad
+            it = max(int(np.ceil(float(cfg.get("sea_close_m", 600.0)) / (bk * cg.res))), 1)
+            coarse = ndimage.binary_closing(np.pad(coarse, it, constant_values=False), structure=np.ones((3, 3), bool), iterations=it)[it:-it, it:-it] | coarse
+            lb, nb = ndimage.label(coarse, structure=S4)
             ed = np.unique(np.r_[lb[0], lb[-1], lb[:, 0], lb[:, -1]]); ed = ed[ed > 0]
-            water = np.isin(lb, ed) if ed.size else np.zeros(cls.shape, bool); del lb
+            sea_c = np.isin(lb, ed) if ed.size else np.zeros(coarse.shape, bool); del lb, coarse
+            water = np.repeat(np.repeat(sea_c, bk, axis=0), bk, axis=1)[:below.shape[0], :below.shape[1]]
+            # ...less what stands at or above low tide: an OBSERVED cell (any class but none), or the prior's cell (class 0 --
+            # the joint layer carries 3DEP where nothing was observed, and 3DEP's sea is a flat 0.0 that is no observation;
+            # tip_t fix2 lost 7.75 of 7.77 km2 of sea to it) above the tide's reach
+            water &= ~(np.isfinite(z) & (cls != 0) & (z >= lt))
+            # the prior read from its own raster, not the layer's class-0 value (the joint layer stood ~10 m over Taylor Bay's
+            # water where 3DEP has its flat 0.0, plates_t fix2 pass 2: 1.5 of 2.1 km2 of sea lost)
+            if pz_ is not None:
+                water &= ~(pv_ & (cls == 0) & (pz_ >= tmx_)); del pz_, pv_
+            if npt:
+                log(f"  the sea from the compilations: {npt} fill points below {lt:.2f} m joined the layer's bed cells (blocks of {bk * cg.res:.0f} m, closed over {it * bk * cg.res:.0f} m)")
+            del below, sea_c
             if water.any():
                 zw = np.where(water, np.float32(lt), np.nan).astype(np.float32)
                 sp_ = {"name": "compilation_sea", "source": str(recipe.source_path(jl)), "sigma_m": 1.0, "class": []}
-                _add_layer("compilation_sea", sp_, water, zw, z, cls, recipe.d.get("as_of") or jl.get("date"), 1.0, "compilation bed below low tide at the grid edge")
+                # its cells are SEEN as water: a body takes a layer's level only where that layer's class is set, and the sea
+                # found from points stands on class-0 cells (fix1's stood on the compilations' bed cells) -- unlevelled, the
+                # shore stage dropped the whole sea as "water no level reaches" (tip_t fix2 pass 5)
+                cls_s = np.where(water, CLASSES["water"], cls).astype(cls.dtype); z_s = np.where(water, zw, z).astype(np.float32)
+                _add_layer("compilation_sea", sp_, water, zw, z_s, cls_s, recipe.d.get("as_of") or jl.get("date"), 1.0, "compilation bed below low tide at the grid edge")
+                del cls_s, z_s
                 log(f"  no survey saw a sea: the joint layer's bed below {lt:.2f} m at the edge is the sea at that level ({float(water.sum()) * cell_m2 / 1e6:.3f} km2)")
     if not layers:
         log("  no water observed by any survey"); return None

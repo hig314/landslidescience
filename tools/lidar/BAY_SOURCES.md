@@ -258,3 +258,433 @@ kbay_joint_fix1_crops).**
 - Tip (tip_t): fully covered now -- CRM v2 (3.2 km2 of bed) and the bridge; 68 % is the 3DEP prior on land. The
   Chugachmiut DTM has no data at 59.24565,-151.87629 (26 % of that box): the surface there is 3DEP.
 Open: ArcticDEM (12 GB downloading to Powder, ~0.2 MB/s); the selective rerun.
+
+### 8.1 fix2c / fix2d (2026-11-01) — Taylor Bay's plateau, and the fill's points in the viewer
+
+Hig on fix2c: "a plateau at 59.30782, -151.04115 that may be related to one or more bad soundings". It was not the
+soundings. `fill_ceiling.tif` = 2 there: the guard's clip. Three things stacked, all in fill.py, all fixed as general
+rules (uncommitted):
+
+1. The ceiling over a compilation sea domain was the stage's level = KBay 2023's tide-time sea surface (2.9 m), so the
+   ceiling pass held the bed 0.5 m under 2.9 m and the guard cut a 1 deg cone under it (-0.85 m at the site). In a
+   floor-path (nolens) sea domain the ceiling is now low_tide_m (`lt_ceil`: the sounding drop, the ceiling pass, the guard).
+2. The prior under the 1930 line's -2.6/-3.8 m soundings stood at -36 m: fix2c's floor was the NEAREST sounding smoothed
+   over a fixed 50 m and the interior a harmonic blend of the band's edge. The spline lifted +33 m at sigma 10 and carried
+   the lift to the shore, through low tide, into the guard. Now the floor and the interior prior of such a domain are the
+   soundings' kernel mean (`sound_prior`): equal weights, bandwidth max(floor_sound_smooth_m 20 m, distance to the nearest
+   sounding), multi-scale Gaussians interpolated in log scale. 1/sigma^2 weights were tried and were wrong (a sigma-2.5
+   line 100 m off outweighed a lone sigma-10 sounding on its own cell); 50 m smeared a flank dropping 40 m in 100 m.
+3. The ceiling pass planted its sites on a flat plane (level - 0.5) while the guard cut at a cone descending from the
+   shore: the sites themselves built the shelf. The pass now holds under the same cap (`cap_` computed once).
+
+plates_t fill-only tests at the site: -0.85 (fix2c) -> -5.1 (1) -> -5.1 (2, weighted) -> -5.1 (2, equal weights) ->
+-22 m sloping (3 + 20 m). Residual of the soundings to the prior p10/p90 -28/+20 -> -12/+0.2 m; the guard's area
+0.93 -> 0.35 km2, now only the head-of-bay flats where no sounding reaches. Pass 15 (plates_t, tip_t full chains; gates
+MOVED water/land only) -> `kbay_joint_fix2d_crops` on dev (26 dev surveys). Koyuktoolik lagoon -3.3 -> -4.1 m, no
+regression.
+
+The fill's points as sounding surveys: `tools/soundings/ingest_nos_geodas.py` -> 38 NOS packages + `crm_southak_500m`
+(dense = true; API `?dense=1&bbox=`, soundings.js per view from z 12.5). Verified on a scratch DB; NOT loaded in dev
+until hosting merges this branch (main's API would serve all 350k points whole). tools/soundings/README.md.
+
+### 8.2 The 1915-31 NOS positions are shifted (2026-11-01)
+
+Hig, seeing the Taylor Bay casts as points: "they often fall on land rather than in the water, and are systematically
+offset from Taylor Bay". Checked first that it is not our frame: NCEI's GEODAS files record the horizontal datum as
+NAD83 and the ORIGINAL as "Early Alaska Datums" (each survey's local astronomic datum); we read NAD83 -> EPSG:6334
+correctly, and a NAD27-as-NAD83 error would be ~120 m W / 75 m S here, the wrong direction and size. NCEI's conversion
+of the local datum is what is short.
+
+`topobathy/nos_offsets.py` measures one translation per survey two independent ways over a +-800 m grid: the shift
+that puts the fewest casts on the modern lidar's ground above MHHW (summed over the run2 box products), and, where a
+1977-84 echo-sounder survey overlaps, the shift that minimises the MAD of old minus modern depth (a constant vertical
+difference allowed). They agree to ~50 m (H05187: +400/+340 land vs +420/+340 depth). The 1980 control (H09879)
+sits at zero. Result (`$LIDAR_BUILD/obs/soundings/nos_offsets.json`): 1930-31 surveys +380..420 m E / +300..360 m N
+(H05082, H05101, H05186 by land; H05187, H05188, H05192 by depth; H05083/87/91/92/00, H05191, H05194 inferred at the
+season median +400/+320), H03802 (1915) +240/+260 by depth, the 1927 pair no evidence (left). After the shift the
+1930s depths read ~1 m shallower than 1977-84 where they overlap -- the 1964 subsidence's sign.
+
+Applied by `nos_soundings_csv.py --offsets` (-> `nos_1915_1931_20261101.csv`, `nos_1977_1984_20261101.csv`; the
+template and all 56 recipes repointed) and by `tools/soundings/ingest_nos_geodas.py --offsets` (the packages' title,
+notes and `ingest.position_shift` carry the shift, method and evidence; raw files untouched). Explained for readers
+in /lidar/methods/ section 11. Of the review crops only plates_t holds 1915-31 points (tip_t and upbay_t carry 1980
+lines, unshifted), so pass 16 reran plates_t -> `kbay_joint_fix2e_crops`. Dev viewer cut to the minimum the same
+day: kbay_2023, kbay_2023_reclass_v2, grewingk_sonar_2023_levelled, joint_v3j, kbay_joint_v1 and the latest crops
+mosaic (20 surfaces, 14.6 GB retired). Not done: a rubber sheet -- the residuals after one translation per survey
+are within the test's 20 m step where measurable; Hig's point offsets would be the input if a trend appears.
+
+### 8.3 fix2f: the sea-bed prior between soundings is no narrower than their spacing (2026-11-01)
+
+Hig, on the fix2e boxes at Taylor Bay: the casts "often have flat-bottomed circular basins around them, with the
+sounding at the center"; the lakes (Grewingk) integrate soundings smoothly. Cause: the floor-path prior (8.1) is the
+soundings' kernel mean with bandwidth max(20 m, distance to the nearest sounding), so each cast owned a disc at its own
+depth out to a third of the way to its neighbours, the ramp between casts crowded into the middle third, and the
+spline, which fits the residual to the prior, found none at the casts. A lake's prior is a smooth basin and the
+thin-plate spline carries its soundings, which is why Grewingk shows none of this.
+
+Fix (fill.py, `sound_prior_gap_mult`, default 1): the bandwidth's floor is the LOCAL HALF-GAP between soundings -- the
+distance transform's maxima (midpoints between casts and between lines) over a window of twice the domain's typical
+gap, on an 8-cell lattice, smoothed -- so a lone cast is averaged with its neighbours, a line is its local mean and
+lines ramp across their whole gap; the spline then fits the real point-to-point scatter as a minimum-curvature surface.
+Measured on plates_t (fill only, 2.7 min): half-gap median 121 m; "disc index" (share of the modelled bed 15-40 m
+from a cast within 0.15 m of the cast's own cell) median 0.08 -> 0.03, casts with > 0.5 of their ring flat 6 % -> 0 %;
+modelled cells flatter than 0.2 deg over 10 m 0.4 % -> 0; spline misfit RMS 7.9 m before the ceiling passes (the
+casts' sigma, 2-10 m, governs) and 3.0 m after; guard area 0.306 km2 (was 0.312). Sites: the plateau -65 -> -71 m, the
+ovoid -10.4 -> -12.2, the low-angle area -66.5 -> -64.3, the plates -2.7 -> -2.1. Scratchpad `disc_index.py` is the
+measure. kj_r3c4 fix2e for comparison: 22 % of casts owned a flat ring, flat share 2.5 %.
+
+Run: the four fix2e boxes restart at the fill stage (`fix2f_fill.sh`: fill -> build 3 -> review -> gate -> out_fix2f;
+the fill alone was ~60 min of a box's 75 in fix2e), then the outer-coast boxes end to end (`run_bay.sh fix2f kj_r1c2
+kj_r2c4 kj_r1c3 kj_r2c1 kj_r1c1 kj_r3c5 kj_r2c5 kj_r4c5`; in run2 the southern rows crashed in the joint stage before
+the fix2 open-water fixes, and were never tried since), mosaic -> `kbay_joint_fix2f_boxes` on dev. The first outer
+run under fix2e was stopped at kj_r1c2 for this fix (its products would have been redone).
+
+### 8.4 fix2g: the sea's prior is a lake's; ground returns inside a lake (2026-11-01, evening)
+
+Hig, on the fix2f boxes: "the marine soundings still have rather odd shapes around them ... still involving basins
+around the points, and totally unlike the way the soundings are interpolated in lakes. It seems like we should be using
+the same infrastructure as we built for lakes."
+
+**Cause.** A kernel mean of the casts is a sum of bumps whatever its bandwidth: every cast carries its own anomaly,
+spread over the bandwidth; the spline, which fits the residual to the prior, carries the bumps through.  The half-gap
+field of fix2f also lived on an 8-cell lattice, which put a faint lattice texture into the prior (visible in a
+hillshade of `fill_prior.tif`).  A lake's prior has neither: one smooth profile of depth against distance from the
+shore, and the thin-plate spline alone carries the soundings' structure as a minimum-curvature surface.
+
+**Rule (fill.py, `sea_prior` "profile", the default; "kernel" keeps fix2f).** In a floor-path sea domain with
+soundings the prior is a profile FITTED to the domain's casts: the casts cut into up to `sea_profile_bins` (20)
+quantile bins of distance from the shore (at least `sea_profile_min_n` 30 a bin), each bin its median distance and
+median depth below low tide; the medians made non-decreasing with distance (pool-adjacent-violators: a flat bottom is
+allowed, a trough is the spline's); zero at the shore, linear between the bins, flat beyond the last; read at every
+cell's distance from the shore and smoothed over half the casts' spacing.  It is the floor and the interior prior,
+the band's rim-slope extension descends to it, the spline fits the casts about it, the ceiling passes and the guard
+are unchanged.  The lake loop's Hollister / glacial profile is not used: the sea's deepest point is not at its
+farthest from shore, and a box's sea domain is cut by the box.
+
+**plates_t (fill only, 3 min).** Profile: 0 m at the shore, 16 m at 35 m, 23 m at 117 m, 36 m at 160 m, 42 m at
+327 m.  The spline's residual to the prior grew (|p90| 20.8 → 37.6 m: the bay's real roughness, a shoal of 1-5 m casts
+beside 43 m, is now the spline's to carry), the correction field p5/p95 ±37 m; ceiling held-by-site 0.348 → 0.371 km²,
+guard 0.306 → 0.329.  Cast-to-ring anomaly p90 4.35 → 2.34 m, |Laplacian| p50 0.0067 → 0.0044; the disc index stays 0.
+Sites: plateau −71.2 → −67.8, ovoid −12.2 → −12.1, low-angle −64.3 → −63.4, plates −2.2 → −2.2.  Hillshades of the
+fill (scratchpad hsc_*.png) show the bay as one smooth basin with a deep channel instead of a lumpy, latticed sheet.
+Open: the shoal casts (−1.4 m at 6 m from the ovoid site, −43 m 100 m off) are weakly held at sigma 10; a shoal cast
+as an upper bound on the bed within its position radius is the fix if rocks matter (reported to Hig).
+
+**Ground returns inside a lake (fill.py, with the water-blind drop).** Hig: flats at 59.43508,−151.18673 and
+59.43856,−151.18314 (Upper Hazel / Kinnikinnick) and 59.48302,−151.21596 (Lower Hazel), "probably water surface points
+classed as ground".  They are patches of 0.3-0.6 ha classed ground 0.2-1.6 m under the lake, too large for the
+domain closure, standing as observed bed.  In the Hazels they are ArcticDEM's interpolated surface where the lidar had
+no water returns -- `arcticdem` has been water-blind in the joint layer since the fix2 template (the dev crops
+predate it; a rerun drops them, 1.93 + 1.27 ha).  The general rule added beside it: a return inside a LAKE's water
+label that is not a bathymetric (bed) class and lies at or below level + lake_surface_tol_m is a hole, not bed -- a
+topographic laser does not see a lake bed; ground above the level (islets, shore) stays; lakes only (the sea's label
+holds tide flats a low-tide flight saw under a later flight's surface).  In the four fix2f boxes it catches one
+further case: 1.06 ha at 59.26500,−151.44024 (kj_r3c3), a perfectly flat sheet 2.5 m under the body's level -- a
+lower stand of the lake seen by another survey, which the single-level body cannot represent (the multi-level lake of
+§7 is the open item; until then the sheet is modelled as bed from the basin).
+
+**Also found.** A fill-only rerun reads build 3's `source_index.tif`, in which the previous fill's cells are the
+fill layer, so the water-blind mask counts fewer cells than the chain's fill saw (kj_r3c4 33.7 → 23.5 ha); the
+cells are holes again either way (composite's "a previous fill's cells are holes again"), so the product is the
+same -- noted so the different count is not read as a change.
+
+**Run.** fix2g: the six review crops and the four boxes fill-onward (scratchpad `fix2g_fill.sh`) → dev
+`kbay_joint_fix2g_crops` and `kbay_joint_fix2g_boxes`; then the eight outer-coast boxes end to end
+(`fix2g_outer.sh`).  The fix2f outer run was stopped at its first box.
+
+#### 8.4a (2026-11-02, 00:00) — the fill's drop never reached the product; the rule moved to the shore stage
+
+Checking the fix2g crops product at the Hazel sites: `fill_mask` 3 (modelled) and `fill.tif` 507 m, but the product still
+527.85 m -- the joint's ArcticDEM cell.  Build 3 voids the joint only where the shore stage's `water_blind.tif` says so
+(the `blind_water` class step), and that file is written by the shore stage alone: the crops' copies were from Oct 31, before
+ArcticDEM was water-blind, and no stage wrote the new ground-inside-a-lake rule into it.  So a fill-only rerun could not
+change the product over those patches, and the rule in fill.py could never have (the 2026-10-25 lesson, again: a drop made
+after the shore stage is a drop the build does not see).
+
+- **The rule now lives in `shore.py`** (after the final labels and levels, before the bank slope; `lake_ground_tol_m` 0.2
+  in the shore DEFAULTS): a land-classed return (ground, built, canopy, snow) inside a lake's water label at or below its
+  level + tol joins `blind_in`, so `water_blind.tif` carries it -- the build voids the joint there, the fill makes it a hole.
+  Lakes only; land below a lake's level outside the water label stands.  The copy in fill.py (after the water-blind drop)
+  is now redundant and is to be removed once no run is loading fill.py (it differs only in taking every non-bed class).
+- **Rule for the chain:** anything that declares an observation not an observation belongs in the shore stage, which
+  writes `water_blind.tif`; the fill reads it, the build reads it.  The fill never drops observations by rules of its own.
+- Limit worth knowing: only the joint layer carries the `blind_water` step in the recipes.  A separate observation
+  layer's (homer2019's) ground return inside a lake would still stand in the product; the general fix is the step on every
+  observation layer (template + regenerated recipes), not done.
+- **A build-2-onward rerun** (fix2g_outer2.sh `run_one`: remove the previous fill/shore products as the chain does, then
+  build 2 -> shore -> fill -> build 3) reproduces a clean chain from the water stage's products.  Upper Hazel test: the
+  shore stage drops 3.36 ha of water-blind cells and 0.04 ha of ground inside the lake; the product over the two patches is
+  the fill's bed (507.1 m and 518.9 m under the 528.58 m level; soundings 11-27 m from the first read 17-33 m deep); gate
+  passed, no row regressed.
+- Queue (fix2g_outer2.sh, after the fill-only boxes publish): the six crops build-2-onward -> republish
+  `kbay_joint_fix2g_crops`; the eight outer-coast boxes end to end; the four south-shore boxes build-2-onward (kj_r3c3's
+  lower-stand sheet at 59.26500, -151.44024 will become modelled bed) -> republish `kbay_joint_fix2g_boxes`.
+
+#### 8.4b (2026-11-02, 01:00) — Hig's Taylor Bay shallows review of fix2g: two causes found, not yet fixed
+
+1. **Deep trough bounded by flats at 59.32151, -151.03754 (the delta front).**  The product there is the profile prior
+   (-16.6 m: the bay-wide depth-by-shore-distance, 16 m at 260 m) lightly corrected (-15.7).  The nearest casts the recipe
+   uses (nos_1915_1931_20261101, H05101 of 1930-31, shifted +400/+320 m) are 380 m east: a north-south line of 1-2 ft casts
+   (the delta front as sounded), the 55-125 ft channel 90 m beyond it, the fjord (140-170 ft) beyond that; shoreward of
+   the 2 ft line, for 800 m, no casts at all (the lead line stopped at the flat).  So the whole delta apron is modelled
+   as a fjord basin 7-17 m deep by the one bay-wide profile, and the 2 ft line holds only its own neighbourhood.  The
+   dead-straight seam through the site is the KBay lidar's water body (shore label 2, observed surface 1.68 m) against the
+   unobserved void (label 0): two fill domains, two splines, a 4.4 m step in 8 m where they meet (the prior is continuous
+   across it; the fill is not).  (A duplicated-cast hypothesis was tested and rejected: with foot-quantised depths and
+   dense casts, same-depth matches at a random offset are as common as at any particular one; the doubled lines in a
+   first map came from reading the 20261031 unshifted export beside the 20261101 one.)
+   Fixes to consider: (a) the prior is LOCAL -- depth by shore distance fitted from the casts within reach along the
+   shore, not one profile per bay; and shoreward of the nearest casts it is capped at their depth (non-decreasing seaward
+   is the profile's own assumption: a 2 ft line at 400 m means the apron inside it is no deeper); (b) a sea domain is not
+   split by a flight-line edge: the observed water body and the void it touches below low tide are one domain for the
+   prior and the spline (the lens/ceiling stay per cell).
+2. **Cliff steps at the land edge, e.g. the grass flat "island" at 59.32305, -151.02262.**  The lidar observed the grass
+   at +2.4 m (ground, label land); the mud around it is void (no returns), in the intertidal zone, with no water body, so
+   it joins a floor-path marine domain whose ceiling is low tide descending at 1 deg: the bed is forced to -1.5..-2.0 m
+   within 30 m of the +2.4 m grass, a 4 m cliff.  Box-wide in kj_r3c4: 39 km of observed-land (< 6 m) edges against fill
+   more than 2.5 m lower (27 km more than 3.5 m), nearly all in the intertidal zone.
+   Fix to consider: the low-tide ceiling does not start at the land rim.  Beside observed land the ceiling descends from
+   the rim's own height (capped at MHHW) to low tide across the intertidal, at the local profile's gradient (at a delta
+   the 2 ft line 400 m out stretches it; on a fjord wall the first bins make it steep), and only beyond that is low tide
+   the cap.  The rim residual harmonic already carries the rim height inward; lt_ceil clips it today.
+
+#### 8.4c (2026-11-02, 01:30) — fix2h: local sea profiles, bounded by the first cast in every direction; one sea across coverage edges
+
+Hig: "There is no lidar here -- the data sources are IfSAR / 3DEP (= Mapterhorn) and ArcticDEM.  Regardless, I think that
+local profiles are a good idea."  (Correction to 8.4b: the "water body" east of the seam is a DEM's sea surface, not a
+lidar's; the seam is still that product's coverage edge.)  Built and tested on a copy of the Taylor Bay crop
+(`plates_lp`, a scratch copy of the code, so the running queue was untouched), in four steps, each one shown necessary
+by the one before:
+
+1. **Local profiles** (`_sea_profile_local`): one profile of depth by shore distance per 200 m anchor, from the casts
+   within 1.5 km (radius doubled, twice, below 40 casts; the domain's own profile when still too few; bins of 8), a
+   cell's prior the Gaussian blend of its four nearest anchors' profiles at its own shore distance.  Alone: the delta
+   site went from 32 m to 20 m deep.  Why not further: the 2 ft line and the channel 90 m east both run away from the
+   shore, so at any shore distance both a 2 ft cast and a 30 m cast exist -- a profile by shore distance cannot
+   separate them.
+2. **The first cast in every direction bounds the prior**: at each cell the nearest cast in each of 8 sectors (among
+   its 32 nearest); the prior depth never exceeds the deepest of them.  A plain "deepest of the 8 nearest" failed 150 m
+   from the apron's edge (one channel cast among the eight).  Still 4.5 m at the site, because...
+3. **The apron had no prior at all**: it was a marine void with no cast inside it, beside the DEM's water body holding
+   every cast; `sound_prior` was NaN west of the seam and the apron was the rim's descent plus the harmonic bridge.
+   **Touching floor-path marine domains are now one domain** (merged after `nolens`; each group keeps its smallest old
+   id, so the per-id tables stay valid; lens domains and lakes are never merged): one profile, one spline, one ceiling.
+   The prior was then right (1 m below low tide, continuous across the seam) but the product 3 m deeper, because...
+4. **The ceiling's 1-degree cone** demanded 7 m of water 400 m from the shore.  The shallowest first-cast relaxes the
+   cap (`sea_relax`, never above low tide less 0.1 m).  Result at 59.32151, -151.03754: product -2.0 to -2.5 m over the
+   whole apron (the 2 ft line's depth), the seam gone, the channel a smooth tongue; crop-wide 3.7 km2 changed, 1.06 km2
+   raised and 0.86 km2 lowered by more than 2 m.
+- Also found: a local named `shore` in the no-shore-stage branch shadowed the stage flag (crashed the first test, which
+  had raced the queue for its products); renamed.  `fill_sound_prior.tif` is written beside `fill_prior.tif` (the
+  interior sound prior alone, the diagnostic that found step 3).  The fill-side lake rule of 8.4 is removed (the shore
+  stage's is the one that reaches the product).
+- Not done: the cliff steps at the land rim (8.4b item 2) -- the ceiling still starts at low tide beside observed land.
+- Queue `fix2h_run.sh` (after the fix2g fill-only boxes publish): crops fill-onward -> `kbay_joint_fix2h_crops`; the
+  four south boxes build-2-onward -> `kbay_joint_fix2h_boxes`; the eight outer boxes end to end -> republished.
+  Retired from dev: `kbay_joint_fix2e_crops`, `kbay_joint_fix2f_boxes`.
+
+### 8.4d kj_r4c1, the multibeam's western edge, fix2h end to end (2026-11-02 03:28)
+
+Published alone as `kbay_joint_fix2h_boxes`. Gate: two rows flagged against run1, neither new to fix2h --
+`bed_labelled_land_cells` 1943 (run1 1151, run2 1857) and `solid_over_level_water_cells` 98 (run1 3, run2 98).
+
+**The blend from the multibeam into the soundings that Hig asked to see does not exist in this box.** West of
+E558194 the sea is the NCEI 2010 Kachemak 1/3 arc-second grid (`ncei2010`, sigma 3 m; 172 km² of the box's 300;
+source bit 64), a gridded observation. The soundings govern only 0.57 km² of floor-path voids. The 842 NOS 1977-84
+casts west of the edge (63 m spacing, sigma 0.88 m) are never consulted, because a cell with an observation is not
+the fill's to model. The NCEI grid agrees with those casts at a median of 0.04 m (NMAD 0.71, p10/p90 -1.1/+1.6 m):
+it is their gridding. Its pocks (30-60 m across, 0.6-1.3 m of relief at 50 m; |Laplacian| p90 0.037 against 0.005
+on the smooth NCEI strip to the north and 0.067 on the multibeam's real texture) are gridding noise between the
+casts, upsampled by the cubic spline with a visible 10 m lattice. The multibeam's edge is a hard line (100 m |dz|
+across it p90 2.9 m, interior 2.1, worst 7.5). NCEI also fills 12.3 km² of gaps inside the multibeam's extent, at
+38-78 m depth.
+
+Proposal, not done (Hig's own suggestion of 2026-11-01: "treat the low-res bathy as sparse low-confidence
+points"): a compilation grid whose sources are in the stack as casts is not an independent observation.
+`ncei2010` and `cudem2022` as points at their cell centres (as CRM already is) or voided where casts lie within
+some distance, so the sea there is a floor-path domain the local-profile spline fills from the casts, conditioned
+on the multibeam at its edge. It changes every outer-coast box and is Hig's decision.
+
+## 8.5 The intertidal: review and the first structural test (2026-11-02)
+
+**Hig's review of fix2h:** the only remaining severe issue is stepping in the intertidal, in every box with one. He
+asked for a review through the lens *terrain : intertidal : basin*, with the intertidal semantically and structurally
+its own thing, and raised two axes a coastline could be placed on -- erosive / depositional (sea cliffs with wave-cut
+platforms against coastal plains with beach ridges) and strength of geomorphic expression (a protected bedrock shore
+where extrapolating the terrain into the subtidal is plausible, against deep notches and broad beaches) -- with the
+caveat that parameters must never conflict with observations and garble the surface.
+
+**How the band was handled (before this test):** there was no intertidal stage.  Four stages each carried a tide
+constant: the joint's sea sheets below tide_max_m 4.5; the water stage's intertidal zone (tidal bodies + 100 m round
+observed ground between MLLW and 4.5 m), inside which the gridded prior was void; the shore stage's low-tide river and
+tide range; and the fill, where a void with a rim under marine_rim_max_m 6 m was the sea's, the ground prior was kept
+only at or above void_ground_m 4.5 (fill_mask 8), and everything below became a marine band under a ceiling of LOW
+TIDE everywhere (the floor-path rule of 2026-11-01), so the bed was forced under MLLW at the land itself.
+
+**The step decomposition** (`scratchpad/step_decomp.py`, now `step_decomp2.py` for any product): every step steeper
+than 0.75 m per 2 m cell inside -3.5..6 m, classed by what lies on each side and by the height of its top.  Three
+rule-made families, each clustering at a height that names its rule:
+
+| family | top height | kj_r3c4 | kj_r2c3 | kj_r2c2 | kj_r4c1 (lidar) |
+|---|---|---|---|---|---|
+| terrace: ground prior kept (mask 8) vs marine band | +4.5 m in 57-71 % | 108 km | 38 km | 43 km | none |
+| rim cliff: observed land (ArcticDEM, IfSAR) vs marine band | +1..+5 m | 74 km | 28 km | 32 km | 10 km |
+| water line: a survey's sea-sheet edge vs the fill | 0..+0.5 (lidar), -0.5 (Chugachmiut DTM) | small | 20 km | 31 km | 60 km |
+| observed texture within one source, for scale | spread | 130 km | 87 km | 190 km | 121 km |
+
+The first two are one defect from two sides (the band's upper boundary a constant contour, not the land as seen); the
+third is value-without-slope continuity where a survey's returns stop at that flight's water line.
+
+**The test (scratch copy `scratchpad/lidar_lp`, `patch_intertidal.py` v4, not ported):** in a floor-path sea domain
+(1) the band is the rim extension's reach OR wherever the 3DEP ground prior stands above MLLW + 0.3 m (not its
+hydroflattened water -- `ground_water` = water_3dep.tif codes 1 lake / 2 sea -- not a body's cells, not exactly
+flat), and there the prior IS the DEM; (2) the band's ceiling is the nearest land-rim cell's own height (capped at
+tide_max_m, under an observed sheet, under the DEM + 1 m), no slope demanded; the interior's ceiling ramps from the
+band's edge to low tide at band_edge_deg 3 and the guard's 1 deg cone starts at the band's outer edge, so low tide is
+no level of the ceiling any more (it stays the prior's floor); (3) the points filter and the cap read that ceiling
+field outright; (4) the band's DEM cells join the points at band_ground_sigma_m 1 m, one per 10 m block.  New fill
+params: tide_max_m, band_ground, band_ground_sigma_m, band_ground_min_m, band_edge_deg, ground_water.
+
+Two crops, each against a baseline: Taylor Bay (plates_t fix2h -> plates_lp; depositional, DEM only) and Seldovia
+(seldovia_t rerun end to end as tide0 -> seldovia_lp; erosive, lidar).  On dev: `kbay_joint_tide_after` (both crops,
+v4), `kbay_joint_tide_before` (Seldovia tide0; Taylor's baseline is `kbay_joint_fix2h_crops`).  Versions v1-v3 kept as
+`plates_lp/out_v1..3`, `seldovia_lp/out_v1..3`.
+
+Results.  Seldovia: the floor-path water-line steps along the lidar's edge are gone (band steps 125 -> 108 km; the
+`kbay2023 | fill` family at +0.5..1 m vanished); the lens-domain family is untouched, as expected.  Taylor: the +4.5
+terrace and the rim cliff are gone and the island's grass flats read the DEM exactly (z = pz along the profile), BUT
+(a) 3DEP flattens the SEA at exactly 0 m NAVD88, which is above MLLW, so of 385 ha of DEM "above low tide" 334 ha is
+no data at all and the band ends at 3DEP's 0 m line; (b) in the 3DEP-sea interior the spline between the deep
+local-profile prior (-20 m, the delta front) and contradictory 1931 casts (-1 and -45 m within 100 m, sigma 10)
+overshoots and rides its ceiling: with low tide as the ceiling (fix2h, v2) that ride was the plausible -2.5 m flat Hig
+liked; with the edge height (v3) it rode at +1 m; v4's ramp brings it back to -2.3 but a basin at -6..-10 m now sits
+between the island and the flat; (c) 33 km of steps remain inside the conditioned fill (tops 0..+1 m), the overshoot's
+plateaus; (d) the SUBTIDAL moved with no change to its data -- ovoid -6.9 -> -35, plateau -66.8 -> -49, deep-bounded
+-2.1 -> +0.9 -- because `_spline_residual` picks ONE lambda per domain by chi = 1 over all its sites, and 4,000 DEM
+sites at sigma 1 re-tuned the whole domain's smoothing (the same effect seen between the crop and the box, 8.4d).
+
+**What the test says about the structure.** The ceiling was the right first target and it is fixed for the rim and
+the terrace.  The remaining stepping is the spline's, and it is structural: one smoothing per sea domain cannot serve
+an intertidal band with 10 m DEM sites and a delta front with 100 m casts at sigma 10 at once.  The intertidal needs
+(i) its own fit -- the band and its DEM/lidar/cast data as their own spline region (or a lambda chosen locally),
+joined to the basin's with slope continuity at the band's outer edge -- and (ii) its own prior between the band's
+edge and the first casts, where 3DEP has flattened everything: a gentle descent from the edge to the casts' level,
+not the sea profile measured from the land rim.  Hig's two axes map onto exactly those two pieces: the rim extension
+at the rim's own slope IS the erosive/"extrapolate the terrain" model (strong where the rim is steep), the band's
+data supply the depositional flat where one exists, and expression strength is measurable as how far the band's data
+pull the surface from the extrapolation -- a diagnostic to report per reach, not a parameter to set.  Not built.
+
+### 8.5a The band as its own fit (v5), the profile's shore as the low-tide line (v6) -- 2026-11-02 evening
+
+tide1 (v4 on the 13 boxes, fill-onward) was STOPPED by Hig after the four south boxes (on dev as the partial
+`kbay_joint_tide1_boxes`): on kj_r3c4 the terrace and rim cliff were gone but 23,626 DEM sites at sigma 1 m in the sea's
+one spline re-tuned its single smoothing, 252 km of steps appeared inside the conditioned fill (34 km in fix2h) and a
+third of the subtidal moved by over 1 m with no change to its data.  fill.py is PORTED to the main tree with all of it
+behind `intertidal_band` (default off; the gate-off fill reproduces fix2h bit for bit on plates_t); composite.py's
+`--param` keeps a non-numeric value as a string (`ground_water=<path>`).
+
+**v5** -- the band is its own fit: in a floor-path sea domain the band's sites (the DEM, casts inside it) fit the band's
+cells alone (the land rim the zero boundary, the outer edge free), the interior's prior is re-based on the band's FITTED
+edge (a blend weighted by distance-to-edge against distance-to-the-nearest-interior-cast, capped at band_blend_max_m
+500), the interior's sites fit the interior with the band as a further zero boundary, the bounds and ceiling passes refit
+the interior only.  Taylor crop: the band's own spline corrects ~0 (its prior is the DEM, as it should be); the subtidal
+sites move less than v4 but still move (ovoid -6.9 -> -2.3, plateau -66.8 -> -42.7); steps inside the conditioned fill
+28 km (fix2h 8.7, v4 33.7); a 5-9 m basin west of the island where the interior's profile prior (-20 m, the delta front)
+meets the band's edge at +1.4.
+
+**v6** -- the sea profile's shore is the land rim PLUS the 3DEP ground above low tide (`_dem_band` found once, early, and
+reused by the band), so the casts' distance counts from where the flat meets the sea.  Taylor: almost no change -- the
+DEM band is only the 35 ha of grass flat; the 334 ha 3DEP flattens at 0 m is not shore, so west of the island the
+profile's origin is still the island and its anchor's casts are the delta front's: the prior there stays at -11..-21 m
+and the basin remains (now 2-3 m deep).  Steps 27.8 km; the sites as v5.
+
+**Where this leaves the intertidal.**  Fixed and worth keeping: the band hangs from the land rim (no terrace, no rim
+cliff), the band is its own fit, the DEM is data in it, the guard's cone starts at the band's edge, the profile's origin
+includes the band.  Not solved: the prior across the gap 3DEP flattened (between the band's edge and the first casts),
+where the sea profile -- a median over all directions round an anchor -- carries the delta front's depth onto a mud flat
+and the spline between it and contradictory 1931 casts (-1 and -45 m within 100 m, sigma 10) overshoots and rides its
+ceiling.  Candidate next step: a third zone between the band and the casts, the 3DEP-flattened sea adjoining the band,
+whose prior is a shore descent from the band's edge (the tide's reach, not the profile) until the first cast line, with
+the profile only beyond it.  Versions kept: plates_lp/out_v1..v5 (+ out_v4 = v4, out_equiv = gate-off), seldovia_lp
+likewise; the current out/ = v6.
+
+**Box seams (Hig, 2026-11-02 evening):** steps of 0.5-3.2 m at crop lines in modelled sea (59.14583 -151.73269;
+59.21898 -151.08855; the four-box corner 59.21637 -150.91537): each box's own spline, two surfaces in the 2 km overlap, a
+hard crop between them.  `composites/kbay_joint/mosaic_blend.py` feathers the boxes across their overlap (weight = distance
+to the box's own build edge over the margin); observed cells are unchanged by it.
+
+### 8.5b v7: the basin code for the subtidal, the lower of ArcticDEM and 3DEP (2026-11-02, late)
+
+Hig's review of v6: fine at Seldovia (nearly continuous data), rough at Taylor Bay -- "the profiles aren't well aligned to
+the measured soundings -- the soundings are substantially off the bottom, often deeper -- and there are clear
+near-sounding artifacts where the model tried to bring the bottom into better alignment.  Also the profile
+extrapolation is leading to strong seams.  The profiles are most meaningful quite close to the intertidal, which is also
+where there's no data.  Use the existing basin code for deeper areas, with effective blending from that basin model into
+the intertidal profile-based analysis; or smooth contours rather than profiles."  And on land round Taylor: "irregular
+low-relief seams that sometimes follow ridgelines ... ArcticDEM and IfSAR ... if we always take the lower of the two
+they should blend smoothly."  Instructions: stop runs, clear dev and disk except v6, build fixes, a new Taylor model.
+
+**Cleared:** every kbay_joint layer on dev except `kbay_joint_tide_v6` (the catalogue backed up first); on disk the tide1
+archives, the tide mosaics, the unblended fix2h mosaic and the crop test versions v1-v5.  Kept: `out_fix2h` on all 13
+boxes (the gate's baseline; Hig's "hold onto fix2h" of the morning), the feathered fix2h mosaic COG
+(`kbay_joint_fix2h_blend/`, republishable in 5 min), `plates_t/out_fix2h` and `seldovia_t/out_tide0` (the crops'
+baselines), `plates_lp/out_v6` and `seldovia_lp/out` (v6).
+
+**The land seams, measured (kj_r3c4, 8 x 6 km round Taylor Bay):** 552k cells on the ArcticDEM / 3DEP boundary; across
+it z(ArcticDEM) - z(other) p10/50/90 -1.75 / -0.29 / +0.77 m, 57 % over 0.5 m.  At the gate's edge ArcticDEM - 3DEP is
++0.70 m (p50; p90 +0.95, i.e. just under the 1 m gate), 20 m inside it is -3.7 m: the seam IS the gate contour, and it
+follows ridgelines because canopy puts ArcticDEM over the gate there.  **No horizontal offset**: hillshade correlation
+over three Taylor windows puts ArcticDEM within one 2 m cell of 3DEP (best shift +0 / -2 m, correlation ratio 1.05-1.08),
+and at Seldovia ArcticDEM, 3DEP and the KBay 2023 lidar all sit at zero shift against each other (a first
+gradient-magnitude test that said 10 / -12 m was that method's artifact).  Vertical, on the hills: ArcticDEM 1-2.5 m
+below 3DEP (p50), NMAD 2-3.7 m; against the lidar at Seldovia ArcticDEM is +2.5 and 3DEP +3.9 m.
+
+**Fix (Hig's rule):** `arcticdem_ground_cand.py --lower` -- inside the gate the candidate is the LOWER of ArcticDEM and
+3DEP, so the product equals 3DEP on both sides of the gate contour and is continuous there, and ArcticDEM's detail stands
+wherever it reads lower.  Rebuilt as `/Volumes/Powder/lidar_build/kbay_joint/obs/arcticdem_ground_2m_v2.tif` (163 s; the
+v1 file untouched, the box recipes still point at it).  At the gate edge: A - 3DEP p50 0.00 m, 7 % of edge cells over
+0.3 m (v1: 0.70 m, 86 %).
+
+**Fix (the sea):** v7 of the fill (`patch_intertidal.py`, ported to the main tree; every piece behind `intertidal_band`,
+off by default -- the gate-off fill reproduces fix2h bit for bit on plates_t).  `sea_prior: "kernel"` with
+`sound_prior_gap_mult` 2.5 and `floor_sound_smooth_m` 60: the subtidal prior is the casts' kernel mean at a bandwidth no
+narrower than 2.5 x their local half-gap -- smooth contours through the casts, no disc at any cast, the basin code's
+smooth prior -- and the ceiling's cone is relaxed to it + `kernel_relax_m` 1 m (the local profiles relaxed it to the
+first casts); the intertidal band (its own fit, v5) blends into that surface across the gap (band_blend_max_m).  The
+local profile stays available as `sea_prior: "local"`.
+
+**The Taylor model:** `composites/kbay_joint/crops/plates_lp/recipe.json` (own joint dir
+`/Volumes/Powder/lidar_build/kbay_joint/crops/plates_lp`, ArcticDEM v2, the v7 fill params in the recipe) run end to end
+by `run_box.sh plates_lp v7`; then the box.
+
+## 8.6 The contour shore model (2026-11-03)
+
+Hig's review of v8: "first nail ocean bathymetry where we have to rely on soundings, and then figure out the intertidal ... generate smooth contours in the
+intertidal consistent with the data ... shorelines convex immediately below low tide, agreeing with soundings ... the contours become tide levels, so I can edit
+them", with the reference datum below MLLW (the tide falls below it, and waves rework sediment to a bit below low tide).  Built as `topobathy/shoreface.py`
+(`fill.shore_model: "contour"`, off by default), read its docstring.
+
+**Measured for the design.**  Base datum: in kj_r4c1's lidar + multibeam the p75 slope peaks at -1..0 m (6.4 deg) and relaxes to the deep background (3.2-3.5 deg) by about
+-4 m, and the lowest tide stand is about MLLW - 1.5 m: `shore_base_m` = MLLW - 2 m = -3.38 m NAVD88.  Casts: 1977-84 against the multibeam (45,129): median -0.34 m,
+NMAD 0.32 / 0.52 / 0.92 / 1.60 m for assigned sigma classes < 1.5 / 1.5-3 / 3-6 / 6-9.9.  1915-31 against the nearest 1977-84 cast within 60 m (6,725; only 3 reach
+the multibeam): median +1.40 m, NMAD 1.6 / 2.5 / 4.2 / 3.0 m.  `topobathy/nos_calibrate.py` writes `nos_*_20261103.csv`: 1977-84 sigma x 0.35 (floor 0.4); 1915-31 sigma x 0.5
+(1.5-4 m), each survey shifted by its own median (-1.1 to -3.0 m, n >= 100 pairs) or the group's -1.40.  A pre-1964 survey standing high is what the 1964 subsidence
+would produce; that attribution is a hypothesis, the offset is measured.  z_raw keeps the export.
+
+**Faults found building it, in order** (each visible only by looking): the land's Gaussian tail outvoted all data for 190 m and stranded the fjord walls' deep casts inside the
+intertidal, so the level field now starts from the rim's slope and only data move it; a fixed rollover width kept narrow fjords' prior shallow; a descent unbounded by the
+casts ran the prior 100 m deep; 3DEP land above the DEM band's limit fell through as sea (a stair-stepped wall under ArcticDEM's blocky no-data edge), so the ground prior
+above the tide's reach now stands everywhere, its misfit to observations fading; a smoothed slope field with a fallback beyond its kernel's reach jumped 0.01 -> 0.52 and
+drew thin arcs across the bay, so slopes are carried from the nearest shore and then smoothed.
+
+Test crops `crops/ct_*` (`make_shore_test.py`: ArcticDEM v2, the calibrated casts).  Edited lines: `water/tide_lines.geojson`, LineStrings with level_m, EPSG:6334.
+
+### 8.6a Casts against 3DEP, and an idea parked (2026-11-03, Hig's review of the fifth test)
+
+3DEP land wins over a sounding.  A cast it contradicts also puts its neighbours in question: a cast is wrong in its position rather than its depth, and the quasi-regular spacing
+of a survey line means moving one cast to the nearest place its depth could be right would not fit the line it belongs to.  `out/cast_review.geojson` lists every cast with what
+the model did with it, and flags the same survey's casts within 150 m of a contradiction (`near_land`).
+
+**Idea, not for now (Hig):** a "distort horizontal position of survey" tool, moving a survey's casts together rather than one at a time, on top of the constant shifts of 8.2.
+
+Casts are moved, not rejected (Hig): NOAA's casts are unlikely to be truly wrong, only in the wrong place, so a reviewer's correction records the translation and keeps the depth.  Workflow: SHORE_REVIEW_WORKFLOW.md.

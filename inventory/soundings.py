@@ -17,7 +17,16 @@ One response carries everything a client needs to draw and explain the
 points: features (points and contour lines) with depth, elevation where the
 level is known, sigma and flag, plus the surveys and levels they refer to by
 id, so a popup can cite its source without a second request. There are few
-enough points that the bbox is optional (as api_scarps).
+enough points in a lake survey that the bbox is optional (as api_scarps).
+
+DENSE surveys (sounding_surveys.dense, 2026-11-01: the NOS hydrographic
+surveys' digital soundings and the CRM cell centres the topobathy fill infers
+the sea bed from, 350 k points): their points are served only with a bbox
+(?dense=1&bbox=...), capped at DENSE_MAX features per response (`truncated`
+says so), and the viewer fetches them per view from a zoom where a view holds
+a sensible number. Without a bbox the response carries the dense surveys in
+`surveys` (flagged) with none of their points, so the lake layer loads as it
+always did and the client knows what else exists.
 """
 import json
 
@@ -25,6 +34,9 @@ from django.http import JsonResponse
 
 from .auth import can_view_restricted
 from .views import _get_conn, _put_conn
+
+
+DENSE_MAX = 80000     # points of dense surveys in one bbox response
 
 
 def _iso(v):
@@ -35,13 +47,13 @@ def _visible_surveys(cur, user):
     restricted = can_view_restricted(user)
     cur.execute("""
         SELECT id, slug, title, collector, collected_from, collected_to, method, instrument,
-               depth_unit, sigma_m, horizontal_m, licence, citation, public, notes
+               depth_unit, sigma_m, horizontal_m, licence, citation, public, notes, dense
           FROM sounding_surveys
          WHERE public OR %s
          ORDER BY collected_from NULLS LAST, slug
     """, [restricted])
     keys = ['id', 'slug', 'title', 'collector', 'collected_from', 'collected_to', 'method', 'instrument',
-            'depth_unit', 'sigma_m', 'horizontal_m', 'licence', 'citation', 'public', 'notes']
+            'depth_unit', 'sigma_m', 'horizontal_m', 'licence', 'citation', 'public', 'notes', 'dense']
     out = []
     for r in cur.fetchall():
         d = dict(zip(keys, r))
@@ -52,10 +64,14 @@ def _visible_surveys(cur, user):
 
 def api_soundings(request):
     """?bbox=minLon,minLat,maxLon,maxLat (optional), ?survey=<slug> (optional),
+    ?dense=1 (with a bbox: the dense surveys' points in it, nothing else),
     ?download=1 for a GeoJSON file. Public surveys for everyone; gated ones
-    for data users."""
+    for data users. Dense surveys' points need a bbox (see the module note)."""
     bbox = request.GET.get('bbox', '')
+    want_dense = request.GET.get('dense') in ('1', 'true')
     env_sql, env_params = '', []
+    if want_dense and not bbox:
+        return JsonResponse({'error': 'dense=1 needs a bbox'}, status=400)
     if bbox:
         try:
             x0, y0, x1, y1 = [float(v) for v in bbox.split(',')]
@@ -76,8 +92,17 @@ def api_soundings(request):
         slug = request.GET.get('survey', '')
         if slug:
             surveys = [s for s in surveys if s['slug'] == slug]
+        # whose POINTS this response carries: a dense survey's only inside a bbox (dense=1 or a named survey);
+        # the survey records themselves are always listed, so the client knows what else exists
+        if want_dense:
+            pts_ids = [s['id'] for s in surveys if s['dense']]
+        elif bbox or slug:
+            pts_ids = [s['id'] for s in surveys]
+        else:
+            pts_ids = [s['id'] for s in surveys if not s['dense']]
         ids = [s['id'] for s in surveys]
         feats, levels = [], []
+        truncated = False
         if ids:
             cur.execute("""
                 SELECT id, survey_id, key, water_body, level_m, datum, sigma_m, observed_on, source
@@ -92,8 +117,12 @@ def api_soundings(request):
                   FROM soundings_z
                  WHERE survey_id = ANY(%s)""" + env_sql + """
                  ORDER BY id
-            """, [ids] + env_params)
-            for (i, sv, lv, x, y, t, dm, do, du, sd, z, sz, fl, fr, nm, no, bd) in cur.fetchall():
+                 LIMIT %s
+            """, [pts_ids] + env_params + [DENSE_MAX + 1])
+            rows = cur.fetchall()
+            if len(rows) > DENSE_MAX:
+                rows = rows[:DENSE_MAX]; truncated = True
+            for (i, sv, lv, x, y, t, dm, do, du, sd, z, sz, fl, fr, nm, no, bd) in rows:
                 feats.append({'type': 'Feature', 'id': i,
                               'geometry': {'type': 'Point', 'coordinates': [round(x, 7), round(y, 7)]},
                               'properties': {'id': i, 'kind': 'sounding', 'survey_id': sv, 'level_id': lv,
@@ -113,7 +142,7 @@ def api_soundings(request):
                   LEFT JOIN sounding_levels l ON l.id = c.level_id
                  WHERE c.survey_id = ANY(%s)""" + env_sql.replace('geom', 'c.geom') + """
                  ORDER BY c.id
-            """, [ids] + env_params)
+            """, [pts_ids] + env_params)
             for (i, sv, lv, g, dm, do, du, sd, z, fl, fr, no) in cur.fetchall():
                 feats.append({'type': 'Feature', 'id': 'c%d' % i, 'geometry': json.loads(g),
                               'properties': {'id': i, 'kind': 'contour', 'survey_id': sv, 'level_id': lv,
@@ -125,6 +154,8 @@ def api_soundings(request):
     finally:
         _put_conn(conn)
     fc = {'type': 'FeatureCollection', 'features': feats, 'surveys': surveys, 'levels': levels}
+    if truncated:
+        fc['truncated'] = DENSE_MAX
     gated = any(not s['public'] for s in surveys)
     if request.GET.get('download'):
         resp = JsonResponse(fc, json_dumps_params={'indent': 1})

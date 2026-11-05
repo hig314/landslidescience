@@ -15,7 +15,7 @@ stamp() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $BOX $TAG: $1" | tee -a $LOG; }
 for v in /Volumes/Nunatak /Volumes/Powder; do [[ -d $v/lidar_build ]] || { echo "$v not mounted"; exit 1; }; done
 FREE=$(df -g / | awk 'NR==2{print $4}'); (( FREE >= 12 )) || { stamp "boot disk $FREE GB free -- refusing"; exit 1; }
 for v in /Volumes/Nunatak /Volumes/Powder; do F=$(df -g $v | awk 'NR==2{print $4}'); (( F >= 15 )) || { stamp "$v has $F GB free -- refusing"; exit 1; }; done
-pgrep -f "docker (compose .*)?build\b|docker buildx build|docker build " >/dev/null && { stamp "a Docker build is running -- refusing"; exit 1; }   # not Docker Desktop's own com.docker.build daemon
+pgrep -f "[d]ocker (compose .*)?build\b|[d]ocker buildx build|[d]ocker build " >/dev/null && { stamp "a Docker build is running -- refusing"; exit 1; }   # not Docker Desktop's own com.docker.build daemon
 WIN=($($PY -c "import json,sys; print(*json.load(open(sys.argv[1]))['joint']['units']['win'])" $RECIPE))
 stamp "units ($WIN)";       $PY topobathy/joint_pilot.py units --recipe $RECIPE --workers 4 --win $WIN > $JOUT/units.log 2>&1
 stamp "joint fuse + layer"; $PY topobathy/joint.py all $RECIPE > $JOUT/joint.log 2>&1

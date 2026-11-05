@@ -78,6 +78,10 @@ CREATE TABLE IF NOT EXISTS sounding_surveys (
     updated_at      timestamptz NOT NULL DEFAULT now()
 );
 
+-- dense (2026-11-01): a survey of hydrographic lines or compilation cells (tens of thousands of points) is served
+-- only inside a bbox and drawn per view; the lake surveys stay whole.
+ALTER TABLE sounding_surveys ADD COLUMN IF NOT EXISTS dense boolean NOT NULL DEFAULT false;
+
 CREATE TABLE IF NOT EXISTS sounding_levels (
     id              serial PRIMARY KEY,
     survey_id       integer NOT NULL REFERENCES sounding_surveys(id) ON DELETE CASCADE,

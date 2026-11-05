@@ -69,6 +69,7 @@ class Source:
         self.src = _resolve(d["src"], base); self.footprint = [_resolve(p, base) for p in _aslist(d.get("footprint"))]
         self.res_m = d.get("res_m"); self.reference = bool(d.get("reference", False)); self.d = d
         self.valid_below_m = d.get("valid_below_m"); self.valid_above_m = d.get("valid_above_m")   # a merged product's own kind holds only on one side of a level
+        self.adjust_global_m = d.get("adjust_global_m"); self.adjust_stable_m = d.get("adjust_stable_m")   # see 2b
         self.derived = bool(d.get("derived", False))   # a compilation of other surveys (CUDEM/OCM, NCEI's 1/3", CGOA): not independent evidence
 
     def valid(self, z):
@@ -500,13 +501,17 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             num = np.zeros((H, W), np.float32); den = np.zeros((H, W), np.float32)
             for m in meas:
                 both = np.isfinite(Z[n]) & np.isfinite(Z[m]) & allow[m] & allow[n]
+                # a surface model years apart from the lidar: only ground that has not changed calibrates it (2026-11-04, Hig: ArcticDEM's edges; 15-27 m of glacier thinning in
+                # kj_r4c4's overlap shifted all its ArcticDEM -8.62 m, where stable ground across the bay asks for 0.0)
+                if S[n].adjust_stable_m is not None:
+                    both &= np.abs(np.nan_to_num(Z[m] - Z[n], nan=1e9)) <= float(S[n].adjust_stable_m)
                 if not both.any():
                     continue
                 w_ = np.where(both, 1.0 / np.maximum(np.nan_to_num(SG[m], nan=S[m].sigma_m), cfg["sigma_floor_m"]) ** 2, 0.0).astype(np.float32)
                 num += w_ * np.nan_to_num(Z[m] - Z[n]); den += w_
             if not (den > 0).any():
                 continue
-            g = float(num.sum() / den.sum())                                  # the global weighted offset
+            g = float(num.sum() / den.sum()) if S[n].adjust_global_m is None else float(S[n].adjust_global_m)   # the global weighted offset, or the bay's own
             r2 = np.where(den > 0, (num / np.maximum(den, 1e-12)) ** 2 * den, 0.0).astype(np.float32)
             nc, dc, qc = _blk(num), _blk(den), _blk(r2)
             ns, ds, qs = (ndimage.gaussian_filter(a, sg_c) for a in (nc, dc, qc))
@@ -695,10 +700,25 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
     for m in names:
         if S[m].kind == "points" and S[m].cls == "bed" and not S[m].derived:
             zbpmin = np.fmin(zbpmin, np.where(np.isfinite(Z[m]) & allow[m], Z[m], np.inf))
-    if np.isfinite(zwmin).any() or np.isfinite(zbmin).any() or any("z_w" in obs[n] for n in names):
+    # ...and the fill's points files (cfg sheet_points: the NOS soundings, CRM's centres, 2026-10-31), evidence for the sheet
+    # rule alone, never cells of the layer: with the compilations gone from the layer the KBay lidar's sea surface over Taylor
+    # Bay (2.9 m that day) stood as ground with nothing measured under it (plates_t fix2 pass 6)
+    nsp_ = 0
+    for pp_ in (cfg.get("sheet_points") or []):
+        for r_ in csv.DictReader(open(pp_)):
+            if r_.get("bound") or r_.get("z") in (None, ""):
+                continue
+            c_ = int((float(r_["x"]) - win[0]) // res); rr_ = int((win[3] - float(r_["y"])) // res)
+            if 0 <= rr_ < H and 0 <= c_ < W:
+                zbpmin[rr_, c_] = min(zbpmin[rr_, c_], float(r_["z"])); nsp_ += 1
+    if nsp_:
+        log(f"  sheet rule: {nsp_} points from the fill's files as a sparse measured bed")
+    if np.isfinite(zwmin).any() or np.isfinite(zbmin).any() or np.isfinite(zbpmin).any() or any("z_w" in obs[n] for n in names):
         tm_ = float(cfg.get("tide_max_m", np.inf)); smc = float(cfg["stand_min_cells"]); tol_ = float(cfg["over_water_tol_m"])
         for n in names:
-            if S[n].kind != "lidar" or S[n].cls == "bed":
+            # ...and a DTM with no point cloud is judged the same way (2026-11-03, Hig: a coastal flat dropping abruptly to the bathymetry at
+            # 59.20377,-151.46453: Chugachmiut's published DTM carries the sea at -0.8..+0.3 m as ground over 163 ha, with casts of -8 and -13 m under it)
+            if not (S[n].kind == "lidar" or (S[n].kind == "grid" and S[n].cls == "ground")) or S[n].cls == "bed":
                 continue
             zf_ = np.isfinite(Z[n]) & allow[n]
             mx_ = ndimage.maximum_filter(np.where(zf_, Z[n], -1e9), 5); mn_ = ndimage.minimum_filter(np.where(zf_, Z[n], 1e9), 5)
@@ -721,7 +741,22 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
                 # Riordan's soundings at 491-528): sparse_bed_min_n soundings under a sheet are enough, whatever its size or height
                 ubp_n = cnt(flat_ & np.isfinite(zbpmin) & (zbpmin < Z[n] - float(cfg["bed_stand_dz_m"])))
                 bad_b |= (ubp_n >= float(cfg["sparse_bed_min_n"])) & (cnt_ >= smc)
-            bad_ = bad_w | bad_b; bad_[0] = False
+            # ...and a SHEET ABOVE THE TIDE'S REACH among the survey's OWN water returns at its level is that water's surface
+            # (2026-10-31, Hig's review of the fix1 crops: the 61 ha lake at 59.31234,-151.86813 -- KBay 2023 saw water on a
+            # third of it and 'ground' 2-3 cm over its 12.86 m level on the rest; the shore stage, offered both hypotheses at
+            # the level, kept the class).  Judged by the sheet: flat cells within two cells of the survey's water returns and
+            # within own_sheet_tol_m of them, stand_min_cells of them.  Never within the tide's reach: a wet tidal flat
+            # carries water returns at its own level too (Hoen's Lagoon, above), and there the measured bed decides.
+            bad_o = np.zeros(nl_ + 1, bool)
+            if "z_w" in obs[n]:
+                hw0 = (obs[n]["n_w"] > 0) & np.isfinite(obs[n]["z_w"])
+                if hw0.any() and (~tide_[1:]).any():
+                    dw0, (iy0, ix0) = ndimage.distance_transform_edt(~hw0, sampling=res, return_indices=True)
+                    at_ = flat_ & (dw0 <= 2.0 * res) & (np.abs(Z[n] - obs[n]["z_w"][iy0, ix0]) <= float(cfg.get("own_sheet_tol_m", 0.15)))
+                    bad_o = ~tide_ & (cnt(at_) >= smc)
+                    del dw0, iy0, ix0, at_
+                del hw0
+            bad_ = bad_w | bad_b | bad_o; bad_[0] = False
             st_ = bad_[lab_]
             sp_ = np.zeros((H, W), bool)
             spk = tide_ & (cnt_ < smc) & (ub_n >= 0.5 * cnt_) & ~bad_; spk[0] = False
@@ -751,12 +786,21 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
                     sp_ = sp_ | (spo[lab2_] & (dens_ <= float(cfg["speck_sparse_frac"])) & (dw_ <= float(cfg["speck_near_m"])) & (np.abs(Z[n] - wl_) <= tol_))
                     del dw_, wl_
                 del dens_, lab2_
+            # ...and what a DTM's sea sheet leaves behind: bits of its surface too rough for the flat test, at the sheet's level beside it, a small component of their own
+            # (2026-11-03: 1 ha of Chugachmiut specks in the water off Windy Bay; the shore's own low cells are one piece with the land and stay)
+            if S[n].kind == "grid" and st_.any():
+                dn_, (iy_, ix_) = ndimage.distance_transform_edt(~st_, sampling=res, return_indices=True)
+                lev_ = Z[n][iy_, ix_]; del iy_, ix_
+                lab3_, nl3_ = ndimage.label(zf_ & ~st_, structure=np.ones((3, 3), bool))
+                sm3 = np.bincount(lab3_.ravel(), minlength=nl3_ + 1) < smc; sm3[0] = False
+                sp_ = sp_ | (sm3[lab3_] & (dn_ <= float(cfg["speck_near_m"])) & (np.abs(Z[n] - lev_) <= 2.0 * tol_))
+                del dn_, lev_, lab3_
             st_ = st_ | sp_
             if st_.any():
                 stand[n] = st_; Wt[n][st_] = 0.0; Wc[n][st_] = 0.0
                 log(f"  {n:14s} flat ground that is the sea: {int(bad_w.sum())} sheets over others' lower water, {int(bad_b.sum())} over a measured bed; "
-                    f"{int(sp_.sum())} speck cells at their stand; {float(st_.sum()) * res * res / 1e4:.2f} ha")
-                rep.setdefault("sea_sheets", {})[n] = dict(over_water=int(bad_w.sum()), over_bed=int(bad_b.sum()),
+                    f"{int(bad_o.sum())} lake sheets at the survey's own water level above the tide's reach; {int(sp_.sum())} speck cells at their stand; {float(st_.sum()) * res * res / 1e4:.2f} ha")
+                rep.setdefault("sea_sheets", {})[n] = dict(over_water=int(bad_w.sum()), over_bed=int(bad_b.sum()), own_lake=int(bad_o.sum()),
                                                            speck_cells=int(sp_.sum()), ha=round(float(st_.sum()) * res * res / 1e4, 2))
             del lab_, flat_, sp_
     del zwmin, zbmin, zbpmin
@@ -982,7 +1026,11 @@ def footprint(srcs, obs_any, win, res, epsg):
             else:
                 boxes += [tuple(float(v) for v in l.split()[1:5]) for l in open(P) if len(l.split()) >= 5]
         if not got and s.name in obs_any:
-            F |= ndimage.binary_closing(obs_any[s.name], iterations=max(1, int(50 / res)))
+            # footprint_close_m (default 50): a surface model gated cell by cell (ArcticDEM under canopy, 2026-10-31) closes
+            # over small gaps only -- its gaps are where it is not to be trusted, and beyond them the prior stands (tip_t
+            # fix2: closed over 50 m its gaps became a 15 km2 hole that swallowed the lagoon's low void)
+            cm_ = float(s.d.get("footprint_close_m", 50.0))
+            F |= ndimage.binary_closing(obs_any[s.name], iterations=max(1, int(cm_ / res))) if cm_ > 0 else obs_any[s.name]
     for x0, y0, x1, y1 in boxes:
         c0, c1 = int(max((x0 - win[0]) / res, 0)), int(min((x1 - win[0]) / res, W)); r0, r1 = int(max((win[3] - y1) / res, 0)), int(min((win[3] - y0) / res, H))
         if c1 > c0 and r1 > r0: F[r0:r1, c0:c1] = True

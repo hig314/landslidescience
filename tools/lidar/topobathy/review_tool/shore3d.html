@@ -1,0 +1,240 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shore model 3D</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;font:13px/1.35 system-ui,sans-serif;background:#111}
+#map{position:absolute;inset:0}
+#side{overflow-x:hidden;box-sizing:border-box;position:absolute;top:8px;left:8px;width:232px;max-height:calc(100% - 16px);overflow-y:auto;background:rgba(255,255,255,.95);border-radius:6px;padding:8px 10px;box-shadow:0 1px 5px rgba(0,0,0,.4)}
+#side h3{margin:8px 0 3px;font-size:12px;color:#444}
+#side label{display:block;white-space:nowrap}
+.sw{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:4px;vertical-align:-2px}
+#tip{position:absolute;display:none;pointer-events:none;background:#000c;color:#fff;padding:3px 6px;border-radius:4px;white-space:pre;font-size:12px;z-index:5}
+input[type=range]{display:block;width:100%;box-sizing:border-box;margin:2px 0 6px}
+small{color:#666}
+#toast{position:absolute;display:none;left:50%;bottom:28px;transform:translateX(-50%);background:#000c;color:#fff;padding:5px 10px;border-radius:4px;z-index:6}
+</style></head><body>
+<div id="map"></div><div id="tip"></div><div id="toast"></div>
+<div id="side">
+<b>Shore model 3D</b><br><select id="set"></select> <small id="count"></small>
+<h3>View</h3>
+<label>Vertical exaggeration <b id="exv">2</b>×<input type="range" id="ex" min="1" max="10" step="0.5" value="2"></label>
+<label title="Lines and casts behind or under the surface, drawn faint"><input type="checkbox" id="hid" checked> Show through the surface</label>
+<label title="Lies under the surface: fade the surface to see it">Imagery under the surface<select id="img" style="display:block;width:100%;margin:2px 0 6px"><option value="">None</option><option value="esri">ESRI</option><option value="google">Google</option><option value="bing">Bing</option></select></label>
+<label>Surface opacity <b id="opv">1</b><input type="range" id="op" min="0" max="1" step="0.05" value="1"></label>
+<h3>The surface's own contours (for reading it; they constrain nothing)</h3><div id="lc"></div>
+<h3>Lines that shape it</h3><div id="lt"></div>
+<label title="Each shore's level sigma, from the spread of the lidar it took its level from, and 6 m across, how far a mapped shore sits from the lidar's on steep coast"><input type="checkbox" id="tube" checked> Uncertainty tube on the shores</label>
+<h3>Points</h3><div id="lp"></div>
+<small>Each thing sits at its own height. A cast's stem runs to the surface above or below it: its length is the miss. Hover for details; ctrl-click copies the location.</small>
+</div>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
+<script>
+'use strict';
+// The survey's height tiles, with its no-data pixels at 0 m: a raster-dem reads a transparent pixel as -10000 m, walls around every edge of a crop
+var demArc = null, demSize = 256;
+maplibregl.addProtocol('s3ddem', function (params) {
+  var m = params.url.match(/(\d+)\/(\d+)\/(\d+)$/);
+  return demArc.getZxy(+m[1], +m[2], +m[3]).then(function (r) {
+    if (!r) {          // no tile here: flat at 0 m, the same size as the survey's tiles (a raster-dem refuses neighbours of another size)
+      var cv0 = new OffscreenCanvas(demSize, demSize), c0 = cv0.getContext('2d'); c0.fillStyle = 'rgb(1,134,160)'; c0.fillRect(0, 0, demSize, demSize);
+      return cv0.convertToBlob({ type: 'image/png' }).then(function (b) { return b.arrayBuffer(); }).then(function (d) { return { data: d }; });
+    }
+    return createImageBitmap(new Blob([r.data]), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' }).then(function (bm) {
+      demSize = bm.width;
+      var cv = new OffscreenCanvas(bm.width, bm.height), c = cv.getContext('2d', { willReadFrequently: true }); c.drawImage(bm, 0, 0);
+      var im = c.getImageData(0, 0, bm.width, bm.height), a = im.data;
+      for (var i = 0; i < a.length; i += 4) if (a[i + 3] < 255) { a[i] = 1; a[i + 1] = 134; a[i + 2] = 160; a[i + 3] = 255; }
+      c.putImageData(im, 0, 0);
+      return cv.convertToBlob({ type: 'image/png' }).then(function (b) { return b.arrayBuffer(); }).then(function (d) { return { data: d }; });
+    });
+  });
+});
+var Q = new URLSearchParams(location.search), D = null, map = null, lastM = null;
+var CL = { c_base:[.08,.2,.65], c_mllw:[.1,.5,.9], c_zero:[.1,.65,.5], c_mid:[.95,.75,.1], c_mhw:[.95,.5,.1], c_mhhw:[.85,.12,.12],
+  reviewer:[1,.1,.8], vector_high:[0,.9,.95], vector_low:[.2,.2,1], tossed:[.6,.45,.55], trough:[.45,.25,.1], ridge:[.6,.5,.2], shore_chain:[.5,.5,.5],
+  ok:[.15,.8,.25], miss:[1,.55,0], not_fit:[.9,0,.9], spike:[.55,.55,.55], other:[.8,.8,.8], moved:[1,1,1], rock:[.1,.1,.1], rock_shoal:[.95,.75,.1] };
+var NAMES = { c_base:'Base −3.38 m', c_mllw:'MLLW −1.38 m', c_zero:'0 m', c_mid:'Other levels', c_mhw:'MHW 2.9 m', c_mhhw:'MHHW 3.4 m',
+  reviewer:'Your edited stretches', vector_high:'Your high-tide vectors', vector_low:'Your low-tide vectors', tossed:'Your edits set aside',trough:'Cast troughs', ridge:'Cast ridges', shore_chain:'Shore chains',
+  ok:'Cast, surface close', miss:'Cast, surface off by > 3 m', not_fit:'Cast not in either fit', spike:'Cast dropped as a spike', other:'Cast under land or observed', rock:'Seen rock (at its floor)', rock_shoal:'Shoal: rock to shore, a soft sounding line' };
+var on = {}; Object.keys(NAMES).forEach(function (k) { on[k] = true; }); on.trough = on.ridge = on.shore_chain = false; on.c_mid = on.c_base = on.c_mllw = on.c_zero = on.c_mhw = on.c_mhhw = false;
+function lvKey(z) { return Math.abs(z + 3.38) < .01 ? 'c_base' : Math.abs(z + 1.38) < .01 ? 'c_mllw' : Math.abs(z) < .01 ? 'c_zero' : Math.abs(z - 2.9) < .15 ? 'c_mhw' : Math.abs(z - 3.4) < .15 ? 'c_mhhw' : 'c_mid'; }
+function castKey(c) { return c.st === 'not_fit' ? 'not_fit' : c.st === 'spike' ? 'spike' : c.st !== 'used' ? 'other' : c.c ? 'miss' : 'ok'; }
+
+var org = null, M = maplibregl.MercatorCoordinate;
+function merc(p) { var m = M.fromLngLat({ lng: p[0], lat: p[1] }, 0); return [m.x - org.x, m.y - org.y]; }
+var K = 1e4;   // vertices are scaled offsets from the set's centre, so a 32-bit float holds them at zoom 18
+
+var Lines = {}, Pts = {}, Stems = {}, Tubes = {}, TUBE_R_M = 6;
+function addLine(k, pts) { (Lines[k] = Lines[k] || []).push(pts); }
+function prepare() {
+  Lines = {}; Pts = {}; Stems = {}; Tubes = {}; org = M.fromLngLat({ lng: D.center[0], lat: D.center[1] }, 0);
+  D.contours.forEach(function (l) { var a = l[2]; addLine(lvKey(a[0][2]), a); });
+  D.tide.forEach(function (l) { addLine(l[0], l[2]); if (l[3] && (l[0] === 'vector_high' || l[0] === 'vector_low')) (Tubes[l[0]] = Tubes[l[0]] || []).push(l); });
+  D.traces.forEach(function (l) { addLine(l[0], l[2]); });
+  D.casts.forEach(function (c) { var k = castKey(c); (Pts[k] = Pts[k] || []).push(c); if (c.s != null && k !== 'other') addLine('stem:' + k, [[c.p[0], c.p[1], c.z], [c.p[0], c.p[1], c.s]]); });
+  D.rocks.forEach(function (r) { (Pts.rock = Pts.rock || []).push(r); });
+}
+
+var VS_L = 'attribute vec3 a; attribute vec3 b; attribute float s; uniform mat4 m; uniform vec2 v; uniform float w; void main(){vec4 A=m*vec4(a,1.);vec4 B=m*vec4(b,1.);vec2 d=normalize((B.xy/B.w-A.xy/A.w)*v);vec2 n=vec2(-d.y,d.x)*s*w/v;gl_Position=A;gl_Position.xy+=n*A.w;}';
+var FS = 'precision mediump float; uniform vec4 c; void main(){gl_FragColor=vec4(c.rgb*c.a,c.a);}';
+var VS_P = 'attribute vec3 a; uniform mat4 m; uniform float w; void main(){gl_Position=m*vec4(a,1.);gl_PointSize=w;}';
+var FS_P = 'precision mediump float; uniform vec4 c; void main(){vec2 d=gl_PointCoord-.5;float r=length(d);if(r>.5)discard;vec3 q=r>.36?vec3(0.):c.rgb;gl_FragColor=vec4(q*c.a,c.a);}';
+function prog(g, vs, fs) { var p = g.createProgram(); [[g.VERTEX_SHADER, vs], [g.FRAGMENT_SHADER, fs]].forEach(function (x) { var s = g.createShader(x[0]); g.shaderSource(s, x[1]); g.compileShader(s); if (!g.getShaderParameter(s, g.COMPILE_STATUS)) console.error(g.getShaderInfoLog(s)); g.attachShader(p, s); }); g.linkProgram(p); return p; }
+
+function layer() {
+  var P, PP, PT, buf = {};
+  function build(g) {
+    Object.keys(buf).forEach(function (k) { g.deleteBuffer(buf[k].b); }); buf = {};
+    Object.keys(Lines).forEach(function (k) {
+      var v = [];
+      Lines[k].forEach(function (a) {
+        var q = a.map(function (p) { var m = merc(p); return [m[0] * K, m[1] * K, p[2]]; });
+        for (var i = 0; i + 1 < q.length; i++) {
+          var A = q[i], B = q[i + 1];
+          [[A, B, 1], [A, B, -1], [B, A, -1], [B, A, -1], [A, B, -1], [B, A, 1]].forEach(function (t) { v.push(t[0][0], t[0][1], t[0][2], t[1][0], t[1][1], t[1][2], t[2]); });
+        }
+      });
+      var b = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, b); g.bufferData(g.ARRAY_BUFFER, new Float32Array(v), g.STATIC_DRAW); buf[k] = { b: b, n: v.length / 7 };
+    });
+    // a tube of two crossed ribbons along each shore: up and down its level sigma, out and back TUBE_R_M
+    var rm = M.fromLngLat({ lng: D.center[0], lat: D.center[1] }, 0).meterInMercatorCoordinateUnits() * TUBE_R_M * K;
+    Object.keys(Tubes).forEach(function (k) {
+      var v = [];
+      function quad(a, b, c, d) { v.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], c[0], c[1], c[2], b[0], b[1], b[2], d[0], d[1], d[2]); }
+      Tubes[k].forEach(function (l) {
+        var q = l[2].map(function (p) { var m = merc(p); return [m[0] * K, m[1] * K, p[2]]; }), s = l[3];
+        for (var i = 0; i + 1 < q.length; i++) {
+          var A = q[i], B = q[i + 1], dx = B[0] - A[0], dy = B[1] - A[1], n = Math.hypot(dx, dy) || 1, nx = -dy / n * rm, ny = dx / n * rm;
+          quad([A[0], A[1], A[2] - s], [A[0], A[1], A[2] + s], [B[0], B[1], B[2] - s], [B[0], B[1], B[2] + s]);
+          quad([A[0] - nx, A[1] - ny, A[2]], [A[0] + nx, A[1] + ny, A[2]], [B[0] - nx, B[1] - ny, B[2]], [B[0] + nx, B[1] + ny, B[2]]);
+        }
+      });
+      var b = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, b); g.bufferData(g.ARRAY_BUFFER, new Float32Array(v), g.STATIC_DRAW); buf['t:' + k] = { b: b, n: v.length / 3 };
+    });
+    Object.keys(Pts).forEach(function (k) {
+      var v = []; Pts[k].forEach(function (c) { var m = merc(c.p); v.push(m[0] * K, m[1] * K, c.z); });
+      var b = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, b); g.bufferData(g.ARRAY_BUFFER, new Float32Array(v), g.STATIC_DRAW); buf['p:' + k] = { b: b, n: v.length / 3 };
+    });
+  }
+  return { id: 'shore3d', type: 'custom', renderingMode: '3d',
+    onAdd: function (mp, g) { this.g = g; P = prog(g, VS_L, FS); PP = prog(g, VS_P, FS_P); PT = prog(g, 'attribute vec3 a; uniform mat4 m; void main(){gl_Position=m*vec4(a,1.);}', FS); build(g); this.rebuild = function () { build(g); mp.triggerRepaint(); }; },
+    render: function (g, args) {
+      var A = args.defaultProjectionData.mainMatrix, ter = map.getTerrain(), ex = ter ? (ter.exaggeration == null ? 1 : ter.exaggeration) : 0;
+      var zs = ex * M.fromLngLat(map.getCenter(), 1).z, Mf = new Float32Array(16), kk = 1 / K;
+      for (var i = 0; i < 4; i++) { Mf[i] = A[i] * kk; Mf[4 + i] = A[4 + i] * kk; Mf[8 + i] = A[8 + i] * zs; Mf[12 + i] = org.x * A[i] + org.y * A[4 + i] + A[12 + i]; }
+      lastM = Mf; if (g.bindVertexArray) g.bindVertexArray(null);
+      var dpr = window.devicePixelRatio || 1, vp = [g.drawingBufferWidth, g.drawingBufferHeight];
+      g.enable(g.BLEND); g.blendFunc(g.ONE, g.ONE_MINUS_SRC_ALPHA); g.depthMask(false);
+      if (document.getElementById('tube').checked) {
+        g.disable(g.DEPTH_TEST); g.useProgram(PT); var ta = g.getAttribLocation(PT, 'a'); g.enableVertexAttribArray(ta); g.uniformMatrix4fv(g.getUniformLocation(PT, 'm'), false, Mf);
+        Object.keys(Tubes).forEach(function (k) { if (!on[k] || !buf['t:' + k]) return; var c = CL[k]; g.uniform4f(g.getUniformLocation(PT, 'c'), c[0], c[1], c[2], .16); g.bindBuffer(g.ARRAY_BUFFER, buf['t:' + k].b); g.vertexAttribPointer(ta, 3, g.FLOAT, false, 12, 0); g.drawArrays(g.TRIANGLES, 0, buf['t:' + k].n); });
+        g.disableVertexAttribArray(ta);
+      }
+      var passes = document.getElementById('hid').checked ? [[false, .4], [true, 1]] : [[true, 1]];
+      passes.forEach(function (pass) {
+        if (pass[0]) { g.enable(g.DEPTH_TEST); g.depthFunc(g.LEQUAL); } else g.disable(g.DEPTH_TEST);
+        g.useProgram(P); var la = g.getAttribLocation(P, 'a'), lb = g.getAttribLocation(P, 'b'), ls = g.getAttribLocation(P, 's');
+        g.uniformMatrix4fv(g.getUniformLocation(P, 'm'), false, Mf); g.uniform2f(g.getUniformLocation(P, 'v'), vp[0], vp[1]);
+        g.enableVertexAttribArray(la); g.enableVertexAttribArray(lb); g.enableVertexAttribArray(ls);
+        Object.keys(Lines).forEach(function (k) {
+          var stem = k.indexOf('stem:') === 0, key = stem ? k.slice(5) : k; if (!on[key] || !buf[k]) return;
+          var c = CL[key]; g.uniform4f(g.getUniformLocation(P, 'c'), c[0], c[1], c[2], pass[1]); g.uniform1f(g.getUniformLocation(P, 'w'), (stem ? 1.4 : 2.2) * dpr);
+          g.bindBuffer(g.ARRAY_BUFFER, buf[k].b); g.vertexAttribPointer(la, 3, g.FLOAT, false, 28, 0); g.vertexAttribPointer(lb, 3, g.FLOAT, false, 28, 12); g.vertexAttribPointer(ls, 1, g.FLOAT, false, 28, 24);
+          g.drawArrays(g.TRIANGLES, 0, buf[k].n);
+        });
+        g.disableVertexAttribArray(la); g.disableVertexAttribArray(lb); g.disableVertexAttribArray(ls);
+        g.useProgram(PP); var pa = g.getAttribLocation(PP, 'a'); g.enableVertexAttribArray(pa); g.uniformMatrix4fv(g.getUniformLocation(PP, 'm'), false, Mf); g.uniform1f(g.getUniformLocation(PP, 'w'), 9 * dpr);
+        Object.keys(Pts).forEach(function (k) {
+          if (!on[k] || !buf['p:' + k]) return; var c = CL[k]; g.uniform4f(g.getUniformLocation(PP, 'c'), c[0], c[1], c[2], pass[1]);
+          g.bindBuffer(g.ARRAY_BUFFER, buf['p:' + k].b); g.vertexAttribPointer(pa, 3, g.FLOAT, false, 12, 0); g.drawArrays(g.POINTS, 0, buf['p:' + k].n);
+        });
+        g.disableVertexAttribArray(pa);
+      });
+    } };
+}
+
+function row(k, host) {
+  var h = document.getElementById(host), l = document.createElement('label'), i = document.createElement('input'), c = CL[k];
+  i.type = 'checkbox'; i.checked = on[k]; i.onchange = function () { on[k] = i.checked; map.triggerRepaint(); };
+  l.appendChild(i); var s = document.createElement('span'); s.className = 'sw'; s.style.background = 'rgb(' + c.map(function (v) { return Math.round(v * 255); }).join(',') + ')'; l.appendChild(s);
+  l.appendChild(document.createTextNode(NAMES[k])); h.appendChild(l);
+}
+['c_base','c_mllw','c_zero','c_mhw','c_mhhw','c_mid'].forEach(function (k) { row(k, 'lc'); });
+['reviewer','tossed','vector_high','vector_low','rock_shoal','trough','ridge','shore_chain'].forEach(function (k) { row(k, 'lt'); });
+['ok','miss','not_fit','spike','other','rock'].forEach(function (k) { row(k, 'lp'); });
+
+// The same imagery as /lidar/'s basemaps (basemaps.js, the shared QMS layers): a layer below the surface, draped on it, seen by fading the surface
+var IMG = { esri: { tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', maxzoom: 18, attr: '© Esri, Maxar, Earthstar Geographics' },
+  google: { tiles: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', maxzoom: 19, attr: 'Google Satellite' },
+  bing: { tiles: 'https://t0.tiles.virtualearth.net/tiles/a{quadkey}.jpeg?g=685&mkt=en-us&n=z', maxzoom: 19, attr: 'Bing Maps Satellite' } };
+function setImagery(id) {
+  if (map.getLayer('img')) map.removeLayer('img');
+  if (map.getSource('img')) map.removeSource('img');
+  if (!IMG[id]) return;
+  map.addSource('img', { type: 'raster', tiles: [IMG[id].tiles], tileSize: 256, maxzoom: IMG[id].maxzoom, attribution: IMG[id].attr });
+  map.addLayer({ id: 'img', type: 'raster', source: 'img' }, 'rel');
+}
+function setSurface(v) {
+  document.getElementById('op').value = v; document.getElementById('opv').textContent = v;
+  map.setPaintProperty('rel', 'color-relief-opacity', v); map.setPaintProperty('hs', 'hillshade-exaggeration', .6 * v);
+}
+
+function style() {
+  demArc = new pmtiles.PMTiles(location.origin + '/pmtiles/' + D.survey + '.pmtiles');
+  var src = function () { return { type: 'raster-dem', tiles: ['s3ddem://{z}/{x}/{y}'], minzoom: 8, maxzoom: 16, encoding: 'mapbox', tileSize: 256 }; };
+  return { version: 8, sources: { dem: src(), dems: src() },
+    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#dfe3e6' } },
+      { id: 'rel', type: 'color-relief', source: 'dems', paint: { 'color-relief-opacity': 1, 'color-relief-color': ['interpolate', ['linear'], ['elevation'], -300, '#06204f', -100, '#1f5a9a', -30, '#5a9bd0', -3.38, '#b5dcef', -1.38, '#d6ead8', 0, '#e8e2b8', 4.5, '#cdbf8a', 20, '#a9b98a', 200, '#8c9a78', 1000, '#c8c4bc'] } },
+      { id: 'hs', type: 'hillshade', source: 'dems', paint: { 'hillshade-exaggeration': .6 } }] };
+}
+function start(name) {
+  fetch('/api/' + name).then(function (r) { return r.json(); }).then(function (d) {
+    D = d; if (!D.casts.length) { document.getElementById('count').textContent = D.name + ': no results yet'; D.sets.forEach(function (n) { var o = document.createElement('option'); o.textContent = n; o.selected = n === name; document.getElementById('set').appendChild(o); }); document.getElementById('set').onchange = function () { Q.set('set', this.value); location.search = Q.toString(); }; return; }
+    prepare();
+    var sel = document.getElementById('set'); sel.innerHTML = ''; D.sets.forEach(function (s) { var o = document.createElement('option'); o.textContent = s; o.selected = s === name; sel.appendChild(o); });
+    sel.onchange = function () { Q.set('set', sel.value); location.search = Q.toString(); };
+    document.getElementById('count').textContent = D.casts.length + ' casts';
+    var c = (Q.get('c') || '').split(',').map(Number), cen = c.length === 2 ? [c[1], c[0]] : D.center;
+    map = new maplibregl.Map({ container: 'map', style: style(), center: cen, zoom: +(Q.get('z') || 14), pitch: +(Q.get('p') || 62), bearing: +(Q.get('b') || 0), maxPitch: 85, canvasContextAttributes: { antialias: true, preserveDrawingBuffer: true } });
+    window.__map = map;
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+    map.once('style.load', function () {
+      var ex = function () { var v = +document.getElementById('ex').value; document.getElementById('exv').textContent = v; map.setTerrain({ source: 'dem', exaggeration: v }); };
+      document.getElementById('ex').oninput = ex; ex();
+      document.getElementById('hid').onchange = document.getElementById('tube').onchange = function () { map.triggerRepaint(); };
+      document.getElementById('op').oninput = function () { setSurface(+this.value); };
+      var imgSel = document.getElementById('img');
+      imgSel.onchange = function () { setImagery(imgSel.value); if (imgSel.value && +document.getElementById('op').value === 1) setSurface(.5); };   // an opaque surface would hide the choice
+      if (IMG[Q.get('im')]) { imgSel.value = Q.get('im'); imgSel.onchange(); }
+      if (Q.get('o') != null) setSurface(+Q.get('o'));
+      map.addLayer(layer());
+    });
+    map.on('contextmenu', copyCoords); map.on('mousemove', hover); map.on('mouseout', function () { document.getElementById('tip').style.display = 'none'; });
+  });
+}
+// right-click (ctrl-click on a Mac) copies "lat, lon", as on /inventory/; in 3D the point is where the cursor meets the surface
+var toastT = null;
+function copyCoords(e) {
+  e.preventDefault(); var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5), t = document.getElementById('toast');
+  function say(m) { t.textContent = m; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(function () { t.style.display = 'none'; }, 2000); }
+  (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () { say('Copied ' + txt); }, function () { say(txt + ' (could not reach the clipboard)'); });
+}
+function hover(e) {
+  var t = document.getElementById('tip'); if (!lastM) return;
+  var W = map.getCanvas().clientWidth, H = map.getCanvas().clientHeight, best = null, bd = 9 * 9, m = lastM;
+  function test(p, z, cb) { var a = merc(p), x = a[0] * K, y = a[1] * K, w = m[3] * x + m[7] * y + m[11] * z + m[15]; if (w <= 0) return; var sx = ((m[0] * x + m[4] * y + m[8] * z + m[12]) / w + 1) / 2 * W, sy = (1 - (m[1] * x + m[5] * y + m[9] * z + m[13]) / w) / 2 * H, d = (sx - e.point.x) * (sx - e.point.x) + (sy - e.point.y) * (sy - e.point.y); if (d < bd) { bd = d; best = cb; } }
+  Object.keys(Pts).forEach(function (k) { if (on[k]) Pts[k].forEach(function (c) { test(c.p, c.z, c); }); });
+  var txt = null;
+  if (best) {
+    if (best.t) txt = 'Rock ' + best.k + ' (' + best.t + ')\nfloor ' + best.z + ' m, surface before ' + best.s + ' m\n' + best.st + (best.lift ? ', raised ' + best.lift + ' m' : '');
+    else txt = best.k + '\ncast ' + best.z + ' m, surface ' + (best.s == null ? '—' : best.s.toFixed(1)) + ' m\n' + best.st + (best.m ? ', moved' : '') + (best.l != null ? '\nnearest drawn line ' + best.l + ' m' : '');
+  } else {
+    var lb = null;
+    D.contours.concat(D.tide).forEach(function (l) { for (var i = 0; i < l[2].length; i += 2) { var b0 = best; test(l[2][i], l[2][i][2], l); if (best !== b0) lb = l; } });
+    if (lb) txt = lb[1];
+  }
+  if (txt) { t.textContent = txt; t.style.display = 'block'; t.style.left = e.point.x + 14 + 'px'; t.style.top = e.point.y + 14 + 'px'; } else t.style.display = 'none';
+}
+start(Q.get('set') || 'taylor');
+</script></body></html>

@@ -21,23 +21,12 @@ for id in $ORDER; do
     if [[ -f $WORK/$id/BOX_DONE_$TAG ]]; then stamp "$id ok"; else stamp "$id GATED: $(tail -1 $WORK/$id/gate.log 2>/dev/null)"; fi
   else stamp "$id FAILED (see $WORK/${id}_run.out)"; fi
 done
-# ---- mosaic of every box that finished (gated or not: the gate decides publishing, not the mosaic)
-stamp "mosaic"
+# ---- mosaic of every box that finished (gated or not: the gate decides publishing, not the mosaic), FEATHERED across the
+#      boxes' 2 km overlap (mosaic_blend.py, 2026-11-02: each box's own spline gave two surfaces in the overlap and a hard
+#      crop stepped 0.5-3 m between them in the modelled sea; observed cells agree between boxes and are unchanged)
+stamp "mosaic (feathered)"
 MOS=$WORK/kbay_joint_$TAG; mkdir -p $MOS/crops
-$PY - "$HERE/boxes.json" "$WORK" "$MOS" "$TAG" <<'PYEOF'
-import json, sys, subprocess, pathlib
-boxes, work, mos, tag = json.load(open(sys.argv[1])), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3]), sys.argv[4]
-crops = []
-for b in boxes:
-    src = work / b['id'] / f'out_{tag}' / f"{b['id']}.tif"
-    if not src.exists(): print(b['id'], 'no product'); continue
-    x0, y0, x1, y1 = b['crop']; dst = mos / 'crops' / f"{b['id']}.tif"
-    subprocess.run(['gdal_translate', '-q', '-projwin', str(x0), str(y1), str(x1), str(y0), '-co', 'COMPRESS=ZSTD', '-co', 'TILED=YES', str(src), str(dst)], check=True)
-    crops.append(str(dst))
-subprocess.run(['gdalbuildvrt', '-q', str(mos / 'mosaic.vrt')] + crops, check=True)
-subprocess.run(['gdal_translate', '-q', '-of', 'COG', '-co', 'COMPRESS=ZSTD', '-co', 'BIGTIFF=IF_SAFER', str(mos / 'mosaic.vrt'), str(mos / f'kbay_joint_{tag}.tif')], check=True)
-print(len(crops), 'boxes in the mosaic')
-PYEOF
+$PY $HERE/mosaic_blend.py "$HERE/boxes.json" "$WORK" "$MOS" "$TAG"
 if [[ -n ${KJ_PUB:-} ]]; then
   stamp "publish $KJ_PUB"
   (cd $TL && $PY dev_viewer_add.py $KJ_PUB $MOS/kbay_joint_$TAG.tif --title "Kachemak Bay point-first topobathy ($TAG)" --year 2023 --max-zoom 16 \

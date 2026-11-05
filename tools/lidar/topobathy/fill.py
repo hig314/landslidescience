@@ -59,7 +59,8 @@ conception: floor `low_tide_m` and the tidal channel by width.  A lake's floor i
 `lake_depth_m`.  Both are first guesses that the soundings override wherever they exist.
 
 Outputs (in the composite's out/): fill.tif (the filled surface, NaN outside domains),
-fill_mask.tif (0 none, 1 band, 2 interior prior, 3 conditioned by soundings, 4 margin hole left, 7 tidal lens:
+fill_mask.tif (0 none, 1 band, 2 interior prior, 3 conditioned by soundings, 4 margin hole left, 8 the ground prior
+(3DEP) inside a large void, above the tide's reach, 7 tidal lens:
 at the observed water surface,
 empty, 5 lake shape prior, 6 channel section -- see channel_beds), fill_sigma.tif, fill_prior.tif (the synthetic DEM alone), and <id>_filled.tif (the
 composite with holes filled) as a COG.
@@ -69,7 +70,7 @@ import numpy as np
 from scipy import ndimage, sparse
 from scipy.sparse.linalg import cg, spsolve
 
-DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, slope_min_deg=1.0, slope_max_deg=60.0, low_tide_m=-2.9,
+DEFAULTS = dict(shore_model=None, tide_lines=None, rocks=None, sea_prior="local", intertidal_band=False, tide_max_m=4.5, band_ground=True, band_ground_sigma_m=1.0, band_ground_min_m=0.3, band_edge_deg=3.0, band_blend_max_m=500.0, ground_water=None, sea_profile_bins=20, sea_profile_min_n=30, sea_profile_local_m=1500.0, sea_profile_anchor_m=200.0, sea_profile_min_casts=40, sea_profile_cap_k=32, sea_profile_local_min_n=8, floor_sound_smooth_m=20.0, sound_prior_gap_mult=1.0, fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, slope_min_deg=1.0, slope_max_deg=60.0, low_tide_m=-2.9,
                 marine_rim_max_m=6.0, lake_depth_m=5.0, sigma_prior_m=1.0, sigma_rim_m=2.0, lake_sigma_m=5.0,
                 cond_m=30.0, cg_iters=300, coarse=16,
                 lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, lake_surface_tol_m=0.2, lake_islet_m2=50, lake_island_dz_m=0.65, floating_ice=True, floating_ice_corr=0.25, floating_ice_max_m2=20000, mapped_edge_near_m=200.0, mapped_edge_dz_m=1.0, points_despike_m=5.0, points_despike_r_m=40.0, points_despike_n=6, void_shore_m=2.0, dry_max_km2=1.0, points=None,
@@ -78,8 +79,68 @@ DEFAULTS = dict(fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, s
                 points_sigma_m=1.0, points_rim_sigma_m=0.2, points_rim_step_m=10.0, points_grid_m=4.0, points_sigma_per_m=0.15,
                 points_decay_m=150.0, points_decay_scale_m=150.0, ceiling_margin_m=0.5, ceiling_passes=2,
                 ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0,
-                rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0, lens_max_m=None, sound_hyps_min_n=30)
+                rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0, lens_max_m=None, sound_hyps_min_n=30,
+                points_max_sites=2500, points_max_eval=4_000_000, points_free_min=30, ground_prior=None, void_ground_m=4.5)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
+
+
+def _points_files(P):
+    """The fill's points file(s): one path or a list (2026-10-31: the lake soundings export, the NOS hydrographic surveys
+    by vintage, CRM's cell centres -- one file a provenance, each with its own sigma column)."""
+    p = P.get("points")
+    return [p] if isinstance(p, str) else list(p or [])
+
+
+def _read_on_grid(path, T, crs, shape, rows, cols, nearest=False):
+    """A raster (any CRS) bilinear onto this grid's cells rows[0]:rows[1], cols[0]:cols[1]: the window only, never the
+    whole grid (HAZARDS: the 4326 3DEP VRT).  NaN where the raster has nothing."""
+    import rasterio
+    from rasterio.enums import Resampling
+    from rasterio.vrt import WarpedVRT
+    from rasterio.transform import Affine
+    r0, r1 = rows; c0, c1 = cols
+    t = T * Affine.translation(c0, r0)
+    with rasterio.open(path) as s:
+        with WarpedVRT(s, crs=crs, transform=t, width=c1 - c0, height=r1 - r0, resampling=Resampling.nearest if nearest else Resampling.bilinear,
+                       src_nodata=s.nodata, nodata=-9999.0) as v:
+            a = v.read(1).astype(np.float32)
+    out = np.full(shape, np.nan, np.float32)
+    out[r0:r1, c0:c1] = np.where(a > -9000, a, np.nan)
+    return out
+
+
+def _dem_body_ground(pz, P, res, lo=0.3):
+    """Cells of the ground prior inside a tidal water body that stand above its flattened water at lo, in patches of at least shore_island_min_m2: an island the
+    body's polygon swallowed (2026-11-03, Hig's Windy Bay review: rocks at 19 and 11 m in 3DEP, modelled 14 m under the sea)."""
+    from .water import TIDAL_KINDS
+    bid, btab = P["_bodies"]
+    tid = [int(k) for k, b in btab.items() if b.get("kind") in TIDAL_KINDS]
+    keep = np.zeros(pz.shape, bool)
+    if tid:
+        up = np.isin(bid, tid) & np.isfinite(pz) & (pz > lo)
+        pl, pn = ndimage.label(up, structure=np.ones((3, 3), bool))
+        if pn:
+            ok = np.bincount(pl.ravel(), minlength=pn + 1) * res * res >= float(P.get("shore_island_min_m2", 200.0)); ok[0] = False
+            keep = ok[pl]
+    return keep
+
+
+def _dem_band(fp_, P, shape, res, islands=False):
+    """The ground prior's cells inside `fp_` (a floor-path sea domain's holes) that are the intertidal: above low tide +
+    band_ground_min_m and below tide_max_m + 1, not the DEM's hydroflattened water (ground_water: 1 a lake, 2 the sea),
+    not a body's cells, not exactly flat.  Returns (eligible mask, the DEM on the grid, n eligible by height)."""
+    rs_, cs_ = np.nonzero(fp_); rws = (int(rs_.min()), int(rs_.max()) + 1); cls_ = (int(cs_.min()), int(cs_.max()) + 1); del rs_, cs_
+    pz = _read_on_grid(P["ground_prior"], P["_transform"], P["_crs"], shape, rws, cls_)
+    el_ = fp_ & np.isfinite(pz) & (pz > float(P["low_tide_m"]) + float(P.get("band_ground_min_m", 0.3))) & (pz < float(P.get("tide_max_m", 4.5)) + 1.0)
+    n_el = int(el_.sum())
+    if P.get("ground_water"):
+        wm_ = _read_on_grid(P["ground_water"], P["_transform"], P["_crs"], shape, rws, cls_, nearest=True)
+        el_ &= ~(np.nan_to_num(wm_, nan=0.0) > 0.5); del wm_
+    if P.get("_bodies") is not None:
+        el_ &= (P["_bodies"][0] <= 0) | (_dem_body_ground(pz, P, res) if islands else False)
+    pz0 = np.nan_to_num(pz, nan=0.0)
+    el_ &= (ndimage.maximum_filter(pz0, 5) - ndimage.minimum_filter(pz0, 5)) >= 0.02; del pz0
+    return el_, pz, n_el
 
 
 def _nmean(v, has, size):
@@ -349,12 +410,15 @@ def channel_beds(lab, nw, wz, res, P, marine_ids=(), skip_ids=(), whole_ids=(), 
     return chan, bed, wsurf, tab
 
 
-def _points_in_grid(P, T, shape, med, lab):
-    """The soundings file's points (no bounds) that land in a domain: (rows, cols) and z -- the lake loop's hypsometry sample."""
+def _points_in_grid(P, T, shape, med, lab, with_sigma=False):
+    """The soundings file's points (no bounds) that land in a domain: (rows, cols) and z -- the lake loop's hypsometry sample.
+    with_sigma: also each point's sigma (the file's `sigma` column, else points_sigma_m)."""
     import csv
-    rr_, cc_, zz_ = [], [], []
+    rr_, cc_, zz_, sg_ = [], [], [], []
     dz_ = P.get("points_dz_m") or 0.0
-    with open(P["points"]) as fh:
+    sg0 = float(P.get("points_sigma_m", 1.0))
+    for path in _points_files(P):
+      with open(path) as fh:
         for row in csv.DictReader(fh):
             if row.get("bound"):
                 continue
@@ -369,9 +433,157 @@ def _points_in_grid(P, T, shape, med, lab):
             else:
                 continue
             rr_.append(rr); cc_.append(cc); zz_.append(zz)
+            sg_.append(float(row["sigma"]) if row.get("sigma") not in (None, "") else sg0)
     if not rr_:
-        return None, None
+        return (None, None, None) if with_sigma else (None, None)
+    if with_sigma:
+        return (np.array(rr_), np.array(cc_)), np.array(zz_, np.float64), np.array(sg_, np.float64)
     return (np.array(rr_), np.array(cc_)), np.array(zz_, np.float64)
+
+
+def _sea_profile(l_dom, l_k, dep_k, nb_max=20, min_n=30):
+    """A sea domain's prior profile from its casts (2026-11-01): depth below low tide against distance from the shore.
+    The casts are cut into up to nb_max quantile bins of distance (at least min_n a bin), each bin its median distance and
+    median depth; the medians are made non-decreasing with distance by pool-adjacent-violators (a flat bottom is allowed;
+    a trough is left to the spline); the profile is 0 at the shore, linear between the bin medians, flat beyond the last.
+    Returns (depth read at l_dom, [(l, D)...])."""
+    dep_k = np.asarray(dep_k, np.float64); l_k = np.asarray(l_k, np.float64)
+    ok = np.isfinite(dep_k) & np.isfinite(l_k); dep_k, l_k = dep_k[ok], l_k[ok]
+    if dep_k.size == 0:
+        return np.zeros(l_dom.shape, np.float32), []
+    nb = int(np.clip(dep_k.size // max(min_n, 1), 1, max(nb_max, 1)))
+    o = np.argsort(l_k, kind="stable"); edges = np.linspace(0, dep_k.size, nb + 1).astype(int)
+    lc, dc, wc = [], [], []
+    for b in range(nb):
+        s = o[edges[b]:edges[b + 1]]
+        if s.size:
+            lc.append(float(np.median(l_k[s]))); dc.append(float(max(np.median(dep_k[s]), 0.0))); wc.append(float(s.size))
+    # pool adjacent violators: non-decreasing depth with distance
+    blocks = [[lc[j], dc[j], wc[j]] for j in range(len(lc))]
+    j = 0
+    while j < len(blocks) - 1:
+        if blocks[j][1] > blocks[j + 1][1]:
+            w = blocks[j][2] + blocks[j + 1][2]
+            blocks[j] = [(blocks[j][0] * blocks[j][2] + blocks[j + 1][0] * blocks[j + 1][2]) / w,
+                         (blocks[j][1] * blocks[j][2] + blocks[j + 1][1] * blocks[j + 1][2]) / w, w]
+            del blocks[j + 1]; j = max(j - 1, 0)
+        else:
+            j += 1
+    prof = [(0.0, 0.0)] + [(b[0], b[1]) for b in blocks if b[0] > 0]
+    xs = np.array([p[0] for p in prof]); ys = np.array([p[1] for p in prof])
+    if xs.size < 2 or xs[-1] <= 0:                    # no shore in the window: the casts' median depth everywhere
+        return np.full(l_dom.shape, float(np.median(dep_k)), np.float32), [(0.0, float(np.median(dep_k)))]
+    return np.interp(np.asarray(l_dom, np.float64), xs, ys).astype(np.float32), prof
+
+
+def _first_cast_env(cells, rr_, cc_, dep_k, res, P):
+    """The first cast in every direction (2026-11-02; the local profiles' bound, shared with the kernel prior since v8): at
+    each cell of a 4-cell lattice over `cells`, the nearest cast in each of 8 sectors among the sea_profile_cap_k nearest.
+    Returns (env_hi, env_lo) on the cells' grid -- the deepest and the shallowest of those first casts (depth below low
+    tide), NaN where none -- or (None, None) with fewer than two casts."""
+    from scipy.spatial import cKDTree
+    kc = int(P.get("sea_profile_cap_k", 32)); H, Wd = cells.shape; c = 4
+    dep_k = np.asarray(dep_k, np.float64)
+    if kc <= 0 or dep_k.size < 2:
+        return None, None
+    rr_ = np.asarray(rr_); cc_ = np.asarray(cc_)
+    tk = cKDTree(np.column_stack([cc_, rr_]).astype(np.float64))
+    gr, gc = np.mgrid[0:H:c, 0:Wd:c]; pts = np.column_stack([gc.ravel(), gr.ravel()]).astype(np.float64)
+    kq = int(min(kc, dep_k.size))
+    env_hi = np.full(len(pts), np.nan); env_lo = np.full(len(pts), np.nan)
+    for a0 in range(0, len(pts), 250000):
+        pp = pts[a0:a0 + 250000]; dq, iq = tk.query(pp, k=kq); iq = iq.reshape(len(pp), kq)
+        ang = np.arctan2(rr_[iq] - pp[:, 1:2], cc_[iq] - pp[:, 0:1]); sec = ((ang + np.pi) / (np.pi / 4)).astype(int) % 8
+        dk = dep_k[iq]; hi = np.full(len(pp), -np.inf); lo = np.full(len(pp), np.inf)
+        for s8 in range(8):
+            m8 = sec == s8; has = m8.any(axis=1); first = np.argmax(m8, axis=1)
+            v8 = dk[np.arange(len(pp)), first]
+            hi = np.where(has, np.maximum(hi, v8), hi); lo = np.where(has, np.minimum(lo, v8), lo)
+        env_hi[a0:a0 + 250000] = np.where(np.isfinite(hi), hi, np.nan); env_lo[a0:a0 + 250000] = np.where(np.isfinite(lo), lo, np.nan)
+    up = lambda v: np.repeat(np.repeat(v.reshape(gr.shape), c, axis=0), c, axis=1)[:H, :Wd].astype(np.float32)
+    return up(env_hi), up(env_lo)
+
+
+def _sea_profile_local(l_dom, cells, rr_, cc_, l_k, dep_k, res, P):
+    """A sea domain's prior from LOCAL profiles (2026-11-02; Hig's Taylor Bay review of fix2g: one bay-wide profile put a
+    7-17 m fjord basin over the delta apron, where the 1931 lead line had stopped at a 2 ft line 400 m out and nothing
+    inside it says deep -- "local profiles are a good idea").  One profile per anchor of a lattice (sea_profile_anchor_m)
+    over the domain, each fitted by _sea_profile to the casts within sea_profile_local_m of the anchor (the radius doubled,
+    twice, when fewer than sea_profile_min_casts; the domain's own profile when still too few); a cell's prior depth is the
+    Gaussian blend (sigma = the anchor spacing) of its four nearest anchors' profiles, each read at the cell's own distance
+    from the shore, on a 4-cell lattice (the caller smooths over half the casts' spacing anyway).  Shoreward of an anchor's
+    nearest casts its profile runs linearly to 0 at the shore, so a line of 2 ft casts caps the apron inside it: the
+    profile's non-decreasing-seaward assumption, applied locally, is what says the flat is no deeper than its edge.
+    Returns (depth read at l_dom, the domain's own profile [(l, D)...], stats)."""
+    from scipy.spatial import cKDTree
+    R = float(P.get("sea_profile_local_m", 1500.0)) / res; sp = max(float(P.get("sea_profile_anchor_m", 200.0)) / res, 4.0)
+    nmin = int(P.get("sea_profile_min_casts", 40)); nb = int(P.get("sea_profile_bins", 20)); mn = int(P.get("sea_profile_min_n", 30))
+    dep_k = np.asarray(dep_k, np.float64); l_k = np.asarray(l_k, np.float64)
+    Dg, prof_g = _sea_profile(l_dom, l_k, dep_k, nb, mn)                     # the domain's own profile: the fallback
+    xs_g = np.array([q[0] for q in prof_g]); ys_g = np.array([q[1] for q in prof_g])
+    st = dict(anchors=0, widened=0, global_=0, capped=0)
+    if dep_k.size < nmin or xs_g.size < 2:
+        return Dg, prof_g, st, None
+    H, Wd = cells.shape; c = 4
+    ar, ac = np.mgrid[sp / 2:H:sp, sp / 2:Wd:sp]; ar = ar.astype(int).ravel(); ac = ac.astype(int).ravel()
+    keep = cells[ar, ac]; ar, ac = ar[keep], ac[keep]
+    if ar.size == 0:
+        return Dg, prof_g, st, None
+    tk = cKDTree(np.column_stack([cc_, rr_]).astype(np.float64))
+    prof_a = []
+    for a in range(ar.size):
+        sel = None
+        for k, r_ in enumerate((R, 2 * R, 4 * R)):
+            s_ = tk.query_ball_point([ac[a], ar[a]], r_)
+            if len(s_) >= nmin:
+                sel = np.asarray(s_); st["widened"] += int(k > 0); break
+        if sel is None:
+            prof_a.append((xs_g, ys_g)); st["global_"] += 1; continue
+        _, pr = _sea_profile(np.zeros(1), l_k[sel], dep_k[sel], nb, int(P.get("sea_profile_local_min_n", 8)))
+        xs = np.array([q[0] for q in pr]); ys = np.array([q[1] for q in pr])
+        prof_a.append((xs, ys) if xs.size >= 2 else (xs_g, ys_g))
+    st["anchors"] = int(ar.size)
+    gr, gc = np.mgrid[0:H:c, 0:Wd:c]; gl = np.asarray(l_dom)[::c, ::c]
+    pts = np.column_stack([gc.ravel(), gr.ravel()]).astype(np.float64)
+    K = int(min(4, ar.size)); ta = cKDTree(np.column_stack([ac, ar]).astype(np.float64))
+    d, idx = ta.query(pts, k=K); d = d.reshape(len(pts), K); idx = idx.reshape(len(pts), K)
+    w = np.exp(-0.5 * (d / sp) ** 2) + 1e-9
+    acc = np.zeros(len(pts)); lflat = gl.ravel().astype(np.float64)
+    for k in range(K):
+        ik = idx[:, k]; o = np.argsort(ik, kind="stable"); u, s0 = np.unique(ik[o], return_index=True)
+        ends = list(s0[1:]) + [len(o)]; vk = np.zeros(len(pts))
+        for a, i0, i1 in zip(u, s0, ends):
+            cc = o[i0:i1]; xs, ys = prof_a[a]; vk[cc] = np.interp(lflat[cc], xs, ys)
+        acc += w[:, k] * vk
+    D = acc / w.sum(1)
+    # THE FIRST CAST IN EVERY DIRECTION BOUNDS THE PRIOR (2026-11-02): a profile by distance from the shore cannot tell a
+    # delta's apron from the channel beside it when both run away from the shore -- at one distance a 2 ft cast and a
+    # 30 m cast both exist -- but the first cast met from the apron in any direction is shallow: a line of shallow casts
+    # shields what lies behind it.  So at each cell the nearest cast in each of 8 sectors (among its sea_profile_cap_k
+    # nearest, within the search) is found; the prior depth never exceeds the deepest of them (the surveyed edge of an
+    # unsounded flat says it is a flat; between lines of deep casts nothing changes; a trough no cast saw is the
+    # spline's, which has no cast to put it there), and the shallowest of them relaxes the ceiling's 1-degree cone
+    # (`relax`, read by the cap): a flat sounded at 2 ft 400 m out is not under 7 m of water.  (A plain k-nearest maximum
+    # failed 150 m from the apron's edge: one channel cast among the eight nearest and the cap was gone.)
+    kc = int(P.get("sea_profile_cap_k", 32)); relax = None
+    if kc > 0 and dep_k.size >= 2:
+        kq = int(min(kc, dep_k.size)); lt_ = float(P["low_tide_m"])
+        env_hi = np.full(len(pts), np.inf); env_lo = np.full(len(pts), np.inf)
+        for a0 in range(0, len(pts), 250000):
+            pp = pts[a0:a0 + 250000]; dq, iq = tk.query(pp, k=kq); dq = dq.reshape(len(pp), kq); iq = iq.reshape(len(pp), kq)
+            ang = np.arctan2(rr_[iq] - pp[:, 1:2], cc_[iq] - pp[:, 0:1]); sec = ((ang + np.pi) / (np.pi / 4)).astype(int) % 8
+            dk = dep_k[iq]; hi = np.full(len(pp), -np.inf); lo = np.full(len(pp), np.inf)
+            for s8 in range(8):
+                m8 = sec == s8; has = m8.any(axis=1); first = np.argmax(m8, axis=1)      # the nearest in the sector (query is sorted)
+                v8 = dk[np.arange(len(pp)), first]
+                hi = np.where(has, np.maximum(hi, v8), hi); lo = np.where(has, np.minimum(lo, v8), lo)
+            env_hi[a0:a0 + 250000] = hi; env_lo[a0:a0 + 250000] = lo
+        ok_ = np.isfinite(env_hi)
+        st["capped"] = int((D[ok_] > env_hi[ok_] + 1e-6).sum()); D = np.where(ok_, np.minimum(D, env_hi), D)
+        rx = np.where(np.isfinite(env_lo), lt_ - np.maximum(env_lo, 0.1), np.nan).reshape(gr.shape)
+        relax = np.repeat(np.repeat(rx, c, axis=0), c, axis=1)[:H, :Wd].astype(np.float32)
+    D = D.reshape(gr.shape)
+    return np.repeat(np.repeat(D, c, axis=0), c, axis=1)[:H, :Wd].astype(np.float32), prof_g, st, relax
 
 
 def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, name=0):
@@ -389,9 +601,20 @@ def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, nam
     b = base[rr, cc].astype(np.float64); ok = np.isfinite(b)
     if ok.sum() < 3:
         return None
-    # one site per cell (a sounding run logs several fixes per metre)
-    key = rr[ok] * base.shape[1] + cc[ok]
-    uk, inv = np.unique(key, return_inverse=True); cnt = np.bincount(inv).astype(float)
+    # one site per cell (a sounding run logs several fixes per metre) -- and when a domain holds more sounding cells than
+    # points_max_sites (2026-10-31: the NOS surveys and CRM's centres, tens of thousands in an open-water box; the dense thin
+    # plate is m^2 memory and m^3 time), one site per k x k block of cells, the block's mean with the mean's sigma
+    k = 1
+    while True:
+        key = (rr[ok] // k) * (base.shape[1] // k + 1) + cc[ok] // k
+        uk, inv = np.unique(key, return_inverse=True)
+        if uk.size <= int(P["points_max_sites"]) or k >= 4096:
+            break
+        k = int(np.ceil(k * np.sqrt(uk.size / float(P["points_max_sites"])))) + 1
+    if k > 1:
+        log(f"  soundings spline, domain {name}: {int(ok.sum())} soundings in {len(np.unique(rr[ok] * base.shape[1] + cc[ok]))} cells, "
+            f"aggregated to {uk.size} sites of {k * res:.0f} m")
+    cnt = np.bincount(inv).astype(float)
     sx = np.bincount(inv, S[ok, 2]) / cnt; sy = np.bincount(inv, S[ok, 3]) / cnt
     sr = np.bincount(inv, S[ok, 4] - b[ok]) / cnt
     sgp = np.sqrt(np.bincount(inv, S[ok, 5] ** 2) / cnt) / np.sqrt(cnt)     # several in a cell: their mean's sigma
@@ -399,16 +622,29 @@ def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, nam
     bnd = ndimage.binary_dilation(cells, structure=np.ones((3, 3), bool)) & ~cells & bnd_ok
     br, bc = np.nonzero(bnd)
     k = max(int(round(P["points_rim_step_m"] / res)), 1)
-    _, first = np.unique((br // k) * 1_000_003 + bc // k, return_index=True)
+    while True:                                           # ...thinned the same way when the shore is long (an open-water box's coast)
+        _, first = np.unique((br // k) * 1_000_003 + bc // k, return_index=True)
+        if first.size <= int(P["points_max_sites"]) or k >= 4096:
+            break
+        k = int(np.ceil(k * np.sqrt(first.size / float(P["points_max_sites"])))) + 1
     br, bc = br[first], bc[first]
     bx = T.c + (bc + 0.5) * res; by = T.f - (br + 0.5) * res
+    # THE FREE BOUNDARY: the domain's edge where nothing finite stands -- the grid's margin, an ice face, the open sea at the
+    # window's edge.  The correction is tapered toward it below; between soundings inside a closed shore it is not.
+    S3 = np.ones((3, 3), bool)
+    free = ndimage.binary_dilation(cells, structure=S3) & ~cells & ~bnd_ok
+    free[0, :] |= cells[0, :]; free[-1, :] |= cells[-1, :]; free[:, 0] |= cells[:, 0]; free[:, -1] |= cells[:, -1]
     if len(bx) == 0:
         # no boundary site pins the correction to zero anywhere: the field is a free thin plate through the soundings,
         # and a domain whose prior sits far from its soundings (run 14: a pool at the water level over 22 lower bounds
-        # 130 m down) is dragged wholesale -- 22 cells to -254 m. Unanchored, the soundings are left to the log.
-        log(f"  soundings spline, domain {name}: {len(sx)} sounding cells, no boundary sites -- unanchored, not applied "
-            f"(residual to the prior p50 {np.median(sr):+.2f} m)")
-        return np.full(base.shape, np.nan, np.float32)
+        # 130 m down) is dragged wholesale -- 22 cells to -254 m. Unanchored, the soundings are left to the log...
+        # ...unless there are points_free_min of them (2026-10-31: an open-water box has no shore at all, and its bed is
+        # the NOS soundings' alone): a plate through a hundred soundings is its own anchor, and the taper toward the free
+        # edge below holds its extrapolation.
+        if len(sx) < int(P["points_free_min"]):
+            log(f"  soundings spline, domain {name}: {len(sx)} sounding cells, no boundary sites -- unanchored, not applied "
+                f"(residual to the prior p50 {np.median(sr):+.2f} m)")
+            return np.full(base.shape, np.nan, np.float32)
     X = np.column_stack([np.r_[sx, bx], np.r_[sy, by]]); zv = np.r_[sr, np.zeros(len(bx))]
     sg = np.r_[sgp, np.full(len(bx), sg_rim)]
     m = len(X); ns = len(sx)
@@ -428,13 +664,14 @@ def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, nam
     lo, hi = -9.0, 3.0                                                    # log10 lam; chi rises with lam
     for _ in range(40):
         mid = (lo + hi) / 2
-        if solve(10 ** mid)[1] < 1.0: lo = mid
+        if solve(10 ** mid)[1] < float(P.get("points_chi", 1.0)): lo = mid
         else: hi = mid
     lam = 10 ** lo; sol, chi = solve(lam); w, cp = sol[:m], sol[m:]
     # evaluate on a points_grid_m lattice over the domain's box, bilinear to the cells
     g = max(int(round(P["points_grid_m"] / res)), 1)
     rs_, cs_ = np.nonzero(cells)
     r0, r1, c0_, c1 = rs_.min(), rs_.max(), cs_.min(), cs_.max()
+    g = max(g, int(np.ceil(np.sqrt((r1 - r0 + 1) * (c1 - c0_ + 1) / float(P["points_max_eval"])))))   # a 20 km domain: a coarser lattice
     gr = np.arange(r0, r1 + g, g); gc = np.arange(c0_, c1 + g, g)
     GR, GC = np.meshgrid(gr, gc, indexing="ij")
     Q = (np.column_stack([T.c + (GC.ravel() + 0.5) * res, T.f - (GR.ravel() + 0.5) * res]) - c0) / 1000.0
@@ -447,11 +684,19 @@ def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, nam
     # without bound -- with no boundary at Grewingk's ice face (free) the correction ran to +45 m 150-260 m beyond the
     # nearest sounding and lifted the bed through the water.  Beyond points_decay_m of the nearest data site (a sounding,
     # a lower bound or a ceiling site) it is tapered to zero over points_decay_scale_m (Gaussian), and the prior stands.
+    # ...ONLY TOWARD A FREE BOUNDARY (Hig, 2026-10-31, Lower Hazel Lake: between sounding lines 300 m apart inside a closed
+    # shore the taper let the prior reassert -- "a localized basin interrupted by isolated measurements"): a lattice node
+    # whose nearest free-boundary cell is nearer than its nearest sounding is extrapolation toward nothing and is tapered;
+    # a node with a sounding nearer than any free edge is interpolation between data and keeps its correction.
     D0 = float(P.get("points_decay_m") or 0.0)
-    if D0 > 0:
+    if D0 > 0 and free.any():
         from scipy.spatial import cKDTree
         dd, _ = cKDTree(xy[:ns]).query(Q, k=1)
-        val *= np.exp(-(np.maximum(dd * 1000.0 - D0, 0.0) / float(P["points_decay_scale_m"])) ** 2)
+        fr_, fc_ = np.nonzero(free)
+        fxy = (np.column_stack([T.c + (fc_ + 0.5) * res, T.f - (fr_ + 0.5) * res]) - c0) / 1000.0
+        df, _ = cKDTree(fxy).query(Q, k=1)
+        fac = np.exp(-(np.maximum(dd * 1000.0 - D0, 0.0) / float(P["points_decay_scale_m"])) ** 2)
+        val *= np.where(df < dd, fac, 1.0)
     out = np.full(base.shape, np.nan, np.float32)
     out[rs_, cs_] = map_coordinates(val.reshape(GR.shape), [(rs_ - r0) / g, (cs_ - c0_) / g], order=1, mode="nearest")
     fit = sr - lam * sgp ** 2 * w[:ns]
@@ -683,6 +928,16 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         if drop_.any():
             z = np.where(drop_, np.nan, z).astype(np.float32); hole = ~np.isfinite(z)
             log(f"  shoreline stage: {int(drop_.sum()) * res * res / 1e4:.2f} ha of a prior's or a water-blind source's cells inside the water are holes")
+        # ...and so is a GROUND return inside a LAKE at or below its level (Hig's review of the fix2f boxes, 2026-11-01, Upper
+        # Hazel / Kinnikinnick and Lower Hazel: patches of 0.3-0.6 ha classed ground 0.2-1.6 m under the lake, shelves in the
+        # product).  A topographic laser does not see a lake's bed: a return inside the water that is not a bathymetric
+        # (bed) class is the surface, or noise under it, whatever its height -- and a patch too large to be closed into the
+        # domain stood as observed bed.  Ground ABOVE the level is an islet or the shore and stays.  Lakes only: the sea's
+        # label holds tide flats a low-tide flight saw as ground under a later flight's surface, and a river's bars are
+        # its own model's.  (A survey that caught a lake LOWER and saw real shore under the body's level would lose that
+        # shore here; the body carries one level today -- the multi-level lake is the open item that would keep it.)
+        # (a ground return inside a lake at or below its level is dropped by the SHORE stage, which writes water_blind.tif for
+        # the build and the fill alike -- the rule lived here for one evening, fix2g, and never reached the product)
     outside = P.get("_outside")
     if outside is not None:
         hole &= ~outside                                       # no survey here: not a hole, left empty
@@ -817,6 +1072,11 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         wet = dom & np.isin(shore_lab, (2, 3))         # the stage decides what is wet: a class-water hole it gave no level is no water
     else:
         wet = dom & ((hole & (cls == classes["water"])) | np.isfinite(z))
+    if P.get("tide_sea"):                     # mapped high-tide water is water, not dry void, or it is solved apart from the sea beside it (a 5 m step along the void's edge, Port Chatham)
+        from .shoreface import _ground_sea
+        tide_wet = dom & hole & _ground_sea(P, P["_transform"], z.shape) & ~wet; wet = wet | tide_wet
+    else:
+        tide_wet = None
     lw, nw = ndimage.label(wet); ld, nd = ndimage.label(dom & ~wet)
     # ...but a void patch OF a lake (no returns off calm water: China Poot Lake's east bay,
     # 2026-10-12) is wet: it touches a wet domain and its shore stands near that water (within
@@ -873,9 +1133,44 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # blob 300 m off the real ground at the box seams).  Dry domains above dry_max_km2 are left void: the
     # context fallback (3DEP) is the honest surface there, and a hole says so where even that is missing.
     dryvoid = np.zeros(z.shape, bool)                            # the dry domains left void (fill_dryvoid.tif: the fallback shows there)
+    prior_ground = np.zeros(z.shape, bool)                       # a large void's cells the ground prior stands on above the tide's reach (below)
+    prior_gz = np.full(z.shape, np.nan, np.float32)              # ...and its heights there (carried out as the fill, fill_mask 8)
     if nd:
         szd = np.bincount(ld.ravel(), minlength=nd + 1)[1:] * res * res / 1e6
         big = np.flatnonzero(szd > float(P.get("dry_max_km2", 1.0))) + 1
+        gp = P.get("ground_prior")
+        big_voids = np.isin(ld, big)
+        if tide_wet is not None and tide_wet.any():      # sized with the mapped water still in: it must not cut a large void into small ones the prior then skips (domes on the headlands, Taylor and Port Chatham)
+            l0_, n0_ = ndimage.label((dom & ~wet) | tide_wet)
+            b0_ = np.flatnonzero(np.bincount(l0_.ravel(), minlength=n0_ + 1)[1:] * res * res / 1e6 > float(P.get("dry_max_km2", 1.0))) + 1
+            big_voids |= np.isin(l0_, b0_) & dom & ~wet; del l0_, b0_
+        if big_voids.any() and gp and P.get("_transform") is not None and P.get("_crs") is not None:
+            # THE GROUND PRIOR STANDS INSIDE A LARGE VOID (Hig's review of fix1, 2026-10-31, the Koyuktoolik lagoon: a 6.9 km2
+            # void no survey flew was bridged as one plate from the land rim to the sea, over the beach and the lagoon's shores
+            # 3DEP had right -- "the shoreline might have gotten blurred out so the tide would misrepresent it"; and in fix2,
+            # with ArcticDEM's canopy gaps as holes, the lagoon's void merged with the forest's into 11 km2 whose rim was high
+            # ground, so nothing was bridged at all).  Inside any void above dry_max_km2 the ground prior (3DEP) at or above
+            # void_ground_m (the tide's reach) is ground, read in as an observation of class ground: it bounds what is left,
+            # becomes its rim, and only the LOW remainder (the flats, a lagoon 3DEP flattened at 0) is judged below -- bridged
+            # as the sea's when its rim is low.  The prior's heights are carried out as the fill (fill_mask 8) so the product
+            # holds them where the composite's fallback would not show (under a flattened body).
+            bigm = big_voids; rs_, cs_ = np.nonzero(bigm)
+            pz = _read_on_grid(gp, P["_transform"], P["_crs"], z.shape, (int(rs_.min()), int(rs_.max()) + 1), (int(cs_.min()), int(cs_.max()) + 1))
+            hi_g = bigm & np.isfinite(pz) & (pz >= float(P["void_ground_m"]))
+            if P.get("tide_sea"):                 # ...but not in mapped high-tide water: there 3DEP's reading is the smear of the cliff behind it (tide_vectors.py, 2026-11-04)
+                from .shoreface import _ground_sea
+                hi_g &= ~_ground_sea(P, P["_transform"], z.shape)
+            del rs_, cs_, bigm
+            if hi_g.any():
+                z = z.copy(); cls = cls.copy()
+                z[hi_g] = pz[hi_g]; cls[hi_g] = classes.get("ground", cls[hi_g]); prior_gz[hi_g] = pz[hi_g]
+                hole[hi_g] = False; dom[hi_g] = False; prior_ground = hi_g
+                ld, nd = ndimage.label(dom & ~wet)
+                szd = np.bincount(ld.ravel(), minlength=nd + 1)[1:] * res * res / 1e6
+                big = np.flatnonzero(szd > float(P.get("dry_max_km2", 1.0))) + 1
+                log(f"  dry (void) domains above {float(P.get('dry_max_km2', 1.0)):g} km2: the ground prior at or above {float(P['void_ground_m']):g} m inside them "
+                    f"is ground, not hole: {int(hi_g.sum()) * res * res / 1e6:.3f} km2; {big.size} large voids remain below it")
+            del pz
         if big.size:
             # ...unless the void is LOW (the ring of finite cells round it has a median under marine_rim_max_m): the head-of-bay
             # flats no survey saw (2026-10-31, Hig: "a smooth transition across a data gap, rather than a void or terrace")
@@ -884,6 +1179,9 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             medr = np.asarray(ndimage.labeled_comprehension(np.nan_to_num(z, nan=1e9), ring, big,
                                                             lambda v: np.median(v[v < 1e8]) if (v < 1e8).any() else np.nan, float, np.nan))
             low_ = np.isfinite(medr) & (medr < float(P["marine_rim_max_m"])); del ring
+            if P.get("tide_sea"):                 # a void that is mostly mapped high-tide water is the sea's whatever its cliffs stand at (tide_vectors.py: Port Chatham's shore band left as holes)
+                from .shoreface import _ground_sea
+                low_ |= np.asarray(ndimage.mean(_ground_sea(P, P["_transform"], z.shape), ld, big)) >= 0.25
             if low_.any():
                 log(f"  ...of which LOW (rim median < {P['marine_rim_max_m']:g} m), kept as the sea's to bridge: {int(low_.sum())}, {szd[big[low_] - 1].sum():.3f} km2")
             big = big[~low_]
@@ -958,6 +1256,14 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 # measured -- marine, and marine below means the water surface itself.  An edit's depth still makes
                 # a basin (the lake loop).
                 marine[i - 1] = True; tover[i] = dict(kind=b["kind"], body=b["id"], level_m=b.get("consensus_level_m"))
+                # a sea NO survey saw (water.py's compilation_sea: the bed below low tide at the grid edge, from the joint layer
+                # or the fill's points, 2026-10-31): its level is low tide by construction, not an observed surface, so the
+                # lens has nothing to hold -- the domain takes the floor path (nolens below) and its soundings shape the basin
+                from .water import compilation_body
+                if compilation_body(b):
+                    tover[i]["unobserved"] = True
+                    if tover[i].get("level_m") is None:
+                        tover[i]["level_m"] = float(P["low_tide_m"])     # the body carries none: low tide by construction
             elif b["kind"] in ("sea", "tidal"):
                 marine[i - 1] = True
             elif b["kind"] in ("lake", "perched", "ephemeral"):
@@ -1005,12 +1311,232 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # no survey flew): nothing for the lens to hold, so the first conception -- the shore descends to low tide and the
     # interior bridges to whatever bed bounds it (Hig: "the ocean is a basin that drops below the land")
     nwz_ = np.bincount(lab[dom & np.isfinite(wz_s)].ravel(), minlength=n + 1)[1:] if wz_s is not None else np.zeros(n, int)
-    nolens = marine & (nwz_ < 20) & np.array([i not in tover for i in ids], bool)
+    # ...a compilation body (unobserved) takes the floor path even where a lidar saw the sea's SURFACE over it (plates_t fix2
+    # pass 12: KBay 2023's water returns at 2.9 m over Taylor Bay became the lens's bed on the flanks the soundings' spline
+    # did not reach -- a surface over 40 m of water is no flat)
+    nolens = marine & np.array([((i not in tover) and nwz_[k] < 20) or bool(tover.get(i, {}).get("unobserved")) for k, i in enumerate(ids)], bool)
     if lens and nolens.any():
         log(f"  marine domains with no observed water surface and no tidal body: {int(nolens.sum())} take the low-tide floor, not the lens")
+    # ...and under the contour model a marine domain that touches the floor-path sea is that sea (2026-11-03, c4's evidence test,
+    # Chatham: a 7.6 km2 domain where a lidar saw the surface kept the lens path and its own spline, and met the contour model's
+    # basin in a 15 m step in 20 m along the coverage edge, with casts on both sides asking for 10 degrees)
+    if lens and nolens.any() and P.get("shore_model") == "contour" and (marine & ~nolens).any():
+        mc_, _ = ndimage.label(np.isin(lab, ids[marine]), structure=np.ones((3, 3), bool))
+        sea_ = np.unique(mc_[np.isin(lab, ids[nolens])])
+        join_ = marine & ~nolens & np.isin(np.asarray(ndimage.maximum(mc_, lab, ids), int), sea_)
+        if join_.any():
+            nolens = nolens | join_
+            log(f"  contour model: {int(join_.sum())} lens-path marine domains touching the floor-path sea join it, {np.isin(lab, ids[join_]).sum() * res * res / 1e6:.3f} km2")
     floor_by = np.where(marine & (~lens | nolens), P["low_tide_m"], np.nan)
     floor_by = np.where(np.isfinite(med) | lens, floor_by, P["low_tide_m"])
+    # ONE SEA ACROSS A COVERAGE EDGE (2026-11-02, Hig's Taylor Bay review of fix2g): the delta apron was a marine void with
+    # no cast inside it, beside a "water body" (a DEM that saw the sea's surface) holding every cast 380 m away -- two
+    # domains, so the apron got no profile at all (the rim's descent and the harmonic bridge: a 5 m basin) and the two
+    # splines met in a 4 m step along a dead-straight seam, the DEM's coverage edge.  The sea does not know where a
+    # survey stopped: floor-path marine domains that touch are ONE domain -- one profile, one spline, one ceiling (the
+    # tidal-lens domains keep their own path; a lake is never merged).  Each merged group takes the smallest of its old
+    # ids, so the per-id tables (marine, nolens, floor) stay valid for it.
+    if int(nolens.sum()) > 1:
+        U_ = np.isin(lab, ids[nolens]); comp_, nc_ = ndimage.label(U_, structure=np.ones((3, 3), bool))
+        if nc_ < int(nolens.sum()):
+            rep_ = np.asarray(ndimage.minimum(lab, comp_, np.arange(1, nc_ + 1)), lab.dtype)
+            lab[U_] = rep_[comp_[U_] - 1]
+            gone_ = np.isin(ids, np.setdiff1d(ids[nolens], rep_)); nolens[gone_] = False
+            log(f"  one sea across coverage edges: {int(gone_.sum()) + nc_} floor-path marine domains that touch merged into {nc_}")
+    nolens_ids = {int(i) for i in ids[nolens]}
     floor = np.full(z.shape, np.nan, np.float32); floor[dom] = floor_by[lab[dom] - 1]
+    # A FLOOR-PATH SEA DOMAIN'S CEILING IS LOW TIDE (Hig's review of fix2c, 2026-11-01, Taylor Bay: a 180 m plateau at
+    # -0.5..-0.9 m, 130-300 m from 1930 soundings at -8..-58, where the prior stood at -25).  The stage's level over such a
+    # domain is a lidar's tide-time sea SURFACE (KBay 2023 at 2.9 m over Taylor Bay), and that level was the ceiling in the
+    # soundings' fit and the guard: one shallow sigma-10 sounding lifted the spline over 2.8 m across 8 ha, the ceiling pass
+    # then set 949 sites at 2.4 m -- 2.4 m ABOVE low tide -- which held the refit near them, and the guard cut what remained
+    # to a 1-degree cone under 2.9 m.  The domain is the sea below low tide by construction (the water stage's compilation
+    # sea, the low voids), so its bed lies under low tide everywhere: the ceiling here is low_tide_m, never a tide-time
+    # surface.  A sounding above low tide - ceiling_margin_m in such a domain is dropped like one above its observed water.
+    lt_ceil = np.full(z.shape, np.nan, np.float32)
+    if nolens.any():
+        lt_ceil[dom & np.isin(lab, list(nolens_ids))] = float(P["low_tide_m"])
+    P["_lt_ceil"] = lt_ceil
+    # THE FLOOR DESCENDS TO THE SOUNDINGS (Hig's review of fix2, 2026-11-01, Taylor Bay: "broad low-angle areas" -- a 28 deg
+    # shore extended down only to low tide, then a near-flat at -1.4 m until the first 1930 line 150-300 m out, where the bed
+    # drops to -12 and -58 within 100 m; the soundings there carry sigma 10, so the spline let the prior stand between them).
+    # In a floor-path sea domain that holds soundings, the floor is lowered cell by cell to the soundings' KERNEL MEAN:
+    # the shore's slope keeps descending to the soundings' level instead of stopping at low tide, and the spline refines
+    # what the band and the interior then carry.  A domain with no soundings keeps the low-tide floor: a flat the tide
+    # reaches is a flat until measured.
+    # ...and that kernel mean IS the interior prior there (Hig's review of fix2c, 2026-11-01, Taylor Bay: the first cut
+    # smoothed the NEAREST sounding's depth over a fixed 50 m and let the interior be a harmonic blend of the band's
+    # edge -- the prior stood at -36 m under the 1930 line's -2.6 and -3.8 m soundings 250 m off the shore, the spline
+    # had to lift +33 m at sigma 10 and carried the lift to the shore, through low tide, into the guard: a 180 m plateau).
+    # The surface between soundings is their Gaussian mean with a bandwidth that GROWS with the distance to the nearest
+    # sounding (floor_sound_smooth_m at a sounding -- 20 m, so a line's prior is the line; 50 m smeared a flank where the
+    # bed drops 40 m in 100 m -- the distance itself beyond it): at a line it is the line's local mean, between two
+    # lines a smooth ramp, far out the regional mean -- never a step at the midline, and never a depth
+    # no sounding supports.  Equal weights: a point's sigma is its vertical uncertainty, for the spline's fit, not a
+    # reason to prefer a neighbour's LOCATION (weighted 1/sigma^2, a sigma-2.5 line 100 m off outweighed a lone sigma-10
+    # sounding on its own cell sixteenfold and the prior under a -2.6 m sounding stood at -16 m).  The spline then fits
+    # the residual scatter about this surface, not a 30 m misfit.
+    # ...BUT NEVER NARROWER THAN THE SOUNDINGS' OWN SPACING (Hig's review of the fix2e boxes, 2026-11-01, Taylor Bay:
+    # "flat-bottomed circular basins around them, with the sounding at the center").  With the bandwidth 20 m AT a cast
+    # and the cast's distance beyond, every cast owned a disc at its own depth out to a third of the way to its
+    # neighbours, the ramp between two casts crowded into the middle third, and the spline -- which fits the residual to
+    # the prior -- saw none at the casts and nothing to smooth.  The lakes have no discs because their prior is a smooth
+    # basin and the thin-plate spline carries the soundings (Grewingk).  So the bandwidth's floor is the LOCAL HALF-GAP
+    # between soundings (the largest empty-circle radius around the cell, read from the distance transform's maxima over
+    # a window of the domain's typical gap, times sound_prior_gap_mult): a lone cast among casts 100 m apart is averaged
+    # with its neighbours, a line is its local mean, lines 300 m apart ramp across the whole gap -- and the residual the
+    # spline then fits is the real point-to-point scatter, spread as a minimum-curvature surface, not a plateau.
+    sound_prior = np.full(z.shape, np.nan, np.float32)      # the kernel mean on floor-path sea domains with soundings
+    sea_relax = np.full(z.shape, np.nan, np.float32)        # the ceiling the nearest casts allow (local profiles, 2026-11-02)
+    contour_model = P.get("shore_model") == "contour" and nolens.any() and P.get("_transform") is not None      # shoreface.py (2026-11-03)
+    if nolens.any() and P.get("points") and P.get("_transform") is not None and not contour_model:
+        rc_, zs_ = _points_in_grid(P, P["_transform"], z.shape, med, lab)
+        if rc_ is not None:
+            mode_ = str(P.get("sea_prior", "profile"))
+            s0 = max(float(P.get("floor_sound_smooth_m", 20.0)) / res, 1.0)
+            scl = [s0 * 2 ** k for k in range(6)]                       # bandwidths in cells: 50 .. 1600 m at 2 m
+            ls_ = np.log(scl)
+            objs_ = ndimage.find_objects(lab)
+            dl_ = lab[rc_[0], rc_[1]]; n_low = 0; a_low = 0; n_sp = 0; hg_m = []
+            w_ = np.ones(zs_.shape, np.float64)
+            # THE SEA'S PRIOR IS A LAKE'S (Hig's review of the fix2f boxes, 2026-11-01: "the surface shape is complicated,
+            # still involving basins around the points, and totally unlike the way the soundings are interpolated in lakes").
+            # A kernel mean of the casts, however wide its bandwidth, is a sum of bumps -- one at every cast, each the cast's
+            # own anomaly spread over the bandwidth -- and the spline, which fits the residual to the prior, carries those
+            # bumps through.  A lake's prior has none: one smooth profile of depth against distance from the shore, and the
+            # thin-plate spline alone carries the soundings' structure as a minimum-curvature surface (Grewingk, the Hazels).
+            # So the sea takes the same two parts: the profile is FITTED to the domain's casts -- the median depth of the casts
+            # in each of up to sea_profile_bins quantile bins of distance from the shore, made non-decreasing (pool-adjacent-
+            # violators: a flat bottom is allowed, a trough is the spline's), zero at the shore, flat beyond the last bin --
+            # read at every cell's distance from the shore and smoothed over half the casts' spacing.  It is the floor and
+            # the interior prior; the band's rim-slope extension descends to it; the spline fits the casts about it.
+            # sea_prior "kernel" keeps the fix2f kernel mean (bandwidth max(20 m, the local half-gap, the distance to the
+            # nearest cast)) for comparison.
+            dsh_m = None
+            if mode_ in ("profile", "local") and land_rim.any():
+                # THE PROFILE'S SHORE IS THE LOW-TIDE LINE, NOT THE LAND (v6, 2026-11-02, Taylor Bay: measured from the land
+                # rim, the casts' profile put the delta front's depth 300 m out onto the mud 3DEP flattened between the grass
+                # flat and the first cast, and the spline rode its ceiling to hide it).  The 3DEP ground above MLLW in the
+                # floor-path domains (the intertidal band's DEM cells, found here and reused by the band) joins the land rim
+                # as the profile's origin for the casts and the cells alike: distance counts from where the flat meets the sea.
+                shore0 = land_rim
+                if P.get("intertidal_band") and P.get("band_ground", True) and P.get("ground_prior") and P.get("_transform") is not None and P.get("_crs") is not None:
+                    fp0_ = dom & hole & np.isin(lab, list(nolens_ids))
+                    if fp0_.any():
+                        el0_, pz0_, n_el0 = _dem_band(fp0_, P, z.shape, res)
+                        P["_dem_band0"] = (el0_, pz0_, n_el0); shore0 = land_rim | el0_
+                        log(f"  the sea profile's shore: the land rim and the 3DEP ground above low tide in the floor-path domains ({int(el0_.sum()) * res * res / 1e4:.1f} ha)")
+                        del el0_, pz0_
+                    del fp0_
+                dsh_m = ndimage.distance_transform_edt(~shore0, sampling=res).astype(np.float32)
+            prof_log = []; loc_log = []
+            for i in nolens_ids:
+                sel = dl_ == i
+                if not sel.any() or i - 1 >= len(objs_) or objs_[i - 1] is None:
+                    continue
+                sl = objs_[i - 1]; cells = lab[sl] == i
+                rr_ = rc_[0][sel] - sl[0].start; cc_ = rc_[1][sel] - sl[1].start
+                if mode_ in ("profile", "local"):
+                    dep_k = float(P["low_tide_m"]) - zs_[sel]
+                    l_k = dsh_m[sl][rr_, cc_] if dsh_m is not None else np.zeros(dep_k.shape, np.float32)
+                    l_dom = dsh_m[sl] if dsh_m is not None else np.zeros(cells.shape, np.float32)
+                    if mode_ == "local":                         # LOCAL profiles (2026-11-02): see _sea_profile_local
+                        D_, prof_, st_, rx_ = _sea_profile_local(l_dom, cells, rr_, cc_, l_k, dep_k, res, P)
+                        loc_log.append((int(i), st_))
+                        if rx_ is not None:
+                            sr_ = sea_relax[sl]; sr_[cells] = rx_[cells]; sea_relax[sl] = sr_
+                    else:
+                        D_, prof_ = _sea_profile(l_dom, l_k, dep_k, int(P.get("sea_profile_bins", 20)), int(P.get("sea_profile_min_n", 30)))
+                    # smoothed over half the casts' spacing (the distance transform's creases, the bins' corners)
+                    xy_k = np.column_stack([cc_, rr_]).astype(np.float64)
+                    if len(xy_k) >= 2:
+                        from scipy.spatial import cKDTree
+                        gap_c = float(np.median(cKDTree(xy_k).query(xy_k, k=2)[0][:, 1]))
+                    else:
+                        gap_c = 0.0
+                    sg_ = max(gap_c / 2.0, 30.0 / res)
+                    ks = np.where(cells, float(P["low_tide_m"]) - D_, 0.0).astype(np.float64)
+                    ks = _gsmooth(ks, sg_) / np.maximum(_gsmooth(cells.astype(np.float64), sg_), 1e-6)
+                    hg_m.append(gap_c * res)
+                    prof_log.append((int(i), int(sel.sum()), prof_))
+                else:
+                    num0 = np.zeros(cells.shape, np.float64); den0 = np.zeros(cells.shape, np.float64)
+                    np.add.at(num0, (rr_, cc_), w_[sel] * zs_[sel]); np.add.at(den0, (rr_, cc_), w_[sel])
+                    dn_ = ndimage.distance_transform_edt(den0 <= 0)          # cells to the nearest sounding
+                    # the local half-gap: the distance transform's maxima (the midpoints between casts and between lines)
+                    # over a window of twice the domain's typical gap, on an 8-cell lattice, smoothed to a field
+                    gm_ = float(P.get("sound_prior_gap_mult", 1.0)); hg_ = None
+                    if gm_ > 0:
+                        c8 = 8; dc_ = dn_[::c8, ::c8]                              # distances stay in grid cells
+                        near_ = dc_[(dc_ <= scl[-1]) & cells[::c8, ::c8]]        # domain cells within the widest bandwidth of a cast
+                        gap_ = float(np.median(near_)) if near_.size else 0.0   # the typical half-gap
+                        wn_ = int(max(3, round(4 * gap_ / c8))) | 1               # the window: two typical gaps either side
+                        hg_ = ndimage.maximum_filter(dc_, size=wn_, mode="nearest")
+                        hg_ = _gsmooth(hg_, max(gap_ / c8, 1.0))                   # a field, not steps between windows
+                        hg_ = np.repeat(np.repeat(hg_, c8, axis=0), c8, axis=1)[:dn_.shape[0], :dn_.shape[1]] * gm_
+                        hg_m.append(float(np.median(hg_[cells])) * res if cells.any() else 0.0)
+                    x_ = np.log(np.clip(np.maximum(dn_, np.maximum(hg_, s0) if hg_ is not None else s0), scl[0], scl[-1]))
+                    ks = np.full(cells.shape, np.nan, np.float64); prev = None
+                    for k, sc in enumerate(scl):
+                        dk = _gsmooth(den0, sc); nk = _gsmooth(num0, sc)
+                        cur = np.where(dk > 1e-12, nk / np.maximum(dk, 1e-12), np.nan)
+                        if k == 0:
+                            ks[:] = cur
+                        else:
+                            t_ = np.clip((x_ - ls_[k - 1]) / (ls_[k] - ls_[k - 1]), 0, 1); use = x_ > ls_[k - 1]
+                            mix = np.where(np.isfinite(prev), (1 - t_) * prev + t_ * cur, cur)
+                            ks[use] = mix[use]
+                        prev = cur
+                ks = np.where(cells & np.isfinite(ks), ks, np.nan).astype(np.float32)
+                if mode_ == "kernel":
+                    # v8 (2026-11-02): the kernel mean of contradictory casts (a 1931 line's 2 ft and 15 fathoms within 100 m at
+                    # a delta front) is a compromise wrong on both sides -- 17 m of water on the flat west of Taylor's island.
+                    # The FIRST CAST IN EVERY DIRECTION bounds it as it bounds the local profile: a line of shallow casts says
+                    # the flat inside it is no deeper than its edge; the shallowest first cast relaxes the ceiling (the cap).
+                    eh_, el_ = _first_cast_env(cells, rr_, cc_, float(P["low_tide_m"]) - zs_[sel], res, P)
+                    if eh_ is not None:
+                        okb = cells & np.isfinite(ks) & np.isfinite(eh_)
+                        n_kb = int((okb & (ks < float(P["low_tide_m"]) - eh_ - 1e-6)).sum())
+                        ks = np.where(okb, np.maximum(ks, float(P["low_tide_m"]) - eh_), ks).astype(np.float32)
+                        sr_ = sea_relax[sl]; okr = cells & np.isfinite(el_)
+                        sr_[okr] = (float(P["low_tide_m"]) - np.maximum(el_[okr], 0.1)).astype(np.float32); sea_relax[sl] = sr_
+                        log(f"    domain {int(i)}: kernel prior bounded by the first casts in every direction on {n_kb * res * res / 1e4:.1f} ha")
+                fl = floor[sl]; low_ = cells & (ks < fl)
+                if low_.any():
+                    fl[low_] = ks[low_]; floor[sl] = fl; n_low += 1; a_low += int(low_.sum())
+                sp = sound_prior[sl]; ok_ = cells & np.isfinite(ks)
+                sp[ok_] = np.minimum(ks[ok_], fl[ok_]); sound_prior[sl] = sp; n_sp += int(ok_.sum())
+            if mode_ == "kernel" and n_sp:
+                # THE SUBTIDAL IS THE BASIN CODE'S (v7, 2026-11-02, Hig's review of v6 at Taylor Bay: "the soundings are
+                # substantially off the bottom -- often deeper -- and there are clear near-sounding artifacts where the model
+                # tried to bring the bottom into better alignment ... the profile extrapolation is leading to strong seams ...
+                # use the existing basin code for deeper areas ... smooth contours rather than profiles"): the prior is the
+                # casts' kernel mean at a bandwidth no narrower than sound_prior_gap_mult times their local half-gap -- smooth
+                # contours through the casts, no disc at any cast -- and the ceiling's cone is relaxed to it (plus
+                # kernel_relax_m of slack, the casts' own scatter), so a bed the casts sound shallow is never cut to the cone.
+                # The intertidal band (its own fit) blends into this surface across the gap (band_blend_max_m).
+                kr_ = float(P.get("kernel_relax_m", 1.0))
+                sea_relax = np.where(np.isfinite(sound_prior), np.fmax(sound_prior + kr_, np.nan_to_num(sea_relax, nan=-np.inf)), sea_relax).astype(np.float32)
+                log(f"  the sea's prior is the casts' kernel mean (smooth contours; bandwidth >= {float(P.get('sound_prior_gap_mult', 1.0)):g} x the local half-gap, "
+                    f"floor {float(P.get('floor_sound_smooth_m', 20.0)):g} m); the ceiling's cone relaxed to it + {kr_:g} m on {int(np.isfinite(sea_relax).sum()) * res * res / 1e4:.1f} ha")
+            if n_sp and mode_ in ("profile", "local"):
+                log(f"  floor-path sea domains with soundings: the interior prior is a lake's -- the casts' median depth by distance from the shore, "
+                    f"non-decreasing, smoothed over half their spacing (median {np.median(hg_m) if hg_m else 0:.0f} m)"
+                    + (f", fitted LOCALLY: one profile per {float(P.get('sea_profile_anchor_m', 200.0)):g} m anchor from the casts within "
+                       f"{float(P.get('sea_profile_local_m', 1500.0)):g} m (doubled, twice, below {int(P.get('sea_profile_min_casts', 40))} casts), "
+                       f"blended over the four nearest anchors" if mode_ == "local" else "")
+                    + f" -- on {n_sp * res * res / 1e6:.3f} km2; floor lowered to it in {n_low} domains ({a_low * res * res / 1e6:.3f} km2)")
+                for i_, n_, pr_ in prof_log:
+                    st_ = dict(next((s for j_, s in loc_log if j_ == i_), {}))
+                    log(f"    domain {i_}: {n_} casts; "
+                        + (f"{st_.get('anchors', 0)} anchors ({st_.get('widened', 0)} widened, {st_.get('global_', 0)} on the domain's profile); "
+                           f"prior capped by the {int(P.get('sea_profile_cap_k', 8))} nearest casts on {st_.get('capped', 0) * 16 * res * res / 1e4:.1f} ha; domain profile " if st_ else "depth by shore distance ")
+                        + ", ".join(f"{l_:.0f} m: {d_:.1f}" for l_, d_ in pr_))
+            elif n_sp:
+                log(f"  floor-path sea domains with soundings: the interior prior is the soundings' kernel mean (bandwidth max({float(P.get('floor_sound_smooth_m', 20.0)):g} m, "
+                    f"the local half-gap between soundings x {float(P.get('sound_prior_gap_mult', 1.0)):g} (median {np.median(hg_m) if hg_m else 0:.0f} m), distance to the nearest sounding)) "
+                    f"on {n_sp * res * res / 1e6:.3f} km2; floor lowered to it in {n_low} domains ({a_low * res * res / 1e6:.3f} km2)")
+        del rc_, zs_
     log(f"  land rim {int(land_rim.sum())} cells, bed rim {int(bed_rim.sum())}, soundings inside {int(inside_obs.sum())}; "
         f"marine domains {int(marine.sum())}{' (tidal lens: bed at the observed water surface)' if lens else ''} / lakes {int((~marine).sum())}; rim slope p10/50/90 "
         f"{np.percentile(srim[land_rim], [10, 50, 90]).round(1) if land_rim.any() else '-'} deg")
@@ -1048,6 +1574,135 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         ext = (1 - w) * ext + w * sm
         band = dom & hole & (ext > floor)
         prior[band] = ext[band]
+        # THE INTERTIDAL BAND (2026-11-02, Hig's review of fix2h: "cliff steps between flat upper intertidal and elevated
+        # land"; the decomposition of the tidal band's steps in kj_r3c4 / r2c3 / r2c2: 108 / 38 / 43 km of terrace at exactly
+        # +4.5 m and 74 / 28 / 32 km of rim cliff, both made by one rule -- a floor-path sea domain's ceiling was low tide
+        # EVERYWHERE, so the bed was forced under MLLW at the land itself, whatever height the land or the DEM showed there,
+        # and the DEM's ground between MLLW and void_ground_m inside the void was thrown away).  The band of such a domain IS
+        # the intertidal: the rim extension's reach, and wherever the ground prior (3DEP) stands above low tide +
+        # band_ground_min_m and below tide_max_m + 1 -- not its hydroflattened water (ground_water: 1 a lake, 2 the sea),
+        # not a body's cells, not exactly flat -- where the prior is the DEM itself (data beats extrapolation).  Its ceiling
+        # is the land it hangs from: the nearest land-rim cell's own height, capped at tide_max_m and never below low tide,
+        # under an observed tide-time sheet where a survey saw one (a compilation body's level is low tide by construction
+        # and says nothing), and never above the DEM + its sigma where the DEM stands -- with no slope demanded of it (a
+        # flat is a flat).  The interior keeps low tide, and the guard's cone starts at the band's outer edge, not at the
+        # land.  The DEM cells join the points below (band_ground), so the spline passes near them, never through them.
+        P["_band_ground"] = None
+        if nolens.any() and P.get("intertidal_band"):                      # off by default: fix2h's behaviour (the tide1 run turns it on)
+            fp_ = dom & hole & np.isin(lab, list(nolens_ids))
+            unobs_ = [int(i) for i, e in tover.items() if e.get("unobserved")]
+            rim_top = np.fmax(float(P["low_tide_m"]), np.fmin(z[ri, ci], float(P.get("tide_max_m", 4.5)))).astype(np.float32)
+            wz0 = P.get("_water_z")
+            if wz0 is not None:
+                obs_ = np.isfinite(wz0) & (~np.isin(lab, unobs_) if unobs_ else True)
+                rim_top = np.where(obs_, np.fmin(rim_top, wz0), rim_top).astype(np.float32)
+            n_rimband = int((band & fp_).sum()); n_el = 0; n_dem = 0
+            if P.get("band_ground", True) and P.get("ground_prior") and P.get("_transform") is not None and P.get("_crs") is not None and fp_.any():
+                rs_, cs_ = np.nonzero(fp_); rws = (int(rs_.min()), int(rs_.max()) + 1); cls_ = (int(cs_.min()), int(cs_.max()) + 1); del rs_, cs_
+                pz = _read_on_grid(P["ground_prior"], P["_transform"], P["_crs"], z.shape, rws, cls_)
+                el_ = fp_ & np.isfinite(pz) & (pz > float(P["low_tide_m"]) + float(P.get("band_ground_min_m", 0.3))) & (pz < float(P.get("tide_max_m", 4.5)) + 1.0)
+                n_el = int(el_.sum())
+                if P.get("ground_water"):
+                    wm_ = _read_on_grid(P["ground_water"], P["_transform"], P["_crs"], z.shape, rws, cls_, nearest=True)
+                    el_ &= ~(np.nan_to_num(wm_, nan=0.0) > 0.5); del wm_
+                if P.get("_bodies") is not None:
+                    el_ &= P["_bodies"][0] <= 0
+                pz0 = np.nan_to_num(pz, nan=0.0)
+                el_ &= (ndimage.maximum_filter(pz0, 5) - ndimage.minimum_filter(pz0, 5)) >= 0.02; del pz0
+                n_dem = int(el_.sum())
+                if n_dem:
+                    band |= el_; prior[el_] = pz[el_]
+                    rim_top = np.where(el_, np.fmin(rim_top, pz + float(P.get("band_ground_sigma_m", 1.0))), rim_top).astype(np.float32)
+                    P["_band_ground"] = (el_, np.where(el_, pz, np.nan).astype(np.float32))
+                del pz
+            bfp = band & fp_
+            lt_ceil[bfp] = rim_top[bfp]
+            # ...and the INTERIOR's ceiling hangs from the band's outer edge (v3, 2026-11-02: with low tide as the interior's
+            # ceiling the terrace only moved to the DEM's last cell -- 3DEP flattens the sea at 0 m, above MLLW, so beyond its
+            # ground the flat was still forced under low tide at once): the guard's cone descends from the nearest band or
+            # rim cell's own ceiling, so the drop from the band to the subtidal is the cone's, never a step.  Low tide is no
+            # level of the ceiling any more; it remains the prior's floor.
+            edge_ = bfp | land_rim
+            if edge_.any():
+                dE, (er_, ec_) = ndimage.distance_transform_edt(~edge_, return_indices=True, sampling=res)
+                hv_ = np.where(bfp, lt_ceil, rim_top)[er_, ec_]
+                inter_ = fp_ & ~bfp
+                # v4: a RAMP from the edge's ceiling down to low tide at band_edge_deg (the subtidal cone below that is
+                # the guard's, 1 deg): with the cone alone from the edge (v3) the spline's overshoot between a deep profile
+                # prior and contradictory 1931 casts rode a ceiling at +1 m across 3DEP's flattened sea; the ramp lets the
+                # interior ride where it did (under low tide) without a step at the band's edge.
+                lt_ceil[inter_] = np.fmax(float(P["low_tide_m"]), hv_ - dE * np.tan(np.radians(float(P.get("band_edge_deg", 3.0)))))[inter_].astype(np.float32)
+                P["_lt_dsh"] = np.where(bfp, 0.0, dE).astype(np.float32)
+                del dE, er_, ec_, hv_, inter_
+            P["_lt_ceil"] = lt_ceil
+            n_up = int((bfp & (lt_ceil > float(P["low_tide_m"]) + 0.05)).sum())
+            log(f"  intertidal band: {len(nolens_ids)} floor-path sea domains -- the rim extension's reach {n_rimband * res * res / 1e4:.1f} ha, the ground prior above low tide "
+                f"+ {float(P.get('band_ground_min_m', 0.3)):g} m {n_dem * res * res / 1e4:.1f} ha (of {n_el * res * res / 1e4:.1f} ha eligible: its water, bodies and exact flats out); "
+                f"the band hangs from the land rim's own height (capped at {float(P.get('tide_max_m', 4.5)):g} m, under an observed sheet, under the DEM + "
+                f"{float(P.get('band_ground_sigma_m', 1.0)):g} m) on {int(bfp.sum()) * res * res / 1e4:.1f} ha, above low tide on {n_up * res * res / 1e4:.1f} ha (ceiling p10/50/90 "
+                f"{np.round(np.percentile(lt_ceil[bfp], [10, 50, 90]), 2).tolist() if bfp.any() else '-'} m); the guard's cone starts at the band's outer edge")
+            del rim_top, fp_
+        # THE INTERTIDAL BAND (2026-11-02, Hig's review of fix2h: "cliff steps between flat upper intertidal and elevated
+        # land"; the decomposition of the tidal band's steps in kj_r3c4 / r2c3 / r2c2: 108 / 38 / 43 km of terrace at exactly
+        # +4.5 m and 74 / 28 / 32 km of rim cliff, both made by one rule -- a floor-path sea domain's ceiling was low tide
+        # EVERYWHERE, so the bed was forced under MLLW at the land itself, whatever height the land or the DEM showed there,
+        # and the DEM's ground between MLLW and void_ground_m inside the void was thrown away).  The band of such a domain IS
+        # the intertidal: the rim extension's reach, and wherever the ground prior (3DEP) stands above low tide +
+        # band_ground_min_m and below tide_max_m + 1 -- not its hydroflattened water (ground_water: 1 a lake, 2 the sea),
+        # not a body's cells, not exactly flat -- where the prior is the DEM itself (data beats extrapolation).  Its ceiling
+        # is the land it hangs from: the nearest land-rim cell's own height, capped at tide_max_m and never below low tide,
+        # under an observed tide-time sheet where a survey saw one (a compilation body's level is low tide by construction
+        # and says nothing), and never above the DEM + its sigma where the DEM stands -- with no slope demanded of it (a
+        # flat is a flat).  The interior keeps low tide, and the guard's cone starts at the band's outer edge, not at the
+        # land.  The DEM cells join the points below (band_ground), so the spline passes near them, never through them.
+        P["_band_ground"] = None
+        if nolens.any() and P.get("intertidal_band"):                      # off by default: fix2h's behaviour (the tide1 run turns it on)
+            fp_ = dom & hole & np.isin(lab, list(nolens_ids))
+            unobs_ = [int(i) for i, e in tover.items() if e.get("unobserved")]
+            rim_top = np.fmax(float(P["low_tide_m"]), np.fmin(z[ri, ci], float(P.get("tide_max_m", 4.5)))).astype(np.float32)
+            wz0 = P.get("_water_z")
+            if wz0 is not None:
+                obs_ = np.isfinite(wz0) & (~np.isin(lab, unobs_) if unobs_ else True)
+                rim_top = np.where(obs_, np.fmin(rim_top, wz0), rim_top).astype(np.float32)
+            n_rimband = int((band & fp_).sum()); n_el = 0; n_dem = 0
+            if P.get("band_ground", True) and P.get("ground_prior") and P.get("_transform") is not None and P.get("_crs") is not None and fp_.any():
+                if P.get("_dem_band0") is not None:
+                    el_, pz, n_el = P["_dem_band0"]; el_ = el_ & fp_; P["_dem_band0"] = None
+                else:
+                    el_, pz, n_el = _dem_band(fp_, P, z.shape, res)
+                n_dem = int(el_.sum())
+                if n_dem:
+                    band |= el_; prior[el_] = pz[el_]
+                    rim_top = np.where(el_, np.fmin(rim_top, pz + float(P.get("band_ground_sigma_m", 1.0))), rim_top).astype(np.float32)
+                    P["_band_ground"] = (el_, np.where(el_, pz, np.nan).astype(np.float32))
+                del pz
+            bfp = band & fp_
+            lt_ceil[bfp] = rim_top[bfp]
+            # ...and the INTERIOR's ceiling hangs from the band's outer edge (v3, 2026-11-02: with low tide as the interior's
+            # ceiling the terrace only moved to the DEM's last cell -- 3DEP flattens the sea at 0 m, above MLLW, so beyond its
+            # ground the flat was still forced under low tide at once): the guard's cone descends from the nearest band or
+            # rim cell's own ceiling, so the drop from the band to the subtidal is the cone's, never a step.  Low tide is no
+            # level of the ceiling any more; it remains the prior's floor.
+            edge_ = bfp | land_rim
+            if edge_.any():
+                dE, (er_, ec_) = ndimage.distance_transform_edt(~edge_, return_indices=True, sampling=res)
+                hv_ = np.where(bfp, lt_ceil, rim_top)[er_, ec_]
+                inter_ = fp_ & ~bfp
+                # v4: a RAMP from the edge's ceiling down to low tide at band_edge_deg (the subtidal cone below that is
+                # the guard's, 1 deg): with the cone alone from the edge (v3) the spline's overshoot between a deep profile
+                # prior and contradictory 1931 casts rode a ceiling at +1 m across 3DEP's flattened sea; the ramp lets the
+                # interior ride where it did (under low tide) without a step at the band's edge.
+                lt_ceil[inter_] = np.fmax(float(P["low_tide_m"]), hv_ - dE * np.tan(np.radians(float(P.get("band_edge_deg", 3.0)))))[inter_].astype(np.float32)
+                P["_lt_dsh"] = np.where(bfp, 0.0, dE).astype(np.float32)
+                del dE, er_, ec_, hv_, inter_
+            P["_lt_ceil"] = lt_ceil
+            n_up = int((bfp & (lt_ceil > float(P["low_tide_m"]) + 0.05)).sum())
+            log(f"  intertidal band: {len(nolens_ids)} floor-path sea domains -- the rim extension's reach {n_rimband * res * res / 1e4:.1f} ha, the ground prior above low tide "
+                f"+ {float(P.get('band_ground_min_m', 0.3)):g} m {n_dem * res * res / 1e4:.1f} ha (of {n_el * res * res / 1e4:.1f} ha eligible: its water, bodies and exact flats out); "
+                f"the band hangs from the land rim's own height (capped at {float(P.get('tide_max_m', 4.5)):g} m, under an observed sheet, under the DEM + "
+                f"{float(P.get('band_ground_sigma_m', 1.0)):g} m) on {int(bfp.sum()) * res * res / 1e4:.1f} ha, above low tide on {n_up * res * res / 1e4:.1f} ha (ceiling p10/50/90 "
+                f"{np.round(np.percentile(lt_ceil[bfp], [10, 50, 90]), 2).tolist() if bfp.any() else '-'} m); the guard's cone starts at the band's outer edge")
+            del rim_top, fp_
     # LAKES (2026-10-11, rough, for review): a basin shape instead of a flat floor.  Per lake
     # domain: L = greatest distance to shore, A = area, s = median rim slope.  Dmax two ways --
     # Hollister et al. 2011 (L * tan(s), times hollister_k ~0.5: basins are shallower than
@@ -1067,6 +1722,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     tidal_cells = np.zeros(z.shape, bool)          # the tidal lens's cells (fill_mask 7)
     surface = np.zeros(z.shape, bool)              # observations judged to be the water surface (-> fill_surface.tif)
     lake_prior = np.full(z.shape, np.nan, np.float32); lake_sig = np.full(z.shape, np.nan, np.float32)
+    lens_hi = np.full(z.shape, np.nan, np.float32)       # the observed surface where the lens was capped (above lens_max_m): the ceiling there
     if land_rim.any():
         dshore = d                                                  # distance to the nearest land rim cell
         if ice_rim.any():
@@ -1142,6 +1798,26 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             if elong > P["channel_elong"] and not is_lake_body:
                 dmax = float(max(d_h, 0.5))
             sd = abs(d_h - d_g) / 2 + 5.0 if (elong <= P["channel_elong"] or is_lake_body) else max(d_h, 1.0)
+            if snd_rc is not None:
+                # THE SOUNDINGS SET THE FLOOR, NOT THE SHAPE (Hig, 2026-10-31, Lower Hazel Lake).  fix1 remapped the profile's
+                # depths by rank onto the soundings' own quantiles and got a 198-step staircase: a 2.8 m drop at the waterline
+                # (the shallowest sounding), terraces where the soundings cluster (24-27 m), and a lone 36 m sounding whose
+                # 7 m gap was carried on to 43 m at the medial axis -- between 25 m lines.  "Primarily this should be a fit
+                # to the points and an extrapolation of the shoreline with smooth surfaces where unconstrained": the smooth
+                # profile keeps its shape and its shore gradient, the soundings say only how deep its bottom is -- the deepest
+                # sounding plus a tail, the median spacing of the deepest tenth (0 for a flat bottom sampled many times, 0.3 m
+                # for Upper Hazel; never the last gap) -- and the spline below fits the points themselves.  Dmax from a hundred
+                # soundings replaces the Hollister / glacial estimate (an estimate for lakes nobody sounded).
+                in_ = cells[snd_rc[0], snd_rc[1]]
+                if int(in_.sum()) >= int(P["sound_hyps_min_n"]):
+                    dep = np.sort(np.clip(level - snd_z[in_], 0.0, None))
+                    top = dep[-max(int(np.ceil(dep.size * 0.1)), 3):]
+                    tail = float(np.median(np.diff(top)))
+                    d_s = float(dep[-1] + tail)
+                    if d_s > 0.5:
+                        log(f"  lake {i}: Dmax {d_s:.1f} m from its {dep.size} soundings (deepest {dep[-1]:.1f} + tail {tail:.2f}, the median spacing of "
+                            f"the deepest {top.size}; median depth {np.median(dep):.1f}; estimates Hollister {d_h:.0f}, glacial {d_g:.0f})")
+                        dmax = d_s; sd = max(tail, 0.5) + 1.0
             if i in over and over[i].get("dmax_m") is not None:
                 dmax = float(over[i]["dmax_m"])
                 log(f"  lake {i}: Dmax {dmax:.0f} m and level {level:.2f} m set by {'the recipe' if 'body' not in over[i] else 'water body ' + str(over[i]['body']) + ' (' + over[i]['kind'] + ')'} "
@@ -1172,17 +1848,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             frs = np.where(den > 1e-3, num / np.maximum(den, 1e-3), 0)[cb]
             frac = np.minimum(frac, np.maximum(frs, 0))                 # smoothing never deepens the shore
             depth = dmax * frac
-            hyp = over.get(i, {}).get("hypsometry")
-            if not hyp and snd_rc is not None:
-                # THE SOUNDINGS' OWN HYPSOMETRY (Hig, 2026-10-31, Lower Hazel Lake: the fill ran to 48.9 m between lines whose
-                # deepest was 61.6): the soundings are a sample of the lake's depth distribution -- part of the lake is
-                # probably deeper than the deepest, but not much of it and not by much: one quantile beyond the deepest, by
-                # the last gap again. The basin's shape stays the prior's; the share of the lake at each depth is the sample's.
-                in_ = cells[snd_rc[0], snd_rc[1]]
-                if int(in_.sum()) >= int(P["sound_hyps_min_n"]):
-                    dep = np.sort(np.clip(level - snd_z[in_], 0.0, None))
-                    hyp = np.r_[dep, dep[-1] + (dep[-1] - dep[-2])].tolist()
-                    log(f"  lake {i}: hypsometry from its {dep.size} soundings (median depth {np.median(dep):.1f} m, deepest {dep[-1]:.1f}, tail {hyp[-1]:.1f})")
+            hyp = over.get(i, {}).get("hypsometry")          # a recipe's or an edit's (the soundings' own was tried in fix1: terraces; see Dmax above)
             if hyp:
                 # HYPSOMETRY (Hig, 2026-10-14, Emerald Lake: soundings too damaged to condition the bed, good for
                 # its deepest depth and how much of the lake lies at each depth): the profile's depths are remapped
@@ -1220,8 +1886,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 if sl is None:
                     continue
                 cells = (lab[sl] == i) & ~chan[sl]
-                if not cells.any():
-                    continue
+                if not cells.any() or i in nolens_ids:
+                    continue                             # nolens: the floor path (above), not a plate at a level nobody observed
                 w_ = wz_[sl] if wz_ is not None else None
                 v_ = w_[cells] if w_ is not None else np.zeros(0); v_ = v_[np.isfinite(v_)]
                 lv_ = tover.get(i, {}).get("level_m")
@@ -1241,6 +1907,10 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     # Hig: a flat at 4.88 m in the upper bay's intertidal): those cells are left to the prior between the rest
                     hi_ = cells & (s_ > float(P["lens_max_m"]))
                     if hi_.any():
+                        # ...and the ceiling on those cells is THAT surface, not the domain's level (2026-10-31, Hig's review of
+                        # fix1: the upper-bay flat at 4.5-4.9 m was left to the prior, then the guard clipped 4.5 km2 of it to one
+                        # plane 0.1 m under the domain's 3.53 m median -- "a broad horizontal incised level ... with sharp edges")
+                        lens_hi[sl][hi_] = s_[hi_]
                         n_hi += int(hi_.sum()); cells = cells & ~hi_
                         if not cells.any():
                             continue
@@ -1291,10 +1961,10 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 own = ndimage.grey_dilation(cl_, size=3)            # the patch each ring cell borders
                 idx = np.arange(1, cn_ + 1)
                 n_dry = ndimage.sum(ring & dry, own, idx); n_wet = ndimage.sum(ring & wet, own, idx)
-                shore = np.isin(cl_, idx[n_dry > n_wet])
-                if shore.any():
-                    log(f"  ground at the water level joined to dry land kept as shore: {int(shore.sum())} cells")
-                at_surface &= ~shore
+                kept_ = np.isin(cl_, idx[n_dry > n_wet])         # (was named `shore`: it shadowed the stage flag, 2026-11-02)
+                if kept_.any():
+                    log(f"  ground at the water level joined to dry land kept as shore: {int(kept_.sum())} cells")
+                at_surface &= ~kept_
         # and a speck of "ground" out on the water (< lake_islet_m2, the survey layers' islets rule) is
         # a stray return, not an island: one 2 m Grewingk cell 0.3 m above the water pulled the
         # bed up 30 m around it (2026-10-12).  Larger islands are kept.
@@ -1401,8 +2071,14 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     if P.get("points"):
         import csv
         T = P.get("_transform")
-        nbound = 0
-        with open(P["points"]) as fh:
+        nbound = 0; n_above = 0; above_sv = {}; wz_in = P.get("_water_z")
+        if P.get("_lt_ceil") is not None and P.get("intertidal_band"):
+            lc_ = P["_lt_ceil"]                                 # a floor-path sea domain's own ceiling: the intertidal band hangs from the land, the interior lies under low tide (2026-11-02)
+            wz_in = np.where(np.isfinite(lc_), lc_, wz_in if wz_in is not None else np.nan).astype(np.float32)
+        elif wz_in is not None and P.get("_lt_ceil") is not None:
+            wz_in = np.fmin(wz_in, P["_lt_ceil"])              # a floor-path sea domain: low tide is the ceiling (above)
+        for _pf in _points_files(P):
+          with open(_pf) as fh:
             for row in csv.DictReader(fh):
                 # A lower bound (a lead line that ran out) says the bed is at or below z: never a
                 # depth.  Held aside; after the spline any bound the surface violates becomes a
@@ -1413,6 +2089,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     continue
                 cc, rr = ~T * (x, y); rr, cc = int(rr), int(cc)
                 if not (0 <= rr < z.shape[0] and 0 <= cc < z.shape[1]) or not (dom[rr, cc] and hole[rr, cc]):
+                    continue
+                if contour_model and int(lab[rr, cc]) in nolens_ids:     # shoreface.py fits these
                     continue
                 if row.get("z") not in (None, ""):
                     dz_ = P.get("points_dz_m") or 0.0
@@ -1426,7 +2104,18 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 if is_bound:
                     bounds.append((rr, cc, x, y, zz, sg)); nbound += 1
                     continue
+                # A SOUNDING ABOVE THE WATER OBSERVED OVER IT IS NOT THE BED (2026-10-31, upbay_t fix2: the 1980 Bear Cove
+                # survey's drying heights at 5.3-5.5 m fall in tidal creeks the lidar saw at 5.26 m -- the flat has moved
+                # since -- and the spline lifted the creek beds through the water into the guard, 5,000 shelf cells): the
+                # stage's level is an inequality on the bed (rule 3), so a point standing above level - ceiling_margin_m is
+                # dropped here rather than fitted and clipped.  A point in a cell without a level is kept.
+                if wz_in is not None and np.isfinite(wz_in[rr, cc]) and zz > float(wz_in[rr, cc]) - float(P["ceiling_margin_m"]):
+                    n_above += 1; above_sv[row.get("survey", "")] = above_sv.get(row.get("survey", ""), 0) + 1
+                    continue
                 sound.append((rr, cc, x, y, zz, sg)); pts[rr, cc] = True; sound_sv.append(row.get("survey", ""))
+        if n_above:
+            log(f"  soundings above the water observed over them (level - {float(P['ceiling_margin_m']):g} m) dropped: {n_above} -- "
+                + ", ".join(f"{k} {v}" for k, v in sorted(above_sv.items(), key=lambda kv: -kv[1])[:8]))
         # DESPIKE (Hig, 2026-10-20, Grewingk Lake): a single sounding far SHALLOWER than its own survey's
         # neighbours -- the sounder catching a berg's keel, a fish, a side lobe -- is not the bed; the spline
         # honoured each (misfit 1 m) and built a cone to it (17 of 35 deep bumps sat on a 2017 sounding 5-20 m
@@ -1455,6 +2144,27 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     scale = 1.4826 * np.median(np.abs(res_n - np.median(res_n)))
                     if S_[a_, 2] - cf[0] > max(P["points_despike_m"], 3.0 * scale):
                         keep_[a_] = False; per[name] = per.get(name, 0) + 1
+                # ...and the DEEP side (Hig's review of fix2, 2026-11-01, Koyuktoolik lagoon: one 1980 sounding at -35.6 m with every
+                # neighbour within 130 m at -1.8..-3.8, honoured at sigma 0.8 and spun into a cone): a lone sounding standing more
+                # than points_despike_deep_m below the plane of its own survey's neighbours within points_despike_deep_r_m (a wider
+                # ring: a 1980 line logs a fix every 20-50 m) is a blunder of the other sign -- a misread fathom, a position slip
+                # onto a channel -- and is dropped the same way.
+                dr_ = float(P.get("points_despike_deep_r_m", 150.0)); dm_ = float(P.get("points_despike_deep_m", 10.0))
+                for a_, nb in zip(ii, tr_.query_ball_point(S_[ii, :2], dr_)):
+                    if not keep_[a_]:
+                        continue
+                    nb = ii[np.asarray(nb, int)]
+                    dxy = S_[nb, :2] - S_[a_, :2]
+                    nb = nb[(np.hypot(dxy[:, 0], dxy[:, 1]) > 5.0) & keep_[nb]]
+                    if nb.size < P["points_despike_n"]:
+                        continue
+                    d_ = S_[nb, :2] - S_[a_, :2]
+                    G = np.c_[np.ones(nb.size), d_]
+                    cf, *_ = np.linalg.lstsq(G, S_[nb, 2], rcond=None)
+                    res_n = S_[nb, 2] - G @ cf
+                    scale = 1.4826 * np.median(np.abs(res_n - np.median(res_n)))
+                    if cf[0] - S_[a_, 2] > max(dm_, 3.0 * scale):
+                        keep_[a_] = False; per[name + " (deep)"] = per.get(name + " (deep)", 0) + 1
             if (~keep_).any():
                 for t in np.asarray(sound, dtype=object)[~keep_]:
                     pts[t[0], t[1]] = False
@@ -1463,7 +2173,24 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     pts[t[0], t[1]] = True
                 log(f"  soundings shallower than their own track by > {P['points_despike_m']} m (a keel, a fish, a side lobe) dropped: "
                     f"{int((~keep_).sum())} -- " + ", ".join(f"{k} {v}" for k, v in sorted(per.items())))
-        log(f"  sparse points: {len(sound)} inside domain holes from {P['points']}"
+        # THE INTERTIDAL BAND'S DEM CELLS ARE DATA (2026-11-02; the band above): one site per points_rim_step_m block at
+        # band_ground_sigma_m.  A parameter never beats an observation here: the DEM is data with a sigma, the shore profile
+        # only the prior.
+        n_bg = 0
+        if P.get("_band_ground") is not None and T is not None:
+            el_, pzb = P["_band_ground"]
+            k_b = max(int(round(P["points_rim_step_m"] / res)), 1)
+            orr, occ = np.nonzero(el_ & hole)
+            if orr.size:
+                _, first = np.unique((orr // k_b) * 1_000_003 + occ // k_b, return_index=True)
+                orr, occ = orr[first], occ[first]
+                sgb = float(P.get("band_ground_sigma_m", 1.0))
+                for rr, cc in zip(orr.tolist(), occ.tolist()):
+                    sound.append((rr, cc, T.c + (cc + 0.5) * res, T.f - (rr + 0.5) * res, float(pzb[rr, cc]), sgb)); pts[rr, cc] = True; sound_sv.append("ground_prior_band")
+                n_bg = int(orr.size)
+            log(f"  the intertidal band's DEM cells as points: {n_bg} sites at sigma {float(P.get('band_ground_sigma_m', 1.0)):g} m, one per {float(P['points_rim_step_m']):g} m block")
+            P["_band_ground"] = None; del el_, pzb
+        log(f"  sparse points: {len(sound)} inside domain holes from {P['points']}" + (f" (of which {n_bg} the DEM in the intertidal band)" if n_bg else "")
             + (f"; {nbound} lower bounds held for the active-set pass" if nbound else ""))
     # SHORE GRADIENT (Hig, 2026-10-14, Grewingk's outlet: "use measured gradients from shore nearby to
     # inform the assumed gradient"): one basin shape per lake gives every shore the same profile, so a
@@ -1520,14 +2247,19 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     interior = dom & ~band & ~lk                                 # holes AND the sounding cells: the prior ignores soundings
     fixed_val = np.where(np.isfinite(z) & rim, z, np.nan).astype(np.float64)
     fixed_val = np.where(band | lk, prior, fixed_val)                # a lake's shape bounds the dry ground beside it
+    # a floor-path sea domain with soundings: the interior prior is their kernel mean (above), fixed for the harmonic
+    sp_ = interior & np.isfinite(sound_prior)
+    if sp_.any():
+        prior[sp_] = sound_prior[sp_]; fixed_val[sp_] = sound_prior[sp_]
     fixed = np.isfinite(fixed_val)
-    if interior.any():
+    unk_ = interior & ~sp_
+    if unk_.any():
         # the band's inner edge sits at the floor, so the interior is harmonic between the
         # floor and whatever bed rim (bathymetry hull) bounds the domain.  The sounding cells
         # are unknowns here too: left out, a pocket of hole ringed by sounding lines had no
         # boundary at all (a singular system, and the solve wandered to +30 m, 2026-10-10)
-        sol = harmonic(fixed_val, fixed, interior, coarse=P["coarse"], iters=P["cg_iters"])
-        prior[interior] = sol[interior].astype(np.float32)
+        sol = harmonic(fixed_val, fixed, unk_, coarse=P["coarse"], iters=P["cg_iters"])
+        prior[unk_] = sol[unk_].astype(np.float32)
     interior &= hole
     # RESIDUAL conditioning by the soundings inside the domain
     fill = prior.copy()
@@ -1586,10 +2318,30 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     wzc = P.get("_water_z")
     if wzc is not None:
         L_ = np.where(np.isfinite(L_), L_, wzc).astype(np.float32)
+    L_ = np.where(np.isfinite(lens_hi), lens_hi, L_).astype(np.float32)     # a lens-capped cell: its own observed surface (above)
+    if P.get("intertidal_band"):
+        L_ = np.where(np.isfinite(lt_ceil), lt_ceil, L_).astype(np.float32)  # a floor-path sea domain: its own ceiling -- the intertidal band hangs from the land rim, the interior lies under low tide (2026-11-02)
+    else:
+        L_ = np.fmin(L_, lt_ceil).astype(np.float32)                          # a floor-path sea domain: low tide (above)
     # ...and a CHANNEL's cells too, at the channel's own surface (2026-10-28, run 20h: a channel at Grewingk's ice face
     # sat in the lake's domain, the lake's soundings spline lifted it 40-70 m above its 48.9 m surface, and the hold
     # skipped channel cells -- 882 water cells with a bed at 87-117 m)
     L_ = np.where(chan & np.isfinite(chan_ws), chan_ws, L_).astype(np.float32)
+    # THE CAP: the ceiling descends from the shore at slope_min_deg (the guard's rule, below) -- and since 2026-11-01 the
+    # ceiling pass holds the bed under the SAME cap: its sites stood at level - margin on a flat plane while the guard then
+    # cut at the cone, so the sites themselves built the shelf the guard was meant to prevent (Taylor Bay fix2c: 1,500
+    # sites 0.5 m under low tide, a 180 m plate at the cone)
+    dsh_ = dshore if land_rim.any() else np.zeros(z.shape, np.float32)
+    if P.get("_lt_dsh") is not None:                                          # the cone starts at the intertidal band's outer edge in a floor-path sea domain (2026-11-02)
+        dsh_ = np.where(np.isfinite(lt_ceil), P["_lt_dsh"], dsh_).astype(np.float32)
+    cap_ = L_ - np.maximum(0.1, dsh_ * np.tan(np.radians(float(P["slope_min_deg"])))).astype(np.float32)
+    # ...relaxed where the first cast in some direction is shallower than the cone (2026-11-02, the delta apron: the cone
+    # demanded 7 m of water 400 m out over a flat sounded at 2 ft) -- never above low tide less 0.1 m
+    rx_ok = np.isfinite(sea_relax)
+    if rx_ok.any():
+        n_rx = int((rx_ok & (np.fmin(sea_relax, L_ - 0.1) > cap_ + 1e-3)).sum())
+        cap_ = np.where(rx_ok, np.fmax(cap_, np.fmin(sea_relax, L_ - 0.1)), cap_).astype(np.float32)
+        log(f"  the cap relaxed by the nearest casts on {n_rx * res * res / 1e4:.1f} ha")
     ceil_mask = np.zeros(z.shape, np.uint8)        # 1 = held by a ceiling site in the soundings' fit, 2 = clipped by the guard
     # SOUNDINGS (2026-10-12, replaces "honoured exactly, harmonic residual in between"): a harmonic
     # residual is a cone at each sounding and a ridge along a sounding line (China Poot Lake: the
@@ -1604,15 +2356,55 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     if sound:
         S_ = np.array(sound, np.float64)
         base = fill.copy()
-        def spline_domain(i, Sd, tag=""):
-            r = _spline_residual(Sd, base, (lab == i) & hole, dom, inside_obs | rim, res, P,
-                                 T=P.get("_transform"), log=log, name=f"{int(i)}{tag}")
+        # THE BAND IS ITS OWN FIT (2026-11-02, tide1 on kj_r3c4: 23,626 DEM sites at sigma 1 m in the sea's one spline re-tuned
+        # its single smoothing, and a third of the subtidal moved by over 1 m with no change to its data).  In a floor-path
+        # sea domain with the intertidal band on: the band's sites (the DEM, the casts inside it) fit the band's cells alone,
+        # the land rim their zero boundary and the band's outer edge free (the taper); then the interior's prior is re-based
+        # on the band's FITTED edge -- a blend from the nearest band or rim cell's value to the interior's own prior, weighted
+        # by the cell's distance to that edge against its distance to the nearest interior cast (capped at band_blend_max_m):
+        # the band's value at the edge, the cast's prior at a cast, a smooth descent across the gap 3DEP flattened; and the
+        # interior's sites fit the interior's cells with the band as a further zero boundary (value continuity).  Lakes and
+        # lens domains are fitted whole, as before.
+        band_fp = (band & hole & np.isin(lab, list(nolens_ids))) if (P.get("intertidal_band") and nolens.any()) else np.zeros(z.shape, bool)
+        slab = lab[S_[:, 0].astype(int), S_[:, 1].astype(int)]
+        sband = band_fp[S_[:, 0].astype(int), S_[:, 1].astype(int)]
+        fp_ids = {int(i) for i in np.unique(slab) if band_fp[lab == i].any()} if band_fp.any() else set()
+        def part_of(i):
+            return "interior" if int(i) in fp_ids else "all"
+        def Sd_base(i):
+            return S_[(slab == i) & ~sband] if int(i) in fp_ids else S_[slab == i]
+        def spline_domain(i, Sd, tag="", part="all"):
+            if part == "band":
+                cells_ = (lab == i) & hole & band_fp; bnd_ = inside_obs | rim
+            elif part == "interior":
+                cells_ = (lab == i) & hole & ~band_fp; bnd_ = inside_obs | rim | band_fp
+            else:
+                cells_ = (lab == i) & hole; bnd_ = inside_obs | rim
+            r = _spline_residual(Sd, base, cells_, dom, bnd_, res, P, T=P.get("_transform"), log=log, name=f"{int(i)}{tag}")
             if r is not None:
                 m_ = np.isfinite(r)
                 fill[m_] = (base[m_] + r[m_]).astype(np.float32)
-        slab = lab[S_[:, 0].astype(int), S_[:, 1].astype(int)]
         for i in np.unique(slab):
-            spline_domain(i, S_[slab == i])
+            if int(i) in fp_ids:
+                spline_domain(i, S_[(slab == i) & sband], tag=" band", part="band")
+            else:
+                spline_domain(i, S_[slab == i])
+        if fp_ids:
+            edge_ = band_fp | rim
+            dE, (er_, ec_) = ndimage.distance_transform_edt(~edge_, return_indices=True, sampling=res)
+            ipts = pts & ~band_fp
+            dC = ndimage.distance_transform_edt(~ipts, sampling=res) if ipts.any() else np.full(z.shape, np.inf)
+            Lm = float(P.get("band_blend_max_m", 500.0)); dCc = np.minimum(dC, Lm)
+            w_ = (dCc / np.maximum(dE + dCc, 1e-6)).astype(np.float32)
+            ev_ = np.where(band_fp, fill, np.where(np.isfinite(z), z, np.nan))[er_, ec_]
+            ok_ = dom & hole & ~band_fp & np.isin(lab, list(fp_ids)) & np.isfinite(fill) & np.isfinite(ev_)
+            fill[ok_] = (w_[ok_] * ev_[ok_] + (1.0 - w_[ok_]) * fill[ok_]).astype(np.float32)
+            base = fill.copy()
+            log(f"  the band fitted alone in {len(fp_ids)} domains; the interior's prior re-based on the band's fitted edge on "
+                f"{int(ok_.sum()) * res * res / 1e4:.1f} ha (blend weight p50 {float(np.median(w_[ok_])) if ok_.any() else float('nan'):.2f}, the cast distance capped at {Lm:g} m)")
+            del dE, er_, ec_, dC, dCc, w_, ev_, ok_, ipts
+            for i in sorted(fp_ids):
+                spline_domain(i, Sd_base(i), tag=" interior", part="interior")
         # LOWER BOUNDS, one active-set pass: a bound the surface violates (bed shallower than the line
         # that ran out) joins its domain's points AT the bound, and that domain is refitted.
         if bounds:
@@ -1623,7 +2415,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 f"(by {np.round(fill[br_, bc_][viol] - B_[viol, 4], 1).tolist()} m)")
             for i in np.unique(lab[br_[viol], bc_[viol]]):
                 add = B_[viol & (lab[br_, bc_] == i)]
-                spline_domain(i, np.vstack([S_[slab == i], add]), tag=" +bounds")
+                spline_domain(i, np.vstack([Sd_base(i), add]), tag=" +bounds", part=part_of(i))
             still = fill[br_, bc_] > B_[:, 4] + 1.0
             if still.any():
                 log(f"  lower bounds still violated by > 1 m after the pass: {int(still.sum())}")
@@ -1633,7 +2425,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         # the surface bends down under its water instead of being cut flat at it.  Lower bounds already added stay in.
         mg_ = float(P["ceiling_margin_m"])
         k_ = max(int(round(P["points_rim_step_m"] / res)), 1)
-        Sd_all = {int(i): S_[slab == i] for i in np.unique(slab)}
+        Sd_all = {int(i): Sd_base(i) for i in np.unique(slab)}
         if bounds:
             for i in np.unique(lab[br_[viol], bc_[viol]]):
                 Sd_all[int(i)] = np.vstack([Sd_all.get(int(i), np.zeros((0, 6))), B_[viol & (lab[br_, bc_] == i)]])
@@ -1642,7 +2434,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         # the shoreline the bed meets the water by the boundary condition, and a site there would contradict it
         inner = ndimage.distance_transform_edt(hole, sampling=res) > float(P["points_rim_step_m"])
         for pass_ in range(int(P["ceiling_passes"])):
-            over = (dom & hole & inner & ~tidal_cells & np.isfinite(L_) & np.isfinite(fill) & (fill > L_ - 0.1)
+            over = (dom & hole & inner & ~tidal_cells & ~band_fp & np.isfinite(cap_) & np.isfinite(fill) & (fill > cap_ - 0.1)
                     & np.isin(lab, list(Sd_all)))
             if not over.any() or Tf is None:
                 break
@@ -1650,14 +2442,14 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             _, first = np.unique((orr // k_) * 1_000_003 + occ // k_, return_index=True)
             orr, occ = orr[first], occ[first]
             add = np.column_stack([orr, occ, Tf.c + (occ + 0.5) * res, Tf.f - (orr + 0.5) * res,
-                                   L_[orr, occ] - mg_, np.full(len(orr), float(P["points_rim_sigma_m"]))])
+                                   cap_[orr, occ] - mg_, np.full(len(orr), float(P["points_rim_sigma_m"]))])
             dl = lab[orr, occ]
-            log(f"  ceiling pass {pass_ + 1}: {int(over.sum())} cells within 0.1 m of their water or above it "
-                f"(up to {float(np.max(fill[over] - L_[over])):.1f} m above) in {len(np.unique(dl))} domains; {len(add)} ceiling sites")
+            log(f"  ceiling pass {pass_ + 1}: {int(over.sum())} cells within 0.1 m of their cap (the water, descending from the shore) or above it "
+                f"(up to {float(np.max(fill[over] - cap_[over])):.1f} m above) in {len(np.unique(dl))} domains; {len(add)} ceiling sites")
             ceil_mask[over] = np.maximum(ceil_mask[over], 1)
             for i in np.unique(dl):
                 Sd_all[int(i)] = np.vstack([Sd_all[int(i)], add[dl == i]])
-                spline_domain(i, Sd_all[int(i)], tag=f" +ceiling{pass_ + 1}")
+                spline_domain(i, Sd_all[int(i)], tag=f" +ceiling{pass_ + 1}", part=part_of(i))
         sdist = ndimage.distance_transform_edt(~pts, sampling=res)
         mask[(dom & hole) & (sdist <= 3 * P["cond_m"])] = 3
     # A LAKE'S MODELLED BED NEVER STANDS ABOVE ITS WATER (2026-10-14, Grewingk's SE corner, v5): the shore residuals
@@ -1672,13 +2464,18 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # and this clip is the last-resort guard: a clipped surface is a plateau exactly at the constraint -- the flat
     # shelves 10 cm under Grewingk's 48.91 m lake at its ice face in run 20h2 were this clip -- so every cell it holds is
     # recorded (fill_ceiling.tif = 2) for the review's flags.
-    up = dom & hole & ~tidal_cells & np.isfinite(L_) & np.isfinite(fill) & (fill > L_ - 0.1)
+    # ...and the guard's ceiling DESCENDS FROM THE SHORE (2026-10-31, upbay_t fix2: tidal creeks 10-20 m wide on the flats,
+    # their banks' gentle slope extended over them above their water, no sounding in them, cut to one plane 0.1 m under the
+    # surface -- the review's shelf signature over 1,200 cells): a bed under water lies below it by at least the minimum
+    # slope's drop from the nearest shore, slope_min_deg (a creek deepens away from its banks), never less than 0.1 m.
+    up = dom & hole & ~tidal_cells & np.isfinite(L_) & np.isfinite(fill) & (fill > cap_)
     if up.any():
         nl_ = int((up & np.isfinite(lv_[lab])).sum())
-        log(f"  bed held below the water (the guard): {int(up.sum()) * res * res / 1e6:.4f} km2 (up to {float(np.max(fill[up] - L_[up])):.1f} m above; "
-            f"{nl_} cells in lakes, {int(up.sum()) - nl_} in rivers and pools at the stage's level)")
-        fill[up] = L_[up] - 0.1
+        log(f"  bed held below the water (the guard, descending from the shore at {float(P['slope_min_deg']):g} deg): {int(up.sum()) * res * res / 1e6:.4f} km2 "
+            f"(up to {float(np.max(fill[up] - L_[up])):.1f} m above the water; {nl_} cells in lakes, {int(up.sum()) - nl_} in rivers and pools at the stage's level)")
+        fill[up] = cap_[up]
         ceil_mask[up] = 2
+    del cap_, dsh_
     # the tidal lens: the water surface is a CEILING -- the conditioning (rim residual, spline) never lifts the bed above it
     upt = tidal_cells & hole & np.isfinite(fill) & np.isfinite(lake_prior) & (fill > lake_prior)
     if upt.any():
@@ -1699,6 +2496,14 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             log(f"  lake bed held above its floor (hand-set / capped depth): {int(low.sum()) * res * res / 1e4:.2f} ha "
                 f"(up to {float(np.max(F_[low] - fill[low])):.1f} m below)")
             fill[low] = F_[low]
+    # THE SEA'S SHORE FROM TIDE-LEVEL CONTOURS (2026-11-03): see shoreface.py; it replaces the floor-path domains' surface outright
+    shoreface_R = None
+    if contour_model and land_rim.any():
+        from .shoreface import contour_sea
+        shoreface_R = contour_sea(z, hole, dom, lab, nolens_ids, rim, land_rim, srim, res, P, log=log, dry_from=nw)
+        if shoreface_R is not None:
+            c_ = shoreface_R["cells"]; ok_ = c_ & np.isfinite(shoreface_R["fill"])
+            fill[ok_] = shoreface_R["fill"][ok_]; prior[c_] = np.nan; mask[c_] = shoreface_R["mask"][c_]; ceil_mask[c_] = 0
     # SIGMA
     drim = ndimage.distance_transform_edt(~rim, sampling=res) if rim.any() else np.full(z.shape, 1e4)
     s_prior = P["sigma_prior_m"] + P["sigma_rim_m"] * drim / 100.0
@@ -1712,7 +2517,12 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     if sdist is not None:                          # the soundings: points_sigma_m at them, growing ~0.15 m/m
         sig = np.minimum(sig, np.sqrt(P["points_sigma_m"] ** 2 + (P["points_sigma_per_m"] * sdist) ** 2))
     sigma = np.where(dom & hole & np.isfinite(fill), sig, np.nan).astype(np.float32)
+    if shoreface_R is not None:
+        sigma[shoreface_R["cells"]] = shoreface_R["sigma"][shoreface_R["cells"]]
     fill[~(dom & hole)] = np.nan; prior[~(dom & hole)] = np.nan
+    if prior_ground.any():                                        # the ground prior inside a large void (above): carried as the fill
+        fill[prior_ground] = prior_gz[prior_ground]; mask[prior_ground] = 8
+        sigma[prior_ground] = float(P.get("prior_ground_sigma_m", 3.0))
     log(f"  filled {int(np.isfinite(fill).sum()) * res * res / 1e6:.3f} km2: band {int(band.sum()) * res * res / 1e6:.3f}, "
         f"interior {int(interior.sum()) * res * res / 1e6:.3f}, conditioned {int(cond.sum()) * res * res / 1e6:.3f} km2; "
         f"sigma p50 {np.nanmedian(sigma):.2f} m")
@@ -1742,5 +2552,5 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         if add_.any():
             lvl_ = lvl_.copy(); lvl_[add_] = vals_[add_]
             log(f"  water level written over the measured bed inside flat bodies: {int(add_.sum()) * res * res / 1e4:.2f} ha")
-    return dict(fill=fill, prior=prior, mask=mask, sigma=sigma, domain=dom, marine=marine, lakes=lake_tab, surface=surface, dryvoid=dryvoid, water_level=lvl_, ceiling=ceil_mask,
+    return dict(fill=fill, prior=prior, mask=mask, sigma=sigma, domain=dom, marine=marine, lakes=lake_tab, surface=surface, dryvoid=dryvoid, water_level=lvl_, ceiling=ceil_mask, sound_prior=sound_prior, tide_contours=(shoreface_R or {}).get("contours"), cast_review=(shoreface_R or {}).get("cast_review"), cast_lines=(shoreface_R or {}).get("cast_lines"), rock_review=(shoreface_R or {}).get("rock_review"), edit_check=(shoreface_R or {}).get("edit_check"),
                 channels=chan_tab)

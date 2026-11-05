@@ -71,14 +71,14 @@ from .axes import CLASSES, is_prior
 from .water import load_bodies, load_mapped, FLAT_KINDS, TIDAL_KINDS
 from .fill import slope_deg, _nmean
 
-DEFAULTS = dict(band_m=40.0, band_tidal_m=100.0, sure_dz_m=1.0, sigma_w_m=0.25, sigma_l_m=0.3, sigma_l_per_m=0.03,
+DEFAULTS = dict(island_tall_frac=0.25, band_m=40.0, band_tidal_m=100.0, sure_dz_m=1.0, sheet_dz_m=0.5, sigma_w_m=0.25, sigma_l_m=0.3, sigma_l_per_m=0.03,
                 cost_cap=8.0, prior_cost=1.0, prior_edge_m=6.0, class_cost=0.5, body_cost=1.0, debug=False, smooth=2.0, break_m=0.5,
                 inland_m=10.0, slope_min_deg=1.0, slope_max_deg=70.0,
                 glacier_min_km2=0.5, glacier_touch_m2=10000.0, glacier_near_m=300.0, island_corr=0.25, island_min_m2=50.0,
                 river_smooth_m=50.0, tidal_smooth_m=20.0, glaciers=None, min_ring_m=20.0,
                 nobody_min_cells=4, nobody_flat_m=0.5, river_max_rms_m=1.0, berg_max_m2=50000.0, route_m=60.0, prior_flat_m=1.0,
                 tide_max_m=4.5, tide_stand_lo_m=0.5, low_tide_m=None, river_tide_tol_m=0.3,
-                nobody_isolated_cells=100, poly_level_cells=100, poly_level_tol_m=0.1)
+                nobody_isolated_cells=100, poly_level_cells=100, poly_level_tol_m=0.1, lake_ground_tol_m=0.2)
 LAND_CODES = ("ground", "built", "canopy", "snow")
 LBL = dict(none=0, land=1, water=2, floating=3, glacier=4)
 S8 = np.ones((3, 3), bool)
@@ -658,6 +658,10 @@ def run(recipe, log=print):
                 z[si == k] = np.nan; log(f"  a previous fill's cells are holes again: {nf * res * res / 1e6:.3f} km2")
     prior_cell = np.isin(si, prior_idx) if (si is not None and prior_idx) else np.zeros(z.shape, bool)
     outside = (cov == 0) if cov is not None else np.zeros(z.shape, bool)
+    from .water import surveyed_sea
+    ss_ = surveyed_sea(B, bid) & outside
+    if ss_.any():
+        outside &= ~ss_; log(f"  the sea the points surveyed is not outside: {int(ss_.sum()) * res * res / 1e6:.3f} km2")
     # ---- the mapped water: trusted shorelines (a prior for the cut, no glacier inside one, one level inside one) and islands
     mp = np.zeros(z.shape, bool); mi = np.zeros(z.shape, bool); mpid = np.zeros(z.shape, np.int32); n_tr = 0
     noise_m = np.zeros(z.shape, bool); review_over = {}
@@ -794,6 +798,22 @@ def run(recipe, log=print):
     sure_dz = float(cfg["sure_dz_m"])
     sure_land = (solid & ((dz >= sure_dz) | (dwat > bw_near))) | glacier
     sure_land |= solid & ~np.isfinite(L_near)
+    # A SURVEY'S SHEET AT A LAKE'S LEVEL IS NOT SURE LAND (2026-10-31, Hig's review of the fix1 crops: the 61 ha lake at
+    # 59.31234,-151.86813 -- the KBay 2023 lidar saw water on 32 % of it and a 'ground' sheet 2-3 cm over its 12.86 m
+    # level on the rest, farther than band_m from any water cell, so the distance rule above made it sure land and the
+    # cut never judged it; the mapped polygon pins only unobserved cells).  Inside a non-tidal flat body (a lake, an
+    # ephemeral pond -- a tide flat at the tide's stand IS land and keeps the rule) a solid cell within sheet_dz_m of the
+    # body's level goes to the band's cost model whatever its distance from water: water predicts the level, land the
+    # shore continued, and the cut decides with its neighbours.  A beach at the level inside the polygon is judged the
+    # same way, which is the point: the stage decides, not the band's reach.
+    sheet = np.zeros(z.shape, bool)
+    lake_ids = [int(k) for k, b in btab.items() if b.get("kind") in FLAT_KINDS and b.get("kind") not in TIDAL_KINDS]
+    if lake_ids:
+        sheet = solid & obs & np.isin(bid, lake_ids) & np.isfinite(L_near) & (np.abs(dz) <= float(cfg["sheet_dz_m"])) & ~glacier
+        if sheet.any():
+            sure_land &= ~sheet
+            log(f"  solid sheets at a lake's level (within {float(cfg['sheet_dz_m']):g} m) inside its body, given to the band instead of sure land: "
+                f"{int(sheet.sum()) * res * res / 1e4:.2f} ha in {len(np.unique(bid[sheet]))} bodies")
     in_body = bid > 0
     # unequivocal water: a measured bed; a water return at the level inside a body; and a SOLID return inside a body
     # standing below the level (ground seen through shallow water, the bed of a pond that was dry on another date):
@@ -817,7 +837,22 @@ def run(recipe, log=print):
     hole_water = ~obs & in_body & ~outside                      # a hole inside a body: water, no observation
     # the band is a ribbon either side of the water's edge: within bw of water, and within bw of the dry side
     dnw = ndimage.distance_transform_edt(water_any, sampling=res)
-    band = ~sure_land & ~sure_water & ~outside & (dwat <= bw_near) & (dnw <= bw_near) & np.isfinite(L_near)
+    band = ~sure_land & ~sure_water & ~outside & (((dwat <= bw_near) & (dnw <= bw_near)) | sheet) & np.isfinite(L_near)
+    # inside a sea only the POINTS surveyed (a compilation body: nothing observed anywhere in it, its edge drawn by the
+    # points' closing less the ground that stands above low tide) an unobserved cell is the sea, not a band cell: with no
+    # observation and no trusted polygon the cut had nothing to weigh and gave 190 of 205 ha to land (plates_t fix2, 2026-10-31)
+    # ...and the same for the band on its dry side (tip_t fix2: the lagoon's unobserved ring within band_tidal_m of the sea
+    # was cut to land, then bridged by the fill to -0.3 m -- dry ground under the tide): with no observation there the
+    # label is undecided (0), the fill bridges it, and the composite shows the surface.
+    ss0_ = surveyed_sea(B, bid)
+    if ss0_.any():
+        dss_ = ndimage.distance_transform_edt(~ss0_, sampling=res)
+        cb_ = ~obs & band & (dss_ <= bw_near); del dss_
+        if cb_.any():
+            band &= ~cb_
+            log(f"  unobserved cells in and beside the points' sea are not the band's to cut: {int((cb_ & ss0_).sum()) * res * res / 1e4:.1f} ha "
+                f"inside it (the sea), {int((cb_ & ~ss0_).sum()) * res * res / 1e4:.1f} ha beside it (undecided, the fill's)")
+    del ss0_
     # observed cells inside a body beyond the band that are neither sure water nor sure land -- a berg top out
     # on the lake, a boat -- are raised land for the enclosed-patch judgement below
     inside_raised = obs & in_body & ~band & ~sure_water & ~sure_land & ~outside
@@ -920,6 +955,9 @@ def run(recipe, log=print):
         built = np.asarray(ndimage.mean((cls == CLASSES.get("built", -1)).astype(np.float32), pl, pidx)) > 0.5
         waterc = np.asarray(ndimage.mean(water_cls.astype(np.float32), pl, pidx)) > 0.5
         dzm = np.asarray(ndimage.median(np.where(enclosed, np.nan_to_num(dz, nan=0.0), 0.0), pl, pidx))
+        # a quarter of the patch standing sure_dz over the level is ground whatever its median says (2026-11-03, Windy: a 2.2 ha
+        # island rising to 16 m, a low apron round it, median 2.4 m under a level of 3.3 m: "the surface")
+        tall = np.asarray(ndimage.mean(np.nan_to_num(dz, nan=0.0) >= sure_dz, pl, pidx)) >= float(cfg["island_tall_frac"])
         com = ndimage.center_of_mass(enclosed, pl, pidx)
         decision = np.full(pn, LBL["land"], np.uint8)
         for q in range(pn):
@@ -927,11 +965,11 @@ def run(recipe, log=print):
             proglacial = bool(icec.get(b)) or bool(near_gl[q])
             if mapped_isl[q] or wfrac[q] < 0.5:
                 decision[q] = LBL["land"]; n_isl += 1
-            elif dzm[q] < sw:
+            elif dzm[q] < sw and not tall[q]:
                 decision[q] = LBL["water"]; n_spk += 1          # AT the level, within the water's own noise: the surface, whoever saw
             elif corr[q]:                                       # it (two lidars read China Poot Lake's surface as ground 6 cm under its level)
                 decision[q] = LBL["land"]; n_isl += 1           # beyond that noise two surveys' ground is ground: a tide flat 0.38 m over the
-            elif dzm[q] < sure_dz:                              # day's tide is the dry flat (run 20f, 5 ha at 598227,6603813, sure_dz had
+            elif dzm[q] < sure_dz and not tall[q]:              # day's tide is the dry flat (run 20f, 5 ha at 598227,6603813, sure_dz had
                 decision[q] = LBL["water"]; n_spk += 1          # outranked the corroboration); one survey's patch near the level is the surface
             elif proglacial:
                 decision[q] = LBL["floating"]; n_flt += 1       # a proglacial lake expects bergs, whatever their returns were classed
@@ -1174,6 +1212,24 @@ def run(recipe, log=print):
         mv = flt_ & np.isfinite(Hf) & ~(np.isfinite(lev_out) & (np.abs(lev_out - Hf) <= 0.05))
         lev_out[mv] = Hf[mv]
         log(f"  floating ice at its host water's level: {nf} patches, {int(mv.sum())} cells moved")
+    # ---- GROUND INSIDE A LAKE (2026-11-01, Upper and Lower Hazel): a topographic laser does not see a lake bed.  A
+    # land-classed return (ground, built, canopy, snow) inside a lake's water at or below its level (+ lake_ground_tol_m)
+    # is the surface, a bar seen at a lower stand, or an interpolated surface (ArcticDEM's), never the bed: it is no
+    # observation, like a water-blind cell, so the build voids the layer there (blind_water) and the fill models the bed.
+    # Lakes only: tidal ground stands below the tide's level by nature, and a river's bed is its own stage.  Land below a
+    # lake's level OUTSIDE the water label stands (a pit behind a berm is land).  The rule lives here, not in the fill,
+    # because water_blind.tif is what the build reads: a drop the fill alone made (fix2g's first cut) left the joint's
+    # surface in the product over the fill's modelled bed -- the 2026-10-25 lesson again.  A lake seen at two stands
+    # (a lower stand's bar is a real bed) is the multi-level-lake item; one level per body today.
+    lake_ids = [int(k) for k, b in btab.items() if b.get("kind") == "lake"]
+    if lake_ids and land_codes:
+        lg = ((label == LBL["water"]) & np.isin(bid, lake_ids) & np.isfinite(z) & ~prior_cell & np.isin(cls, land_codes)
+              & np.isfinite(lev_out) & (z < lev_out + float(cfg["lake_ground_tol_m"])))
+        if lg.any():
+            blind_in = blind_in | lg
+            log(f"  ground inside a lake: {int(lg.sum()) * res * res / 1e4:.2f} ha of land-classed returns inside lakes at or below their level "
+                f"(< level + {float(cfg['lake_ground_tol_m']):g} m; {int((lg & (cls == CLASSES.get('ground', -1))).sum()) * res * res / 1e4:.2f} ha "
+                f"classed ground) are no observation (water_blind.tif: the build voids the layer, the fill models the bed)")
     # ---- BANK SLOPE at the shoreline (land cells touching water), the slope of the land behind it
     shore_cells = np.isin(label, (LBL["land"], LBL["glacier"])) & ndimage.binary_dilation(wet, S8)
     fin_l = np.isfinite(S) & np.isin(label, (LBL["land"], LBL["glacier"]))

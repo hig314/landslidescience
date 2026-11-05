@@ -7,7 +7,9 @@
 A PACKAGE is what a per-source ingest script (tools/soundings/ingest_*.py, run
 on the Mac against the untouched originals) writes:
 
-  survey.json     the survey record (columns of sounding_surveys), its
+  survey.json     the survey record (columns of sounding_surveys; `dense: true`
+                  for a hydrographic survey of tens of thousands of points, served
+                  only within a bbox -- re-run migrate_soundings first), its
                   `levels` (water bodies: key, water_body, level_m, datum,
                   sigma_m, observed_on, source, lon, lat) and `ingest` (what
                   the script did: unit changes, rows dropped and why, counts).
@@ -32,10 +34,10 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 
 SURVEY_COLS = ['slug', 'title', 'collector', 'collected_from', 'collected_to', 'method', 'instrument',
-               'depth_unit', 'sigma_m', 'horizontal_m', 'licence', 'citation', 'public', 'raw_path', 'notes']
+               'depth_unit', 'sigma_m', 'horizontal_m', 'licence', 'citation', 'public', 'raw_path', 'notes', 'dense']
 # What the table's NOT NULL columns take when survey.json leaves them out.
 DEFAULTS = dict(collector='', method='sounder', instrument='', depth_unit='m', sigma_m=1.0, licence='',
-                citation='', public=False, raw_path='', notes='')
+                citation='', public=False, raw_path='', notes='', dense=False)
 
 
 def _bound(v):

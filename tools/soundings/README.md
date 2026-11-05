@@ -56,6 +56,36 @@ Production: `migrate_soundings` once, then the package dirs rsynced to the
 droplet's `data/soundings/` and `load_soundings` run there (dev and prod are
 separate databases, as for every PostGIS command).
 
+## Dense surveys: the NOS digital soundings and the CRM centres (2026-11-01)
+
+Hig, reviewing the Taylor Bay bathymetry: "expose the data you're using to
+build the bathymetry as sounding points, like we do with lake soundings — I'd
+like to understand where the inference is coming from." The topobathy fill
+infers the sea bed between the modern surveys from the NOS hydrographic
+surveys' digital soundings (38 surveys, 1915–84, 325,932 points of record)
+and from the CRM's 500 m cell centres (21,710, sigma 10, a compilation and
+never an observation), so they are sounding surveys here too:
+`ingest_nos_geodas.py` writes one package per NOS survey (`nos_h05101`…) and
+`crm_southak_500m`, each point with the sigma the fill gave it (lead line 2 m,
+echo sounder 0.8 m, plus position × the local bed gradient; a lone line takes
+the 10 m cap), every point hanging from one level, `mllw` = NAVD88 −1.38 m at
+Seldovia. Superseded rows (`active = 0`) are not loaded.
+
+They are **`dense: true`** (`sounding_surveys.dense`, added by re-running
+`migrate_soundings`): the API serves a dense survey's points only inside a
+bbox (`?dense=1&bbox=`, capped at 80,000 a response with `truncated`), and
+`soundings.js` fetches them per view from zoom 12.5, merging them into the
+same layer as the lake soundings — same dots, popup, profile and 3D markers.
+A plain request still returns the lake surveys whole, with the dense surveys
+listed and pointless.
+
+**Exports after this:** `export_soundings` exports every survey, so an export
+made after these are loaded carries the NOS and CRM points too. A recipe then
+names that ONE file in `fill.points`, not the export plus the separate
+`nos_*.csv` / `crm_*.csv` files (the 2026-10-31 recipes name the four files;
+they predate the load) — naming both would count every point twice. Or
+restrict the export with `--survey` to the lake surveys.
+
 ## ADF&G hand-drawn contour maps (planned, table ready)
 
 Fish and Game lake maps record old surveys as hand-drawn depth contours,
@@ -84,3 +114,12 @@ script on the pattern above writes `contours.geojson`.
   clobber rows edited after the last load.
 - The /lidar/ group-profile and the inventory profile could also draw contour
   crossings.
+
+**Positions of the 1915–31 surveys are shifted** (2026-11-01): NCEI's
+conversion of their Early Alaska Datums to NAD83 is some 400 m E / 320 m N
+short in Kachemak Bay (casts on land). `tools/lidar/topobathy/nos_offsets.py`
+measures one translation per survey (land above MHHW, and depth matching
+against 1977–84 where they overlap); the same JSON moves the composite's
+points and, through `ingest_nos_geodas.py --offsets`, these packages, whose
+title, notes and `ingest.position_shift` record it. BAY_SOURCES.md §8.2;
+/lidar/methods/ §11 explains it to readers.

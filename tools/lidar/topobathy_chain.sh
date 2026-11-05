@@ -22,7 +22,7 @@ cd "$HERE"
 # built on them -- carried the old zone)
 rm -f "$WORK"/out/intertidal.tif "$WORK"/out/intertidal_anchors.tif "$WORK"/out/water_bodies.tif "$WORK"/out/water_bodies.geojson \
       "$WORK"/out/water_obs.geojson "$WORK"/out/water.json "$WORK"/out/fill.tif "$WORK"/out/fill_surface.tif "$WORK"/out/fill_dryvoid.tif \
-      "$WORK"/out/fill_mask.tif "$WORK"/out/fill_prior.tif "$WORK"/out/fill_sigma.tif \
+      "$WORK"/out/cast_review.geojson "$WORK"/out/cast_lines.geojson "$WORK"/out/shore_contours.geojson "$WORK"/out/edit_check.json "$WORK"/out/fill_mask.tif "$WORK"/out/fill_prior.tif "$WORK"/out/fill_sigma.tif \
       "$WORK"/out/shore_label.tif "$WORK"/out/water_blind.tif "$WORK"/out/shore_level.tif "$WORK"/out/shore_slope.tif "$WORK"/out/shore_band.tif "$WORK"/out/shoreline.geojson "$WORK"/out/shore.json
 # 3DEP's hydroflattened lakes as water (topobathy/flat_water.py), where the recipe's context layer reads it
 # (rebuilt when flat_water.py is newer than it: r4c3 kept a 2026-10-18 mask without the sea code and its 0 m plateau)
@@ -36,4 +36,5 @@ stamp "build 2";         $PY composite.py build "$RECIPE" "$@"        > "$WORK/b
 stamp "shore";           $PY composite.py shore "$RECIPE"            > "$WORK/shore.log"  2>&1
 stamp "fill";            $PY composite.py fill  "$RECIPE"             > "$WORK/fill1.log"  2>&1
 stamp "build 3";         $PY composite.py build "$RECIPE" "$@"        > "$WORK/build3.log" 2>&1
+stamp "high line";       $PY composite.py highline "$RECIPE"          > "$WORK/highline.log" 2>&1
 stamp "done"

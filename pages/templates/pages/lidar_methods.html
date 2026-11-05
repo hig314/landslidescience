@@ -32,7 +32,7 @@ Anchors are load-bearing: lidar_preview.html links to them.
     <li><a href="#view">View</a></li>
     <li><a href="#3d">3D terrain and context</a></li>
     <li><a href="#traces">Landform traces</a></li>
-    <li><a href="#soundings">Lake soundings</a></li>
+    <li><a href="#soundings">Soundings</a></li>
     <li><a href="#heights">Heights and vertical datums</a></li>
   </ol>
 </nav>
@@ -263,7 +263,7 @@ Anchors are load-bearing: lidar_preview.html links to them.
   projected all the same, so read offsets before reading a trend.
 </p>
 
-<h3 id="soundings">11. Lake soundings</h3>
+<h3 id="soundings">11. Soundings: lakes and the old hydrographic surveys</h3>
 <p>
   Depths measured in lakes and near shore that are too sparse to be a survey
   of their own: soundings from a handheld sounder or a lead line, and depth
@@ -286,6 +286,48 @@ Anchors are load-bearing: lidar_preview.html links to them.
   GPS position, drift) and the level's, added in quadrature. On the inventory
   map's elevation profile, soundings near the line appear as dots with that
   uncertainty as a bar.
+</p>
+<p>
+  <strong>The old hydrographic surveys.</strong> The same layer carries the
+  soundings the Kachemak Bay topobathy infers its sea bed from where no modern
+  survey reaches: the National Ocean Service's digital soundings for the bay
+  (NOAA NCEI GEODAS; 38 surveys, 1915–84, lead line until 1931 and echo
+  sounder from 1977), depths below mean lower low water hanging from one
+  level, MLLW at Seldovia, 1.38 m below NAVD88. Each point carries the
+  uncertainty the composite gave it: 2 m for a lead line and 0.8 m for an
+  echo sounder, plus the position's uncertainty (100 m and 30 m) times the
+  local slope of the bed, capped at 10 m, so a lone cast on a steep flank
+  shows as ±10 m. These surveys are dense, so their points load for the
+  view once you are zoomed in. NCEI's cell centres from its Southern Alaska
+  Coastal Relief Model appear too, labelled a compilation: they are not
+  measurements, and the composite uses them only as the shape of the bed
+  where nothing else reaches, at ±10 m. Between soundings the composite's
+  bed is built as a lake's is: first a smooth profile of depth against
+  distance from the shore, fitted to the casts near each place (their median
+  depth in each band of distance, never shallower farther out) and bounded by
+  the first cast met in every direction, so that a line of shallow casts says
+  the flat inside it is shallow; then a smooth surface fitted through the
+  casts within their uncertainties, so the shape between casts is the
+  smoothest one that passes near them all, and no cast sits at the centre of
+  a bowl or a disc of its own depth. A survey's coverage edge does not divide
+  the sea: touching marine areas are modelled as one.
+</p>
+<p>
+  <strong>The 1915–31 positions are shifted.</strong> NCEI records these
+  surveys' horizontal datum as NAD83, converted from each survey's own
+  "Early Alaska Datum". In Kachemak Bay that conversion falls short: the
+  1930–31 casts sit about 400 m south-west of where they were made, on dry
+  ground above high water and short of the bays they sounded. We measured
+  one translation per survey two independent ways, the shift that takes the
+  fewest casts onto the modern lidar's land above high water, and, where a
+  1977–84 survey overlaps, the shift that best matches the two surveys'
+  depths; they agree to within about 50 m. The 1930–31 surveys move 380–420 m
+  east and 300–360 m north, the 1915 survey 240 m east and 260 m north,
+  and surveys with no evidence of their own take their season's median. A
+  shifted survey says so in its title and notes, with the shift, how it was
+  found and the original datum; the raw files are untouched. Depths are not
+  changed, and the 1930s depths read about 1 m shallower than the 1977–84
+  ones where they overlap, as the 1964 subsidence would have it.
 </p>
 
 <h3 id="heights">12. Heights and vertical datums</h3>

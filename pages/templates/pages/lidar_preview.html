@@ -2436,13 +2436,25 @@ vanish depending on which way you light them.
   });
   // Lake soundings (soundings.js; the tables are inventory's): fetched the first
   // time they are shown, under the traces like every other layer.
+  // The status line: the lake surveys, and the dense hydrographic surveys (NOS 1915-84 digital soundings, the CRM
+  // centres -- what the topobathy infers its sea bed from), which load per view from zoom 12.5.
+  function sdInfo() {
+    var fc = LSSoundings.all();
+    if (!fc) return;
+    var d = LSSoundings.denseInfo(), nd = d.surveys;
+    var sv = fc.surveys.length - nd;
+    var n = fc.features.filter(function (f) { return f.properties.kind === 'sounding'; }).length - d.loaded;
+    var t = sv ? n + ' lake soundings from ' + sv + ' survey' + (sv === 1 ? '' : 's') + '. ' : '';
+    if (nd) t += nd + ' hydrographic surveys (NOS 1915\u201384, CRM): ' +
+      (d.inRange ? d.loaded + ' points in view' + (d.truncated ? ' (capped at ' + d.truncated + ', zoom in)' : '')
+                 : 'zoom in past ' + d.minZoom + ' to see them') + '. ';
+    document.getElementById('sd-info').textContent = (t || 'No soundings yet. ') + 'Click one for its source.';
+  }
+  LSSoundings.onChange(sdInfo);
+  map.on('moveend', function () { if (LSSoundings.visible()) sdInfo(); });
   function soundingsShow(on) {
-    if (on) LSSoundings.init({ map: map, api: '/inventory/', bars: true }).then(function (fc) {
-      var n = fc.features.filter(function (f) { return f.properties.kind === 'sounding'; }).length;
-      document.getElementById('sd-info').textContent = fc.surveys.length
-        ? n + ' soundings from ' + fc.surveys.length + ' survey' + (fc.surveys.length === 1 ? '' : 's') +
-          (fc.features.length > n ? ', ' + (fc.features.length - n) + ' contours' : '') + '. Click one for its source.'
-        : 'No soundings yet.';
+    if (on) LSSoundings.init({ map: map, api: '/inventory/', bars: true }).then(function () {
+      sdInfo();
       LSScarps.raise && LSScarps.raise();
     }).catch(function (e) { document.getElementById('sd-info').textContent = 'Soundings failed to load: ' + e.message; });
     LSSoundings.setVisible(on);

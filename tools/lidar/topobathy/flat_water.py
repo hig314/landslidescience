@@ -67,6 +67,16 @@ def main():
             flat |= rim; lab = np.where(rim, near, lab)
     flat = ndimage.binary_closing(flat, iterations=1) & np.isfinite(z)
     sea = ndimage.binary_closing(sea, iterations=1) & np.isfinite(z) & ~flat
+    # the mapped high-tide water beside its line is the sea whatever 3DEP reads there (2026-11-04, Hig: cliffs blurred at the waterline by the radar's smear; tide_vectors.py)
+    tide_sea = (json.loads(Path(a.recipe).read_text()).get('fill') or {}).get('tide_sea')
+    if tide_sea and Path(tide_sea).exists():
+        from rasterio import features
+        from shapely.geometry import box, shape
+        b_ = box(x0, y0, x1, y1); G_ = [g for g in (shape(f['geometry']) for f in json.loads(Path(tide_sea).read_text())['features']) if g.intersects(b_)]
+        if G_:
+            m_ = features.rasterize([(g, 1) for g in G_], out_shape=(H, W), transform=T, fill=0, dtype='uint8') > 0
+            print(f'mapped high-tide water: {m_.sum() * res * res / 1e6:.3f} km2, of it over 3DEP above 0 m: {(m_ & ~sea & ~flat).sum() * res * res / 1e6:.3f} km2')
+            sea = sea | (m_ & ~flat)
     with rasterio.open(a.out, 'w', driver='GTiff', height=H, width=W, count=1, dtype='uint8', crs=f"EPSG:{g['epsg']}",
                        transform=T, nodata=255, compress='deflate') as ds:
         ds.write(np.where(flat, 1, np.where(sea, 2, 0)).astype(np.uint8), 1)
