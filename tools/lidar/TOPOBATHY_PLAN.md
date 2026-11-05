@@ -59,6 +59,27 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
    class step — water-class cells inside become ground, so the lidar stands — then move the feature into
    `water/edits.geojson`. The outer lagoon's slough stays water.
 
+**Update, 2026-11-05 ~12:30 (before a session restart).**
+- Hig edited the draft: **use feature 1 of `hoens_ground_draft.geojson`** (Hig's polygon, 15.6 ha, one part, bounds
+  570846-571369 E, 6589950-6590680 N, EPSG:6334, no properties yet). Feature 0 (my draft) is superseded; its 0.81 ha
+  outside Hig's polygon are pools Hig judges mostly real but very shallow, so they stay water.
+- `ground` edit design: in `joint.py fuse`, right after each lidar source's `obs_lidar` read, inside the polygon set
+  `z_g = zmin_g = z_w`, `n_g = n_w` where `z_g` is NaN, then `z_w = NaN`, `n_w = 0`; log ha changed. `water.py`'s edit
+  matcher skips `kind == "ground"`. Move Hig's polygon into `water/edits.geojson` (check its CRS: water.py transforms
+  edits from EPSG:4326) with id `hoens_lagoon_inner_flat`, kind `ground`, who Hig, date 2026-11-05, a `why`.
+- r6c2 finished 11:26 (archived); r6c3 was in its high-line step at 12:21. Both workers are parented to launchd, so
+  they survive a session restart. Check both for faults 1-3 before editing any run-read file.
+- **Shallow-pool review (Hig asked: is there an inconsistency in how tide-flat pools are handled? report, don't
+  change rules aggressively).** 120 pools on the flat (<= 2 ha, level -1.38..4.5 m, banks at or above the water) in
+  the 11 cm16 boxes, 34.1 ha. Cut = level minus bed p2. Between shores 88 (median 0.00 m), tidal lens 3 (0.05),
+  interior prior 12 (4.40; 10 inside the mapped low water, bed at the base contour -3.37), ground prior 6 (4.42; 5
+  outside the low water, cause undetermined), by soundings 6 (1.89), observed bed 5 (5.10, mostly Seldovia, likely
+  real). Against fix2h: ground prior 4.27 vs 0.11, interior prior 4.37 vs 0.33 -- the deep cuts are new in cm16.
+  **The inconsistency:** inside the mapped low water the mapped-shores block makes a pool sea and digs it to the base
+  contour, overriding the tidal lens (observed surface is the surface). Modest fix offered: inside the mapped low
+  water, water observed above the low line's level stays on the lens. Deepest: 59.38286,-151.87502 (6.95 m),
+  59.35971,-151.89911, 59.33129,-151.77379, 59.44538,-151.70750, 59.35228,-150.87167. Not yet reported to Hig.
+
 **Next, in order** (none of it started; the fixes edit run-read files, so wait for r6c2/r6c3 to end):
 1. Check r6c2 and r6c3 for faults 1-3; keep them if clean.
 2. Build fixes 1 and 2 and the `ground` edit kind; take Hig's polygon (or the draft) into `edits.geojson`.
