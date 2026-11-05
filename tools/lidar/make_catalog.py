@@ -275,6 +275,12 @@ def main():
 
     manifest = json.loads((HERE / "datasets.json").read_text())
     features = []
+    # What the last dev catalogue measured, so a survey with no local COG need
+    # not read its overview over the network again (33 s against 3 s on one of
+    # the smallest). Trusted only while the COG's size on R2 is unchanged.
+    prior_path = ROOT / "data" / "lidar" / "catalog.geojson"
+    prior = ({f["properties"]["id"]: f for f in json.loads(prior_path.read_text())["features"]}
+             if prior_path.exists() else {})
 
     include_gated = "--include-gated" in sys.argv
     include_dev = "--include-dev" in sys.argv
@@ -358,15 +364,24 @@ def main():
         footprint.z_range = None
         # No local COG: read its overview off the bucket, as any /vsicurl client does.
         cog_path = cog if cog.exists() else f"/vsicurl/{R2_BASE}/cog/{did}.tif"
-        geom = footprint(cog_path)
-        z_range = footprint.z_range
+        was = prior.get(did)
+        if was and not cog.exists() and was["properties"].get("cog_bytes") == cog_bytes:
+            geom = was["geometry"]
+            z_range = (was["properties"]["z_min"], was["properties"]["z_max"])
+        else:
+            was = None
+            geom = footprint(cog_path)
+            z_range = footprint.z_range
         if geom is None:
             print(f"  skip {did}: empty footprint", file=sys.stderr)
             continue
         area = geom_area_km2(geom)
 
-        with rasterio.open(cog_path) as src:
-            width, height = src.width, src.height
+        if was:
+            width, height = (int(v) for v in was["properties"]["grid"].split(" x "))
+        else:
+            with rasterio.open(cog_path) as src:
+                width, height = src.width, src.height
 
         slope_bytes, slope_base = _pyramid(f"{did}_slope", on_r2_ok)
         ortho_bytes, ortho_base = _pyramid(f"{did}_ortho", on_r2_ok)
