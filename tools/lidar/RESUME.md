@@ -6,7 +6,7 @@
 > `topobathy-compositing` in its own worktree. See `../../WORKSTREAMS.md`
 > for the split and the boundary rules.
 
-**43 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
+**48 public surveys on production**, 6 gated, all archive COGs in Cloudflare R2
 behind `lidar.landslidescience.org/cog/<id>.tif`. `/lidar/audit/` is the live
 answer to "where is everything" — it checks the four seams (built / on R2 / in
 the catalogue / what the gate does) and is the thing to read first, not this
@@ -72,10 +72,10 @@ only because a second survey covered the same seabed.
 | Thing | Where | Status |
 |---|---|---|
 | Code | `main` | GitHub, droplet, local in sync |
-| Public surveys | `data/lidar/pmtiles/` + R2 `pmtiles/` | 38 in the production catalogue |
-| Gated surveys | droplet `data/lidar/{pmtiles,cog}/` only — **never** R2 | 8 (Corax x4, Hoonah, Lituya 2023, Pedersen SfM, Grewingk sonar) |
+| Public surveys | R2 `pmtiles/`; a local copy in `data/lidar/pmtiles/` is optional | `/lidar/audit/` has the count |
+| Gated surveys | droplet `data/lidar/{pmtiles,cog}/` only — **never** R2 | 6 (Corax x4, Lituya 2023, Grewingk sonar) |
 | Catalogue | `data/lidar/catalog.geojson` | build with `--verify-r2` for anything going to prod |
-| Archive COGs | `/Volumes/Nunatak/lidar_build/cog/` + R2 `cog/` | |
+| Archive COGs | R2 `cog/` + `/Volumes/Nunatak/lidar_build/cog/` | a local copy is optional for `make_catalog.py` |
 | Built, NOT published | (none as of 2026-09-27) | — |
 | Paused InSAR kinematics | branch `insar-kinematics` | dev-only |
 
@@ -368,9 +368,8 @@ as superseded/anchorage_2015*.x0.3048.pmtiles.
   week later, and `rclone copy` only ever adds, so gating afterwards did
   nothing and the droplet's gate does not cover the bucket. `publish_audit.py`
   now says **GATED BUT ON PUBLIC R2 (...)** where it used to say "gated, served
-  from the droplet", which is why this sat unnoticed. **Open decision for Hig:**
-  purge the three objects to make the gate real, or ungate hoonah if its
-  provenance is now settled.
+  from the droplet", which is why this sat unnoticed. **Resolved 2026-11-05:** Hig made
+  hoonah public; the bytes stay on R2.
 
 ### Shipped 2026-09-21. The recipe, for the next ungating
 
@@ -423,8 +422,8 @@ from the working tree. Note also that no pyramid rsync is needed for a survey
 published this way — the prod catalogue points at R2, so the droplet's own
 `/lidar/pmtiles/` copy is only a fallback and never enters the path.
 
-**Still open:** `hoonah_2015`'s bytes on public R2 (decision above). Hig chose
-on 2026-09-21 to leave those where they are for now.
+`hoonah_2015`'s bytes on public R2 stayed there by Hig's choice on 2026-09-21; it
+went public on 2026-11-05.
 
 ## 2026-09-21 18:21: Resurrection Bay published; pow_2018 in flight
 
@@ -553,7 +552,7 @@ The manifest entries and the two tools behind them (`geoid_to_navd88.py`,
 evening; no site code changed for this publish, so no image rebuild was
 needed for it.
 
-Still open: hoonah_2015's bytes on public R2 (unchanged, Hig's decision).
+hoonah_2015's bytes on public R2 unchanged at this point (public since 2026-11-05).
 
 ## 2026-09-28 23:13: KBay reclassification published -- 47 public
 
@@ -580,7 +579,7 @@ image rebuilt, catalogues rebuilt (`--verify-r2` + `LIDAR_TILES_PUBLIC_BASE`; `-
 tiles 200. Four prod default views (ids 1151, 1028, 29, 1027) still name the old id in `li=`, all far
 from Kachemak Bay; an unknown id is ignored, so they were left alone.
 
-Still open: hoonah_2015's bytes on public R2 (unchanged).
+hoonah_2015's bytes on public R2 unchanged at this point (public since 2026-11-05).
 
 ## 2026-10-13 19:10: grewingk_sonar_2023 replaced by its pass-levelled re-grid (gated, same id)
 
@@ -594,3 +593,22 @@ moving the old archive to grewingk_sonar_level/delivered_archive_20260919/ and d
 pmtiles + COG scp'd to the droplet (md5 checked), droplet copies of those and catalog-gated.geojson backed up in
 /root/backup_grewingk_sonar_20261013-levelled/, gated catalogue rebuilt and installed. Same id on purpose: links,
 profiles and default views keep working; the gated route's private max-age is an hour.
+
+## 2026-11-05: hoonah_2015 public; local bakes optional
+
+Hig made `hoonah_2015` public: `gated` is off in the manifest, and it is credited to
+Alaska DGGS, though it is unclear the data is available there, so no link. Its bytes were already on R2. The droplet
+held no copy, so nothing there needs removing.
+
+`make_catalog.py` no longer needs local files for a published survey: with no local
+pyramid or COG it asks R2 for the size, and reads the COG's overview for the
+footprint over `/vsicurl/` (the same footprint as the local read, tested on seldovia_2019).
+Gated and dev_only surveys still need theirs locally.
+
+**A dev catalogue reads R2 directly.** With a local base (`/lidar/pmtiles`), a survey
+whose local copy is absent or the same size as R2's gets the R2 URL. A local copy of
+a different size is a rebuild not yet uploaded, and keeps the route. So
+`data/lidar/pmtiles/` can be emptied of everything except gated surveys.
+**Open dev at `http://localhost:8001`:** R2's CORS allows it and refuses
+`127.0.0.1:8001`, which fails silently in the browser.
+

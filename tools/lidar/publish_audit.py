@@ -196,7 +196,7 @@ def _run(a):
                 # jobs -- one wants an upload, the other wants a build -- and
                 # the first reads as an alarm. Only say it when the pyramid is
                 # actually there.
-                verdict = ("built, NOT YET PUBLISHED" if local[0] == "P"
+                verdict = ("built, NOT YET PUBLISHED" if "P" in (local[0], r2[0])
                            else "not built yet")
             elif r2[0] != "P" and not a.no_r2:
                 verdict = "LISTED BUT NOT ON R2 — reader sees nothing"

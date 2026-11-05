@@ -67,6 +67,10 @@ PMTILES_PUBLIC_BASE = os.environ.get(
 # regenerated before an upload finishes, and tiles of the old archive would be
 # cached for a year under the new token.) No ETag = not on R2 = no tile URL.
 TILES_PUBLIC_BASE = os.environ.get("LIDAR_TILES_PUBLIC_BASE", "").rstrip("/")
+# The bucket itself, whatever base this catalogue's URLs use. Local pyramids and
+# COGs are optional (2026-11-05): the bytes of a published survey live on R2, and
+# 270 GB of local copies should not be what keeps it in the catalogue.
+R2_BASE = os.environ.get("LIDAR_R2_BASE", "https://lidar.landslidescience.org").rstrip("/")
 # Baked terrain context under the surveys (bake_context.py); advertised as the
 # catalog's top-level "context" member once the archive exists.
 CONTEXT_ID = "ctx_3dep"
@@ -103,6 +107,37 @@ def _on_bucket(url):
             return r.status == 200
     except Exception:
         return False
+
+
+def _r2_size(key):
+    """Size of <bucket>/<key> as R2 reports it, or None if it is not there."""
+    import urllib.request
+    req = urllib.request.Request(f"{R2_BASE}/{key}", method="HEAD",
+                                 headers={"User-Agent": "landslidescience-catalog/1 (+https://landslidescience.org)"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return int(r.headers.get("Content-Length") or 0) or None
+    except Exception:
+        return None
+
+
+def _pyramid(name, on_r2_ok):
+    """(bytes, url base) of a pyramid, or (None, None) if there is none to list.
+
+    A survey with no local copy is read from R2. So is one whose local copy
+    matches R2, when this catalogue's own base is a local route: a dev catalogue
+    then reads the bucket and does not depend on the local file. A local copy
+    that differs from R2 is a rebuild not uploaded yet, so it keeps the route.
+    A gated or dev_only survey never asks the bucket (on_r2_ok False)."""
+    pm = PM_DIR / f"{name}.pmtiles"
+    local = pm.stat().st_size if pm.exists() else None
+    remote = _r2_size(f"pmtiles/{name}.pmtiles") if on_r2_ok else None
+    if local is None and remote is None:
+        return None, None
+    if remote is not None and local in (None, remote):
+        base = PMTILES_PUBLIC_BASE if PMTILES_PUBLIC_BASE.startswith("http") else f"{R2_BASE}/pmtiles"
+        return remote, base
+    return local, PMTILES_PUBLIC_BASE
 
 
 def footprint(path):
@@ -194,7 +229,7 @@ def r2_etag(name):
     """ETag of pmtiles/<name>.pmtiles on R2, normalised (no W/, no quotes), or None."""
     import urllib.request
     # Cloudflare's bot protection answers Python's default User-Agent with 403.
-    req = urllib.request.Request(f"{PMTILES_PUBLIC_BASE}/{name}.pmtiles", method="HEAD",
+    req = urllib.request.Request(f"{R2_BASE}/pmtiles/{name}.pmtiles", method="HEAD",
                                  headers={"User-Agent": "landslidescience-make_catalog/1"})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -207,8 +242,8 @@ def r2_etag(name):
     return tag.strip('"') or None
 
 
-def tiles_url(name, path):
-    if not TILES_PUBLIC_BASE or not path.exists():
+def tiles_url(name):
+    if not TILES_PUBLIC_BASE:
         return None
     v = r2_etag(name)
     if not v:
@@ -302,9 +337,10 @@ def main():
             print(f"  skip {ds['id']}: gated (pass --include-gated for the admin catalog)", file=sys.stderr)
             continue
         did = ds["id"]
+        on_r2_ok = not ds.get("gated") and not ds.get("dev_only")
         cog = COG_DIR / f"{did}.tif"
-        pm = PM_DIR / f"{did}.pmtiles"
-        if not cog.exists():
+        cog_bytes = cog.stat().st_size if cog.exists() else (_r2_size(f"cog/{did}.tif") if on_r2_ok else None)
+        if not cog_bytes:
             print(f"  skip {did}: no archive COG yet", file=sys.stderr)
             continue
         # The pyramid is what the viewer actually draws. A survey whose archive
@@ -312,28 +348,28 @@ def main():
         # pmtiles_url that 404s, and the viewer shows an entry that renders
         # nothing. Caught the first time on pow_2018, catalogued from a build
         # still running in another terminal.
-        if not pm.exists():
+        pm_bytes, pm_base = _pyramid(did, on_r2_ok)
+        if pm_bytes is None:
             print(f"  skip {did}: no tile pyramid yet (still building?)",
                   file=sys.stderr)
             continue
 
         print(f"  footprint: {did}", file=sys.stderr)
         footprint.z_range = None
-        geom = footprint(cog)
+        # No local COG: read its overview off the bucket, as any /vsicurl client does.
+        cog_path = cog if cog.exists() else f"/vsicurl/{R2_BASE}/cog/{did}.tif"
+        geom = footprint(cog_path)
         z_range = footprint.z_range
         if geom is None:
             print(f"  skip {did}: empty footprint", file=sys.stderr)
             continue
         area = geom_area_km2(geom)
 
-        with rasterio.open(cog) as src:
+        with rasterio.open(cog_path) as src:
             width, height = src.width, src.height
 
-        pm_bytes = pm.stat().st_size if pm.exists() else None
-        slope_pm = PM_DIR / f"{did}_slope.pmtiles"
-        slope_bytes = slope_pm.stat().st_size if slope_pm.exists() else None
-        ortho_pm = PM_DIR / f"{did}_ortho.pmtiles"
-        ortho_bytes = ortho_pm.stat().st_size if ortho_pm.exists() else None
+        slope_bytes, slope_base = _pyramid(f"{did}_slope", on_r2_ok)
+        ortho_bytes, ortho_base = _pyramid(f"{did}_ortho", on_r2_ok)
         # The companion products were decided by the LOCAL file alone, so a
         # survey whose main pyramid had reached the bucket but whose slope or
         # ortho had not was listed advertising a URL that 404s -- the exact
@@ -369,14 +405,14 @@ def main():
                 "grid": f"{width} x {height}",
                 "coverage_km2": round(area, 1),
                 "bounds": geom_bounds(geom),
-                "pmtiles_url": f"{PMTILES_PUBLIC_BASE}/{did}.pmtiles",
+                "pmtiles_url": f"{pm_base}/{did}.pmtiles",
                 "pmtiles_bytes": pm_bytes,
-                "tiles_url": tiles_url(did, pm),
-                "slope_tiles_url": tiles_url(f"{did}_slope", slope_pm) if slope_bytes else None,
+                "tiles_url": tiles_url(did),
+                "slope_tiles_url": tiles_url(f"{did}_slope") if slope_bytes else None,
                 # Companion slope pyramid (build_lidar.py --stage slope): 8-bit
                 # degrees in slope_step steps, 255 = nodata. Absent until built;
                 # the client then falls back to its in-browser gradient.
-                "slope_url": f"{PMTILES_PUBLIC_BASE}/{did}_slope.pmtiles" if slope_bytes else None,
+                "slope_url": f"{slope_base}/{did}_slope.pmtiles" if slope_bytes else None,
                 "slope_bytes": slope_bytes,
                 "slope_step": 0.5 if slope_bytes else None,
                 # How the viewer treats nodata inside a tile this survey
@@ -399,11 +435,11 @@ def main():
                 # drape over this surface. Only advertised when the pyramid is
                 # actually built, so a manifest flag alone cannot produce a
                 # layer that 404s.
-                "ortho_url": (f"{PMTILES_PUBLIC_BASE}/{did}_ortho.pmtiles"
+                "ortho_url": (f"{ortho_base}/{did}_ortho.pmtiles"
                               if ortho_bytes else None),
                 "ortho_bytes": ortho_bytes or None,
                 "cog_url": f"{COG_PUBLIC_BASE}/{did}.tif",
-                "cog_bytes": cog.stat().st_size,
+                "cog_bytes": cog_bytes,
                 "notes": ds.get("notes", ""),
             },
         })
@@ -421,18 +457,18 @@ def main():
                     "generated": datetime.datetime.now(datetime.timezone.utc)
                                  .replace(microsecond=0).isoformat()},
           "features": features}
-    ctx_pm = PM_DIR / f"{CONTEXT_ID}.pmtiles"
+    ctx_bytes, ctx_base = _pyramid(CONTEXT_ID, True)
     # --no-context: leave the baked context out (e.g. a production catalog
     # switched to the tile Worker before the context has been reviewed on dev).
-    if ctx_pm.exists() and "--no-context" not in sys.argv:
+    if ctx_bytes and "--no-context" not in sys.argv:
         # A GeoJSON foreign member: the terrain context every survey composites
         # over in 3D (USGS 3DEP 1/3 arc-second, baked; the client over-zooms it
         # past max_zoom and falls back to the live service outside it).
         fc["context"] = {"id": CONTEXT_ID, "title": "USGS 3DEP 1/3 arc-second context",
                          "min_zoom": 5, "max_zoom": 13,
-                         "pmtiles_url": f"{PMTILES_PUBLIC_BASE}/{CONTEXT_ID}.pmtiles",
-                         "pmtiles_bytes": ctx_pm.stat().st_size,
-                         "tiles_url": tiles_url(CONTEXT_ID, ctx_pm)}
+                         "pmtiles_url": f"{ctx_base}/{CONTEXT_ID}.pmtiles",
+                         "pmtiles_bytes": ctx_bytes,
+                         "tiles_url": tiles_url(CONTEXT_ID)}
     # Compact: every visitor to /inventory/ and /lidar/ downloads this first.
     out.write_text(json.dumps(fc, separators=(",", ":")))
 

@@ -575,9 +575,9 @@
       "product": "DTM (bare earth)",
       "archive_mode": "warp",
       "vertical_datum": "NAVD88 (assumed)",
-      "notes": "Hoonah 2015 lidar DEM, 1 m, NAD83 / Alaska State Plane zone 1 (EPSG:26931) tagged generic NAD83 -> re-tagged NAD83(2011) by build_lidar; warped to UTM 8N. Uncompressed 8.2 GB, 51300x39600, 41.5% valid, nodata -9999, values 0-866 (metres). Vertical datum unknown (no metadata on disk). Provenance: Hig has asked the person the data came from (2026-09-19); uncredited until they answer. Units confirmed metres against USGS 3DEP (fit slope 1.01, 2026-09-12; -4.9 m median vs the IfSAR 3DEP). Not found online; GATED (admin login) until provenance is settled.",
-      "region": "Southeast",
-      "gated": true
+      "notes": "Hoonah 2015 lidar DEM, 1 m, NAD83 / Alaska State Plane zone 1 (EPSG:26931) tagged generic NAD83 -> re-tagged NAD83(2011) by build_lidar; warped to UTM 8N. Uncompressed 8.2 GB, 51300x39600, 41.5% valid, nodata -9999, values 0-866 (metres). Vertical datum unknown (no metadata on disk). Provenance: Hig has asked the person the data came from (2026-09-19); uncredited until they answer. Units confirmed metres against USGS 3DEP (fit slope 1.01, 2026-09-12; -4.9 m median vs the IfSAR 3DEP). Not found online. Public since 2026-11-05 (Hig); it was gated until then for provenance. Credited to Alaska DGGS (Hig), though it is unclear the data is available there, so no link is given.",
+      "source": "Alaska DGGS",
+      "region": "Southeast"
     },
     {
       "id": "cordova_2023",

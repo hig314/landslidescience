@@ -46,7 +46,8 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
   guessable R2 URL; the droplet's gate does not cover the bucket. That is how
   `hoonah_2015` (COG + both pyramids) sat on public R2 while the audit called
   it "gated, served from the droplet". `/lidar/audit/` now reports **GATED BUT
-  ON PUBLIC R2** instead. Removing such bytes is a manual `rclone delete`.
+  ON PUBLIC R2** instead (hoonah went public on 2026-11-05). Removing such bytes
+  is a manual `rclone delete`.
 - **Large uploads never go through the droplet** — it has ~7 GB of disk and
   shares 4 GB of RAM. The pattern is `drops/`: presign URLs to a private R2
   bucket, let the browser PUT, record after a server-side HEAD. Reuse

@@ -1919,8 +1919,8 @@ answers instead, in this order:
   actually does) and names any that disagree. Read it first.
 - **`tools/lidar/RESUME.md`** — the hosting stream's state of play and the
   publishing recipe, plus the incidents behind it (BAG extraction modes,
-  rclone filters, the overnight uploader). 47 public and 7 gated as of
-  2026-09-29 (KBay reclassification added beside the vendor surface), which is the number `/lidar/audit/` will confirm or correct.
+  rclone filters, the overnight uploader). 48 public and 6 gated as of
+  2026-11-05 (`hoonah_2015` made public), which is the number `/lidar/audit/` will confirm or correct.
 
 **Gating is by manifest flag and enforced on the BYTES.** `"gated": true` on
 a dataset keeps it out of `catalog.geojson` and into the companion
