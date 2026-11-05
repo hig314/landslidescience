@@ -67,8 +67,10 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
   `z_g = zmin_g = z_w`, `n_g = n_w` where `z_g` is NaN, then `z_w = NaN`, `n_w = 0`; log ha changed. `water.py`'s edit
   matcher skips `kind == "ground"`. Move Hig's polygon into `water/edits.geojson` (check its CRS: water.py transforms
   edits from EPSG:4326) with id `hoens_lagoon_inner_flat`, kind `ground`, who Hig, date 2026-11-05, a `why`.
-- r6c2 finished 11:26 (archived); r6c3 was in its high-line step at 12:21. Both workers are parented to launchd, so
-  they survive a session restart. Check both for faults 1-3 before editing any run-read file.
+- **Nothing is running now.** r6c2 finished 11:26 and r6c3 at 12:26, both archived as out_cm16 and both GATE-HELD:
+  r6c2 solid-over-level 958 (best 219), land 128 km2 (was 166); r6c3 solid-over-level 3616 (best 226), land 120.5
+  km2 (was 150.6). The land drops (-38, -30 km2) are unexplained; check them for fault 1 (mapped-shore band) first.
+  Run-read files may now be edited.
 - **Shallow-pool review (Hig asked: is there an inconsistency in how tide-flat pools are handled? report, don't
   change rules aggressively).** 120 pools on the flat (<= 2 ha, level -1.38..4.5 m, banks at or above the water) in
   the 11 cm16 boxes, 34.1 ha. Cut = level minus bed p2. Between shores 88 (median 0.00 m), tidal lens 3 (0.05),
