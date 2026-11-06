@@ -99,14 +99,17 @@ written down anywhere — read `/lidar/audit/`.
   finalized release is to be fully public, as a new lidar entry. A final
   release should go in a new drop or folder (same name + size = skipped).
 
+- **NOAA chart basemap + NASA global susceptibility** (2026-11-05, 9585f3d;
+  Hig tested both in dev: "look great"). `susc_nasa.pmtiles` is on R2
+  `overlays/` (md5-identical tile checked through the bucket). On prod only
+  page loads, the served scripts, the colour key and the archive route were
+  checked; nobody has yet drawn either in a browser there. The erosion-rate
+  overlays built the same day (Herman 2013, OCTOPUS) were switched off
+  before the commit: see *Erosion rate overlays*. See *NOAA chart basemap*
+  and the NASA paragraph under *Susceptibility tiles*.
+
 **Open threads**, in no particular order:
 
-- **Chart basemap + NASA susceptibility: approved by Hig 2026-11-05
-  ("look great"), committed, being deployed that evening** — replace this
-  entry with a *Recently shipped* one once prod is checked. The erosion-rate
-  overlays built beside them (Herman 2013, OCTOPUS) were **switched off the
-  same day**: too little coverage here to be useful (Hig). See *Erosion rate
-  overlays* for what was learned and how to bring them back.
 - **NOAA's chart server fails about 1 request in 20** (measured 2026-11-05:
   4 of 72 tiles at 6 in flight came back as an HTML "ArcGIS Web Adaptor:
   Could not access any server machines" page with status 200 and no CORS
@@ -138,8 +141,9 @@ written down anywhere — read `/lidar/audit/`.
   after it is notes only). The working tree's uncommitted changes
   (`.gitignore`, `docker-compose.override.yml`, `map.js`, `views.py`,
   `tools/terrain/scoops/`) were all the Scoops3D exploratory work above
-  (the chart / NASA / erosion-rate work of later that evening was committed
-  separately, by staging everything but the Scoops lines).
+  (the chart / NASA / erosion-rate work of later that evening is 9585f3d,
+  which the droplet now runs; it was committed by staging everything but
+  the Scoops lines).
 - **Droplet disk is tight**: 5.5 GB free (93%) after the Grand Plateau
   pyramids (2026-11-05). Docker build cache is 5.3 GB, of which `docker builder prune`
   would reclaim ~2.6 GB (measured 2026-11-05). Offered to Hig, not answered, not run.
@@ -1936,7 +1940,7 @@ There is no on-map legend or floating basemap-picker — those got removed in fa
 
 **Canadian basemaps (2026-10-29).** *US / Canada Topo* is the old `usgs-topo` entry (id kept: stored views and `/lidar/`'s default name it) with NRCan's **Toporama WMS** drawn over it through the descriptor's `labelTiles` slot (`labelAttr` carries its credit), **from z11 only** (`labelMinzoom`): below that Toporama draws a small-scale atlas whose land and sea fills cover Alaska too. From z11 it is transparent outside Canada and where it has no fill, and it sends CORS. *BC Orthophoto 1995-2004* (`bc-ortho`, Historical) is GeoBC's 1 m mosaic via **`inventory/bcortho.py`**, a same-origin proxy + disk cache (`data/bcortho_tiles/`) at `/inventory/tiles/bcortho/z/x/y.png`: their ERDAS WMS sends `access-control-allow-origin: (null)` so a browser cannot use it directly, and its nodata is opaque black, which the proxy turns transparent (brightest channel <= 4; very dark shadow can show as pinholes). Tiles outside the province's box are refused without an upstream call. Cold tiles hold a gunicorn worker ~0.5 s each, like the OPERA proxy.
 
-**NOAA chart basemap (2026-11-05, dev).** `noaa-chart` in `basemaps.js`: NOAA's Chart Display Service WMS (`gis.charttools.noaa.gov/.../MCS/NOAAChartDisplay/.../WMSServer`, ENC data in paper-chart symbology; `MCS/ENCOnline` is the same in ECDIS symbology), read directly — EPSG:3857, CORS echoes the origin, ~1 s a tile, no proxy. It rides the descriptor's `labelTiles` slot over Esri's ocean base, **from z7** (`labelMinzoom`): below that one tile draws every light and traffic lane in the Gulf. From z7 the chart is opaque over US waters and transparent elsewhere, so the ocean base shows outside coverage. **Layers 1–7 only**: 0 and 8–12 are display notes, data-quality triangles and overscale hatching. **The service draws depths in feet by default** (311 off Homer Spit is 95 m; land heights are metres either way); `DISPLAY_PARAMS` with `DisplayDepthUnits=1` switches soundings and depth contours to metres, percent-encoded in the tile URL. No other streamable source exists: the `MarineChart_Services/NOAACharts` tile cache is empty past z7 and the old raster-chart tile host is gone.
+**NOAA chart basemap (2026-11-05).** `noaa-chart` in `basemaps.js`: NOAA's Chart Display Service WMS (`gis.charttools.noaa.gov/.../MCS/NOAAChartDisplay/.../WMSServer`, ENC data in paper-chart symbology; `MCS/ENCOnline` is the same in ECDIS symbology), read directly — EPSG:3857, CORS echoes the origin, ~1 s a tile, no proxy. It rides the descriptor's `labelTiles` slot over Esri's ocean base, **from z7** (`labelMinzoom`): below that one tile draws every light and traffic lane in the Gulf. From z7 the chart is opaque over US waters and transparent elsewhere, so the ocean base shows outside coverage. **Layers 1–7 only**: 0 and 8–12 are display notes, data-quality triangles and overscale hatching. **The service draws depths in feet by default** (311 off Homer Spit is 95 m; land heights are metres either way); `DISPLAY_PARAMS` with `DisplayDepthUnits=1` switches soundings and depth contours to metres, percent-encoded in the tile URL. No other streamable source exists: the `MarineChart_Services/NOAACharts` tile cache is empty past z7 and the old raster-chart tile host is gone.
 
 **Erosion rate overlays — built, evaluated, switched off (2026-11-05).** Hig's verdict after seeing both in dev: too little coverage to be useful. Nothing was deleted: `EROSION_ACTIVE = false` in `map.js` keeps the five rows out of `OVERLAYS` (and with them the *Erosion rates* category), the ramp keys stay in `views._RAMP_SPECS` like `dist-alert`'s, and the two data files are **not shipped** (not in git, not on R2). What was learned, so nobody re-derives it:
 
@@ -2033,7 +2037,7 @@ DGGS publishes it **only as a dynamic ArcGIS MapServer** — no download, no til
 - The raster crosses the **antimeridian** (data to 179.9 E), so a single warp to Web Mercator spans the globe and produces non-square pixels. The script warps the two sides separately; XYZ tiles merge with no seam.
 - `inventory/susc_dggs.py` is a live proxy of the same service, kept as a fallback (and as the record of why proxying was needed). The overlay reads the baked tiles.
 
-**NASA global susceptibility (fourth model, ~1 km; 2026-11-05, dev).** Row `susc-nasa`: Stanley & Kirschbaum (2017, doi:10.1007/s11069-017-2757-y) in the February 2023 update, the only file NASA still distributes (`gpm.nasa.gov/sites/default/files/downloads/global-landslide-susceptibility-map-2-27-23.tif`, 33 MB; their map server `maps.nccs.nasa.gov` no longer resolves). 30 arc-seconds, 72°N–60°S, Int8: 0 = sea (transparent), 1–5 very low … very high. `tools/build_nasa_susc.py` downloads it to `data/susc_src/nasa/`, colours exact classes from `tools/nasa_susc_color.txt` (YlOrRd like the other three), tiles z0–8 globally (nearest at z8, averaged below) and writes **`data/overlays/susc_nasa.pmtiles`** (19,393 tiles, 307 MB) — PMTiles through `/overlays/`, not a tree under `data/susc_tiles/`, because of the droplet's disk. Checked at 412 points against the source (4 differ, all at cell edges). Not an analysis axis and no slider: the cube's lattice is Alaska, where three finer models exist.
+**NASA global susceptibility (fourth model, ~1 km; 2026-11-05).** Row `susc-nasa`: Stanley & Kirschbaum (2017, doi:10.1007/s11069-017-2757-y) in the February 2023 update, the only file NASA still distributes (`gpm.nasa.gov/sites/default/files/downloads/global-landslide-susceptibility-map-2-27-23.tif`, 33 MB; their map server `maps.nccs.nasa.gov` no longer resolves). 30 arc-seconds, 72°N–60°S, Int8: 0 = sea (transparent), 1–5 very low … very high. `tools/build_nasa_susc.py` downloads it to `data/susc_src/nasa/`, colours exact classes from `tools/nasa_susc_color.txt` (YlOrRd like the other three), tiles z0–8 globally (nearest at z8, averaged below) and writes **`data/overlays/susc_nasa.pmtiles`** (19,393 tiles, 307 MB) — PMTiles through `/overlays/`, not a tree under `data/susc_tiles/`, because of the droplet's disk. Checked at 412 points against the source (4 differ, all at cell edges). Not an analysis axis and no slider: the cube's lattice is Alaska, where three finer models exist.
 
 **Susceptibility value sliders.** Each landslide's sampled n10/lw value (0–81) comes from `inventory/static/inventory/ls_quantities.json` (every axis-capable quantity at every centroid — see *The analysis panel*), produced offline by `tools/analysis/sample_quantities.py` because its source rasters (17.7 GB) are not on the droplet (the container has rasterio; the sampling itself takes seconds); committed, so it goes stale when landslides are added/moved (`--centroids` refreshes the centroid file from the **production** database first, `--from dev` from dev — until 2026-10-31 it read dev, whose ids above 1489 are different records, so eight prod landslides carried dev test records' values) — the analysis panel's note counts the landslides missing from it and names the command, so staleness is visible rather than silent. `map.js` merges `lw`/`n10`/`dggs` into the point features and the two dual-handle sliders in the Inventory filter panel filter on them (reusing `_setupDual`/`addRangeFilter`), with a live "N of 1424 in range" readout. Key finding from the analysis: catastrophic source values **saturate at the 81 ceiling** (median 81; ~53% n10 / ~68% lw at max), both models score AUC ~0.96–0.97 (lw marginally higher), so the predictive signal is a sharp low-vs-high contrast rather than a graded ramp — which is why landslide-quintile bands collapse and FR-based class breaks are used instead.
 
