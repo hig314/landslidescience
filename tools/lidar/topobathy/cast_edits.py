@@ -5,6 +5,12 @@
   cast_edits.py merge EDITED.gpkg [--basis TEXT]                 what changed in that layer, into water/cast_edits.geojson (cumulative: a point dragged back cancels its move)
   cast_edits.py apply                                            the base CSVs + the edits -> *_edited.csv, which the recipes read
   cast_edits.py sync-dev                                         the moves into the dev database, so the dev viewer draws them (apply does this too)
+  cast_edits.py reread KEY DEPTH_M --basis TEXT [--source URL]   a depth READ AGAIN FROM THE SURVEY'S OWN SHEET, where the digital file disagrees with it (then run apply)
+
+A REREAD IS NOT A REJECTION, AND NOT AN OPINION ABOUT THE SEA BED (2026-11-05, Hig's review of cm18, nos_h05187:55404 at 59.16419,-151.51308: 0.9 m among 11-13 fathoms, no rock on the chart; the 1931 smooth sheet shows
+a plain "12" there, keyed as "1/2" fathom when the sheet was digitized).  The measurement is the surveyor's number on the sheet; the digital file is a copy of it, and where the copy is wrong the sheet is put back.  A reread
+needs the sheet looked at and the basis written down (--basis: what the sheet shows, how the record was matched to it); a depth that only looks unlikely is no reread.  The digital value stays on record (depth0_m in the
+edits file, the depth0 column of the edited CSV, depth_orig in the dev database).
 
 Drag a point to move it; the depth stays. A `decision` of use keeps what the spike filter dropped, questionable is a note. Deleting a point does nothing: the merge reports it.
 The base CSVs are never touched. Every consumer reads the edited CSV, so a moved cast takes exactly the rules of any other (its position alone differs); only the despike passes over it."""
@@ -30,6 +36,16 @@ def _key(r):
     return f'{r["survey"]}:{r["id"]}'
 
 
+def _reread_shift(e, r):
+    """How far a reread lowers the cast (new depth - the base file's), 0 for any other decision.  Refuses a reread whose recorded digital depth is not the base file's: the base changed under it."""
+    p = e["properties"]
+    if p.get("decision") != "reread":
+        return 0.0
+    if abs(float(r["depth_m"]) - float(p["depth0_m"])) > 0.051:
+        raise SystemExit(f'{p["key"]}: the reread was made against a digital depth of {p["depth0_m"]} m, the base file now says {r["depth_m"]} m -- look again')
+    return float(p["depth_m"]) - float(p["depth0_m"])
+
+
 def export(a):
     E = _edits(); R = {}
     if a.review:
@@ -45,8 +61,9 @@ def export(a):
                     continue
                 x0, y0 = float(r["x"]), float(r["y"]); e = E.get(_key(r)); q = R.get((round(x0, 2), round(y0, 2), r["survey"]), {})
                 xy = e["geometry"]["coordinates"][:2] if e else [x0, y0]
+                zr = float(r["z"]) - (_reread_shift(e, r) if e else 0.0)
                 F.append(dict(type="Feature", geometry=dict(type="Point", coordinates=xy),
-                              properties=dict(key=_key(r), survey=r["survey"], z=float(r["z"]), sigma=float(r["sigma"]), x0=x0, y0=y0, decision=e["properties"]["decision"] if e else "", basis=e["properties"].get("basis", "") if e else "",
+                              properties=dict(key=_key(r), survey=r["survey"], z=round(zr, 3), sigma=float(r["sigma"]), x0=x0, y0=y0, decision=e["properties"]["decision"] if e else "", basis=e["properties"].get("basis", "") if e else "",
                                               status=q.get("status"), surface=q.get("surface"), residual=q.get("residual"), contradicted=q.get("contradicted"), near_land=q.get("near_land"))))
     with tempfile.TemporaryDirectory() as td:
         g = f"{td}/c.geojson"; json.dump(dict(type="FeatureCollection", crs=dict(type="name", properties=dict(name="EPSG:6334")), features=F), open(g, "w"))
@@ -59,10 +76,14 @@ def export(a):
 def merge(a):
     with tempfile.TemporaryDirectory() as td:
         g = f"{td}/e.geojson"; subprocess.run([OGR, "-q", "-f", "GeoJSON", g, a.edited, "cast_review"], check=True); F = json.load(open(g))["features"]
-    E = _edits(); seen = set(); today = datetime.date.today().isoformat(); n = dict(move=0, use=0, questionable=0, cancelled=0, bad_decision=[], depth_changed=[])
+    E = _edits(); seen = set(); today = datetime.date.today().isoformat(); n = dict(move=0, use=0, questionable=0, reread=0, cancelled=0, bad_decision=[], depth_changed=[])
     for f in F:
         q = f["properties"]; k = q["key"]; seen.add(k); x, y = f["geometry"]["coordinates"][:2]; dx, dy = x - q["x0"], y - q["y0"]; moved = float(np.hypot(dx, dy)) > MOVED_M
         d = (q.get("decision") or "").strip().lower() or ("move" if moved else "")
+        if k in E and E[k]["properties"]["decision"] == "reread":          # made by `reread`, from the sheet: the layer can move it, nothing else
+            if moved:
+                E[k]["geometry"]["coordinates"] = [round(x, 2), round(y, 2)]; E[k]["properties"].update(dx=round(dx, 2), dy=round(dy, 2))
+            n["reread"] += 1; continue
         if d not in ("", "move", "use", "questionable"):
             n["bad_decision"].append(k); continue
         if moved and d != "move":
@@ -89,23 +110,54 @@ def merge(a):
         v = np.array(v); print(f"  {s}: {len(v)} moved, median ({np.median(v[:, 0]):+.0f}, {np.median(v[:, 1]):+.0f}) m, spread ({v[:, 0].std():.0f}, {v[:, 1].std():.0f}) m")
 
 
+def reread(a):
+    """Record a depth read again from the survey's sheet.  The position is the cast's current one (its move, if it has one, stays)."""
+    E = _edits(); row = None
+    for src in BASE:
+        with open(src) as fh:
+            for r in csv.DictReader(fh):
+                if _key(r) == a.key:
+                    row = r; break
+        if row:
+            break
+    if row is None:
+        raise SystemExit(f"{a.key} is in no base file")
+    if not (a.basis or "").strip():
+        raise SystemExit("a reread needs its basis: what the sheet shows and how the record was matched to it")
+    old = E.get(a.key); x0, y0 = float(row["x"]), float(row["y"]); xy = old["geometry"]["coordinates"][:2] if old else [x0, y0]
+    d0 = float(row["depth_m"]); z = round(float(row["z"]) - (a.depth_m - d0), 3)
+    E[a.key] = dict(type="Feature", geometry=dict(type="Point", coordinates=[round(xy[0], 2), round(xy[1], 2)]),
+                    properties=dict(key=a.key, survey=row["survey"], z=z, decision="reread", x0=x0, y0=y0, dx=round(xy[0] - x0, 2), dy=round(xy[1] - y0, 2), depth_m=a.depth_m, depth0_m=d0, z0=float(row["z"]),
+                                    basis=a.basis.strip(), source=a.source or "", date=datetime.date.today().isoformat()))
+    EDITS.write_text(json.dumps(dict(type="FeatureCollection", crs=dict(type="name", properties=dict(name="EPSG:6334")), features=list(E.values())), indent=0))
+    print(f"{a.key}: depth {d0} m -> {a.depth_m} m (z {row['z']} -> {z}); {len(E)} edits on file.  Now: cast_edits.py apply")
+
+
 def apply(a):
     E = _edits(); used = set()
     for src, dst in BASE.items():
         with open(src) as fh:
-            rd = csv.DictReader(fh); fld = rd.fieldnames + ["x0", "y0", "moved", "held"]; rows = []
+            rd = csv.DictReader(fh); fld = rd.fieldnames + ["x0", "y0", "moved", "held", "depth0"]; rows = []
             for r in rd:
-                e = E.get(_key(r)); r.update(x0="", y0="", moved="", held="")
+                e = E.get(_key(r)); r.update(x0="", y0="", moved="", held="", depth0="")
                 if e:
                     used.add(_key(r)); p = e["properties"]
-                    if p["decision"] == "move":
+                    if p["decision"] == "reread":
+                        dz = _reread_shift(e, r); r["depth0"] = r["depth_m"]; r["depth_m"] = f'{float(p["depth_m"]):.1f}'
+                        for c in ("z", "z_raw"):
+                            if r.get(c) not in (None, ""):
+                                r[c] = f'{float(r[c]) - dz:.3f}' if c == "z" else f'{float(r[c]) - dz:.2f}'
+                        ex, ey = e["geometry"]["coordinates"][:2]
+                        if float(np.hypot(ex - float(r["x"]), ey - float(r["y"]))) > MOVED_M:       # dragged as well: it is moved like any other
+                            r["x0"], r["y0"] = r["x"], r["y"]; r["x"], r["y"] = f"{ex:.2f}", f"{ey:.2f}"; r["moved"] = "1"; r["held"] = "1"
+                    elif p["decision"] == "move":
                         r["x0"], r["y0"] = r["x"], r["y"]; r["x"], r["y"] = f'{e["geometry"]["coordinates"][0]:.2f}', f'{e["geometry"]["coordinates"][1]:.2f}'; r["moved"] = "1"; r["held"] = "1"
                     elif p["decision"] == "use":
                         r["held"] = "1"
                 rows.append(r)
         with open(str(dst) + ".part", "w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=fld, lineterminator="\n"); w.writeheader(); w.writerows(rows)
-        os.replace(str(dst) + ".part", dst); print(f"{dst.name}: {len(rows)} rows, {sum(r['moved'] == '1' for r in rows)} moved, {sum(r['held'] == '1' for r in rows)} held")
+        os.replace(str(dst) + ".part", dst); print(f"{dst.name}: {len(rows)} rows, {sum(r['moved'] == '1' for r in rows)} moved, {sum(r['held'] == '1' for r in rows)} held, {sum(r['depth0'] != '' for r in rows)} reread")
     miss = set(E) - used
     if miss:
         print("edits whose cast is in no base file:", sorted(miss)[:10])
@@ -142,6 +194,28 @@ def sync_dev(a=None):
             n["not_found" if not R else "ambiguous"].append(k); continue
         i, lon, lat, old = R[0].split("|", 3); note = f"{P}{k} was {lon} {lat}" + (f" | {old}" if old else "")
         sql.append(f"UPDATE soundings SET geom = {new}, notes = '{note.replace(chr(39), chr(39) * 2)}', updated_at = now() WHERE id = {i};"); n["moved"] += 1
+    # the rereads: depth_m takes the sheet's value, depth_orig keeps the digital file's, and the note says why (and holds the old depth, so a withdrawn reread goes back)
+    Q = "cast_reread:"; RR = {k: f for k, f in _edits().items() if f["properties"]["decision"] == "reread"}; n.update(reread=0, reread_unchanged=0, reread_withdrawn=0)
+    for ln in _psql(f"SELECT id, depth_m, replace(notes, E'\\n', ' ') FROM soundings WHERE notes LIKE '%{Q}%';").splitlines():
+        i, dep, note = ln.split("|", 2); k = note.split(Q, 1)[1].split(" ", 1)[0]
+        if k not in RR:
+            was = note.split(Q, 1)[1].split(" was ", 1)[1].split(" m", 1)[0]; head, _, tail = note.partition(Q); rest = (head.rstrip(" |") + " " + tail[tail.find("||") + 2:]).strip()
+            sql.append(f"UPDATE soundings SET depth_m = {float(was)}, notes = '{rest.replace(chr(39), chr(39) * 2)}', updated_at = now() WHERE id = {int(i)};"); n["reread_withdrawn"] += 1
+    for k, f in RR.items():
+        p = f["properties"]; x, y = f["geometry"]["coordinates"][:2]
+        R = _psql(f"SELECT s.id, s.depth_m, replace(coalesce(s.notes, ''), E'\\n', ' ') FROM soundings s JOIN sounding_surveys u ON u.id = s.survey_id WHERE u.slug = '{p['survey']}' AND (ST_DWithin(ST_Transform(s.geom, 6334), "
+                  f"ST_SetSRID(ST_MakePoint({p['x0']}, {p['y0']}), 6334), 1.0) OR ST_DWithin(ST_Transform(s.geom, 6334), ST_SetSRID(ST_MakePoint({x}, {y}), 6334), 1.0));").splitlines()
+        if len(R) != 1:
+            n["not_found" if not R else "ambiguous"].append(k); continue
+        i, dep, old = R[0].split("|", 2)
+        if f"{Q}{k} " in old:
+            if abs(float(dep) - float(p["depth_m"])) > 0.051:
+                sql.append(f"UPDATE soundings SET depth_m = {float(p['depth_m'])}, updated_at = now() WHERE id = {int(i)};")
+            n["reread_unchanged"] += 1; continue
+        if abs(float(dep) - float(p["depth0_m"])) > 0.051:
+            n["ambiguous"].append(k); continue                               # the database's depth is not the digital file's: someone else changed it
+        note = (f"{old} | " if old else "") + f"{Q}{k} was {p['depth0_m']} m in the digital file; reread from the survey's sheet as {p['depth_m']} m ({p['date']}). {p['basis'].replace('|', '/')} ||"    # after a move's header, which sync reads from the front
+        sql.append(f"UPDATE soundings SET depth_m = {float(p['depth_m'])}, notes = '{note.replace(chr(39), chr(39) * 2)}', updated_at = now() WHERE id = {int(i)};"); n["reread"] += 1
     if sql:
         _psql("\n".join(sql))
     print("dev database:", {k: (v if not isinstance(v, list) else v[:10]) for k, v in n.items()})
@@ -152,4 +226,5 @@ if __name__ == "__main__":
     c = sp.add_parser("export"); c.add_argument("out"); c.add_argument("--review")
     m = sp.add_parser("merge"); m.add_argument("edited"); m.add_argument("--basis")
     sp.add_parser("apply"); sp.add_parser("sync-dev")
-    a = ap.parse_args(); dict(export=export, merge=merge, apply=apply, **{"sync-dev": sync_dev})[a.cmd](a)
+    c = sp.add_parser("reread"); c.add_argument("key"); c.add_argument("depth_m", type=float); c.add_argument("--basis", required=True); c.add_argument("--source")
+    a = ap.parse_args(); dict(export=export, merge=merge, apply=apply, reread=reread, **{"sync-dev": sync_dev})[a.cmd](a)

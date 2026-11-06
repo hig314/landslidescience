@@ -66,6 +66,18 @@ The other decisions are `use` (keep what the spike filter dropped) and `question
 stays flagged until someone moves it). A cast the model overrides (3DEP land wins) needs no decision to stay overridden. It stays on
 the worklist until it has been moved somewhere its depth makes sense or left as `questionable`.
 
+**A depth is changed only by reading the survey's own sheet again** (`reread`, Hig, 2026-11-05). "The depth never
+changes" is about our opinion of the sea bed; it does not protect a copying error. NCEI's digital soundings were keyed
+from the smooth sheets, and where the keyed number disagrees with the sheet, the sheet is the measurement. The first case:
+`nos_h05187:55404` (59.16419, -151.51308), 0.9 m among 11-13 fathoms with no rock on the chart; the 1931 sheet shows a
+plain "12" there, keyed as "1/2" fathom. `cast_edits.py reread KEY DEPTH_M --basis "..."` records it, and `apply` writes
+the sheet's depth into the edited CSV (the digital value kept in `depth0`) and into the dev database (`depth_orig` keeps
+the digital value, the note the basis). The rule for using it: look at the sheet (NCEI serves a 400 dpi scan per survey,
+`Smooth_Sheets/<id>.tif.gz`, and the original records with their type and cartographic code, `GEODAS/<id>.a93.gz`), match
+the digitized soundings around the record to the handwritten numbers until only one number is left for it, and write
+that down as the basis. A depth that merely looks unlikely is no reread: check first whether it lies along a shore or at a
+charted rock, where a lone shallow cast is what one expects.
+
 Each survey's recorded translations are shown together, as arrows, with a note when moves on one survey line disagree. That
 is the prompt to look at the whole line, and the same records are the raw material for the survey-distortion tool if it is
 ever built (BAY_SOURCES 8.6a).

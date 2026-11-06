@@ -842,6 +842,32 @@
 "basis": "Hig QGIS review of first bay run, in progress 2026-11-04",
 "date": "2026-11-04"
 }
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+585015.57,
+6559282.36
+]
+},
+"properties": {
+"key": "nos_h05187:55404",
+"survey": "nos_h05187",
+"z": -24.38,
+"decision": "reread",
+"x0": 585015.57,
+"y0": 6559282.36,
+"dx": 0.0,
+"dy": 0.0,
+"depth_m": 21.9,
+"depth0_m": 0.9,
+"z0": -3.38,
+"basis": "The 1931 smooth sheet shows 12 fathoms (21.9 m) here; the digital file's 0.9 m is 1/2 fathom, the handwritten '12' most likely keyed as '1/2' when the sheet was digitized. Evidence: (1) NCEI's record (H05187.a93: 59.161223 N 151.520552 W, 0.9 m, type 0, code 711 = an ordinary sounding; none of the survey's 476 rock records lies within 1.4 km) stands alone among 11-13 fathom soundings of 1931 and of 1915 (H03802) within 230 m. (2) On NCEI's 400 dpi scan of the smooth sheet (H05187.tif, near pixel 6740, 11027) the 14 digitized soundings around the record match the handwritten numbers one to one (same offsets, same values), and the one number left for this record is a plain '12' with position number 19 and the bottom note 'rky Co' beside it: no fraction, no rock symbol, no shoal. (3) No rock on the NOAA chart (Hig). Found in Hig's review of kbay_joint_cm18, 2026-11-05: the surface honoured the cast with a 20 m pinnacle and stood 5-12 m above six casts around it.",
+"source": "https://www.ngdc.noaa.gov/nos/H04001-H06000/H05187.html (Smooth_Sheets/H05187.tif.gz, GEODAS/H05187.a93.gz)",
+"date": "2026-11-05"
+}
 }
 ]
 }
