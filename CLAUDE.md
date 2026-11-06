@@ -10,7 +10,7 @@ This file is the deep per-feature reference. **Two work streams run in
 parallel in separate worktrees — read [WORKSTREAMS.md](WORKSTREAMS.md)
 before touching anything under `tools/lidar/`.**
 
-## State of play (2026-10-31) — the one dated snapshot in this file
+## State of play (2026-11-05) — the one dated snapshot in this file
 
 Everything else here describes how things work and should stay true.
 **This section is a snapshot and will rot**; correct it or delete it rather
@@ -94,9 +94,9 @@ written down anywhere — read `/lidar/audit/`.
 - **Drops resume mid-file** (2026-10-31, a400820; tested in dev by Hig,
   migration 0003 applied on prod). First use: the drop *Grand Plateau
   Glacier photogrammetry* (`z2udka3Z6dGU`) for multi-GB SfM rasters;
-  private now, the finalized release is to be fully public (publish it
-  through the lidar pipeline, gated or not, deciding before the first
-  push). The first upload may be provisional pre-release data: a final
+  its preliminary DSM is published as the gated survey
+  `grand_plateau_sfm_2026_prelim` (2026-11-05, see Open threads); the
+  finalized release is to be fully public, as a new lidar entry. A final
   release should go in a new drop or folder (same name + size = skipped).
 
 **Open threads**, in no particular order:
@@ -113,14 +113,21 @@ written down anywhere — read `/lidar/audit/`.
 - **Grand Plateau 2026 preliminary DSM is on prod, gated** (2026-11-05,
   64d2006): `grand_plateau_sfm_2026_prelim` from the drop `z2udka3Z6dGU`,
   z9-17, pyramids on the droplet only, no COG there (dead download link,
-  accepted). Hig has not yet drawn a profile across it on prod. The final
+  accepted). Hig looked at it after the deploy: "this looks good"
+  (2026-11-05). Nothing further is owed on it. The final
   NPS release (winter 2026-27) is to be a new public entry, with this one
   retired and its 1 GB removed from the droplet. Same day (c309b1c): the
   `_slope` pyramids of gated surveys had been open to anonymous requests;
   now gated. Details: the last entry of `tools/lidar/RESUME.md`.
+- **Where the work stopped, 2026-11-05 evening** (Hig restarted the session
+  to change topic): nothing in flight, nothing built and unshipped on this
+  stream. `main` = `origin/main`; the droplet runs 64d2006 (the one commit
+  after it is notes only). The working tree's uncommitted changes
+  (`.gitignore`, `docker-compose.override.yml`, `map.js`, `views.py`,
+  `tools/terrain/scoops/`) are all the Scoops3D exploratory work above.
 - **Droplet disk is tight**: 5.5 GB free (93%) after the Grand Plateau
-  pyramids (2026-11-05). Docker build cache is 4.1 GB, of which `docker builder prune`
-  would reclaim ~1.3 GB. Offered to Hig, not answered, not run.
+  pyramids (2026-11-05). Docker build cache is 5.3 GB, of which `docker builder prune`
+  would reclaim ~2.6 GB (measured 2026-11-05). Offered to Hig, not answered, not run.
 - **Shaded relief / ArcticDEM follow-ons, deferred** (not to start
   unprompted): bake the 2 m ArcticDEM ourselves; deeper Mapterhorn zooms
   outside Alaska; ArcticDEM through the tile Worker. The PGC service gives
