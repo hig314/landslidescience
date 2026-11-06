@@ -172,6 +172,24 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
   nos_h04759:6591 is settled (Hig): the nearest cast to the shore off a delta, coming up onto the delta's margin; it stays.  r2c2 moved to the front of the queue for the reread cast (started 23:09).
   r6c3's gate row perched_over_deep 3.9 -> 11.1 ha is a label only: one 7 ha sheet of sea-surface returns at 3.4 m (59.61649,-151.18915) went tidal -> perched as its level spread fell 0.40 -> 0.28 m; its bed is the same.
   Open for Hig in r6c3: between-the-shores ground fitted below low tide with no casts near (59.66816,-151.41808, -2.5..-3.4 m where cm16's flat top stood at -1.88; box-wide 148 ha of the band is > 1 m under low tide, 118 in cm16).
+  2026-11-06 01:30, Hig's review: "circuitous troughs" at 59.40840,-151.69846 and pimples at 59.40945,-151.71187; 59.41913,-151.89300; 59.35974,-151.81483 (head of Seldovia Bay and west). All are in cm16 too. Causes:
+    (a) troughs, 0.8-1 m: KBay 2023 "ground" chains at the flight's water surface count as measured ground, so OCM/NCEI yield in strips 6-16 m wide along them (the Hoen's gap rule); the strips are in the mapped low
+        water, the sea's, and the basin's ceiling cut them to 0.1 m under the base (-3.38) with the compiled bed at -2.5 m on both sides.
+    (b) pimple 3 m (59.40945): one KBay 2023 "ground" cell at +0.13 m, 13 returns, at the water level, H09940 casts at -3.6 m 15 m off. No measured grid under it and the lagoon returned densely: neither speck rule applies.
+    (c) pimple 4 m (59.35974): Chugachmiut sea-surface cells over the 2009 multibeam at -8.6 m are removed, the 30 m2 hole is a pocket "the flat's", and a flat is held at or above the base.
+    (d) pimple 4.5 m (59.41913): in the 2009 multibeam grid itself (8 m across at -18.5 m); none of ours.  Not checked against the chart.
+    TRIAL, in scratch copies only (the bay run reads the working tree, so NOTHING is applied there until Hig approves): crops art_a (570500 6585000 575000 6592000, of r4c2, with Hoen's Lagoon) and art_b
+    (566000 6579000 569000 6582000, of r4c1), tags base / fx2 / fx3 under $W/art_a, $W/art_b.
+      fx2 = two shoreface.py changes ($W/art_a/fill_fixes_20261106.patch): the basin's ceiling follows a measured bed at or under low tide standing above the contour (harmonic from the rim, 0 on the contour); a void
+            whose every neighbour is a measured bed under the base is the sea's, not the flat's.  Result: troughs gone (cells > 0.5 m under their surroundings within 150 m of the first point 1349 -> 20); 95 ringed
+            voids from a median 0.8-1.3 m (up to 4.2 m) above their rim to 0.00; no observed cell changed; Hoen's inner flat 0.81 both; art_a casts p90 |r| 0.43 -> 0.35 m; 4.2 + 0.3 ha changed > 0.25 m; no time cost.
+            On dev as kbay_joint_art_a_base / kbay_joint_art_a_fx2.
+      fx1/fx3 = a joint.py speck rule ($W/art_a/speck_rule_trial_20261106.patch: a speck at the survey's own water level with soundings about it > 2 m under).  NOT PROPOSED: the first cut missed (b) (shore casts within
+            100 m) and took 734 cells of a steep shore's waterline ground in art_b, after which NCEI, no longer yielding between them, stood at -5.5 m against the beach; the second (casts within 50 m, > 30 m off the
+            survey's larger ground) still missed (b) -- the "ground" chains at the water level beside it are larger ground by that test -- and still moved the art_b shore.  (b) stays open: level and size do not tell a
+            stray of the water surface from wet ground at the water's edge.
+    Also landed: r2c2 (corrected cast 59.16418,-151.51297: -3.38 -> -24.01 m, no pinnacle; plate -2.29 -> -58.16 m; dead-flat 103 -> 4.5 ha; one cast at 59.18312,-151.60921, -1.3 m, now 10.7 m over the sea, not looked at),
+    r2c4 (gate clean), r6c2 (solid_over_level 1172 cells against cm16's 958, best 219: not traced).
 - **Dev version:** `$W/republish_loop.sh` rebuilds `$W/kbay_joint_cm18/` (`mosaic_blend.py ... "cm18,cm17,cm16"`) and republishes the
   dev surface `kbay_joint_cm18` every two new boxes (or after 2 h), log `$W/republish_cm18.log`; a last time when the workers are
   gone. On the viewer meanwhile: `kbay_joint_cm16` (the difference base), `kbay_joint_cm17` and `kbay_joint_cm17_r4c1` (both to
