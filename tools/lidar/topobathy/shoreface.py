@@ -468,6 +468,24 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
             data[r_, c_] |= (S[:, 4] >= Z0 - 0.1) & U[r_, c_]
         has = np.zeros(nl + 1, bool); has[np.unique(lb[data])] = True; has[0] = True
         Sea |= U & ~has[lb]; U = C & ~Sea
+    # A VOID RINGED BY A MEASURED BED UNDER THE BASE IS THE SEA'S (2026-11-06, Hig, 59.35974,-151.81483: a pimple 4 m high in the 2009 multibeam at -8.6 m, where a DTM's sea-surface specks had left a hole of 30 m2).  A small
+    # sea cut off from the sea "is the flat's" (above), and a flat stands at or above the base -- but a hole whose every neighbour is a measured bed under the base has no flat about it: it is a gap in that bed, the sea's,
+    # and takes its level from its rim.  Not one with a line, a cast at or above the base, a pool or higher ground of its own in it, nor one at the grid's edge, whose ring is not all seen
+    lb, nl = ndimage.label(U, structure=np.ones((3, 3), bool))
+    if nl:
+        notbed_ = ~U & ~(ob & (np.nan_to_num(z, nan=1e9) <= Z0 - 0.1))
+        out_ = np.zeros(nl + 1, bool); out_[np.unique(lb[U & ndimage.binary_dilation(notbed_, structure=np.ones((3, 3), bool))])] = True; del notbed_
+        out_[np.unique(np.r_[lb[0], lb[-1], lb[:, 0], lb[:, -1]])] = True
+        own_ = U & (np.isfinite(lines) | pool_ | hi)
+        if dem is not None:
+            own_ |= U & np.isfinite(dem)
+        if len(S):
+            own_[r_, c_] |= (S[:, 4] >= Z0 - 0.1) & U[r_, c_]
+        out_[np.unique(lb[own_])] = True; out_[0] = True; del own_
+        if not out_.all():
+            gap_ = ~out_[lb]
+            log(f"  shoreface: {int((~out_).sum())} voids ringed by a measured bed under the base are gaps in that bed, the sea's: {gap_.sum() * res * res / 1e4:.2f} ha")
+            Sea |= gap_; U = C & ~Sea; del gap_
     edge = Sea & ndimage.binary_dilation(U, structure=np.ones((3, 3), bool))
     # the contour the basin starts from: the low line's level where it runs along the low line, the base elsewhere; carried out from the nearest of it and smoothed (Zf), exact on the contour (Ze)
     Ze = np.full(shape, Z0, np.float32); Zf = Ze
@@ -624,22 +642,36 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
                     m = np.isfinite(r); fill[m] = (full[m] + (r[m] * fd_[m] if name == "basin" else r[m])).astype(np.float32)
     # the ceiling on the basin: what the spline overshot is refitted under sites just below the contour (a cut alone leaves a shelf), then held
     if Sea.any():
+        # THE CEILING IS NO LOWER THAN A MEASURED BED BESIDE IT (2026-11-06, Hig, 59.40840,-151.69846, the head of Seldovia Bay: "circuitous troughs" 0.8-1 m deep in a bed at -2.5 m -- strips of void 6-16 m wide in the
+        # mapped low water, the sea's by the mapping, cut to 0.1 m under the base at -3.38 with a measured bed standing above that on both sides).  The contour is where the sea starts on a shore nobody measured; a measured
+        # bed at or under low tide beside the void says more.  What it stands above the cut fades into the void as its misfit does (harmonic; 0 on the contour and beside anything above low tide, where the cut holds as before)
+        ceil_ = (Zf - 0.1).astype(np.float32)
+        if rimS.any():
+            ev = np.full(shape, np.nan, np.float64); ev[rimS] = np.where(z[rimS] <= float(P["low_tide_m"]), np.maximum(z[rimS] - ceil_[rimS], 0.0), 0.0); ev[edge] = 0.0
+            if np.nanmax(ev) > 0.05:
+                unk_ = Sea & ~edge
+                sol = harmonic(ev, np.isfinite(ev), unk_, coarse=P["coarse"], iters=P["cg_iters"])
+                up_c = np.where(unk_, np.clip(np.nan_to_num(sol), 0.0, None), 0.0).astype(np.float32); del sol, unk_
+                ceil_ = (ceil_ + up_c).astype(np.float32)
+                log(f"  shoreface: the basin's ceiling follows a measured bed standing above the contour on {(up_c > 0.05).sum() * res * res / 1e4:.2f} ha, up to {float(up_c.max()):.2f} m")
+                del up_c
+            del ev
         if len(S):
             # ...only where the correction can act: inside the fade a site does nothing but compete with the casts (c4: holding the contour lifted the ring next to it into "over",
             # 50 -> 1126 sites at Rocky and 497 -> 2341 at Windy, whose refit then averaged its casts into 40 m blocks, cast NMAD 0.26 -> 0.69); the cut below holds that ring
-            over = Sea & ~edge & (fill > Zf - 0.1) & (fd_ >= 0.5)
+            over = Sea & ~edge & (fill > ceil_) & (fd_ >= 0.5)
             if over.any():
                 k_ = max(int(round(float(P["points_rim_step_m"]) / res)), 1) * 2
                 or_, oc_ = np.nonzero(over); _, first = np.unique((or_ // k_) * 1_000_003 + oc_ // k_, return_index=True); or_, oc_ = or_[first], oc_[first]
-                add = np.column_stack([or_, oc_, T.c + (oc_ + 0.5) * res, T.f - (or_ + 0.5) * res, Zf[or_, oc_] - 0.5, np.full(or_.size, float(P["points_rim_sigma_m"]))])
-                log(f"  shoreface: basin above the contour on {over.sum() * res * res / 1e4:.2f} ha (up to {float((fill - Zf)[over].max()):.2f} m): {or_.size} ceiling sites, refit")
+                add = np.column_stack([or_, oc_, T.c + (oc_ + 0.5) * res, T.f - (or_ + 0.5) * res, ceil_[or_, oc_] - 0.4, np.full(or_.size, float(P["points_rim_sigma_m"]))])
+                log(f"  shoreface: basin above the contour on {over.sum() * res * res / 1e4:.2f} ha (up to {float((fill - ceil_ - 0.1)[over].max()):.2f} m): {or_.size} ceiling sites, refit")
                 keep = ~U[r_, c_] & (S[:, 4] < Zf[r_, c_] - 0.1); sl_ = lab[r_, c_]; dl_ = lab[or_, oc_]
                 for i in np.unique(dl_):
                     Sd = np.vstack([S[keep & (sl_ == i)], add[dl_ == i], Bl[Sea[Bl[:, 0].astype(int), Bl[:, 1].astype(int)] & (lab[Bl[:, 0].astype(int), Bl[:, 1].astype(int)] == i) & ~edge[Bl[:, 0].astype(int), Bl[:, 1].astype(int)]]])
                     r = _spline_residual(Sd, full, Sea & ~edge & (lab == i), dom, ob | U | edge, res, Pz, T=T, log=log, name=f"{int(i)} basin +ceiling")
                     if r is not None:
                         m = np.isfinite(r); fill[m] = (full[m] + r[m] * fd_[m]).astype(np.float32)
-        ex = np.where(Sea, np.maximum(fill - (Zf - 0.1), 0), 0).astype(np.float32)
+        ex = np.where(Sea, np.maximum(fill - ceil_, 0), 0).astype(np.float32)
         if (ex > 0).any():
             log(f"  shoreface: still above after the refit on {(ex > 0).sum() * res * res / 1e4:.2f} ha, up to {float(ex.max()):.2f} m: held")
             fill[Sea] = (fill[Sea] - ex[Sea]).astype(np.float32)

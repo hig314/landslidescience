@@ -190,6 +190,9 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
             stray of the water surface from wet ground at the water's edge.
     Also landed: r2c2 (corrected cast 59.16418,-151.51297: -3.38 -> -24.01 m, no pinnacle; plate -2.29 -> -58.16 m; dead-flat 103 -> 4.5 ha; one cast at 59.18312,-151.60921, -1.3 m, now 10.7 m over the sea, not looked at),
     r2c4 (gate clean), r6c2 (solid_over_level 1172 cells against cm16's 958, best 219: not traced).
+  2026-11-06 01:34, Hig: "let's go ahead and implement these for future boxes" -- the two fill fixes (fx2) are in shoreface.py from this commit.  First box with them: r3c2 (its fill started after 01:34); every box after it
+    in the queue.  Still on the old fill, under cm18: r2c1, r3c5, r6c3, r4c2, r6c2, r2c2, r2c4, r3c4, r3c3 -- NOT requeued (Hig asked for future boxes only); the troughs and ringed holes stay in those nine until a rerun.
+    Check on r3c2 when it lands: the two new log lines ("ceiling follows a measured bed", "voids ringed by a measured bed"), its gate, and compare_runs against cm16.
 - **Dev version:** `$W/republish_loop.sh` rebuilds `$W/kbay_joint_cm18/` (`mosaic_blend.py ... "cm18,cm17,cm16"`) and republishes the
   dev surface `kbay_joint_cm18` every two new boxes (or after 2 h), log `$W/republish_cm18.log`; a last time when the workers are
   gone. On the viewer meanwhile: `kbay_joint_cm16` (the difference base), `kbay_joint_cm17` and `kbay_joint_cm17_r4c1` (both to
