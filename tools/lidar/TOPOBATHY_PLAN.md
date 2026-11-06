@@ -167,6 +167,11 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
   (h09890:99840) -- left as they are.  One is open: nos_h04759:6591 (59.60354,-150.51992, 0.6 m among 24 fathoms, 225-265 m off the shore), 3 km east of the boxes, so it touches no build; not checked against its sheet.
   Also 21:15: water_review.py crashed on any box with a level_conflict flag (fixed, 2d22ef3; r6c3's review rerun).  And 20:30: the "good cast back to the sea" and past-closure tests took any cast 1 m under the local low
   line as the sea's (r4c2/r4c1, lagoon at 59.40558,-151.69395: 69 casts at -1.8..-0.1 m sunk 2-4 m); they now need the cast below the base contour too; r4c2 rerun to confirm, r6c2 onward built with it.
+  23:10: r4c2's rerun confirms it -- no cast above the base sunk (was 69), not-fit casts 235 (cm16 246), |surface - cast| p90 0.79 m (was 1.43 with the fault), 7.7 ha of the box changed against cm16 (Hoen's flat, the pools).
+  Boxes built before the change: r2c1, r3c5, r6c3 -- each checked clean of it (scratchpad disc_check.py: casts above the base whose cells went band -> sea and now stand > 1 m above the surface).
+  nos_h04759:6591 is settled (Hig): the nearest cast to the shore off a delta, coming up onto the delta's margin; it stays.  r2c2 moved to the front of the queue for the reread cast (started 23:09).
+  r6c3's gate row perched_over_deep 3.9 -> 11.1 ha is a label only: one 7 ha sheet of sea-surface returns at 3.4 m (59.61649,-151.18915) went tidal -> perched as its level spread fell 0.40 -> 0.28 m; its bed is the same.
+  Open for Hig in r6c3: between-the-shores ground fitted below low tide with no casts near (59.66816,-151.41808, -2.5..-3.4 m where cm16's flat top stood at -1.88; box-wide 148 ha of the band is > 1 m under low tide, 118 in cm16).
 - **Dev version:** `$W/republish_loop.sh` rebuilds `$W/kbay_joint_cm18/` (`mosaic_blend.py ... "cm18,cm17,cm16"`) and republishes the
   dev surface `kbay_joint_cm18` every two new boxes (or after 2 h), log `$W/republish_cm18.log`; a last time when the workers are
   gone. On the viewer meanwhile: `kbay_joint_cm16` (the difference base), `kbay_joint_cm17` and `kbay_joint_cm17_r4c1` (both to

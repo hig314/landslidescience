@@ -403,7 +403,11 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
         # those is judged by its casts, or with none by where the land lies (_past_closure); what lies past the mapping is no flat, and the base contour and the casts decide it as they do on the coast nobody mapped
         land_ = (ob & (np.nan_to_num(z, nan=-1e9) > float(P.get("shore_facing_land_m", 3.0)))) | hi           # ground above the tide, observed or the prior's: what a flat's low shore faces
         kg_ = S[:, 5] <= float(P.get("shore_face_cast_sigma_m", 4.0)) if len(S) else None
-        past_, nca_, nla_ = _past_closure(m_band, Lw_, Lc_, land_, res, float(P.get("shore_closure_tol_m", 6.0)), casts=np.c_[r_[kg_], c_[kg_], S[kg_, 4]] if len(S) else None, low=Lnear,
+        # THE SEA'S CASTS ARE BELOW THE BASE CONTOUR (2026-11-05, r4c2 under cm18, 59.40558,-151.69395: a lagoon whose low line stands above the tide's; 69 casts at -1.8..-0.1 m, fit to the decimetre between the shores in
+        # cm16, were "more than 1 m under the low shore's level", their ground went to the sea, and the sea starts at the base contour: the surface stood 2-4 m under them).  A cast says sea only when it is more than 1 m
+        # under the low shore AND under the base (the casts at or above the base hold ground OFF the sea, above); a cast between the two is the flat's own floor, and the flat fits it
+        Lsea_ = np.minimum(Lnear, Z0 + 0.9).astype(np.float32)                # "more than 1 m below this" = below the low shore by 1 m and below the base by 0.1
+        past_, nca_, nla_ = _past_closure(m_band, Lw_, Lc_, land_, res, float(P.get("shore_closure_tol_m", 6.0)), casts=np.c_[r_[kg_], c_[kg_], S[kg_, 4]] if len(S) else None, low=Lsea_,
                                           cast_reach_m=float(P.get("shore_closure_cast_reach_m", 500.0))); del land_
         if Lc_ is None:
             log("  shoreface: no tide_low_closures.geojson beside the tide polygons (tide_vectors.py closures): the band is not checked against the end of the low-water mapping")
@@ -416,7 +420,7 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
         if len(S):
             # ...and a good cast more than 1 m under the low shore's level is the sea's, between the shores too: its room (as below the base, above) goes back to the sea where that joins the sea or is no pocket
             # (shore_pocket_m2); a lone one stays for review -- casts are misplaced, not wrong
-            kd_ = m_band[r_, c_] & (S[:, 5] <= float(P.get("shore_face_cast_sigma_m", 4.0))) & (S[:, 4] < Lnear[r_, c_] - 1.0)
+            kd_ = m_band[r_, c_] & (S[:, 5] <= float(P.get("shore_face_cast_sigma_m", 4.0))) & (S[:, 4] < Lsea_[r_, c_] - 1.0)
             if kd_.any():
                 md_ = np.zeros(shape, bool); md_[r_[kd_], c_[kd_]] = True
                 back_ = m_band & ~up_l & (ndimage.distance_transform_edt(~md_, sampling=res) <= float(P.get("shore_cast_hold_m", 20.0)))
@@ -425,7 +429,7 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
                 back_ &= okc_[lb]; del lb
                 if back_.any():
                     m_band &= ~back_; Sea |= back_
-                    log(f"  shoreface: {int(kd_.sum())} good casts more than 1 m below the low shore's level between the shores: {back_.sum() * res * res / 1e4:.2f} ha around them back to the sea")
+                    log(f"  shoreface: {int(kd_.sum())} good casts more than 1 m below the low shore's level and below the base between the shores: {back_.sum() * res * res / 1e4:.2f} ha around them back to the sea")
             ks_ = Sea[r_, c_] & (S[:, 4] >= Lnear[r_, c_] - 0.1)       # a cast above the low level in the low water is a shoal it holds off the sea
             if ks_.any():
                 ms_ = np.zeros(shape, bool); ms_[r_[ks_], c_[ks_]] = True
@@ -734,7 +738,7 @@ def _mapped_shores(P, T, shape):
 def _past_closure(band, Lw, Lc, land, res, tol_m=6.0, casts=None, low=None, cast_reach_m=500.0):
     """The cells of `band` (high water outside the low water) that lie past the end of the low-water mapping.  Only where the nearest edge of the low water is a closing edge (tide_vectors.py closures) is there a question: that
     edge is no shore, so it is no evidence of a flat beyond it -- but a broad flat's low shore is drawn in the same long straight segments (Mud Bay, 59.633,-151.463: 180 ha of flat at -1.8..0.8 m).  There the DATA decide, cell by
-    cell: the median of the three nearest good casts (rows of row, col, z; within cast_reach_m) more than 1 m under the low shore's level `low` is the sea, anything else the flat (one misplaced cast decides nothing).  With no
+    cell: the median of the three nearest good casts (rows of row, col, z; within cast_reach_m) more than 1 m under `low` (the low shore's level, or the base contour + 0.9 m where that is lower: the sea is below both) is the sea, anything else the flat (one misplaced cast decides nothing).  With no
     casts in reach, the land does: nearest land behind the low water is past it, land facing the edge across the cell is between the shores.  Returns (past, ambiguous cells judged by casts, by the land)."""
     out = np.zeros(band.shape, bool)
     if Lc is None or not Lc.any() or not band.any() or not Lw.any():
