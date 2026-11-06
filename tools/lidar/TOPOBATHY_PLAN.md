@@ -193,6 +193,21 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
   2026-11-06 01:34, Hig: "let's go ahead and implement these for future boxes" -- the two fill fixes (fx2) are in shoreface.py from this commit.  First box with them: r3c2 (its fill started after 01:34); every box after it
     in the queue.  Still on the old fill, under cm18: r2c1, r3c5, r6c3, r4c2, r6c2, r2c2, r2c4, r3c4, r3c3 -- NOT requeued (Hig asked for future boxes only); the troughs and ringed holes stay in those nine until a rerun.
     Check on r3c2 when it lands: the two new log lines ("ceiling follows a measured bed", "voids ringed by a measured bed"), its gate, and compare_runs against cm16.
+  2026-11-06 03:10, r3c2 (first box on the new fill) and r3c3, r3c4 checked.
+    r3c2: "the basin's ceiling follows a measured bed standing above the contour on 3.00 ha, up to 1.61 m"; no ringed void in this box.  Gate equal to cm16 on every row (solid_over_level 129 = 129).  Casts: median
+      +0.00 m, NMAD 0.05 (cm16 0.06), p90 0.31.  Dead-flat ground below the base 46.0 -> 0.9 ha.  Run time unchanged.
+    r3c3: gate equal to cm16 (460 = 460); dead-flat 118.0 -> 3.2 ha.  r3c4: gate clean; dead-flat 408.5 -> 0.1 ha; not-fit casts 32 -> 13.
+    OPEN, A LAKE BED 3-6 m HIGHER IN r3c2 (59.31430,-151.73801, 13 ha at 8.42 m, no soundings; modelled in both runs): NOT the fill fixes.  The joint's lake-sheet rule since afe23d0 ("of such a sheet, only the cells at
+      the water's level", the fix for the Kenai 2008 bench east of Homer) removed 20.62 ha in this box where cm16 removed 23.06.  In this lake 0.16 ha of KBay 2023 "ground" in 45 specks (largest 184 m2) along the west
+      shore and by the island, 0.05-0.28 m above the lake's level (median 0.15, the rule's own_sheet_tol_m), is kept; the water stage calls it land, and the lake's modelled bed follows: the west arm 8-14 m deep ->
+      2-6 m, the deepest point 21 -> 16.5 m, median +3.1 m over 10.4 ha.  Whether the specks are a sedge margin or the water's surface is not known (the true shore within 30 m sits 0.03-1.3 m above the level, median
+      0.26, so height does not tell).  How 0.16 ha moves the whole basin was not traced inside fill.py's lake prior.  Scan of the 10 landed boxes with a cm16 run (scratchpad lakescan.py): lake beds moved > 1 m only
+      here and on 7.2 + 3.4 ha in r6c2 (three ponds near 59.71,-151.74 up 1.4-2.8 m; 59.64473,-151.47036 down 1.6 m); none elsewhere.  Not changed: a joint rule edit mid-run is Hig's call.
+    ARCHIVE FAULT FOUND AND FIXED: run_box.sh archived out/*.json and *.geojson by hard link, and those files are rewritten in place, so every later run overwrote the archived copy of every earlier tag (fill_lakes.json,
+      fill.json, report.json, water_review.json, water_flags.geojson, polygons_auto.geojson, high_line.json, rock_review.geojson: out_cm16's read as cm18's in the boxes already rerun).  Rasters (new files each run),
+      logs (copied) and the gate's saved metrics ($WORK/gate/<tag>.json) were never affected, so no raster comparison or gate verdict is in doubt.  What was overwritten cannot be recovered short of a rerun.  Fixed:
+      run_box.sh copies the reports; the 1,458 linked report files under $W/*/out_*/ were given their own copies at 03:00 (content as it stood); the watcher repeats that for boxes whose run began before the fix.
+    WATCHER: scratchpad watch_cm18.sh (boxcheck.py + compare_runs.py + lakescan.py per landed box) -> $W/checks_cm18.log; stops on a fault (rc, a gate row worse than cm16, a traceback, < 25 GB free) or every 6 boxes.
 - **Dev version:** `$W/republish_loop.sh` rebuilds `$W/kbay_joint_cm18/` (`mosaic_blend.py ... "cm18,cm17,cm16"`) and republishes the
   dev surface `kbay_joint_cm18` every two new boxes (or after 2 h), log `$W/republish_cm18.log`; a last time when the workers are
   gone. On the viewer meanwhile: `kbay_joint_cm16` (the difference base), `kbay_joint_cm17` and `kbay_joint_cm17_r4c1` (both to

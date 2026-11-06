@@ -24,7 +24,9 @@ stamp "review";             $PY topobathy/water_review.py $RECIPE > $WORK/review
 stamp "gate";               mkdir -p $WORK/gate
 if $PY topobathy/gate.py $WORK/out --tag $TAG --gate-dir $WORK/gate --save > $WORK/gate.log 2>&1; then stamp "gate passed"; else stamp "GATE FAILED (see $WORK/gate.log)"; GATE_FAIL=1; fi
 A=$WORK/out_$TAG; rm -rf $A; mkdir -p $A/logs
-cp -pl $WORK/out/*.tif $WORK/out/*.geojson $WORK/out/*.json $A/ 2>/dev/null || true   # hard links: the archive costs no space (a later run rewrites out/ by new files)
+cp -pl $WORK/out/*.tif $A/ 2>/dev/null || true                                       # rasters by hard link: the archive costs no space (a later run writes out/ rasters as new files)
+cp -p $WORK/out/*.geojson $WORK/out/*.json $A/ 2>/dev/null || true                   # the reports by COPY: they are rewritten in place, and a hard link let every later run overwrite the
+                                                                                    # archived one (2026-11-06: fill_lakes.json, fill.json, report.json, water_review.json... of cm16 read as cm18's)
 cp -p $WORK/*.log $JOUT/*.log $A/logs/ 2>/dev/null || true; cp -p $RECIPE $A/recipe.json
 stamp "archived $A"
 [[ -z $GATE_FAIL ]] && touch $WORK/BOX_DONE_$TAG
