@@ -271,6 +271,12 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
     Scratchpad: bishop.py, mesa.py, mesa2.py, hist.py (a point in every archived run), moshist.py (a point in every mosaic), regr.py (cm16 v
       cm18 with the fill's intermediates), scan_steps.py, corr_map.py, nbr.py, diff_out.py, patch_cap.py; crops bishop_t, seam_t (make_crop.py).
     TO RERUN AT THE END (Hig): every box whose fill began before 09:56 has the cone's trenches; the nine on the old fill also the holes.
+      scan_steps.py over the 16 landed (ha of modelled cells > 2 m above every observed neighbour beside a bed / > 5 m below every observed
+      neighbour): r6c2 73.6 / 14.1; r6c3 23.6 / 6.6; r6c4 4.2 / 17.1 (to -40 m, 59.72242,-151.14915, shared with r6c3); r5c2 0.7 / 4.8 (to -151 m,
+      59.58333,-151.69160); r4c1 3.6 / 1.6; r5c3 3.2 / 1.0; r3c3 0 / 1.9; r2c1 0 / 1.7 (-146 m on 211 cells at 59.14261,-151.79864, mask 9: not
+      looked at); r3c5 0 / 1.5; r3c4 0 / 1.0; r3c2 0 / 1.0; r4c2 0.4 / 0.9; r4c4 0.1 / 0.6; r2c2 0 / 0.5; r2c4 0 / 0.3; r2c3 0 / 0.1.
+      The "above" of r6c4 / r5c3 at 59.567,-151.201 (+52 m) is the wall of Halibut Cove Lagoon beside its -60 m bed: not a fault of this kind.
+      Order for the reruns: r6c2, r6c3, r6c4, r5c2, r4c1 (+ r4c2 for Hig's Seldovia points), r5c3; the rest are under 2 ha each.
     WATCHER, changed: a box with no cm16 run no longer stops it for rows REGRESSED against run2 (it runs gate_where.py and writes the
       pieces instead); a MISSING row does stop it; the fill stage's minutes are printed per box.
 - **Dev version:** `$W/republish_loop.sh` rebuilds `$W/kbay_joint_cm18/` (`mosaic_blend.py ... "cm18,cm17,cm16"`) and republishes the
