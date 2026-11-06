@@ -253,7 +253,7 @@ def run(recipe, out_dir=None, log=print):
         sl, m = body_mask(int(k))
         if sl is None:
             continue
-        add("level_conflict", sl, m, dict(body=int(k), kind=b.get("kind"), consensus_level_m=b.get("consensus_level_m"),
+        add("level_conflict", sl, m, dict(body=int(k), body_kind=b.get("kind"), consensus_level_m=b.get("consensus_level_m"),
                                           levels=[dict(survey=l["survey"], date=l.get("date"), level_m=l["level_m"]) for l in lv],
                                           mapped_name=b.get("mapped_name")),
             f"one level, {b.get('consensus_level_m')} m ({b.get('consensus_rule') or 'consensus'}); a lake may hold more than one")
