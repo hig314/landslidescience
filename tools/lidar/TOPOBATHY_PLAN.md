@@ -159,7 +159,8 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
 - **Queue** `$W/.queue_cm18` (one id a line; empty it to stop after the boxes in hand): r4c2, r6c2, r3c4, r2c4, r3c3, r3c2, r4c1,
   r2c2, r2c3, r4c4, then the 35 unprocessed (`$W/queue_cm16_left.txt`, run_bay_parallel's order). Two workers
   `$W/queue_worker2.sh cm18 2` (at most 2 run_box.sh at once; a refused box is retried after 10 min), log `$W/test_cm18.log`.
-  r6c3 and r3c5 were started by the first workers (17:03). About 1-1.5 h a box: the last box lands roughly 26 h on.
+  r6c3 and r3c5 were started by the first workers (17:03). About 2 h a box on the cm16 timings (0.8 h open sea, ~4 h where there is much shore: r4c1, r4c2, r6c2, r6c3), not the 1-1.5 h first written: the reruns end about the morning of 6 Nov, the last box about the evening of 7 Nov.
+  20:00 check: r3c5 passed its gate (plate at 59.29378,-150.74956 -3.25 -> -17.14 m, fix2h -29.67; dead-flat below base 350 -> 28 ha; not-fit casts 89 -> 20). Its deep sea moved > 0.5 m on 18,000 ha (median +-1.8 m): the basin soundings spline was refitted with 72 more soundings, a site grid of 312 m in place of 308 m and its own lambda 2.2e-04 in place of 9.9e-05 -- a change within the spline's cast misfit (NMAD 3.4 m), not the flat-top fix (that step touched 111 ha, was 438). r6c3's joint stage: class_joint covers 95 % of the 800 m around 59.68841,-151.34924 (16 % in cm16) -- the 2008 lidar fix holds in a full box. The three shore_dump_cm17.pkl files are deleted.
 - **Dev version:** `$W/republish_loop.sh` rebuilds `$W/kbay_joint_cm18/` (`mosaic_blend.py ... "cm18,cm17,cm16"`) and republishes the
   dev surface `kbay_joint_cm18` every two new boxes (or after 2 h), log `$W/republish_cm18.log`; a last time when the workers are
   gone. On the viewer meanwhile: `kbay_joint_cm16` (the difference base), `kbay_joint_cm17` and `kbay_joint_cm17_r4c1` (both to
