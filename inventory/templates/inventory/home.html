@@ -87,6 +87,14 @@
                      border:1px solid #e0d2bb; background:#fff; border-radius:9px;
                      cursor:pointer; color:#7a5c1e;">Show all</button>
     </div>
+    {% comment %}
+    Whether anything is restricting which landslides are drawn. map.js
+    (_syncFilterNote) sets the text, the class and a tooltip naming the
+    filters in force. Here because filters live two tabs away from wherever
+    the reader may be, and now survive a round trip to a record form.
+    {% endcomment %}
+    <div class="inv-pinned-row inv-filter-note" id="filter-note"
+         title="No filter is restricting which landslides are shown.">Unfiltered</div>
   </div>
 
   {# ---- Tabs ---- #}

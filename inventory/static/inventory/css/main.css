@@ -109,6 +109,8 @@ body.inv-map-body {
 /* Explorer hand-off notice (#ids= selection). `.hidden` is scoped per
    component in this file rather than global, so it needs its own rule. */
 .inv-pinned-row:last-child { margin-bottom: 0; }
+.inv-filter-note { font-size: 11.5px; color: #8a8a8a; cursor: default; }
+.inv-filter-note.on { font-weight: 700; color: #b3261e; letter-spacing: 0.04em; }
 #ids-notice.hidden { display: none; }
 #ids-notice {
     display: flex;

@@ -189,17 +189,49 @@
         return out;
     }
     var _initialHash = parseHashState();
-    // Returning from a data form (no hash in the URL) restores the last view the
-    // editor was at, so they can bounce between mapping and populating fields
-    // without losing their place.
-    if (!location.hash) {
+    // Returning from a data form restores where the editor was, so they can
+    // bounce between mapping and populating fields without losing their place.
+    // Two memories, tried in this order:
+    //   this TAB's (sessionStorage 'ls_map_session') -- the whole address as
+    //     it last stood, filters and explorer selection included. It is what
+    //     map -> record form -> "Map" comes back to. Used when the link gives
+    //     no camera: a bare /inventory/, or one naming only a record
+    //     ("View on map" = #id=N), whose own params then go on top.
+    //   this BROWSER's (localStorage 'ls_map_view') -- the same minus filters
+    //     and selection, for a bare /inventory/ in a tab with no memory.
+    // The tab's memory lapses after _SESSION_VIEW_MAX_AGE away from the map:
+    // a filter set yesterday must not be the reason most of the records are
+    // missing today (the reason the browser's memory never held filters).
+    // It is also tied to the query string it was written under, so a legacy
+    // ?t=1&c=5 link or a ?subset= page is never overlaid with another's state.
+    var _SESSION_VIEW_KEY = 'ls_map_session', _SESSION_VIEW_MAX_AGE = 12 * 3600 * 1000;
+    function _sessionViewRead() {
         try {
-            var _savedView = localStorage.getItem('ls_map_view');
-            if (_savedView) {
-                var _sv = parseHashState(_savedView);
-                if (_sv.zoom != null) _initialHash = _sv;
+            var e = JSON.parse(sessionStorage.getItem(_SESSION_VIEW_KEY) || 'null');
+            if (!e || typeof e.v !== 'string') return null;
+            if (!(Date.now() - e.t < _SESSION_VIEW_MAX_AGE)) {
+                sessionStorage.removeItem(_SESSION_VIEW_KEY);
+                return null;
             }
-        } catch (e) {}
+            if ((e.q || '') !== location.search) return null;
+            var s = parseHashState(e.v);
+            return s.zoom != null ? s : null;
+        } catch (err) { return null; }
+    }
+    if (_initialHash.zoom == null) {
+        var _sessView = _sessionViewRead();
+        if (_sessView) {
+            Object.keys(_initialHash).forEach(function (k) { _sessView[k] = _initialHash[k]; });
+            _initialHash = _sessView;
+        } else if (!location.hash) {
+            try {
+                var _savedView = localStorage.getItem('ls_map_view');
+                if (_savedView) {
+                    var _sv = parseHashState(_savedView);
+                    if (_sv.zoom != null) _initialHash = _sv;
+                }
+            } catch (e) {}
+        }
     }
     var _pendingDetailId = _initialHash.id || null;
     // Explorer hand-off: null = unconstrained (the normal case).
@@ -234,7 +266,9 @@
     //   'saved'  the per-browser last view (ls_map_view) -- the same minus the
     //            explorer selection and the filters: a one-off selection or
     //            filter must not become the map someone finds days later with
-    //            most of its records missing and no memory of why
+    //            most of its records missing and no memory of why. (The 'url'
+    //            string is also kept per TAB for half a day, which is what a
+    //            round trip to a record form returns to -- _sessionViewRead.)
     //   'view'   a landslide's stored default view -- see _currentViewString
     function _viewStateString(mode) {
         var o = { extras: {} };
@@ -261,6 +295,9 @@
         if (window.LSReview) LSReview.layoutChanged();
         try { localStorage.setItem('ls_map_view', '#' + _viewStateString('saved')); } catch (e) {}
         var newHash = '#' + _viewStateString('url'), qs = _queryWithoutLegacy();
+        try {
+            sessionStorage.setItem(_SESSION_VIEW_KEY, JSON.stringify({ t: Date.now(), q: qs, v: newHash }));
+        } catch (e) {}
         if (location.hash !== newHash || location.search !== qs) {
             // Full address, not location.pathname: a // path reads as another host.
             history.replaceState(null, '', location.href.split(/[?#]/)[0] + qs + newHash);
@@ -7167,6 +7204,30 @@
         var pm = bits('pm');
         if (pm != null) _pmBits().forEach(function (b) { if (b[0]) b[0].checked = !!(pm & b[1]); });
     }
+    // The pinned strip's "Unfiltered" / "FILTERED" note: is anything
+    // restricting which landslides are drawn? Reads the same collection the
+    // URL is written from, so the two cannot disagree. lv (limit counts to
+    // map view) and pm (chart modes) change what is counted or plotted, not
+    // what is shown, and the Traces box is a layer, so none of them count.
+    // (The names live inside the function for the reason given above
+    // _flagBits: the cold apply calls this before a `var` here is assigned.)
+    function _syncFilterNote() {
+        var el = document.getElementById('filter-note');
+        if (!el) return;
+        var NAMES = { ty: 'type', c: 'class', f: 'include-only boxes', ft: 'landslide features',
+                      sa: 'source area', da: 'deposit area', vol: 'volume', yr: 'age',
+                      n10: 'susceptibility (n10)', lw: 'susceptibility (lw)' };
+        var f = _filterCollect(), names = [];
+        Object.keys(NAMES).forEach(function (k) {
+            if (f[k] != null) names.push(NAMES[k]);
+        });
+        if (_idsFilter) names.push('explorer selection');
+        el.classList.toggle('on', names.length > 0);
+        el.textContent = names.length ? 'FILTERED' : 'Unfiltered';
+        el.title = names.length
+            ? 'Some landslides are hidden. Filters in force: ' + names.join(', ') + '.'
+            : 'No filter is restricting which landslides are shown.';
+    }
     // Cold load. Filters come from the hash; a link made before 2026-10-06
     // carries them in the query string instead (?t=…&c=…&yr=…), which is read
     // here with the same reader and then rewritten into the hash by the first
@@ -7183,6 +7244,7 @@
         var h = _initialHash.flt || {};
         Object.keys(h).forEach(function (k) { vals[k] = h[k]; });
         _filterApply(vals);
+        _syncFilterNote();
         return { openHist: q.get('hist') === '1', openTiming: q.get('timing') === '1' };
     }
     // Called by everything that changes a filter. A bare /inventory/ stays
@@ -7198,6 +7260,7 @@
     // Client-side filtering
     // ---------------------------------------------------------------------------
     function buildFilter() {
+        _syncFilterNote();      // before the guard: the controls can change before the layers exist
         if (!map.getLayer('points')) return;
 
         var activeTypes = [], activeClasses = [];
