@@ -612,3 +612,34 @@ a different size is a rebuild not yet uploaded, and keeps the route. So
 **Open dev at `http://localhost:8001`:** R2's CORS allows it and refuses
 `127.0.0.1:8001`, which fails silently in the browser.
 
+
+## 2026-11-05 (evening): grand_plateau_sfm_2026_prelim built, gated -- in dev, NOT yet on prod
+
+Hig asked for the DEM in the photo drop `z2udka3Z6dGU` (NPS Glacier Bay, preliminary
+0.45 m SfM surface of Grand Plateau Glacier, ellipsoidal heights) as a gated survey,
+so signed-in accounts get it in the profile tool. Provenance, the preliminary-data
+wording and every number are in the manifest notes; what is not there:
+
+- **Where the bytes are.** Raw mirror: Nunatak `landslidescience/drops/z2udka3Z6dGU/`
+  (never edit). Converted source: `lidar_build/grand_plateau_sfm/…_navd88.tif` (2.3 GB).
+  COG: `lidar_build/cog/` (3.0 GB), **Nunatak only**. Pyramids in `data/lidar/pmtiles/`:
+  elevation 518 MB, slope 518 MB (z9-17).
+- **The droplet gets the two pyramids and no COG** (it has ~6.5 GB free), so the
+  `/lidar/` download link for this survey is dead. Hig accepted that. z17, not the
+  native z18, for the same reason (z18 would have been ~5 GB).
+- **`geoid_to_navd88.py` gained `--void-water WIN,FRAC` and `--drop-islands HA`** for a
+  photogrammetric surface delivered with its water unmasked; both off by default, both
+  explained in its header. Used here as `--void-water 65,0.25 --drop-islands 20`.
+  Checked against the hydro-flattened 2019 lidar before trusting either.
+- **No `fill_mode`**, unlike the other SfM flights: the voids are a lake.
+- **Gate leak found and closed on the way: `<id>_slope.pmtiles` of every gated survey
+  was served to anonymous requests** (dev and prod; `gated_ids()` listed the survey and
+  its `_ortho`, not its `_slope`). None was ever on R2. Fixed in `lidar_serve.py`;
+  on prod it closes with the deploy of that change.
+- Final release (expected winter 2026-27): a NEW public entry; retire this one and
+  remove its bytes from the droplet.
+
+To ship after Hig's test: commit + push the manifest, the tool and `lidar_serve.py`;
+deploy; scp the two pyramids to the droplet's `data/lidar/pmtiles/` (md5); back up and
+replace `catalog-gated.geojson` (`--gated-only --out /tmp/catalog_gated.geojson`);
+check anonymous 403 / signed-in 206 on prod, including a `_slope`; read `/lidar/audit/`.
