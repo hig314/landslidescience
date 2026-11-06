@@ -262,7 +262,13 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
       against the fix: seam_t (new, of r6c2): gap cells > 2 m off their measured neighbours 10,321 -> 0, guard-held 10,408 -> 4, p1..p99 of
       (modelled - observed neighbours) -54.9..+0.08 -> -0.08..+0.09 m; hazel_l (lakes): 0.20 ha changes > 0.1 m, none > 1 m; upbay_t (the
       tidal creeks the cone was made for; first form of the margin): guard-held 806,574 -> 789,666 cells, 7.6 ha of 4,800 change > 0.1 m.
-      Confirmation runs of bishop_t and upbay_t on the final form: scratchpad cap_ab2.sh.
+      The final form, current code -> with it: bishop_t: guard-held cells 1,193 -> 58, gap cells > 3 m off their measured neighbours 1,535 -> 605,
+      trenches 0.46 -> 0.01 ha (scan_steps), 0.45 ha changed in all; upbay_t: guard-held 806,574 -> 791,848, 7.5 ha of 4,800 change > 0.1 m
+      (0.9 ha > 1 m), clip_shelf_cells 509 -> 688 (first form 867; fix1..fix2h 609-626; the gate's tolerance 500).
+      First box built with it, r5c1 (10:14): "the cap relaxed by a measured bed beside the cell on 19.4 ha (by up to 186.1 m)"; scan 0.04 ha above,
+      0.64 ha below -- one piece, 59.44928,-151.70439 (Seldovia Slough above the bridge, also in r4c1 and r4c2, cm16 too): 4.9 ha of the sea's void
+      modelled at -3.3 m (to -7.8) beside seldovia2019bed at -0.6..+1.5 m, no casts; with it the perched 0.5 ha at 59.45051,-151.70871 (level
+      3.70).  The earlier open item (a pool ringed by unobserved low water, dug to the base contour), not the cone.
     (3) The mesa, 59.64705,-151.66371: NOT a reversion (run2, cm16, cm17, cm18 all 1.08 m; bluff_point v1/v2 of 2026-10-15 had -10.5).  4.76 ha
       of Homer 2019 "ground" at 0.93-1.21 m -- the sea that day -- in a hole of Homer 2018's bed.  The sheet rule wants a MEASURED bed or lower
       water under 5% of the sheet, or 5 soundings: under this one there are 19 measured cells at its rim, 2 NOS soundings (-10.5, -10.0 m) and
