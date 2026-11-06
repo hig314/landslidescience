@@ -220,7 +220,8 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
       pimple 59.35974,-151.81483: the point itself -4.34 m (between the shores) -> -8.69 m (the sea's, by the ringed-void rule).
       pimple 59.40945,-151.71187: cells > 0.5 m over 248 -> 244 (the speck pimples, the rule not proposed); 59.41913,-151.89300: observed cells.
       lagoon 59.40558,-151.69395: modelled cells below the base contour cm16 1,051 / cm17 8,288 / cm18 825; masks as cm16 -- clear.
-      3.2 ha at 59.44618,-151.74850: modelled -3.75 (mask 2) in cm16, observed 0.81 m in cm18 (22% -> 3% of the window modelled): not traced.
+      3.2 ha at 59.44618,-151.74850: modelled -3.75 (mask 2) in cm16, observed 0.81 m in cm18: the reviewer's ground polygon (joint.log: "ground edits: kbay2023: 3.44 ha
+        of water returns inside a reviewer's ground polygon are ground"), new since cm16 -- intended.
     r4c4: gate = cm16; lake bed higher by > 1 m on 0.2 ha only.
     r6c4: rc 0.  Only run2 to compare with.  perched_over_deep 9.35 ha (run2 2.20): 7.1 ha is the 3.4 m sheet at 59.61651,-151.18916
       already explained under r6c3 (label only), the rest small bodies at 2.0-2.6 m over Halibut Cove Lagoon's -50..-70 m bed near
