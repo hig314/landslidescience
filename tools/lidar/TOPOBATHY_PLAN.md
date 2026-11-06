@@ -144,7 +144,30 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
 - The five dug "pools" outside the low water (Nanwalek, 59.35,-151.92): specks under 0.12 ha in lidar-observed ground where the 3DEP
   prior stands 8-15 m over the lidar (fill_mask 8). Another mechanism; left.
 
-**Next, in order** (step 1 and 2 done, step 3 running):
+**Update, 2026-11-05 ~17:45 — the whole bay is queued under `cm18`; the dev version rebuilds itself.**
+- Code committed locally: `afe23d0` (not pushed). `cm18` = that commit.
+- **Results so far.** r2c1 (cm18): the false shoal at 59.18376,-151.77269 is -51.5 m (cm16 -3.44, fix2h -63.0), the plate -70.3, the
+  deep-cast cluster -16.4 (fix2h -16.1); 15.5 ha back to the sea. r4c1 (cm17): Hoen's flat 0.81 m, observed, equal to fix2h within
+  300 m; 11 pools at their observed surface (1 in cm16); 5 pools in the mapped low water still dug ~4.4 m (ringed by unobserved low
+  water, not banks: 59.44538,-151.70750, 59.39819,-151.68880; Hig told, no decision); a 15 ha dead flat at -3.88 m at
+  59.33297,-151.78324 (fill_mask 3, not the high-line step's; 12.7 ha in cm16; not diagnosed). Hig, 17:40: "looks good".
+- **A mixed-tag mosaic blends a rerun box with its neighbour's old margin** (Hoen's read -0.05 m in the mosaic: r4c1 0.81 m against
+  r4c2's cm16 margin at -3.84): the 2 km either side of a line between a rerun and an old box is provisional until both are rerun.
+- **All 13 run boxes are rerun**, not only the six: the five "kept" boxes carry fault 2 (flats the high-line step cut below the base:
+  r3c4 408 ha in 62 pieces over 1 ha, r2c4 172, r3c3 115, r3c2 45; r4c4 none, rerun for the sheet rule), and r2c2 / r2c3 / r4c1 ran
+  as cm17 before the joint fixes.
+- **Queue** `$W/.queue_cm18` (one id a line; empty it to stop after the boxes in hand): r4c2, r6c2, r3c4, r2c4, r3c3, r3c2, r4c1,
+  r2c2, r2c3, r4c4, then the 35 unprocessed (`$W/queue_cm16_left.txt`, run_bay_parallel's order). Two workers
+  `$W/queue_worker2.sh cm18 2` (at most 2 run_box.sh at once; a refused box is retried after 10 min), log `$W/test_cm18.log`.
+  r6c3 and r3c5 were started by the first workers (17:03). About 1-1.5 h a box: the last box lands roughly 26 h on.
+- **Dev version:** `$W/republish_loop.sh` rebuilds `$W/kbay_joint_cm18/` (`mosaic_blend.py ... "cm18,cm17,cm16"`) and republishes the
+  dev surface `kbay_joint_cm18` every two new boxes (or after 2 h), log `$W/republish_cm18.log`; a last time when the workers are
+  gone. On the viewer meanwhile: `kbay_joint_cm16` (the difference base), `kbay_joint_cm17` and `kbay_joint_cm17_r4c1` (both to
+  remove once `kbay_joint_cm18` is up and r4c2 has landed).
+- **When it ends:** gate table for all 48 (`$W/<box>/gate.log`), the merged review files for the mosaic (run_bay_parallel's Python
+  block, tag cm18), remove `shore_dump_cm17.pkl` (r2c2, r2c3, r4c1), Hig's review.
+
+**Next, in order** (steps 1-3 done; step 4 is the queue above):
 1. Check r6c2 and r6c3 for faults 1-3; keep them if clean.
 2. Build fixes 1 and 2 and the `ground` edit kind; take Hig's polygon (or the draft) into `edits.geojson`.
 3. Test on `kj_r2c2`, `kj_r2c3`, `kj_r4c1` under a new tag; gate against cm16 and the best earlier runs.
