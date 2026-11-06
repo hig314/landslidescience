@@ -241,6 +241,13 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
       scratchpad: patch_lakeloop.py, same_out.py, crop_ab.sh, gate_where.py (where a box's solid_over_level / perched_over_deep cells
       are), fillprof.sh -> fillprof.log (every 4 min, the hottest symbols of each running fill: a coarse profile for what is left).
     MACHINE: fseventsd holds ~20 GB and a full core (37 h of CPU); swap 31.5 of 32.8 GB; memory free 71%.  Not touched (root's).
+  NEXT AFTER THE RUN (Hig, 2026-11-06 10:30): MORE GREEN LIDAR FOR THE HOMER AREA -- additional topobathy point clouds Hig is organising, over
+    the coast where sand bars sweep along the shore (Bishop's Beach, the Spit), so surveys of different dates will seam inside the bars.  Work them in
+    as units (a ground unit and a bed unit each, own date and sigma, like homer2018 / homer2018bed), check their datum (the geoid model in the LAS
+    headers: Seldovia 2019's xGEOID17B lesson) and their level against Homer 2018 on fixed ground and bed, then VINTAGE ZONES (joint.py "vintage":
+    a mask or a beach zone, "allow": "newest") over the mobile coast so the newest survey holds a bar whole and the seam falls at the zone's edge;
+    a bishop_t crop before any box rerun, and fold it into the reruns of r6c2 / r6c3 rather than run those twice.  Needed from Hig: flight dates,
+    LAS/LAZ with the bottom and water-surface classes kept, the datum, footprints.
   2026-11-06 10:00, HIG'S REVIEW OF cm18, THREE POINTS IN r6c2 (old fill): "swaths of points that create false roughness along Bishop's Beach
     (59.63130,-151.58239) - maybe mixing two lidar surveys"; "a data-hole rendered as a mesa" (59.64705,-151.66371); "and here 59.60151,-151.49855.
     I think we had fixes for these so it looks like something of a reversion."  Hig: keep going with new boxes, circle back to some at the end.
