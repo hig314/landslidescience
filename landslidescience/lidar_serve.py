@@ -96,6 +96,11 @@ def gated_ids():
                 # the two.
                 if props.get('ortho_url'):
                     out.add(f"{props.get('id')}_ortho")
+                # Likewise its slope pyramid (<id>_slope): the same surface at
+                # the same resolution, differentiated. Until 2026-11-05 these
+                # were served to anyone who guessed the name. Added whether or
+                # not one has been built, so a later build is gated on arrival.
+                out.add(f"{props.get('id')}_slope")
             ids = frozenset(out)
         except (OSError, ValueError):
             ids = frozenset()
