@@ -1842,6 +1842,20 @@
                          'Wikstrom Jones & Larsen 2025 (PIR 2025-3)'
         };
     }
+    // NASA's global susceptibility map (Stanley & Kirschbaum 2017, in the 2023
+    // update NASA distributes): five classes on a 30 arc-second grid, 72 N to
+    // 60 S. Baked by tools/build_nasa_susc.py into one PMTiles archive, classes
+    // coloured from tools/nasa_susc_color.txt on the YlOrRd scale of the three
+    // models beside it. z8 resolves the ~1 km cells; the map overzooms beyond.
+    function _nasaSuscSourceDef() {
+        return {
+            type: 'raster',
+            tiles: ['pmtiles://' + location.origin + '/overlays/susc_nasa.pmtiles/{z}/{x}/{y}'],
+            tileSize: 256, minzoom: 0, maxzoom: 8,
+            attribution: 'Global landslide susceptibility: NASA GSFC, ' +
+                         'Stanley & Kirschbaum 2017 (2023 update)'
+        };
+    }
 
     // ---------------------------------------------------------------------------
     // Raster overlays — one framework for the USGS susceptibility models and the
@@ -2374,6 +2388,12 @@
           label: 'Susceptibility — DGGS',
           sub: 'Alaska DGGS PIR 2025-3 · rock strength × slope · 20 m',
           sourceDef: function () { return _dggsSuscSourceDef(); }, defOpacity: 0.8 },
+        // The only one of the four that leaves Alaska: coarse (about 1 km) and
+        // heuristic, but it is there under every record outside the state.
+        { id: 'susc-nasa', layerId: 'ov-susc-nasa', sourceId: 'ov-susc-nasa-src',
+          label: 'Susceptibility — NASA global',
+          sub: 'Stanley & Kirschbaum 2017 (2023 update) · slope, geology, faults, roads, forest loss · ~1 km, 72°N–60°S',
+          sourceDef: function () { return _nasaSuscSourceDef(); }, defOpacity: 0.8 },
         { id: 'geology', layerId: 'ov-geology', sourceId: 'ov-geology-src',
           label: 'Bedrock geology',
           sub: 'USGS Geologic Map of Alaska (Wilson et al. 2015, 1:1.58M) · Macrostrat tiles · click for the unit',
@@ -2559,6 +2579,188 @@
           stepper: _distStepper(_distAnnDate, 'year', 'select',
                                 [{ value: 'all', label: 'all years' }]) },
     ]).concat(DIST_ALERT_ACTIVE ? [DIST_ALERT_OVERLAY] : []);
+    // ---- Erosion rates: point / polygon overlays on one scale ---------------
+    // BUILT, EVALUATED, SWITCHED OFF (2026-11-05, Hig): both datasets are too
+    // sparse to be useful on this map -- Herman's nodes reach Alaska only in
+    // the St. Elias and eastern Chugach (316 of 4,116), OCTOPUS has 24 basins
+    // in Alaska and Yukon. Nothing was deleted: EROSION_ACTIVE = true brings
+    // the rows back, given the two data files, which are NOT shipped
+    // (tools/erosion/ rebuilds them; see CLAUDE.md "Erosion rate overlays").
+    //
+    // Two measurements of how fast rock leaves a place, drawn on ONE log colour
+    // scale in mm/yr (tools/erosion_color_rate.txt, read through api/ramps/, so
+    // the key and the map cannot disagree):
+    //   exh-*      Herman et al. 2013 (Nature 504): exhumation rates from a
+    //              global inversion of ~18,000 thermochronometric ages, at the
+    //              grid nodes the paper published (resolution > 0.25), one row
+    //              per 2 Myr interval so two intervals can face each other
+    //              across the wiper. tools/erosion/build_herman2013.py.
+    //   den-be10   OCTOPUS v2 (Codilean et al. 2022): basin-averaged 10Be
+    //              denudation rates with the basin each sample integrates.
+    //              tools/erosion/build_octopus.py, vector PMTiles.
+    // These are `features` overlays, the third kind after raster and
+    // `vector` (the contours): a list of layers over one source, each naming
+    // the paint properties the row's opacity drives and, where it is coloured
+    // by rate, the property to colour by. They go last in the registry, so
+    // they draw over every raster overlay and under the faults and records.
+    // The `features` path in _ovEnsure / _ovApply and the `erosion` click
+    // entry are general and stay live for the next point or polygon overlay.
+    var EROSION_ACTIVE = false;
+    var ERO_ATTR_H = 'Exhumation rates: Herman et al. 2013, Nature 504, 423–426';
+    var ERO_ATTR_O = 'Denudation rates: OCTOPUS v2, Codilean et al. 2022 (CC BY 4.0)';
+    var ERO_HERMAN_URL = STATIC_BASE + 'inventory/herman2013_rates.geojson?v=' + DATA_V;
+    function _exhRow(iv) {             // iv = '2-0' | '4-2' | '6-4' | '8-6'
+        var k = iv.replace('-', ''), e = 'e' + k;
+        return { id: 'exh-' + iv, layerId: 'ov-exh-' + iv,
+          // One GeoJSON source for the four rows; filled on first use.
+          sourceId: 'ov-exh-src',
+          label: 'Exhumation rate — ' + iv.replace('-', '–') + ' Ma',
+          sub: 'Herman et al. 2013 · thermochronometric inversion, grid nodes with resolution > 0.25 · click for the values',
+          sourceDef: function () {
+              return { type: 'geojson', data: { type: 'FeatureCollection', features: [] },
+                       attribution: ERO_ATTR_H };
+          },
+          defOpacity: 0.9,
+          features: {
+              lazyData: ERO_HERMAN_URL,
+              layers: [{ suffix: '', type: 'circle', filter: ['has', e], color: ['circle-color', e],
+                  paint: { 'circle-radius': ['interpolate', ['exponential', 1.5], ['zoom'],
+                                             1, 1.3, 5, 2.6, 8, 7, 11, 15],
+                           'circle-stroke-color': '#ffffff',
+                           'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 4, 0, 7, 0.7] },
+                  opacity: { 'circle-opacity': 1, 'circle-stroke-opacity': 0.8 } }],
+              popup: function (hits) { return _exhPopupHtml(hits[0].properties, k); }
+          } };
+    }
+    function _denRow(id, archive, maxzoom, label, sub) {
+        var noRate = '#bdbdbd';
+        return { id: id, layerId: 'ov-' + id, sourceId: 'ov-' + id + '-src',
+          label: label, sub: sub,
+          sourceDef: function () {
+              return { type: 'vector',
+                       tiles: ['pmtiles://' + location.origin + '/overlays/' + archive + '.pmtiles/{z}/{x}/{y}'],
+                       minzoom: 0, maxzoom: maxzoom, attribution: ERO_ATTR_O };
+          },
+          defOpacity: 0.9,
+          features: {
+              layers: [
+                  { suffix: '', type: 'fill', sourceLayer: 'basins', filter: ['has', 'rate'],
+                    color: ['fill-color', 'rate'], paint: {}, opacity: { 'fill-opacity': 0.6 } },
+                  { suffix: '-line', type: 'line', sourceLayer: 'basins',
+                    paint: { 'line-color': '#263238',
+                             'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.3, 9, 1.1] },
+                    opacity: { 'line-opacity': 0.75 } },
+                  { suffix: '-site', type: 'circle', sourceLayer: 'sites',
+                    color: ['circle-color', 'rate', noRate],
+                    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 1.6, 6, 3.2, 10, 5.5],
+                             'circle-stroke-color': '#ffffff',
+                             'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 3, 0.3, 7, 1] },
+                    opacity: { 'circle-opacity': 1, 'circle-stroke-opacity': 0.9 } }
+              ],
+              popup: function (hits) { return _denPopupHtml(hits); }
+          } };
+    }
+    if (EROSION_ACTIVE) {
+        ['2-0', '4-2', '6-4', '8-6'].forEach(function (iv) { OVERLAYS.push(_exhRow(iv)); });
+        OVERLAYS.push(_denRow('den-be10', 'octopus_crn', 9, 'Denudation rate — ¹⁰Be basins',
+            'OCTOPUS v2 (Codilean et al. 2022) · basin-averaged cosmogenic rates, global · dot = sample site, outline = the basin it integrates · click for the record'));
+    }
+    // Colour-by-rate: a `step` expression built from the shared ramp once
+    // api/ramps/ has answered (grey until then). `spec` is a layer's
+    // [paint property, data property, colour where the property is missing].
+    var _rampsNow = null;
+    function _eroColorExpr(ov, spec) {
+        var r = _rampsNow && _rampsNow[ov.id];
+        if (!r || !r.stops || !r.stops.length) return '#8a8a8a';
+        var ex = ['step', ['to-number', ['get', spec[1]], 0]];
+        r.stops.forEach(function (st, i) {
+            var c = 'rgb(' + st.rgba[0] + ',' + st.rgba[1] + ',' + st.rgba[2] + ')';
+            if (i === 0) ex.push(c); else ex.push(st.v, c);
+        });
+        return spec[2] ? ['case', ['has', spec[1]], ex, spec[2]] : ex;
+    }
+    function _eroRecolor(m) {
+        if (!m) return;
+        OVERLAYS.forEach(function (ov) {
+            if (!ov.features) return;
+            ov.features.layers.forEach(function (L) {
+                var id = ov.layerId + L.suffix;
+                if (L.color && m.getLayer(id)) m.setPaintProperty(id, L.color[0], _eroColorExpr(ov, L.color));
+            });
+        });
+    }
+    function _fmtRate(v) {             // mm/yr, three significant figures
+        if (v == null || isNaN(v)) return '—';
+        return (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v >= 1 ? v.toFixed(2)
+                : v >= 0.1 ? v.toFixed(3) : v.toPrecision(2)) + ' mm/yr';
+    }
+    function _popRow(lbl, val) {
+        if (val === undefined || val === null || val === '') return '';
+        return '<div style="margin:1px 0;"><span style="color:#888;">' + lbl + ':</span> ' + val + '</div>';
+    }
+    function _exhPopupHtml(p, k) {
+        var rows = [['20', '2–0 Ma'], ['42', '4–2 Ma'], ['64', '6–4 Ma'], ['86', '8–6 Ma']].map(function (iv) {
+            var e = p['e' + iv[0]], r = p['r' + iv[0]];
+            var cell = e == null ? '<span style="color:#aaa;">not resolved</span>'
+                : _fmtRate(+e) + ' <span style="color:#888;">(resolution ' + (+r).toFixed(2) + ')</span>';
+            return '<div style="margin:1px 0;' + (iv[0] === k ? 'font-weight:600;' : '') + '">' +
+                   '<span style="color:#888;font-weight:400;">' + iv[1] + ':</span> ' + cell + '</div>';
+        }).join('');
+        return '<div style="font:12px/1.4 system-ui,sans-serif; max-width:270px;">' +
+            '<div style="font-weight:600; color:#365c8d; margin-bottom:3px;">Exhumation rate (model grid node)</div>' +
+            rows +
+            '<div style="margin-top:4px; color:#aaa; font-size:10px;">Herman et al. 2013, ' +
+            '<a href="https://doi.org/10.1038/nature12877" target="_blank" rel="noopener">Nature 504, 423–426</a>, ' +
+            'Supplementary Table: a linear inversion of thermochronometric ages, not a measurement at this point. ' +
+            'Whether the increase toward the present is real is disputed (Schildgen et al. 2018, ' +
+            '<a href="https://doi.org/10.1038/s41586-018-0260-6" target="_blank" rel="noopener">Nature 559</a>).</div></div>';
+    }
+    function _denPopupHtml(hits) {
+        // Basins nest (samples down one river); the smallest one under the
+        // click is the record, the larger ones are listed after it.
+        var seen = {}, recs = [];
+        hits.forEach(function (f) {
+            var p = f.properties || {};
+            if (p.OBSID1 && !seen[p.OBSID1]) { seen[p.OBSID1] = 1; recs.push(p); }
+        });
+        recs.sort(function (a, b) { return (+a.AREA || 0) - (+b.AREA || 0); });
+        var p = recs[0];
+        function pm(v, e, unit) {
+            if (v == null) return '';
+            return (+v).toLocaleString(undefined, { maximumFractionDigits: 2 }) +
+                   (e != null ? ' ± ' + (+e).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '') + ' ' + unit;
+        }
+        var name = p.BASIN || p.RIVNAME || p.OBSID2 || p.OBSID1;
+        var where = [p.REGION_INT || p.REGION_REG, p.CNTRY].filter(Boolean).join(', ');
+        var ref = [p.AUTHOR, p.PUBYEAR].filter(Boolean).join(' ');
+        var html = '<div style="font:12px/1.4 system-ui,sans-serif; max-width:280px;">' +
+            '<div style="font-weight:600; color:#277f8e; margin-bottom:3px;">' + esc(String(name)) + '</div>' +
+            _popRow('Denudation rate', p.rate != null
+                ? '<b>' + _fmtRate(+p.rate) + '</b>' + (p.rate_from === '26Al' ? ' (²⁶Al; no ¹⁰Be value)' : '')
+                : '<span style="color:#888;">none computed</span>') +
+            _popRow('¹⁰Be, as published by OCTOPUS', pm(p.EBE_MMKYR, p.EBE_ERR, 'mm/kyr')) +
+            _popRow('²⁶Al', pm(p.EAL_MMKYR, p.EAL_ERR, 'mm/kyr')) +
+            _popRow('Basin area', p.AREA != null ? (+p.AREA).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' km²' : '') +
+            _popRow('Mean elevation', p.ELEV_AVE != null ? Math.round(+p.ELEV_AVE) + ' m' : '') +
+            _popRow('Mean slope', p.SLP_AVE != null ? Math.round(+p.SLP_AVE) + ' m/km' : '') +
+            _popRow('Glacier cover', p.GLA_PCNT != null ? (+p.GLA_PCNT).toFixed(1) + ' %' : '') +
+            _popRow('Where', esc(where)) +
+            _popRow('Sample', esc([p.OBSID2, p.OBSID1].filter(Boolean).join(' · '))) +
+            _popRow('Study', esc(ref) + (p.REFDOI && /^10\.[0-9.]+\/\S+$/.test(p.REFDOI)
+                ? ' · <a href="https://doi.org/' + encodeURI(p.REFDOI) + '" target="_blank" rel="noopener">doi</a>' : ''));
+        if (recs.length > 1) {
+            html += '<div style="margin-top:4px; padding-top:3px; border-top:1px solid #eee; color:#666;">Also inside ' +
+                (recs.length - 1) + ' larger basin' + (recs.length > 2 ? 's' : '') + ': ' +
+                recs.slice(1, 5).map(function (q) {
+                    return esc(String(q.BASIN || q.RIVNAME || q.OBSID2 || q.OBSID1)) +
+                           (q.rate != null ? ' (' + _fmtRate(+q.rate) + ')' : '');
+                }).join('; ') + (recs.length > 5 ? '; …' : '') + '</div>';
+        }
+        return html + '<div style="margin-top:4px; color:#aaa; font-size:10px;">' +
+            '<a href="https://octopusdata.org" target="_blank" rel="noopener">OCTOPUS</a> ' + esc(String(p.DBVERNO || 'v2')) +
+            ' (Codilean et al. 2022, ESSD 14, 3695), CC BY 4.0. Rates recalculated by OCTOPUS; ' +
+            'a basin average over the last few thousand years.</div></div>';
+    }
     // Imagery review history (ls_review.js, inventory/review.py): signed-in
     // users only, last in the list. Its tiles depend on the map they are for
     // -- "this pane's basemap" -- so sourceDef takes the map (_ovEnsure and
@@ -2885,6 +3087,27 @@
             if (!m.getLayer(ov.layerId)) return;
             var vis = _ovVisible(ov, isSwipe) ? 'visible' : 'none';
             var op = isSwipe ? _ovState[ov.id].opRight : _ovState[ov.id].opLeft;
+            if (ov.features) {
+                // Point / polygon overlay: every layer follows the row, each
+                // paint property at its own share of the row's opacity. A
+                // GeoJSON source is filled the first time a row using it shows.
+                if (vis === 'visible' && ov.features.lazyData) {
+                    m.__ovLazy = m.__ovLazy || {};
+                    if (!m.__ovLazy[ov.sourceId] && m.getSource(ov.sourceId)) {
+                        m.__ovLazy[ov.sourceId] = true;
+                        m.getSource(ov.sourceId).setData(ov.features.lazyData);
+                    }
+                }
+                ov.features.layers.forEach(function (L) {
+                    var id = ov.layerId + L.suffix;
+                    if (!m.getLayer(id)) return;
+                    m.setLayoutProperty(id, 'visibility', vis);
+                    Object.keys(L.opacity || {}).forEach(function (k) {
+                        m.setPaintProperty(id, k, op * L.opacity[k]);
+                    });
+                });
+                return;
+            }
             m.setLayoutProperty(ov.layerId, 'visibility', vis);
             if (ov.vector) {
                 m.setPaintProperty(ov.layerId, 'line-opacity', op);
@@ -2947,6 +3170,23 @@
         OVERLAYS.forEach(function (ov) {
             if (!m.getSource(ov.sourceId)) m.addSource(ov.sourceId, ov.sourceDef(m));
             if (m.getLayer(ov.layerId)) return;
+            if (ov.features) {
+                // A fresh style has a fresh, empty source: let _ovApply fill it.
+                if (m.__ovLazy) delete m.__ovLazy[ov.sourceId];
+                ov.features.layers.forEach(function (L) {
+                    var paint = Object.assign({}, L.paint);
+                    if (L.color) paint[L.color[0]] = _eroColorExpr(ov, L.color);
+                    var def = { id: ov.layerId + L.suffix, type: L.type, source: ov.sourceId,
+                                layout: { 'visibility': 'none' }, paint: paint };
+                    if (L.sourceLayer) def['source-layer'] = L.sourceLayer;
+                    if (L.filter) def.filter = L.filter;
+                    m.addLayer(def, beforeId);
+                });
+                if (!_rampsNow) _loadRamps().then(function (r) {
+                    _rampsNow = r; _eroRecolor(map); _eroRecolor(_swipe.map);
+                });
+                return;
+            }
             if (ov.vector) {
                 // A vector overlay (the contours): a line layer and, where
                 // the style has glyphs (the wiper's second map does not),
@@ -4307,11 +4547,16 @@
         { key: 'surf',  label: 'Surface change',
           ids: ['opera-asc', 'opera-desc', 'nrcan-asc', 'coh-summer', 'dist-ann', 'dist-alert'] },
         { key: 'susc',  label: 'Landslide susceptibility',
-          ids: ['susc-lw', 'susc-n10', 'susc-dggs'] },
+          ids: ['susc-lw', 'susc-n10', 'susc-dggs', 'susc-nasa'] },
         { key: 'glac',  label: 'Glaciers',
           ids: ['glac-outline-2020', 'ice-v', 'ice-amp', 'ice-dvdt', 'ice-dhdt', 'ice-thick', 'ice-bed', 'ice-over'] },
         { key: 'sub',   label: 'Subsurface',
           ids: ['pf-gruber-pzi', 'pf-gruber-pzi60', 'pf-obu-prob', 'pf-obu-prob60', 'pf-pastick-nsp', 'geology'] },
+        // Rates of rock removal, long-term (thermochronology, Myr) and recent
+        // (cosmogenic nuclides, kyr), on one colour scale. Switched off
+        // (EROSION_ACTIVE): absent ids are skipped and the group with them.
+        { key: 'ero',   label: 'Erosion rates',
+          ids: ['exh-2-0', 'exh-4-2', 'exh-6-4', 'exh-8-6', 'den-be10'] },
         // Signed-in only (the entry exists only then; absent ids are skipped).
         { key: 'review', label: 'Review history', ids: ['review'] },
     ];
@@ -7751,6 +7996,37 @@
             LSReview.pointHtml(e.lngLat, right ? 'right' : 'left').then(function (h) {
                 if (popup.isOpen()) popup.setHTML(h);
             }).catch(function () { if (popup.isOpen()) popup.setHTML('Could not read the history.'); });
+        }
+    });
+    // `features` overlays (today only the switched-off erosion rates: Herman
+    // grid nodes, OCTOPUS basins and sites): whichever pane the click is in, the topmost such overlay shown there
+    // with a feature under the pointer answers. Asked of that pane's own map,
+    // because an overlay on the right pane only has no visible layer on the
+    // main one.
+    var _eroHit = null;
+    LSTools.clicks.register({ id: 'erosion', kind: 'reference', priority: 6,
+        test: function (e) {
+            _eroHit = null;
+            var right = _swipe.on && _swipe.map &&
+                        e.point.x > map.getContainer().clientWidth * _swipe.x / 100;
+            var m = right ? _swipe.map : map;
+            var box = [[e.point.x - 4, e.point.y - 4], [e.point.x + 4, e.point.y + 4]];
+            for (var i = OVERLAYS.length - 1; i >= 0 && !_eroHit; i--) {
+                var ov = OVERLAYS[i];
+                if (!ov.features || !_ovVisible(ov, right)) continue;
+                var ids = ov.features.layers.map(function (L) { return ov.layerId + L.suffix; })
+                            .filter(function (id) { return m.getLayer(id); });
+                if (!ids.length) continue;
+                var hits = m.queryRenderedFeatures(box, { layers: ids });
+                if (hits.length) _eroHit = { ov: ov, hits: hits };
+            }
+            return !!_eroHit;
+        },
+        handler: function (f, e) {
+            if (!_eroHit) return;
+            var popup = new maplibregl.Popup({ closeButton: true, maxWidth: '300px' })
+                .setLngLat(e.lngLat).setHTML(_eroHit.ov.features.popup(_eroHit.hits)).addTo(map);
+            LSTools.popup.show(popup);
         }
     });
     LSTools.clicks.register({ id: 'geology', kind: 'reference', priority: 5,

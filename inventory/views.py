@@ -1318,6 +1318,23 @@ _RAMP_SPECS = {
     'susc-n10':  {'file': 'susc_color_n10.txt', 'label': 'Landslide susceptibility (n10)',
                   'units': 'frequency-ratio class', 'kind': 'classes',
                   'classes': [('Low', 1), ('High', 63), ('Very high', 81)]},
+    # Erosion rates (tools/erosion/): one log scale in mm/yr for Herman's
+    # exhumation rates and OCTOPUS's 10Be denudation rates. The values are
+    # class lower bounds; map.js builds its step expression from this response.
+    # The rows are switched off (map.js EROSION_ACTIVE, 2026-11-05); the keys
+    # stay, like dist-alert's, so switching them on is one line.
+    **{oid: {'file': 'erosion_color_rate.txt', 'label': lab, 'units': 'mm/yr', 'kind': 'classes',
+             'classes': [('under 0.003 mm/yr', 0), ('0.003 – 0.01', 0.003), ('0.01 – 0.03', 0.01),
+                         ('0.03 – 0.1', 0.03), ('0.1 – 0.3', 0.1), ('0.3 – 1', 0.3),
+                         ('1 – 3', 1), ('over 3 mm/yr', 3)]}
+       for oid, lab in (('exh-2-0', 'Exhumation rate, 2–0 Ma (Herman et al. 2013)'),
+                        ('exh-4-2', 'Exhumation rate, 4–2 Ma (Herman et al. 2013)'),
+                        ('exh-6-4', 'Exhumation rate, 6–4 Ma (Herman et al. 2013)'),
+                        ('exh-8-6', 'Exhumation rate, 8–6 Ma (Herman et al. 2013)'),
+                        ('den-be10', '¹⁰Be denudation rate (OCTOPUS)'))},
+    'susc-nasa': {'file': 'nasa_susc_color.txt', 'label': 'Landslide susceptibility (NASA global)',
+                  'units': 'class · ~1 km', 'kind': 'classes',
+                  'classes': [('Very low', 1), ('Low', 2), ('Moderate', 3), ('High', 4), ('Very high', 5)]},
     # OPERA velocity: the only ramp whose tiles are coloured in the browser
     # rather than baked, so its .txt is written in real units (mm/yr) instead
     # of the 1-255 tile code. See the header of the file.

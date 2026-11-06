@@ -1,0 +1,16 @@
+# Colour ramp for NASA's global landslide susceptibility map (Stanley &
+# Kirschbaum 2017, 2023 update), in gdaldem color-relief format:
+# VALUE R G B A. Baked by tools/build_nasa_susc.py with -nearest_color_entry,
+# so each class gets exactly its own colour.
+#
+# The same scale as the USGS and DGGS overlays: ColorBrewer YlOrRd, pale and
+# faint at the low end, dark and nearly opaque at the high end, so the four
+# susceptibility layers read against one another without a new legend.
+# Class 0 is the sea (and anything NASA did not assess): transparent.
+nv   0   0   0   0
+0    0   0   0   0
+1    255 255 178  70
+2    254 204  92 150
+3    253 141  60 190
+4    240  59  32 215
+5    189   0  38 235

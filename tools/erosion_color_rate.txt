@@ -1,0 +1,18 @@
+# Erosion-rate colour scale, mm/yr, shared by every row in the map's
+# "Erosion rates" category: Herman et al. (2013) exhumation rates and the
+# OCTOPUS 10Be denudation rates. VALUE R G B A; each VALUE is the LOWER bound
+# of a class, half a decade wide, so the scale is logarithmic and the two
+# datasets (Myr against kyr timescales, both in the same unit here) can be
+# read against one another.
+#
+# The map does not bake this: map.js builds a MapLibre `step` expression from
+# it through api/ramps/, and the key is drawn from the same response.
+# Viridis, slow = dark, fast = bright.
+0      68   1  84 255
+0.003  70  50 126 255
+0.01   54  92 141 255
+0.03   39 127 142 255
+0.1    31 161 135 255
+0.3    74 193 109 255
+1     160 218  57 255
+3     253 231  37 255

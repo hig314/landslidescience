@@ -67,6 +67,25 @@
       labelMinzoom: 11,
       thumb: 'inventory/img/basemap-thumbs/usgs-topo.png',
       attr: 'USGS National Map' },
+    // NOAA's Chart Display Service (ENC data in paper-chart symbology), read
+    // straight from its WMS: Web Mercator, CORS echoes the origin, ~1 s a
+    // tile. Layers 1-7 only: 0 and 8-12 are display notes, data-quality
+    // triangles and overscale hatching, which bury the chart. Below z7 the
+    // service draws every light and traffic lane in the Gulf on one tile, so
+    // Esri's ocean base stands in there; from z7 the chart is opaque and
+    // covers it. US waters only. The service draws soundings and depth
+    // contours in FEET unless told otherwise (311 off Homer Spit is 95 m);
+    // DISPLAY_PARAMS sets DisplayDepthUnits=1, metres, with the decimetre as
+    // a subscript. Heights on land are metres either way.
+    { id: 'noaa-chart', label: 'NOAA Nautical Chart', category: 'Topo',
+      coverage: 'US waters, depths in metres (charts from zoom 7)',
+      tiles: 'https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}',
+      maxzoom: 10,
+      labelTiles: 'https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/NOAAChartDisplay/MapServer/exts/MaritimeChartService/WMSServer?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=1,2,3,4,5,6,7&STYLES=&CRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=true&WIDTH=256&HEIGHT=256&DISPLAY_PARAMS=%7B%22ECDISParameters%22%3A%7B%22DynamicParameters%22%3A%7B%22Parameter%22%3A%5B%7B%22name%22%3A%22DisplayDepthUnits%22%2C%22value%22%3A1%7D%5D%7D%7D%7D&BBOX={bbox-epsg-3857}',
+      labelAttr: 'NOAA Office of Coast Survey, Chart Display Service — not for navigation',
+      labelMinzoom: 7,
+      thumb: 'inventory/img/basemap-thumbs/noaa-chart.jpg',
+      attr: 'Ocean base © Esri, GEBCO, NOAA, Garmin' },
     { id: 'usgs-img', label: 'USGS Imagery', category: 'Imagery', coverage: 'Global (high-res in US only)',
       tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
       thumb: 'inventory/img/basemap-thumbs/usgs-img.png',
