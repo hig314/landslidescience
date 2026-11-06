@@ -246,6 +246,42 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
     7.2 ha of ringed voids); r3c1: 7,675 casts, NMAD 0.57, |r|/sigma p90 4.1 -- nos_h09879/h09878 (1977-84) against the multibeam they lie on
     (p90 |r| 2.0-2.6 m, the surveys' own placement), and nos_h10030's 38 casts with six on land at 11-15 m (cast review items, not the fill);
     perched 3.2 ha at 59.32766,-151.78217 over a bed at -3.0..-3.5 = the earlier open item (the flat near -3.88 m at 59.33297,-151.78324).
+  2026-11-06 13:00-15:00, HIG'S REVIEW OF cm18, THREE MORE (all diagnosed; two rules on trial in scratchpad/lidar_fx4, crops woz_t and lagoon_t added):
+    (A) "thin bathy stripes in the 2008 data ... extreme artifacts along them - worst in Halibut Cove Lagoon (59.57178,-151.19832)".  The 2009
+      multibeam (bathy2009) lies in a lattice of lines in the -68 m basin with gaps a cell or two wide between them.  The point is in the overlap
+      of r6c3/r6c4/r5c3/r5c4; r6c3 (fill 11-05 21:07, BEFORE the ringed-void rule 2e77b9f went live 01:34) fills every gap as "between shores"
+      (mask 9) at -3.4..-22 m -- 4,858 cells in a 240x240 window, 55 m above the bed either side -- and the mosaic blends it in.  r5c3 (after) has
+      none; r6c4 (after) still has 1,844: the lattice gaps the rule skips, (i) those at the grid's edge (r6c4's west edge is 280 m off; the mosaic
+      weighs the owner's interior there once r6c3 is rerun) and (ii) those whose ring is broken by a cell already the sea's (3-7 of a 500-cell rim,
+      the rest measured bed at -65 m).  TRIAL (lidar_fx4 shoreface.py): notbed_ excludes Sea, so a ring broken only by the sea's own void is whole.
+      lagoon_t crop [600500,6603000,604500,6607000] of r6c3, lbase/lfix queued.  r6c3's rerun (already #2 in the order) is what fixes Hig's point.
+    (B) "mesa issues on Woz delta: 59.55261,-151.39426".  KBay 2023 ground slopes smoothly -0.8 -> -2.9 m down the delta front (10 returns/m2, no
+      water class, zmax-z 0.03 m; its own water returns at -2.9 m at the toe: an extreme low tide, the front exposed) over the 2009 multibeam /
+      OCM compilation at -4..-9 m and NOS h09877's 1978 cast line at -6..-10 m, 50 m apart: the delta has built out.  The joint rejected the 2023
+      ground piecemeal -- the sheet rule (a flat sheet with a measured bed or 5 casts >= 2 m under it is the sea) where the 10 m flat test
+      happened to pass on a 3 % slope, and own_surf (ground within 0.5 m of its own water within 30 m, over a measured bed) along the channel
+      behind the bar -- so the composite ran -8.5, -2.1, -1.7, -4.7, -3.9 cell by cell.  The point IS in vintage zone 1 (floodplain_kbay2023),
+      which excludes only the other LIDARS: the 2009 bed and the casts stayed as evidence.
+      TRIED AND DROPPED on woz_t [589000,6601000,593000,6604000]: (i) of a condemned sheet, only cells within 0.5 m of the sheet's height at the
+      nearest evidence cell are the sea -- no change at the point (every cell of the front has the old bed under it, so each is its own evidence)
+      and 173 ha moved on the delta flats; (ii) a sheet more than 0.5 m above the survey's own lowest water within 300 m was exposed that day --
+      222 ha moved, flats raised 6 m: KBay's lines were flown at different tides, so a high-tide sea sheet sits within 300 m of another line's
+      river water at -1 m.  KEPT ON TRIAL (sfix4): THE ZONE'S DAY -- per cell the date of the zone's allowed survey (ZD); inside a zone the sheet
+      rule's beds, water and casts older than it are no evidence (bed_any, zwmin, zbmin, zbpmin; a point's year from its survey name, else its
+      file's, undated = old), nothing changes outside the zones.  woz_t: 54 ha changed, all along the front; the transect reads the 2023 ground
+      whole (-2.87 .. -0.84, the channel behind the bar at -2.7) with ONE step of 5.7 m at the lidar's edge where the 2009 bed begins -- the
+      vintage seam, observed on both sides, which no fill can bridge; bridging it (the older bed yielding within N m of the newer ground's edge
+      inside a zone, the fill modelling a foreset) is a design for Hig.  Sheet-rule regressions queued: plates_t (Taylor Bay 2.9 m over casts),
+      seldovia_t (KBay -0.04 over the multibeam), bluff_t (Homer 2019 -0.57 over 11 m) sbase vs sfix4 -- the rule must leave them alone.
+    (C) "a small alpine lake within the Chugachmiut lidar (59.27802,-151.53323) - it has a steep margin ... hydroflattened?".  NOT the Chugachmiut
+      lidar: the vendor's be_mosaic.tif is nodata for 150 m around it.  The ground there is ArcticDEM patches (48 % of the rim) and the 3DEP 5 m
+      prior (mask 8, the blocky hillshade); the lake (2.9 ha, mask 5) is a mapped polygon with level 450.00 m = 3DEP's hydroflattened surface ("a
+      lake only the prior saw keeps the prior's level", water.py), and its bed is the Hollister bowl (dmax 8.3 m, 443 m at the centre).  Both the
+      measured rim (ArcticDEM) and the prior's own land stand 451.0 (p5) .. 452.4 (p50) at the shore: the level is ~1.5-2 m low, the margin is a
+      2 m cliff at the shoreline on top of the bowl.  The same signature on three bigger lakes in r3c2 with FULLY measured rims (Chugachmiut's
+      flat water cleaned away, the 2012 IFSAR level kept): 37 ha at 59.28815,-151.43820 level 18.73 vs rim p5 21.0; 42 ha at 59.28290,-151.50338
+      95.78 vs 97.5; 7.5 ha 35.08 vs 36.2.  A lake fills to its outlet: PROPOSED (not built) -- a level the prior alone gave is raised to the
+      measured rim's low quantile when the rim stands above it.  Nothing under water can be recovered: no survey reached the bed.
   NEXT AFTER THE RUN (Hig, 2026-11-06 10:30): MORE GREEN LIDAR FOR THE HOMER AREA -- additional topobathy point clouds Hig is organising, over
     the coast where sand bars sweep along the shore (Bishop's Beach, the Spit), so surveys of different dates will seam inside the bars.  Work them in
     as units (a ground unit and a bed unit each, own date and sigma, like homer2018 / homer2018bed), check their datum (the geoid model in the LAS
