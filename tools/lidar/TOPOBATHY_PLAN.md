@@ -241,6 +241,11 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
       scratchpad: patch_lakeloop.py, same_out.py, crop_ab.sh, gate_where.py (where a box's solid_over_level / perched_over_deep cells
       are), fillprof.sh -> fillprof.log (every 4 min, the hottest symbols of each running fill: a coarse profile for what is left).
     MACHINE: fseventsd holds ~20 GB and a full core (37 h of CPU); swap 31.5 of 32.8 GB; memory free 71%.  Not touched (root's).
+  2026-11-06 12:20, watcher batch: r5c3, r5c1, r4c3, r5c4, r3c1 all rc 0 (21 of 48 landed; dev republished by hand at 11:42 with 19, Hig's ask).
+    r5c3: fill 213 min (the old lake loop); r5c1 15, r4c3 34, r5c4 20, r3c1 64 min since.  r5c4: casts median +0.35, p90 3.51 m (138 casts;
+    7.2 ha of ringed voids); r3c1: 7,675 casts, NMAD 0.57, |r|/sigma p90 4.1 -- nos_h09879/h09878 (1977-84) against the multibeam they lie on
+    (p90 |r| 2.0-2.6 m, the surveys' own placement), and nos_h10030's 38 casts with six on land at 11-15 m (cast review items, not the fill);
+    perched 3.2 ha at 59.32766,-151.78217 over a bed at -3.0..-3.5 = the earlier open item (the flat near -3.88 m at 59.33297,-151.78324).
   NEXT AFTER THE RUN (Hig, 2026-11-06 10:30): MORE GREEN LIDAR FOR THE HOMER AREA -- additional topobathy point clouds Hig is organising, over
     the coast where sand bars sweep along the shore (Bishop's Beach, the Spit), so surveys of different dates will seam inside the bars.  Work them in
     as units (a ground unit and a bed unit each, own date and sigma, like homer2018 / homer2018bed), check their datum (the geoid model in the LAS
