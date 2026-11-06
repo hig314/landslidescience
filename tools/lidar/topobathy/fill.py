@@ -2351,6 +2351,26 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         n_rx = int((rx_ok & (np.fmin(sea_relax, L_ - 0.1) > cap_ + 1e-3)).sum())
         cap_ = np.where(rx_ok, np.fmax(cap_, np.fmin(sea_relax, L_ - 0.1)), cap_).astype(np.float32)
         log(f"  the cap relaxed by the nearest casts on {n_rx * res * res / 1e4:.1f} ha")
+    # ...AND BY A MEASURED BED BESIDE THE CELL (2026-11-06, Hig's review of cm18, 59.60151,-151.49855, off the Homer Spit: gaps one to four cells
+    # wide between the green lidar's bed, the multibeam and the compilations, all at -8 m under 7 m of water, filled as trenches at -45 m -- 14 ha
+    # of them in kj_r6c2, to -128 m; cm16 had the same fill, and no_peaks, which then ran below the base contour too, closed them as pits).  The
+    # cone is the SHORE's rule: how a bed nobody measured falls away from a bank.  2.5 km off the shore it asks for 44 m of water, and a bed
+    # measured two metres from the cell says there are seven.  Where the nearest observation of any kind is a bed under the cell's own water,
+    # the cap is no lower than that bed and cap_bed_margin_m more (a guard holds gross errors, and the fit meets the bed by its boundary) --
+    # the margin never more than half that bed's own depth, so beside a bed just under the water the cap does not become the flat plane
+    # 0.1 m under it that the cone was made to prevent (upbay_t: 358 more shelf cells with the full margin).  Only ever a relaxation:
+    # where the cone already allows more it stands.
+    sel_ = dom & hole & np.isfinite(cap_) & np.isfinite(L_)
+    if sel_.any():
+        iy_, ix_ = ndimage.distance_transform_edt(~np.isfinite(z), return_distances=False, return_indices=True)
+        rr_, cc_ = np.nonzero(sel_); zn_ = z[iy_[rr_, cc_], ix_[rr_, cc_]]; del iy_, ix_
+        new_ = np.fmin(zn_ + np.minimum(float(P.get("cap_bed_margin_m", 1.0)), 0.5 * (L_[rr_, cc_] - zn_)), L_[rr_, cc_] - 0.1)
+        rl_ = np.isfinite(zn_) & (zn_ < L_[rr_, cc_] - 0.1) & (new_ > cap_[rr_, cc_] + 1e-3)
+        if rl_.any():
+            log(f"  the cap relaxed by a measured bed beside the cell on {int(rl_.sum()) * res * res / 1e4:.1f} ha (by up to {float((new_ - cap_[rr_, cc_])[rl_].max()):.1f} m)")
+            cap_[rr_[rl_], cc_[rl_]] = new_[rl_].astype(np.float32)
+        del rr_, cc_, zn_, new_, rl_
+    del sel_
     ceil_mask = np.zeros(z.shape, np.uint8)        # 1 = held by a ceiling site in the soundings' fit, 2 = clipped by the guard
     # SOUNDINGS (2026-10-12, replaces "honoured exactly, harmonic residual in between"): a harmonic
     # residual is a cone at each sounding and a ridge along a sounding line (China Poot Lake: the

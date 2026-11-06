@@ -241,6 +241,36 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
       scratchpad: patch_lakeloop.py, same_out.py, crop_ab.sh, gate_where.py (where a box's solid_over_level / perched_over_deep cells
       are), fillprof.sh -> fillprof.log (every 4 min, the hottest symbols of each running fill: a coarse profile for what is left).
     MACHINE: fseventsd holds ~20 GB and a full core (37 h of CPU); swap 31.5 of 32.8 GB; memory free 71%.  Not touched (root's).
+  2026-11-06 10:00, HIG'S REVIEW OF cm18, THREE POINTS IN r6c2 (old fill): "swaths of points that create false roughness along Bishop's Beach
+    (59.63130,-151.58239) - maybe mixing two lidar surveys"; "a data-hole rendered as a mesa" (59.64705,-151.66371); "and here 59.60151,-151.49855.
+    I think we had fixes for these so it looks like something of a reversion."  Hig: keep going with new boxes, circle back to some at the end.
+    A REGRESSION OF cm18, YES, FOR TWO OF THE THREE: fill.tif is the same in cm16 and cm18 on these cells; in cm16 high_line.no_peaks ran over the
+      whole sea and closed every modelled peak and pit nobody measured, and since afe23d0 it stops at the base contour (the 357 ha of dead-flat
+      tops and bottoms) -- so what the fill does wrong below the base now shows.  Mosaics: absent in run2 and cm17 (= cm16 here), present in cm18.
+    (1) Bishop's Beach: ONE survey (homer2018bed), not two.  Diagonal bands 120-160 m wide where its bed returns are sparse; the holes between
+      them were "between the shores" (mask 9) at -4.6 m in a bed at -9 m.  scan_steps.py (modelled cells > 2 m above every observed neighbour,
+      a bed among them): r6c2 cm18 73.6 ha, cm16 0.56 ha.  CURED BY 2e77b9f (the ringed-void rule), which r6c2 predates: crop bishop_t on the
+      current code: "38281 voids ringed by a measured bed under the base ... the sea's: 37.54 ha", 0.22 ha left; gap cells off their measured
+      neighbours by > 0.3 m: 46% (r6c2 cm18; cm16 13%) -> 3%.  What stays is the survey's own noise in its sparse swaths (NMAD 0.06-0.07 m,
+      as in run2 and cm16).
+    (2) 59.60151,-151.49855: GAPS 1-4 CELLS WIDE BETWEEN SURVEYS, all at -8 m, FILLED AT -45 m; 14 ha in r6c2 (to -128 m where the prior is -90),
+      17 ha in r6c4, in every box so far.  Not the casts (all -8..-10 m there) and not the spline: THE GUARD'S CONE (fill.py, 2026-10-31: "bed
+      held below the water, descending from the shore at 1 deg") -- 2.5 km off the shore it asks for 44 m of water.  FIXED, live 09:56 (boxes
+      whose fill starts after: r5c1, r4c3 on): where the nearest observation of any kind is a bed under the cell's own water, the cap is no
+      lower than that bed plus cap_bed_margin_m (1 m, and never more than half that bed's depth -- with the full margin beside a bed just under
+      the water the cap became the flat plane 0.1 m under it: 358 more shelf cells on upbay_t).  Only ever a relaxation.  Crops, current code
+      against the fix: seam_t (new, of r6c2): gap cells > 2 m off their measured neighbours 10,321 -> 0, guard-held 10,408 -> 4, p1..p99 of
+      (modelled - observed neighbours) -54.9..+0.08 -> -0.08..+0.09 m; hazel_l (lakes): 0.20 ha changes > 0.1 m, none > 1 m; upbay_t (the
+      tidal creeks the cone was made for; first form of the margin): guard-held 806,574 -> 789,666 cells, 7.6 ha of 4,800 change > 0.1 m.
+      Confirmation runs of bishop_t and upbay_t on the final form: scratchpad cap_ab2.sh.
+    (3) The mesa, 59.64705,-151.66371: NOT a reversion (run2, cm16, cm17, cm18 all 1.08 m; bluff_point v1/v2 of 2026-10-15 had -10.5).  4.76 ha
+      of Homer 2019 "ground" at 0.93-1.21 m -- the sea that day -- in a hole of Homer 2018's bed.  The sheet rule wants a MEASURED bed or lower
+      water under 5% of the sheet, or 5 soundings: under this one there are 19 measured cells at its rim, 2 NOS soundings (-10.5, -10.0 m) and
+      the compilations (ocm2023 + ncei2010, -10 m, derived: no evidence for the rule).  OPEN, Hig's call: a rule for a sheet over DERIVED beds
+      far below it (say > 5 m over half of it), or an edit.
+    Scratchpad: bishop.py, mesa.py, mesa2.py, hist.py (a point in every archived run), moshist.py (a point in every mosaic), regr.py (cm16 v
+      cm18 with the fill's intermediates), scan_steps.py, corr_map.py, nbr.py, diff_out.py, patch_cap.py; crops bishop_t, seam_t (make_crop.py).
+    TO RERUN AT THE END (Hig): every box whose fill began before 09:56 has the cone's trenches; the nine on the old fill also the holes.
     WATCHER, changed: a box with no cm16 run no longer stops it for rows REGRESSED against run2 (it runs gate_where.py and writes the
       pieces instead); a MISSING row does stop it; the fill stage's minutes are printed per box.
 - **Dev version:** `$W/republish_loop.sh` rebuilds `$W/kbay_joint_cm18/` (`mosaic_blend.py ... "cm18,cm17,cm16"`) and republishes the
