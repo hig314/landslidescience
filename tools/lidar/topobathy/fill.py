@@ -1241,8 +1241,11 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     from .water import TIDAL_KINDS
     if P.get("_bodies") is not None:
         bid, btab = P["_bodies"]; n_offlevel = 0
+        in_body = np.bincount(lab[bid > 0], minlength=int(lab.max()) + 1) > 0   # which domains hold a body's cells at all, in one pass (as n_off below)
         for i in range(1, nw + 1):
             if i in rivers:                      # a river domain: the channel model, never a body's level or basin
+                continue
+            if not in_body[i]:
                 continue
             v = bid[lab == i]; v = v[v > 0]
             if not v.size:
@@ -1750,7 +1753,13 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         for i, e in bover.items():                 # the water bodies' level / depth (edits via water.py); a recipe's lake_dmax wins
             over[i] = {**e, **over.get(i, {})}
         snd_rc, snd_z = _points_in_grid(P, T_, z.shape, med, lab) if (P.get("points") and T_ is not None) else (None, None)
+        # EVERY DOMAIN'S CELL COUNT OFF THE CHANNELS, IN ONE PASS (2026-11-06): the loop formed each domain's mask over the whole
+        # grid before its area test, and lake_ids holds the dry voids too -- 65,284 domains in kj_r6c4 for 66 lakes, two
+        # hours of a fill.  The count is the same number the mask's sum gave; a domain under lake_min_m2 is skipped before it.
+        n_off = np.bincount(lab[~chan], minlength=int(lab.max()) + 1)
         for i in lake_ids:
+            if int(n_off[i]) * res * res < P["lake_min_m2"]:
+                continue
             cells = (lab == i) & ~chan                              # a channel's cells are the channel's
             n_c = int(cells.sum()); A = n_c * res * res
             if A < P["lake_min_m2"]:

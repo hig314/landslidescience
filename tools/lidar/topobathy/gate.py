@@ -45,12 +45,17 @@ class Win:
     def has(self, name):
         return (self.d / name).exists()
 
-    def __getitem__(self, name):
-        if name == "joint_v3.tif" and not self.has(name):         # the product is <id>.tif (2026-10-29: the bay boxes)
+    def name_of(self, name):
+        """The file a row's name stands for: the product is <id>.tif in the bay boxes (2026-10-29), joint_v3.tif in Grewingk's."""
+        if name == "joint_v3.tif" and not self.has(name):
             prod = [p for p in self.d.glob("*.tif") if p.stem == self.d.parent.name or p.stem == self.d.parent.name.split("/")[-1]]
             if not prod and self.d.name.startswith("out_"):
                 prod = [p for p in self.d.glob("*.tif") if p.stem == self.d.parent.name]
             if prod: name = prod[0].name
+        return name
+
+    def __getitem__(self, name):
+        name = self.name_of(name)
         if name not in self._c:
             with rasterio.open(self.d / name) as s:
                 if self.x is None:
@@ -193,7 +198,7 @@ def sounding_misfit(w):
     model depth, 2026-10-28 (20h2 fitted the face's four deepest soundings far better than 20g, and that row said MOVED)."""
     import csv
     z = w["joint_v3.tif"]
-    with rasterio.open(w.d / "joint_v3.tif") as s:
+    with rasterio.open(w.d / w.name_of("joint_v3.tif")) as s:   # by the product's own name (kj_r6c4, 2026-11-06: the row read MISSING in the first bay box to hold the face)
         r0, c0 = s.index(w.x, w.y)
         T = s.transform
     v = []

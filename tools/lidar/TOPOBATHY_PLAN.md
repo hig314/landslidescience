@@ -208,6 +208,33 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
       logs (copied) and the gate's saved metrics ($WORK/gate/<tag>.json) were never affected, so no raster comparison or gate verdict is in doubt.  What was overwritten cannot be recovered short of a rerun.  Fixed:
       run_box.sh copies the reports; the 1,458 linked report files under $W/*/out_*/ were given their own copies at 03:00 (content as it stood); the watcher repeats that for boxes whose run began before the fix.
     WATCHER: scratchpad watch_cm18.sh (boxcheck.py + compare_runs.py + lakescan.py per landed box) -> $W/checks_cm18.log; stops on a fault (rc, a gate row worse than cm16, a traceback, < 25 GB free) or every 6 boxes.
+  2026-11-06 08:25, r2c3, r4c1, r4c4 (reruns) and r6c4 (Grewingk's box, the first unprocessed one) checked; 15 of 48 landed.
+    r2c3: gate = cm16 on every row; dead-flat below the base 357.5 -> 3.2 ha; ceiling rule 15.0 ha (to 1.69 m); lake voids unchanged.
+    r4c1 (first run of Hig's Seldovia Bay points on the fill fixes): "371 voids ringed by a measured bed ... the sea's: 0.80 ha", ceiling
+      rule 90.7 ha (to 2.06 m); gate solid_over_level 336 -> 328, perched_over_deep 0.69 -> 0.53 ha, bed_labelled_land 1943 = 1943; casts
+      median +0.03, NMAD 0.15; changed > 0.5 m on 29 ha (24 ha higher, median 0.9 m).  NOT YET LOOKED AT cell by cell at Hig's points
+      (59.40840,-151.69846; 59.35974,-151.81483) nor the 3.2 ha at 59.44618,-151.74850 that went from modelled -3.74 to observed 0.81 m.
+    r4c4: gate = cm16; lake bed higher by > 1 m on 0.2 ha only.
+    r6c4: rc 0.  Only run2 to compare with.  perched_over_deep 9.35 ha (run2 2.20): 7.1 ha is the 3.4 m sheet at 59.61651,-151.18916
+      already explained under r6c3 (label only), the rest small bodies at 2.0-2.6 m over Halibut Cove Lagoon's -50..-70 m bed near
+      59.567,-151.193 (= run2's 2.2 ha).  solid_over_level 284 cells (run2 50): 0.11 ha in 31 pieces, mostly 1.1-1.3 m over levels of
+      -1 to -2 m (59.59321,-151.17758).  The face rows against Grewingk's own box, run 20j: sounding misfit p90 1.95 m (20j 3.22),
+      clip_shelf 19 (445), face_bad 0, face_level_spread 0, face_shallow 0.005, Emerald 27.1 m (26.6).
+    GATE FAULT FIXED: face_sounding_misfit_p90_m opened joint_v3.tif by name and read MISSING in the first bay box to hold the face;
+      it now opens the product by its own name (Win.name_of).  r6c4's gate/cm18.json and gate.log re-saved (the first log kept as
+      out_cm18/logs/gate.log.before_fix).
+    THE FILL'S LAKE LOOP TOOK TWO HOURS A BOX, FIXED: fill.py formed (lab == i) & ~chan over the whole grid for every non-marine
+      domain before its area test, and lake_ids holds the dry voids too -- 65,284 domains in r6c4 for 66 lakes; the fill stage ran 142 min
+      there (r4c1 80, r3c2 77, r4c4 48, r2c3 44), and r5c3's was 2.5 h into the same loop (macOS `sample` of the process: array ==,
+      ~, &, sum and nothing else).  Now one np.bincount gives every domain's cell count off the channels and a domain under
+      lake_min_m2 is skipped before its mask is formed; the bodies loop skips domains holding no body cell the same way.  Same
+      numbers by construction; checked on crop hazel_l (14,321 domains, 57 lakes): all 33 rasters cell for cell equal, fill_lakes.json
+      equal, fill.json differs only in "seconds" (117 -> 38).  Live from 08:21 (boxes whose fill starts after: r5c2 on).
+      scratchpad: patch_lakeloop.py, same_out.py, crop_ab.sh, gate_where.py (where a box's solid_over_level / perched_over_deep cells
+      are), fillprof.sh -> fillprof.log (every 4 min, the hottest symbols of each running fill: a coarse profile for what is left).
+    MACHINE: fseventsd holds ~20 GB and a full core (37 h of CPU); swap 31.5 of 32.8 GB; memory free 71%.  Not touched (root's).
+    WATCHER, changed: a box with no cm16 run no longer stops it for rows REGRESSED against run2 (it runs gate_where.py and writes the
+      pieces instead); a MISSING row does stop it; the fill stage's minutes are printed per box.
 - **Dev version:** `$W/republish_loop.sh` rebuilds `$W/kbay_joint_cm18/` (`mosaic_blend.py ... "cm18,cm17,cm16"`) and republishes the
   dev surface `kbay_joint_cm18` every two new boxes (or after 2 h), log `$W/republish_cm18.log`; a last time when the workers are
   gone. On the viewer meanwhile: `kbay_joint_cm16` (the difference base), `kbay_joint_cm17` and `kbay_joint_cm17_r4c1` (both to
