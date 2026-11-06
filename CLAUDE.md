@@ -101,13 +101,25 @@ written down anywhere — read `/lidar/audit/`.
 
 **Open threads**, in no particular order:
 
-- **Overlay regrouping + fixed-scale slope: built, in dev, awaiting Hig's test**
-  (2026-11-01). Archives are on Nunatak only, nothing on R2. After approval:
-  push, deploy, R2 sync (see *Surface properties*), then retire the old
-  `sp_slope` archive. Coverage stops at the Alaska border, so the Canadian side
-  of St. Elias is blank until coverage grows.
-- **Droplet disk is tight**: 6.5 GB free (92%) after the 2026-10-30
-  deploys. Docker build cache is 4.1 GB, of which `docker builder prune`
+- **Overlay regrouping + fixed-scale slope shipped** (2026-11-01, dfe53d2; R2
+  synced, not yet drawn in a browser on prod). The old `sp_slope` archive stays
+  on R2 until Hig says to remove it. Coverage stops at the Alaska border, so the
+  Canadian side of St. Elias is blank until coverage grows.
+- **Required strength from topography (Scoops3D rebuild), exploratory,
+  uncommitted** (2026-11-01..05): `tools/terrain/scoops/` plus a dev-only
+  overlay row `sp-creq-20-200`. State, results and held decisions:
+  [tools/terrain/scoops/README.md](tools/terrain/scoops/README.md). **No
+  comparison with landslide mapping until Hig lifts that.**
+- **Grand Plateau 2026 preliminary DSM is on prod, gated** (2026-11-05,
+  64d2006): `grand_plateau_sfm_2026_prelim` from the drop `z2udka3Z6dGU`,
+  z9-17, pyramids on the droplet only, no COG there (dead download link,
+  accepted). Hig has not yet drawn a profile across it on prod. The final
+  NPS release (winter 2026-27) is to be a new public entry, with this one
+  retired and its 1 GB removed from the droplet. Same day (c309b1c): the
+  `_slope` pyramids of gated surveys had been open to anonymous requests;
+  now gated. Details: the last entry of `tools/lidar/RESUME.md`.
+- **Droplet disk is tight**: 5.5 GB free (93%) after the Grand Plateau
+  pyramids (2026-11-05). Docker build cache is 4.1 GB, of which `docker builder prune`
   would reclaim ~1.3 GB. Offered to Hig, not answered, not run.
 - **Shaded relief / ArcticDEM follow-ons, deferred** (not to start
   unprompted): bake the 2 m ArcticDEM ourselves; deeper Mapterhorn zooms
@@ -1920,8 +1932,8 @@ answers instead, in this order:
   actually does) and names any that disagree. Read it first.
 - **`tools/lidar/RESUME.md`** — the hosting stream's state of play and the
   publishing recipe, plus the incidents behind it (BAG extraction modes,
-  rclone filters, the overnight uploader). 48 public and 6 gated as of
-  2026-11-05 (`hoonah_2015` made public), which is the number `/lidar/audit/` will confirm or correct.
+  rclone filters, the overnight uploader). 48 public and 7 gated as of
+  2026-11-05 (`hoonah_2015` made public, Grand Plateau added gated), which is the number `/lidar/audit/` will confirm or correct.
 
 **Gating is by manifest flag and enforced on the BYTES.** `"gated": true` on
 a dataset keeps it out of `catalog.geojson` and into the companion

@@ -6,7 +6,7 @@
 > `topobathy-compositing` in its own worktree. See `../../WORKSTREAMS.md`
 > for the split and the boundary rules.
 
-**48 public surveys on production**, 6 gated, all archive COGs in Cloudflare R2
+**48 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
 behind `lidar.landslidescience.org/cog/<id>.tif`. `/lidar/audit/` is the live
 answer to "where is everything" — it checks the four seams (built / on R2 / in
 the catalogue / what the gate does) and is the thing to read first, not this
@@ -613,7 +613,7 @@ a different size is a rebuild not yet uploaded, and keeps the route. So
 `127.0.0.1:8001`, which fails silently in the browser.
 
 
-## 2026-11-05 (evening): grand_plateau_sfm_2026_prelim built, gated -- in dev, NOT yet on prod
+## 2026-11-05 (evening): grand_plateau_sfm_2026_prelim published, gated -- 48 public, 7 gated
 
 Hig asked for the DEM in the photo drop `z2udka3Z6dGU` (NPS Glacier Bay, preliminary
 0.45 m SfM surface of Grand Plateau Glacier, ellipsoidal heights) as a gated survey,
@@ -639,7 +639,15 @@ wording and every number are in the manifest notes; what is not there:
 - Final release (expected winter 2026-27): a NEW public entry; retire this one and
   remove its bytes from the droplet.
 
-To ship after Hig's test: commit + push the manifest, the tool and `lidar_serve.py`;
-deploy; scp the two pyramids to the droplet's `data/lidar/pmtiles/` (md5); back up and
-replace `catalog-gated.geojson` (`--gated-only --out /tmp/catalog_gated.geojson`);
-check anonymous 403 / signed-in 206 on prod, including a `_slope`; read `/lidar/audit/`.
+**Shipped 2026-11-05 21:40 AKST** on Hig's go-ahead (c309b1c the gate fix, 64d2006 the
+survey). Order used, and the reason for it: deploy the code (closes `_slope`); upload the
+two pyramids to a staging folder OUTSIDE `pmtiles/` (`data/lidar/.staging_gp/`, md5
+checked); install the gated catalogue (old one kept as
+`catalog-gated.geojson.bak.20261106-053917`); only then `mv` the pyramids into
+`pmtiles/`. **The pmtiles route serves any local file whose id is not in the gated
+catalogue**, so bytes that arrive before the catalogue names them are public for as long
+as that takes: 17 minutes here at ~1 MB/s. Checked on prod: anonymous 403 on the pyramid,
+the slope pyramid and the gated catalogue (both workers); superuser and a `data_users`
+member 206 with `private` cache headers; nothing on R2; `publish_audit.py` reports
+nothing broken. `/lidar/` needed no change: it merges the gated catalogue for signed-in
+accounts. All 8 prod accounts can view it. Droplet 5.5 GB free (93%) after.
