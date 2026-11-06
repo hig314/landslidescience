@@ -110,6 +110,19 @@ written down anywhere — read `/lidar/audit/`.
 
 **Open threads**, in no particular order:
 
+- **Homer 2019 + 2021 NCMP green lidar, and point clouds on R2**
+  (2026-11-06). `homer_2019_ncmp` and `homer_2021_ncmp` are **published**
+  (8a7a653; 50 public surveys). Point clouds have a registry
+  (`tools/lidar/points.json`), a tool (`points_publish.py`) and a bucket
+  layout (`points/<survey>/<rev>/`); Kenai 2008 r1 (our ground
+  classification, 67 GiB) is the one test upload, running detached since
+  09:38 (~12 h). The `/lidar/` *Point cloud* link and its Methods paragraph
+  are **in dev, uncommitted**, until the upload finishes and Hig sees the
+  link. Hig's rule: link a cloud an agency already
+  serves well, do not copy it; nothing beyond Kenai 2008 until the layout is
+  judged; Grewingk waits on the reclassification work. State and commands:
+  the last entry of `tools/lidar/RESUME.md`.
+
 - **NOAA's chart server fails about 1 request in 20** (measured 2026-11-05:
   4 of 72 tiles at 6 in flight came back as an HTML "ArcGIS Web Adaptor:
   Could not access any server machines" page with status 200 and no CORS
@@ -1967,7 +1980,7 @@ answers instead, in this order:
   actually does) and names any that disagree. Read it first.
 - **`tools/lidar/RESUME.md`** — the hosting stream's state of play and the
   publishing recipe, plus the incidents behind it (BAG extraction modes,
-  rclone filters, the overnight uploader). 48 public and 7 gated as of
+  rclone filters, the overnight uploader). 50 public and 7 gated as of
   2026-11-05 (`hoonah_2015` made public, Grand Plateau added gated), which is the number `/lidar/audit/` will confirm or correct.
 
 **Gating is by manifest flag and enforced on the BYTES.** `"gated": true` on

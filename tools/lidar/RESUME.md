@@ -6,7 +6,7 @@
 > `topobathy-compositing` in its own worktree. See `../../WORKSTREAMS.md`
 > for the split and the boundary rules.
 
-**48 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
+**50 public surveys on production**, 7 gated, all archive COGs in Cloudflare R2
 behind `lidar.landslidescience.org/cog/<id>.tif`. `/lidar/audit/` is the live
 answer to "where is everything" — it checks the four seams (built / on R2 / in
 the catalogue / what the gate does) and is the thing to read first, not this
@@ -651,3 +651,68 @@ the slope pyramid and the gated catalogue (both workers); superuser and a `data_
 member 206 with `private` cache headers; nothing on R2; `publish_audit.py` reports
 nothing broken. `/lidar/` needed no change: it merges the gated catalogue for signed-in
 accounts. All 8 prod accounts can view it. Droplet 5.5 GB free (93%) after.
+
+## 2026-11-06: Homer 2019 + 2021 NCMP built (dev_only); point clouds begin to go online
+
+**Two more green-lidar surveys of Homer Spit**, both USACE NCMP (JALBTCX, CZMIL), found on
+NOAA's public bucket `noaa-nos-coastal-lidar-pds` beside the 2018 pilot we already host:
+`homer_2019_ncmp` (block `Blk_532_Homer` of OCM 8837 / DEM 9055, flown 2019-07-17, 43.5 km2,
+-19 to 265 m) and `homer_2021_ncmp` (block `blk_21221_homer` of OCM 9702 / DEM 10207, flown
+2021-05-30, 13.9 km2, -7 to 146 m). Built from the vendor BareEarth 1 m tiles as OCM
+distributes them (md5-checked, in `lidar_src/homer_20{19,21}_ncmp/dem/`, VRTs in
+`lidar_build/vrt/`), like homer_2018 and seldovia_2019. The points (COPC, 1.4 + 1.5 GB) are
+in `lidar_src/homer_20{19,21}_ncmp/` for the topobathy stream.
+
+- **No vertical shift on either.** Against the DGGS `homer_2019` on land above 8 m (5 m
+  lattice): 2019 NCMP +0.11 m (NMAD 0.18), 2021 NCMP +0.01 m (NMAD 0.08). OCM's copy of the
+  2019 Homer block does not carry the 1.42 m xGEOID17B offset of the vendor's Seldovia
+  delivery, so that offset is a property of that delivery, not of the season.
+- Checked: 2021 archive bit-identical to its tiles (translate); 2019 within resampling
+  (warp from geographic; p95 0.12 m at 400 points); both pyramids agree with their archives
+  (`check_web_heights.py`, 200 points each).
+- The OCM points agree with the grids: class 2 (and class 29 seabed in 2021) in two tiles
+  of each block, decimated, median within 0.01 m (NMAD 0.02-0.06). Both COPC sets are in
+  Alaska Albers (EPSG:6393) + NAVD88, all 104 tiles size- or md5-checked.
+- **Published 2026-11-06 11:10 AKST** on Hig's "the DEMs look good on dev - go ahead and
+  publish": `dev_only` dropped, four pyramids + two COGs on R2 (sizes checked by ranged
+  GET), 8a7a653 pushed and deployed, prod catalogue `--verify-r2` installed (50 public, the
+  two added, nothing else changed; backups `catalog*.geojson.bak.20261106-110953` on the
+  droplet), gated catalogue reinstalled unchanged (7). Checked: pages 200, gated 403 to
+  anonymous, tile Worker serving both at z12, `publish_audit.py` clean. **50 public, 7 gated.**
+- **Beluga Lake has no returns in any of the three clouds** (Hig asked, 2026-11-06). Inside
+  the lake's 0.60 km2 interior (the 2018 hole eroded 10 m): 2018 none; 2019 919 and 2021
+  8,614 points, every one within 41 m of the 2018 shore and at or above the lake level
+  (5.7 m in 2019/2021, 6.0 m in 2018; the 2021 ones at 8-9 m are a structure), so shore,
+  dock and vegetation, no bed. The deliveries carry **no water-surface returns at all**:
+  tiles that are entirely seabed hold only class 29, every point first-of-one, so the
+  surface returns that the refraction correction needs are used in JALBTCX's processing
+  and stripped before delivery, and the delivered classes are 1, 2, 23 (submerged
+  vegetation) and 29 (bed). So the lake is not a crop of surface returns we could have
+  used; whether any bed candidates were rejected there is only knowable from JALBTCX's
+  internal (HydroFusion) data. Lake levels by date are the one thing these give it.
+  Scratch: the lake polygon is in the session scratchpad only.
+- NCMP 2022 (OCM id 9567 reserved, nothing on the bucket) and 2023 are listed "In Progress"
+  over the spit in USACE's `JALBTCX_Acquisition_Status` service. Ask JALBTCX for them.
+
+**Point clouds.** Registry `tools/lidar/points.json` (its header is the layout and the
+definition of a revision), tool `points_publish.py` (`index`, `upload`, `verify`, `survey`),
+bucket prefix `points/<survey>/<rev>/`, index files in `lidar_build/points/`. Hig's rule
+(2026-11-06): a cloud an agency already serves well is linked, not copied; start with
+Kenai 2008 to test the layout, nothing else yet; the Grewingk clouds wait until the
+reclassification and the use of overlaps are worked out.
+
+- **Kenai 2008 r1** (our PTD ground classification, Powder `lidar_build/kenai_2008/classified`):
+  3,110 tiles, 67.13 GiB, 14,054,222,606 points; 20 empty tile squares left out. r0 is
+  USGS's EPT, linked. Upload started 2026-11-06 09:40 AKST, detached; log
+  `lidar_build/points/publish_kenai_2008_r1.log` (rclone's own:
+  `upload_kenai_2008_r1.log`). The chain is upload, verify (size + md5 against the index),
+  then `survey --upload`, which writes `points/kenai_2008/index.{json,html}` last. Resume by
+  re-running the three commands; rclone skips what is there.
+- `make_catalog.py` writes `points_url` for a survey in the registry once its `index.json`
+  is on the bucket; `/lidar/` shows a *Point cloud* link on that survey's row; Methods §1
+  explains it. In dev, uncommitted, until Hig approves.
+- Not built: the `recipe` kind of revision; a points entry for any other survey.
+- What we hold, for the next decision (2026-11-06): KBay 2023 163 GB (Powder; NOAA 10418
+  serves it), Kenai raw EPT 72 GB, Grewingk 2021 21 GB, Homer 2019 DGGS 11 GB (72 of 157
+  tiles unreadable), Seldovia 2019 vendor LAS 6 GB, Homer 2018 NCMP 2.5 GB, Grewingk 2019
+  2.2 GB. R2 held 322 GiB before this (cog 168, pmtiles 89, permafrost_build 42, overlays 23).
