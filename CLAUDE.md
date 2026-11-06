@@ -1981,7 +1981,7 @@ answers instead, in this order:
 - **`tools/lidar/RESUME.md`** — the hosting stream's state of play and the
   publishing recipe, plus the incidents behind it (BAG extraction modes,
   rclone filters, the overnight uploader). 50 public and 7 gated as of
-  2026-11-05 (`hoonah_2015` made public, Grand Plateau added gated), which is the number `/lidar/audit/` will confirm or correct.
+  2026-11-06 (Homer 2019 and 2021 NCMP added that day), which is the number `/lidar/audit/` will confirm or correct.
 
 **Gating is by manifest flag and enforced on the BYTES.** `"gated": true` on
 a dataset keeps it out of `catalog.geojson` and into the companion
