@@ -907,7 +907,7 @@ def cmd_highline(a):
                         cc_, rr_ = ~T * tuple(f_["geometry"]["coordinates"][:2]); rr_, cc_ = int(rr_), int(cc_)
                         if 0 <= rr_ < z.shape[0] and 0 <= cc_ < z.shape[1]:
                             an_[rr_, cc_] = True
-        new, low_ = HL.no_peaks(new, Hw_, md_ & ~lidar_, an_, res)
+        new, low_ = HL.no_peaks(new, Hw_, md_ & ~lidar_, an_, res, base=float(F.get("shore_base_m", float(F.get("low_tide_m", -1.38)) - 2.0)))     # the shore's rule: the basin below the base contour is the casts' fit
         code[low_ & (code == 0)] = 1
         rep_["peaks_pits_moved_ha"] = round(float(low_.sum()) * res * res / 1e4, 2)
     (out / "high_line.json").write_text(json.dumps(rep_, indent=1))

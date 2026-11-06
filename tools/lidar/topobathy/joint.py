@@ -186,6 +186,36 @@ def obs_lidar(s: Source, win, res, cfg):
     return o
 
 
+def ground_edits(o, win, res, epsg, cfg, log=print, name=""):
+    """A reviewer's GROUND polygons over one lidar source's observations (tools/lidar/water/edits.geojson, kind "ground"; 2026-11-05, Hig, Hoen's Lagoon's inner flat: nearly perfectly flat mud at 0.8 m whose returns
+    are classed water at its own level -- "genuinely a little hard to tell whether it's mud or water even when you're standing there"; the lidar height is right, so it is fixed in the classification, as an edit, not by a
+    rule).  Inside one, the cell's water returns ARE its ground: where no ground stands they become it (height and count), and the cell carries no water.  Returns the hectares changed."""
+    p = Path(cfg.get("edits") or (Path(__file__).resolve().parent.parent / "water" / "edits.geojson"))
+    if o is None or "z_w" not in o or not p.exists():
+        return 0.0
+    from rasterio import features
+    from rasterio.transform import from_origin
+    from rasterio.warp import transform_geom
+    G = []
+    for f in json.loads(p.read_text()).get("features", []):
+        q = f.get("properties") or {}
+        if q.get("kind") == "ground" and not q.get("withdrawn") and f["geometry"]["type"] in ("Polygon", "MultiPolygon"):
+            G.append(transform_geom("EPSG:4326", f"EPSG:{epsg}", f["geometry"]))
+    if not G:
+        return 0.0
+    H, W = o["z_w"].shape
+    m = features.rasterize([(g, 1) for g in G], out_shape=(H, W), transform=from_origin(win[0], win[3], res, res), fill=0, dtype="uint8") > 0
+    k = m & np.isfinite(o["z_w"])
+    if not k.any():
+        return 0.0
+    t = k & ~np.isfinite(o["z_g"])
+    o["z_g"][t] = o["z_w"][t]; o["zmin_g"][t] = o["z_w"][t]; o["n_g"][t] = np.maximum(o["n_w"][t], 1.0)
+    o["z_w"][k] = np.nan; o["n_w"][k] = 0.0
+    ha = float(k.sum()) * res * res / 1e4
+    log(f"  ground edits: {name}: {ha:.2f} ha of water returns inside a reviewer's ground polygon are ground ({float(t.sum()) * res * res / 1e4:.2f} ha had no ground of their own)")
+    return ha
+
+
 def _paste(o, g, gb, win, res):
     """Paste a 1 m block with bounds gb into the working arrays (block-reduced to res if needed)."""
     f = int(round(res))
@@ -420,7 +450,10 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
     # ---- read
     obs = {}
     for s in srcs:
-        if s.kind == "lidar": o = obs_lidar(s, win, res, cfg)
+        if s.kind == "lidar":
+            o = obs_lidar(s, win, res, cfg)
+            ge_ = ground_edits(o, win, res, epsg, cfg, log, s.name)                  # a reviewer's ground polygons (water/edits.geojson), before anything judges the water
+            if ge_: rep.setdefault("ground_edits_ha", {})[s.name] = round(ge_, 2)
         elif s.kind == "grid": o = obs_grid(s, win, res, epsg, cfg)
         elif s.kind == "points": o = obs_points(s, win, res, cfg)
         else: raise ValueError(s.kind)
@@ -594,6 +627,11 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             # 2019's "ground" at the water level superseded the 2009 multibeam under Halibut Cove's ridge -- islands)
             if S[n].cls == "bed" and S[m].cls != "bed":
                 continue
+            # a DERIVED product is no newer observation of a measured survey's ground (2026-11-05, Hig, 59.68841,-151.34924: "we're not successfully overriding the 3DEP or ArcticDEM with the 2008 lidar"): ArcticDEM, dated 2016,
+            # superseded the 2008 lidar by its date wherever it had cells, then yielded to that same lidar as a derived product (below) -- both gone, the cell void, and the composite took 3DEP there: a patchwork of the
+            # lidar (where ArcticDEM had no cell), ArcticDEM and 3DEP.  It supersedes only other derived products
+            if S[m].derived and not S[n].derived:
+                continue
             if S[m].date - S[n].date > float(py.get(S[m].cls, 5.0)):
                 sup[n] |= np.isfinite(Z[n]) & near[m]
     # ...and INSIDE THE GLACIER OUTLINE every source is ice, whatever its vendor class (2026-10-25, Hig: a jaggy seam on
@@ -747,17 +785,24 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             # the level, kept the class).  Judged by the sheet: flat cells within two cells of the survey's water returns and
             # within own_sheet_tol_m of them, stand_min_cells of them.  Never within the tide's reach: a wet tidal flat
             # carries water returns at its own level too (Hoen's Lagoon, above), and there the measured bed decides.
-            bad_o = np.zeros(nl_ + 1, bool)
+            # ...OF SUCH A SHEET, ONLY THE CELLS AT THE WATER'S LEVEL (2026-11-05, Hig, 59.68841,-151.34924, the bench east of Homer: the 2008 lidar gone from half the ground).  A "sheet" is every connected cell that is flat
+            # over 10 m, so a gently sloping bench or fen is one sheet spanning metres of height, and ten cells of it beside a pond took all of it: 71.6 ha of Kenai 2008's bare ground in a 9 km2 window.  A lake is level: the
+            # sheet's cells within own_sheet_tol_m of the nearest of the survey's water returns are its surface, the rest of the sheet is ground
+            bad_o = np.zeros(nl_ + 1, bool); own_ = None
             if "z_w" in obs[n]:
                 hw0 = (obs[n]["n_w"] > 0) & np.isfinite(obs[n]["z_w"])
                 if hw0.any() and (~tide_[1:]).any():
                     dw0, (iy0, ix0) = ndimage.distance_transform_edt(~hw0, sampling=res, return_indices=True)
-                    at_ = flat_ & (dw0 <= 2.0 * res) & (np.abs(Z[n] - obs[n]["z_w"][iy0, ix0]) <= float(cfg.get("own_sheet_tol_m", 0.15)))
+                    own_ = flat_ & (np.abs(Z[n] - obs[n]["z_w"][iy0, ix0]) <= float(cfg.get("own_sheet_tol_m", 0.15)))
+                    at_ = own_ & (dw0 <= 2.0 * res)
                     bad_o = ~tide_ & (cnt(at_) >= smc)
                     del dw0, iy0, ix0, at_
                 del hw0
-            bad_ = bad_w | bad_b | bad_o; bad_[0] = False
+            bad_ = bad_w | bad_b; bad_[0] = False; bad_o[0] = False
             st_ = bad_[lab_]
+            if own_ is not None and bad_o.any():
+                st_ = st_ | (bad_o[lab_] & own_)
+            bad_ = bad_ | bad_o; del own_
             sp_ = np.zeros((H, W), bool)
             spk = tide_ & (cnt_ < smc) & (ub_n >= 0.5 * cnt_) & ~bad_; spk[0] = False
             if spk.any() and st_.any():

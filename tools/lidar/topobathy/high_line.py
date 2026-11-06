@@ -3,7 +3,7 @@ A last step on the finished surface, where a vector_high line exists (tide_vecto
   on the line       the surface is the line's level;
   on the water side the surface stands no higher than the line (tide_sea.geojson: the mapped water beside a line), sloping down to the fit beyond the DEM's false shore; a bed or a fit further out stays;
   on the land side  a convex ramp from the line up to the DEM at a width that follows the DEM's slope over the first 100 m inland, joining the DEM at its own slope;
-  all the way out    nothing modelled stands as a peak in the high water unless a line, a cast or a rock holds it (no_peaks).
+  all the way out    nothing modelled stands as a peak in the high water unless a line, a cast or a rock holds it (no_peaks) -- down to the base contour: below it the casts' fit is the surface.
 Lidar is never touched (Hig: tide lines "shouldn't overrule lidar or multibeam"), and a multibeam bed is under the level anyway.
 The width, measured on 340 km of coast under lidar (segments of 50 m, KBay 2023, Chugachmiut, Seldovia, Homer; BAY_SOURCES 8.6): 3DEP's profile sits about 10 m off whatever the slope (slope does not predict the offset:
 r = -0.11), so the height error grows with slope and so does the ramp worth having.  SLOPE_WIDTH beats a fixed 50 m on gentle coast (mean error, first 50 m: 2.2 vs 2.4 m under 15 degrees) and equals it on steep coast (5.4 m over 40; 3DEP as it is, 10.9)."""
@@ -80,18 +80,30 @@ def apply(z, T, res, lines, sea, lidar, log=print):
     return out, code, rep
 
 
-def no_peaks(z, water, modelled, anchors, res, log=print):
+def no_peaks(z, water, modelled, anchors, res, log=print, base=None):
     """Downhill to the sea (2026-11-04, Hig: "it should be all downhill"): a modelled cell in the high water stands no higher, and lies no lower, than the path to an anchor allows: a line, a cast, a rock, an observation or the grid's edge.  Morphological reconstruction both
-    ways, so only the peaks and the pits nobody measured go.  Returns (surface, cells moved)."""
+    ways, so only the peaks and the pits nobody measured go.  Returns (surface, cells moved).
+    THE SHORE'S RULE STOPS AT THE BASE CONTOUR (`base`, 2026-11-05, Hig's review of cm16, 59.17311,-151.42426: a flat top of 9 ha at -90.96 m where the casts' spline rose to -79.6 between casts at -82 and -93; r2c3 alone lost 135 ha of
+    peaks and 268 ha of pits, up to 23 m).  Below the base contour the surface is the basin, shaped by the casts' fit, and a rise or a hollow between two casts there is the fit's best reading, not a shore nobody mapped: the
+    reconstruction runs on the surface clipped at the base, so only what stands above it can be a peak, and a pit is filled only where the whole of it lies in the tide's reach (one holding a basin below the base is left as fitted)."""
     from skimage.morphology import reconstruction
     dom = water & modelled & ~anchors & np.isfinite(z); dom[[0, -1], :] = False; dom[:, [0, -1]] = False
+    if base is not None:
+        dom &= ndimage.binary_dilation(z > base, iterations=2)          # nothing below the base can move: skip it (and the cost of it)
     if not dom.any():
         return z, np.zeros(z.shape, bool)
     r, c = np.nonzero(ndimage.binary_dilation(dom, iterations=2)); r0, r1, c0, c1 = r.min(), r.max() + 1, c.min(), c.max() + 1
-    a = np.where(np.isfinite(z[r0:r1, c0:c1]), z[r0:r1, c0:c1], np.nanmin(z)).astype(np.float64); d = dom[r0:r1, c0:c1]; S4 = ndimage.generate_binary_structure(2, 1)
+    a0 = np.where(np.isfinite(z[r0:r1, c0:c1]), z[r0:r1, c0:c1], np.nanmin(z)).astype(np.float64); d = dom[r0:r1, c0:c1]; S4 = ndimage.generate_binary_structure(2, 1)
+    a = a0 if base is None else np.maximum(a0, float(base))
     rec = reconstruction(np.where(d, a.min(), a), a, method="dilation", footprint=S4); pk = d & (rec < a - 1e-3); log(f"  high line: peaks: {pk.sum() * res * res / 1e4:.2f} ha, mean {float((a - rec)[pk].mean()) if pk.any() else 0.0:.2f} m, max {float((a - rec)[pk].max()) if pk.any() else 0.0:.2f} m")
-    rc2 = reconstruction(np.where(d, rec.max(), rec), rec, method="erosion", footprint=S4); pt = d & (rc2 > rec + 1e-3); log(f"  high line: pits: {pt.sum() * res * res / 1e4:.2f} ha, mean {float((rc2 - rec)[pt].mean()) if pt.any() else 0.0:.2f} m, max {float((rc2 - rec)[pt].max()) if pt.any() else 0.0:.2f} m")
-    mv = pk | pt; out = z.copy(); out[r0:r1, c0:c1][mv] = rc2[mv].astype(np.float32); m = np.zeros(z.shape, bool); m[r0:r1, c0:c1] = mv
+    rc2 = reconstruction(np.where(d, rec.max(), rec), rec, method="erosion", footprint=S4); pt = d & (rc2 > rec + 1e-3)
+    if base is not None and pt.any():
+        lb, n = ndimage.label(pt, structure=np.ones((3, 3), bool)); deep = np.zeros(n + 1, bool); deep[np.unique(lb[pt & (a0 < float(base) - 0.01)])] = True; deep[0] = False
+        if deep.any():
+            log(f"  high line: {int(deep.sum())} hollows holding a basin below the base contour ({base:g} m) left as fitted, {deep[lb].sum() * res * res / 1e4:.2f} ha")
+            pt &= ~deep[lb]
+    log(f"  high line: pits: {pt.sum() * res * res / 1e4:.2f} ha, mean {float((rc2 - rec)[pt].mean()) if pt.any() else 0.0:.2f} m, max {float((rc2 - rec)[pt].max()) if pt.any() else 0.0:.2f} m")
+    mv = pk | pt; out = z.copy(); out[r0:r1, c0:c1][mv] = np.where(pt, rc2, rec)[mv].astype(np.float32); m = np.zeros(z.shape, bool); m[r0:r1, c0:c1] = mv
     return out, m
 
 

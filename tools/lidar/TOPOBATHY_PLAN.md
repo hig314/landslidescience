@@ -82,7 +82,69 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
   water, water observed above the low line's level stays on the lens. Deepest: 59.38286,-151.87502 (6.95 m),
   59.35971,-151.89911, 59.33129,-151.77379, 59.44538,-151.70750, 59.35228,-150.87167. Not yet reported to Hig.
 
-**Next, in order** (none of it started; the fixes edit run-read files, so wait for r6c2/r6c3 to end):
+**Update, 2026-11-05 afternoon — the fixes are built (uncommitted) and three test boxes are running under tag `cm17`.**
+- **Hig's decisions:** build the pool fix; remove every old run from the dev viewer except the 13-box one (done: `joint_v3j`,
+  `kbay_joint_cm15_taylor`, `kbay_joint_cm16_r3c4`, `kbay_joint_cm16_r3c3` out of the catalogue, pyramids and dev_viewer work dirs
+  deleted, catalogue backup `catalog.geojson.bak_202611051351`; their sources stand: `joint_v3/out`, `ct_taylor/out_cm15`, the boxes'
+  `out_cm16`); proceed in the order below.
+- **Step 1, r6c2 / r6c3:** fault 1 absent (their 181 / 372 ha past a closing edge are Mud Bay's flats: casts -1.8..-0.7 m, fitted);
+  fault 2 mild (111 / 44 ha moved below the base, dead-flat pieces all under 0.6 ha, against r2c3's 354 ha in 50 pieces over 1 ha, the
+  largest 122 ha at -183.5 m, 59.14913,-151.33306); fault 3 not in them; r6c3 has 12 pools dug over 1 m (1.6 ha). The land drop
+  (-38 km2 in r6c2) is 38.2 km2 of upland at 100-425 m from source 3 that carries no class in cm16 (shore_label 0, class_now 0):
+  a labelling difference from run2, not a shore fault. **Rerun both with the others** (cheap: the stages before the fill take 6-10 min).
+- **Fix 1** (`shoreface.py`, the mapped-shores block, `_past_closure`; `tide_vectors.py closures` -> `water/tide_low_closures.geojson`,
+  written by `build` too): the low water's outline has closing edges that are no shore (a segment over 150 m, or further than 1 km from
+  3DEP's sea edge: 377 of 1,539 km). Band cells whose nearest low-water edge is one of those are judged by DATA: the median of the three
+  nearest good casts (within 500 m) more than 1 m under the low shore's level is the sea; else the flat. No casts in reach: land behind
+  the low water = past the mapping, land facing = between the shores. Neither test alone works: the closing-edge test alone dropped Mud
+  Bay (a broad flat's low shore is drawn in long segments), the land test alone kept half of r2c2's plate (land across the bay).
+  Measured on the cm16 archives with the model's own functions: r2c2 165.9 ha dropped (the plate), r3c5 165.3, r2c1 10.0 + 5.5 (both of
+  Hig's spots), r6c3 2.1 of 372 ambiguous. Also: good casts > 1 m under the low level inside the band put their 20 m back in the sea
+  where that joins the sea or is no pocket.
+- **Pool fix** (same block, `_banked_pools`): the water stage's bodies (tidal / perched / ephemeral, <= 2 ha, level between low tide
+  + 0.5 m and the tide's top) in the mapped low water whose ring is banks (not the low water's void, no observed ground below the
+  level, on 70 %) keep their observed surface (fill_mask 7). On the archives: r4c1 14 pools, r4c2 18, r6c3 41; it catches bodies dug
+  4-8 m (59.44409,-151.70815; 59.39979,-151.68614; 59.39776,-151.69255). Not caught: pools ringed by more mapped low water (r3c3 body
+  24, 1.25 ha), and the five outside the low water (cause still undetermined).
+- **Fix 2** (`high_line.no_peaks(base=)`, `composite.py` passes the base contour): the reconstruction runs on the surface clipped at
+  the base contour, so only what stands above it can be a peak; a pit holding a basin below the base is left as fitted. Synthetic test:
+  deep rise and hollow untouched, shallow bump and hollow as before.
+- **Fix 3** (`joint.ground_edits`, called in `fuse` after each lidar's `obs_lidar`; `water.py` skips kind `ground`): Hig's polygon is
+  in `water/edits.geojson` as `hoens_lagoon_inner_flat` (EPSG:4326). In-process on r4c1: 3.44 ha of KBay 2023 water returns become
+  ground. `hoens_ground_draft.geojson` is now redundant (untracked; delete once the test passes).
+- **Running:** `kj_r2c2`, `kj_r2c3` (fills started 14:24), then `kj_r4c1`, two at a time, detached
+  (`scratchpad/run_test_cm17.sh`, log `$W/test_cm17.log`); each writes `$W/<box>/shore_dump_cm17.pkl` (the shore model's inputs, for
+  re-tests without a fill; delete after). Compare with `scratchpad/compare_runs.py cm17 <box>` (spots, flats, changes by cause).
+
+**Update, 2026-11-05 ~16:15 — cm17 results, a fourth fault (the 2008 lidar), and the cm18 queue.**
+- **cm17 on r2c2 and r2c3: the fixes land.** Gate rows identical to cm16 in both. r2c2: the plate at 59.18565,-151.59493 is
+  -58.2 m (cm16 -2.29, fix2h -48.8); 165.9 ha back to the sea; |surface - cast| p90 within 1.5 km of it 37.7 -> 6.5 m (fix2h 10.7),
+  unchanged 1.5-4 km out; dead-flat modelled ground below the base 103 -> 4.5 ha. The surface moved > 0.5 m on ~5,000 ha of r2c2's sea
+  (median +-1 m; up to 9 m lower just east of the plate): the ~100 casts cm16 set aside are in the fit. r2c3: dead-flat 357 -> 3.7 ha
+  (no piece over 0.7 ha), the surface at the casts unchanged. On the dev viewer as `kbay_joint_cm17` (mixed mosaic, `mosaic_blend.py`
+  now takes a tag list `cm17,cm16`: each box from the first tag it was run under); `kbay_joint_cm16` kept beside it for the difference.
+- **Fault 4 (Hig, 59.68841,-151.34924, r6c3: "we're not successfully overriding the 3DEP or ArcticDEM with the 2008 lidar ... looks
+  mixed-source").** Two causes in `joint.py`, both fixed (uncommitted), tested in-process on a 3 km window (joint surface there
+  36 -> 86 %; in the 800 m at the spot 9.4 -> 89.5 %, Kenai 2008 has ground on 99 %):
+  1. *Epoch rule*: ArcticDEM (derived, dated 2016) superseded Kenai 2008 by its date wherever it had cells, then yielded to that same
+     lidar as a derived product: both gone, the cell void, the composite's 3DEP there (r6c3: Kenai 2008 superseded on 50 of 66 km2,
+     42 km2 "void under vegetation"). Since ArcticDEM joined the layer (2026-10-31), so in every fix2*/cm* run. Now a derived product
+     supersedes only other derived products.
+  2. *Own-lake sheet rule* (2026-10-31): a "sheet" is every connected cell flat over 10 m, so a sloping bench or fen is one sheet,
+     and ten cells beside a pond took all of it (71.6 ha of Kenai 2008's bare ground in the 9 km2 window). Now only the sheet's cells
+     within `own_sheet_tol_m` of the nearest of the survey's water returns are the water's surface (11.4 ha).
+  Affects every box holding Kenai 2008 beyond newer lidar (the north shore: r5-r7), and the sheet rule any lidar's sloping flats.
+- **Queue, tag `cm18`** (cm17's code + the two joint fixes; Hig: known-issue reruns first): `kj_r2c1` (the false shoal at
+  59.18376,-151.77269; started 16:11), `kj_r6c3`, `kj_r3c5`, `kj_r4c2`, `kj_r6c2`; one worker (`scratchpad/queue_worker.sh cm18`,
+  queue `$W/.queue_test_cm18`, log `$W/test_cm18.log`; start a second copy when r4c1's cm17 run ends, fill since 15:40).
+  `kj_r4c1` cm17 predates the joint fixes (it holds no Kenai 2008; the sheet change could touch its KBay 2023 sheets): judge Hoen's
+  and the pools on it, and rerun it under the final tag with the rest. r2c2 / r2c3 likewise before the final mosaic.
+- r4c2's perched-over-deep 12.92 ha, explained: 8.3 ha is the lagoon at 59.44074,-151.42861 (body 10, level 1.5 m, 10 ha; observed
+  and sounding-fitted bed to -8 m: probably real, a question for the water stage's kind), 3.4 ha Hoen's flat, ~1.2 ha dug pools.
+- The five dug "pools" outside the low water (Nanwalek, 59.35,-151.92): specks under 0.12 ha in lidar-observed ground where the 3DEP
+  prior stands 8-15 m over the lidar (fill_mask 8). Another mechanism; left.
+
+**Next, in order** (step 1 and 2 done, step 3 running):
 1. Check r6c2 and r6c3 for faults 1-3; keep them if clean.
 2. Build fixes 1 and 2 and the `ground` edit kind; take Hig's polygon (or the draft) into `edits.geojson`.
 3. Test on `kj_r2c2`, `kj_r2c3`, `kj_r4c1` under a new tag; gate against cm16 and the best earlier runs.

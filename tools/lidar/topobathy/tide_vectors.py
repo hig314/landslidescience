@@ -2,6 +2,7 @@
 """Hig's hand-mapped tide shorelines (KBSP map) as evidence for the shore model, and the reviewer's edited contours merged with them (2026-11-04).
 
     tide_vectors.py build                 water/tide_vector_lines.geojson + water/tide_sea.geojson, from the Oct 2024 low- and high-tide polygons
+    tide_vectors.py closures              water/tide_low_closures.geojson alone, from the low water as written: its outline's closing edges (build writes it too)
     tide_vectors.py clip SRC.tif DST.tif  a derived ground grid (ArcticDEM) voided inside tide_sea.geojson, windowed
     tide_vectors.py merge REVISED ORIG    water/tide_lines.geojson: the reviewer's changed lines + the vector lines they do not cover; a report beside it
 
@@ -208,6 +209,46 @@ def _levels(pieces, cx, cy, cz, kind, up=None):
     return F
 
 
+def _closures(low, dist, Td):
+    """The stretches of the low water's outline that are no waterline (2026-11-05, Hig's review of cm16, 59.18565,-151.59493: 130 ha of open sea at -49 m modelled as a flat at -2.3 m): an edge closing the polygon across open
+    water (a segment over LONG_EDGE_M) or lying further than SHORE_NEAR_M from 3DEP's sea edge -- the two reasons _lines drops a piece as not a shore.  Past such an edge the low water is simply not mapped, and the ground
+    there is not 'between the shores' (shoreface.py).  An outline under lidar is a real shore that _lines leaves to the lidar: it is not listed here."""
+    from shapely.ops import substring
+    Ti = ~Td; F = []
+    for ring, area, side in _rings(low):
+        if ring.length < MIN_PIECE_M:
+            continue
+        V = shapely.get_coordinates(ring); sl = np.hypot(*np.diff(V, axis=0).T)
+        for i_ in np.flatnonzero(sl > LONG_EDGE_M):
+            F.append(dict(type="Feature", properties=dict(why="long edge", length_m=round(float(sl[i_]), 1)), geometry=dict(type="LineString", coordinates=V[i_:i_ + 2].tolist())))
+        n = max(int(ring.length / STEP_M), 4); d = np.linspace(0, ring.length, n, endpoint=False); st = ring.length / n
+        P = shapely.get_coordinates(shapely.line_interpolate_point(ring, d))
+        c, r = Ti * (P[:, 0], P[:, 1]); r = np.clip(r.astype(int), 0, dist.shape[0] - 1); c = np.clip(c.astype(int), 0, dist.shape[1] - 1)
+        far = dist[r, c] > SHORE_NEAR_M
+        if far.all():
+            F.append(dict(type="Feature", properties=dict(why="far from the sea edge", length_m=round(float(ring.length), 1)), geometry=mapping(LineString(V)))); continue
+        if not far.any():
+            continue
+        k0 = int(np.flatnonzero(~far)[0]); ord_ = (np.arange(n) + k0) % n
+        lab, m = ndimage.label(far[ord_])
+        for i in range(1, m + 1):
+            ii = ord_[lab == i]; d0, d1 = d[ii[0]] - st / 2, d[ii[-1]] + st / 2
+            for g in ([substring(ring, d0, d1)] if d0 <= d1 and d0 >= 0 else [substring(ring, d0 % ring.length, ring.length), substring(ring, 0.0, d1)]):
+                if g.geom_type == "LineString" and g.length > 0:
+                    F.append(dict(type="Feature", properties=dict(why="far from the sea edge", length_m=round(float(g.length), 1)), geometry=mapping(g)))
+    return F
+
+
+def closures(a):
+    """tide_low_closures.geojson from the low water as written, without rebuilding the lines."""
+    dist, Td = _water_edge_dist()
+    low = shape(json.load(open(HERE / "tide_low_water.geojson"))["features"][0]["geometry"])
+    F = _closures(low, dist, Td); (HERE / "tide_low_closures.geojson").write_text(json.dumps(_fc(F)))
+    for w in ("long edge", "far from the sea edge"):
+        print(f"  low water's closing edges, {w}: {sum(f['properties']['why'] == w for f in F)} pieces, {sum(f['properties']['length_m'] for f in F if f['properties']['why'] == w) / 1e3:.1f} km")
+    print(f"  of {low.boundary.length / 1e3:.1f} km of outline")
+
+
 def _fc(F):
     return dict(type="FeatureCollection", crs=dict(type="name", properties=dict(name="EPSG:6334")), features=F)
 
@@ -240,6 +281,7 @@ def build(a):
     F = _levels(pl, lx, ly, lz, "low", up) + _levels(ph, hx, hy, hz, "high")   # low first: where the two meet on a cliff the high line is written last
     (HERE / "tide_vector_lines.geojson").write_text(json.dumps(_fc(F)))
     (HERE / "tide_dropped_edges.geojson").write_text(json.dumps(_fc(DROPPED)))
+    (HERE / "tide_low_closures.geojson").write_text(json.dumps(_fc(_closures(shapely.simplify(low, 0.5), dist, Td))))      # what shoreface.py reads: the low water as written
     hl = [LineString(p[0]) for p in ph]
     sea = shapely.simplify(unary_union(shapely.buffer(hl, SEA_NEAR_M, quad_segs=2)), 1.0).intersection(high)
     S = [dict(type="Feature", properties=dict(source="high tide (Hig)"), geometry=mapping(g)) for g in getattr(sea, "geoms", [sea]) if g.area >= 25]
@@ -346,6 +388,7 @@ def merge(a):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); sp = ap.add_subparsers(dest="cmd", required=True)
     sp.add_parser("build")
+    sp.add_parser("closures")
     c = sp.add_parser("clip"); c.add_argument("src"); c.add_argument("dst")
     m = sp.add_parser("merge"); m.add_argument("revised"); m.add_argument("orig"); m.add_argument("--no-vectors", action="store_true"); m.add_argument("--keep-edit")
-    a = ap.parse_args(); dict(build=build, clip=clip, merge=merge)[a.cmd](a)
+    a = ap.parse_args(); dict(build=build, clip=clip, merge=merge, closures=closures)[a.cmd](a)

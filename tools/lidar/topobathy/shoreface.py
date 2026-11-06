@@ -284,7 +284,7 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
             s2 = slope_deg(z, res); srim = srim.copy(); srim[nr] = np.clip(np.nan_to_num(_smooth_field(np.isfinite(s2).astype(np.float32), np.nan_to_num(s2), max(10.0 / res, 1.0))[nr], nan=1.0), float(P["slope_min_deg"]), float(P["slope_max_deg"]))
             log(f"  shoreface: the ground prior at or above {top + 1.0:g} m stands as land on {hi.sum() * res * res / 1e4:.1f} ha of the sea's void")
     S, Bl, line_feats = _casts(P, T, shape, C, log); lines, line_items = _tide_lines(P, T, shape, res, log)
-    Ll, Hw_, Lw_, Hl_ = _mapped_shores(P, T, shape)
+    Ll, Hw_, Lw_, Hl_, Lc_ = _mapped_shores(P, T, shape)
     Lnear = Hnear = None
     if Ll is not None:
         _, (li_, lj_) = ndimage.distance_transform_edt(~np.isfinite(Ll), return_indices=True); Lnear = Ll[li_, lj_]; del li_, lj_
@@ -395,10 +395,37 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
                 log(f"  shoreface: edited lines hold {add_.sum() * res * res / 1e4:.2f} ha off the sea, and cut off {cut_[lb].sum() * res * res / 1e4:.2f} ha of it")
     # THE MAPPED SHORES ARE THE MODEL'S SHORES (2026-11-04, Hig, 59.30534,-151.04886: "it should simply be going from the low tide contour down to the deep soundings"; the base contour's reach from higher ground was a bench 30 m wide): in the low water
     # it is the sea right up to the low line; between the two lines it is the intertidal, whatever the fields above said; the base contour is left to the coast nobody mapped
+    pool_ = np.zeros(shape, bool)
     if Ll is not None:
         m_band = C & Hw_ & ~Lw_ & (ndimage.distance_transform_edt(~np.isfinite(Ll), sampling=res) <= float(P.get("shore_mapped_reach_m", 1000.0)))
-        Sea = (Sea | (C & Lw_)) & ~m_band & ~(np.isfinite(lines) & (lines >= Z0 - 0.1))
+        # ...BETWEEN THE SHORES, NOT PAST THE END OF THE MAPPING (2026-11-05, Hig's review of cm16, 59.18565,-151.59493: 130 ha of open sea at -49 m stood as a flat at -2.3 m, its casts to -61 m "not fit").  The low water is mapped
+        # along the coast only (1,481 km2 against high water's 2,745), and its polygon is closed across open water by edges that are no shore (tide_vectors.py closures): ground whose nearest edge of the low water is one of
+        # those is judged by its casts, or with none by where the land lies (_past_closure); what lies past the mapping is no flat, and the base contour and the casts decide it as they do on the coast nobody mapped
+        land_ = (ob & (np.nan_to_num(z, nan=-1e9) > float(P.get("shore_facing_land_m", 3.0)))) | hi           # ground above the tide, observed or the prior's: what a flat's low shore faces
+        kg_ = S[:, 5] <= float(P.get("shore_face_cast_sigma_m", 4.0)) if len(S) else None
+        past_, nca_, nla_ = _past_closure(m_band, Lw_, Lc_, land_, res, float(P.get("shore_closure_tol_m", 6.0)), casts=np.c_[r_[kg_], c_[kg_], S[kg_, 4]] if len(S) else None, low=Lnear,
+                                          cast_reach_m=float(P.get("shore_closure_cast_reach_m", 500.0))); del land_
+        if Lc_ is None:
+            log("  shoreface: no tide_low_closures.geojson beside the tide polygons (tide_vectors.py closures): the band is not checked against the end of the low-water mapping")
+        elif nca_ or nla_:
+            log(f"  shoreface: {(nca_ + nla_) * res * res / 1e4:.1f} ha within reach of a low line have a closing edge as their nearest edge of the low water ({nca_ * res * res / 1e4:.1f} ha judged by their casts, "
+                f"{nla_ * res * res / 1e4:.1f} ha by the land): {past_.sum() * res * res / 1e4:.1f} ha lie past the mapping, not between the shores")
+        m_band &= ~past_
+        up_l = np.isfinite(lines) & (lines >= Z0 - 0.1)
+        Sea = (Sea | (C & Lw_)) & ~m_band & ~up_l
         if len(S):
+            # ...and a good cast more than 1 m under the low shore's level is the sea's, between the shores too: its room (as below the base, above) goes back to the sea where that joins the sea or is no pocket
+            # (shore_pocket_m2); a lone one stays for review -- casts are misplaced, not wrong
+            kd_ = m_band[r_, c_] & (S[:, 5] <= float(P.get("shore_face_cast_sigma_m", 4.0))) & (S[:, 4] < Lnear[r_, c_] - 1.0)
+            if kd_.any():
+                md_ = np.zeros(shape, bool); md_[r_[kd_], c_[kd_]] = True
+                back_ = m_band & ~up_l & (ndimage.distance_transform_edt(~md_, sampling=res) <= float(P.get("shore_cast_hold_m", 20.0)))
+                lb, nl = ndimage.label(Sea | back_, structure=np.ones((3, 3), bool))
+                okc_ = np.bincount(lb.ravel(), minlength=nl + 1) * res * res >= float(P.get("shore_pocket_m2", 5000.0)); okc_[0] = False
+                back_ &= okc_[lb]; del lb
+                if back_.any():
+                    m_band &= ~back_; Sea |= back_
+                    log(f"  shoreface: {int(kd_.sum())} good casts more than 1 m below the low shore's level between the shores: {back_.sum() * res * res / 1e4:.2f} ha around them back to the sea")
             ks_ = Sea[r_, c_] & (S[:, 4] >= Lnear[r_, c_] - 0.1)       # a cast above the low level in the low water is a shoal it holds off the sea
             if ks_.any():
                 ms_ = np.zeros(shape, bool); ms_[r_[ks_], c_[ks_]] = True
@@ -406,6 +433,16 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
             nb_ = int((m_band[r_, c_] & (S[:, 4] < Lnear[r_, c_] - 1.0)).sum())
             if nb_:
                 log(f"  shoreface: {nb_} casts more than 1 m below the low shore's level stand between the shores: not fit, for review (moved, not rejected)")
+        # A POOL IN THE MAPPED LOW WATER KEEPS ITS OBSERVED SURFACE (2026-11-05, Hig: are the flats' pools handled alike?  They were not: of 120 in cm16, the 88 between the shores were cut 0.0 m below their level, the 10 in
+        # the mapped low water 4.4 m, to the base contour -- sea "right up to the low line", over water a survey saw standing at 0.6-2.3 m).  A small body of water standing above low tide and held by banks (_banked_pools) is
+        # not the sea the low tide leaves: its bed is its surface until measured, as under the tidal lens.  The open sea a lidar saw at its flight's tide has no banks, and stays the sea
+        pool_, pool_z = _banked_pools(P, C, Lw_, z, res)
+        if pool_.any():
+            wz_ = P.get("_water_z")
+            if wz_ is not None:
+                pool_z = np.where(pool_ & np.isfinite(wz_), wz_, pool_z).astype(np.float32)
+            Sea &= ~pool_
+            log(f"  shoreface: {ndimage.label(pool_, structure=np.ones((3, 3), bool))[1]} banked pools in the mapped low water keep their observed surface, {pool_.sum() * res * res / 1e4:.2f} ha")
         log(f"  shoreface: mapped shores: {(C & Lw_).sum() * res * res / 1e4:.1f} ha of the sea's void in the low water, {m_band.sum() * res * res / 1e4:.1f} ha between the lines")
     else:
         m_band = np.zeros(shape, bool)
@@ -480,6 +517,8 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
     foot = U & (ext > top) & ~m_band; fv[foot] = ext[foot]        # off a cliff: the rim's slope down to the top of the tide (between mapped lines there is no such thing: it stood 8-12 m high under the water's edge, 59.29380,-151.04345)
     if dem is not None:
         k = U & np.isfinite(dem) & (dem >= dfix) & ~m_band; fv[k] = dem[k]        # the DEM's last cells tape to its flattened water at 0: its shoreline's interpolation, not a height (they still hold the contour off, above)
+    if pool_.any():
+        k = U & pool_; fv[k] = pool_z[k]                                    # a banked pool in the mapped low water: its observed surface (above)
     k = (U | np.isfinite(fv)) & np.isfinite(lines); fv[k] = lines[k]       # a line over an observed rim cell (the DEM clip's false shore) holds the band there too
     if Hnear is not None:             # what stands beside the band (a cliff where the line itself lies on an observed cell, or the DEM's false shore in the water) holds it at the line's level at most: a higher rim raised the band over the line, a shelf once capped
         k = np.isfinite(fv) & ndimage.binary_dilation(m_band, structure=np.ones((3, 3), bool)) & ~np.isfinite(lines) & ~edge; fv[k] = np.minimum(fv[k], Hnear[k])
@@ -616,6 +655,7 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
         if len(S):
             da_[r_, c_] = True
         da_ |= line_m & Sea         # or the blur takes the line back out between its casts
+        da_ |= pool_
         dg_ = ndimage.distance_transform_edt(~da_, sampling=res) if da_.any() else np.full(shape, 1e4)
         src = np.where(cs_, fill, np.minimum(z, top)); hv = np.isfinite(src); src = np.nan_to_num(src, nan=0.0).astype(np.float32)
         tg = np.clip(gk_ * dg_, 0, gs_); out_ = fill.copy().astype(np.float64); prev = fill.astype(np.float64); s_prev = 0.0
@@ -635,7 +675,7 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
         res_ = fill[r_, c_] - S[:, 4]; ok = np.isfinite(res_)
         log(f"  shoreface: surface - cast at {int(ok.sum())} casts: median {np.median(res_[ok]):+.2f} m, NMAD {1.4826 * np.median(np.abs(res_[ok] - np.median(res_[ok]))):.2f}, "
             f"p90 |r| {np.percentile(np.abs(res_[ok]), 90):.2f}; / sigma p90 {np.percentile(np.abs(res_[ok] / S[ok, 5]), 90):.2f}")
-    mask = np.zeros(shape, np.uint8); mask[U] = 9; mask[Sea] = 2; mask[hi] = 8
+    mask = np.zeros(shape, np.uint8); mask[U] = 9; mask[Sea] = 2; mask[hi] = 8; mask[U & pool_] = 7      # 7: at the observed water surface, as the tidal lens
     if hi_z is not None:
         fill[hi] = hi_z[hi]
     rock_review = _rock_review(rock_rows, P, C0, z, fill, log)
@@ -661,29 +701,93 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
 
 
 def _mapped_shores(P, T, shape):
-    """From the tide polygons beside tide_sea (tide_vectors.py): the low line's level on its cells, high water, low water, the high line's level on its cells (the high line wins a shared cell in high_line.py); all None without a low line here."""
+    """From the tide polygons beside tide_sea (tide_vectors.py): the low line's level on its cells, high water, low water, the high line's level on its cells (the high line wins a shared cell in high_line.py), the low water's
+    closing edges on their cells (tide_low_closures.geojson; None without the file); all None without a low line here."""
     import shapely
     from pathlib import Path
     from rasterio import features
     from rasterio.transform import array_bounds
     from shapely.geometry import box, mapping, shape as shape_
     if not P.get("tide_sea") or not P.get("tide_lines"):
-        return None, None, None, None
+        return None, None, None, None, None
     h_, l_ = Path(P["tide_sea"]).with_name("tide_high_water.geojson"), Path(P["tide_sea"]).with_name("tide_low_water.geojson")
     if not h_.exists() or not l_.exists():
-        return None, None, None, None
+        return None, None, None, None, None
     b_ = box(*array_bounds(shape[0], shape[1], T))
     F_ = [f for f in json.load(open(P["tide_lines"]))["features"] if shape_(f["geometry"]).intersects(b_)]
     L_ = [(f["geometry"], float(f["properties"]["level_m"])) for f in F_ if (f.get("properties") or {}).get("source") == "vector_low"]
     H_ = [(f["geometry"], float(f["properties"]["level_m"])) for f in F_ if (f.get("properties") or {}).get("source") == "vector_high"]
     if not L_:
-        return None, None, None, None
+        return None, None, None, None, None
     Ll = features.rasterize(L_, out_shape=shape, transform=T, fill=np.nan, dtype="float32")
     Hl = features.rasterize(H_, out_shape=shape, transform=T, fill=np.nan, dtype="float32") if H_ else None
     def poly(p):
         g = shapely.clip_by_rect(shape_(json.load(open(p))["features"][0]["geometry"]), *b_.bounds)
         return features.rasterize([(mapping(g), 1)], out_shape=shape, transform=T, fill=0, dtype="uint8") > 0 if not g.is_empty else np.zeros(shape, bool)
-    return Ll, poly(h_), poly(l_), Hl
+    Lc = None; c_ = l_.with_name("tide_low_closures.geojson")
+    if c_.exists():
+        G_ = [(f["geometry"], 1) for f in json.load(open(c_))["features"] if shape_(f["geometry"]).intersects(b_)]
+        Lc = features.rasterize(G_, out_shape=shape, transform=T, fill=0, dtype="uint8", all_touched=True) > 0 if G_ else np.zeros(shape, bool)
+    return Ll, poly(h_), poly(l_), Hl, Lc
+
+
+def _past_closure(band, Lw, Lc, land, res, tol_m=6.0, casts=None, low=None, cast_reach_m=500.0):
+    """The cells of `band` (high water outside the low water) that lie past the end of the low-water mapping.  Only where the nearest edge of the low water is a closing edge (tide_vectors.py closures) is there a question: that
+    edge is no shore, so it is no evidence of a flat beyond it -- but a broad flat's low shore is drawn in the same long straight segments (Mud Bay, 59.633,-151.463: 180 ha of flat at -1.8..0.8 m).  There the DATA decide, cell by
+    cell: the median of the three nearest good casts (rows of row, col, z; within cast_reach_m) more than 1 m under the low shore's level `low` is the sea, anything else the flat (one misplaced cast decides nothing).  With no
+    casts in reach, the land does: nearest land behind the low water is past it, land facing the edge across the cell is between the shores.  Returns (past, ambiguous cells judged by casts, by the land)."""
+    out = np.zeros(band.shape, bool)
+    if Lc is None or not Lc.any() or not band.any() or not Lw.any():
+        return out, 0, 0
+    bd = Lw & ~ndimage.binary_erosion(Lw, structure=np.ones((3, 3), bool), border_value=1)        # the grid's edge is no edge of the low water
+    if not bd.any():
+        return out, 0, 0
+    cl = bd & (ndimage.distance_transform_edt(~Lc, sampling=res) <= tol_m)
+    _, (bi, bj) = ndimage.distance_transform_edt(~bd, return_indices=True)
+    amb = band & cl[bi, bj]
+    if not amb.any():
+        return out, 0, 0
+    r, c = np.nonzero(amb); vl = np.stack([bi[r, c] - r, bj[r, c] - c]).astype(np.float32); del bi, bj
+    past = np.zeros(r.size, bool); by_cast = np.zeros(r.size, bool)
+    if casts is not None and len(casts) >= 3 and low is not None:
+        from scipy.spatial import cKDTree
+        d, i = cKDTree(casts[:, :2] * res).query(np.c_[r, c] * res, k=3, distance_upper_bound=cast_reach_m)
+        by_cast = np.isfinite(d[:, 2])
+        if by_cast.any():
+            past[by_cast] = np.median(casts[:, 2][i[by_cast]], axis=1) < low[r[by_cast], c[by_cast]] - 1.0
+    g = ~by_cast
+    if g.any() and land is not None and land.any():
+        _, (hi_, hj_) = ndimage.distance_transform_edt(~land, return_indices=True)
+        vh = np.stack([hi_[r[g], c[g]] - r[g], hj_[r[g], c[g]] - c[g]]).astype(np.float32); del hi_, hj_
+        past[g] = (vl[:, g] * vh).sum(0) > 0
+    out[r, c] = past
+    return out, int(by_cast.sum()), int(g.sum())
+
+
+def _banked_pools(P, C, Lw, z, res, ring_cells=3):
+    """(cells, level per cell) of the pools in the mapped low water: the water stage's bodies (tidal, perched or ephemeral) no larger than shore_pool_max_m2, standing more than shore_pool_margin_m above low tide and within the tide's
+    reach, that banks hold -- on shore_pool_bank_frac of the ring_cells ring around the body, ground at or above the level (less 0.1 m) or the flat between the shores, not the low water's own void.  The definition of the review that found them (2026-11-05)."""
+    out = np.zeros(C.shape, bool); B = P.get("_bodies"); mx = float(P.get("shore_pool_max_m2", 20000.0))
+    if B is None or mx <= 0:
+        return out, None
+    bid, tab = B; lo = float(P["low_tide_m"]) + float(P.get("shore_pool_margin_m", 0.5)); hi = float(P.get("tide_max_m", 4.5))
+    lev = np.full(int(bid.max()) + 1, np.nan)
+    for k, b in tab.items():
+        v = b.get("latest_level_m") if b.get("latest_level_m") is not None else b.get("consensus_level_m")
+        if b.get("kind") in ("tidal", "perched", "ephemeral") and v is not None and lo < float(v) <= hi and float(b.get("area_m2", 1e12)) <= mx and 0 < int(k) < lev.size:
+            lev[int(k)] = float(v)
+    ok = np.isfinite(lev); inw = np.zeros(lev.size, bool); inw[np.unique(bid[C & Lw])] = True; ok &= inw; ok[0] = False
+    if not ok.any():
+        return out, None
+    m = ok[bid]; r, c = np.nonzero(m); pad = ring_cells + 1
+    sl = (slice(max(r.min() - pad, 0), r.max() + pad + 1), slice(max(c.min() - pad, 0), c.max() + pad + 1))
+    lb = np.where(m[sl], bid[sl], 0).astype(np.int32)
+    dl = ndimage.grey_dilation(lb, size=(2 * ring_cells + 1, 2 * ring_cells + 1)); ring = (dl > 0) & (lb == 0)
+    zz = z[sl]; bank = ring & ~(C[sl] & Lw[sl]) & ~(zz < lev[dl] - 0.1)        # a bank: not the low water's void, and no observed ground below the level (the flat between the shores, modelled, counts: it stands on its rim)
+    nr = np.bincount(dl[ring], minlength=lev.size); nb = np.bincount(dl[bank], minlength=lev.size)
+    good = ok & (nr > 0) & (nb >= float(P.get("shore_pool_bank_frac", 0.7)) * np.maximum(nr, 1))
+    out[sl] = good[lb] & (lb > 0); out &= C & Lw
+    return out, np.where(out, lev[bid], np.nan).astype(np.float32)
 
 
 def _rock_soundings(P, T, res, C, S, Bl, line_feats, Ll, Lnear, log):

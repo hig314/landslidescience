@@ -5,7 +5,7 @@
   "what": "Hand facts about water bodies, applied by `composite.py water` (topobathy/water.py) to every composite whose grid holds them. Matched BY LOCATION: a Point to the body holding it (or the nearest within 50 m), a Polygon to the bodies it covers by half. Stable across builds and ids.",
   "properties": {
    "id": "short unique tag",
-   "kind": "sea | tidal | perched | lake | river | ephemeral -- overrides the observations' kind (noted in water.json when they disagree)",
+   "kind": "sea | tidal | perched | lake | river | ephemeral -- overrides the observations' kind (noted in water.json when they disagree); or \"ground\" (Polygon only): the lidar water returns inside are ground -- applied by the joint stage (topobathy/joint.py ground_edits), not matched to a body",
    "level_m": "the body's water level, NAVD88 m -- overrides the consensus",
    "dmax_m": "the deepest depth below the level, m -- the fill's lake basin takes it instead of its estimate",
    "hypsometry": "depths at evenly spaced area fractions, shallow to deep (fill: the lake's area-depth distribution)",
@@ -95,6 +95,114 @@
     "who": "Hig",
     "date": "2026-10-14",
     "why": "Emerald Lake (Hig 2026-10-14): the NAU sounder data (Emerald_Bathy_Merged.csv, 3,317 points, via Ed Berg 2017) is likely corrupted, so it does NOT condition the bed: used only for the deepest depth (51.6 m) and the hypsometry -- depths at area fractions 0, 0.05 .. 1 of the lake, each 3DEP lake cell taking the median depth of the nearest 10 m sounding cell (tracks ~60 m apart; 92 % of the lake within 60 m of one), shore set to 0. Moved from the Grewingk recipe's fill.lake_dmax to an edit, 2026-10-24 (joint_v3 run 18 had no basin for it: the lake read 1.7 m deep off the SfM's surface)."
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "hoens_lagoon_inner_flat",
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        -151.7506177,
+        59.4464786
+       ],
+       [
+        -151.750451,
+        59.4472932
+       ],
+       [
+        -151.7470683,
+        59.4486461
+       ],
+       [
+        -151.7465675,
+        59.448378
+       ],
+       [
+        -151.7461089,
+        59.4471145
+       ],
+       [
+        -151.7464507,
+        59.4460155
+       ],
+       [
+        -151.7465106,
+        59.4452637
+       ],
+       [
+        -151.7463593,
+        59.4451565
+       ],
+       [
+        -151.7463562,
+        59.4449771
+       ],
+       [
+        -151.7450227,
+        59.4448424
+       ],
+       [
+        -151.7452739,
+        59.4443823
+       ],
+       [
+        -151.7465193,
+        59.4443768
+       ],
+       [
+        -151.7466539,
+        59.4441688
+       ],
+       [
+        -151.7455481,
+        59.4434964
+       ],
+       [
+        -151.7440946,
+        59.4438054
+       ],
+       [
+        -151.743607,
+        59.4441708
+       ],
+       [
+        -151.7424726,
+        59.4449622
+       ],
+       [
+        -151.7414786,
+        59.4442787
+       ],
+       [
+        -151.7425278,
+        59.4421975
+       ],
+       [
+        -151.7459211,
+        59.4420793
+       ],
+       [
+        -151.7497367,
+        59.4453637
+       ],
+       [
+        -151.7506177,
+        59.4464786
+       ]
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "id": "hoens_lagoon_inner_flat",
+    "kind": "ground",
+    "who": "Hig",
+    "date": "2026-11-05",
+    "why": "Hoen's Lagoon inner flat: nearly perfectly flat mud at about 0.8 m whose lidar returns are classed as water at its own level (hard to tell mud from water even standing on it). The lidar height is right; these cells are ground. The contour shore model's run cm16 dug it to -3.7 m over 3.4 ha (the mapped low water took it as sea). Polygon drawn by Hig in QGIS, 2026-11-05 (15.6 ha); the very shallow pools outside it stay water."
    }
   }
  ]

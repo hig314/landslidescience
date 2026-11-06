@@ -614,6 +614,8 @@ def run(recipe, grid: Grid, edits_path=None, log=print):
     if edits:
         _, (ni, nj) = ndimage.distance_transform_edt(lab == 0, return_indices=True)
         for e in edits:
+            if e["props"].get("kind") == "ground":           # a ground polygon is the joint stage's (joint.py ground_edits): it says what the returns are, nothing about a body
+                continue
             g = transform_geom("EPSG:4326", cg.crs, e["geom"]); pr = e["props"]
             hit = []
             gx = np.array(g["coordinates"][:2] if g["type"] == "Point" else [p for ring in (g["coordinates"] if g["type"] == "Polygon" else g["coordinates"][0]) for p in ring])

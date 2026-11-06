@@ -9,6 +9,7 @@ sea crosses the line continuously.  Row strips keep memory small.
 
     mosaic_blend.py boxes.json WORK_DIR OUT_DIR TAG        -> OUT_DIR/crops/<id>.tif (blended, the crop window), OUT_DIR/mosaic.vrt,
                                                                OUT_DIR/kbay_joint_<TAG>.tif (COG)
+    TAG may be a list, newest first (cm17,cm16): each box is taken from the first tag it was run under; the output is named for the first.
 """
 import json, sys, subprocess, pathlib
 import numpy as np
@@ -16,9 +17,17 @@ import rasterio
 from rasterio.windows import from_bounds, Window
 from rasterio.transform import from_origin
 
-boxes, work, out, tag = json.load(open(sys.argv[1])), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3]), sys.argv[4]
+boxes, work, out, tags = json.load(open(sys.argv[1])), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3]), sys.argv[4].split(",")
+tag = tags[0]
 (out / "crops").mkdir(parents=True, exist_ok=True)
-prod = {b["id"]: work / b["id"] / f"out_{tag}" / f"{b['id']}.tif" for b in boxes}
+def _prod(i):                    # the first of the tags this box was run under: boxes rerun under a newer tag beside boxes kept from an older one (2026-11-05: only the faulted boxes are rerun)
+    for t in tags:
+        if (work / i / f"out_{t}" / f"{i}.tif").exists():
+            return work / i / f"out_{t}" / f"{i}.tif"
+    return work / i / f"out_{tag}" / f"{i}.tif"
+prod = {b["id"]: _prod(b["id"]) for b in boxes}
+if len(tags) > 1:
+    print("boxes by tag:", {t: sorted(i for i, q in prod.items() if q.exists() and q.parent.name == f"out_{t}") for t in tags})
 have = [b for b in boxes if prod[b["id"]].exists()]
 RES = 2.0; STRIP = 1000
 crops = []
