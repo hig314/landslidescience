@@ -45,6 +45,17 @@ Rules at the boundary:
   publish it adds one entry *on its branch* and says so; hosting merges
   and runs `build_lidar` / catalogue / R2 as usual. That is the only
   file both streams will touch, and a merge conflict there is trivial.
+- **Point clouds (2026-11-06).** `tools/lidar/points.json` and
+  `points_publish.py` are hosting's: the registry of each survey's point
+  cloud revisions and the tool that indexes and uploads them to R2
+  `points/<survey>/<rev>/`. The registry's header is the specification
+  (r0 = as delivered, linked upstream where an agency serves it; r1… are
+  ours and are never overwritten; `full` = tiles rewritten, `recipe` = a
+  corrections file applied to the parent). Compositing revises points; when
+  it has a revision worth publishing it writes the entry on its branch
+  (kind, parent, what changed, where the tiles or the corrections file are)
+  and says so, as with `datasets.json`. Hosting uploads. Nothing but Kenai
+  2008 r1 is published yet; the `recipe` form is not built.
 - **`build_lidar.py` helpers** (`retag_generic_nad83`,
   `apply_vertical_shift`, the COG profile) are imported by compositing,
   not copied. Hosting may change them; compositing adapts at merge.

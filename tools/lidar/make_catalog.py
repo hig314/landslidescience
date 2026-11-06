@@ -274,6 +274,9 @@ def main():
     args = ap.parse_args()
 
     manifest = json.loads((HERE / "datasets.json").read_text())
+    points_path = HERE / "points.json"
+    points_ids = ({s["id"] for s in json.loads(points_path.read_text())["surveys"]}
+                  if points_path.exists() else set())
     features = []
     # What the last dev catalogue measured, so a survey with no local COG need
     # not read its overview over the network again (33 s against 3 s on one of
@@ -455,6 +458,12 @@ def main():
                 "ortho_bytes": ortho_bytes or None,
                 "cog_url": f"{COG_PUBLIC_BASE}/{did}.tif",
                 "cog_bytes": cog_bytes,
+                # The survey's point cloud page (tools/lidar/points.json,
+                # points_publish.py): its revisions, ours and the surveyor's.
+                # Listed only once the survey's index is on the bucket.
+                "points_url": (f"{R2_BASE}/points/{did}/index.html"
+                               if did in points_ids and on_r2_ok
+                               and _r2_size(f"points/{did}/index.json") else None),
                 "notes": ds.get("notes", ""),
             },
         })

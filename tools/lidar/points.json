@@ -1,0 +1,84 @@
+{
+  "_comment": [
+    "Registry of the point clouds behind the hosted surveys (tools/lidar/points_publish.py).",
+    "",
+    "LAYOUT on the public bucket (lidar.landslidescience.org):",
+    "  points/<survey>/index.json            the survey's revisions, and index.html for people",
+    "  points/<survey>/<rev>/manifest.json   lineage, CRS, classes, totals",
+    "  points/<survey>/<rev>/tiles.geojson   one feature per tile: footprint, url, bytes, points, md5",
+    "  points/<survey>/<rev>/urls.txt        every tile URL, one a line (wget -i / aria2c -i)",
+    "  points/<survey>/<rev>/<tile>          the tiles",
+    "",
+    "<survey> is the id of the survey in datasets.json.",
+    "",
+    "REVISIONS. r0 is the cloud as the surveyor delivered it. Where a public agency already",
+    "serves r0 well it is NOT copied here: 'hosted': false and 'upstream' names where to get it.",
+    "r1, r2 ... are ours. A revision is never overwritten or deleted once published: a re-run",
+    "is a new revision whose 'parent' names what it was made from, and a DEM in datasets.json",
+    "names the revision it was gridded from ('products' here). Two kinds:",
+    "  'full'    every tile rewritten (a re-classification); the tiles are hosted.",
+    "  'recipe'  few points change (a constant shift, moved casts, a rule set applied on read);",
+    "            the revision is a small corrections file plus the parent, no second copy.",
+    "            Not used yet; the topobathy stream will be the first to emit one.",
+    "",
+    "Gated surveys never get an entry: this bucket is public."
+  ],
+  "surveys": [
+    {
+      "id": "kenai_2008",
+      "title": "Kenai Peninsula 2008 lidar",
+      "citation": "NOAA National Geodetic Survey, Remote Sensing Division: Integrated Ocean and Coastal Mapping (IOCM) lidar, Kenai Peninsula, 2008 (Aero-Metric); distributed by USGS 3DEP as AK_Kenai_2008. Public domain.",
+      "revisions": [
+        {
+          "rev": "r0",
+          "label": "As delivered",
+          "kind": "original",
+          "hosted": false,
+          "points": 14054081685,
+          "upstream": [
+            {
+              "label": "USGS 3DEP, Entwine Point Tiles (EPSG:3857)",
+              "url": "https://usgs-lidar-public.s3.us-west-2.amazonaws.com/AK_Kenai_2008/ept.json"
+            },
+            {
+              "label": "NOAA InPort record",
+              "url": "https://www.fisheries.noaa.gov/inport/item/48198"
+            }
+          ],
+          "notes": "Not mirrored here: USGS serves it from a public bucket. Flown 2008-05-21 to 09-22, about 1.2 points per square metre, heights in metres NAVD88."
+        },
+        {
+          "rev": "r1",
+          "label": "Ground re-classified (progressive TIN densification)",
+          "kind": "full",
+          "hosted": true,
+          "parent": "r0",
+          "local": "/Volumes/Powder/lidar_build/kenai_2008/classified",
+          "pattern": "t_*.laz",
+          "format": "LAZ (LAS 1.2, point format 1), 2 km tiles named by their south-west corner",
+          "crs": "EPSG:6334",
+          "crs_name": "NAD83(2011) / UTM zone 5N, metres",
+          "vertical_datum": "NAVD88, metres (as delivered; not declared in the tile headers)",
+          "classes": {
+            "1": "not ground",
+            "2": "ground"
+          },
+          "made": "2026-09-15 to 2026-09-16",
+          "tool": "tools/lidar/kenai_ptd_run.py",
+          "changes": [
+            "Read from r0's octree and reprojected from EPSG:3857 to EPSG:6334.",
+            "Points the surveyor classed as noise (7 and 10) were dropped.",
+            "The classification of every point was replaced: 2 where Axelsson progressive TIN densification (angle 40, distance 3, seed 10 m, outlier detection off) took the point as ground, 1 otherwise. The surveyor's classes are not kept; they are in r0.",
+            "Every other attribute is as delivered.",
+            "Cut into 2 km tiles. Each tile was classified with a 30 m margin of its neighbours' points, then cropped to its own square. A point lying exactly on a shared edge is in both tiles, which is why this revision has 140,921 more points than r0 in total, net of the noise points dropped.",
+            "Stray returns far above and below the ground were not removed (outlier detection off); they are class 1."
+          ],
+          "why": "No public bare-earth surface exists for this survey, and the surveyor's ground class lost 20.5% of crest cells on a hand-scored test patch against the 2019 Homer survey, where this classification lost 11.9%.",
+          "products": [
+            "kenai_2008"
+          ]
+        }
+      ]
+    }
+  ]
+}
