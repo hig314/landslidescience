@@ -68,7 +68,8 @@ from .axes import CLASSES, years
 
 DEFAULTS = dict(min_m2=400.0, flat_tol_m=0.3, perched_tol_m=0.3, tide_max_m=4.5, dry_frac=0.5,
                 match_frac=0.3, max_px=6000, coarse=None, level_split_m=0.3,
-                intertidal_near_m=100.0, low_tide_m=None)          # low_tide_m: the fill's when None
+                intertidal_near_m=100.0, low_tide_m=None,          # low_tide_m: the fill's when None
+                lake_rim_m=20.0, lake_rim_step_m=0.5, lake_rim_max_m=6.0, lake_rim_frac=0.15, lake_rim_min_n=25, lake_rim_indep_m=0.15)   # the rim over a prior's level (below)
 def surveyed_sea(B, bid):
     """Cells of the bodies the stage built from the compilations / the fill's points (level survey 'compilation_sea'):
     water that soundings DID survey, so no 'outside' for the shore stage or the fill (2026-10-31, tip_t: with the grid
@@ -734,6 +735,91 @@ def run(recipe, grid: Grid, edits_path=None, log=print):
                                           covered=round(float(ncv / npx), 2), x=round(x_), y=round(y_)))
         log(f"  mapped vs bodies: {len(mapped_missed)} mapped polygons >= 100 m2 with < 20 % in any body "
             f"({sum(m_['area_m2'] for m_ in mapped_missed) / 1e4:.2f} ha); {len(unmapped)} lake/perched/river bodies not mapped")
+    # THE RIM OVER A PRIOR'S LEVEL (2026-11-06, Hig's review of cm18: an alpine lake at 59.27802,-151.53323, two 33-40 ha
+    # lakes in kj_r3c2 at 59.29063,-151.44453 and 59.28551,-151.50639).  A lake only the prior saw keeps the prior's level
+    # -- 3DEP's hydroflattening -- and where a survey measured the ground at the water's edge 1-2 m over it, the fill cut
+    # a cliff around the lake.  A lidar's lowest ground at a water void's edge IS the waterline that day: it returns
+    # from the bank down to the water and not from the water.  Where that edge ground stands, as a whole, well over the
+    # prior's level, the level is wrong, not the bank.  Hig's two cautions: only where the data is mediocre (the level a
+    # prior's alone -- no survey water, no mapped lake's surveyed level, no edit), and only the step itself, never the
+    # slope below a rim (a lake needn't fill to its rim: an internally drained one stands under a gentle measured slope,
+    # but that slope reaches the water, so its edge ground is AT the water and no step shows).  The edge ground is the
+    # measured ground nearest the water's void on each side (the innermost measured cells within lake_rim_m of it,
+    # inside the body or out; the prior's cells and a void collar between are no ground), its low decile the waterline;
+    # the level rises to it when it stands lake_rim_step_m or more over the prior's level, by at most lake_rim_max_m
+    # (more is another lake, or a drained one: reported, not applied), and only when lake_rim_frac of the void's edge
+    # has measured ground within reach, at least lake_rim_min_n cells.  The alpine lake itself does not move: its only
+    # measured rim is ArcticDEM, which there equals 3DEP's own shore (450.2 m at the edge over a 450.0 level) -- no
+    # evidence of a step, and nothing under the water is recoverable.  An "ephemeral" body whose level is a prior's
+    # alone is the same case (the lidar's dry shore inside the hydroflat polygon made it so; the fill gives it a basin).
+    # Never within the tide's reach (level <= tide_max_m): a tidal pool's banks stand over its low-tide water by nature.
+    from .axes import is_prior as _isp
+    prior_nm = {sp["name"] for sp in recipe.layers if _isp(sp)}
+    meas = [L for L in layers if not _isp(L["spec"]) and L["name"] != "compilation_sea"]
+    reach_ = float(cfg["lake_rim_m"]); it_ = max(1, int(np.ceil(reach_ / res))); n_rim = n_far = n_dep = 0
+    pp_rim_ = recipe.d.get("joint", {}).get("prior") or next((sp.get("source") for sp in recipe.layers if _isp(sp)), None)
+    objs = ndimage.find_objects(lab)
+    for i, b in bodies.items():
+        if b["kind"] not in ("lake", "ephemeral") or b.get("edits") or b.get("consensus_level_m") is None or not meas:
+            continue
+        if float(b["consensus_level_m"]) <= float(cfg["tide_max_m"]):
+            continue                                                 # within the tide's reach: a slough pool's banks stand over the water
+                                                                     # at low tide by nature (Seldovia, 2 pools raised 0.6-1.4 m in the trial),
+                                                                     # and the tidal lens, not a rim, is its level
+        if any(x.get("level_m") is not None and x.get("survey") not in prior_nm for x in b.get("levels", [])):
+            continue                                                 # a survey saw this water: its level is measured
+        if not str(b.get("consensus_rule", "")).startswith("1/sigma"):
+            continue                                                 # the mapped lake's surveyed level, or an edit's
+        sl = objs[i - 1]
+        if sl is None:
+            continue
+        r0 = max(sl[0].start - it_ - 1, 0); r1 = min(sl[0].stop + it_ + 1, lab.shape[0])
+        c0 = max(sl[1].start - it_ - 1, 0); c1 = min(sl[1].stop + it_ + 1, lab.shape[1])
+        w_ = (slice(r0, r1), slice(c0, c1)); lw_ = lab[w_]
+        gz = np.full((r1 - r0, c1 - c0), np.inf, np.float32)
+        for L in meas:
+            g_ = np.where((L["cls"][w_] == CLASSES["ground"]) & np.isfinite(L["zl"][w_]), L["zl"][w_], np.inf)
+            gz = np.minimum(gz, g_)
+        gfin = np.isfinite(gz)
+        wet = (lw_ == i) & ~gfin                                     # the water: the body less any measured ground in it
+        if not wet.any():
+            continue
+        dist = ndimage.distance_transform_edt(~wet, sampling=res)
+        coll = gfin & (dist <= reach_) & ((lw_ == 0) | (lw_ == i))   # measured ground within reach, not another body's
+        if not coll.any():
+            continue
+        k_ = 2 * it_ + 1
+        dmin = ndimage.minimum_filter(np.where(coll, dist, np.inf), size=k_)
+        edge = coll & (dist <= dmin + 2.0 * res)                     # the innermost measured cells, all round
+        ring1 = ndimage.binary_dilation(wet, structure=np.ones((3, 3), bool)) & ~wet
+        dcol = ndimage.distance_transform_edt(~coll, sampling=res)
+        ne_ = int(ring1.sum()); nc_ = int((ring1 & (dcol <= reach_)).sum()); n_ = int(edge.sum())
+        if n_ < int(cfg["lake_rim_min_n"]) or ne_ == 0 or nc_ < float(cfg["lake_rim_frac"]) * ne_:
+            continue
+        q_ = float(np.percentile(gz[edge], 10)); was = float(b["consensus_level_m"]); step_ = q_ - was
+        if step_ < float(cfg["lake_rim_step_m"]):
+            continue
+        # ...and the edge ground must be an INDEPENDENT measure: ArcticDEM beside the alpine lake equals 3DEP's own shore
+        # to the centimetre (levelled to it where no lidar overlaps), and a copy of the prior is no evidence against it
+        if pp_rim_:
+            from rasterio.windows import Window as _Win
+            pz_, pv_ = read_geo(str(pp_rim_), cg, _Win(c0, r0, c1 - c0, r1 - r0), "bilinear")
+            dd_ = np.abs(gz - pz_)[edge & pv_]
+            if dd_.size and float(np.median(dd_)) < float(cfg["lake_rim_indep_m"]):
+                b["notes"].append(f"the measured edge ground stands {step_:.1f} m over the prior's level {was} m, but it is the prior's own shore "
+                                  f"(median |ground - prior| {float(np.median(dd_)):.2f} m over {n_} edge cells): no independent measure, left")
+                n_dep += 1; continue
+        if step_ > float(cfg["lake_rim_max_m"]):
+            b["notes"].append(f"the measured edge ground stands {step_:.1f} m over the prior's level {was} m (low decile of {n_} cells, "
+                              f"{nc_ / ne_:.0%} of the water's edge within {reach_:g} m): beyond lake_rim_max_m, left as the prior had it")
+            n_far += 1; continue
+        b["consensus_level_m"] = round(q_, 2)
+        b["consensus_rule"] = f"the measured rim over the prior's level (the prior's {was} m stood {step_:.1f} m under the low decile of {n_} measured ground cells at the water's edge)"
+        b["notes"].append(f"level {was} -> {q_:.2f} m: a lake only the prior saw, its edge ground measured on {nc_ / ne_:.0%} of the shoreline ({n_} cells) standing {step_:.1f} m over the prior's level")
+        n_rim += 1
+    if n_rim or n_far or n_dep:
+        log(f"  the rim over a prior's level: {n_rim} lakes only the prior saw take the low decile of their measured edge ground "
+            f"({n_far} stood more than {cfg['lake_rim_max_m']:g} m under it, {n_dep} had only the prior's own shore for a rim: left)")
     # ---- write
     id_r = np.zeros(lab.shape, np.int32)
     for i, b in bodies.items():

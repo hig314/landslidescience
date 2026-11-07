@@ -290,6 +290,38 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
       flat water cleaned away, the 2012 IFSAR level kept): 37 ha at 59.28815,-151.43820 level 18.73 vs rim p5 21.0; 42 ha at 59.28290,-151.50338
       95.78 vs 97.5; 7.5 ha 35.08 vs 36.2.  A lake fills to its outlet: PROPOSED (not built) -- a level the prior alone gave is raised to the
       measured rim's low quantile when the rim stands above it.  Nothing under water can be recovered: no survey reached the bed.
+  2026-11-06 17:00-17:30, THE LAKE RULE BUILT (water.py, LIVE 17:27) AND A FAULT IN THE 17:02 BATCH (Perl Island, kj_r1c2; fix on trial):
+    (C) THE RIM OVER A PRIOR'S LEVEL, Hig's go-ahead with two cautions ("only in a place with mediocre data like this"; "lakes do not
+      [always] fill to their rim ... gentle slopes below a rim may be real -- it's just a very steep rim like this that's suspicious").
+      Built in water.py after the mapped-lake block: a lake or ephemeral body whose level is a PRIOR'S ALONE (no survey water, no mapped
+      lake's surveyed level, no edit, above tide_max_m) takes the low decile of the measured ground nearest the water's void on each side
+      (the innermost measured cells within lake_rim_m 20 m, inside the body or out; prior cells and a void collar are no ground) when that
+      stands lake_rim_step_m 0.5 m or more over the prior's level, by at most lake_rim_max_m 6 m, with measured ground within reach on
+      lake_rim_frac 15 % of the edge (>= 25 cells), AND when that ground is an independent measure (median |ground - prior| >= 0.15 m).
+      Tested on lakes_t [582500,6571200,589800,6573900] of r3c2 (kbase / kfix / kfix2): the 40 ha lake at 59.28551,-151.50639 95.78 -> 97.16 m
+      (the KBay lidar's dry shore on 100 % of the edge, 1.4 m over the 3DEP level; the shoreline step 1.6 m -> 0.2 m, 79 ha raised ~1 m through
+      the basin), the 33 ha lake at 59.29063,-151.44453 18.73 -> 20.72 m.  Hig's alpine lake (59.27802,-151.53323) does NOT move, and the
+      13:00 diagnosis was wrong on it: ArcticDEM there equals 3DEP's own shore to 2 cm (levelled to it where no lidar overlaps) -- the
+      'measured rim 1.5-2 m up' was the prior's own bank read farther out.  3DEP's shore rises 1.2 m in 10 m from the 450.0 level; the margin
+      is 3DEP's shape plus the bowl, and nothing is recoverable.  Hence the independence guard.  Regressions (water stage alone on the crops'
+      out/): plates_t one 5 ha lake at 59.31120,-151.06901 205.46 -> 207.10 (lidar rim, 82 % of the edge); seldovia_t, bluff_t, woz_t,
+      lagoon_t no body changed -- after the tide guard: two Seldovia slough pools at 3DEP's 1.1 m had been raised 0.6-1.4 m to their banks,
+      and a tidal pool's banks stand over its low-tide water by nature (the tidal lens is its level).  Boxes whose water stage ran before
+      17:27 lack it (r1c3 and r7c4 running then included).
+    PERL ISLAND (r1c2, landed 17:01): 863 ha of the island (ground to 398 m) modelled as "between shores" sea bed, -27 m median against 3DEP,
+      -116 m at worst (scratchpad/mask9_scan.py: r2c1 11 ha in 262 specks at 59.13838,-151.81339, r1c1 1.9 ha, every other box < 5 ha).
+      Mechanism: no lidar in r1c2; ArcticDEM in patches (9.9 km2); the 3DEP fallback's "footprints" is layer_class.tif with near_m 60, so
+      every gap between ArcticDEM patches was "flown" and the prior withdrawn from it (void); the island is enclosed by the compilation sea
+      body, so the voids were "holes inside bodies that no survey saw as land, taken as water" (80 holes, 1206 ha), split into 636
+      "ephemeral" bodies with no observation; the shore stage labelled them water, build 3 withdrew the prior inside the water, the fill
+      carved them.  The gate saw it as flat_water_steps 6595 and land_km2 0.71 -> 11.12.  The same collar void rings the alpine lake
+      (95 % of its 4 m ring is void between the hydroflat polygon and the ArcticDEM patches).  FIX ON TRIAL (lidar_fx4): joint.py's layer
+      stage writes layer_flown.tif -- a lidar's return of any class (zmax), a NON-derived grid's cell (multibeam, sonar: the gaps between
+      their lines are the sea), or water the layer decided; derived grids (ArcticDEM, the compilations, the cleaned vendor DTM) observe
+      nothing where they have no cell -- and the recipes' fallback footprints read it instead of layer_class.tif.  perl_t crop
+      [572500,6551000,578500,6556000] of r1c2, pbase / pfix queued behind lakes_t.  If it holds: template.json + every box and crop recipe
+      (footprints only; the joint layer's class raster stays layer_class.tif -- a sed over the whole file hit it, perl_t's recipe fixed by
+      hand), r1c2 on the rerun list, r2c1's specks too.  Boxes whose joint ran before the change read layer_class as before.
   NEXT AFTER THE RUN (Hig, 2026-11-06 10:30): MORE GREEN LIDAR FOR THE HOMER AREA -- additional topobathy point clouds Hig is organising, over
     the coast where sand bars sweep along the shore (Bishop's Beach, the Spit), so surveys of different dates will seam inside the bars.  Work them in
     as units (a ground unit and a bed unit each, own date and sigma, like homer2018 / homer2018bed), check their datum (the geoid model in the LAS
