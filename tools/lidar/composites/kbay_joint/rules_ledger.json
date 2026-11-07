@@ -56,6 +56,13 @@
    "live": "2026-11-06 18:45:51",
    "commit": "f251ab1",
    "what": "joint: a speck or a floating component at the survey's own water level with a cast >= 2 m below within 150 m is the sea, dense or sparse (Anchor Point's Kenai 2008 strays); zone-aware except under lone returns"
+  },
+  {
+   "id": "lenscast",
+   "stage": "fill",
+   "live": "2026-11-06 18:55:17",
+   "commit": "pending",
+   "what": "fill: a tidal-lens cell whose shallowest cast within 150 m stands >= 2 m under the observed water surface is water over a bed -- the floor path, the surface its ceiling (Anchor Point: the bed had been modelled at Kenai 2008's 1.9 m surface in 6 m of water)"
   }
  ]
 }

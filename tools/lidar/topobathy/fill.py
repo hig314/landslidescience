@@ -1889,7 +1889,31 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             wz_ = P.get("_water_z")
             sgt = max(P["channel_ws_smooth_m"] / res, 1.0)
             objs = ndimage.find_objects(lab)
-            n_t = 0; n_hi = 0
+            n_t = 0; n_hi = 0; n_deep = 0
+            # A SURFACE OVER A CAST IS NO FLAT (2026-11-06, Hig: "patches of bad coastal data ... in the nearshore ocean near Anchor
+            # Point", 59.72032,-151.83655): the lens is a tide flat's -- a bed at the surface a survey saw -- and off Anchor Point
+            # Kenai 2008's water class at its 1.9 m stand lies over NOS casts at -4..-6 m, 32 within 300 m; once the joint's strays
+            # were gone the whole sea there was a lens domain and the fill put the bed at +1.7 m in 6 m of water.  Per cell: where
+            # the shallowest cast within lens_cast_m stands lens_cast_dz_m or more under the surface, the surface is water over a
+            # bed, a ceiling, and the cell takes the floor path with the casts' conditioning (Taylor Bay's unobserved body, pass
+            # 12, is the same judgement for a whole domain).  All the files' casts count, inside the domains or on the bed beside.
+            hc_ = None
+            if P.get("points") and T_ is not None and float(P.get("lens_cast_m", 150.0)) > 0:
+                import csv as _csv
+                hz_ = np.full(z.shape, -np.inf, np.float32); dzp_ = P.get("points_dz_m") or 0.0; n_pt = 0
+                for path_ in _points_files(P):
+                    with open(path_) as fh_:
+                        for row_ in _csv.DictReader(fh_):
+                            if row_.get("bound") or row_.get("z") in (None, ""):
+                                continue
+                            cc_, rr_ = ~T_ * (float(row_["x"]), float(row_["y"])); rr_, cc_ = int(rr_), int(cc_)
+                            if 0 <= rr_ < z.shape[0] and 0 <= cc_ < z.shape[1]:
+                                d__ = float(dzp_.get(row_.get("survey", ""), 0.0)) if isinstance(dzp_, dict) else float(dzp_)
+                                hz_[rr_, cc_] = max(hz_[rr_, cc_], float(row_["z"]) + d__); n_pt += 1
+                if n_pt:
+                    rc_ = int(round(float(P.get("lens_cast_m", 150.0)) / res))
+                    hc_ = ndimage.maximum_filter(hz_, size=2 * rc_ + 1)
+                del hz_
             for i in sorted(mids):
                 sl = objs[i - 1] if i - 1 < len(objs) else None
                 if sl is None:
@@ -1923,6 +1947,13 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                         n_hi += int(hi_.sum()); cells = cells & ~hi_
                         if not cells.any():
                             continue
+                if hc_ is not None:
+                    deep_ = cells & (hc_[sl] > -1e8) & (hc_[sl] <= s_ - float(P.get("lens_cast_dz_m", 2.0)))
+                    if deep_.any():
+                        lens_hi[sl][deep_] = s_[deep_]           # the surface stays a ceiling over the bed the floor path models
+                        n_deep += int(deep_.sum()); cells = cells & ~deep_
+                        if not cells.any():
+                            continue
                 lp = lake_prior[sl]; ls = lake_sig[sl]
                 lp[cells] = s_[cells]
                 ls[cells] = (P["tidal_sigma_m"] + P["sigma_rim_m"] * dshore[sl][cells] / 100.0).astype(np.float32)
@@ -1930,7 +1961,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 lake_level[i] = float(lv_); n_t += 1
             log(f"  tidal lens: {n_t} marine domains at their observed water surface, {int(tidal_cells.sum()) * res * res / 1e6:.3f} km2 "
                 f"(sigma {P['tidal_sigma_m']} m at the shore + {P['sigma_rim_m']} m per 100 m)"
-                + (f"; {int(n_hi) * res * res / 1e4:.2f} ha of surface above lens_max_m {P['lens_max_m']} m left to the prior" if n_hi else ""))
+                + (f"; {int(n_hi) * res * res / 1e4:.2f} ha of surface above lens_max_m {P['lens_max_m']} m left to the prior" if n_hi else "")
+                + (f"; {int(n_deep) * res * res / 1e4:.2f} ha of surface over a cast {float(P.get('lens_cast_dz_m', 2.0)):g} m or more below it within {float(P.get('lens_cast_m', 150.0)):g} m: water over a bed, the floor path" if n_deep else ""))
         # channels (channel_beds): their bed replaces band + interior like a lake's shape
         lake_prior[chan] = chan_bed[chan]
         lake_sig[chan] = (0.5 * np.clip(chan_ws[chan] - chan_bed[chan], 0, None) + 0.5).astype(np.float32)
