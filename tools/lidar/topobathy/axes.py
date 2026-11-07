@@ -787,9 +787,12 @@ def state_rules_sequential(obs, target="ground_current", as_of=None, rates=None,
         # above the water -- 474 of Grewingk's 6,085 soundings, the shallow ones, lost their cell to the ceiling rule above
         # and the fill then missed them by up to 10 m.  A prior's water level is no evidence of a level (the fill says the
         # same of it since 2026-10-22): it neither evicts a running value nor sets the ceiling.
+        # (is_prior above is condition.py's `_prior` alone -- the half gate; the fallback 3DEP is a prior by its class step,
+        # axes.is_prior, and that is the prior whose flat lakes are the trap here)
+        prior_l = is_prior(o.get("spec") or {})
         evict = newer & (o["cls"] == CLASSES["water"]) & np.isfinite(run_z) & (run_z > o["z"] - CEIL_TOL_M) \
-            & ~np.isin(run_cls, [CLASSES["bed"], CLASSES["subglacial"]]) & (not is_prior)
-        wat = cred & (o["cls"] == CLASSES["water"]) & np.isfinite(o["z"]) & (not is_prior)
+            & ~np.isin(run_cls, [CLASSES["bed"], CLASSES["subglacial"]]) & (not prior_l)
+        wat = cred & (o["cls"] == CLASSES["water"]) & np.isfinite(o["z"]) & (not prior_l)
         if wat.any():                                                   # ...a running bed above this water surface, any date
             tol_b = CEIL_TOL_M + rates.get("bed", 0.0) * np.abs(as_of - o["date"])
             evict |= wat & np.isin(run_cls, bed_codes) & np.isfinite(run_z) & (run_z > o["z"] + tol_b)
