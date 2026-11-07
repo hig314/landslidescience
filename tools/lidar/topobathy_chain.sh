@@ -26,7 +26,7 @@ rm -f "$WORK"/out/intertidal.tif "$WORK"/out/intertidal_anchors.tif "$WORK"/out/
       "$WORK"/out/shore_label.tif "$WORK"/out/water_blind.tif "$WORK"/out/shore_level.tif "$WORK"/out/shore_slope.tif "$WORK"/out/shore_band.tif "$WORK"/out/shoreline.geojson "$WORK"/out/shore.json
 # 3DEP's hydroflattened lakes as water (topobathy/flat_water.py), where the recipe's context layer reads it
 # (rebuilt when flat_water.py is newer than it: r4c3 kept a 2026-10-18 mask without the sea code and its 0 m plateau)
-if grep -q "water_3dep.tif" "$RECIPE" && { [[ ! -f "$WORK/obs/water_3dep.tif" ]] || [[ topobathy/flat_water.py -nt "$WORK/obs/water_3dep.tif" ]]; }; then
+if grep -q "water_3dep.tif" "$RECIPE" && { [[ ! -f "$WORK/obs/water_3dep.tif" ]] || [[ topobathy/flat_water.py -nt "$WORK/obs/water_3dep.tif" ]] || [[ water/tide_sea.geojson -nt "$WORK/obs/water_3dep.tif" ]]; }; then   # ...or when the mapped high-tide water changed (tide_vectors.py islands, 2026-11-06)
   mkdir -p "$WORK/obs"
   stamp "flat water (3DEP)"; $PY topobathy/flat_water.py "$RECIPE" --dem /Volumes/Nunatak/lidar_build/ctx_3dep/all.vrt --out "$WORK/obs/water_3dep.tif" > "$WORK/flat_water.log" 2>&1
 fi

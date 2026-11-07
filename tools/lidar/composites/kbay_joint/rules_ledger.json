@@ -1,0 +1,10 @@
+{
+ "notes": "One row per rule that went live DURING the cm18 run, in order; `stage` is the chain stage whose code (or input file) it changed, `live` the moment the live file was replaced (rules_applied.py tests each box's stage start against it). Rules live before the run began (2026-11-05 ~22:30) are in every box and are not listed.",
+ "rules": [
+  {"id": "ring", "stage": "shore", "live": "2026-11-06 01:34:00", "commit": "2e77b9f", "what": "shoreface: a void ringed by a measured bed under the base is the sea's gap in that bed (the multibeam lattice)"},
+  {"id": "cone", "stage": "fill", "live": "2026-11-06 09:57:00", "commit": "1e42ff9", "what": "fill: the guard's cone gives way to a measured bed beside the cell (gaps between surveys filled at -45 m off Bluff Point)"},
+  {"id": "zoneday", "stage": "joint", "live": "2026-11-06 15:09:36", "commit": "9e9cef1", "what": "joint: inside a vintage zone, beds, water and casts older than the zone's survey are no evidence for the sea-sheet rule (the Woz delta front)"},
+  {"id": "ringwhole", "stage": "shore", "live": "2026-11-06 15:09:36", "commit": "9e9cef1", "what": "shoreface: any void leaves a bed-ringed void's ring whole (Halibut Cove Lagoon's lattice)"},
+  {"id": "lakerim", "stage": "water", "live": "2026-11-06 17:27:17", "commit": "eda7b6c", "what": "water: a lake only the prior saw takes the low decile of the measured ground at its edge when that stands >= 0.5 m over the prior's level (the r3c2 lakes)"}
+ ]
+}

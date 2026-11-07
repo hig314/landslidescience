@@ -2,6 +2,7 @@
 """Hig's hand-mapped tide shorelines (KBSP map) as evidence for the shore model, and the reviewer's edited contours merged with them (2026-11-04).
 
     tide_vectors.py build                 water/tide_vector_lines.geojson + water/tide_sea.geojson, from the Oct 2024 low- and high-tide polygons
+    tide_vectors.py islands               cut 3DEP's land that no Island polygon cut out of the high-tide water (tide_high_water / tide_sea.geojson in place; tide_islands.geojson)
     tide_vectors.py closures              water/tide_low_closures.geojson alone, from the low water as written: its outline's closing edges (build writes it too)
     tide_vectors.py clip SRC.tif DST.tif  a derived ground grid (ArcticDEM) voided inside tide_sea.geojson, windowed
     tide_vectors.py merge REVISED ORIG    water/tide_lines.geojson: the reviewer's changed lines + the vector lines they do not cover; a report beside it
@@ -258,9 +259,60 @@ def _poly(g):
     return unary_union([p for p in getattr(g, "geoms", [g]) if p.geom_type in ("Polygon", "MultiPolygon")])
 
 
+ISLAND_MIN_M, ISLAND_CORE_M = 10.0, 200.0
+
+
+def _unmapped_islands(high):
+    """LAND INSIDE THE HIGH-TIDE WATER THAT NO ISLAND POLYGON CUT OUT (2026-11-06, Perl Island in kj_r1c2: Hig's Shore polygon #1
+    holds the island whole, so tide_sea became a 200 m ring on the island's side of its own shoreline, 286 ha at 75 m median,
+    and the fill carved 8.6 km2 of the island as sea bed; four more -- Elizabeth Island 1,554 ha, the east Chugach island
+    1,221 ha, 5,666 ha of mainland at 59.354,-150.687, 154 ha at 59.456,-150.714).  3DEP's radar smear of a cliff stands high
+    over the water within a strip of the line; an island is a blob: ground at or above ISLAND_MIN_M inside the water whose
+    component reaches more than ISLAND_CORE_M from its own edge, on SEA10's 10 m grid.  Returns the blobs as polygons (or None)."""
+    with rasterio.open(SEA10) as s:
+        T = s.transform; crs = s.crs; H, W = s.shape
+    m = features.rasterize([(high, 1)], out_shape=(H, W), transform=T, fill=0, dtype="uint8") > 0
+    with rasterio.open("/Volumes/Nunatak/lidar_build/ctx_3dep/all.vrt") as s, WarpedVRT(s, crs=crs, transform=T, width=W, height=H, resampling=Resampling.bilinear) as v:
+        z = v.read(1).astype(np.float32); z[z == v.nodata] = np.nan
+    hi = m & (z >= ISLAND_MIN_M)
+    core = ndimage.binary_erosion(hi, iterations=int(round(ISLAND_CORE_M / 10.0)))
+    lab, n = ndimage.label(hi, np.ones((3, 3), bool)); keep = np.unique(lab[core]); keep = keep[keep > 0]
+    if not keep.size:
+        return None
+    isl = np.isin(lab, keep)
+    G = [shape(g) for g, v in features.shapes(isl.astype(np.uint8), mask=isl, transform=T) if v == 1]
+    out = unary_union(G)
+    for k in keep:
+        b = lab == k; rr, cc = np.nonzero(b); x, y = T * (cc.mean() + 0.5, rr.mean() + 0.5); lon, lat = tf(crs, "EPSG:4326", [x], [y])
+        print(f"  unmapped island in the high-tide water: {b.sum() / 100:.0f} ha at {lat[0]:.5f},{lon[0]:.5f}, 3DEP p50 {np.nanmedian(z[b]):.0f} m", flush=True)
+    return out
+
+
+def islands(a):
+    """Apply _unmapped_islands to the products as built (tide_high_water.geojson, tide_sea.geojson) without a rebuild; writes tide_islands.geojson."""
+    hw = shape(json.load(open(HERE / "tide_high_water.geojson"))["features"][0]["geometry"])
+    isl = _unmapped_islands(hw)
+    if isl is None:
+        print("  no unmapped islands"); return
+    (HERE / "tide_islands.geojson").write_text(json.dumps(_fc([dict(type="Feature", properties=dict(source="3DEP land inside the high-tide water, tide_vectors.py islands"), geometry=mapping(g)) for g in getattr(isl, "geoms", [isl])])))
+    hw2 = _poly(shapely.make_valid(hw.difference(isl)))
+    (HERE / "tide_high_water.geojson").write_text(json.dumps(_fc([dict(type="Feature", properties={}, geometry=mapping(hw2))])))
+    S0 = json.load(open(HERE / "tide_sea.geojson"))["features"]; S = []; cut = 0.0
+    for f in S0:
+        g = shape(f["geometry"]); g2 = _poly(shapely.make_valid(g.difference(isl))) if g.intersects(isl) else g
+        cut += g.area - g2.area
+        S += [dict(type="Feature", properties=f["properties"], geometry=mapping(q)) for q in getattr(g2, "geoms", [g2]) if q.area >= 25]
+    (HERE / "tide_sea.geojson").write_text(json.dumps(_fc(S)))
+    print(f"  high water {hw.area / 1e6:.1f} -> {hw2.area / 1e6:.1f} km2; tide_sea {len(S0)} -> {len(S)} polygons, {cut / 1e4:.1f} ha cut", flush=True)
+
+
 def build(a):
     dist, Td = _water_edge_dist(); lnear = _lidar_near(Td, dist.shape)
     Gh, Th = _polys(HIGH); high = unary_union([g for g, t in zip(Gh, Th) if t == "Shore"]).difference(unary_union([g for g, t in zip(Gh, Th) if t == "Island"]))
+    isl = _unmapped_islands(_poly(high))
+    if isl is not None:
+        high = high.difference(isl)
+        (HERE / "tide_islands.geojson").write_text(json.dumps(_fc([dict(type="Feature", properties=dict(source="3DEP land inside the high-tide water, tide_vectors.py build"), geometry=mapping(g)) for g in getattr(isl, "geoms", [isl])])))
     Gl, Tl = _polys(LOW); low = unary_union([g for g, t in zip(Gl, Tl) if t == "Shore"]).difference(unary_union([g for g, t in zip(Gl, Tl) if t == "Island"]))
     pools = [g for g, t in zip(Gl, Tl) if t == "Pool"]; low = low.union(unary_union(pools)) if pools else low
     # THE HIGH SHORE IS AUTHORITATIVE (Hig, 2026-11-04): where the low shore lies inboard of it, it moves to 1 m seaward of it, a nearly vertical cliff.  A wide stretch of low water past the high polygon is
@@ -389,6 +441,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(); sp = ap.add_subparsers(dest="cmd", required=True)
     sp.add_parser("build")
     sp.add_parser("closures")
+    sp.add_parser("islands")
     c = sp.add_parser("clip"); c.add_argument("src"); c.add_argument("dst")
     m = sp.add_parser("merge"); m.add_argument("revised"); m.add_argument("orig"); m.add_argument("--no-vectors", action="store_true"); m.add_argument("--keep-edit")
-    a = ap.parse_args(); dict(build=build, clip=clip, merge=merge, closures=closures)[a.cmd](a)
+    a = ap.parse_args(); dict(build=build, clip=clip, merge=merge, closures=closures, islands=islands)[a.cmd](a)
