@@ -348,6 +348,24 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
       tide_sea.geojson is newer.  perl_t pfix2 (flown + islands) queued; the flown footprint then goes live with the 76 recipes.
       Hig may also cut the islands in the shapefile itself; the automatic cut is harmless on top.
     QUEUE HELD from 17:33 (a placeholder process the workers count as a running box) so no outer box starts on the old footprint; r7c4 runs alone.
+  2026-11-06 18:05-18:40, ANCHOR POINT RESOLVED ON anchor_t (three passes), r7c4 STUCK THREE HOURS IN THE SHORE STAGE (fixed, live 18:32):
+    anchor_t afix (speck over a cast + flown footprint): pimples (observed cells > 2 m over a modelled neighbour, 1 km window) 4825 -> 173,
+      but the surface at Hig's point rose -1.66 -> +1.22 m over casts at -5: with the strays gone the sea there became a TIDAL LENS domain
+      (Kenai 2008's water class at its 1.9 m stand = "an observed water surface", so the bed was modelled AT the surface, 0.87 km2) -- the
+      base had the same lens at -1.7, hidden among the strays.  afix2 (fill.py: the lens guard -- a lens cell whose shallowest cast within
+      lens_cast_m 150 m stands lens_cast_dz_m 2 m or more under the surface is water over a bed, the floor path, the surface its ceiling;
+      Taylor Bay's unobserved-body rule per cell): the hump gone, but the pimples back (1771) -- the strays the speck rule missed (9,526
+      cells in the window in 375 pieces of 10-2,743 cells: too big for the speck test, too porous for the 5x5 flat test) had been dropped
+      by the fill as "observations at the water level inside the lens", and off the lens they stood.  afix3 (joint.py: a FLOATING
+      COMPONENT of any size -- >= 90 % of its cells at the survey's own water level within speck_near_m of its water returns, a cast
+      >= 2 m below within 150 m of >= 50 % of them -- is the sea; a beach's component rises out of the water, a mud flat has no cast):
+      7,495 pieces, 6.1 ha; the point -6.00 m on the compilation bed (casts -5..-6), pimples 2, surface - cast p50 -0.13 / p90 0.97 m
+      (base +0.03 / 1.14), no observed cell left between 0 and 3 m in the window.  Hoen's inner flat has no NOS cast within 300 m.
+    r7c4 (the Fox River flats, 1,048 bodies, 593 tidal): the shore stage ran from 15:41 at 99 % CPU with no log line (stdout block-buffered
+      to a file) -- `sample` showed a Python loop of whole-grid boolean subscripts: shore.py's level_raster `for k in tidal_ids: bid == k`
+      and the shoreline rings' `wl == k` per water component, each over 66 M cells (the fill had the same shape this morning, 8ce694c).
+      Both now take each object's find_objects slice; outputs byte-identical on lagoon_t (labels, levels, 33 rings).  Live 18:32:48; r7c4
+      killed (rc 143) and put back at the head of the queue; the queue held by two placeholder processes until joint.py / fill.py go live.
   NEXT AFTER THE RUN (Hig, 2026-11-06 10:30): MORE GREEN LIDAR FOR THE HOMER AREA -- additional topobathy point clouds Hig is organising, over
     the coast where sand bars sweep along the shore (Bishop's Beach, the Spit), so surveys of different dates will seam inside the bars.  Work them in
     as units (a ground unit and a bed unit each, own date and sigma, like homer2018 / homer2018bed), check their datum (the geoid model in the LAS

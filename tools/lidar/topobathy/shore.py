@@ -326,12 +326,19 @@ def level_raster(z, cls, bid, btab, wz, res, P, log):
             rest = tm & ~ok
             if rest.any():
                 lev[rest] = _nearest(np.where(ok, lev, np.nan), ok)[rest]
+        # per body inside its own bounding box (2026-11-06, kj_r7c4: 593 tidal bodies on the Fox River flats, each tested over
+        # the whole 66 M-cell grid -- the stage sat three hours in these two loops and the rings' below)
+        objs_t = ndimage.find_objects(bid)
         for k in tidal_ids:
-            m = (bid == k) & ~np.isfinite(lev)
+            sl = objs_t[k - 1] if 0 < k <= len(objs_t) else None
+            if sl is None:
+                continue
+            m = (bid[sl] == k) & ~np.isfinite(lev[sl])
             if m.any():
                 b = btab[k]; v = b.get("level_hi_m", b.get("latest_level_m"))
                 if v is not None:
-                    lev[m] = float(v)
+                    lev[sl][m] = float(v)
+        del objs_t
     # rivers (and sloped tidal creeks are tidal above): a monotone level down the channel
     river_ids = [k for k, v in kind.items() if v == "river"]
     objs = ndimage.find_objects(bid)
@@ -1316,16 +1323,18 @@ def vectorise(label, lev, slope, conf, bid, kinds, prof, res, P, log):
     T = prof["transform"]; inv = ~T
     feats = []
     min_len = float(P["min_ring_m"])
+    objs_w = ndimage.find_objects(wl)                   # each component inside its own bounding box (2026-11-06, kj_r7c4: see level_raster)
     for geom, val in features.shapes(wl.astype(np.int32), mask=wl > 0, connectivity=4, transform=T):
         k = int(val)
         g = _shape(geom).simplify(res * 0.7, preserve_topology=True)
         if g.is_empty:
             continue
         polys = [g] if g.geom_type == "Polygon" else list(g.geoms)
-        m = wl == k
-        ids = bid[m]; ids = ids[ids > 0]
+        sl = objs_w[k - 1]
+        m = wl[sl] == k
+        ids = bid[sl][m]; ids = ids[ids > 0]
         body = int(np.bincount(ids).argmax()) if ids.size else 0
-        lv = lev[m]; lv = lv[np.isfinite(lv)]
+        lv = lev[sl][m]; lv = lv[np.isfinite(lv)]
         for pg in polys:
             rings = [(pg.exterior, "outer")] + [(r, "inner") for r in pg.interiors]
             for ring, role in rings:
