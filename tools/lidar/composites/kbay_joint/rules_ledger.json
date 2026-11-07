@@ -70,6 +70,13 @@
    "live": "2026-11-06 19:26:59",
    "commit": "d69c2c1",
    "what": "fill: the contour shore model runs for a floor-path sea with no land rim in the box (open-water boxes: the casts' basin spline instead of a flat at the low-tide floor)"
+  },
+  {
+   "id": "pointcell",
+   "stage": "build2",
+   "live": "2026-11-06 20:58:08",
+   "commit": "fbb91f5",
+   "what": "build: a cell a points source (the soundings unit) contributed to keeps the rules' take at full weight -- never despeckled, never feathered (upper Grewingk Lake's lone soundings fell to the layer beneath)"
   }
  ]
 }
