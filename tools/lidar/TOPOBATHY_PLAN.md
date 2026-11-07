@@ -322,6 +322,32 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
       [572500,6551000,578500,6556000] of r1c2, pbase / pfix queued behind lakes_t.  If it holds: template.json + every box and crop recipe
       (footprints only; the joint layer's class raster stays layer_class.tif -- a sed over the whole file hit it, perl_t's recipe fixed by
       hand), r1c2 on the rerun list, r2c1's specks too.  Boxes whose joint ran before the change read layer_class as before.
+  2026-11-06 17:30-18:05, HIG'S SECOND REVIEW OF THE AFTERNOON ("patches of bad coastal data ... in the nearshore ocean near Anchor Point,
+    59.72032,-151.83655"; "keep track of which rules were applied to which blocks, and we'll go back and rerun some of them"):
+    THE LEDGER: composites/kbay_joint/rules_ledger.json (rule -> stage -> the moment the live file was replaced) and rules_applied.py TAG,
+      which reads each box's stage start times from its chain.log and prints Y/n per rule and the rerun candidates per rule.  Add a row
+      when a rule goes live mid-run; rules live before the run began are in every box.
+    ANCHOR POINT: Kenai 2008's single returns classed ground at +1.7..2.2 m, one per cell over the nearshore sea, at the level of the
+      survey's own water returns 1-4 m away (the sea at its 1.9 m stand), over NOS h10033 casts at -4..-6 m (4 within 100 m, 32 within
+      300).  joint.py's speck-at-own-water rule skipped them: it requires the cloud to be SPARSE there (any return in <= 25 % of cells,
+      the test that keeps Hoen's mud flat), and over this sea the water class is dense (~45 %).  TRIAL (lidar_fx4 joint.py, speck_cast_m
+      150): a speck at its own water level is the sea when the shallowest cast within 150 m stands bed_stand_dz_m (2 m) or more below
+      it, dense or sparse (hc_ = a separable maximum filter of zbpmin).  Crop anchor_t [564000,6619500,567500,6622500] of r7c1,
+      abase / afix queued behind perl_t pfix2.
+    PERL ISLAND, SECOND LAYER: with the flown footprint (pfix) the island's 740 phantom bodies fell to 6 and z - 3DEP over its land went
+      from -46 m median to -0.2, but a plateau at 4-5 m stayed over 251 ha (fill mask 9, shore label 0/1, class_ctx3dep void): the fill's
+      ground-prior rule saw no large DRY void (the interior void joins the sea's), and the shoreface's "prior above the tide's reach is
+      land" rule was blocked by _ground_sea -- water_3dep.tif code 2, the MAPPED HIGH-TIDE WATER, covered the interior.  tide_sea.geojson
+      feature 42 (286 ha, 3DEP p50 75 m) is a 200 m ring on the island's side of its own coastline: Hig's Oct 2024 High_tide_polygons.shp
+      holds Perl Island inside Shore polygon #1 (1,201 ha) with no Island polygon, so `high` kept the island and buffer(line) & high fell
+      inland.  Five such landmasses in the bay (3DEP >= 10 m blobs inside the high-tide water with a core beyond 200 m): 1,135 ha Perl
+      Island, 1,555 ha Elizabeth Island (59.157,-151.829), 1,222 ha the east Chugach island (59.128,-151.475), 5,667 ha of mainland at
+      59.354,-150.687, 154 ha at 59.456,-150.714.  FIX (live, 3c97e6a): tide_vectors.py `islands` cuts them from tide_high_water and
+      tide_sea (536 ha of tide_sea cut, 44 -> 266 polygons; tide_islands.geojson written; `build` does the same); the ArcticDEM tide clip
+      regenerated from arcticdem_ground_2m_v2.tif (clip voided 8.18 km2); topobathy_chain.sh rebuilds water_3dep.tif when
+      tide_sea.geojson is newer.  perl_t pfix2 (flown + islands) queued; the flown footprint then goes live with the 76 recipes.
+      Hig may also cut the islands in the shapefile itself; the automatic cut is harmless on top.
+    QUEUE HELD from 17:33 (a placeholder process the workers count as a running box) so no outer box starts on the old footprint; r7c4 runs alone.
   NEXT AFTER THE RUN (Hig, 2026-11-06 10:30): MORE GREEN LIDAR FOR THE HOMER AREA -- additional topobathy point clouds Hig is organising, over
     the coast where sand bars sweep along the shore (Bishop's Beach, the Spit), so surveys of different dates will seam inside the bars.  Work them in
     as units (a ground unit and a bed unit each, own date and sigma, like homer2018 / homer2018bed), check their datum (the geoid model in the LAS
