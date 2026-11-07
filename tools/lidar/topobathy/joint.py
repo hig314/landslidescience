@@ -469,6 +469,19 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         o = obs[n]
         if "z_g" in o: Z[n] = o["z_g"]; N[n] = o["n_g"]; SG[n] = np.full((H, W), S[n].sigma_m, np.float32); o.pop("zmin_g", None)
         else: Z[n] = o["z"]; N[n] = o["n"]; SG[n] = o["sigma"]
+    if not names:
+        # AN EMPTY BOX (2026-11-06, kj_r1c4 and the r0 row: open water beyond every lidar and grid -- the NOS casts and CRM's
+        # centres are the fill's points, not the layer's): the layer is written void so the chain can build the sea there
+        # from the prior and the points (max() of no dates stopped the stage and the worker moved to the next box)
+        log("  no source has a cell in this window: the layer is void (the fill's points make the sea)")
+        for name, a, dt, nd in (("joint_z", np.full((H, W), np.nan, np.float32), "float32", -9999), ("joint_n", np.zeros((H, W), np.float32), "float32", -9999),
+                                ("joint_src", np.zeros((H, W), np.uint16), "uint16", 0), ("joint_rej", np.zeros((H, W), np.uint16), "uint16", 0),
+                                ("joint_dist", np.full((H, W), np.nan, np.float32), "float32", -9999), ("joint_sigma", np.full((H, W), np.nan, np.float32), "float32", -9999),
+                                ("joint_nland", np.zeros((H, W), np.uint8), "uint8", 255), ("joint_cls", np.zeros((H, W), np.uint8), "uint8", 255),
+                                ("vintage", np.zeros((H, W), np.uint8), "uint8", 255), ("water_z", np.full((H, W), np.nan, np.float32), "float32", -9999)):
+            write(out / f"{name}.tif", a, win, res, epsg, dt, nd)
+        rep["coverage"] = dict(supported=0.0, void_km2=round(H * W * res * res / 1e6, 3), water_cells_km2=0.0, by_class_km2={}); rep["src_bits"] = {}; rep["seconds"] = round(time.time() - t0)
+        (out / "joint_report.json").write_text(json.dumps(rep, indent=1)); log(json.dumps(rep["coverage"])); return rep
     rates = cfg["rates"]; newest = max(S[n].date for n in names if np.isfinite(S[n].date))
     for n in names:
         age = max(0.0, newest - S[n].date) if np.isfinite(S[n].date) else 0.0
