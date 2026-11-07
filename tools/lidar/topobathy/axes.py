@@ -693,6 +693,9 @@ def sigma_raster(spec, z, valid, res_m, info):
 
 # -------------------------------------------------------- state rules
 
+_is_prior_fn = is_prior            # the module function, which a local of the same name shadowed (2026-11-06)
+
+
 def state_rules_sequential(obs, target="ground_current", as_of=None, rates=None, sigma_max=5.0,
                            lowest=None, margin_m=0.0):
     """Hig's sequential model (2026-09-21): walk the stack bottom-up keeping a running
@@ -752,8 +755,8 @@ def state_rules_sequential(obs, target="ground_current", as_of=None, rates=None,
         # a conditioned PRIOR (a regional grid corrected toward the observations around it,
         # condition.py) stands in like a modelled surface: half gate, so any real observation of
         # the class beats it whatever its sigma or date, and priors rank among themselves by error
-        is_prior = bool((o.get("spec") or {}).get("_prior"))
-        if is_prior: gate_i = np.minimum(gate_i, 0.5)
+        cond_prior = bool((o.get("spec") or {}).get("_prior"))
+        if cond_prior: gate_i = np.minimum(gate_i, 0.5)
         gate_run = np.where(run_prior, np.minimum(gate_run, 0.5), gate_run)
         gates.append(gate_i)
         take = dated & (gate_i > 0) & (
@@ -787,9 +790,9 @@ def state_rules_sequential(obs, target="ground_current", as_of=None, rates=None,
         # above the water -- 474 of Grewingk's 6,085 soundings, the shallow ones, lost their cell to the ceiling rule above
         # and the fill then missed them by up to 10 m.  A prior's water level is no evidence of a level (the fill says the
         # same of it since 2026-10-22): it neither evicts a running value nor sets the ceiling.
-        # (is_prior above is condition.py's `_prior` alone -- the half gate; the fallback 3DEP is a prior by its class step,
+        # (cond_prior above is condition.py's `_prior` alone -- the half gate; the fallback 3DEP is a prior by its class step,
         # axes.is_prior, and that is the prior whose flat lakes are the trap here)
-        prior_l = is_prior(o.get("spec") or {})
+        prior_l = _is_prior_fn(o.get("spec") or {})
         evict = newer & (o["cls"] == CLASSES["water"]) & np.isfinite(run_z) & (run_z > o["z"] - CEIL_TOL_M) \
             & ~np.isin(run_cls, [CLASSES["bed"], CLASSES["subglacial"]]) & (not prior_l)
         wat = cred & (o["cls"] == CLASSES["water"]) & np.isfinite(o["z"]) & (not prior_l)
@@ -807,7 +810,7 @@ def state_rules_sequential(obs, target="ground_current", as_of=None, rates=None,
         masks.append(take.astype(np.float32))
         run_z = np.where(take, o["z"], run_z); run_sig = np.where(take, st, run_sig)
         run_cls = np.where(take, o["cls"], run_cls).astype(np.uint8); run_gate = np.where(take, gate_i, run_gate)
-        run_prior = np.where(take, is_prior, run_prior)
+        run_prior = np.where(take, cond_prior, run_prior)
         winner = np.where(take, i, winner).astype(np.int16)
     return dict(masks=masks, class_now=class_now, date_now=date_now, sigma_total=np.stack(sts),
                 gate=np.stack(gates), winner=winner, as_of=as_of, fallback=fallback)
