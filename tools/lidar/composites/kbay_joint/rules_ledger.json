@@ -61,7 +61,7 @@
    "id": "lenscast",
    "stage": "fill",
    "live": "2026-11-06 18:55:17",
-   "commit": "pending",
+   "commit": "ba8b209",
    "what": "fill: a tidal-lens cell whose shallowest cast within 150 m stands >= 2 m under the observed water surface is water over a bed -- the floor path, the surface its ceiling (Anchor Point: the bed had been modelled at Kenai 2008's 1.9 m surface in 6 m of water)"
   }
  ]
