@@ -81,8 +81,8 @@
   {
    "id": "priorceil",
    "stage": "build2",
-   "live": "2026-11-06 21:07:32",
-   "commit": "29b7912",
+   "live": "2026-11-06 21:15:11",
+   "commit": "63f018b",
    "what": "build rules: a prior's (3DEP's hydroflattened) water surface is no ceiling on later beds and evicts nothing (Grewingk's shallow soundings stood above the 41.3 m flat and lost their cell)"
   }
  ]
