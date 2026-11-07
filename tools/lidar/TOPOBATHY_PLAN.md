@@ -421,6 +421,15 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
     soundings come from the dev DB); in the surface a rock is a floor capped under the low line and never overrules an observed
     surface -- over the landed boxes 789 acted as soundings (520 lifted > 0.5 m), 883 sit under an observed surface, 66 not
     modelled.  Waiting on which Hig means; the dev-DB survey of the rocks is the cheap one either way.
+  2026-11-06 23:40, OVERNIGHT (Hig: "Continue processing overnight, and once all boxes are run once, rerun any that we know need
+    rerunning. I'll take a look in the morning."): 41 of 48 landed; the queue holds the first pass's tail (r2c0 running, r3c0 r4c0 r5c0
+    r6c0 r7c0, then r1c4 r0c1 under the rimless rule) and then the nine known-fault reruns in this order: r1c2 (Perl) r1c1 r2c1
+    (Elizabeth) r7c1 (Anchor Point) r6c4 (Grewingk) r6c2 r6c3 (the lagoon, Woz) r5c3 r3c2 (the lake rule).  scratchpad
+    overnight_finish.sh (its own caffeinate) waits for both workers to exit, then the final mosaic + dev republish (the loop
+    republishes only when the box count grows) and writes scratchpad/morning_cm18.txt: results, non-zero rc, every box's gate line,
+    the rules table, the watcher's tail.  Gate "MOVED" rows on r5c5 / r7c5 (land_km2 24.6 -> 115.5 / 160.8) are invariants from an
+    earlier footprint, not quality rows; r0c0's three MISSING rows are an empty box's.  Open for the morning: the rocks question;
+    the lens-domain chi (plates_t); Perl's ArcticDEM land after the rerun; the ledger's wider rerun set (most boxes lack most rules).
   NEXT AFTER THE RUN (Hig, 2026-11-06 10:30): MORE GREEN LIDAR FOR THE HOMER AREA -- additional topobathy point clouds Hig is organising, over
     the coast where sand bars sweep along the shore (Bishop's Beach, the Spit), so surveys of different dates will seam inside the bars.  Work them in
     as units (a ground unit and a bed unit each, own date and sigma, like homer2018 / homer2018bed), check their datum (the geoid model in the LAS
