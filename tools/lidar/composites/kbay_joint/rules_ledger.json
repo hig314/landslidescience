@@ -47,14 +47,14 @@
    "id": "flown",
    "stage": "joint",
    "live": "2026-11-06 18:45:51",
-   "commit": "pending",
+   "commit": "f251ab1",
    "what": "joint writes layer_flown.tif (a lidar's return of any class, a non-derived grid's cell, the layer's water) and the recipes' 3DEP fallback footprint reads it, not layer_class (ArcticDEM gaps were 'flown' and the prior withdrawn: Perl Island carved)"
   },
   {
    "id": "floatcast",
    "stage": "joint",
    "live": "2026-11-06 18:45:51",
-   "commit": "pending",
+   "commit": "f251ab1",
    "what": "joint: a speck or a floating component at the survey's own water level with a cast >= 2 m below within 150 m is the sea, dense or sparse (Anchor Point's Kenai 2008 strays); zone-aware except under lone returns"
   }
  ]
