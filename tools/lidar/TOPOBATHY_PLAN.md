@@ -384,21 +384,32 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
     cliffs on the bottom of the lake. We should also look closely at the code to make sure we have appropriately converging logic
     between our marine soundings and lake soundings."  Measured on kj_r6c4 cm18 against all 6,085 Grewingk soundings
     (scratchpad grew_probe*.py, grew_cmp.py): 5,237 sit in cells the joint holds exactly (surface - sounding = +0.36, the survey
-    shift); 529 sit in cells the BUILD dropped from the joint's mask (masks/joint.tif 0: the despeckle, min_area 2000 m2 -- a
-    sounding is one cell, a line of them one cell wide, confetti wherever the lidar's take around it is thin), so the fill saw them
-    only as sparse sigma-1 points at chi 1 and missed them by up to 10 m; and the cell the joint holds pinned the harmonic residual
-    exactly at ONE cell -- a log cusp, the spike / the pit (needle = cell minus its 8-neighbour median: p90 1.0 m on the 2017
-    track, 9.3 m on the 18 higman 2019-21 points, 5.2 m on the hand soundings).  THE TWO PATHS DIFFERED: sea casts (nolens
-    domains) are fitted by shoreface's spline at shore_cast_chi 0.2 with gap smoothing and are never cells; lake soundings are
-    cells (the points unit) + harmonic pins + a chi-1 spline over the hole soundings only.  Three fixes:
-      (a) build (composite.py post_masks, live 20:58:08, fbb91f5, ledger pointcell): a cell a POINTS source contributed to keeps
-          the rules' take at full weight -- never despeckled, never feathered; the kinds come from joint_report.json beside the
-          layer's source_bits, no recipe change.  grew_t build 2: 324 + 4,983 cells kept.
-      (b) fill (trial fx4): a LONE observed cell (no observed 8-neighbour) keeps its value but is a site of the spline (its own
-          sigma from the points file, points_sigma_m otherwise), not a pin of the harmonic residual nor a zero of the spline's
-          boundary; contiguous beds still pin at their edges.  Minimum curvature through sparse points: a bowl to a deep one, as
-          steep as the neighbours require -- Hig's cliffs -- never a needle.
-      (c) one chi: DEFAULTS points_chi 0.2 (the sea's shore_cast_chi) for lakes too.
+    shift); 529 sit in cells the BUILD dropped from the joint's mask (masks/joint.tif 0) -- first read as the despeckle, in fact the
+    sequential rules' CEILING: "a bed is below every water surface ever seen over it", and 3DEP's hydroflattened lake at 41.3 m
+    (the lake is 49.0) counted as a surface seen, so 474 of the 527 (the shallow soundings, 24-49 m) were "beds above the water"
+    and fell to the prior -> a hole -> sparse sigma-1 points at chi 1, missed by up to 10 m; and the cell the joint holds pinned
+    the harmonic residual exactly at ONE cell -- a log cusp, the spike / the pit (needle = cell minus its 8-neighbour median: p90
+    1.0 m on the 2017 track, 9.3 m on the 18 higman 2019-21 points, 5.2 m on the hand soundings).  THE TWO PATHS DIFFERED: sea
+    casts (nolens domains) are fitted by shoreface's spline at shore_cast_chi 0.2 with gap smoothing and are never cells; lake
+    soundings are cells (the points unit) + harmonic pins + a chi-1 spline over the hole soundings only.  Fixes, all live:
+      (a) build (composite.py post_masks, 20:58:08, fbb91f5, ledger pointcell): a cell a POINTS source contributed to keeps the
+          rules' take at full weight -- never despeckled, never feathered (kinds from joint_report.json beside source_bits).
+      (a') build rules (axes.py, 21:15:11, 29b7912 + 0c9cfff, ledger priorceil): a prior's water (axes.is_prior: the fallback's
+          class step -- the first cut tested condition.py's _prior flag, which 3DEP never carries, and did nothing) neither sets
+          the ceiling nor evicts.  grew_t gB3: soundings in holes 467 -> 60; |surface - sounding| p90 0.19 -> 0.00 m.
+          (A 105 s slip at 21:15-21:17: the module function is_prior called through a local bool of the same name, TypeError
+          in build 1; no box started a build in the window.)
+      (b) fill (22:07:24, 981e072, ledger lonepin): a LONE observed cell's residual holds over a disc to half the distance to
+          the nearest other observation, <= lone_pin_max_m 20 m -- the harmonic's bounded descent from the disc's edge (a
+          crater as steep as the neighbours ask) instead of the cusp; along a track the discs join the fixes.  The first cut
+          made lone cells thin-plate SITES instead of pins: the plate through 2,400 track cells with 50 m residuals overshot
+          by 78 m (needles 1 -> 26 m, 235 m above the cap) -- the harmonic's maximum principle is what keeps a large residual
+          honest; the spline is for the small ones.  grew_t: needles 9.6 -> 0.54 m (higman 2019-21), 5.1 -> 0.32 (hand),
+          1.0 -> 0.75 (the track: adjacent fixes' own noise); lower bounds still violated after the fit 35 -> 3.
+      (c) chi: lake_chi 0.2 for LAKE domains (the sea's shore_cast_chi); points_chi stays 1.0 for lens domains -- one chi for
+          all moved 310 ha of plates_t by up to 25 m (its sites are CRM's sigma-10 centres): its own question, open.
+      Regression (fill only, live vs trial): lakes_t 3.1 ha changed (max 2.95 m, the discs), lagoon_t 0.1 ha, plates_t 59 ha
+      at p1/p99 -0.07/+0.15 (max 4.5 m beside a lone cell).
     Crop grew_t [604400,6607400,610200,6610600] of kj_r6c4: gA = (a) alone, gB = (a)+(b)+(c) as a fill-only trial on gA's inputs.
     ELIZABETH ISLAND (59.15984,-151.79546, "a broad planar bench ... cuts into topography"): the surface is a plane at 3.78 m where
     ArcticDEM has 80 m; the point is inside the PRE-CUT high-tide polygon (the ring around the island) and inside tide_islands.geojson

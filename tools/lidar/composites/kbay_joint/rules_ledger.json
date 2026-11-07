@@ -84,6 +84,13 @@
    "live": "2026-11-06 21:15:11",
    "commit": "63f018b",
    "what": "build rules: a prior's (3DEP's hydroflattened) water surface is no ceiling on later beds and evicts nothing (Grewingk's shallow soundings stood above the 41.3 m flat and lost their cell)"
+  },
+  {
+   "id": "lonepin",
+   "stage": "fill",
+   "live": "2026-11-06 22:07:24",
+   "commit": "981e072",
+   "what": "fill: a lone observed cell's value holds halfway to the next observation (<= 20 m) instead of a one-cell cusp; a lake's soundings fitted at chi 0.2 like the sea's casts (upper Grewingk's sparse soundings)"
   }
  ]
 }
