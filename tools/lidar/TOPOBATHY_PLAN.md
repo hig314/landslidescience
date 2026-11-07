@@ -378,6 +378,38 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
     boxes put back at the head of the queue.  The watcher now keys rc lines by line number (a rerun box is checked again).
     QUEUE TRAPS LEARNED: the workers count `pgrep -f "run_box.sh kj_"`; a shell command of mine containing that literal held a worker
     (never put the literal in a command while the run is up); a placeholder `sh -c 'sleep N; true' run_box.sh kj_hold` holds the queue.
+  2026-11-06 20:30-21:30, HIG'S THIRD REVIEW: GREWINGK'S SPARSE SOUNDINGS, THE ISLAND BENCHES, THE ROCKS:
+    "There are a few soundings in upper Grewingk Lake where the model diverged from them, leaving little spikes beneath them or holes
+    above them. Given the sparse points in this area, our best guess should be that these points are correct - even if they imply
+    cliffs on the bottom of the lake. We should also look closely at the code to make sure we have appropriately converging logic
+    between our marine soundings and lake soundings."  Measured on kj_r6c4 cm18 against all 6,085 Grewingk soundings
+    (scratchpad grew_probe*.py, grew_cmp.py): 5,237 sit in cells the joint holds exactly (surface - sounding = +0.36, the survey
+    shift); 529 sit in cells the BUILD dropped from the joint's mask (masks/joint.tif 0: the despeckle, min_area 2000 m2 -- a
+    sounding is one cell, a line of them one cell wide, confetti wherever the lidar's take around it is thin), so the fill saw them
+    only as sparse sigma-1 points at chi 1 and missed them by up to 10 m; and the cell the joint holds pinned the harmonic residual
+    exactly at ONE cell -- a log cusp, the spike / the pit (needle = cell minus its 8-neighbour median: p90 1.0 m on the 2017
+    track, 9.3 m on the 18 higman 2019-21 points, 5.2 m on the hand soundings).  THE TWO PATHS DIFFERED: sea casts (nolens
+    domains) are fitted by shoreface's spline at shore_cast_chi 0.2 with gap smoothing and are never cells; lake soundings are
+    cells (the points unit) + harmonic pins + a chi-1 spline over the hole soundings only.  Three fixes:
+      (a) build (composite.py post_masks, live 20:58:08, fbb91f5, ledger pointcell): a cell a POINTS source contributed to keeps
+          the rules' take at full weight -- never despeckled, never feathered; the kinds come from joint_report.json beside the
+          layer's source_bits, no recipe change.  grew_t build 2: 324 + 4,983 cells kept.
+      (b) fill (trial fx4): a LONE observed cell (no observed 8-neighbour) keeps its value but is a site of the spline (its own
+          sigma from the points file, points_sigma_m otherwise), not a pin of the harmonic residual nor a zero of the spline's
+          boundary; contiguous beds still pin at their edges.  Minimum curvature through sparse points: a bowl to a deep one, as
+          steep as the neighbours require -- Hig's cliffs -- never a needle.
+      (c) one chi: DEFAULTS points_chi 0.2 (the sea's shore_cast_chi) for lakes too.
+    Crop grew_t [604400,6607400,610200,6610600] of kj_r6c4: gA = (a) alone, gB = (a)+(b)+(c) as a fill-only trial on gA's inputs.
+    ELIZABETH ISLAND (59.15984,-151.79546, "a broad planar bench ... cuts into topography"): the surface is a plane at 3.78 m where
+    ArcticDEM has 80 m; the point is inside the PRE-CUT high-tide polygon (the ring around the island) and inside tide_islands.geojson
+    now -- the tideisl rule (18:03); kj_r1c1 (15:13) and kj_r2c1 ran before it.  PERL ISLAND ("the land is really crazy"): the
+    whole island's land is a modelled surface (smooth blobs, median 35 m under 3DEP, 90 % of land cells off by > 5 m): the pre-cut
+    polygon covered the island wholesale, its land voided by the ArcticDEM tide clip and the prior's water mask, filled as sea floor.
+    Same rule; r1c2, r1c1, r2c1 rerun (perl_land.png in the scratchpad: surface | 3DEP | ArcticDEM).
+    ROCKS ("I'm not seeing the rock data exposed?"): no rock layer reaches the dev viewer (per-box rock_review.geojson; the viewer's
+    soundings come from the dev DB); in the surface a rock is a floor capped under the low line and never overrules an observed
+    surface -- over the landed boxes 789 acted as soundings (520 lifted > 0.5 m), 883 sit under an observed surface, 66 not
+    modelled.  Waiting on which Hig means; the dev-DB survey of the rocks is the cheap one either way.
   NEXT AFTER THE RUN (Hig, 2026-11-06 10:30): MORE GREEN LIDAR FOR THE HOMER AREA -- additional topobathy point clouds Hig is organising, over
     the coast where sand bars sweep along the shore (Bishop's Beach, the Spit), so surveys of different dates will seam inside the bars.  Work them in
     as units (a ground unit and a bed unit each, own date and sigma, like homer2018 / homer2018bed), check their datum (the geoid model in the LAS

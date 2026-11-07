@@ -77,6 +77,13 @@
    "live": "2026-11-06 20:58:08",
    "commit": "fbb91f5",
    "what": "build: a cell a points source (the soundings unit) contributed to keeps the rules' take at full weight -- never despeckled, never feathered (upper Grewingk Lake's lone soundings fell to the layer beneath)"
+  },
+  {
+   "id": "priorceil",
+   "stage": "build2",
+   "live": "2026-11-06 21:07:32",
+   "commit": "29b7912",
+   "what": "build rules: a prior's (3DEP's hydroflattened) water surface is no ceiling on later beds and evicts nothing (Grewingk's shallow soundings stood above the 41.3 m flat and lost their cell)"
   }
  ]
 }
