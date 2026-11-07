@@ -77,7 +77,7 @@ DEFAULTS = dict(shore_model=None, tide_lines=None, rocks=None, sea_prior="local"
                 channel_slope=0.002, channel_drop_m=1.0, channel_ws_smooth_m=20.0, channel_min_m2=2000, channel_wd=15.0, channel_dmax_cap=2.0,
                 channel_surface_tol_m=0.3, channel_tidal_wmax=120.0, channel_braid_win=4.0, channel_wd_min=5.0,
                 points_sigma_m=1.0, points_rim_sigma_m=0.2, points_rim_step_m=10.0, points_grid_m=4.0, points_sigma_per_m=0.15,
-                points_decay_m=150.0, points_decay_scale_m=150.0, ceiling_margin_m=0.5, ceiling_passes=2,
+                points_decay_m=150.0, points_decay_scale_m=150.0, points_chi=1.0, lake_chi=0.2, lone_pin_max_m=20.0, ceiling_margin_m=0.5, ceiling_passes=2,
                 ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0,
                 rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0, lens_max_m=None, sound_hyps_min_n=30,
                 points_max_sites=2500, points_max_eval=4_000_000, points_free_min=30, ground_prior=None, void_ground_m=4.5)
@@ -2343,6 +2343,37 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         rfix = inside_obs | rim
         rval = np.where(inside_obs, rz, np.nan_to_num(rim_res))
         del pi, pj
+        # AN OBSERVATION STANDS HALFWAY TO THE NEXT (Hig's review of cm18, 2026-11-06, upper Grewingk Lake: "little spikes beneath
+        # them or holes above them ... given the sparse points in this area, our best guess should be that these points are
+        # correct -- even if they imply cliffs").  A lone observed cell (no observed 8-neighbour: a sounding's cell, a sonar
+        # grid's stray) pinned the harmonic residual at ONE cell -- a log cusp, a needle 20 % of the residual high in the next
+        # cell (9.6 m beside the 18 higman 2019-21 soundings).  Its residual now holds over a disc out to half the distance to
+        # the nearest other observed cell, at most lone_pin_max_m: along a sounding track the discs join the fixes into a
+        # line; a lone sounding is a plateau of its own depth with the harmonic's bounded descent from its edge -- a crater, as
+        # steep as the neighbours ask, never an overshoot (the thin plate through the same cells as sites overshot by 78 m on
+        # Grewingk: the harmonic's maximum principle is what keeps a 50 m residual honest).  Only hole cells not otherwise
+        # fixed; the rim and the other observations keep their own values.
+        nb_ = ndimage.convolve(inside_obs.astype(np.int8), np.ones((3, 3), np.int8), mode="constant")
+        lone = inside_obs & (nb_ <= 1); del nb_
+        if lone.any() and float(P.get("lone_pin_max_m", 0.0)) > 0:
+            from scipy.spatial import cKDTree
+            oi_, oj_ = np.nonzero(inside_obs); li_, lj_ = np.nonzero(lone)
+            d2_, _ = cKDTree(np.column_stack([oi_, oj_])).query(np.column_stack([li_, lj_]), k=2)
+            rho_ = np.minimum(0.5 * d2_[:, 1], float(P["lone_pin_max_m"]) / res)        # cells
+            free_ = dom & hole & ~rfix; n_disc = 0
+            for i_, j_, r_ in zip(li_.tolist(), lj_.tolist(), rho_.tolist()):
+                k_ = int(np.floor(r_))
+                if k_ < 1:
+                    continue
+                a0, a1, b0, b1 = max(i_ - k_, 0), min(i_ + k_ + 1, z.shape[0]), max(j_ - k_, 0), min(j_ + k_ + 1, z.shape[1])
+                yy, xx = np.mgrid[a0:a1, b0:b1]
+                dsk = free_[a0:a1, b0:b1] & (((yy - i_) ** 2 + (xx - j_) ** 2) <= r_ * r_)
+                if dsk.any():
+                    rval[a0:a1, b0:b1][dsk] = rval[i_, j_]; rfix[a0:a1, b0:b1][dsk] = True; free_[a0:a1, b0:b1][dsk] = False
+                    n_disc += int(dsk.sum())
+            log(f"  lone observed cells: {int(lone.sum())}; their value held halfway to the next observation (<= {float(P['lone_pin_max_m']):g} m): "
+                f"{n_disc} cells, disc radius p50/p90 {np.percentile(rho_ * res, [50, 90]).round(1)} m")
+            del oi_, oj_, li_, lj_, d2_, rho_, free_
         r = harmonic(rval, rfix, dom & hole, coarse=P["coarse"], iters=P["cg_iters"])
         ok = (dom & hole) & np.isfinite(r)
         fill[ok] = (prior[ok] + r[ok]).astype(np.float32)
@@ -2441,7 +2472,14 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 cells_ = (lab == i) & hole & ~band_fp; bnd_ = inside_obs | rim | band_fp
             else:
                 cells_ = (lab == i) & hole; bnd_ = inside_obs | rim
-            r = _spline_residual(Sd, base, cells_, dom, bnd_, res, P, T=P.get("_transform"), log=log, name=f"{int(i)}{tag}")
+            # a LAKE's soundings are fitted as the sea's casts are (Hig, 2026-11-06: "appropriately converging logic between our
+            # marine soundings and lake soundings"): chi lake_chi, the floor path's shore_cast_chi, so the surface passes within
+            # 0.2 sigma of them rather than 1 sigma.  A lens domain keeps points_chi: its sites are CRM's sigma-10 centres and the
+            # casts, and at 0.2 plates_t moved 310 ha by up to 25 m -- its own question, not this one.
+            Pd = P
+            if lk.any() and bool(((lab == i) & lk & ~tidal_cells & ~chan).any()):
+                Pd = dict(P); Pd["points_chi"] = float(P.get("lake_chi", 0.2))
+            r = _spline_residual(Sd, base, cells_, dom, bnd_, res, Pd, T=P.get("_transform"), log=log, name=f"{int(i)}{tag}")
             if r is not None:
                 m_ = np.isfinite(r)
                 fill[m_] = (base[m_] + r[m_]).astype(np.float32)
