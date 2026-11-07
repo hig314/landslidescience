@@ -366,6 +366,18 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
       and the shoreline rings' `wl == k` per water component, each over 66 M cells (the fill had the same shape this morning, 8ce694c).
       Both now take each object's find_objects slice; outputs byte-identical on lagoon_t (labels, levels, 33 rings).  Live 18:32:48; r7c4
       killed (rc 143) and put back at the head of the queue; the queue held by two placeholder processes until joint.py / fill.py go live.
+  2026-11-06 18:45-19:10, ALL NINE RULES LIVE; THE EMPTY BOXES: joint.py (flown footprint + speck/floating over a cast, zone-aware except
+    under lone returns -- the first cut read the Woz front's 1978 casts through the zone's edge and condemned 11 ha of the 2023 front; and
+    Anchor Point's strays had made their own beach zone, so a lone return (n_g <= 2) is judged by every cast) live 18:45:51 with the 76
+    recipes on layer_flown.tif (f251ab1); fill.py (the lens over a cast) live 18:55:17 (ba8b209; lagoon_t / plates_t fills changed 0.0 /
+    1.4 ha).  Regressions of the joint on seldovia_t 0.29 ha, lagoon_t 0.37 ha, woz_t 0.10 ha; anchor_t's strays stay condemned (7,355
+    floating pieces, 4.1 ha).  Ledger rows tideisl, flown, floatcast, lenscast.  Holds released 18:58; r7c4 (rerun) and r1c4 started.
+    r1c4, r0c1, r0c2, r0c3 then FAILED in 20 s each: no source has a cell there (open water beyond every lidar and grid; the casts and
+    CRM are the fill's points, not the layer's) and fuse took max() of no dates.  Fixed (90a596a): an empty box writes a void layer; r1c4
+    run by hand as the test -- its water stage found the sea from the points (212 km2, one body) and the chain went on; the three r0
+    boxes put back at the head of the queue.  The watcher now keys rc lines by line number (a rerun box is checked again).
+    QUEUE TRAPS LEARNED: the workers count `pgrep -f "run_box.sh kj_"`; a shell command of mine containing that literal held a worker
+    (never put the literal in a command while the run is up); a placeholder `sh -c 'sleep N; true' run_box.sh kj_hold` holds the queue.
   NEXT AFTER THE RUN (Hig, 2026-11-06 10:30): MORE GREEN LIDAR FOR THE HOMER AREA -- additional topobathy point clouds Hig is organising, over
     the coast where sand bars sweep along the shore (Bishop's Beach, the Spit), so surveys of different dates will seam inside the bars.  Work them in
     as units (a ground unit and a bed unit each, own date and sigma, like homer2018 / homer2018bed), check their datum (the geoid model in the LAS
