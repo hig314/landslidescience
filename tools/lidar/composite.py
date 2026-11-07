@@ -55,7 +55,7 @@ def winner_index(out, layers):
     return idx
 
 
-def post_masks(recipe, grid, layers, rules):
+def post_masks(recipe, grid, layers, rules, win=None):
     """The rules' take masks -> each layer's auto mask: the recipe's rules_post (despeckle,
     feather, ...), which a layer may override with its own (the fill: none -- a pond under the
     despeckle area or a channel narrower than the feather must still be filled); then the
@@ -98,6 +98,31 @@ def post_masks(recipe, grid, layers, rules):
         if "cls" in L and L.get("cls") is not None:
             from topobathy.axes import CLASSES as _C
             m = np.where(L["valid"] & ~np.isin(L["cls"], [_C["void"], _C["water"], _C["canopy"]]), m, 0.0)
+        # A POINT OBSERVATION IS NEVER SPECKLE (Hig's review of cm18, 2026-11-06, upper Grewingk Lake: "little spikes beneath
+        # them or holes above them").  A pooled layer's POINTS source (the soundings unit: a sounding is one cell, a line of
+        # them one cell wide) is confetti to the despeckle wherever the layer's take around it is thin -- 529 of Grewingk's
+        # 6,085 soundings lost their cell to the layer beneath, and the fill then saw them only as sparse sigma-1 points and
+        # missed them by up to 10 m.  A cell the rules gave this layer that a points source contributed to keeps the rules'
+        # take at full weight, whatever the post-processing did around it.  The sources' kinds are the joint's own report
+        # beside its source_bits raster (joint_report.json: sources[name].kind), so no recipe declares anything.
+        sb_ = L["spec"].get("source_bits")
+        if sb_ and win is not None and (rules["masks"][i] > 0).any():
+            from pathlib import Path as _P
+            import json as _json
+            rp_ = _P(str(sb_)).parent / "joint_report.json"
+            if rp_.exists():
+                rep_ = _json.loads(rp_.read_text()); bits_ = rep_.get("src_bits") or {}
+                pb_ = 0
+                for nme_, meta_ in (rep_.get("sources") or {}).items():
+                    if isinstance(meta_, dict) and meta_.get("kind") == "points" and nme_ in bits_:
+                        pb_ |= int(bits_[nme_])
+                if pb_:
+                    from topobathy.stack import read_geo as _rg
+                    src_, sv_ = _rg(str(sb_), grid, win, "nearest")
+                    pm_ = L["valid"] & sv_ & ((np.nan_to_num(src_).astype(np.int64) & pb_) != 0) & (rules["masks"][i] > 0) & (m < 1)
+                    if pm_.any():
+                        m = np.where(pm_, 1.0, m)
+                        print(f"  {L['name']}: {int(pm_.sum())} cells of a points source kept at full weight (never speckle, never feathered)")
         L["auto"] = m.astype(np.float32)
     cov = layers[0]["auto"] > 0
     for L in layers[1:]:
@@ -255,7 +280,7 @@ def _build_window(recipe, grid, win, verbose=True, obs_paint=True):
             rules = axes.state_rules_sequential(layers, target, recipe.d.get("as_of"), recipe.d.get("rates"),
                                                 recipe.d.get("sigma_max", 5.0), recipe.d.get("lowest"), recipe.d.get("margin_m", 0.0))
         layers[0]["rules"] = rules
-        post_masks(recipe, grid, layers, rules)
+        post_masks(recipe, grid, layers, rules, win)
         for i, L in enumerate(layers):
             if i == 0:
                 L["mask"] = (L["valid"] & (L["auto"] > 0)).astype(np.float32); continue

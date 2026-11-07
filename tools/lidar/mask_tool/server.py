@@ -145,7 +145,7 @@ class Session:
         else:
             rules = AX.state_rules_sequential(obs, self.target, d.get("as_of"), d.get("rates"), d.get("sigma_max", 5.0), d.get("lowest"), d.get("margin_m", 0.0))
         self.layers[0]["rules"] = rules
-        post_masks(self.recipe, self.grid, self.layers, rules)      # the build's post ops + coverage guard, shared
+        post_masks(self.recipe, self.grid, self.layers, rules, self.win)      # the build's post ops + coverage guard, shared
 
     def refold(self):
         out = None
