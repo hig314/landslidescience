@@ -63,6 +63,13 @@
    "live": "2026-11-06 18:55:17",
    "commit": "ba8b209",
    "what": "fill: a tidal-lens cell whose shallowest cast within 150 m stands >= 2 m under the observed water surface is water over a bed -- the floor path, the surface its ceiling (Anchor Point: the bed had been modelled at Kenai 2008's 1.9 m surface in 6 m of water)"
+  },
+  {
+   "id": "rimless",
+   "stage": "fill",
+   "live": "2026-11-06 19:26:59",
+   "commit": "d69c2c1",
+   "what": "fill: the contour shore model runs for a floor-path sea with no land rim in the box (open-water boxes: the casts' basin spline instead of a flat at the low-tide floor)"
   }
  ]
 }
