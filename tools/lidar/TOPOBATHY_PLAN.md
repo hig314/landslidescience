@@ -246,7 +246,15 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
     7.2 ha of ringed voids); r3c1: 7,675 casts, NMAD 0.57, |r|/sigma p90 4.1 -- nos_h09879/h09878 (1977-84) against the multibeam they lie on
     (p90 |r| 2.0-2.6 m, the surveys' own placement), and nos_h10030's 38 casts with six on land at 11-15 m (cast review items, not the fill);
     perched 3.2 ha at 59.32766,-151.78217 over a bed at -3.0..-3.5 = the earlier open item (the flat near -3.88 m at 59.33297,-151.78324).
-  2026-11-06 13:00-15:00, HIG'S REVIEW OF cm18, THREE MORE (all diagnosed; two rules on trial in scratchpad/lidar_fx4, crops woz_t and lagoon_t added):
+  2026-11-06 13:00-15:10, HIG'S REVIEW OF cm18, THREE MORE (all diagnosed; two rules tested on crops and LIVE from 15:09 -- joint.py the zone's day, shoreface.py
+    the ring; boxes whose joint started before 15:09 (r7c4 14:57, r7c3 13:54 and every box before) lack the first, those whose shore stage ran before it the second):
+    RESULTS: (A) the Sea-neighbour guess was wrong (lbase == lfix, 0 cells): the gaps touched, at a corner, a hole cell of ANOTHER DOMAIN (domains 4-connected,
+      the voids 8-connected), read as "not bed".  Now any void leaves the ring whole; what breaks it is observed ground at or above the base, the grid's edge or
+      data of the void's own.  lagoon_t: 93 -> 112 ringed voids (7.18 -> 8.40 ha), 3,140 cells lowered ~54 m to the bed, none raised; lattice cells at -13 m
+      among a bed below -50 m 3,398 -> 434; what remains is the lagoon's walls (the shore face meeting a -57 m bed at the survey's outer line).
+      (B) sfix4 regressions: plates_t and bluff_t byte-identical; seldovia_t 0.43 ha in 23 specks (<= 0.06 ha) along the harbour mouth's beach zone, the bay's
+      sheet over the multibeam untouched (67 of 72 sheets still condemned).  Live.
+    (as first written at 13:00:)
     (A) "thin bathy stripes in the 2008 data ... extreme artifacts along them - worst in Halibut Cove Lagoon (59.57178,-151.19832)".  The 2009
       multibeam (bathy2009) lies in a lattice of lines in the -68 m basin with gaps a cell or two wide between them.  The point is in the overlap
       of r6c3/r6c4/r5c3/r5c4; r6c3 (fill 11-05 21:07, BEFORE the ringed-void rule 2e77b9f went live 01:34) fills every gap as "between shores"

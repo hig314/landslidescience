@@ -48,7 +48,7 @@ is water (at the touching water's level, else its rim's low ground) unless the p
 everything else void -- the prior's, through the composite.
 """
 from __future__ import annotations
-import argparse, csv, json, re, sys, time
+import argparse, csv, json, os, re, sys, time
 from pathlib import Path
 import numpy as np
 from scipy import ndimage
@@ -483,6 +483,19 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         among = e.get("among") or [s.name for s in srcs if s.kind == "lidar"]
         for n in names:
             if n in among and n not in e["allow"]: allow[n] &= V != k
+    # THE ZONE'S DAY (2026-11-06, Hig's review of cm18, the Wosnesenski delta front at 59.55261,-151.39426): a zone is where the surface
+    # moves, and what an older survey saw there is no evidence of the sea on the allowed survey's day.  KBay 2023's ground slopes from
+    # -0.8 to -2.9 m down the front, dense and dry, over the 2009 multibeam's -4 to -9 m and a 1978 NOS cast line at -6 to -10 m: the
+    # delta has built out, and the sheet rule below condemned the 2023 ground as the sea, piecemeal as the flat test flickered along the
+    # 3 % slope.  Per cell, the date of the zone's one allowed survey (NaN where pooled); the sheet rule drops beds, water and casts
+    # older than it inside the zone.  Outside the zones nothing changes: Taylor Bay's sea sheet over the 1978 casts is pooled ground
+    ZD = np.full((H, W), np.nan, np.float32)
+    for k, e in enumerate(vint, 1):
+        al_ = e.get("allow") if isinstance(e.get("allow"), list) else []
+        if len(al_) == 1 and al_[0] in S and np.isfinite(S[al_[0]].date):
+            ZD[V == k] = S[al_[0]].date
+    def fresh(m):                                            # not older than the zone's day where zoned (see ZD above)
+        return ~(np.isfinite(ZD) & (ZD > (S[m].date if np.isfinite(S[m].date) else -np.inf)))
     # ---- 2. alignment of lidar sources to the reference on stable bare ground, outside the zones
     ref = next((s.name for s in srcs if s.reference and obs[s.name] is not None), None); rep["alignment"] = {}
     if ref is not None:
@@ -690,7 +703,7 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         bed_any = np.zeros((H, W), bool)
         for m in names:
             if S[m].cls == "bed" and not S[m].derived:
-                bed_any |= ndimage.binary_dilation(allow[m] & np.isfinite(Z[m]), iterations=max(1, int(np.ceil(2 * xs))))
+                bed_any |= ndimage.binary_dilation(allow[m] & fresh(m) & np.isfinite(Z[m]), iterations=max(1, int(np.ceil(2 * xs))))
         for n in names:
             if S[n].kind != "lidar" or "z_w" not in obs[n] or not bed_any.any():
                 continue
@@ -729,28 +742,36 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
     zwmin = np.full((H, W), np.inf, np.float32)
     for m in names:
         if "z_w" in obs[m]:
-            zwmin = np.fmin(zwmin, np.where(np.isfinite(obs[m]["z_w"]) & allow[m], obs[m]["z_w"], np.inf))
+            zwmin = np.fmin(zwmin, np.where(np.isfinite(obs[m]["z_w"]) & allow[m] & fresh(m), obs[m]["z_w"], np.inf))
     zbmin = np.full((H, W), np.inf, np.float32)
     for m in names:
         if S[m].cls == "bed" and not S[m].derived:
-            zbmin = np.fmin(zbmin, np.where(np.isfinite(Z[m]) & allow[m], Z[m], np.inf))
+            zbmin = np.fmin(zbmin, np.where(np.isfinite(Z[m]) & allow[m] & fresh(m), Z[m], np.inf))
     zbpmin = np.full((H, W), np.inf, np.float32)             # the sparse measured beds alone (soundings)
     for m in names:
         if S[m].kind == "points" and S[m].cls == "bed" and not S[m].derived:
-            zbpmin = np.fmin(zbpmin, np.where(np.isfinite(Z[m]) & allow[m], Z[m], np.inf))
+            zbpmin = np.fmin(zbpmin, np.where(np.isfinite(Z[m]) & allow[m] & fresh(m), Z[m], np.inf))
     # ...and the fill's points files (cfg sheet_points: the NOS soundings, CRM's centres, 2026-10-31), evidence for the sheet
     # rule alone, never cells of the layer: with the compilations gone from the layer the KBay lidar's sea surface over Taylor
     # Bay (2.9 m that day) stood as ground with nothing measured under it (plates_t fix2 pass 6)
-    nsp_ = 0
+    nsp_ = nst_ = 0
+    yr_ = lambda t: max((float(y) for y in re.findall(r"(?<!\d)(19\d\d|20\d\d)(?!\d)", t or "")), default=None)
     for pp_ in (cfg.get("sheet_points") or []):
+        fy_ = yr_(os.path.basename(pp_)); cache_ = {}
         for r_ in csv.DictReader(open(pp_)):
             if r_.get("bound") or r_.get("z") in (None, ""):
                 continue
             c_ = int((float(r_["x"]) - win[0]) // res); rr_ = int((win[3] - float(r_["y"])) // res)
             if 0 <= rr_ < H and 0 <= c_ < W:
+                if np.isfinite(ZD[rr_, c_]):                   # in a zone: the point's year from its survey's name, else its file's; undated is old
+                    sv_ = r_.get("survey") or ""
+                    if sv_ not in cache_: cache_[sv_] = yr_(sv_) if yr_(sv_) is not None else fy_
+                    py_ = cache_[sv_]
+                    if py_ is None or py_ + 1.0 < ZD[rr_, c_]:
+                        nst_ += 1; continue
                 zbpmin[rr_, c_] = min(zbpmin[rr_, c_], float(r_["z"])); nsp_ += 1
-    if nsp_:
-        log(f"  sheet rule: {nsp_} points from the fill's files as a sparse measured bed")
+    if nsp_ or nst_:
+        log(f"  sheet rule: {nsp_} points from the fill's files as a sparse measured bed; {nst_} older than the zone's survey where zoned, no evidence there")
     if np.isfinite(zwmin).any() or np.isfinite(zbmin).any() or np.isfinite(zbpmin).any() or any("z_w" in obs[n] for n in names):
         tm_ = float(cfg.get("tide_max_m", np.inf)); smc = float(cfg["stand_min_cells"]); tol_ = float(cfg["over_water_tol_m"])
         for n in names:

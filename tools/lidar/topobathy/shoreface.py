@@ -473,7 +473,11 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
     # and takes its level from its rim.  Not one with a line, a cast at or above the base, a pool or higher ground of its own in it, nor one at the grid's edge, whose ring is not all seen
     lb, nl = ndimage.label(U, structure=np.ones((3, 3), bool))
     if nl:
-        notbed_ = ~U & ~(ob & (np.nan_to_num(z, nan=1e9) <= Z0 - 0.1))
+        # ...and a ring broken only by another VOID is whole (2026-11-06, Hig, Halibut Cove Lagoon, 59.57178,-151.19832: the 2009 multibeam's lines leave a lattice of
+        # gaps a cell or two wide in a -68 m basin; half of them touched, at a corner, a void cell of another domain -- the domains are 4-connected, the voids here
+        # 8-connected -- and stood as "between shores", filled 55 m high).  What breaks a ring is what is SEEN to be not a bed: observed ground at or above the base,
+        # the grid's edge, or data of the void's own
+        notbed_ = ~U & ~hole & ~(ob & (np.nan_to_num(z, nan=1e9) <= Z0 - 0.1))
         out_ = np.zeros(nl + 1, bool); out_[np.unique(lb[U & ndimage.binary_dilation(notbed_, structure=np.ones((3, 3), bool))])] = True; del notbed_
         out_[np.unique(np.r_[lb[0], lb[-1], lb[:, 0], lb[:, -1]])] = True
         own_ = U & (np.isfinite(lines) | pool_ | hi)
