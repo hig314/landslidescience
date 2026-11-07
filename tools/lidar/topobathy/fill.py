@@ -2559,7 +2559,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             fill[low] = F_[low]
     # THE SEA'S SHORE FROM TIDE-LEVEL CONTOURS (2026-11-03): see shoreface.py; it replaces the floor-path domains' surface outright
     shoreface_R = None
-    if contour_model and land_rim.any():
+    if contour_model and (land_rim.any() or bool(nolens_ids)):   # ...or a floor-path sea with no land in the box at all (kj_r1c4, 2026-11-06): the casts' basin alone
         from .shoreface import contour_sea
         shoreface_R = contour_sea(z, hole, dom, lab, nolens_ids, rim, land_rim, srim, res, P, log=log, dry_from=nw)
         if shoreface_R is not None:
