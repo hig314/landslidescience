@@ -62,7 +62,7 @@
        "fill"
       ],
       "footprints": [
-       "/Volumes/Powder/lidar_build/kbay_joint/crops/ct_chatham/layer_class.tif"
+       "/Volumes/Powder/lidar_build/kbay_joint/crops/ct_chatham/layer_flown.tif"
       ],
       "dry_void": "$out/fill_dryvoid.tif",
       "bodies": "$out/water_bodies.tif",

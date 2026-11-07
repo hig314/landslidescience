@@ -62,7 +62,7 @@
        "fill"
       ],
       "footprints": [
-       "BOX_JOINT/layer_class.tif"
+       "BOX_JOINT/layer_flown.tif"
       ],
       "dry_void": "$out/fill_dryvoid.tif",
       "bodies": "$out/water_bodies.tif",

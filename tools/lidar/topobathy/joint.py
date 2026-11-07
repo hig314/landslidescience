@@ -55,7 +55,7 @@ from scipy import ndimage
 
 CLS = {"void": 0, "ground": 1, "water": 2, "bed": 3, "ice": 4}
 DEFAULTS = dict(res_m=1.0, pool_years={"ground": 5.0, "bed": 30.0, "ice": 0.5}, rates={"ground": 0.01, "bed": 0.02, "ice": 3.0}, tol_m=0.15, tol_low_m=1.0, xc_sigma_m=2.0, xc_minw=1.5,
-                over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, bed_stand_dz_m=2.0, speck_near_m=300.0, speck_sparse_frac=0.25, derived_ground_gap_m=0.0, derived_ground_dense_frac=0.5, sonar_min_depth_m=1.5, sparse_bed_min_n=5, coarse_factor=4.0, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, derived_fine_m=0.0, derived_fine_frac=0.05, surf_near_m=30.0,
+                over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, bed_stand_dz_m=2.0, speck_near_m=300.0, speck_sparse_frac=0.25, derived_ground_gap_m=0.0, derived_ground_dense_frac=0.5, sonar_min_depth_m=1.5, sparse_bed_min_n=5, coarse_factor=4.0, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, derived_fine_m=0.0, derived_fine_frac=0.05, surf_near_m=30.0, speck_cast_m=150.0,
                 sigma_floor_m=0.03, gap_m=2.0, wet_m=15.0, steep_deg=20.0, prior_slope_res_m=5.0, hole_rim_tol_m=1.0, grid_wc=0.1, grid_better=0.75,
                 lidar_sigma_m=0.08, grid_xy_sigma_m=0.0, align_min_cells=1000)
 
@@ -756,6 +756,11 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
     # Bay (2.9 m that day) stood as ground with nothing measured under it (plates_t fix2 pass 6)
     nsp_ = nst_ = 0
     yr_ = lambda t: max((float(y) for y in re.findall(r"(?<!\d)(19\d\d|20\d\d)(?!\d)", t or "")), default=None)
+    # ...and every cast with its year, for the SPECK / FLOATING rules' reach (hc_, below): the shallowest cast within speck_cast_m of a
+    # cell, judged by the zone's day AT THAT CELL -- a cast outside the zone, 50 m off the Woz delta front, is older than the front's
+    # survey and no evidence against it (2026-11-06 woz_t: the first cut read it through the zone's edge and condemned 11 ha of the
+    # 2023 front the zone's-day rule had just held)
+    cast_z = np.full((H, W), -np.inf, np.float32); cast_y = np.full((H, W), -np.inf, np.float32); cast_sg = float(cfg.get("cast_sigma_max_m", 5.0))
     for pp_ in (cfg.get("sheet_points") or []):
         fy_ = yr_(os.path.basename(pp_)); cache_ = {}
         for r_ in csv.DictReader(open(pp_)):
@@ -763,17 +768,34 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
                 continue
             c_ = int((float(r_["x"]) - win[0]) // res); rr_ = int((win[3] - float(r_["y"])) // res)
             if 0 <= rr_ < H and 0 <= c_ < W:
+                sv_ = r_.get("survey") or ""
+                if sv_ not in cache_: cache_[sv_] = yr_(sv_) if yr_(sv_) is not None else fy_
+                py_ = cache_[sv_]
+                zz_ = float(r_["z"])
+                try: sg_ = float(r_.get("sigma") or 1.0)
+                except ValueError: sg_ = 1.0
+                if sg_ <= cast_sg and zz_ > cast_z[rr_, c_]:   # a measured cast (a compilation's centre at sigma 10 is not one)
+                    cast_z[rr_, c_] = zz_; cast_y[rr_, c_] = py_ if py_ is not None else -np.inf
                 if np.isfinite(ZD[rr_, c_]):                   # in a zone: the point's year from its survey's name, else its file's; undated is old
-                    sv_ = r_.get("survey") or ""
-                    if sv_ not in cache_: cache_[sv_] = yr_(sv_) if yr_(sv_) is not None else fy_
-                    py_ = cache_[sv_]
                     if py_ is None or py_ + 1.0 < ZD[rr_, c_]:
                         nst_ += 1; continue
-                zbpmin[rr_, c_] = min(zbpmin[rr_, c_], float(r_["z"])); nsp_ += 1
+                zbpmin[rr_, c_] = min(zbpmin[rr_, c_], zz_); nsp_ += 1
     if nsp_ or nst_:
         log(f"  sheet rule: {nsp_} points from the fill's files as a sparse measured bed; {nst_} older than the zone's survey where zoned, no evidence there")
     if np.isfinite(zwmin).any() or np.isfinite(zbmin).any() or np.isfinite(zbpmin).any() or any("z_w" in obs[n] for n in names):
         tm_ = float(cfg.get("tide_max_m", np.inf)); smc = float(cfg["stand_min_cells"]); tol_ = float(cfg["over_water_tol_m"])
+        # the SHALLOWEST cast within speck_cast_m of each cell (a square, separable), for the speck / floating rules below: -inf =
+        # none.  Zone-aware: on a zoned cell only casts not older than that zone's day count (one filter per distinct day).
+        # ...except under a cell of a LONE RETURN (n_g <= float_sparse_n): a zone protects a surveyed surface (the Woz front, 40
+        # returns a cell), not a stray of the sea surface that happens to be the newest lidar's only return there (Anchor Point:
+        # Kenai 2008's strays made their own beach zone, and inside it the 1977-84 casts were "older" and no evidence)
+        rc_ = int(round(float(cfg.get("speck_cast_m", 0.0)) / res)); hc_ = hc_all = None
+        if rc_ > 0 and np.isfinite(cast_z).any():
+            hc_all = ndimage.maximum_filter(cast_z, size=2 * rc_ + 1); hc_ = hc_all
+            for d_ in np.unique(ZD[np.isfinite(ZD)]):
+                hz_d = np.where(cast_y + 1.0 >= d_, cast_z, -np.inf).astype(np.float32)
+                hc_ = np.where(ZD == d_, ndimage.maximum_filter(hz_d, size=2 * rc_ + 1), hc_)
+        del cast_z, cast_y
         for n in names:
             # ...and a DTM with no point cloud is judged the same way (2026-11-03, Hig: a coastal flat dropping abruptly to the bathymetry at
             # 59.20377,-151.46453: Chugachmiut's published DTM carries the sea at -0.8..+0.3 m as ground over 163 ha, with casts of -8 and -13 m under it)
@@ -846,10 +868,35 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
                 # its ground broken into specks by its water-class returns at the same level (KBay 2023 on Hoen's inner flat:
                 # ground in 11 % of cells, any return in 83 % -- a test on the ground's density took the flat out, run 6)
                 dens_ = ndimage.uniform_filter(np.isfinite(obs[n]["zmax"]).astype(np.float32), 11) if "zmax" in obs[n] else ndimage.uniform_filter(zf_.astype(np.float32), 11)
-                if spo.any() and hw_.any():
+                if hw_.any() and (spo.any() or hc_ is not None):
                     dw_, (iy_, ix_) = ndimage.distance_transform_edt(~hw_, sampling=res, return_indices=True)
                     wl_ = obs[n]["z_w"][iy_, ix_]; del iy_, ix_
                     sp_ = sp_ | (spo[lab2_] & (dens_ <= float(cfg["speck_sparse_frac"])) & (dw_ <= float(cfg["speck_near_m"])) & (np.abs(Z[n] - wl_) <= tol_))
+                    # ...or, dense or sparse, OVER A CAST: a speck at the survey's own water level with the shallowest sounding within
+                    # speck_cast_m standing bed_stand_dz_m or more below it is the sea (2026-11-06, Hig: "patches of bad coastal data ...
+                    # in the nearshore ocean near Anchor Point", 59.72032,-151.83655 -- Kenai 2008's single returns at +1.7..2.2 m, the
+                    # level of its own water returns within 1-4 m of them, in a cloud where any return falls in ~45 % of cells (the sea's
+                    # water class is dense there, so the sparse test above passed them), over NOS h10033's casts at -4..-6 m, 4 within
+                    # 100 m; the fill honoured them as ground and raised pimples of +2 m in 6 m of water).  Hoen's mud flat has no cast
+                    # under it and keeps its specks.
+                    if hc_ is not None:
+                        hcn_ = np.where(N[n] <= float(cfg.get("float_sparse_n", 2.0)), hc_all, hc_) if S[n].kind == "lidar" else hc_
+                        at_ = (dw_ <= float(cfg["speck_near_m"])) & (np.abs(Z[n] - wl_) <= tol_)
+                        deep_ = (hcn_ > -1e8) & (hcn_ <= Z[n] - float(cfg["bed_stand_dz_m"]))
+                        sp_ = sp_ | (spo[lab2_] & at_ & deep_)
+                        # ...and a FLOATING COMPONENT of any size: one whose cells are (nearly) all at the survey's own water level with
+                        # a cast that far below most of them -- Anchor Point's strays join into pieces of 10-2,700 cells too big for the
+                        # speck test and too porous (water-class cells between) for the 5x5 flat test.  A beach rises out of the water
+                        # and its component holds cells above the level; a mud flat has no cast under it.
+                        cnt_ = np.bincount(lab2_.ravel(), minlength=nl2_ + 1).astype(np.float64); cnt_[0] = 1.0
+                        fa_ = np.bincount(lab2_.ravel(), weights=at_.ravel(), minlength=nl2_ + 1) / cnt_
+                        fd_ = np.bincount(lab2_.ravel(), weights=deep_.ravel(), minlength=nl2_ + 1) / cnt_
+                        flo_ = (fa_ >= float(cfg.get("float_at_frac", 0.9))) & (fd_ >= float(cfg.get("float_cast_frac", 0.5))); flo_[0] = False
+                        if flo_.any():
+                            add_ = flo_[lab2_] & ~sp_
+                            log(f"  {n:14s} floating components at the survey's own water level over a cast: {int(flo_.sum())} pieces, {float(add_.sum()) * res * res / 1e4:.2f} ha")
+                            sp_ = sp_ | add_
+                        del at_, deep_
                     del dw_, wl_
                 del dens_, lab2_
             # ...and what a DTM's sea sheet leaves behind: bits of its surface too rough for the flat test, at the sheet's level beside it, a small component of their own
@@ -1132,6 +1179,17 @@ def layer(recipe_path, win=None, out=None, res=None, log=print, tag=""):
         elif s.kind == "grid":
             o = obs_grid(s, win, res, epsg, cfg)
             if o is not None: obs_any[s.name] = np.isfinite(o["z"])
+    # WHERE A SURVEY FLEW (layer_flown.tif, for the composite's fallback footprint; 2026-11-06, Perl Island in kj_r1c2 under
+    # cm18: no lidar there, ArcticDEM in patches, and with layer_class as the footprint every gap between the patches
+    # was "flown" within near_m, the 3DEP fallback withdrawn from it, the gaps holes inside the sea body around the
+    # island, "water", and the fill carved 8.6 km2 of the island to -27 m median, -116 m at worst).  Flown means a
+    # lidar's return of any class (zmax), or a non-derived grid's cell (the multibeam, the sonar: the gaps between
+    # their lines are the sea), or water this layer decided; a DERIVED grid (ArcticDEM, the compilations, the cleaned
+    # vendor DTM) observes nothing where it has no cell, and the prior stands there.
+    flown = np.isfinite(zmax)
+    for s in srcs:
+        if s.kind == "grid" and not s.derived and s.name in obs_any:
+            flown |= obs_any[s.name]
     g = np.isfinite(Z); w = np.isfinite(Wz) & ~g
     noret = ~np.isfinite(zmax) & ~g & ~w
     dg = ndimage.distance_transform_edt(~g, sampling=res); dw = ndimage.distance_transform_edt(~w, sampling=res)
@@ -1184,8 +1242,10 @@ def layer(recipe_path, win=None, out=None, res=None, log=print, tag=""):
     surf = np.isfinite(zout) & (cls != CLS["bed"])
     zout = np.where(np.isfinite(zout), zout, nearest_fill(np.where(surf, zout, np.nan))).astype(np.float32)
     write(out / f"layer{tag}_z.tif", zout, win, res, epsg, "float32", -9999); write(out / f"layer{tag}_class.tif", cls, win, res, epsg, "uint8", 255)
+    flown |= cls == CLS["water"]
+    write(out / f"layer{tag}_flown.tif", flown.astype(np.uint8), win, res, epsg, "uint8", 255)
     a = res * res / 1e6
-    rep.update(ground_km2=round(float((cls == 1).sum()) * a, 3), bed_km2=round(float((cls == 3).sum()) * a, 3), ice_km2=round(float((cls == 4).sum()) * a, 3),
+    rep.update(flown_km2=round(float(flown.sum()) * a, 3), ground_km2=round(float((cls == 1).sum()) * a, 3), bed_km2=round(float((cls == 3).sum()) * a, 3), ice_km2=round(float((cls == 4).sum()) * a, 3),
                water_returns_km2=round(float(w.sum()) * a, 3), water_km2=round(float((cls == 2).sum()) * a, 3), void_km2=round(float((cls == 0).sum()) * a, 3),
                void_under_vegetation_km2=round(float((~g & ~wet & ~gap & ~noret).sum()) * a, 3), footprint_km2=round(float(F.sum()) * a, 3))
     (out / f"layer{tag}_report.json").write_text(json.dumps(rep, indent=1)); log(json.dumps(rep)); return rep

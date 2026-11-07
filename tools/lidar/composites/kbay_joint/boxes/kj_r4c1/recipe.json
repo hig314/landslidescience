@@ -62,7 +62,7 @@
        "fill"
       ],
       "footprints": [
-       "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r4c1/layer_class.tif"
+       "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r4c1/layer_flown.tif"
       ],
       "dry_void": "$out/fill_dryvoid.tif",
       "bodies": "$out/water_bodies.tif",
