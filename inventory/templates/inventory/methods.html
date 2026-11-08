@@ -515,10 +515,11 @@
   two sides of the map's wiper: set up a wiper with two overlays and they
   become x (left) and y (right); pick axes in the panel and the wiper is
   made to show them, so the map always shows what the plot is crossing.
-  Eighteen quantities can be axes today: elevation, slope, aspect and
+  Nineteen quantities can be axes today: elevation, slope, aspect and
   northness from the 60&nbsp;m terrain; the Gruber, Obu and Pastick
-  permafrost products and our downscales; the three susceptibility models;
-  summer radar coherence; and ITS_LIVE ice speed.
+  permafrost products and our downscales; the four susceptibility models
+  (USGS lw and n10, DGGS, and NASA's global map); summer radar coherence;
+  and ITS_LIVE ice speed.
 </p>
 <p>
   <strong>How the terrain density is built.</strong> Every quantity is
@@ -565,9 +566,11 @@
   Alaska, but nowhere in it has been left out, which is what the
   denominator assumes. The two USGS susceptibility models cover Alaska
   only and are left blank beyond it (their rasters carry zeros over
-  Canadian ground, which would otherwise read as unsusceptible). The DGGS susceptibility
-  classes are ordinal, so that axis is spaced by class position, not class
-  number; a flat cell has no aspect and is left out of that axis.
+  Canadian ground, which would otherwise read as unsusceptible). The DGGS and NASA
+  susceptibility classes are ordinal, so those axes are spaced by class
+  position, not class number (NASA's 30 arc-second cells are read at the
+  lattice point, nearest cell; its sea and unassessed ground have no
+  value); a flat cell has no aspect and is left out of that axis.
 </p>
 <p>
   <strong>Sample and brush.</strong> The <em>Sample</em> tool shows a

@@ -17,10 +17,14 @@ centroid sits in the same distribution. Nothing here is a mean over a cell.
 values to drop beyond the raster's own nodata. `label`, `units`, `note`
 are what the panel shows.
 """
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-B = Path('/Volumes/Nunatak/permafrost_build')
+# The permafrost working grids. Since 2026-10-31 they live only on R2
+# (lidar bucket, permafrost_build/); pull them back with rclone to this path
+# or point PF_BUILD at the copy before building those quantities.
+B = Path(os.environ.get('PF_BUILD', '/Volumes/Nunatak/permafrost_build'))
 DATA = ROOT / 'data'
 
 # Alaska (the `alaska` region subset, in EPSG:3338), for products that cover
@@ -76,6 +80,15 @@ QUANTITIES = {
                    src=Path('/Volumes/Nunatak/lidar_src/dggs_susc/dggs_susc_20m.vrt'),
                    classes=[0, 3, 5, 6, 7, 8, 9, 10], nodata=[200, 255],
                    note='ordinal classes, evenly spaced; 200 (water, ice) dropped'),
+    # NASA's global map (Stanley & Kirschbaum 2017, 2023 update): 30 arc-second
+    # cells in EPSG:4326, so the builder warps it (nearest) onto the lattice.
+    # Int8 classes 1-5; 0 is sea / not assessed (the file's nodata is 127).
+    # Global, so no Alaska mask: it is the one model with a value under every
+    # record outside the state.
+    'nasa':   dict(overlay='susc-nasa', label='Susceptibility class (NASA global)', units='class', res='~1 km',
+                   src=DATA / 'susc_src/nasa/global-landslide-susceptibility-map-2-27-23.tif',
+                   classes=[1, 2, 3, 4, 5], nodata=[0],
+                   note='ordinal classes 1 very low .. 5 very high; sea and unassessed ground dropped'),
     # ---- Surface change ---------------------------------------------------------
     'coh':    dict(overlay='coh-summer', label='Radar coherence, summer', units='%', range=(0, 100), bins=50, res='93 m',
                    src=DATA / 'coherence_src/summer_vv_COH12.vrt', nodata=[0], build_vrt=DATA / 'coherence_src/summer_vv_COH12',

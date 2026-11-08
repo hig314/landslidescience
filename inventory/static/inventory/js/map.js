@@ -41,6 +41,11 @@
     // properties for the range sliders; the analysis panel (analysis.js)
     // reads the rest through the same promise.
     var SUSC_VALUES = null;
+    // DATA_V is defined below this fetch in source order; `var` hoisting made
+    // the token `undefined` here, so this URL never changed and a browser
+    // could keep an old copy for as long as heuristic freshness allowed
+    // (2026-11-07: a stale file with no `nasa` column read as "no values").
+    var DATA_V = document.getElementById('map').dataset.version || '';
     var _suscValuesPromise = fetch(STATIC_BASE + 'inventory/ls_quantities.json?v=' + DATA_V)
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) { SUSC_VALUES = j; return j; })
@@ -62,9 +67,9 @@
         });
     }
 
-    // Version token embedded by Django — changes on each worker start / data reload.
+    // DATA_V (defined above, before its first use): the version token
+    // embedded by Django — changes on each worker start / data reload.
     // Appended to API URLs so browsers never serve stale cached responses.
-    var DATA_V = document.getElementById('map').dataset.version || '';
 
     // Canonical class order for URL bitmask encoding (matches sidebar order in template).
     var CLASS_ORDER = [
@@ -2802,6 +2807,7 @@
         'susc-lw':   { key: 'lw',   short: 'Susceptibility lw' },
         'susc-n10':  { key: 'n10',  short: 'Susceptibility n10' },
         'susc-dggs': { key: 'dggs', short: 'Susceptibility DGGS class' },
+        'susc-nasa': { key: 'nasa', short: 'Susceptibility NASA class' },
         'coh-summer': { key: 'coh', short: 'Radar coherence' },
         'ice-v':     { key: 'ice_v', short: 'Ice speed' }
     };
@@ -4491,7 +4497,11 @@
             }
             _ovSaveState();
             _ovApplyAll();
-            paint();
+            // Every row and category heading ("· N on") in every panel
+            // follows state through _ovRowSync; until 2026-11-07 only the
+            // row itself was repainted here, so a heading could keep
+            // "1 on" after its last box was unticked.
+            _ovSyncUI();
             if (_mapReady) writeHashState();
             _anOverlaysChanged();
         });

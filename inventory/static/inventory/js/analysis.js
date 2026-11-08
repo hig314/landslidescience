@@ -586,9 +586,14 @@ window.LSAnalysis = (function () {
     var note = cubeError ? cubeError : (dens ? '' : (quantities && !q(X) || quantities && !q(Y) ? 'no terrain density for this pair on this server' : ''));
     // ls_quantities.json is a committed snapshot: say so when records have
     // appeared since it was built, rather than silently leaving them off.
+    // A record a partial run (sample_quantities.py <keys>) added carries the
+    // keys it was not sampled for in lsv.unsampled; on those axes it is
+    // missing too, not "no data there".
     var missing = (lsv && fd && fd.features) ? fd.features.filter(function (ft) {
-      var id = ft.properties.landslide_id != null ? ft.properties.landslide_id : ft.properties.id;
-      return !lsv.values[String(id)];
+      var id = String(ft.properties.landslide_id != null ? ft.properties.landslide_id : ft.properties.id);
+      if (!lsv.values[id]) return true;
+      var un = lsv.unsampled && lsv.unsampled[id];
+      return !!(un && (un.indexOf(X) >= 0 || un.indexOf(Y) >= 0));
     }).length : 0;
     if (missing) note += (note ? ' · ' : '') + missing + ' landslide' + (missing === 1 ? ' has' : 's have') + ' no sampled values (added since the values file was built' +
                           (lsv.built ? ' ' + lsv.built.slice(0, 10) : '') + ') — tools/analysis/sample_quantities.py --centroids';
