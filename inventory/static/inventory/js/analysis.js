@@ -583,7 +583,11 @@ window.LSAnalysis = (function () {
     var msg = (kind && !haveSub) ? 'reading…' : pts.length ? pts.length + ' landslides' : (lsv ? (kind ? 'no landslides' : 'no values') : 'loading…');
     if (hl.length) msg += ' · ' + hl.length + ' selected';
     el.count.textContent = msg;
-    var note = cubeError ? cubeError : (dens ? '' : (quantities && !q(X) || quantities && !q(Y) ? 'no terrain density for this pair on this server' : ''));
+    // Notices about the pair (errors, painting), and a footnote on the count:
+    // landslides that exist but are not on the plot. Both sit under the legend.
+    var notices = [];
+    if (cubeError) notices.push({ t: cubeError, err: true });
+    else if (!dens && quantities && (!q(X) || !q(Y))) notices.push({ t: 'no terrain density for this pair on this server', err: true });
     // ls_quantities.json is a committed snapshot: say so when records have
     // appeared since it was built, rather than silently leaving them off.
     // A record a partial run (sample_quantities.py <keys>) added carries the
@@ -595,13 +599,19 @@ window.LSAnalysis = (function () {
       var un = lsv.unsampled && lsv.unsampled[id];
       return !!(un && (un.indexOf(X) >= 0 || un.indexOf(Y) >= 0));
     }).length : 0;
-    if (missing) note += (note ? ' · ' : '') + missing + ' landslide' + (missing === 1 ? ' has' : 's have') + ' no sampled values (added since the values file was built' +
-                          (lsv.built ? ' ' + lsv.built.slice(0, 10) : '') + ') — tools/analysis/sample_quantities.py --centroids';
-    if (nOut) note += (note ? ' · ' : '') + nOut + ' landslide' + (nOut === 1 ? '' : 's') + ' outside the reviewed area' +
-                      (rvCells ? ' (' + rvCells.toLocaleString() + ' km² of land)' : '') + ' not counted';
-    if (nFilt) note += (note ? ' · ' : '') + nFilt + ' hidden by the map’s filters';
-    if (brush && !canPaint()) note += (note ? ' · ' : '') + 'the box paints the map only where both axes have 60 m value archives';
-    el.note.textContent = note;
+    var star = [];
+    if (missing) star.push(missing + ' landslide' + (missing === 1 ? ' has' : 's have') + ' no sampled values (added since the values file was built' +
+                           (lsv.built ? ' ' + lsv.built.slice(0, 10) : '') + ') — tools/analysis/sample_quantities.py --centroids');
+    if (nOut) star.push(nOut + ' landslide' + (nOut === 1 ? '' : 's') + ' outside the reviewed area' +
+                        (rvCells ? ' (' + rvCells.toLocaleString() + ' km² of land)' : '') + ' not counted');
+    if (nFilt) star.push(nFilt + ' hidden by the map’s filters');
+    if (brush && !canPaint()) notices.push({ t: 'The box paints the map only where both axes have 60 m value archives.' });
+    if (star.length && pts.length) el.count.textContent = msg.replace(/^(\d+ landslides)/, '$1*');
+    var lines = [];
+    if (star.length) lines.push('<div>' + (pts.length ? '* ' : '') + esc(star.join(' · ')) + '</div>');
+    notices.forEach(function (n) { lines.push('<div' + (n.err ? ' class="an-err"' : '') + '>' + esc(n.t) + '</div>'); });
+    el.note.innerHTML = lines.join('');
+    el.note.style.display = lines.length ? '' : 'none';
     foot(qx, qy, tBins, lBins, pts.length, noTerrain, kind, haveSub);
   }
   // Ticks for an axis `px` pixels long: about one label per 55 px, so a
