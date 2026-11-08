@@ -99,11 +99,11 @@ written down anywhere — read `/lidar/audit/`.
   finalized release is to be fully public, as a new lidar entry. A final
   release should go in a new drop or folder (same name + size = skipped).
 
-- **Fixed-scale slopes as analysis axes** (2026-11-07, in dev, waiting for
-  Hig to test): local, 200 m, 500 m, 1 km, 2 km rows are axes (see *The
-  analysis panel*). To ship: push + deploy + rsync
-  `data/quantities/slope_{local,200,500,1k,2k}.npy` and `grid.json` (~118 MB;
-  droplet had 5.2 GB free).
+- **Fixed-scale slopes as analysis axes** (2026-11-07, deployed 2026-11-08,
+  c0ce02a; `data/quantities/slope_{local,200,500,1k,2k}.npy` + `grid.json`
+  rsynced, droplet 5.1 GB free after; checked on prod by API: 24 quantities,
+  density totals, served map.js bindings, 1,567 landslides with values):
+  local, 200 m, 500 m, 1 km, 2 km rows are axes (see *The analysis panel*).
 - **NASA susceptibility as an analysis axis** (2026-11-07, deployed the same
   evening, df9247b, nasa.npy + grid.json rsynced; checked on prod by API): `nasa` in `tools/analysis/quantities.py`, `data/quantities/nasa.npy`
   built, `ls_quantities.json` resampled from prod centroids for that key only
