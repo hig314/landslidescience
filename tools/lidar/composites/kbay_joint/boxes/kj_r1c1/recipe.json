@@ -342,6 +342,40 @@
     "sigma_m": 0.3
    },
    {
+    "name": "homer2019ncmp",
+    "kind": "lidar",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units/units",
+    "unit_file": "homer2019ncmp.npz",
+    "date": "2019-07-17",
+    "sigma_m": 0.08
+   },
+   {
+    "name": "homer2019ncmpbed",
+    "kind": "lidar",
+    "cls": "bed",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units/units",
+    "unit_file": "homer2019ncmp_bed.npz",
+    "date": "2019-07-17",
+    "sigma_m": 0.3
+   },
+   {
+    "name": "homer2021ncmp",
+    "kind": "lidar",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units/units",
+    "unit_file": "homer2021ncmp.npz",
+    "date": "2021-05-30",
+    "sigma_m": 0.08
+   },
+   {
+    "name": "homer2021ncmpbed",
+    "kind": "lidar",
+    "cls": "bed",
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/units/units",
+    "unit_file": "homer2021ncmp_bed.npz",
+    "date": "2021-05-30",
+    "sigma_m": 0.3
+   },
+   {
     "name": "seldovia2019",
     "kind": "lidar",
     "src": "/Volumes/Powder/lidar_build/kbay_joint/units/units",
@@ -579,6 +613,54 @@
       29
      ],
      "date": "2018-06-10"
+    },
+    {
+     "name": "homer2019ncmp",
+     "reader": "copc",
+     "tiles": "/Volumes/Nunatak/lidar_src/homer_2019_ncmp",
+     "glob": "*.copc.laz",
+     "drop": [
+      7,
+      18,
+      23
+     ],
+     "ground": {
+      "classes": [
+       2
+      ]
+     },
+     "water": [
+      9
+     ],
+     "bed": [
+      29
+     ],
+     "date": "2019-07-17",
+     "srs": "EPSG:6393"
+    },
+    {
+     "name": "homer2021ncmp",
+     "reader": "copc",
+     "tiles": "/Volumes/Nunatak/lidar_src/homer_2021_ncmp",
+     "glob": "*.copc.laz",
+     "drop": [
+      7,
+      18,
+      23
+     ],
+     "ground": {
+      "classes": [
+       2
+      ]
+     },
+     "water": [
+      9
+     ],
+     "bed": [
+      29
+     ],
+     "date": "2021-05-30",
+     "srs": "EPSG:6393"
     },
     {
      "name": "seldovia2019",

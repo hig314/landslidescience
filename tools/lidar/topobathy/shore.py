@@ -1141,7 +1141,17 @@ def run(recipe, log=print):
             log(f"  trusted polygons: {int(ok_p.sum())} hold one level; {int(take_p.sum()) * res * res / 1e4:.2f} ha of levelless water inside them take it")
     if clear_impossible_levels(lev, wet, cfg, log, "before routing"):  # a flat body's consensus inside a polygon, above
         need = wet & ~np.isfinite(lev)
+    routed_ = need.copy()
     lev_out, nolev = _route_levels(wet, lev, need, res, float(cfg["route_m"]), log)
+    # A ROUTED LEVEL NEVER DROWNS MEASURED GROUND (2026-11-08, cm18 kj_r6c3 / kj_r6c4 at 59.63708,-151.15933: a mapped channel's levelless water took, through
+    # the water, the 10.39 m of a 0.1 ha lake the rim rule had raised, and 15-22 m of lidar ground inside the channel stood labelled water -- 1,000+ cells
+    # of the gate's solid-over-level; cm16 routed 19.06 m from elsewhere into the same cells).  A level that only reached a cell by routing is no
+    # evidence against a survey's ground standing over it by more than route_ground_m: that cell is land.
+    lc_ = [CLASSES[k] for k in LAND_CODES if k in CLASSES]
+    dr_ = routed_ & np.isfinite(lev_out) & np.isfinite(z) & np.isin(cls, lc_) & ~prior_cell & (z > lev_out + float(cfg.get("route_ground_m", 1.0)))
+    if dr_.any():
+        label[dr_] = LBL["land"]; lev_out[dr_] = np.nan
+        log(f"  routed levels under measured ground by more than {float(cfg.get('route_ground_m', 1.0)):g} m: {int(dr_.sum()) * res * res / 1e4:.2f} ha back to land")
     if nolev.any():
         # a wet patch no level reaches (a mapped lake only the prior saw, a flat pool of void): its prior stands as the
         # level where it is flat (a hydroflattened lake), else it is no water at all

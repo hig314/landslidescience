@@ -1,0 +1,5 @@
+{
+ "_doc": "One row per hig_review_source id (Hig, 2026-11-07): one image at one tide.  level_m NAVD88 is the water level in that image; rock classes (rocks.py) and the review's waterlines (tide_vectors.py review) are read against it.  estimated: true until the image's time or tide is known.",
+ "1": {"image": null, "time": null, "level_m": -1.75, "sigma_m": 0.5, "estimated": true,
+       "basis": "2026-11-08: no time yet. Its low and sub rocks lie under KBay 2023's flat water at +0.1..+0.3 m, so the image's water is lower; Hig named its line new_low; taken as the local low line's level (vector_low -1.75 m, Port Graham to Point Adam)"}
+}

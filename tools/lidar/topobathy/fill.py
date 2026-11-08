@@ -753,8 +753,10 @@ def split_by_level(lw, nw, wz, res, P, bodies=None, log=print):
             # level: the body goes with the dominant flat around it (2026-10-23, run 10: 3DEP's 41.3 m "lake" inside
             # Grewingk's outlet arm at 48.9 became a pool, then a river domain, 7.6 m under the lake at pit 1)
             lv = [l for l in (b.get("levels") or []) if l.get("level_m") is not None]
-            if prior_layers and lv and all(l.get("survey") in prior_layers for l in lv):
-                v = None
+            if prior_layers and lv and all(l.get("survey") in prior_layers for l in lv) and not str(b.get("consensus_rule", "")).startswith("the measured rim"):
+                v = None                                     # ...unless the rim rule (water.py, 2026-11-06) set it from the lidar's ground at the water's edge: that is measured
+                                                             # (2026-11-08, Hig's review of cm18, Petrof Lake at 59.38199,-150.81980: its 12.04 m from the rim was dropped here, the
+                                                             # 286 ha lake had no level, went with its outlet's river domain and took the channel model -- a 6 m bed with a pit at each sounding)
             lev_b[k] = float(v) if v is not None else np.nan
         elif b.get("kind") in TIDAL_KINDS:
             kind_b[k] = 3

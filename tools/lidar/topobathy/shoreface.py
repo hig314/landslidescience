@@ -211,7 +211,22 @@ def _basin_prior(rr, cc, zz, wt, shape, c):
     from .fill import _gsmooth
     H, W = shape[0] // c + 1, shape[1] // c + 1
     num = np.zeros((H, W)); den = np.zeros((H, W)); np.add.at(num, (rr // c, cc // c), wt * zz); np.add.at(den, (rr // c, cc // c), wt)
-    out = None
+    # BEYOND THE FINE KERNELS' REACH (2026-11-08, Hig's review of cm18: the right-angle band at 59.24903,-152.27016 and the blank flat north of 59.4 at -152.1): sigma 64 lattice cells
+    # is ~512 m, and past ~2 km from any cast it held no mass, so the prior read 0 and was clamped to the base contour -- the floor stood between the casts wherever they are sparse
+    # (NOS sheets h10105 / h10091, casts at -95..-110 m, the surface at -3.6 between them).  The same cascade on a 16x coarser lattice (sigma 0.5-8 km), and past all of it the
+    # nearest coarse cell, is where the fine cascade starts: it decides only where the fine scales hold no mass.
+    f = 16; Hc, Wc = -(-H // f), -(-W // f)
+    nc = np.zeros((Hc, Wc)); dc = np.zeros((Hc, Wc)); np.add.at(nc, (rr // c // f, cc // c // f), wt * zz); np.add.at(dc, (rr // c // f, cc // c // f), wt)
+    oc = None; reach = np.zeros((Hc, Wc), bool)
+    for s in (64, 32, 16, 8, 4):
+        d = _gsmooth(dc, s); v = _gsmooth(nc, s) / np.maximum(d, 1e-12); reach |= d > 1e-9
+        a = np.clip(d * 2 * np.pi * s * s / 4.0 - 0.5, 0, 1)
+        oc = v if oc is None else a * v + (1 - a) * oc
+    if reach.any():
+        _, (ii, jj) = ndimage.distance_transform_edt(~reach, return_indices=True); oc = oc[ii, jj]
+        out = ndimage.gaussian_filter(np.repeat(np.repeat(oc, f, axis=0), f, axis=1)[:H, :W], f / 2.0)
+    else:
+        out = None
     for s in (64, 32, 16, 8, 4):                                   # sigma in lattice cells
         d = _gsmooth(den, s); v = _gsmooth(num, s) / np.maximum(d, 1e-12)
         a = np.clip(d * 2 * np.pi * s * s / 4.0 - 0.5, 0, 1)       # the mass within the kernel, in casts: below ~1.5 the coarser scale stands
@@ -294,6 +309,11 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
     # the rim's slope extended: the weak prior, and off a cliff the foot
     d, (ri, ci) = ndimage.distance_transform_edt(~land_rim, return_indices=True, sampling=res)
     ext = z[ri, ci] - np.tan(np.radians(srim[ri, ci])) * d
+    if not land_rim.any():
+        # NO LAND IN THE GRID (2026-11-08: kj_r5c0..r7c0, open water, read as 208 km2 of intertidal with the sea below the base at 0 km2 -- the rim's extension was NaN everywhere,
+        # so no cell could test below the base): far from any rim the extension is the deep side of the base, and so it is here
+        ext = np.full(shape, Z0 - clip, np.float32)
+    ext = np.where(np.isfinite(ext), ext, Z0 - clip)
     dem = None
     if el is not None:
         el = el & C

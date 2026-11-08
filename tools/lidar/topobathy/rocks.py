@@ -4,6 +4,8 @@
   rocks.py build [--hig SHP] [--enc ENC.geojson]     Hig's rocks + NOAA's chart rocks (ENC UWTROC) + the edits -> water/rocks.geojson, which the recipes read (shoreface._rock_floors)
   rocks.py export OUT.gpkg --surface DEM [DEM ...]   the layer to edit in QGIS: every rock, what the surface does there (later DEMs win)
   rocks.py merge EDITED.gpkg [--basis TEXT]          what changed in that layer -> water/rock_edits.geojson (cumulative), then build
+  build also reads water/rocks_hig_review.gpkg (--review): Hig's review against one image (hig_review_source -> water/review_sources.json, that image's water level L) with hig_review_type
+  high | mid | low | sub (how far the rock stands out of that water).  A typed rock is active at floor L+1.5 | L+0.7 | L+0.1 | L-1.0; a point moved there moves the rock; a row with no key is a new rock.
 
 active: the rock is a floor in the fill.  Seen rocks start active at MLLW, unless flagged uncertain; Sub, Chart, Data, Deep and the ENC's start inactive.  A `decision` of use makes
 any rock active at its floor_m, reject makes it inactive; drag a point to move it.  Observed surfaces are never overruled: a floor applies to modelled cells only.
@@ -18,6 +20,8 @@ HIG = "/Users/Hig/Documents/Outreach/KBSP_Map/New Shapefiles/Rocks/Hig_rocks.shp
 ENC = "/Volumes/Nunatak/lidar_build/obs/rocks/enc_rocks.geojson"
 BOXES = Path(__file__).resolve().parent.parent / "composites" / "kbay_joint" / "boxes.json"
 OGR = "/opt/homebrew/bin/ogr2ogr"
+REVIEW = WATER / "rocks_hig_review.gpkg"; SOURCES = WATER / "review_sources.json"
+CLASS_UP = dict(high=1.5, mid=0.7, low=0.1, sub=-1.0); CLASS_ALIAS = dict(loq="low")
 MLLW = -1.38; SIX_FT = MLLW - 6 * 0.3048; MOVED_M = 0.5; SAME_ROCK_M = 100.0
 
 
@@ -77,6 +81,7 @@ def build(a):
             if p["decision"]:
                 q["active"] = p["decision"] == "use"
         F.append(dict(type="Feature", geometry=dict(type="Point", coordinates=[x, y]), properties=q))
+    n["review"] = _review(F, a.review)
     ROCKS.write_text(json.dumps(dict(type="FeatureCollection", crs=dict(type="name", properties=dict(name="EPSG:6334")), features=F), indent=0))
     c = {}
     for f in F:
@@ -109,6 +114,43 @@ def export(a):
     print(f"{len(F)} rocks -> {a.out}; {int(np.isfinite(sf).sum())} on a surface, {sum((f['properties']['short_m'] or 0) > 0 for f in F)} with the surface short of the floor within {a.near_m:g} m")
 
 
+def _review(F, path):
+    """Hig's review layer over the built rows (in place): moves, active, and the class's floor against its source's water level; new rows for the rocks it adds."""
+    import fiona
+    if not path or not Path(path).exists():
+        return None
+    S = json.load(open(SOURCES)); by = {f["properties"]["key"]: f for f in F}; n = dict(moved=0, typed=0, new=0, activated=0, bad=[])
+    with fiona.open(path) as s:
+        R = list(s)
+    for i, r in enumerate(R):
+        p = dict(r["properties"]); k = p.get("key"); x, y = r["geometry"]["coordinates"][:2]
+        ty = (p.get("hig_review_type") or "").strip().lower(); ty = CLASS_ALIAS.get(ty, ty); src = p.get("hig_review_source")
+        if ty and ty not in CLASS_UP:
+            n["bad"].append((k, ty)); ty = ""
+        fl = None
+        if ty:
+            if src is None or str(int(src)) not in S:
+                n["bad"].append((k, f"source {src}")); ty = ""
+            else:
+                fl = round(S[str(int(src))]["level_m"] + CLASS_UP[ty], 2)
+        if k is None:
+            if not ty:
+                continue
+            k = f"hig_review:{int(src)}:{i}"; f = dict(type="Feature", geometry=dict(type="Point", coordinates=[round(x, 2), round(y, 2)]), properties=dict(key=k, source="hig_review", type="Review", flag="", note=p.get("note") or "", x0=round(x, 2), y0=round(y, 2), decision="", basis="", active=False, floor_m=fl))
+            F.append(f); by[k] = f; n["new"] += 1
+        f = by.get(k)
+        if f is None:
+            n["bad"].append((k, "unknown key")); continue
+        q = f["properties"]
+        if float(np.hypot(x - f["geometry"]["coordinates"][0], y - f["geometry"]["coordinates"][1])) > MOVED_M:
+            f["geometry"]["coordinates"] = [round(x, 2), round(y, 2)]; n["moved"] += 1
+        if p.get("active") and not q["active"]:
+            q["active"] = True; n["activated"] += 1
+        if ty:
+            q.update(active=True, floor_m=fl, review_type=ty, review_source=int(src), basis=f"hig review source {int(src)}: {ty}"); n["typed"] += 1
+    return {k_: (v if not isinstance(v, list) else v[:10]) for k_, v in n.items()}
+
+
 def merge(a):
     with tempfile.TemporaryDirectory() as td:
         g = f"{td}/e.geojson"; subprocess.run([OGR, "-q", "-f", "GeoJSON", g, a.edited, "rock_review"], check=True); F = json.load(open(g))["features"]
@@ -132,7 +174,7 @@ def merge(a):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); sp = ap.add_subparsers(dest="cmd", required=True)
     for name in ("build", "merge"):
-        c = sp.add_parser(name); c.add_argument("--hig", default=HIG); c.add_argument("--enc", default=ENC)
+        c = sp.add_parser(name); c.add_argument("--hig", default=HIG); c.add_argument("--enc", default=ENC); c.add_argument("--review", default=str(REVIEW))
         if name == "merge":
             c.add_argument("edited"); c.add_argument("--basis")
     c = sp.add_parser("export"); c.add_argument("out"); c.add_argument("--surface", nargs="+", required=True); c.add_argument("--near-m", type=float, default=50.0)

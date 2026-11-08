@@ -481,6 +481,30 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
       Order for the reruns: r6c2, r6c3, r6c4, r5c2, r4c1 (+ r4c2 for Hig's Seldovia points), r5c3; the rest are under 2 ha each.
     WATCHER, changed: a box with no cm16 run no longer stops it for rows REGRESSED against run2 (it runs gate_where.py and writes the
       pieces instead); a MISSING row does stop it; the fill stage's minutes are printed per box.
+  2026-11-07 09:25, THE MACHINE PANICKED AT 08:52 (kernel watchdog: "no checkins from watchdogd in 92 seconds"; the panic report's
+    process table: the two running fills at 71 and 68 GB RESIDENT on a 64 GB machine, fseventsd 42 GB, compressor 35 GB, 14 MB free).
+    THE RUN BEFORE IT: all 48 boxes landed by 04:04 and the dev surface kbay_joint_cm18 was republished with all 48 at 04:38 (every first-pass
+    tail box rc 0: r2c0 r1c0 r3c0 r4c0 r5c0 r6c0 r7c0 r1c4 r0c1 -- their gate rows are the empty boxes' MISSING and land/water MOVED
+    invariants only); of the nine reruns r1c2 (Perl, 02:41, land_km2 11.09 -> 15.27), r1c1 (02:50, clean) and r2c1 (Elizabeth, 03:31,
+    land 36.9 -> 37.7) landed and are in that mosaic.  r7c1 (fill from 03:31) and r6c4 (fill from 04:45) were in their fills when the
+    memory went: their fill1.log last wrote at 05:17 / 05:26 (r7c1 just after the basin spline for domain 1, r6c4 after the domain 8
+    +ceiling1 spline and a coarsen RuntimeWarning at fill.py:226) and then ran 3.5 h with no line while growing to ~70 GB each.  Both are
+    9750x10000 grids; their first-pass fills took 104 and 123 min; r2c1 (9750x6000) finished its rerun fill in 38 min with every rule.
+    THE STEP THAT GROWS IS NOT YET IDENTIFIED (what follows those lines: the next _spline_residual call and the harmonic).  Their
+    out_cm18 archives of the first pass are intact (a rerun archives only at its end), so the 48-box mosaic stands; their out/ holds a
+    partial rerun that the next run overwrites.
+    LOST: /private/tmp is wiped at reboot, so the whole scratchpad went -- overnight_finish.sh (never ran: no morning_cm18.txt),
+    watch_cm18.sh, boxcheck.py, compare_runs.py, lakescan.py, gate_where.py, scan_steps.py, art_check.py, mask9_scan.py, grew_*.py,
+    disc_check.py, patch_*.py, make_crop.py, same_out.py, fillprof.sh and the rest.  The run's own tools are in the repo
+    (run_box.sh, mosaic_blend.py, rules_applied.py, run_bay_parallel.sh) and $W (queue_worker2.sh, republish_loop.sh); the checks
+    log $W/checks_cm18.log stopped at 20:45 on 11-06 (the watcher was not restarted for the night).  Anything the run depends on goes
+    under $W or the repo from now on, never the scratchpad.
+    RESTARTED 09:24: ONE worker (`queue_worker2.sh cm18 1`, caffeinated) on the queue r7c1 r6c4 r6c2 r6c3 r5c3 r3c2, with
+    $W/memguard.sh (every 60 s logs each stage's resident GB to $W/memguard_cm18.log; kill -9 over 44 GB) -- r7c1 alone first, so the
+    guard log against fill1.log names the step if it grows again.  republish_loop.sh is not restarted: it republishes only when the box
+    COUNT grows, which reruns never do; the final mosaic + dev republish is by hand when the queue empties.  Docker Desktop and the dev
+    web container were started by hand (not restarted at boot).  Open from the night: the rocks question; the lens-domain chi;
+    Perl's land after its rerun (not yet looked at); the ledger's wider rerun set.
 - **Dev version:** `$W/republish_loop.sh` rebuilds `$W/kbay_joint_cm18/` (`mosaic_blend.py ... "cm18,cm17,cm16"`) and republishes the
   dev surface `kbay_joint_cm18` every two new boxes (or after 2 h), log `$W/republish_cm18.log`; a last time when the workers are
   gone. On the viewer meanwhile: `kbay_joint_cm16` (the difference base), `kbay_joint_cm17` and `kbay_joint_cm17_r4c1` (both to

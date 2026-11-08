@@ -6,6 +6,7 @@
     tide_vectors.py closures              water/tide_low_closures.geojson alone, from the low water as written: its outline's closing edges (build writes it too)
     tide_vectors.py clip SRC.tif DST.tif  a derived ground grid (ArcticDEM) voided inside tide_sea.geojson, windowed
     tide_vectors.py merge REVISED ORIG    water/tide_lines.geojson: the reviewer's changed lines + the vector lines they do not cover; a report beside it
+    tide_vectors.py review [GPKG]         water/tide_lines.geojson + the lines Hig added against one image (hig_review_source, water/review_sources.json); re-run replaces them
 
 The polygons are overlapping pieces of WATER at the two tides (Shore, measured 95% on 3DEP's sea; Pool at low tide) with Island cut out of them: that water's outline is the waterline.  Hig, 2026-11-04: high and low are not precise
 levels (a mix of datasets, smaller tides outside the peninsula), so a line is a contour that means something locally and is not assumed to hold one level far along the coast; and it
@@ -437,11 +438,43 @@ def merge(a):
     print({k: (v if not isinstance(v, list) else len(v)) for k, v in rep.items()})
 
 
+def review(a):
+    """Lines drawn in water/tide_lines_hig_review.gpkg with a hig_review_source (Hig, 2026-11-07).  source new_low / vector_low: a low shore, at the nearest vector_low line's level; vector_high: a high
+    shore, at the nearest vector_high's; new_source: that image's waterline, at its level in review_sources.json.  They join as vector_low / vector_high (what the shore model and high_line read), tagged
+    review_source; lines already there are left alone, a re-run swaps the review's lines for the file's current ones."""
+    S = json.load(open(HERE / "review_sources.json")); out = HERE / "tide_lines.geojson"
+    F = [f for f in json.load(open(out))["features"] if f["properties"].get("review_source") is None]
+    V = json.load(open(HERE / "tide_vector_lines.geojson"))["features"]; tree = {}
+    for k in ("vector_low", "vector_high"):
+        P_ = [(c, f["properties"]["level_m"]) for f in V if f["properties"]["source"] == k for c in np.array(f["geometry"]["coordinates"])[:, :2]]
+        tree[k] = (cKDTree(np.array([c for c, _ in P_])), np.array([l for _, l in P_]))
+    with fiona.open(a.gpkg) as f:
+        src = CRS.from_wkt(f.crs_wkt) if f.crs_wkt else CRS.from_epsg(6334); R = [r for r in f if r["properties"].get("hig_review_source") is not None and r["geometry"] is not None]
+    lo, hi = [], []; rep = []
+    for r in R:
+        q = r["properties"]; sid = str(int(q["hig_review_source"])); kind = q.get("source") or ""; g = shape(transform_geom(src, "EPSG:6334", dict(r["geometry"])))
+        for ln in getattr(g, "geoms", [g]):
+            c = shapely.get_coordinates(ln)
+            if kind == "new_source":
+                lv, sig, as_ = S[sid]["level_m"], S[sid].get("sigma_m", 0.5), "vector_low" if S[sid]["level_m"] < 1.0 else "vector_high"
+            else:
+                as_ = "vector_high" if "high" in kind else "vector_low"; t, L = tree[as_]; lv = float(np.median(L[t.query(c)[1]])); sig = 0.3
+            if q.get("level_m") is not None:
+                lv = float(q["level_m"])
+            ft = dict(type="Feature", properties=dict(level_m=round(lv, 2), label=f"{as_[7:]} tide (Hig review, source {sid})", source=as_, level_sigma_m=sig, channel_rise_m=0.0, closed=bool(ln.is_closed), side=None, level_basis="review", review_source=int(sid), review_kind=kind),
+                      geometry=dict(type="LineString", coordinates=np.round(c, 2).tolist()))
+            (hi if as_ == "vector_high" else lo).append(ft); rep.append((kind, as_, round(lv, 2), round(ln.length)))
+    hv = [f for f in F if f["properties"]["source"] == "vector_high"]; rest = [f for f in F if f["properties"]["source"] != "vector_high"]
+    out.write_text(json.dumps(_fc(rest + lo + hv + hi)))        # the high shore last, as merge writes it
+    print(f"review: {len(lo)} low and {len(hi)} high lines added to {len(F)}: {rep}")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); sp = ap.add_subparsers(dest="cmd", required=True)
     sp.add_parser("build")
     sp.add_parser("closures")
     sp.add_parser("islands")
     c = sp.add_parser("clip"); c.add_argument("src"); c.add_argument("dst")
+    rv = sp.add_parser("review"); rv.add_argument("gpkg", nargs="?", default=str(HERE / "tide_lines_hig_review.gpkg"))
     m = sp.add_parser("merge"); m.add_argument("revised"); m.add_argument("orig"); m.add_argument("--no-vectors", action="store_true"); m.add_argument("--keep-edit")
-    a = ap.parse_args(); dict(build=build, clip=clip, merge=merge, closures=closures, islands=islands)[a.cmd](a)
+    a = ap.parse_args(); dict(build=build, clip=clip, merge=merge, closures=closures, islands=islands, review=review)[a.cmd](a)

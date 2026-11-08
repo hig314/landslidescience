@@ -35262,8 +35262,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-559028.26,
-6578226.06
+559030.0,
+6578211.55
 ]
 },
 "properties": {
@@ -35279,12 +35279,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 559028.26,
 "y0": 6578226.06,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -35352,8 +35354,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558850.93,
-6577378.68
+558857.16,
+6577362.75
 ]
 },
 "properties": {
@@ -45282,8 +45284,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557762.14,
-6572982.32
+557814.46,
+6572940.91
 ]
 },
 "properties": {
@@ -45299,12 +45301,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557762.14,
 "y0": 6572982.32,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -45312,8 +45316,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557772.55,
-6572800.05
+557834.15,
+6572793.65
 ]
 },
 "properties": {
@@ -45329,12 +45333,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557772.55,
 "y0": 6572800.05,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: low",
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
 }
 },
 {
@@ -45342,8 +45348,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557970.77,
-6571545.67
+558074.05,
+6571484.02
 ]
 },
 "properties": {
@@ -45359,12 +45365,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557970.77,
 "y0": 6571545.67,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: low",
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
 }
 },
 {
@@ -45372,8 +45380,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557923.14,
-6571402.95
+557969.33,
+6571338.73
 ]
 },
 "properties": {
@@ -45389,12 +45397,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557923.14,
 "y0": 6571402.95,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -45402,8 +45412,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558148.85,
-6570293.22
+558140.04,
+6570320.9
 ]
 },
 "properties": {
@@ -45419,12 +45429,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 558148.85,
 "y0": 6570293.22,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: low",
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
 }
 },
 {
@@ -45462,8 +45474,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557860.1,
-6571047.04
+557824.09,
+6571050.91
 ]
 },
 "properties": {
@@ -45479,12 +45491,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557860.1,
 "y0": 6571047.04,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -45492,8 +45506,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558103.7,
-6570646.7
+558102.34,
+6570691.82
 ]
 },
 "properties": {
@@ -45509,12 +45523,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 558103.7,
 "y0": 6570646.7,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -45552,8 +45568,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558216.68,
-6569892.65
+558229.81,
+6569903.04
 ]
 },
 "properties": {
@@ -45569,12 +45585,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 558216.68,
 "y0": 6569892.65,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -45582,8 +45600,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558192.14,
-6569234.4
+558171.62,
+6569238.19
 ]
 },
 "properties": {
@@ -45599,12 +45617,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 558192.14,
 "y0": 6569234.4,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: low",
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
 }
 },
 {
@@ -45612,8 +45632,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-559649.26,
-6568204.06
+559603.74,
+6568227.0
 ]
 },
 "properties": {
@@ -45629,12 +45649,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 559649.26,
 "y0": 6568204.06,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: low",
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
 }
 },
 {
@@ -45642,8 +45664,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-559046.76,
-6568220.83
+559058.03,
+6568166.57
 ]
 },
 "properties": {
@@ -45659,12 +45681,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 559046.76,
 "y0": 6568220.83,
 "decision": "",
-"basis": "",
-"floor_m": -3.2088
+"basis": "hig review source 1: low",
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
 }
 },
 {
@@ -45732,8 +45756,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-559159.7,
-6568082.14
+559156.64,
+6568118.26
 ]
 },
 "properties": {
@@ -45749,12 +45773,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 559159.7,
 "y0": 6568082.14,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -45762,8 +45788,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558216.35,
-6569052.4
+558245.85,
+6569069.88
 ]
 },
 "properties": {
@@ -45779,12 +45805,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 558216.35,
 "y0": 6569052.4,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: mid",
+"floor_m": -1.05,
+"review_type": "mid",
+"review_source": 1
 }
 },
 {
@@ -45792,8 +45820,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558092.57,
-6568964.02
+558122.03,
+6568926.0
 ]
 },
 "properties": {
@@ -45809,12 +45837,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 558092.57,
 "y0": 6568964.02,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: low",
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
 }
 },
 {
@@ -45852,8 +45882,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558427.44,
-6568559.74
+558444.9,
+6568642.7
 ]
 },
 "properties": {
@@ -45869,12 +45899,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 558427.44,
 "y0": 6568559.74,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: mid",
+"floor_m": -1.05,
+"review_type": "mid",
+"review_source": 1
 }
 },
 {
@@ -45882,8 +45914,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557550.75,
-6573909.48
+557587.02,
+6573865.98
 ]
 },
 "properties": {
@@ -45899,12 +45931,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557550.75,
 "y0": 6573909.48,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: low",
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
 }
 },
 {
@@ -45912,8 +45946,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557328.0,
-6575198.44
+557340.2,
+6575193.15
 ]
 },
 "properties": {
@@ -45929,12 +45963,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557328.0,
 "y0": 6575198.44,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -46032,8 +46068,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-556700.05,
-6574917.33
+556647.2,
+6574831.96
 ]
 },
 "properties": {
@@ -46049,12 +46085,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 556700.05,
 "y0": 6574917.33,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: low",
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
 }
 },
 {
@@ -46062,8 +46100,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557082.94,
-6577475.23
+557076.09,
+6577490.36
 ]
 },
 "properties": {
@@ -46079,12 +46117,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557082.94,
 "y0": 6577475.23,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -46482,8 +46522,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557180.37,
-6577559.33
+557123.04,
+6577564.84
 ]
 },
 "properties": {
@@ -46499,12 +46539,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557180.37,
 "y0": 6577559.33,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -46542,8 +46584,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558167.1,
-6575744.72
+558184.6,
+6575720.3
 ]
 },
 "properties": {
@@ -46559,12 +46601,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 558167.1,
 "y0": 6575744.72,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -46572,8 +46616,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557444.41,
-6575384.02
+557422.66,
+6575348.03
 ]
 },
 "properties": {
@@ -46589,12 +46633,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557444.41,
 "y0": 6575384.02,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -46632,8 +46678,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557792.78,
-6575608.53
+557749.74,
+6575612.23
 ]
 },
 "properties": {
@@ -46649,12 +46695,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557792.78,
 "y0": 6575608.53,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: low",
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
 }
 },
 {
@@ -46752,8 +46800,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558245.75,
-6568713.44
+558234.39,
+6568801.42
 ]
 },
 "properties": {
@@ -46769,12 +46817,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 558245.75,
 "y0": 6568713.44,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: low",
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
 }
 },
 {
@@ -46812,8 +46862,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558023.78,
-6575680.92
+557978.29,
+6575644.97
 ]
 },
 "properties": {
@@ -46829,12 +46879,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 558023.78,
 "y0": 6575680.92,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -46842,8 +46894,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557585.69,
-6575496.54
+557592.68,
+6575537.68
 ]
 },
 "properties": {
@@ -46859,12 +46911,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557585.69,
 "y0": 6575496.54,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -47952,8 +48006,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-557417.67,
-6574998.18
+557420.33,
+6574957.71
 ]
 },
 "properties": {
@@ -47969,12 +48023,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 557417.67,
 "y0": 6574998.18,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: sub",
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 },
 {
@@ -95352,8 +95408,8 @@
 "geometry": {
 "type": "Point",
 "coordinates": [
-558897.68,
-6578563.13
+558909.61,
+6578568.08
 ]
 },
 "properties": {
@@ -95369,12 +95425,14 @@
 "flag": "",
 "note": "",
 "enc_m": null,
-"active": false,
+"active": true,
 "x0": 558897.68,
 "y0": 6578563.13,
 "decision": "",
-"basis": "",
-"floor_m": -1.38
+"basis": "hig review source 1: high",
+"floor_m": -0.25,
+"review_type": "high",
+"review_source": 1
 }
 },
 {
@@ -100055,6 +100113,906 @@
 "decision": "",
 "basis": "",
 "floor_m": -1.38
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558859.22,
+6578542.56
+]
+},
+"properties": {
+"key": "hig_review:1:3414",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558859.22,
+"y0": 6578542.56,
+"decision": "",
+"basis": "hig review source 1: mid",
+"active": true,
+"floor_m": -1.05,
+"review_type": "mid",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558865.18,
+6578499.5
+]
+},
+"properties": {
+"key": "hig_review:1:3415",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558865.18,
+"y0": 6578499.5,
+"decision": "",
+"basis": "hig review source 1: mid",
+"active": true,
+"floor_m": -1.05,
+"review_type": "mid",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558945.11,
+6578136.65
+]
+},
+"properties": {
+"key": "hig_review:1:3416",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558945.11,
+"y0": 6578136.65,
+"decision": "",
+"basis": "hig review source 1: high",
+"active": true,
+"floor_m": -0.25,
+"review_type": "high",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558967.33,
+6577934.29
+]
+},
+"properties": {
+"key": "hig_review:1:3417",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558967.33,
+"y0": 6577934.29,
+"decision": "",
+"basis": "hig review source 1: high",
+"active": true,
+"floor_m": -0.25,
+"review_type": "high",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+559020.57,
+6577869.89
+]
+},
+"properties": {
+"key": "hig_review:1:3418",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 559020.57,
+"y0": 6577869.89,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558823.27,
+6577477.73
+]
+},
+"properties": {
+"key": "hig_review:1:3419",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558823.27,
+"y0": 6577477.73,
+"decision": "",
+"basis": "hig review source 1: mid",
+"active": true,
+"floor_m": -1.05,
+"review_type": "mid",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558995.91,
+6577630.71
+]
+},
+"properties": {
+"key": "hig_review:1:3420",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558995.91,
+"y0": 6577630.71,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558829.54,
+6577414.06
+]
+},
+"properties": {
+"key": "hig_review:1:3421",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558829.54,
+"y0": 6577414.06,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558914.63,
+6577096.73
+]
+},
+"properties": {
+"key": "hig_review:1:3422",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558914.63,
+"y0": 6577096.73,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558858.17,
+6576857.36
+]
+},
+"properties": {
+"key": "hig_review:1:3423",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558858.17,
+"y0": 6576857.36,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558755.78,
+6576606.14
+]
+},
+"properties": {
+"key": "hig_review:1:3424",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558755.78,
+"y0": 6576606.14,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558756.74,
+6576536.18
+]
+},
+"properties": {
+"key": "hig_review:1:3425",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558756.74,
+"y0": 6576536.18,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557854.79,
+6575619.04
+]
+},
+"properties": {
+"key": "hig_review:1:3426",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557854.79,
+"y0": 6575619.04,
+"decision": "",
+"basis": "hig review source 1: mid",
+"active": true,
+"floor_m": -1.05,
+"review_type": "mid",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557404.92,
+6575219.13
+]
+},
+"properties": {
+"key": "hig_review:1:3427",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557404.92,
+"y0": 6575219.13,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557448.4,
+6575088.71
+]
+},
+"properties": {
+"key": "hig_review:1:3428",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557448.4,
+"y0": 6575088.71,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557489.53,
+6574867.87
+]
+},
+"properties": {
+"key": "hig_review:1:3429",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557489.53,
+"y0": 6574867.87,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557500.58,
+6574815.31
+]
+},
+"properties": {
+"key": "hig_review:1:3430",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557500.58,
+"y0": 6574815.31,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557490.76,
+6574551.89
+]
+},
+"properties": {
+"key": "hig_review:1:3431",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557490.76,
+"y0": 6574551.89,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557491.22,
+6574251.73
+]
+},
+"properties": {
+"key": "hig_review:1:3432",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557491.22,
+"y0": 6574251.73,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557432.05,
+6574139.79
+]
+},
+"properties": {
+"key": "hig_review:1:3433",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557432.05,
+"y0": 6574139.79,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557496.25,
+6574625.66
+]
+},
+"properties": {
+"key": "hig_review:1:3434",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557496.25,
+"y0": 6574625.66,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557549.82,
+6573984.49
+]
+},
+"properties": {
+"key": "hig_review:1:3435",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557549.82,
+"y0": 6573984.49,
+"decision": "",
+"basis": "hig review source 1: mid",
+"active": true,
+"floor_m": -1.05,
+"review_type": "mid",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557857.81,
+6573180.79
+]
+},
+"properties": {
+"key": "hig_review:1:3436",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557857.81,
+"y0": 6573180.79,
+"decision": "",
+"basis": "hig review source 1: mid",
+"active": true,
+"floor_m": -1.05,
+"review_type": "mid",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558021.07,
+6572552.52
+]
+},
+"properties": {
+"key": "hig_review:1:3437",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558021.07,
+"y0": 6572552.52,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557872.76,
+6571181.99
+]
+},
+"properties": {
+"key": "hig_review:1:3438",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557872.76,
+"y0": 6571181.99,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557853.23,
+6571136.78
+]
+},
+"properties": {
+"key": "hig_review:1:3439",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557853.23,
+"y0": 6571136.78,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557926.4,
+6570978.03
+]
+},
+"properties": {
+"key": "hig_review:1:3440",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557926.4,
+"y0": 6570978.03,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+556945.12,
+6576888.82
+]
+},
+"properties": {
+"key": "hig_review:1:3441",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 556945.12,
+"y0": 6576888.82,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557046.75,
+6577389.67
+]
+},
+"properties": {
+"key": "hig_review:1:3442",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557046.75,
+"y0": 6577389.67,
+"decision": "",
+"basis": "hig review source 1: mid",
+"active": true,
+"floor_m": -1.05,
+"review_type": "mid",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557208.09,
+6577532.89
+]
+},
+"properties": {
+"key": "hig_review:1:3443",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557208.09,
+"y0": 6577532.89,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557424.01,
+6576899.17
+]
+},
+"properties": {
+"key": "hig_review:1:3444",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557424.01,
+"y0": 6576899.17,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557417.83,
+6576842.77
+]
+},
+"properties": {
+"key": "hig_review:1:3445",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557417.83,
+"y0": 6576842.77,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+557341.18,
+6577093.52
+]
+},
+"properties": {
+"key": "hig_review:1:3446",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 557341.18,
+"y0": 6577093.52,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558129.62,
+6570058.0
+]
+},
+"properties": {
+"key": "hig_review:1:3447",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558129.62,
+"y0": 6570058.0,
+"decision": "",
+"basis": "hig review source 1: low",
+"active": true,
+"floor_m": -1.65,
+"review_type": "low",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558146.75,
+6569989.99
+]
+},
+"properties": {
+"key": "hig_review:1:3448",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558146.75,
+"y0": 6569989.99,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+558278.58,
+6569102.57
+]
+},
+"properties": {
+"key": "hig_review:1:3449",
+"source": "hig_review",
+"type": "Review",
+"flag": "",
+"note": "",
+"x0": 558278.58,
+"y0": 6569102.57,
+"decision": "",
+"basis": "hig review source 1: sub",
+"active": true,
+"floor_m": -2.75,
+"review_type": "sub",
+"review_source": 1
 }
 }
 ]
