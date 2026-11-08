@@ -475,7 +475,7 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         # from the prior and the points (max() of no dates stopped the stage and the worker moved to the next box)
         log("  no source has a cell in this window: the layer is void (the fill's points make the sea)")
         for name, a, dt, nd in (("joint_z", np.full((H, W), np.nan, np.float32), "float32", -9999), ("joint_n", np.zeros((H, W), np.float32), "float32", -9999),
-                                ("joint_src", np.zeros((H, W), np.uint16), "uint16", 0), ("joint_rej", np.zeros((H, W), np.uint16), "uint16", 0),
+                                ("joint_src", np.zeros((H, W), np.uint32), "uint32", 0), ("joint_rej", np.zeros((H, W), np.uint32), "uint32", 0),
                                 ("joint_dist", np.full((H, W), np.nan, np.float32), "float32", -9999), ("joint_sigma", np.full((H, W), np.nan, np.float32), "float32", -9999),
                                 ("joint_nland", np.zeros((H, W), np.uint8), "uint8", 255), ("joint_cls", np.zeros((H, W), np.uint8), "uint8", 255),
                                 ("vintage", np.zeros((H, W), np.uint8), "uint8", 255), ("water_z", np.full((H, W), np.nan, np.float32), "float32", -9999)):
@@ -964,7 +964,7 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
                         log(f"  {n:14s} yields in gaps of measured ground (<= {2 * ggc * res:.0f} m): {float(add_.sum()) * res * res / 1e4:.2f} ha")
             del gcl
         del gnd
-    rej = np.zeros((H, W), np.uint16); kept = {}; why = {}
+    rej = np.zeros((H, W), np.uint32); kept = {}  # 32 bits: the Homer 2019/2021 NCMP pairs took kj_r6c3 to 17 sources (2026-11-08); why = {}
     # TWO PASSES (2026-10-26): the first only finds every source's cells OVER WATER (a lidar's sea surface classed
     # ground, at its own stand or at another survey's) and takes their weight away; the second judges with those
     # cells gone, so a bed is never rejected low against a lidar's sea surface (Grewingk 2019's "ground" at 3.85 m over
@@ -1055,7 +1055,7 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             continue
         ow |= ow_pre[n]
         bad = hi | lo | ow | sup[n] | ~allow[n]
-        rej[hi | lo | ow | sup[n]] |= np.uint16(1 << k)
+        rej[hi | lo | ow | sup[n]] |= np.uint32(1 << k)
         kept[n] = np.where(bad, np.nan, Z[n]).astype(np.float32)
         if dump:                                  # per-source verdicts for the review point cloud (points.npz)
             why[n] = (hi.astype(np.uint8) | (lo.astype(np.uint8) << 1) | (ow.astype(np.uint8) << 2) | (sup[n].astype(np.uint8) << 3)
@@ -1090,7 +1090,7 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
     wsum = sum(ws.values())
     ZJ = np.where(wsum > 0, sum(np.nan_to_num(kept[n]) * ws[n] for n in names) / np.maximum(wsum, 1e-12), np.nan).astype(np.float32)
     NJ = sum(np.where(np.isfinite(kept[n]), N[n], 0) for n in names).astype(np.float32)
-    SRC = sum(np.isfinite(kept[n]).astype(np.uint16) << k for k, n in enumerate(names)).astype(np.uint16)
+    SRC = sum(np.isfinite(kept[n]).astype(np.uint32) << np.uint32(k) for k, n in enumerate(names)).astype(np.uint32)
     wsum_s = sum(ws_stated.values())
     SIG = np.where(wsum_s > 0, np.maximum(1 / np.sqrt(np.maximum(wsum_s, 1e-12)), cfg["sigma_floor_m"]), np.nan).astype(np.float32)
     del ws_stated, wsum_s
@@ -1111,8 +1111,8 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
                            water_cells_km2=round(float(np.isfinite(WZ).sum()) * res * res / 1e6, 3),
                            by_class_km2={c: round(float((CLSJ == v).sum()) * res * res / 1e6, 3) for c, v in CLS.items() if v and (CLSJ == v).any()})
     rep["src_bits"] = {n: 1 << k for k, n in enumerate(names)}; rep["seconds"] = round(time.time() - t0)
-    for name, a, dt, nd in (("joint_z", ZJ, "float32", -9999), ("joint_n", NJ, "float32", -9999), ("joint_src", SRC, "uint16", 0),
-                            ("joint_rej", rej, "uint16", 0), ("joint_dist", DIST, "float32", -9999), ("joint_sigma", SIG, "float32", -9999),
+    for name, a, dt, nd in (("joint_z", ZJ, "float32", -9999), ("joint_n", NJ, "float32", -9999), ("joint_src", SRC, "uint32", 0),
+                            ("joint_rej", rej, "uint32", 0), ("joint_dist", DIST, "float32", -9999), ("joint_sigma", SIG, "float32", -9999),
                             ("joint_nland", NL, "uint8", 255), ("joint_cls", CLSJ, "uint8", 255), ("vintage", V, "uint8", 255), ("water_z", WZ, "float32", -9999)):
         write(out / f"{name}.tif", a, win, res, epsg, dt, nd)
     (out / "joint_report.json").write_text(json.dumps(rep, indent=1)); log(json.dumps(rep["coverage"]))

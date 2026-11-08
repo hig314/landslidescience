@@ -70,7 +70,7 @@ def read_stage(path: Path, win, res, shape, dtype):
 
 def blob(a: np.ndarray, dtype: str):
     """gzip + base64 of a little-endian typed array: the page decodes it with DecompressionStream('gzip')."""
-    a = np.ascontiguousarray(a.astype({"f4": "<f4", "u1": "u1", "u2": "<u2", "i4": "<i4"}[dtype]))
+    a = np.ascontiguousarray(a.astype({"f4": "<f4", "u1": "u1", "u2": "<u2", "u4": "<u4", "i4": "<i4"}[dtype]))
     return dict(t=dtype, b=base64.b64encode(gzip.compress(a.tobytes(), compresslevel=6, mtime=0)).decode("ascii"))
 
 
@@ -126,7 +126,7 @@ def main():
             A[f"zw__{n}"] = blob(zw, "f4"); A[f"nw__{n}"] = blob(g(f"nw__{n}"), "f4")
     jz = g("joint_z").astype(np.float32)
     A["joint_z"] = blob(jz, "f4"); A["joint_cls"] = blob(g("joint_cls"), "u1")
-    A["joint_src"] = blob(g("joint_src"), "u2"); A["water_z"] = blob(g("water_z"), "f4")
+    A["joint_src"] = blob(g("joint_src"), "u4"); A["water_z"] = blob(g("water_z"), "f4")
 
     # STAGE rasters (optional, each skipped if absent)
     stage, zall = [], [jz]
@@ -290,7 +290,7 @@ async function decode(e) {
   const bin = atob(e.b), u8 = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   const buf = await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
-  return new ({f4: Float32Array, u1: Uint8Array, u2: Uint16Array, i4: Int32Array}[e.t])(buf);
+  return new ({f4: Float32Array, u1: Uint8Array, u2: Uint16Array, u4: Uint32Array, i4: Int32Array}[e.t])(buf);
 }
 
 let A = {}, SETS = [], deckgl = null, VSTATE = null;

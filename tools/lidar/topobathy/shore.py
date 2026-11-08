@@ -468,11 +468,11 @@ def water_blind_mask(recipe, prof, si, log=print):
             bb |= int(bits[nme])
         if not bb:
             continue
-        src = np.zeros(out.shape, np.uint16)
+        src = np.zeros(out.shape, np.uint32)
         with rasterio.open(sb) as ds:
             reproject(rasterio.band(ds, 1), src, dst_transform=prof["transform"], dst_crs=prof["crs"],
                       resampling=Resampling.nearest, dst_nodata=0)
-        m = (src != 0) & ((src & ~np.uint16(bb)) == 0)
+        m = (src != 0) & ((src & ~np.uint32(bb)) == 0)
         if si is not None:
             m &= si == k
         out |= m; any_ = True
