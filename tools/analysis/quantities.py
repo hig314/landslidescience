@@ -47,6 +47,20 @@ QUANTITIES = {
                    src=B / 'out/slope60_land.tif'),
     'aspect': dict(overlay='sp-aspect', label='Aspect', units='° from N', range=(0, 360), bins=36, res='60 m',
                    src=B / 'out/aspect60_land.tif', note='flat cells have no aspect (masked)'),
+    # The fixed-scale slope rows (tools/terrain/bake_slope.py), whose bake kept
+    # no values: tools/analysis/slope_scale_values.py evaluates the same
+    # measure on the same Mapterhorn z12 tiles at the lattice points (writing
+    # the cube column itself) and at the landslide centroids (`points`).
+    # `computed` = no raster to sample; the cube builder leaves these alone.
+    # The 60 m row (`sp-slope`) stays bound to `slope` above, which can paint.
+    **{k: dict(overlay=ov, label=lab, units='°', range=(0, 60), bins=60, res=res, computed=True,
+               points=DATA / 'slope_scales/landslides.json', alaska_only=True, note=note)
+       for k, ov, lab, res, note in (
+           ('slope_local', 'sp-slope-local', 'Slope, local', '~9 m', 'ordinary slope on the z12 grid'),
+           ('slope_200', 'sp-slope-200', 'Slope, 200 m', '200 m', 'steepest line 200 m long centred on the point'),
+           ('slope_500', 'sp-slope-500', 'Slope, 500 m', '500 m', 'steepest line 500 m long centred on the point'),
+           ('slope_1k', 'sp-slope-1k', 'Slope, 1 km', '1 km', 'steepest line 1 km long centred on the point'),
+           ('slope_2k', 'sp-slope-2k', 'Slope, 2 km', '2 km', 'steepest line 2 km long centred on the point'))},
     'north':  dict(overlay='sp-north', label='Northness', units='', range=(-1, 1), bins=40, res='60 m',
                    src=B / 'out/northness60_land.tif', note='cos(aspect)·sin(slope)'),
     # ---- Climate / subsurface: the three permafrost products and our downscale --

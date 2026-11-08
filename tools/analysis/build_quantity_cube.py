@@ -95,6 +95,11 @@ def sample_other_crs(src):
 
 def build(key, xs, ys):
     q = QUANTITIES[key]
+    if q.get('computed'):
+        # No raster: tools/analysis/slope_scale_values.py writes this column.
+        print(f'  {key:8s} computed elsewhere (slope_scale_values.py): '
+              f'{"present" if (OUT / f"{key}.npy").exists() else "MISSING"}')
+        return None
     ensure_vrt(q)
     with rasterio.open(q['src']) as src:
         if src.crs and src.crs.to_epsg() == 3338:

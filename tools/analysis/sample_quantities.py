@@ -127,6 +127,12 @@ def main():
         if k in carry:
             cols[k] = [carry[k].get(i) for i in ids]
             print(f'  {k:8s} carried over ({sum(v is not None for v in cols[k])} with a value)'); continue
+        if q.get('points'):
+            # Evaluated at the centroids by the tool that computed the column.
+            pv = json.loads(q['points'].read_text())['values'][k]
+            cols[k] = [pv.get(str(i)) for i in ids]
+            print(f'  {k:8s} {sum(v is not None for v in cols[k]):5d} of {len(ids)} with a value (from {q["points"].name})')
+            continue
         if not q['src'].exists():
             if a.keys:
                 sys.exit(f'  {k:8s} MISSING {q["src"]}')

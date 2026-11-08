@@ -515,8 +515,10 @@
   two sides of the map's wiper: set up a wiper with two overlays and they
   become x (left) and y (right); pick axes in the panel and the wiper is
   made to show them, so the map always shows what the plot is crossing.
-  Nineteen quantities can be axes today: elevation, slope, aspect and
-  northness from the 60&nbsp;m terrain; the Gruber, Obu and Pastick
+  Twenty-four quantities can be axes today: elevation, slope, aspect and
+  northness from the 60&nbsp;m terrain; slope at the five other fixed
+  scales of the slope overlays (local, 200&nbsp;m, 500&nbsp;m, 1&nbsp;km and
+  2&nbsp;km); the Gruber, Obu and Pastick
   permafrost products and our downscales; the four susceptibility models
   (USGS lw and n10, DGGS, and NASA's global map); summer radar coherence;
   and ITS_LIVE ice speed.
@@ -571,6 +573,12 @@
   position, not class number (NASA's 30 arc-second cells are read at the
   lattice point, nearest cell; its sea and unassessed ground have no
   value); a flat cell has no aspect and is left out of that axis.
+  The 60&nbsp;m slope axis is ordinary slope on the 60&nbsp;m terrain grid,
+  not the steepest 60&nbsp;m line the 60&nbsp;m slope overlay draws; the other
+  five slope axes are the overlays' own measure, evaluated at each lattice
+  point and each landslide centroid from the same 3DEP elevations, with the
+  same water and Alaska masks. Those five can be brushed but do not paint
+  the map, because no value archive of them is published.
 </p>
 <p>
   <strong>Sample and brush.</strong> The <em>Sample</em> tool shows a

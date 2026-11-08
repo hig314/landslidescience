@@ -2793,6 +2793,13 @@
         // The axis is still ordinary slope on the 60 m Albers grid (cube, value
         // archive, paint), not the 60 m row's steepest line; hence the label.
         'sp-slope':  { key: 'slope',  fine: 'slope60',  short: 'Slope (60 m grid)' },
+        // The other fixed-scale rows (2026-11-07): values from
+        // tools/analysis/slope_scale_values.py, no 60 m archive, so no paint.
+        'sp-slope-local': { key: 'slope_local', short: 'Slope — local' },
+        'sp-slope-200':   { key: 'slope_200',   short: 'Slope — 200 m' },
+        'sp-slope-500':   { key: 'slope_500',   short: 'Slope — 500 m' },
+        'sp-slope-1k':    { key: 'slope_1k',    short: 'Slope — 1 km' },
+        'sp-slope-2k':    { key: 'slope_2k',    short: 'Slope — 2 km' },
         'sp-aspect': { key: 'aspect', fine: 'aspect60', short: 'Aspect' },
         'sp-north':  { key: 'north',  fine: 'north60',  short: 'Northness' },
         'pf-gruber-maat':   { key: 'maat',   short: 'MAAT — Gruber 1 km' },
