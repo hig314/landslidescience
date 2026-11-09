@@ -145,14 +145,14 @@
    "id": "derivedsheet",
    "stage": "joint",
    "live": "2026-11-08 21:30:09",
-   "commit": "(this)",
+   "commit": "eb81cbd",
    "what": "joint: a lidar's flat sheet within the tide's reach (robust flatness: within stand_flat_m of its 5x5 median, level under 1 %) standing > 4 m over the shallowest compilation on half its cells is the sea, with the pocks it encloses (Kenai 2008's flight lines at +2.5/+3.8 m off Anchor Point, 59.69273/59.72965)"
   },
   {
    "id": "gapfitspeck",
    "stage": "fill",
    "live": "2026-11-08 21:33:52",
-   "commit": "(this)",
+   "commit": "eb81cbd",
    "what": "fill: the gap fit pins only to observed patches of >= 25 cells (no cones round a stray return in open water)"
   }
  ]
