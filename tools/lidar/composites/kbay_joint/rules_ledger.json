@@ -138,7 +138,7 @@
    "id": "gapfit",
    "stage": "fill",
    "live": "2026-11-08 21:21:48",
-   "commit": "(this)",
+   "commit": "c63d42a",
    "what": "fill: within 6 m of an observed cell a modelled wet cell (band/interior/conditioned/margin/intertidal) is the harmonic through the observations round it, fading to the model's fill by 25 m (multibeam swath gaps, rings round multibeam holes: Halibut Cove Lagoon grooves and wall mesas, Coal Cove mesas, the 59.358 trough, Homer flat lines)"
   }
  ]

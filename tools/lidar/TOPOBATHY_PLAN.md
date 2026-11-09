@@ -505,6 +505,22 @@ review files in `$W/kbay_joint_cm16/`; edit checks 5526, not honoured 1310, unex
     COUNT grows, which reruns never do; the final mosaic + dev republish is by hand when the queue empties.  Docker Desktop and the dev
     web container were started by hand (not restarted at boot).  Open from the night: the rocks question; the lens-domain chi;
     Perl's land after its rerun (not yet looked at); the ledger's wider rerun set.
+  2026-11-08 01:45, HIG: "run the additional fixes, including the green lidar area, and the tip of the peninsula where I've added coastline".
+    Commit ba9813f + ledger rows review1 homer1921 priorreach norim routeground rimlevel.  (1) REVIEW SOURCE 1: water/review_sources.json, level
+    -1.75 m ESTIMATED (no image time; its low/sub rocks lie under KBay 2023's flat +0.1..+0.3 m water, so the image is lower; Hig named the line
+    new_low) -- ask Hig for the image/time.  rocks.py build reads rocks_hig_review.gpkg (65 typed: 36 new keyless rows -> hig_review:1:<fid>, 29 ENC
+    activated, 30 moved, 'Low'/'loq' normalised); tide_vectors.py review adds its 6 lines (new_low 24 km + new_source 12.6 km as vector_low at -1.75,
+    2 vector_high at 3.73).  Backups of the pre-review files: $W/rocks_before_review_20261108.geojson, $W/tide_lines_before_review_20261108.geojson.
+    (2) HOMER NCMP: homer2019ncmp / homer2021ncmp in the template (a 'homer2019' already existed: the DGGS topo flight, pt*.laz, whose class 2 is the
+    WATER SURFACE over Mud Bay -- the first try reused that name and its stale index/units; renamed).  Levels on bishop_t's window: 2019 ground vs
+    2018 +0.02 m (NMAD 0.12, >8 m), bed -0.06 (0.12); 2021 vs 2018 -0.04 (0.07): no shift.  bishop_t crop run h1921 first.  (3) WEST COLUMN: no land
+    rim -> ext NaN -> 0 km2 of sea (r5c0); and _basin_prior read 0 past ~2 km from casts -> clamped to the base contour (r3c0's corner, the flats):
+    a 16x coarser cascade + nearest.  (4) r6c3/r6c4 solid-over-level: a mapped channel at 59.63708,-151.15933 routed the 10.39 m of a 0.1 ha
+    lake the rim rule raised (cm16: 19.06 from elsewhere) over 15-22 m ground; shore.py now returns routed cells > 1 m under measured ground to land.
+    Not traced: r6c3's 1,446 cells at 59.69220,-151.30644 (z 1.1 over level -0.2; same in cm16).  (5) PETROF: body 2 (lake, 286 ha) got 12.04 from
+    the rim rule; fill's domain split dropped any level whose surveys are all priors, so the lake went with its outlet's river domain (channel
+    model, 6 m bed, a pit per sounding); it now keeps a rim-rule level.  QUEUE ($W/run_1108.sh, after bishop_t; one worker; then
+    final_publish_cm18_1108.sh): r5c0 r4c5 r3c1 r2c1 r3c0 r6c2 r6c3 r6c1 r6c4 r4c0 r6c0 r7c0 r7c1, tag cm18 (overwrites those out_cm18 archives).
 - **Dev version:** `$W/republish_loop.sh` rebuilds `$W/kbay_joint_cm18/` (`mosaic_blend.py ... "cm18,cm17,cm16"`) and republishes the
   dev surface `kbay_joint_cm18` every two new boxes (or after 2 h), log `$W/republish_cm18.log`; a last time when the workers are
   gone. On the viewer meanwhile: `kbay_joint_cm16` (the difference base), `kbay_joint_cm17` and `kbay_joint_cm17_r4c1` (both to
