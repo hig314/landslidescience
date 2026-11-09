@@ -91,6 +91,55 @@
    "live": "2026-11-06 22:07:24",
    "commit": "981e072",
    "what": "fill: a lone observed cell's value holds halfway to the next observation (<= 20 m) instead of a one-cell cusp; a lake's soundings fitted at chi 0.2 like the sea's casts (upper Grewingk's sparse soundings)"
+  },
+  {
+   "id": "review1",
+   "stage": "rocks/tide_vectors",
+   "live": "2026-11-08 01:25:00",
+   "commit": "ba9813f",
+   "what": "rocks.py + tide_vectors.py review: Hig's review source 1 (rocks typed high/mid/low/sub as floors against the source's water level, estimated -1.75 m; 36 new, 29 ENC activated, 30 moved; 4 low + 2 high lines Point Adam - Port Graham)"
+  },
+  {
+   "id": "homer1921",
+   "stage": "units",
+   "live": "2026-11-08 01:30:00",
+   "commit": "ba9813f",
+   "what": "joint units: Homer 2019 and 2021 NCMP green lidar (ground + bed, no shift: +0.02 / -0.04 m vs Homer 2018) -- the beach vintage zone lets the newest hold the bars"
+  },
+  {
+   "id": "priorreach",
+   "stage": "shore",
+   "live": "2026-11-08 01:29:41",
+   "commit": "ba9813f",
+   "what": "shoreface: the basin prior reaches past its fine kernels (coarse cascade sigma 0.5-8 km, nearest beyond) instead of reading 0 and taking the base contour > 2 km from casts (the band at 59.24903,-152.27016)"
+  },
+  {
+   "id": "norim",
+   "stage": "shore",
+   "live": "2026-11-08 01:29:41",
+   "commit": "ba9813f",
+   "what": "shoreface: no land rim in the grid -> the rim's extension is the deep side of the base (open-water boxes r5c0-r7c0 were 208 km2 of intertidal, 0 sea)"
+  },
+  {
+   "id": "routeground",
+   "stage": "shore",
+   "live": "2026-11-08 01:36:51",
+   "commit": "ba9813f",
+   "what": "shore: a routed level never stands > 1 m under measured ground (r6c3/r6c4 channel at 59.63708,-151.15933)"
+  },
+  {
+   "id": "rimlevel",
+   "stage": "fill",
+   "live": "2026-11-08 01:38:10",
+   "commit": "ba9813f",
+   "what": "fill: the domain split keeps a lake level the rim rule set (Petrof Lake 12.04 m was dropped: river domain, channel model, pits at the soundings)"
+  },
+  {
+   "id": "gapfit",
+   "stage": "fill",
+   "live": "2026-11-08 21:21:48",
+   "commit": "(this)",
+   "what": "fill: within 6 m of an observed cell a modelled wet cell (band/interior/conditioned/margin/intertidal) is the harmonic through the observations round it, fading to the model's fill by 25 m (multibeam swath gaps, rings round multibeam holes: Halibut Cove Lagoon grooves and wall mesas, Coal Cove mesas, the 59.358 trough, Homer flat lines)"
   }
  ]
 }

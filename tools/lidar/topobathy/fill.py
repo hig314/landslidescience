@@ -80,7 +80,8 @@ DEFAULTS = dict(shore_model=None, tide_lines=None, rocks=None, sea_prior="local"
                 points_decay_m=150.0, points_decay_scale_m=150.0, points_chi=1.0, lake_chi=0.2, lone_pin_max_m=20.0, ceiling_margin_m=0.5, ceiling_passes=2,
                 ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0,
                 rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0, lens_max_m=None, sound_hyps_min_n=30,
-                points_max_sites=2500, points_max_eval=4_000_000, points_free_min=30, ground_prior=None, void_ground_m=4.5)
+                points_max_sites=2500, points_max_eval=4_000_000, points_free_min=30, ground_prior=None, void_ground_m=4.5,
+                gap_fit_w0_m=6.0, gap_fit_w1_m=25.0)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -2653,5 +2654,43 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         if add_.any():
             lvl_ = lvl_.copy(); lvl_[add_] = vals_[add_]
             log(f"  water level written over the measured bed inside flat bodies: {int(add_.sum()) * res * res / 1e4:.2f} ha")
+    # THE GAP BETWEEN MEASUREMENTS IS THE MEASUREMENTS' (2026-11-08, Hig's cm18 review: "multibeam edge seams are a widespread
+    # issue - we need to figure out how to blend smoothly away from these"): a void a few cells wide between a multibeam's
+    # swaths, or the ring a superseded compilation leaves round a multibeam hole, was filled by the domain's model -- a basin
+    # rollover, the intertidal band, the guard's clip -- and stood beside the beds on both sides as grooves (Halibut Cove
+    # Lagoon, 1.8 m deep), mesas (Coal Cove, -3.9 m between -7.6 m beds), a trough (59.358,-151.954, 8-13 m) and raised lines
+    # (the Homer flats).  Within gap_fit_w0_m of an observed cell the fill is the HARMONIC through the observations round it
+    # (a maximum principle: no groove, no mesa, nothing the rims do not ask for), fading to the model's own fill by
+    # gap_fit_w1_m, where the harmonic is pinned to that fill so the two meet without a step.  Modelled wet cells only (the
+    # shore stage's water or floating) of the band, interior, conditioned, margin and intertidal kinds; a lake's shape (5),
+    # a channel (6), the tidal lens (7) and the ground prior (8) keep their own rules.  The ceiling still holds: a cell
+    # already under its water stays under it.
+    w0_, w1_ = float(P.get("gap_fit_w0_m", 0.0)), float(P.get("gap_fit_w1_m", 0.0))
+    if w1_ > w0_ >= 0 and w1_ > 0 and shore_lab is not None:
+        gf_ = np.isfinite(fill)
+        obs_ = np.isfinite(z) & ~gf_
+        tgt_ = gf_ & np.isin(mask, (1, 2, 3, 4, 9)) & np.isin(shore_lab, (2, 3))
+        if obs_.any() and tgt_.any():
+            d_ = ndimage.distance_transform_edt(~obs_, sampling=res)
+            unk_ = tgt_ & (d_ <= w1_)
+            if unk_.any():
+                surf_ = np.where(gf_, fill, z)
+                dm_ = ndimage.binary_dilation(unk_, iterations=2) & np.isfinite(surf_)
+                fx_ = dm_ & ~unk_
+                Hh_ = harmonic(np.where(fx_, surf_, 0.0), fx_, dm_, coarse=P.get("coarse", 16), iters=P.get("cg_iters", 300))
+                ok_ = unk_ & np.isfinite(Hh_)
+                wt_ = np.clip((w1_ - d_) / max(w1_ - w0_, 1e-6), 0.0, 1.0)
+                nv_ = (wt_ * Hh_ + (1.0 - wt_) * fill).astype(np.float32)
+                if lvl_ is not None:
+                    cp_ = ok_ & np.isfinite(lvl_)
+                    nv_[cp_] = np.minimum(nv_[cp_], np.maximum(fill[cp_], lvl_[cp_] - 0.1))
+                dz_ = np.where(ok_, nv_ - fill, 0.0)
+                mv_ = np.abs(dz_) > 0.05
+                fill[ok_] = nv_[ok_]
+                log(f"  the gap fit (harmonic through the observations, {w0_:g} -> {w1_:g} m): {int(ok_.sum()) * res * res / 1e4:.1f} ha within reach, "
+                    f"{int(mv_.sum()) * res * res / 1e4:.1f} ha moved > 5 cm"
+                    + (f", |dz| p50/p99/max {np.percentile(np.abs(dz_[mv_]), [50, 99]).round(2).tolist()} / {float(np.abs(dz_).max()):.1f} m, up {int((dz_ > 0.05).sum()) * res * res / 1e4:.1f} ha" if mv_.any() else ""))
+                del d_, unk_, surf_, dm_, fx_, Hh_, ok_, wt_, nv_, dz_, mv_
+        del gf_, obs_, tgt_
     return dict(fill=fill, prior=prior, mask=mask, sigma=sigma, domain=dom, marine=marine, lakes=lake_tab, surface=surface, dryvoid=dryvoid, water_level=lvl_, ceiling=ceil_mask, sound_prior=sound_prior, tide_contours=(shoreface_R or {}).get("contours"), cast_review=(shoreface_R or {}).get("cast_review"), cast_lines=(shoreface_R or {}).get("cast_lines"), rock_review=(shoreface_R or {}).get("rock_review"), edit_check=(shoreface_R or {}).get("edit_check"),
                 channels=chan_tab)
