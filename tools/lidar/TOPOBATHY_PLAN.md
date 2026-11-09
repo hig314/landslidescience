@@ -1,5 +1,34 @@
 # Topobathy compositing: tools and interface
 
+## Resume here (2026-11-08, evening) — cm18 reviewed by Hig; gap fit + derived-sheet rule live; lake recipe in dev only
+
+**Live in the worktree (local commits c63d42a, eb81cbd; rules `gapfit`, `gapfitspeck`, `derivedsheet` in the ledger):**
+- `fill.py` **gap fit** (end of `fill_holes`): modelled wet cells (mask 1/2/3/4/9) within `gap_fit_w0_m` 6 m of an observed
+  patch (>= `gap_fit_min_cells` 25) take the harmonic through the observations, fading to the model by `gap_fit_w1_m` 25 m;
+  ceiling kept.  Fixes Hig's multibeam-edge list on the saved outputs: Halibut Cove Lagoon grooves and wall mesas (-6 m in a
+  -60 m bed), Coal Cove mesas (-3.9 -> -6.4 vs -7.6 obs), the 59.358 trough (+8..13 m), Homer flat lines.  Not the r5c2 "hole"
+  (observed 2009 multibeam to -26 m at a swath edge: an outer-beam question).  Prototypes `$W/gapfit_proto.py`, `$W/feather_proto.py`.
+- `joint.py` **derived-bed sheet rule**: a lidar sheet within the tide's reach, flat by |z - 5x5 median| <= 0.3 m and level
+  < 1 %, standing > 4 m over the shallowest compilation on half its cells, is the sea with the pocks it encloses.  Took
+  Kenai 2008's +3.8 m strips off Anchor Point (anchor_t gfix2: 331 sheets, 17.6 ha); a rougher +1.5 m strip remains there
+  (sea at another tide, or a real reef? ask Hig).
+- First box with the gap fit: **kj_r4c1** (run_1108c.sh, fill from 21:42; its joint ran before the sheet rule), then
+  `final_publish_cm18_1108_r4c1.sh` republishes dev.
+
+**Lake recipe (Hig: "the marine version where there are soundings") — NOT live: `/Volumes/Nunatak/lidar_build/lidar_dev`
+(a copy of tools/lidar), patch `$W/lake_marine_wip_20261108.patch`.**  Petrof (26 soundings < sound_hyps_min_n 30, so Dmax
+101 m from the rim; each sounding a pinned cell with a lone-pin disc + harmonic cone).  Tried on crop `petrof_t`: (1) the
+sea's basin prior + rollover + soundings as spline sites (chi 0.2): no cones, prior 7 m shallow, spline pit; (2) profile with
+Dmax from the soundings (53 m): the spline at chi 0.2 overshot 32 m above the water from 25 soundings, guard cut it onto its
+cone (creases); (3) profile/basin + the soundings' misfit by the cascade, faded at the shore: smooth, but the narrow north
+arm (300 m wide, 40-52 m deep 100-150 m from shore) sits inside every shore-distance construct and the misfit stays 17 m
+(p90).  Next idea: let the soundings, not distance to shore, carry depth in narrow arms (shore-at-level sites + soundings in
+one smoothing fit of ABSOLUTE z, no distance-based prior), and lower sound_hyps_min_n.
+
+**Gate notes from today's six reruns:** r6c3/r6c4 "regressions" are the Grewingk River reach (pre-existing, 2164 cells) and
+Glacier Spit's back-barrier lagoon now kinded perched at 3.4 m (surface identical); r4c0/r6c0/r7c0 rows MISSING = gate.py
+crashes on mixed 2 m / 4 m rasters (fix gate, not data); r7c1 clip_shelf = Anchor River lakes/channels inland.
+
 ## Resume here (2026-11-05, late morning) — full-bay run cm16 stopped after 13 boxes; three shore-model faults found; fixes next
 
 **State.** The contour shore model (high shore authoritative, low level from real bed slopes, rocks as soundings,
