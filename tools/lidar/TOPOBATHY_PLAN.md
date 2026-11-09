@@ -1,5 +1,20 @@
 # Topobathy compositing: tools and interface
 
+## Resume here (2026-11-09, 00:40) — Hig's second cm18 review (≈45 spots); overnight queue running; mesa rule in dev only
+
+**Running:** `$W/run_1109.sh` (log `$W/test_cm18.log`, `$W/republish_cm18.log`): r6c3 r5c3 r6c1 r7c1 r5c2 r4c1 -> publish dev,
+then r4c3 r6c2 r4c2 r7c3 r7c4 -> publish (`$W/publish_cm18_1109.sh`).  Code = HEAD (gap fit + derived-sheet rule; review source 1 at -0.5 m).
+**Triage of Hig's spots** (probes `$W/spot.py`, `$W/zoom.py`): (a) most "seam" artifacts = a land survey's SEA SURFACE left in holes of the
+2009 multibeam (Chugachmiut's DTM plane at -1 m, KBay 2023 / Kenai 2008 returns; the sheet rules need the bed UNDER the sheet): the
+derived-sheet rule already clears r4c1's (crop mesa_r4c1); the rest wants the **mesa rule** (`lidar_dev/topobathy/joint.py`, not live:
+a level piece in the tide's reach whose ring is mostly a bed bed_stand_dz_m below it) -- catches the KBay spikes (59.46560, 59.47241) and
+r4c3's rims; not yet the 150 m Chugachmiut hook at 59.36553,-151.83973 (920 cells at -1.07 m, joined to the shore piece).  Crops
+mesa_r4c1 mesa_r4c1b mesa_r4c3 mesa_r6c3 mesa_r7c3 spike_r5c3 spike_r5c2 (baseline joint in each crop's `base/`).  (b) the seamount at
+59.17719,-151.06135 = tide_lines feature 5250, a 25 m "high tide (Hig)" ring at 4.45 m in 107-160 m of water (the only such stray found).
+(c) Woz front / Kasitsna = OCM 2023's own surface on the flats.  (d) swales 59.68006 / 59.66122 = interior fill at the base contour.
+(e) soundings: vs NOS 1977-84 ours NMAD 0.57-0.78 m unbiased (NCEI 1/3" 0.69 where it covers); vs 1915-31 NMAD 1.2-2.1 m;
+59.29582 (r3c5) biased shallow (median +2, p90 +9.5): to diagnose.  Bradley Lake: USGS OF 56-62 sheet 1 (1955 contours) + WSP 1610-A table 8.
+
 ## Resume here (2026-11-08, evening) — cm18 reviewed by Hig; gap fit + derived-sheet rule live; lake recipe in dev only
 
 **Live in the worktree (local commits c63d42a, eb81cbd; rules `gapfit`, `gapfitspeck`, `derivedsheet` in the ledger):**
