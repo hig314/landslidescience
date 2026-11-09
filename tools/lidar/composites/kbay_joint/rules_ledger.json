@@ -140,6 +140,20 @@
    "live": "2026-11-08 21:21:48",
    "commit": "c63d42a",
    "what": "fill: within 6 m of an observed cell a modelled wet cell (band/interior/conditioned/margin/intertidal) is the harmonic through the observations round it, fading to the model's fill by 25 m (multibeam swath gaps, rings round multibeam holes: Halibut Cove Lagoon grooves and wall mesas, Coal Cove mesas, the 59.358 trough, Homer flat lines)"
+  },
+  {
+   "id": "derivedsheet",
+   "stage": "joint",
+   "live": "2026-11-08 21:30:09",
+   "commit": "(this)",
+   "what": "joint: a lidar's flat sheet within the tide's reach (robust flatness: within stand_flat_m of its 5x5 median, level under 1 %) standing > 4 m over the shallowest compilation on half its cells is the sea, with the pocks it encloses (Kenai 2008's flight lines at +2.5/+3.8 m off Anchor Point, 59.69273/59.72965)"
+  },
+  {
+   "id": "gapfitspeck",
+   "stage": "fill",
+   "live": "2026-11-08 21:33:52",
+   "commit": "(this)",
+   "what": "fill: the gap fit pins only to observed patches of >= 25 cells (no cones round a stray return in open water)"
   }
  ]
 }

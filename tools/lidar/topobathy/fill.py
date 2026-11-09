@@ -81,7 +81,7 @@ DEFAULTS = dict(shore_model=None, tide_lines=None, rocks=None, sea_prior="local"
                 ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0,
                 rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0, lens_max_m=None, sound_hyps_min_n=30,
                 points_max_sites=2500, points_max_eval=4_000_000, points_free_min=30, ground_prior=None, void_ground_m=4.5,
-                gap_fit_w0_m=6.0, gap_fit_w1_m=25.0)
+                gap_fit_w0_m=6.0, gap_fit_w1_m=25.0, gap_fit_min_cells=25)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -2669,13 +2669,21 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     if w1_ > w0_ >= 0 and w1_ > 0 and shore_lab is not None:
         gf_ = np.isfinite(fill)
         obs_ = np.isfinite(z) & ~gf_
+        # ...through real coverage only: a speck of observation (under gap_fit_min_cells, 8-connected) -- a stray return of the sea
+        # standing in the bay (anchor_t, 2026-11-08: the harmonic made cones 25 m round Kenai 2008's +2 m specks in 6 m of water)
+        # -- neither pins it nor draws a cell into its reach; the model's fill stands round it as before
+        mc_ = int(P.get("gap_fit_min_cells", 0))
+        if mc_ > 1 and obs_.any():
+            ol_, on_ = ndimage.label(obs_, structure=np.ones((3, 3), bool))
+            big_ = np.bincount(ol_.ravel(), minlength=on_ + 1) >= mc_; big_[0] = False
+            obs_ = big_[ol_]; del ol_, big_
         tgt_ = gf_ & np.isin(mask, (1, 2, 3, 4, 9)) & np.isin(shore_lab, (2, 3))
         if obs_.any() and tgt_.any():
             d_ = ndimage.distance_transform_edt(~obs_, sampling=res)
             unk_ = tgt_ & (d_ <= w1_)
             if unk_.any():
                 surf_ = np.where(gf_, fill, z)
-                dm_ = ndimage.binary_dilation(unk_, iterations=2) & np.isfinite(surf_)
+                dm_ = ndimage.binary_dilation(unk_, iterations=2) & np.isfinite(surf_) & (gf_ | obs_)
                 fx_ = dm_ & ~unk_
                 Hh_ = harmonic(np.where(fx_, surf_, 0.0), fx_, dm_, coarse=P.get("coarse", 16), iters=P.get("cg_iters", 300))
                 ok_ = unk_ & np.isfinite(Hh_)

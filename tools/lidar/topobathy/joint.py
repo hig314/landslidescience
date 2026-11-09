@@ -55,7 +55,7 @@ from scipy import ndimage
 
 CLS = {"void": 0, "ground": 1, "water": 2, "bed": 3, "ice": 4}
 DEFAULTS = dict(res_m=1.0, pool_years={"ground": 5.0, "bed": 30.0, "ice": 0.5}, rates={"ground": 0.01, "bed": 0.02, "ice": 3.0}, tol_m=0.15, tol_low_m=1.0, xc_sigma_m=2.0, xc_minw=1.5,
-                over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, bed_stand_dz_m=2.0, speck_near_m=300.0, speck_sparse_frac=0.25, derived_ground_gap_m=0.0, derived_ground_dense_frac=0.5, sonar_min_depth_m=1.5, sparse_bed_min_n=5, coarse_factor=4.0, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, derived_fine_m=0.0, derived_fine_frac=0.05, surf_near_m=30.0, speck_cast_m=150.0,
+                over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, bed_stand_dz_m=2.0, derived_stand_dz_m=4.0, derived_stand_frac=0.5, derived_stand_slope=0.01, speck_near_m=300.0, speck_sparse_frac=0.25, derived_ground_gap_m=0.0, derived_ground_dense_frac=0.5, sonar_min_depth_m=1.5, sparse_bed_min_n=5, coarse_factor=4.0, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, derived_fine_m=0.0, derived_fine_frac=0.05, surf_near_m=30.0, speck_cast_m=150.0,
                 sigma_floor_m=0.03, gap_m=2.0, wet_m=15.0, steep_deg=20.0, prior_slope_res_m=5.0, hole_rim_tol_m=1.0, grid_wc=0.1, grid_better=0.75,
                 lidar_sigma_m=0.08, grid_xy_sigma_m=0.0, align_min_cells=1000)
 
@@ -760,6 +760,11 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
     for m in names:
         if S[m].cls == "bed" and not S[m].derived:
             zbmin = np.fmin(zbmin, np.where(np.isfinite(Z[m]) & allow[m] & fresh(m), Z[m], np.inf))
+    # the SHALLOWEST of the derived beds (the compilations: CUDEM, NCEI's 1/3", OCM), for the derived-bed sheet rule below
+    zdmax = np.full((H, W), -np.inf, np.float32)
+    for m in names:
+        if S[m].cls == "bed" and S[m].derived:
+            zdmax = np.fmax(zdmax, np.where(np.isfinite(Z[m]) & allow[m], Z[m], -np.inf))
     zbpmin = np.full((H, W), np.inf, np.float32)             # the sparse measured beds alone (soundings)
     for m in names:
         if S[m].kind == "points" and S[m].cls == "bed" and not S[m].derived:
@@ -921,6 +926,37 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
                 sm3 = np.bincount(lab3_.ravel(), minlength=nl3_ + 1) < smc; sm3[0] = False
                 sp_ = sp_ | (sm3[lab3_] & (dn_ <= float(cfg["speck_near_m"])) & (np.abs(Z[n] - lev_) <= 2.0 * tol_))
                 del dn_, lev_, lab3_
+            # ...or a SHEET OVER THE COMPILATIONS ALONE, by a wide margin (2026-11-08, Hig's cm18 review: "bits of flat land protruding
+            # into the ocean" at 59.69273,-151.77838 and 59.72965,-151.84653 -- Kenai 2008's flight lines read the sea at +2.5 and +3.8 m
+            # as ground, straight-edged strips over CUDEM's and NCEI's -6 m, no measured bed or cast under them).  Those sheets are flat
+            # to 0.1-0.2 m but pocked with dropouts 0.5-1 m low, so the 5x5 range above (median 1.06 m) never called them flat: here a
+            # cell is flat when within stand_flat_m of its 5x5 median and the median is level (under derived_stand_slope over
+            # 10 m).  A sheet within the tide's reach standing more than derived_stand_dz_m over the SHALLOWEST compilation on
+            # derived_stand_frac of its cells is the sea, with the pocks it encloses.  A compilation is no measurement, hence the
+            # wide margin and the majority: a real flat is in the compilations at its own height and never trips it.
+            dfr_ = float(cfg.get("derived_stand_frac", 0.0))
+            if dfr_ > 0 and np.isfinite(zdmax).any():
+                zin_ = zf_ & (Z[n] <= tm_)
+                if zin_.any():
+                    ii_ = ndimage.distance_transform_edt(~zf_, return_distances=False, return_indices=True)
+                    zn_ = Z[n][ii_[0], ii_[1]]; del ii_
+                    md_ = ndimage.median_filter(zn_, size=5); del zn_
+                    sm_ = ndimage.gaussian_filter(md_, 5.0 / res)
+                    gy_, gx_ = np.gradient(sm_, res); lv_ = np.hypot(gx_, gy_) <= float(cfg.get("derived_stand_slope", 0.01)); del gy_, gx_, sm_
+                    fD = zin_ & (np.abs(Z[n] - md_) <= float(cfg["stand_flat_m"])) & lv_ & ~st_; del md_, lv_
+                    lD, nD = ndimage.label(fD, structure=np.ones((3, 3), bool))
+                    if nD:
+                        cD = np.bincount(lD.ravel(), minlength=nD + 1)
+                        uD = np.bincount(lD.ravel(), weights=(fD & np.isfinite(zdmax) & (zdmax < Z[n] - float(cfg.get("derived_stand_dz_m", 4.0)))).ravel(), minlength=nD + 1)
+                        bD = (cD >= smc) & (uD >= dfr_ * cD); bD[0] = False
+                        if bD.any():
+                            stD = ndimage.binary_fill_holes(bD[lD]) & zin_ & ~st_
+                            log(f"  {n:14s} flat ground over the compilations alone (> {float(cfg.get('derived_stand_dz_m', 4.0)):g} m above the shallowest on "
+                                f"{dfr_:.0%} of the sheet): {int(bD.sum())} sheets, {float(stD.sum()) * res * res / 1e4:.2f} ha with the pocks they enclose")
+                            sp_ = sp_ | stD
+                            del stD
+                    del lD, fD
+                del zin_
             st_ = st_ | sp_
             if st_.any():
                 stand[n] = st_; Wt[n][st_] = 0.0; Wc[n][st_] = 0.0
