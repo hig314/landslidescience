@@ -40,7 +40,10 @@ class Win:
 
     def __init__(self, d, x=None, y=None, h=None):
         self.d, self.x, self.y, self.h = Path(d), x, y, h
-        self._c = {}
+        self._c = {}; self.res = None
+        if (self.d / "shore_label.tif").exists():                   # the grid's cell, whichever raster a row reads first
+            with rasterio.open(self.d / "shore_label.tif") as s_:
+                self.res = s_.res[0]
 
     def has(self, name):
         return (self.d / name).exists()
@@ -68,7 +71,13 @@ class Win:
                     a = a.astype(np.float32)
                     if s.nodata is not None:
                         a[a == s.nodata] = np.nan
-                self.res = s.res[0]
+                if getattr(self, "res", None) is not None and self.x is None and s.res[0] > self.res * 1.5:
+                    # a raster at a whole multiple of the grid's cell (2026-11-08: the west boxes write water_bodies.tif at 4 m beside
+                    # 2 m rasters, and every row that combined them failed on the shapes): repeated onto the grid, nearest
+                    f = int(round(s.res[0] / self.res))
+                    a = np.repeat(np.repeat(a, f, axis=0), f, axis=1)
+                else:
+                    self.res = s.res[0]
             self._c[name] = a
         return self._c[name]
 
