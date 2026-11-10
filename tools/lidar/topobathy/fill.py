@@ -81,7 +81,7 @@ DEFAULTS = dict(shore_model=None, tide_lines=None, rocks=None, sea_prior="local"
                 ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0,
                 rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0, lens_max_m=None, sound_hyps_min_n=30,
                 points_max_sites=2500, points_max_eval=4_000_000, points_free_min=30, ground_prior=None, void_ground_m=4.5,
-                gap_fit_w0_m=6.0, gap_fit_w1_m=25.0, gap_fit_min_cells=25)
+                gap_fit_w0_m=6.0, gap_fit_w1_m=25.0, gap_fit_min_cells=25, slope_water_depth_m=0.0, slope_water_min=0.0005, slope_water_smooth_m=25.0, flat_fit_min_ha=5.0, flat_fit_zlo_m=-4.5, flat_fit_ring_m=200.0, flat_fit_obs_slope=0.05, flat_fit_gmax=0.02, flat_fit_mad_m=1.2, low_water_cap=1.0, low_water_level_m=-1.87, low_water_edge_m=30.0, low_water_gap_m=48.0, rock_near_m=40.0)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -2700,5 +2700,118 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     + (f", |dz| p50/p99/max {np.percentile(np.abs(dz_[mv_]), [50, 99]).round(2).tolist()} / {float(np.abs(dz_).max()):.1f} m, up {int((dz_ > 0.05).sum()) * res * res / 1e4:.1f} ha" if mv_.any() else ""))
                 del d_, unk_, surf_, dm_, fx_, Hh_, ok_, wt_, nv_, dz_, mv_
         del gf_, obs_, tgt_
+    # A TIDAL FLAT IN A TRUE GAP IS A LOW-GRADIENT SURFACE (2026-11-09, Hig: "delta flats have a pretty simple gradient from high to low tide
+    # ... closely approximated by a plane or cone with a very low constant gradient ... fit to whatever observations we have"; "only use simple
+    # surface fits where there are true data gaps").  The shore model hangs the intertidal from the land down to its base contour, and on a wide
+    # flat that contour lands inside it: basins at -3.4 m at the head of Seldovia Bay.  Per connected piece of MODELLED cells (not channels, not
+    # lakes) within flat_fit_zlo_m..tide_max_m and >= flat_fit_min_ha: a robust trend (quadratic, else a plane where the quadratic would hold a
+    # basin) through the observed cells on and within flat_fit_ring_m of it (in the band, slope < flat_fit_obs_slope); accepted when its gradient
+    # is under flat_fit_gmax and its scatter under flat_fit_mad_m; the cells take trend + the harmonic of the observations' residual, never
+    # lower than the fill (raise only), never above an observed water level - 0.1 m or tide_max_m.
+    ffh_ = float(P.get("flat_fit_min_ha", 0.0))
+    if ffh_ > 0:
+        tm_f = float(P.get("tide_max_m", 4.5)); zlo_f = float(P.get("flat_fit_zlo_m", -4.5))
+        obs_f = (mask == 0) & np.isfinite(z)
+        surf_f = np.where(obs_f, z, fill).astype(np.float64)
+        mod_f = np.isin(mask, (1, 2, 3, 4, 9)) & np.isfinite(fill) & (fill >= zlo_f) & (fill <= tm_f)
+        mod_f = ndimage.binary_opening(mod_f, iterations=2)
+        labf, nf_ = ndimage.label(mod_f, np.ones((3, 3), bool))
+        gyf, gxf = np.gradient(ndimage.gaussian_filter(np.nan_to_num(surf_f), 3), res); slf = np.hypot(gxf, gyf); del gyf, gxf
+        band_f = np.isfinite(surf_f) & (surf_f >= zlo_f) & (surf_f <= tm_f)
+        ring_i = int(round(float(P.get("flat_fit_ring_m", 200.0)) / res)); n_ok = 0; ha_up = 0.0
+        for i_, sl_ in enumerate(ndimage.find_objects(labf), 1):
+            if sl_ is None: continue
+            if (labf[sl_] == i_).sum() * res * res / 1e4 < ffh_: continue
+            sl2 = tuple(slice(max(a.start - ring_i - 2, 0), min(a.stop + ring_i + 2, n)) for a, n in zip(sl_, labf.shape))
+            dom_f = labf[sl2] == i_
+            ring = ndimage.binary_dilation(dom_f, iterations=ring_i) & ~dom_f
+            fit = ring & obs_f[sl2] & band_f[sl2] & (slf[sl2] < float(P.get("flat_fit_obs_slope", 0.05)))
+            if fit.sum() < 500: continue
+            rr_, cc_ = np.nonzero(fit); u_, v_ = cc_ * res / 1000.0, rr_ * res / 1000.0; u0, v0 = u_.mean(), v_.mean()
+            cols = lambda U, V, q: [np.ones_like(U), U - u0, V - v0] + ([(U - u0) ** 2, (U - u0) * (V - v0), (V - v0) ** 2] if q else [])
+            zf_ = surf_f[sl2][fit]
+            def irls(q):
+                X = np.stack(cols(u_, v_, q), 1); w = np.ones(len(zf_))
+                for _ in range(8):
+                    sw = np.sqrt(w); b, *_ = np.linalg.lstsq(X * sw[:, None], zf_ * sw, rcond=None)
+                    r = zf_ - X @ b; a = np.abs(r); w = np.where(a < 0.3, 1.0, 0.3 / np.maximum(a, 1e-9))
+                return b, r
+            beta, r_ = irls(True); quad = True
+            Hq = np.array([[2 * beta[3], beta[4]], [beta[4], 2 * beta[5]]])
+            if np.all(np.linalg.eigvalsh(Hq) > 0):                     # a basin in the trend: the plane instead
+                beta, r_ = irls(False); quad = False
+            g_ = np.hypot(beta[1], beta[2]) / 1000.0; mad_ = 1.4826 * np.median(np.abs(r_ - np.median(r_)))
+            if g_ > float(P.get("flat_fit_gmax", 0.02)) or mad_ > float(P.get("flat_fit_mad_m", 1.2)): continue
+            RR, CC = np.mgrid[sl2[0], sl2[1]]; U, V = CC * res / 1000.0, RR * res / 1000.0
+            Pz = sum(b_ * c_ for b_, c_ in zip(beta, cols(U, V, quad)))
+            pin = ndimage.binary_dilation(dom_f, iterations=2) & obs_f[sl2]
+            Rh = harmonic(np.where(pin, surf_f[sl2] - Pz, 0.0), pin, dom_f | pin, coarse=P.get("coarse", 16), iters=P.get("cg_iters", 300))
+            new = Pz + np.nan_to_num(Rh)
+            new = np.minimum(new, tm_f)
+            if lvl_ is not None:
+                lv2 = lvl_[sl2]; new = np.where(np.isfinite(lv2), np.minimum(new, lv2 - 0.1), new)
+            cur = fill[sl2]; up = dom_f & np.isfinite(cur) & (new > cur)
+            cur[up] = new[up].astype(np.float32); n_ok += 1; ha_up += up.sum() * res * res / 1e4
+        if n_ok:
+            log(f"  tidal flats in true gaps (trend + harmonic of the observations, raise only): {n_ok} flats, {ha_up:.1f} ha raised")
+        del labf, mod_f, surf_f, obs_f, slf, band_f
+    # SLOPING WATER IS SHALLOW (2026-11-09, Hig on the Woz delta: "water that is sloped has direct implications about how shallow that water
+    # is"; the 2023 lidar "should be used essentially with no modification, except for minor (<1.5 m, maybe 0.5 m would be good) incision in
+    # channels").  The river through the delta was split into lake domains and took a lake's depth, 4-8 m under a surface falling 6 m in 3 km.
+    # Where the fill's water level slopes more than slope_water_min (smoothed over slope_water_smooth_m), the bed stands at most
+    # slope_water_depth_m below it.  A lake and the sea are level and are not touched.
+    swd_ = float(P.get("slope_water_depth_m", 0.0))
+    if swd_ > 0 and lvl_ is not None and np.isfinite(lvl_).any():
+        has_ = np.isfinite(lvl_)
+        # the RAW gradient of the level, then its MEDIAN over slope_water_smooth_m: a river slopes everywhere; a chain of level lakes has a
+        # gradient only on the thin lines of its steps, and the median there is nil (a Gaussian smoothed the steps into slopes: 0.6 ha by 70 m
+        # beside Hoen's Lagoon)
+        gy_, gx_ = np.gradient(np.where(has_, lvl_, np.nan).astype(np.float64), res); wsl_ = np.hypot(gx_, gy_)
+        k_ = max(int(round(float(P.get("slope_water_smooth_m", 25.0)) / res)) | 1, 3)
+        wsl_ = ndimage.median_filter(np.nan_to_num(wsl_, nan=0.0), size=k_)
+        num_ = den_ = ls_ = None
+        mar_c = np.zeros(z.shape, bool)
+        cap_ = has_ & ~mar_c & np.isfinite(fill) & np.isin(mask, (1, 2, 3, 4, 6, 9)) & (wsl_ > float(P.get("slope_water_min", 0.0005))) & (fill < lvl_ - swd_)
+        if cap_.any():
+            dz_ = (lvl_ - swd_ - fill)[cap_]
+            fill[cap_] = (lvl_ - swd_)[cap_]
+            log(f"  sloping water is shallow (surface slope > {float(P.get('slope_water_min', 0.0005)) * 100:g} %, bed <= {swd_:g} m under it): {int(cap_.sum()) * res * res / 1e4:.1f} ha raised, "
+                f"by p50/p90/max {np.percentile(dz_, [50, 90]).round(2).tolist()} / {float(dz_.max()):.1f} m")
+        del has_, num_, den_, ls_, gy_, gx_, wsl_, cap_, mar_c
+    # THE MAPPED LOW-TIDE WATER IS WATER AT LOW TIDE (2026-11-09, Hig, Anchor Point: "anything not in [the rocks and shorelines] is not a real
+    # protrusion"): a modelled cell inside the low-tide water polygon (beyond low_water_edge_m of its line, off rock_near_m of every mapped rock
+    # and island) stands no higher than its level.  Not in a closed gap (<= low_water_gap_m) of observed ground above that level: Hoen's
+    # Lagoon's mud flat at 0.8 m lies inside the polygon, and its gaps are the flat's.
+    import os, json
+    lwp_f = P.get("low_water") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "water", "tide_low_water.geojson")
+    if float(P.get("low_water_cap", 0.0)) > 0 and P.get("_transform") is not None and os.path.exists(lwp_f):
+        from rasterio.features import rasterize
+        Lw = float(P.get("low_water_level_m", -1.87))
+        inw = rasterize([(f_["geometry"], 1) for f_ in json.load(open(lwp_f))["features"]], out_shape=z.shape, transform=P["_transform"], fill=0, dtype="uint8").astype(bool)
+        if inw.any():
+            ed = int(round(float(P.get("low_water_edge_m", 30.0)) / res))
+            inw = ndimage.binary_erosion(inw, iterations=max(ed, 1))
+            prot = np.zeros(z.shape, bool); T_ = P["_transform"]
+            rp_f = P.get("rocks")
+            if rp_f and os.path.exists(rp_f):
+                for f_ in json.load(open(rp_f))["features"]:
+                    if (f_["properties"].get("type") or "") == "Deep": continue
+                    x_, y_ = f_["geometry"]["coordinates"][:2]; c_, r_ = ~T_ * (x_, y_); r_, c_ = int(r_), int(c_)
+                    if 0 <= r_ < z.shape[0] and 0 <= c_ < z.shape[1]: prot[r_, c_] = True
+            ip_f = os.path.join(os.path.dirname(lwp_f), "tide_islands.geojson")
+            if os.path.exists(ip_f):
+                prot |= rasterize([(f_["geometry"], 1) for f_ in json.load(open(ip_f))["features"]], out_shape=z.shape, transform=T_, fill=0, dtype="uint8").astype(bool)
+            if prot.any():
+                inw &= ndimage.distance_transform_edt(~prot, sampling=res) > float(P.get("rock_near_m", 40.0))
+            og = (mask == 0) & np.isfinite(z) & (z > Lw)
+            gi = int(round(float(P.get("low_water_gap_m", 48.0)) / res / 2))
+            if gi > 0 and og.any():
+                inw &= ~ndimage.binary_closing(og, structure=np.ones((3, 3), bool), iterations=gi)
+            cap = inw & (mask > 0) & np.isfinite(fill) & (fill > Lw)
+            if cap.any():
+                log(f"  the mapped low-tide water: {int(cap.sum()) * res * res / 1e4:.1f} ha of modelled bed held at its level {Lw:+.2f} m (by p50/max {np.percentile(fill[cap] - Lw, 50):.2f} / {float((fill[cap] - Lw).max()):.1f} m)")
+                fill[cap] = Lw
+            del prot, og
+        del inw
     return dict(fill=fill, prior=prior, mask=mask, sigma=sigma, domain=dom, marine=marine, lakes=lake_tab, surface=surface, dryvoid=dryvoid, water_level=lvl_, ceiling=ceil_mask, sound_prior=sound_prior, tide_contours=(shoreface_R or {}).get("contours"), cast_review=(shoreface_R or {}).get("cast_review"), cast_lines=(shoreface_R or {}).get("cast_lines"), rock_review=(shoreface_R or {}).get("rock_review"), edit_check=(shoreface_R or {}).get("edit_check"),
                 channels=chan_tab)
