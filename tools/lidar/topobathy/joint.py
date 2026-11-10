@@ -637,6 +637,36 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             del num, den, r2, F, s_
     # ---- 3. epoch: an older source yields wherever a source newer by > pool_years has a local surface
     xs = cfg["xc_sigma_m"] / res; minw = cfg["xc_minw"]
+    # a lidar's SMALL DEEP PATCH above the tide's reach goes before anything is judged by date (2026-11-10, Hig,
+    # 59.70416,-151.42943: pits in the 2008 lidar's ground in an E/W band -- Homer 2019 (DGGS) returns at -90 to -775 m
+    # in 300-400 m upland, one or two side by side.  Each superseded Kenai 2008 round it by date (a void cross), its
+    # own-surface guard spared it (a lone return has no own surface; a pair vouches for itself), and the fill dug the
+    # cross down to it: 1,223 pits in r6c1-r7c3).  Judged against every other source's surface, supersession not yet
+    # applied; only where that surface stands above lone_above_m, so no sea surface of another flight is the judge.
+    lone_low = float(cfg.get("lone_low_m", 15.0)); lone_max = int(cfg.get("lone_max_cells", 4)); lone_above = float(cfg.get("lone_above_m", 6.0))
+    rep["lone_deep_cells"] = {}
+    for n in names:
+        if S[n].kind != "lidar" or S[n].cls == "bed":
+            continue
+        zo_ = np.zeros((H, W), np.float32); wo_ = np.zeros((H, W), np.float32)
+        for m in names:
+            if m == n or S[m].cls == "bed":
+                continue
+            w_ = np.where(allow[m] & np.isfinite(Z[m]), np.minimum(N[m], 5.0) if S[m].kind == "lidar" else cfg["grid_wc"] * N[m], 0.0).astype(np.float32)
+            zo_ += np.where(w_ > 0, Z[m], 0).astype(np.float32) * w_; wo_ += w_
+        if not (wo_ > 0).any():
+            continue
+        Ro_, _ = local_surface(np.where(wo_ > 0, zo_ / np.maximum(wo_, 1e-9), np.nan), wo_, 2 * xs, minw)
+        deep_ = allow[n] & np.isfinite(Z[n]) & np.isfinite(Ro_) & (Ro_ > lone_above) & (Z[n] < Ro_ - lone_low)
+        if deep_.any():
+            lab_, nl_ = ndimage.label(deep_, structure=np.ones((3, 3), bool))
+            small_ = np.zeros(nl_ + 1, bool); small_[1:] = np.bincount(lab_.ravel(), minlength=nl_ + 1)[1:] <= lone_max
+            drop_ = deep_ & small_[lab_]
+            allow[n] = allow[n] & ~drop_
+            rep["lone_deep_cells"][n] = int(drop_.sum())
+            if drop_.any():
+                log(f"  {n:14s} small deep patches above the tide's reach (<= {lone_max} cells, > {lone_low:g} m under the others): {int(drop_.sum())} cells dropped, by p10/50/90 {np.round(np.percentile((Ro_ - Z[n])[drop_], [10, 50, 90]), 1).tolist()} m")
+        del zo_, wo_, Ro_
     Wt = {n: np.where(np.isfinite(Z[n]) & allow[n], N[n] / np.maximum(SG[n], cfg["sigma_floor_m"]) ** 2, 0.0).astype(np.float32) for n in names}
     R1 = {n: local_surface(Z[n], np.minimum(N[n], 5.0) * (allow[n] & np.isfinite(Z[n])), xs, minw) for n in names if S[n].kind == "lidar"}   # own surface: the spike test
     near = {n: ndimage.binary_dilation(allow[n] & np.isfinite(Z[n]), iterations=max(1, int(np.ceil(2 * xs)))) for n in names}            # has cells within the cross-check reach
