@@ -1,5 +1,34 @@
 # Topobathy compositing: tools and interface
 
+## Resume here (2026-11-09, 17:10) — Hig's answers on the review; tidal-flat + low-tide-water rules live (5235e9e); review boxes queued
+
+**Hig (2026-11-09):** the Woz 2023 lidar is very good — use it "essentially with no modification, except minor (<1.5 m, maybe 0.5 m)
+incision in channels"; only fit simple surfaces where there are TRUE data gaps; real sandbars (Woz, Kasitsna) stay; nothing in ArcticDEM
+helps on these flats; high rocks are in the rocks/shorelines data and "anything not in these is not a real protrusion"; the Anchor Point
++1.5 m tongue (59.7287-59.7327,-151.847..-151.851) is "a large artifact"; sloped water implies shallow water (river-channel mapping).
+**Live in the repo (5235e9e, ledger 1ab8a27):**
+- joint `sheet_level_tol_m` 0.5 / `sheet_level_slope` 0.0015: a sea sheet whose part over the water/bed lies within the tide's reach and
+  that SLOPES as a whole (>= 1 ha, rising >= 1 m) is a tidal flat; only its level pieces at that water's level go.  Same slope test for the
+  own-water lake sheets.  Woz: 404 ha of KBay 2023 in the tide band, 159 kept before, 382 after.
+- joint `low_water_stand_m` 1.0: ground in water/tide_low_water.geojson (-1.87 m) beyond 30 m of its line and 40 m of every rock/island,
+  > -0.87 m, over a measured bed or cast 2 m below OR seen sparsely (< 50 % returns about) is the sea.  Hoen's flat (dense, nothing
+  measured under) is spared.  Tongue: 17.4 -> 2.5 ha above -0.87 in the polygon (crop `tongue`).
+- joint `derived_under_sheet_m` 6: compilations yield under a lidar sea surface within the tide's reach with no measured bed / deep cast
+  under it (Kasitsna: KBay 2023's sea at -0.08 m over OCM's pocked -3.4 m, 54 ha).
+- the mesa rule (from last night's dev copy) and the dump's `why` dict (a NameError with --dump before).
+- fill `flat_fit_min_ha` 5: modelled cells of a tidal flat in a true gap take a robust quadratic/plane trend through the observed cells
+  around them + the harmonic of the residual, raise only, under an observed water level and tide_max (Seldovia head basins).
+- fill `low_water_cap`: modelled bed in the low-tide water polygon held at -1.87 (not in closed gaps of observed ground above it).
+- fill `slope_water_depth_m` written but OFF (0): the median-gradient version raised Halibut Cove Lagoon's basin by 44-72 m (lagoon_t);
+  sloping water needs the river-channel mapping first.
+**Crops:** wozflat, kasflat, selhead, tongue (+ the ten regression crops' abA/abB/abC); compare with `$W/crop_vs_crop.py <crop> devTAG repo1109`.
+**Running:** `$W/run_1109r.sh` waits for run_1109 (r7c4's fill took > 2.5 h, old code), then r5c3 r5c2 r4c2 r7c1 under 5235e9e and
+`publish_cm18_1109r.sh`.  The other 44 boxes still lack these rules (rules_applied.py cm18).
+**Bradley Lake:** /Volumes/Nunatak/lidar_build/obs/bradley/ — georef v1 (Hig: good enough), lakebed v1 (Table 8 within 3 %), points CSV;
+the flooded valleys outside the 1955 lake are a placeholder; AEA's NV5 2022 lidar (DOWL) and 2016 lidar not public — Hig is asking.
+**Open:** Bluff Point 1.3 ha of Homer 2018 kept by the slope test (-0.4 m, 11 returns/cell — real lower beach?); channel incision on the
+flats; r3c5 sounding bias (59.29582); cast-disc depressions; Bear Cove; Gore/Petrof lakes; 59.41784 r4c0.
+
 ## Resume here (2026-11-09, 00:40) — Hig's second cm18 review (≈45 spots); overnight queue running; mesa rule in dev only
 
 **Running:** `$W/run_1109.sh` (log `$W/test_cm18.log`, `$W/republish_cm18.log`): r6c3 r5c3 r6c1 r7c1 r5c2 r4c1 -> publish dev,
