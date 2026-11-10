@@ -196,6 +196,13 @@
    "live": "2026-11-09 17:04:26",
    "commit": "5235e9e",
    "what": "fill: modelled bed in the mapped low-tide water held at its level"
+  },
+  {
+   "id": "flatcap",
+   "stage": "fill",
+   "live": "2026-11-09 17:36:43",
+   "commit": "1b4b411",
+   "what": "fill: the tidal-flat fit capped by the plain harmonic of the observations round the gap"
   }
  ]
 }
