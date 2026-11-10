@@ -81,7 +81,7 @@ DEFAULTS = dict(shore_model=None, tide_lines=None, rocks=None, sea_prior="local"
                 ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0,
                 rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0, lens_max_m=None, sound_hyps_min_n=30,
                 points_max_sites=2500, points_max_eval=4_000_000, points_free_min=30, ground_prior=None, void_ground_m=4.5,
-                gap_fit_w0_m=6.0, gap_fit_w1_m=25.0, gap_fit_min_cells=25, slope_water_depth_m=0.0, slope_water_min=0.0005, slope_water_smooth_m=25.0, flat_fit_min_ha=5.0, flat_fit_zlo_m=-4.5, flat_fit_ring_m=200.0, flat_fit_obs_slope=0.05, flat_fit_gmax=0.02, flat_fit_mad_m=1.2, low_water_cap=1.0, low_water_level_m=-1.87, low_water_edge_m=30.0, low_water_gap_m=48.0, rock_near_m=40.0)
+                gap_fit_w0_m=6.0, gap_fit_w1_m=25.0, gap_fit_min_cells=25, slope_water_depth_m=0.0, flat_fit_min_ha=5.0, flat_fit_zlo_m=-4.5, flat_fit_ring_m=200.0, flat_fit_obs_slope=0.05, flat_fit_gmax=0.02, flat_fit_mad_m=1.2, low_water_cap=1.0, low_water_level_m=-1.87, low_water_edge_m=30.0, low_water_gap_m=48.0, rock_near_m=40.0, slope_water_min=0.0005, slope_water_smooth_m=25.0, lake_marine_min_n=5, lake_marine_slope_min_deg=2.0, lake_marine_prior="profile", lake_marine_fit="tension")
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -92,9 +92,58 @@ def _points_files(P):
     return [p] if isinstance(p, str) else list(p or [])
 
 
-def _read_on_grid(path, T, crs, shape, rows, cols, nearest=False):
+def _lake_tension(mask, rs, cs, resid, h, ell_s, ell, w_snd):
+    """A sounded lake's correction to its profile, as ONE smooth surface (2026-11-10, Hig's cm18 review: Petrof "still isn't
+    fixed" -- the cascade of Gaussians missed the narrow north arm's soundings by 12-23 m, the spline through them overshot 22 m
+    above the profile and the ceiling's cut left creases).  On a grid of step h over the lake (mask), minimise
+        sum_s w_snd (c - resid_s)^2  +  sum [ ell_s^2 (lap c)^2 + |grad c|^2 + c^2 / ell^2 ] h^2
+    with c = 0 on the shore (every cell outside the mask): a tension spline (curvature below ell_s, a membrane above it, so no
+    cone at a point and no overshoot between points) whose correction dies away over ell where nothing was sounded, leaving
+    the profile.  Several soundings in one cell are averaged by their summed weight.  Returns c on the mask's grid."""
+    H, W = mask.shape
+    idx = -np.ones((H, W), np.int64); n = int(mask.sum()); idx[mask] = np.arange(n)
+    rr, cc = np.nonzero(mask)
+    rows, cols, vals = [], [], []
+    def lap_rows():
+        # 5-point Laplacian at every lake cell, outside cells (c = 0) dropping out of the stencil
+        R_ = [np.arange(n)]; C_ = [np.arange(n)]; V_ = [np.full(n, -4.0 / h ** 2)]
+        for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            r2, c2 = rr + dr, cc + dc
+            ok = (r2 >= 0) & (r2 < H) & (c2 >= 0) & (c2 < W)
+            j = np.full(n, -1); j[ok] = idx[r2[ok], c2[ok]]
+            m_ = j >= 0
+            R_.append(np.arange(n)[m_]); C_.append(j[m_]); V_.append(np.full(int(m_.sum()), 1.0 / h ** 2))
+        return sparse.csr_matrix((np.concatenate(V_), (np.concatenate(R_), np.concatenate(C_))), shape=(n, n))
+    Lp = lap_rows()
+    # gradient: forward differences along both axes, each edge whose far cell is outside counting against c = 0
+    G = []
+    for dr, dc in ((1, 0), (0, 1)):
+        r2, c2 = rr + dr, cc + dc
+        ok = (r2 < H) & (c2 < W)
+        j = np.full(n, -1); j[ok] = idx[r2[ok], c2[ok]]
+        Rg = [np.arange(n)]; Cg = [np.arange(n)]; Vg = [np.full(n, -1.0 / h)]
+        m_ = j >= 0; Rg.append(np.arange(n)[m_]); Cg.append(j[m_]); Vg.append(np.full(int(m_.sum()), 1.0 / h))
+        G.append(sparse.csr_matrix((np.concatenate(Vg), (np.concatenate(Rg), np.concatenate(Cg))), shape=(n, n)))
+        # ...and the edge into the lake from an outside cell on the other side
+        r3, c3 = rr - dr, cc - dc
+        out_ = ~((r3 >= 0) & (c3 >= 0)) | ~mask[np.clip(r3, 0, H - 1), np.clip(c3, 0, W - 1)]
+        G.append(sparse.csr_matrix((np.full(int(out_.sum()), 1.0 / h), (np.arange(int(out_.sum())), np.nonzero(out_)[0])), shape=(int(out_.sum()), n)))
+    A = (ell_s ** 2) * (Lp.T @ Lp) + sum(g.T @ g for g in G) + sparse.identity(n) / ell ** 2
+    A = A * h * h
+    j = idx[rs, cs]; ok = j >= 0
+    wsum = np.bincount(j[ok], weights=np.full(int(ok.sum()), w_snd), minlength=n)
+    rhs = np.bincount(j[ok], weights=w_snd * resid[ok], minlength=n)
+    A = (A + sparse.diags(wsum)).tocsc()
+    c = spsolve(A, rhs)
+    out = np.zeros((H, W), np.float32); out[mask] = c
+    return out
+
+
+def _read_on_grid(path, T, crs, shape, rows, cols, nearest=False, sea_zero=False):
     """A raster (any CRS) bilinear onto this grid's cells rows[0]:rows[1], cols[0]:cols[1]: the window only, never the
-    whole grid (HAZARDS: the 4326 3DEP VRT).  NaN where the raster has nothing."""
+    whole grid (HAZARDS: the 4326 3DEP VRT).  NaN where the raster has nothing.  sea_zero: a cell whose nearest source value is
+    exactly 0 is NaN too -- 3DEP flattens the sea to 0.0 m (as Mapterhorn does), and 0 m stands above low tide, so the intertidal
+    band took the open water as ground and held the fill near 0 over nine 1977-84 casts at -3.2..-4.7 m (Kasitsna, 2026-11-09)."""
     import rasterio
     from rasterio.enums import Resampling
     from rasterio.vrt import WarpedVRT
@@ -105,6 +154,10 @@ def _read_on_grid(path, T, crs, shape, rows, cols, nearest=False):
         with WarpedVRT(s, crs=crs, transform=t, width=c1 - c0, height=r1 - r0, resampling=Resampling.nearest if nearest else Resampling.bilinear,
                        src_nodata=s.nodata, nodata=-9999.0) as v:
             a = v.read(1).astype(np.float32)
+    if sea_zero:
+        with rasterio.open(path) as s:
+            with WarpedVRT(s, crs=crs, transform=t, width=c1 - c0, height=r1 - r0, resampling=Resampling.nearest, src_nodata=s.nodata, nodata=-9999.0) as v:
+                a = np.where(v.read(1) == 0, np.nan, a).astype(np.float32)
     out = np.full(shape, np.nan, np.float32)
     out[r0:r1, c0:c1] = np.where(a > -9000, a, np.nan)
     return out
@@ -131,7 +184,7 @@ def _dem_band(fp_, P, shape, res, islands=False):
     band_ground_min_m and below tide_max_m + 1, not the DEM's hydroflattened water (ground_water: 1 a lake, 2 the sea),
     not a body's cells, not exactly flat.  Returns (eligible mask, the DEM on the grid, n eligible by height)."""
     rs_, cs_ = np.nonzero(fp_); rws = (int(rs_.min()), int(rs_.max()) + 1); cls_ = (int(cs_.min()), int(cs_.max()) + 1); del rs_, cs_
-    pz = _read_on_grid(P["ground_prior"], P["_transform"], P["_crs"], shape, rws, cls_)
+    pz = _read_on_grid(P["ground_prior"], P["_transform"], P["_crs"], shape, rws, cls_, sea_zero=True)
     el_ = fp_ & np.isfinite(pz) & (pz > float(P["low_tide_m"]) + float(P.get("band_ground_min_m", 0.3))) & (pz < float(P.get("tide_max_m", 4.5)) + 1.0)
     n_el = int(el_.sum())
     if P.get("ground_water"):
@@ -1605,7 +1658,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             n_rimband = int((band & fp_).sum()); n_el = 0; n_dem = 0
             if P.get("band_ground", True) and P.get("ground_prior") and P.get("_transform") is not None and P.get("_crs") is not None and fp_.any():
                 rs_, cs_ = np.nonzero(fp_); rws = (int(rs_.min()), int(rs_.max()) + 1); cls_ = (int(cs_.min()), int(cs_.max()) + 1); del rs_, cs_
-                pz = _read_on_grid(P["ground_prior"], P["_transform"], P["_crs"], z.shape, rws, cls_)
+                pz = _read_on_grid(P["ground_prior"], P["_transform"], P["_crs"], z.shape, rws, cls_, sea_zero=True)
                 el_ = fp_ & np.isfinite(pz) & (pz > float(P["low_tide_m"]) + float(P.get("band_ground_min_m", 0.3))) & (pz < float(P.get("tide_max_m", 4.5)) + 1.0)
                 n_el = int(el_.sum())
                 if P.get("ground_water"):
@@ -1725,6 +1778,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     chan, chan_bed, chan_ws, chan_tab = channel_beds(lab, nw, P.get("_water_z"), res, P,
                                                      marine_ids=set() if lens else mids, skip_ids=((mids if lens else set()) | lake_body_ids) - rivers, whole_ids=rivers, log=log)
     lake_tab = []; lake_level = {}; lake_floor = {}
+    snd_hole = np.zeros(z.shape, bool)             # a sounded lake's sounding cells (the sea's recipe): holes, the spline's sites
+    snd_skip = np.zeros(z.shape, bool)             # ...and those the cascade already carries: not the spline's sites either
     tidal_cells = np.zeros(z.shape, bool)          # the tidal lens's cells (fill_mask 7)
     surface = np.zeros(z.shape, bool)              # observations judged to be the water surface (-> fill_surface.tif)
     lake_prior = np.full(z.shape, np.nan, np.float32); lake_sig = np.full(z.shape, np.nan, np.float32)
@@ -1873,6 +1928,114 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 dmax = float(vals[-1])
                 log(f"  lake {i}: depths remapped to the recipe's hypsometry ({vals.size} quantiles, deepest {dmax:.1f} m)")
             lake_prior[cells] = (level - depth).astype(np.float32)
+            # A SOUNDED LAKE TAKES THE SEA'S RECIPE (Hig's cm18 review, 2026-11-08: "the lakes look more like two models that don't quite
+            # get along ... Petrof ... a point is surrounded by a sharp circular sloping plane ... maybe the answer is to stick with the
+            # marine version in all cases where there are soundings, while we use the lake version when we have no soundings at all").
+            # Petrof's 26 soundings (9.6-52.6 m) fell short of sound_hyps_min_n, so its Dmax came from the rim slope -- 101 m -- and each
+            # sounding, rasterised by the joint as an observed cell, was pinned with a lone-pin disc and a harmonic cone into that
+            # basin.  With lake_marine_min_n soundings or more: the basin is the soundings' own smooth surface (shoreface._basin_prior,
+            # the sea's cascade), the shore descends into it at the rim's slope and settles onto it (the sea's exponential settle,
+            # no kink), and the soundings leave the observations to be the spline's sites (lake_chi), like the sea's casts.
+            nmin_ = int(P.get("lake_marine_min_n", 0))
+            if nmin_ > 0 and snd_rc is not None:
+                in_ = cells[snd_rc[0], snd_rc[1]]
+                if int(in_.sum()) >= nmin_ and str(P.get("lake_marine_prior", "basin")) == "profile":
+                    # THE PROFILE, ITS DEPTH FROM THE SOUNDINGS: the lake's own smooth profile (the shore's slope, deepening to the medial
+                    # axis), with Dmax the deepest sounding plus the median spacing of the deepest few -- the rule sound_hyps_min_n
+                    # gave lakes with 30 soundings, here from lake_marine_min_n -- and the soundings as the spline's sites.  (The
+                    # soundings' own basin surface, the sea's cascade, was tried first: from 25 soundings over 3 km2 it stood 7 m
+                    # shallow of them and the spline dug a pit 10 m under its neighbours away from any sounding.)
+                    dep_ = np.sort(np.clip(level - snd_z[in_], 0.0, None)); top_ = dep_[-max(int(np.ceil(dep_.size * 0.1)), 3):]
+                    d_s = float(dep_[-1] + float(np.median(np.diff(top_))))
+                    if d_s > 0.5:
+                        q2 = float(np.clip(L * np.tan(np.radians(sbar)) / d_s, 1.0, 4.0))
+                        f2 = 1 - (1 - np.clip(dshore[cells] / L, 0, 1)) ** q2
+                        fr2 = np.zeros(cb.shape, np.float32); fr2[cb] = f2
+                        n2 = ndimage.gaussian_filter(fr2, sg); f2s = np.where(den > 1e-3, n2 / np.maximum(den, 1e-3), 0)[cb]
+                        f2 = np.minimum(f2, np.maximum(f2s, 0))
+                        lake_prior[cells] = (level - d_s * f2).astype(np.float32)
+                        lake_sig[cells] = (P["lake_sigma_frac"] * (max(float(np.median(np.diff(top_))), 0.5) + 1.0) * f2 + 1.0).astype(np.float32)
+                        rs_, cs_ = snd_rc[0][in_], snd_rc[1][in_]
+                        snd_hole[rs_, cs_] = True
+                        how_ = "the soundings are the spline's sites, not pinned cells"
+                        if str(P.get("lake_marine_fit", "cascade")) == "tension":
+                            # ...the soundings' misfit to that profile as ONE smooth surface with the shore (_lake_tension): a tension
+                            # spline on a grid of ~lake_tension_cells cells, zero at the shore, dying back to the profile over
+                            # lake_tension_ell_m where nothing was sounded; then the soundings leave the fit (snd_skip)
+                            k_ = max(1, int(round(np.sqrt(float(cb.sum()) / float(P.get("lake_tension_cells", 60000))))))
+                            Hc_, Wc_ = -(-cb.shape[0] // k_), -(-cb.shape[1] // k_)
+                            pad_ = np.zeros((Hc_ * k_, Wc_ * k_), np.float32); pad_[:cb.shape[0], :cb.shape[1]] = cb
+                            mc_ = pad_.reshape(Hc_, k_, Wc_, k_).mean(axis=(1, 3)) >= 0.5
+                            rv_ = (snd_z[in_] - lake_prior[rs_, cs_]).astype(np.float64)
+                            Cc_ = _lake_tension(mc_, (rs_ - r0) // k_, (cs_ - c0) // k_, rv_, k_ * res, float(P.get("lake_tension_ell_s_m", 30.0)),
+                                                float(P.get("lake_tension_ell_m", 300.0)), float(P.get("lake_tension_w", 100.0)))
+                            Cw = np.repeat(np.repeat(Cc_, k_, axis=0), k_, axis=1)[:cb.shape[0], :cb.shape[1]]
+                            Cw = ndimage.gaussian_filter(Cw, max(k_ / 2.0, 0.5)) * cb
+                            lp_ = lake_prior[r0:r1, c0:c1]; lp_[cb] = np.minimum(lp_[cb] + Cw[cb], level - 0.2).astype(np.float32)
+                            # the soundings STAY the spline's sites (2026-11-10, grew_t): on its 8 m grid the surface left the ice face's
+                            # soundings 4 m off (p90; the old spline 1.9), and what it leaves is the spline's to take at the grid's own cell --
+                            # metres now, not the 20-50 m that made the spline overshoot through the profile alone
+                            if not bool(P.get("lake_tension_spline", True)):
+                                snd_skip[rs_, cs_] = True
+                            fit_ = lake_prior[rs_, cs_] - snd_z[in_]
+                            how_ = (f"their misfit to it one tension surface with the shore (grid {k_ * res:g} m; misfit after p50 {np.median(fit_):+.2f}, "
+                                    f"|p90| {np.percentile(np.abs(fit_), 90):.2f} m, max {np.abs(fit_).max():.2f}; before p50 {np.median(-rv_):+.2f}, |p90| {np.percentile(np.abs(rv_), 90):.2f}); "
+                                    f"correction p1/p99 {np.round(np.percentile(Cw[cb], [1, 99]), 1).tolist()} m")
+                        elif str(P.get("lake_marine_fit", "cascade")) == "cascade":
+                            # ...and the soundings' misfit to that profile carried by the sea's cascade (shoreface._basin_prior: normalised
+                            # Gaussians coarse to fine, each only where it holds the mass), with a misfit of 0 along the shore at a total
+                            # weight equal to the soundings': a weighted mean never overshoots (the spline at lake_chi rose 32 m above the
+                            # water from 25 soundings and the guard cut it onto its cone -- creases), never pins a disc, never cones.  The
+                            # soundings then leave the fit (snd_skip): they are in the surface, met to the cascade's finest scale.
+                            from .shoreface import _basin_prior
+                            # ...FADED to nothing at the shore over lake_marine_fade_m (a smoothstep in the distance to shore, at most half
+                            # the lake's reach): the profile keeps the shore's slope, and the shore's own residual has nothing to carry in
+                            # (with the correction reaching the waterline, its 18 m stood there as a wall and the rim's harmonic lifted the
+                            # whole lake by as much).  A sounding inside the fade is met all the same: its misfit is divided by the fade there.
+                            fm_ = max(min(float(P.get("lake_marine_fade_m", 150.0)), 0.5 * L), 2.0 * res)
+                            t_ = np.clip(dshore[r0:r1, c0:c1] / fm_, 0, 1); fdw = (t_ * t_ * (3 - 2 * t_)).astype(np.float32)
+                            fs_ = np.maximum(fdw[rs_ - r0, cs_ - c0], 0.5)
+                            rv_ = (snd_z[in_] - lake_prior[rs_, cs_]).astype(np.float64)
+                            cr_ = _basin_prior(rs_ - r0, cs_ - c0, rv_ / fs_, np.ones(rv_.size), cb.shape, 4)
+                            Cw = ndimage.gaussian_filter(np.repeat(np.repeat(cr_, 4, axis=0), 4, axis=1)[:cb.shape[0], :cb.shape[1]], 4) * fdw
+                            lp_ = lake_prior[r0:r1, c0:c1]; lp_[cb] = np.minimum(lp_[cb] + Cw[cb], level - 0.2).astype(np.float32)
+                            snd_skip[rs_, cs_] = True
+                            fit_ = lake_prior[rs_, cs_] - snd_z[in_]
+                            how_ = (f"their misfit to it carried by the sea's cascade (misfit after p50 {np.median(fit_):+.2f}, |p90| {np.percentile(np.abs(fit_), 90):.2f} m; "
+                                    f"before p50 {np.median(-rv_):+.2f}, |p90| {np.percentile(np.abs(rv_), 90):.2f}); not pinned, not splined")
+                        log(f"  lake {i}: sounded -- the profile to Dmax {d_s:.1f} m from its {dep_.size} soundings (q {q2:.2f}; the estimate was {dmax:.1f}); " + how_)
+                elif int(in_.sum()) >= nmin_:
+                    from .shoreface import _basin_prior
+                    rs_, cs_ = snd_rc[0][in_], snd_rc[1][in_]; zs_ = snd_z[in_].astype(np.float64)
+                    win_ = (slice(r0, r1), slice(c0, c1))
+                    b_ = _basin_prior(rs_ - r0, cs_ - c0, zs_, np.ones(zs_.size), cb.shape, 4)
+                    Bw = np.repeat(np.repeat(b_, 4, axis=0), 4, axis=1)[:cb.shape[0], :cb.shape[1]]
+                    Bw = ndimage.gaussian_filter(np.minimum(Bw, level - 0.5), 4)
+                    DD = np.maximum(level - Bw, 0.5)
+                    sl_ = np.tan(np.radians(float(np.clip(sbar, P.get("lake_marine_slope_min_deg", 2.0), 35.0))))
+                    q_ = sl_ * dshore[win_]
+                    pr_ = level - DD * (1.0 - np.exp(-q_ / DD))
+                    lp_ = lake_prior[win_]; lp_[cb] = pr_[cb].astype(np.float32)
+                    lsg_ = lake_sig[win_]; lsg_[cb] = (1.0 + 0.1 * (level - pr_[cb])).astype(np.float32)
+                    snd_hole[rs_, cs_] = True
+                    rv0_ = (zs_ - lake_prior[rs_, cs_]).astype(np.float64)
+                    if str(P.get("lake_marine_fit", "cascade")) == "cascade":
+                        # what the basin's smoothing left at the soundings, carried by the same cascade, faded to 0 at the shore over
+                        # lake_marine_fade_m (the profile branch above says why); the soundings then leave the spline (snd_skip)
+                        fm_ = max(min(float(P.get("lake_marine_fade_m", 150.0)), 0.5 * L), 2.0 * res)
+                        t_ = np.clip(dshore[win_] / fm_, 0, 1); fdw = (t_ * t_ * (3 - 2 * t_)).astype(np.float32)
+                        fs_ = np.maximum(fdw[rs_ - r0, cs_ - c0], 0.5)
+                        cr_ = _basin_prior(rs_ - r0, cs_ - c0, rv0_ / fs_, np.ones(rv0_.size), cb.shape, 4)
+                        Cw = ndimage.gaussian_filter(np.repeat(np.repeat(cr_, 4, axis=0), 4, axis=1)[:cb.shape[0], :cb.shape[1]], 4) * fdw
+                        lp_ = lake_prior[win_]; lp_[cb] = np.minimum(lp_[cb] + Cw[cb], level - 0.2).astype(np.float32)
+                        snd_skip[rs_, cs_] = True
+                    fit_ = lake_prior[rs_, cs_] - zs_
+                    log(f"  lake {i}: the basin's misfit to its soundings p50 {np.median(-rv0_):+.2f} |p90| {np.percentile(np.abs(rv0_), 90):.2f} m; "
+                        f"after the cascade p50 {np.median(fit_):+.2f} |p90| {np.percentile(np.abs(fit_), 90):.2f} m")
+                    dmx_ = float(level - lake_prior[rs_, cs_].min())
+                    log(f"  lake {i}: the sea's recipe -- {int(in_.sum())} soundings ({float(level - zs_.max()):.1f}-{float(level - zs_.min()):.1f} m deep) "
+                        f"build the basin, the shore descends at {np.degrees(np.arctan(sl_)):.1f} deg and settles onto it (deepest prior {dmx_:.1f} m; "
+                        f"the profile's Dmax was {dmax:.1f}); the soundings are the spline's sites, not pinned cells")
             # a hand-set depth (an edit via water.py) or a perched body's cap is also a FLOOR for the modelled
             # bed: level - dmax - slack, applied after the conditioning below (the same floor water.level_raster
             # gives the class step) -- an outlet whose rim is the tidal channel's bed is a sill, not a ramp
@@ -2087,6 +2250,12 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             if ice_in.any():
                 log(f"  ice inside lakes dropped as evidence (bergs, face fringe): {int(ice_in.sum())} cells")
                 at_surface |= ice_in
+        if snd_hole.any():
+            # a sounded lake's soundings are the spline's sites (the sea's recipe above), not observations: their cells are holes
+            sh_ = snd_hole & inside_obs
+            inside_obs &= ~sh_; hole |= sh_
+            log(f"  sounded lakes: {int(sh_.sum())} sounding cells leave the observations for the soundings' spline")
+            del sh_
         if at_surface.any():
             log(f"  lake observations at the water level or specks dropped as evidence: {int(at_surface.sum())} cells")
             inside_obs &= ~at_surface; hole |= at_surface
@@ -2133,6 +2302,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     continue
                 cc, rr = ~T * (x, y); rr, cc = int(rr), int(cc)
                 if not (0 <= rr < z.shape[0] and 0 <= cc < z.shape[1]) or not (dom[rr, cc] and hole[rr, cc]):
+                    continue
+                if snd_skip[rr, cc]:
                     continue
                 if contour_model and int(lab[rr, cc]) in nolens_ids:     # shoreface.py fits these
                     continue

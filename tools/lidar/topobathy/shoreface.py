@@ -254,7 +254,7 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
         # A DRY VOID BESIDE THE SEA IS THE SEA'S WHERE ITS GROUND PRIOR IS IN THE TIDE'S REACH (2026-11-03, Hig: the flat at 59.32416,-151.03250 ending in a straight
         # line: a void with a high rim, a domain of its own, bridged as a plate at 2 m against the sea at -4 along 3DEP's water edge).  It joins the sea's domain; its
         # high ground then stands on the prior like the sea's own.
-        pz_ = _read_on_grid(P["ground_prior"], T, P["_crs"], shape, (0, shape[0]), (0, shape[1]))
+        pz_ = _read_on_grid(P["ground_prior"], T, P["_crs"], shape, (0, shape[0]), (0, shape[1]), sea_zero=True)
         t_ = ndimage.binary_dilation(C, structure=np.ones((3, 3), bool)) & dom & hole & ~C & (lab > dry_from) & np.isfinite(pz_) & ((pz_ < top_ + 1.0) | _ground_sea(P, T, shape))
         if t_.any():
             tid = np.unique(lab[t_])
@@ -641,6 +641,8 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
         if os.environ.get("SHORE_DEBUG"):
             np.savez_compressed(os.environ["SHORE_DEBUG"], B=(B if zz.size else pr).astype(np.float32), pr=pr.astype(np.float32), base=base, near=near.astype(np.float32), de=de.astype(np.float32), s_in=s_in.astype(np.float32), s_t=s_t.astype(np.float32))
     # the casts, per domain and per side: the band and the basin never share a smoothing (tide1: one lambda re-tuned the whole sea)
+    # ...and a GOOD cast (sigma <= shore_deep_cast_sigma_m) on the intertidal side deeper than the base is the intertidal's too: the contour was put on the
+    # wrong side of it (2026-11-09, Kasitsna 59.47827,-151.56736: nine 1977-84 casts at -3.2..-4.7 m, sigma 0.4-0.8, under a surface held at -0.5 m)
     if len(S):
         Pz = dict(P); Pz["points_sigma_m"] = float(P["points_sigma_m"]); Pz["points_chi"] = float(P.get("shore_cast_chi", 0.2))
         # the spline's correction is smoothing at its boundary sites, so it does not vanish there: faded over shore_cast_fade_m below the contour, or the contour stands as a step of that size
@@ -654,7 +656,7 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
             fd_ = np.maximum(fd_, de_ / np.maximum(de_ + dc_, 1e-6)); del de_, dc_
         full = np.where(np.isfinite(fill), fill, np.nan).astype(np.float32)
         sl = lab[r_, c_]; onU = U[r_, c_]
-        for cellsS, keep, _, name in ((Sea & ~edge, ~onU & (S[:, 4] < Zf[r_, c_] - 0.1), None, "basin"), (U & ~fixed, onU & (S[:, 4] >= Z0 - 0.1), None, "intertidal")):
+        for cellsS, keep, _, name in ((Sea & ~edge, ~onU & (S[:, 4] < Zf[r_, c_] - 0.1), None, "basin"), (U & ~fixed, onU & ((S[:, 4] >= Z0 - 0.1) | (S[:, 5] <= float(P.get("shore_deep_cast_sigma_m", 1.0)))), None, "intertidal")):
             for i in np.unique(sl[keep]):
                 Sd = S[keep & (sl == i)]
                 if len(Sd) < 3:

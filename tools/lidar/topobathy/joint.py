@@ -989,7 +989,11 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
                 del o_, to_
             bad_ = bad_ | bad_o; del own_
             sp_ = np.zeros((H, W), bool)
-            spk = tide_ & (cnt_ < smc) & (ub_n >= 0.5 * cnt_) & ~bad_; spk[0] = False
+            # ...or over a COMPILATION standing bed_stand_dz_m below (2026-11-09, Kasitsna 59.47827,-151.56736: 22 cells of KBay 2023 at -0.07 m,
+            # the stand of its own 43 ha sea sheet 200 m off, over OCM/NCEI at -2.2 m; Hig: "I don't think there is any positive relief here").
+            # Only at the stand of a sheet already judged the sea (below): the compilation alone condemns nothing.
+            ud_n = cnt(flat_ & np.isfinite(zdmax) & (zdmax < Z[n] - float(cfg.get("speck_derived_dz_m", 1.0))))   # Kasitsna: OCM 1.9 m under them
+            spk = tide_ & (((cnt_ < smc) & (ub_n >= 0.5 * cnt_)) | ((cnt_ < float(cfg.get("speck_derived_max_cells", 50))) & (ud_n >= 0.5 * cnt_))) & ~bad_; spk[0] = False   # pieces of 11-13 cells there
             if spk.any() and st_.any():
                 dn_, (iy_, ix_) = ndimage.distance_transform_edt(~st_, sampling=res, return_indices=True)
                 lev_ = Z[n][iy_, ix_]; del iy_, ix_
