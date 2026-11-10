@@ -320,15 +320,27 @@ def build(a):
     # not a crossing, the high shore is simply not mapped there (HIGH_UNMAPPED_M: two of them, 2,700 ha, against 6 ha of slivers); that low water stands
     high = _poly(high); low = _poly(low)
     out_ = low.difference(high); core_ = out_.buffer(-HIGH_UNMAPPED_M / 2, quad_segs=1).buffer(HIGH_UNMAPPED_M / 2 + 10.0, quad_segs=1).intersection(out_)
+    # WHERE THE HIGH POLYGON STOPS (2026-11-09, Hig, 59.76788,-151.86990 north of Anchor Point): Shore ends in a straight closing edge across the beach while the low water runs on to a sand bar.
+    # The opening above kept the wide water past that edge but cut the narrow sliver of it along the shore, notching the low shore and ending its line at the edge.  Low water past a closing
+    # edge of the high polygon (a segment over LONG_EDGE_M) is where the high shore is not mapped: each piece of it touching such an edge stands whole.
+    le_ = [shapely.LineString(V_[i_:i_ + 2]) for r_, _, _ in _rings(high) for V_ in [shapely.get_coordinates(r_)] for i_ in np.flatnonzero(np.hypot(*np.diff(V_, axis=0).T) > LONG_EDGE_M)]
+    if le_:
+        le_ = unary_union(le_).buffer(2.0, quad_segs=1); shapely.prepare(le_)
+        open_ = [g for g in getattr(out_, "geoms", [out_]) if g.geom_type == "Polygon" and le_.intersects(g)]
+        if open_:
+            n0_ = core_.area; core_ = _poly(shapely.make_valid(core_.union(unary_union(open_))))
+            print(f"  low water past the high polygon's closing edges: {len(open_)} pieces, {(core_.area - n0_) / 1e4:.1f} ha more kept whole", flush=True)
     high_in = high.buffer(-LOW_OFF_HIGH_M, quad_segs=2); low0 = low
     low = _poly(shapely.make_valid(low.intersection(high_in).union(core_)))
+    if le_:     # and no seam along such an edge: the inset above left a strip of 'not low water' across the open sea on the high polygon's straight cut (59.76795,-151.8745), which the low-water rules took for a shore
+        low = _poly(shapely.make_valid(low.union(low0.intersection(le_.buffer(LOW_OFF_HIGH_M + 1.0, quad_segs=1)))))
     moved_ = low.boundary.intersection(high.boundary.buffer(LOW_OFF_HIGH_M + 0.5, quad_segs=1))
     print(f"  low shore inboard of the high: {out_.difference(core_).area / 1e4:.1f} ha cut off; {moved_.length / 1e3:.1f} km of low shore now lies against the high", flush=True)
     (HERE / "tide_high_water.geojson").write_text(json.dumps(_fc([dict(type="Feature", properties={}, geometry=mapping(shapely.simplify(high, 0.5)))])))
     (HERE / "tide_low_water.geojson").write_text(json.dumps(_fc([dict(type="Feature", properties={}, geometry=mapping(shapely.simplify(low, 0.5)))])))
     print(f"  water: high {high.area / 1e6:.0f} km2, low {low.area / 1e6:.0f} km2", flush=True)
     ph, hx, hy, hz = _lines(high, "high", dist, Td, lnear)
-    near_high = high.buffer(10.0, quad_segs=2); shapely.prepare(near_high)
+    near_high = high.buffer(10.0, quad_segs=2).union(core_.buffer(10.0, quad_segs=2)); shapely.prepare(near_high)     # the low water kept past the high polygon is not a crossing either
     pl, lx, ly, lz = _lines(low, "low", dist, Td, lnear, inside=near_high)
     up = UpChannel(low); lx, ly, lz = _low_calibration(lx, ly, lz, up)
     F = _levels(pl, lx, ly, lz, "low", up) + _levels(ph, hx, hy, hz, "high")   # low first: where the two meet on a cliff the high line is written last
