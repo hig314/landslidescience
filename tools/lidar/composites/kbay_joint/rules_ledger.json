@@ -154,6 +154,48 @@
    "live": "2026-11-08 21:33:52",
    "commit": "eb81cbd",
    "what": "fill: the gap fit pins only to observed patches of >= 25 cells (no cones round a stray return in open water)"
+  },
+  {
+   "id": "sheetslope",
+   "stage": "joint",
+   "live": "2026-11-09 17:04:53",
+   "commit": "5235e9e",
+   "what": "joint: a sea sheet that slopes (> 0.15 %, >= 1 ha, rising >= 1 m) is a tidal flat; of a level one only the cells at its water's level go (Woz)"
+  },
+  {
+   "id": "lowwater",
+   "stage": "joint",
+   "live": "2026-11-09 17:04:53",
+   "commit": "5235e9e",
+   "what": "joint: ground in the mapped low-tide water > low tide + 1 m, off every mapped rock, over a measured bed/cast or seen sparsely, is the sea (Anchor Point)"
+  },
+  {
+   "id": "underseasheet",
+   "stage": "joint",
+   "live": "2026-11-09 17:04:53",
+   "commit": "5235e9e",
+   "what": "joint: compilations yield under a lidar's sea surface with nothing measured below, within 6 m of it (Kasitsna)"
+  },
+  {
+   "id": "mesa",
+   "stage": "joint",
+   "live": "2026-11-09 17:04:53",
+   "commit": "5235e9e",
+   "what": "joint: level pieces ringed by a deeper measured bed are the sea (spikes, Chugachmiut mesas)"
+  },
+  {
+   "id": "flatfit",
+   "stage": "fill",
+   "live": "2026-11-09 17:04:26",
+   "commit": "5235e9e",
+   "what": "fill: tidal flats in true gaps take a low-gradient trend + harmonic of the observations, raise only (Seldovia head)"
+  },
+  {
+   "id": "lowwatercap",
+   "stage": "fill",
+   "live": "2026-11-09 17:04:26",
+   "commit": "5235e9e",
+   "what": "fill: modelled bed in the mapped low-tide water held at its level"
   }
  ]
 }
