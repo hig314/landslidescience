@@ -210,6 +210,13 @@
    "live": "2026-11-09 19:45:49",
    "commit": "755cd7b",
    "what": "tide lines: low water past the high polygon's closing edges stands whole, no inset seam along them, its low line kept (Anchor Point sand bar 59.76788,-151.86990; 83 km of false low-water closures gone)"
+  },
+  {
+   "id": "lonedeep",
+   "stage": "joint",
+   "live": "2026-11-10 12:59:33",
+   "commit": "a893860",
+   "what": "a lidar's small deep patch (<= 4 cells, > 15 m under every other source, above 6 m) dropped before the date rule (Homer 2019 pits over Kenai 2008, 59.70416,-151.42943; ~1,200 in r6c1 r6c2 r6c3 r7c2 r7c3)"
   }
  ]
 }
