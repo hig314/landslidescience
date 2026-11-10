@@ -868,6 +868,1271 @@
 "source": "https://www.ngdc.noaa.gov/nos/H04001-H06000/H05187.html (Smooth_Sheets/H05187.tif.gz, GEODAS/H05187.a93.gz)",
 "date": "2026-11-05"
 }
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608356.6,
+6608847.17
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36859",
+"survey": "berg_grewingk_2017",
+"z": -69.05,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608356.6,
+"y0": 6608847.17,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608357.46,
+6608852.78
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36860",
+"survey": "berg_grewingk_2017",
+"z": -51.18,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608357.46,
+"y0": 6608852.78,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608359.39,
+6608856.39
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36861",
+"survey": "berg_grewingk_2017",
+"z": -61.77,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608359.39,
+"y0": 6608856.39,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608362.7,
+6608847.35
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36863",
+"survey": "berg_grewingk_2017",
+"z": -71.89,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608362.7,
+"y0": 6608847.35,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608361.35,
+6608858.99
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36864",
+"survey": "berg_grewingk_2017",
+"z": -71.69,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608361.35,
+"y0": 6608858.99,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608364.78,
+6608863.67
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36865",
+"survey": "berg_grewingk_2017",
+"z": -74.03,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608364.78,
+"y0": 6608863.67,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608368.84,
+6608846.5
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36867",
+"survey": "berg_grewingk_2017",
+"z": -72.94,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608368.84,
+"y0": 6608846.5,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608365.27,
+6608864.18
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36868",
+"survey": "berg_grewingk_2017",
+"z": -75.02,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608365.27,
+"y0": 6608864.18,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608368.25,
+6608866.82
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36869",
+"survey": "berg_grewingk_2017",
+"z": -75.73,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608368.25,
+"y0": 6608866.82,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608373.41,
+6608846.64
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36872",
+"survey": "berg_grewingk_2017",
+"z": -74.42,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608373.41,
+"y0": 6608846.64,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608371.21,
+6608869.95
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36873",
+"survey": "berg_grewingk_2017",
+"z": -77.58,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608371.21,
+"y0": 6608869.95,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608372.71,
+6608871.01
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36874",
+"survey": "berg_grewingk_2017",
+"z": -78.01,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608372.71,
+"y0": 6608871.01,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608378.52,
+6608846.28
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36877",
+"survey": "berg_grewingk_2017",
+"z": -75.77,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608378.52,
+"y0": 6608846.28,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608376.67,
+6608874.69
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36878",
+"survey": "berg_grewingk_2017",
+"z": -79.08,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608376.67,
+"y0": 6608874.69,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608378.67,
+6608876.26
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36879",
+"survey": "berg_grewingk_2017",
+"z": -81.28,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608378.67,
+"y0": 6608876.26,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608383.11,
+6608845.9
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36882",
+"survey": "berg_grewingk_2017",
+"z": -77.19,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608383.11,
+"y0": 6608845.9,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608383.14,
+6608879.95
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36883",
+"survey": "berg_grewingk_2017",
+"z": -86.2,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608383.14,
+"y0": 6608879.95,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608384.13,
+6608881.0
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36884",
+"survey": "berg_grewingk_2017",
+"z": -87.98,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608384.13,
+"y0": 6608881.0,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608389.24,
+6608845.07
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36887",
+"survey": "berg_grewingk_2017",
+"z": -78.53,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608389.24,
+"y0": 6608845.07,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608388.63,
+6608883.67
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36888",
+"survey": "berg_grewingk_2017",
+"z": -89.25,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608388.63,
+"y0": 6608883.67,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608389.61,
+6608885.22
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36889",
+"survey": "berg_grewingk_2017",
+"z": -88.34,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608389.61,
+"y0": 6608885.22,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608394.84,
+6608845.23
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36893",
+"survey": "berg_grewingk_2017",
+"z": -78.86,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608394.84,
+"y0": 6608845.23,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608391.61,
+6608886.29
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36894",
+"survey": "berg_grewingk_2017",
+"z": -88.44,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608391.61,
+"y0": 6608886.29,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608398.43,
+6608844.32
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36898",
+"survey": "berg_grewingk_2017",
+"z": -76.89,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608398.43,
+"y0": 6608844.32,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608395.85,
+6608845.26
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36899",
+"survey": "berg_grewingk_2017",
+"z": -77.46,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608395.85,
+"y0": 6608845.26,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608395.14,
+6608887.41
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36900",
+"survey": "berg_grewingk_2017",
+"z": -88.73,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608395.14,
+"y0": 6608887.41,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608404.03,
+6608843.97
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36903",
+"survey": "berg_grewingk_2017",
+"z": -76.26,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608404.03,
+"y0": 6608843.97,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608401.19,
+6608889.61
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36904",
+"survey": "berg_grewingk_2017",
+"z": -89.88,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608401.19,
+"y0": 6608889.61,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608402.7,
+6608890.17
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36905",
+"survey": "berg_grewingk_2017",
+"z": -90.47,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608402.7,
+"y0": 6608890.17,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608409.14,
+6608843.61
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36907",
+"survey": "berg_grewingk_2017",
+"z": -75.92,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608409.14,
+"y0": 6608843.61,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608405.7,
+6608891.78
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36908",
+"survey": "berg_grewingk_2017",
+"z": -90.07,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608405.7,
+"y0": 6608891.78,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608409.67,
+6608895.45
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36909",
+"survey": "berg_grewingk_2017",
+"z": -90.49,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608409.67,
+"y0": 6608895.45,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608410.15,
+6608843.64
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36912",
+"survey": "berg_grewingk_2017",
+"z": -75.28,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608410.15,
+"y0": 6608843.64,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608412.16,
+6608897.56
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36913",
+"survey": "berg_grewingk_2017",
+"z": -90.25,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608412.16,
+"y0": 6608897.56,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608414.62,
+6608900.17
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36914",
+"survey": "berg_grewingk_2017",
+"z": -89.36,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608414.62,
+"y0": 6608900.17,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608419.86,
+6608842.4
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36918",
+"survey": "berg_grewingk_2017",
+"z": -77.25,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608419.86,
+"y0": 6608842.4,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608419.12,
+6608903.35
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36919",
+"survey": "berg_grewingk_2017",
+"z": -90.78,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608419.12,
+"y0": 6608903.35,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608422.93,
+6608841.97
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36923",
+"survey": "berg_grewingk_2017",
+"z": -77.27,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608422.93,
+"y0": 6608841.97,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608421.12,
+6608904.42
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36924",
+"survey": "berg_grewingk_2017",
+"z": -91.03,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608421.12,
+"y0": 6608904.42,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608423.56,
+6608908.05
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36925",
+"survey": "berg_grewingk_2017",
+"z": -90.81,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608423.56,
+"y0": 6608908.05,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608429.52,
+6608842.68
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36928",
+"survey": "berg_grewingk_2017",
+"z": -77.09,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608429.52,
+"y0": 6608842.68,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608433.58,
+6608843.3
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36933",
+"survey": "berg_grewingk_2017",
+"z": -77.14,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608433.58,
+"y0": 6608843.3,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608439.17,
+6608843.46
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36939",
+"survey": "berg_grewingk_2017",
+"z": -75.22,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608439.17,
+"y0": 6608843.46,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608441.21,
+6608843.52
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36945",
+"survey": "berg_grewingk_2017",
+"z": -75.5,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608441.21,
+"y0": 6608843.52,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608445.25,
+6608844.66
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36951",
+"survey": "berg_grewingk_2017",
+"z": -75.91,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608445.25,
+"y0": 6608844.66,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608448.78,
+6608845.77
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36952",
+"survey": "berg_grewingk_2017",
+"z": -76.19,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608448.78,
+"y0": 6608845.77,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608452.85,
+6608845.89
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36956",
+"survey": "berg_grewingk_2017",
+"z": -76.06,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608452.85,
+"y0": 6608845.89,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608459.43,
+6608847.1
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36961",
+"survey": "berg_grewingk_2017",
+"z": -76.3,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608459.43,
+"y0": 6608847.1,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608461.94,
+6608848.18
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36966",
+"survey": "berg_grewingk_2017",
+"z": -77.45,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608461.94,
+"y0": 6608848.18,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608468.03,
+6608848.87
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36970",
+"survey": "berg_grewingk_2017",
+"z": -77.83,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608468.03,
+"y0": 6608848.87,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608471.05,
+6608849.97
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36971",
+"survey": "berg_grewingk_2017",
+"z": -77.93,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608471.05,
+"y0": 6608849.97,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608472.58,
+6608850.02
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36972",
+"survey": "berg_grewingk_2017",
+"z": -76.85,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608472.58,
+"y0": 6608850.02,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608475.64,
+6608849.59
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36973",
+"survey": "berg_grewingk_2017",
+"z": -76.59,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608475.64,
+"y0": 6608849.59,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608476.14,
+6608850.12
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36974",
+"survey": "berg_grewingk_2017",
+"z": -76.65,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608476.14,
+"y0": 6608850.12,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+608481.21,
+6608850.78
+]
+},
+"properties": {
+"key": "berg_grewingk_2017:36975",
+"survey": "berg_grewingk_2017",
+"z": -77.0,
+"decision": "unbound",
+"bound0": "min",
+"x0": 608481.21,
+"y0": 6608850.78,
+"dx": 0.0,
+"dy": 0.0,
+"basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
+"date": "2026-11-10"
+}
 }
 ]
 }

@@ -198,7 +198,7 @@ def floating_mismatch(w):
     m = f & np.isfinite(lev) & np.isfinite(med[L]) & (np.abs(lev - med[L]) > 0.3)
     return int(m.sum())
 
-SOUNDINGS = "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261017.csv"
+SOUNDINGS = "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_edited.csv"
 SOUNDING_DZ = {"berg_grewingk_2017": 0.36, "berg_grewingk_2017_hand": 0.36, "higman_grewingk_2019_2021": 0.36,
                "higman_grewingk_2026": 0.36}          # the recipe's fill.points_dz_m (Grewingk 2021's +0.36 m)
 

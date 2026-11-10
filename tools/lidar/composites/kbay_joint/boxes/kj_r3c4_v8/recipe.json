@@ -232,7 +232,7 @@
   "marine_rim_max_m": 6.0,
   "fill_margin": true,
   "points": [
-   "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261017.csv",
+   "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_edited.csv",
    "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1977_1984_edited.csv",
    "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1915_1931_edited.csv",
    "/Volumes/Nunatak/lidar_build/obs/soundings/crm_far_20261104.csv"
@@ -276,7 +276,7 @@
   "res_m": 2.0,
   "prior": "/Volumes/Nunatak/lidar_build/ctx_3dep/all.vrt",
   "sheet_points": [
-   "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261017.csv",
+   "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_edited.csv",
    "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1977_1984_edited.csv",
    "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1915_1931_edited.csv",
    "/Volumes/Nunatak/lidar_build/obs/soundings/crm_far_20261104.csv"
@@ -482,7 +482,7 @@
     "name": "soundings",
     "kind": "points",
     "cls": "bed",
-    "src": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_20261017.csv",
+    "src": "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_edited.csv",
     "date": "2018-07-01",
     "sigma_m": 1.0,
     "shift_by_survey": {

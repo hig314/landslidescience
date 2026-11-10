@@ -20,6 +20,8 @@ import numpy as np
 
 OBS = Path("/Volumes/Nunatak/lidar_build/obs/soundings")
 BASE = {OBS / "nos_1915_1931_20261103.csv": OBS / "nos_1915_1931_edited.csv", OBS / "nos_1977_1984_20261103.csv": OBS / "nos_1977_1984_edited.csv"}
+# the lake and nearshore soundings (tools/soundings export): only an `unbound` edit applies to them -- they are not in the review layer
+LAKE = {OBS / "soundings_20261017.csv": OBS / "soundings_edited.csv"}
 EDITS = Path(__file__).resolve().parent.parent / "water" / "cast_edits.geojson"
 OGR = "/opt/homebrew/bin/ogr2ogr"
 DEV_DB = "tethys-timescale-grafana-tethys_db-1"
@@ -133,16 +135,48 @@ def reread(a):
     print(f"{a.key}: depth {d0} m -> {a.depth_m} m (z {row['z']} -> {z}); {len(E)} edits on file.  Now: cast_edits.py apply")
 
 
+def unbound(a):
+    """A sounding exported as a LOWER BOUND (bound = min: the lead never reached the bed, or a line run along an ice face) read as an
+    ordinary sounding again, with the basis written down (2026-11-10, Hig: Grewingk's 2017 ice-face line "swings back into the lake";
+    assume the face was straight, and the stretch off it is an ordinary sounding).  KEYS is a JSON list of [key, ...] or of [key, ...]
+    rows, or the keys themselves.  Then run apply."""
+    if not (a.basis or "").strip():
+        raise SystemExit("an unbound needs its basis")
+    keys = a.keys
+    if len(keys) == 1 and keys[0].endswith(".json"):
+        keys = [k if isinstance(k, str) else k[0] for k in json.load(open(keys[0]))]
+    rows = {}
+    for src in LAKE:
+        with open(src) as fh:
+            for r in csv.DictReader(fh):
+                if _key(r) in keys:
+                    rows[_key(r)] = r
+    miss = [k for k in keys if k not in rows]; nb = [k for k, r in rows.items() if not r.get("bound")]
+    if miss or nb:
+        raise SystemExit(f"not in the lake file: {miss[:5]}; not a bound: {nb[:5]}")
+    E = _edits(); today = datetime.date.today().isoformat()
+    for k, r in rows.items():
+        x0, y0 = float(r["x"]), float(r["y"])
+        E[k] = dict(type="Feature", geometry=dict(type="Point", coordinates=[round(x0, 2), round(y0, 2)]),
+                    properties=dict(key=k, survey=r["survey"], z=float(r["z"]), decision="unbound", bound0=r["bound"], x0=x0, y0=y0, dx=0.0, dy=0.0, basis=a.basis.strip(), date=today))
+    EDITS.write_text(json.dumps(dict(type="FeatureCollection", crs=dict(type="name", properties=dict(name="EPSG:6334")), features=list(E.values())), indent=0))
+    print(f"{len(rows)} soundings read as ordinary; {len(E)} edits on file.  Now: cast_edits.py apply")
+
+
 def apply(a):
     E = _edits(); used = set()
-    for src, dst in BASE.items():
+    for src, dst in {**BASE, **LAKE}.items():
         with open(src) as fh:
-            rd = csv.DictReader(fh); fld = rd.fieldnames + ["x0", "y0", "moved", "held", "depth0"]; rows = []
+            rd = csv.DictReader(fh); fld = rd.fieldnames + ["x0", "y0", "moved", "held", "depth0", "bound0"]; rows = []
             for r in rd:
-                e = E.get(_key(r)); r.update(x0="", y0="", moved="", held="", depth0="")
+                e = E.get(_key(r)); r.update(x0="", y0="", moved="", held="", depth0="", bound0="")
+                if e and src in LAKE and e["properties"]["decision"] != "unbound":
+                    e = None                                   # a lake sounding takes only an unbound
                 if e:
                     used.add(_key(r)); p = e["properties"]
-                    if p["decision"] == "reread":
+                    if p["decision"] == "unbound":
+                        r["bound0"] = r.get("bound") or ""; r["bound"] = ""
+                    elif p["decision"] == "reread":
                         dz = _reread_shift(e, r); r["depth0"] = r["depth_m"]; r["depth_m"] = f'{float(p["depth_m"]):.1f}'
                         for c in ("z", "z_raw"):
                             if r.get(c) not in (None, ""):
@@ -157,7 +191,7 @@ def apply(a):
                 rows.append(r)
         with open(str(dst) + ".part", "w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=fld, lineterminator="\n"); w.writeheader(); w.writerows(rows)
-        os.replace(str(dst) + ".part", dst); print(f"{dst.name}: {len(rows)} rows, {sum(r['moved'] == '1' for r in rows)} moved, {sum(r['held'] == '1' for r in rows)} held, {sum(r['depth0'] != '' for r in rows)} reread")
+        os.replace(str(dst) + ".part", dst); print(f"{dst.name}: {len(rows)} rows, {sum(r['moved'] == '1' for r in rows)} moved, {sum(r['held'] == '1' for r in rows)} held, {sum(r['depth0'] != '' for r in rows)} reread, {sum(r['bound0'] != '' for r in rows)} unbound")
     miss = set(E) - used
     if miss:
         print("edits whose cast is in no base file:", sorted(miss)[:10])
@@ -227,4 +261,5 @@ if __name__ == "__main__":
     m = sp.add_parser("merge"); m.add_argument("edited"); m.add_argument("--basis")
     sp.add_parser("apply"); sp.add_parser("sync-dev")
     c = sp.add_parser("reread"); c.add_argument("key"); c.add_argument("depth_m", type=float); c.add_argument("--basis", required=True); c.add_argument("--source")
-    a = ap.parse_args(); dict(export=export, merge=merge, apply=apply, reread=reread, **{"sync-dev": sync_dev})[a.cmd](a)
+    c = sp.add_parser("unbound"); c.add_argument("keys", nargs="+"); c.add_argument("--basis", required=True)
+    a = ap.parse_args(); dict(export=export, merge=merge, apply=apply, reread=reread, unbound=unbound, **{"sync-dev": sync_dev})[a.cmd](a)
