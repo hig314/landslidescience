@@ -2747,6 +2747,11 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             pin = ndimage.binary_dilation(dom_f, iterations=2) & obs_f[sl2]
             Rh = harmonic(np.where(pin, surf_f[sl2] - Pz, 0.0), pin, dom_f | pin, coarse=P.get("coarse", 16), iters=P.get("cg_iters", 300))
             new = Pz + np.nan_to_num(Rh)
+            # ...never above the plain harmonic of the observations round the gap: the trend is pulled up by bars and land beside it, and a
+            # trend above both banks of a channel is a ridge (Kasitsna 59.47827,-151.56736: -0.5 m between -1.5 and -2.5; Hig: "I don't think
+            # there is any positive relief here").  The harmonic holds no interior maximum; the Seldovia head basins still rise to their rims.
+            H0 = harmonic(np.where(pin, surf_f[sl2], 0.0), pin, dom_f | pin, coarse=P.get("coarse", 16), iters=P.get("cg_iters", 300))
+            new = np.where(np.isfinite(H0), np.minimum(new, H0), new)
             new = np.minimum(new, tm_f)
             if lvl_ is not None:
                 lv2 = lvl_[sl2]; new = np.where(np.isfinite(lv2), np.minimum(new, lv2 - 0.1), new)
