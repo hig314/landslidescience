@@ -203,6 +203,13 @@
    "live": "2026-11-09 17:36:43",
    "commit": "1b4b411",
    "what": "fill: the tidal-flat fit capped by the plain harmonic of the observations round the gap"
+  },
+  {
+   "id": "tideclose",
+   "stage": "joint",
+   "live": "2026-11-09 19:45:49",
+   "commit": "755cd7b",
+   "what": "tide lines: low water past the high polygon's closing edges stands whole, no inset seam along them, its low line kept (Anchor Point sand bar 59.76788,-151.86990; 83 km of false low-water closures gone)"
   }
  ]
 }
