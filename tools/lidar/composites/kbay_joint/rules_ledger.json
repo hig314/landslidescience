@@ -238,6 +238,27 @@
    "live": "2026-11-10 14:41:18",
    "commit": "4ed9b6e",
    "what": "recipes read soundings_edited.csv; Grewingk's 2017 ice-face stretch >30 m off a straight face is ordinary soundings (55)"
+  },
+  {
+   "id": "dgbed",
+   "stage": "joint",
+   "live": "2026-11-10 17:48:31",
+   "commit": "53ff22a",
+   "what": "joint: derived ground (Chugachmiut's DTM) below 0 m over a bed beyond the lowest tide and > 3 m under it yields (Seldovia strip 59.42358,-151.87706)"
+  },
+  {
+   "id": "fillzoneday",
+   "stage": "fill",
+   "live": "2026-11-10 17:48:31",
+   "commit": "53ff22a",
+   "what": "fill: casts older than their vintage zone's survey are no evidence (joint's zone_day.tif; needs the joint rerun too)"
+  },
+  {
+   "id": "perched",
+   "stage": "fill",
+   "live": "2026-11-10 17:48:31",
+   "commit": "53ff22a",
+   "what": "fill: the low-tide cap leaves a river's or tidal body's own water > 0.5 m above low tide alone (Woz delta basin 59.54998,-151.38389)"
   }
  ]
 }
