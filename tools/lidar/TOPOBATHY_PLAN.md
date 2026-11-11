@@ -1,5 +1,17 @@
 # Topobathy compositing: tools and interface
 
+## Resume here (2026-11-10, 17:50) — run_1110 rerun of all 48 boxes; three more rules live mid-run (53ff22a)
+
+**Running:** `$W/run_1110.sh` (log `$W/run_1110.out`, `$W/test_cm18.log`), group 1 of 3; r6c1 done, r6c2 in its fill.  r6c1/r6c2 lack 53ff22a.
+**Hig 2026-11-10:** Seldovia strip 59.42358,-151.87706 is an artifact; Woz basin 59.54998,-151.38389; plateau 59.55444,-151.38656.
+- `dgbed` (joint): derived ground (Chugachmiut's DTM, n=1 a cell everywhere) below 0 m over a bed beyond low water - 1 and > 3 m under it
+  yields.  sb_r4c1 12.4 ha, chug_t 5 ha; strip -0.7/-1.2 -> -4.6/-5.3.
+- `fillzoneday` (fill): joint writes zone_day.tif; the fill's casts older than the zone's survey are dropped (woz_t 17).
+- `perched` (fill): the low-tide cap skips river/tidal bodies whose own water stands > 0.5 m above -1.87 (the basin: min -1.87 -> +0.76).
+- The plateau is the REAL 2023 front against the 2009 multibeam (OCM 2023 there = the same multibeam): the vintage seam.  Asked Hig
+  whether the older bed should yield within ~20-40 m of the front so the fill models a foreset.
+- r6c1 gate clip_shelf 1144: upland Anchor River reaches at 67-92 m modelled exactly 0.1 m deep (as hazel_l's); pre-existing, not intertidal.
+
 ## Resume here (2026-11-09, 17:10) — Hig's answers on the review; tidal-flat + low-tide-water rules live (5235e9e); review boxes queued
 
 **Hig (2026-11-09):** the Woz 2023 lidar is very good — use it "essentially with no modification, except minor (<1.5 m, maybe 0.5 m)
