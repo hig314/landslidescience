@@ -83,7 +83,7 @@ DEFAULTS = dict(low_angle_slope=0.01, low_angle_sigma_m=20.0, low_angle_min_ha=5
                 ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0,
                 rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0, lens_max_m=None, sound_hyps_min_n=30,
                 points_max_sites=2500, points_max_eval=4_000_000, points_free_min=30, ground_prior=None, void_ground_m=4.5,
-                gap_fit_w0_m=6.0, gap_fit_w1_m=25.0, gap_fit_min_cells=25, slope_water_depth_m=0.0, flat_fit_min_ha=5.0, flat_fit_zlo_m=-4.5, flat_fit_ring_m=200.0, flat_fit_obs_slope=0.05, flat_fit_gmax=0.02, flat_fit_mad_m=1.2, low_water_cap=1.0, low_water_level_m=-1.87, low_water_edge_m=30.0, low_water_gap_m=48.0, rock_near_m=40.0, slope_water_min=0.0005, slope_water_smooth_m=25.0, lake_marine_min_n=5, lake_marine_slope_min_deg=2.0, lake_marine_prior="profile", lake_marine_fit="tension")
+                gap_fit_w0_m=6.0, gap_fit_w1_m=25.0, gap_fit_min_cells=25, slope_water_depth_m=0.0, flat_fit_min_ha=5.0, flat_fit_zlo_m=-4.5, flat_fit_ring_m=200.0, flat_fit_obs_slope=0.05, flat_fit_gmax=0.02, flat_fit_mad_m=1.2, low_water_cap=1.0, low_water_level_m=-1.87, low_water_edge_m=30.0, low_water_gap_m=48.0, rock_near_m=40.0, slope_water_min=0.0005, slope_water_smooth_m=25.0, lake_marine_min_n=5, lake_marine_slope_min_deg=2.0, lake_marine_prior="profile", lake_marine_fit="tension", water_sheet=1.0, water_sheet_depth_m=0.15, water_sheet_env_m=10.0, water_sheet_sigma_m=10.0, water_sheet_drop_m=0.5, water_sheet_taper_m=100.0)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -1063,6 +1063,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         wet_l = np.isin(shore_lab, (2, 3))
         wzs = P.get("_water_z")
         wzs = np.full(z.shape, np.nan, np.float32) if wzs is None else wzs
+        P["_water_obs"] = wzs                                  # the raw returns off the water (the water sheet's roughness, below)
         P["_water_z"] = np.where(wet_l & np.isfinite(shore_lev), shore_lev, np.where(wet_l, wzs, np.nan)).astype(np.float32)
         prior_won = P.get("_water_prior")                      # a prior's cells: inside the water they are never evidence
         P["_water_prior"] = None                               # (the level raster holds no prior's level to mask)
@@ -3110,5 +3111,69 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 fill[cap] = Lw
             del prot, og
         del inw
+    # THE WATER SHEET (2026-11-11, Hig's cm18 review of the Woz delta: "the river becomes broad and then terminates, and some weird fill
+    # surfaces appear in the bottom of the basin ... make a surface that is just barely under the water - smoothed to pass uniformly under
+    # surface roughness picked up in the lidar returns.  This will understate depth ... as long as we remember where the water is, we can then
+    # tackle this in a second round").  Where a lidar saw running or shallow water and nothing measured its bed -- every modelled cell of a
+    # river, tidal, perched, sloped or ephemeral body, and the sea's on a low-angle surface -- the bed is the water's lower envelope, smoothed,
+    # water_sheet_depth_m under it: an UPPER BOUND on the bed, fill_mask 10, for a later round to lower.  Not lakes (their depth is the
+    # lake model's), not the open sea off the flats (bathymetry), never a measured bed, never the ground prior (3DEP below the water: a
+    # lower tide resolved).  Within water_sheet_taper_m of the wet cells it does not cover it blends into their surface (no step at a
+    # river mouth or a multibeam edge).
+    if float(P.get("water_sheet", 0.0)) > 0 and lvl_ is not None and shore and P.get("_bodies") is not None:
+        bid_, btab_ = P["_bodies"]; mx_ = int(bid_.max()) if bid_.size else 0
+        sk_ = np.zeros(mx_ + 1, bool); seak_ = np.zeros(mx_ + 1, bool)
+        for k_, b_ in btab_.items():
+            if 0 < int(k_) <= mx_:
+                kd_ = b_.get("kind")
+                sk_[int(k_)] = kd_ in ("river", "tidal", "perched", "sloped", "ephemeral")
+                seak_[int(k_)] = kd_ == "sea"
+        bc_ = np.clip(bid_, 0, mx_)
+        wet_ = np.isin(shore_lab, (2, 3))
+        sea_ = seak_[bc_] | ((bid_ == 0) & wet_)
+        la_s = P.get("_low_angle")
+        scope_ = sk_[bc_] | (sea_ & (la_s if la_s is not None else False))
+        S_ = scope_ & (shore_lab == 2) & (mask > 0) & ~np.isin(mask, (5, 8)) & np.isfinite(fill) & np.isfinite(lvl_)
+        if S_.any():
+            dsh_ = float(P.get("water_sheet_depth_m", 0.15))
+            wo_ = P.get("_water_obs")
+            # the lower envelope of the returns off the water (NaN = none): a minimum over water_sheet_env_m, no deeper than
+            # water_sheet_drop_m under the level (a stray low return is not the water), smoothed, then under both again
+            if wo_ is not None and np.isfinite(wo_).any():
+                k_ = max(int(round(float(P.get("water_sheet_env_m", 10.0)) / res)) | 1, 3)
+                env_ = -ndimage.maximum_filter(np.where(np.isfinite(wo_), -wo_, -np.inf).astype(np.float32), size=k_)
+                env_ = np.where(np.isfinite(env_), env_, np.nan)
+            else:
+                env_ = np.full(z.shape, np.nan, np.float32)
+            base_ = np.where(np.isfinite(env_), np.minimum(env_, lvl_), lvl_)
+            base_ = np.maximum(base_, lvl_ - float(P.get("water_sheet_drop_m", 0.5)))
+            hb_ = np.isfinite(base_) & wet_
+            sg_ = float(P.get("water_sheet_sigma_m", 10.0)) / res
+            num_ = _gsmooth(np.where(hb_, base_, 0.0).astype(np.float64), sg_); den_ = _gsmooth(hb_.astype(np.float64), sg_)
+            sm_ = np.where(den_ > 1e-3, num_ / np.maximum(den_, 1e-3), np.nan)
+            sheet_ = np.fmin(np.where(np.isfinite(sm_), sm_, base_), base_) - dsh_
+            del num_, den_, sm_, env_, hb_
+            # blend into the wet cells it does not cover
+            other_ = wet_ & ~S_ & (np.isfinite(z) | np.isfinite(fill))
+            tp_ = float(P.get("water_sheet_taper_m", 100.0))
+            if other_.any() and tp_ > 0:
+                dist_ = ndimage.distance_transform_edt(~other_, sampling=res)
+                w_ = np.clip(dist_ / tp_, 0.0, 1.0); del dist_
+            else:
+                w_ = np.ones(z.shape, np.float32)
+            old_ = fill[S_]; sh_ = sheet_[S_]
+            new_ = (w_[S_] * sh_ + (1.0 - w_[S_]) * np.fmin(old_, sh_)).astype(np.float32)
+            ok_ = np.isfinite(new_)
+            dz_ = (new_ - old_)[ok_]
+            rr_, cc_ = np.nonzero(S_); rr_, cc_ = rr_[ok_], cc_[ok_]
+            fill[rr_, cc_] = new_[ok_]; mask[rr_, cc_] = 10
+            if ceil_mask is not None:
+                ceil_mask[rr_, cc_] = 0
+            nk_ = int(ok_.sum())
+            log(f"  the water sheet: {nk_ * res * res / 1e4:.1f} ha of modelled bed under seen water now {dsh_:g} m under its smoothed lower envelope "
+                f"(fill_mask 10, an upper bound; {int((S_ & sea_)[rr_, cc_].sum()) * res * res / 1e4:.1f} ha of it the sea on low-angle surfaces); "
+                f"raised by p50/p90 {np.percentile(dz_, [50, 90]).round(2).tolist() if dz_.size else []} m, max {float(dz_.max()) if dz_.size else 0:.1f} m, "
+                f"lowered on {int((dz_ < -0.05).sum()) * res * res / 1e4:.1f} ha")
+            del sheet_, w_, old_, sh_, new_
     return dict(fill=fill, prior=prior, mask=mask, sigma=sigma, domain=dom, marine=marine, lakes=lake_tab, surface=surface, dryvoid=dryvoid, water_level=lvl_, ceiling=ceil_mask, sound_prior=sound_prior, tide_contours=(shoreface_R or {}).get("contours"), cast_review=(shoreface_R or {}).get("cast_review"), cast_lines=(shoreface_R or {}).get("cast_lines"), rock_review=(shoreface_R or {}).get("rock_review"), edit_check=(shoreface_R or {}).get("edit_check"),
                 channels=chan_tab)
