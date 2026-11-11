@@ -66,6 +66,8 @@ empty, 5 lake shape prior, 6 channel section -- see channel_beds), fill_sigma.ti
 composite with holes filled) as a COG.
 """
 from __future__ import annotations
+import os
+import re
 import numpy as np
 from scipy import ndimage, sparse
 from scipy.sparse.linalg import cg, spsolve
@@ -90,6 +92,27 @@ def _points_files(P):
     by vintage, CRM's cell centres -- one file a provenance, each with its own sigma column)."""
     p = P.get("points")
     return [p] if isinstance(p, str) else list(p or [])
+
+
+_YR = re.compile(r"(?<!\d)(19\d\d|20\d\d)(?!\d)")
+
+
+def _point_stale(P, path, row, rr, cc):
+    """A cast older than its vintage zone's survey is no evidence of the bed there (2026-11-10, Hig's cm18 review, the Woz delta
+    basin at 59.54998,-151.38389: NOS h09877's 1978 casts at -1.4..-5.4 m inside channels the 2023 lidar saw the delta built up
+    around at +1.2 m, and the fill dug pits and discs to them).  The joint's own rule (the zone's day, ZD) applied to the fill's
+    points: P["_zone_day"] is the joint's zone_day.tif on the grid (NaN = pooled); a point's year from its survey's name, else
+    its file's; an undated point is old.  Outside the zones nothing changes."""
+    zd = P.get("_zone_day")
+    if zd is None or not np.isfinite(zd[rr, cc]):
+        return False
+    cache = P.setdefault("_point_year", {})
+    key = (path, row.get("survey") or "")
+    if key not in cache:
+        ys = [float(y) for y in _YR.findall(key[1])] or [float(y) for y in _YR.findall(os.path.basename(path))]
+        cache[key] = max(ys) if ys else None
+    y = cache[key]
+    return y is None or y + 1.0 < float(zd[rr, cc])
 
 
 def _lake_tension(mask, rs, cs, resid, h, ell_s, ell, w_snd):
@@ -478,6 +501,8 @@ def _points_in_grid(P, T, shape, med, lab, with_sigma=False):
                 continue
             cc, rr = ~T * (float(row["x"]), float(row["y"])); rr, cc = int(rr), int(cc)
             if not (0 <= rr < shape[0] and 0 <= cc < shape[1]) or lab[rr, cc] == 0:
+                continue
+            if _point_stale(P, path, row, rr, cc):
                 continue
             d_ = float(dz_.get(row.get("survey", ""), 0.0)) if isinstance(dz_, dict) else float(dz_)
             if row.get("z") not in (None, ""):
@@ -2073,7 +2098,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                             if row_.get("bound") or row_.get("z") in (None, ""):
                                 continue
                             cc_, rr_ = ~T_ * (float(row_["x"]), float(row_["y"])); rr_, cc_ = int(rr_), int(cc_)
-                            if 0 <= rr_ < z.shape[0] and 0 <= cc_ < z.shape[1]:
+                            if 0 <= rr_ < z.shape[0] and 0 <= cc_ < z.shape[1] and not _point_stale(P, path_, row_, rr_, cc_):
                                 d__ = float(dzp_.get(row_.get("survey", ""), 0.0)) if isinstance(dzp_, dict) else float(dzp_)
                                 hz_[rr_, cc_] = max(hz_[rr_, cc_], float(row_["z"]) + d__); n_pt += 1
                 if n_pt:
@@ -2284,7 +2309,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     if P.get("points"):
         import csv
         T = P.get("_transform")
-        nbound = 0; n_above = 0; above_sv = {}; wz_in = P.get("_water_z")
+        nbound = 0; n_above = 0; n_stale = 0; above_sv = {}; wz_in = P.get("_water_z")
         if P.get("_lt_ceil") is not None and P.get("intertidal_band"):
             lc_ = P["_lt_ceil"]                                 # a floor-path sea domain's own ceiling: the intertidal band hangs from the land, the interior lies under low tide (2026-11-02)
             wz_in = np.where(np.isfinite(lc_), lc_, wz_in if wz_in is not None else np.nan).astype(np.float32)
@@ -2304,6 +2329,9 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 if not (0 <= rr < z.shape[0] and 0 <= cc < z.shape[1]) or not (dom[rr, cc] and hole[rr, cc]):
                     continue
                 if snd_skip[rr, cc]:
+                    continue
+                if _point_stale(P, _pf, row, rr, cc):
+                    n_stale += 1
                     continue
                 if contour_model and int(lab[rr, cc]) in nolens_ids:     # shoreface.py fits these
                     continue
@@ -2328,6 +2356,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     n_above += 1; above_sv[row.get("survey", "")] = above_sv.get(row.get("survey", ""), 0) + 1
                     continue
                 sound.append((rr, cc, x, y, zz, sg)); pts[rr, cc] = True; sound_sv.append(row.get("survey", ""))
+        if n_stale:
+            log(f"  soundings older than their vintage zone's survey (the zone's day) dropped: {n_stale}")
         if n_above:
             log(f"  soundings above the water observed over them (level - {float(P['ceiling_margin_m']):g} m) dropped: {n_above} -- "
                 + ", ".join(f"{k} {v}" for k, v in sorted(above_sv.items(), key=lambda kv: -kv[1])[:8]))
@@ -2983,7 +3013,22 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             gi = int(round(float(P.get("low_water_gap_m", 48.0)) / res / 2))
             if gi > 0 and og.any():
                 inw &= ~ndimage.binary_closing(og, structure=np.ones((3, 3), bool), iterations=gi)
+            # ...nor where a river's or a tidal body's own water stands above it by low_water_perched_m (2026-11-10, Hig's cm18 review, the
+            # Woz delta basin 59.54998,-151.38389: the delta's channels lie inside the polygon, but the 2023 lidar saw their water at
+            # -0.7..+1.6 m, running over the flats at an extreme low tide; held at -1.87 m they stood as 3 m basins in the +1.2 m delta).
+            # The ceiling already holds the bed under that water; the open sea's level (a flight's tide) is no such evidence.
+            pm_ = float(P.get("low_water_perched_m", 0.5)); n_perch = 0
+            if pm_ > 0 and lvl_ is not None and P.get("_bodies") is not None:
+                bid_, btab_ = P["_bodies"]; mx_ = int(bid_.max()) if bid_.size else 0
+                rk_ = np.zeros(mx_ + 1, bool)
+                for k_, b_ in btab_.items():
+                    if 0 < int(k_) <= mx_ and b_.get("kind") in ("river", "tidal"):
+                        rk_[int(k_)] = True
+                perch_ = inw & rk_[np.clip(bid_, 0, mx_)] & np.isfinite(lvl_) & (lvl_ > Lw + pm_)
+                n_perch = int((perch_ & (mask > 0) & np.isfinite(fill) & (fill > Lw)).sum()); inw &= ~perch_
             cap = inw & (mask > 0) & np.isfinite(fill) & (fill > Lw)
+            if n_perch:
+                log(f"  the mapped low-tide water: {n_perch * res * res / 1e4:.2f} ha under a river's or tidal body's own water > {pm_:g} m above it left to its water")
             if cap.any():
                 log(f"  the mapped low-tide water: {int(cap.sum()) * res * res / 1e4:.1f} ha of modelled bed held at its level {Lw:+.2f} m (by p50/max {np.percentile(fill[cap] - Lw, 50):.2f} / {float((fill[cap] - Lw).max()):.1f} m)")
                 fill[cap] = Lw

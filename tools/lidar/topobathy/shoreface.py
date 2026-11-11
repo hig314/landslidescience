@@ -78,7 +78,7 @@ def _cast_lines(xy, z, sg, P):
 
 def _casts(P, T, shape, C, log):
     """Point depths in the cells C, despiked per survey: rows (r, c, x, y, z, sigma); and the lines they trace (_cast_lines): sites along them, same columns, and the line features for review."""
-    from .fill import _points_files
+    from .fill import _points_files, _point_stale
     from scipy.spatial import cKDTree
     out, sv, held = [], [], []
     for path in _points_files(P):
@@ -87,7 +87,7 @@ def _casts(P, T, shape, C, log):
                 if row.get("bound") or row.get("z") in (None, ""):
                     continue
                 x, y = float(row["x"]), float(row["y"]); cc, rr = ~T * (x, y); rr, cc = int(rr), int(cc)
-                if 0 <= rr < shape[0] and 0 <= cc < shape[1] and C[rr, cc]:
+                if 0 <= rr < shape[0] and 0 <= cc < shape[1] and C[rr, cc] and not _point_stale(P, path, row, rr, cc):
                     out.append((rr, cc, x, y, float(row["z"]), float(row.get("sigma") or P["points_sigma_m"]))); sv.append(row.get("survey", "")); held.append(row.get("held") == "1")
     if not out:
         return np.zeros((0, 6)), np.zeros((0, 6)), []

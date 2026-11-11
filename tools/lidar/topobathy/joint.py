@@ -55,7 +55,7 @@ from scipy import ndimage
 
 CLS = {"void": 0, "ground": 1, "water": 2, "bed": 3, "ice": 4}
 DEFAULTS = dict(res_m=1.0, pool_years={"ground": 5.0, "bed": 30.0, "ice": 0.5}, rates={"ground": 0.01, "bed": 0.02, "ice": 3.0}, tol_m=0.15, tol_low_m=1.0, xc_sigma_m=2.0, xc_minw=1.5,
-                over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, bed_stand_dz_m=2.0, derived_stand_dz_m=4.0, derived_stand_frac=0.5, derived_stand_slope=0.01, sheet_level_tol_m=0.5, sheet_level_slope=0.0015, low_water_stand_m=1.0, derived_under_sheet_m=6.0, low_water_level_m=-1.87, low_water_edge_m=30.0, rock_near_m=40.0, mesa_level_m=1.0, mesa_level_frac=0.8, mesa_rise_m=1.0, mesa_ring_m=6.0, mesa_ring_frac=0.6, mesa_min_cells=1, mesa_slope=0.05, speck_near_m=300.0, speck_sparse_frac=0.25, derived_ground_gap_m=0.0, derived_ground_dense_frac=0.5, sonar_min_depth_m=1.5, sparse_bed_min_n=5, coarse_factor=4.0, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, derived_fine_m=0.0, derived_fine_frac=0.05, surf_near_m=30.0, speck_cast_m=150.0,
+                over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, bed_stand_dz_m=2.0, derived_stand_dz_m=4.0, derived_stand_frac=0.5, derived_stand_slope=0.01, sheet_level_tol_m=0.5, sheet_level_slope=0.0015, low_water_stand_m=1.0, derived_under_sheet_m=6.0, low_water_level_m=-1.87, low_water_edge_m=30.0, rock_near_m=40.0, mesa_level_m=1.0, mesa_level_frac=0.8, mesa_rise_m=1.0, mesa_ring_m=6.0, mesa_ring_frac=0.6, mesa_min_cells=1, mesa_slope=0.05, speck_near_m=300.0, speck_sparse_frac=0.25, derived_ground_gap_m=0.0, derived_ground_dense_frac=0.5, sonar_min_depth_m=1.5, sparse_bed_min_n=5, coarse_factor=4.0, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, derived_fine_m=0.0, derived_fine_frac=0.05, surf_near_m=30.0, speck_cast_m=150.0, derived_ground_bed_dz_m=3.0, derived_ground_bed_top_m=0.0,
                 sigma_floor_m=0.03, gap_m=2.0, wet_m=15.0, steep_deg=20.0, prior_slope_res_m=5.0, hole_rim_tol_m=1.0, grid_wc=0.1, grid_better=0.75,
                 lidar_sigma_m=0.08, grid_xy_sigma_m=0.0, align_min_cells=1000)
 
@@ -667,6 +667,28 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             if drop_.any():
                 log(f"  {n:14s} small deep patches above the tide's reach (<= {lone_max} cells, > {lone_low:g} m under the others): {int(drop_.sum())} cells dropped, by p10/50/90 {np.round(np.percentile((Ro_ - Z[n])[drop_], [10, 50, 90]), 1).tolist()} m")
         del zo_, wo_, Ro_
+    # A DERIVED GROUND OVER A DEEP BED (2026-11-10, Hig's cm18 review, Seldovia 59.42358,-151.87706: "an artifact" -- a 30 m strip
+    # sloping 0 to -0.9 m off the beach, then a 6 m drop to the 2009 multibeam).  Chugachmiut's DTM (a grid with no points, one value
+    # a cell on land and sea alike) interpolated across the water there, pooled with NCEI's -4.6..-6.4 m under it.  A derived ground
+    # surface has nothing that saw the ground: below derived_ground_bed_top_m, where a bed in the same cell lies beyond the lowest
+    # tide (low_water_level_m - 1) and more than derived_ground_bed_dz_m under it, it yields to the bed.  The shallowest bed judges.
+    dgb_dz = float(cfg.get("derived_ground_bed_dz_m", 0.0)); rep["derived_ground_over_bed_cells"] = {}
+    if dgb_dz > 0:
+        dgb_top = float(cfg.get("derived_ground_bed_top_m", 0.0)); dgb_below = float(cfg.get("low_water_level_m", -1.87)) - 1.0
+        zb_ = np.full((H, W), -np.inf, np.float32)
+        for m in names:
+            if S[m].cls == "bed":
+                zb_ = np.fmax(zb_, np.where(allow[m] & np.isfinite(Z[m]), Z[m], -np.inf))
+        for n in names:
+            if not (S[n].derived and S[n].cls == "ground"):
+                continue
+            drop_ = allow[n] & np.isfinite(Z[n]) & (Z[n] <= dgb_top) & np.isfinite(zb_) & (zb_ < dgb_below) & (zb_ < Z[n] - dgb_dz)
+            rep["derived_ground_over_bed_cells"][n] = int(drop_.sum())
+            if drop_.any():
+                allow[n] = allow[n] & ~drop_
+                log(f"  {n:14s} derived ground below {dgb_top:g} m over a bed beyond the lowest tide, > {dgb_dz:g} m under it: {float(drop_.sum()) * res * res / 1e4:.2f} ha dropped, "
+                    f"by p10/50/90 {np.round(np.percentile((Z[n] - zb_)[drop_], [10, 50, 90]), 1).tolist()} m")
+        del zb_
     Wt = {n: np.where(np.isfinite(Z[n]) & allow[n], N[n] / np.maximum(SG[n], cfg["sigma_floor_m"]) ** 2, 0.0).astype(np.float32) for n in names}
     R1 = {n: local_surface(Z[n], np.minimum(N[n], 5.0) * (allow[n] & np.isfinite(Z[n])), xs, minw) for n in names if S[n].kind == "lidar"}   # own surface: the spike test
     near = {n: ndimage.binary_dilation(allow[n] & np.isfinite(Z[n]), iterations=max(1, int(np.ceil(2 * xs)))) for n in names}            # has cells within the cross-check reach
@@ -1368,7 +1390,8 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
     rep["src_bits"] = {n: 1 << k for k, n in enumerate(names)}; rep["seconds"] = round(time.time() - t0)
     for name, a, dt, nd in (("joint_z", ZJ, "float32", -9999), ("joint_n", NJ, "float32", -9999), ("joint_src", SRC, "uint32", 0),
                             ("joint_rej", rej, "uint32", 0), ("joint_dist", DIST, "float32", -9999), ("joint_sigma", SIG, "float32", -9999),
-                            ("joint_nland", NL, "uint8", 255), ("joint_cls", CLSJ, "uint8", 255), ("vintage", V, "uint8", 255), ("water_z", WZ, "float32", -9999)):
+                            ("joint_nland", NL, "uint8", 255), ("joint_cls", CLSJ, "uint8", 255), ("vintage", V, "uint8", 255), ("water_z", WZ, "float32", -9999),
+                            ("zone_day", ZD, "float32", -9999)):     # the zone's day, for the fill's casts (fill._point_stale)
         write(out / f"{name}.tif", a, win, res, epsg, dt, nd)
     (out / "joint_report.json").write_text(json.dumps(rep, indent=1)); log(json.dumps(rep["coverage"]))
     if dump:

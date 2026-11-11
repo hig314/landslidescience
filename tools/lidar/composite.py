@@ -1040,6 +1040,16 @@ def cmd_fill(a):
             if ss_.any():
                 outside &= ~ss_; params["_outside"] = outside
                 print(f"  the sea the points surveyed is not outside: {ss_.sum() * res * res / 1e6:.3f} km2")
+    # THE ZONE'S DAY (joint.py's ZD, 2026-11-10): a cast older than its vintage zone's survey is no evidence of the bed there
+    # (fill._point_stale; the Woz delta's 1978 casts in the 2023 delta's channels)
+    jo_ = (recipe.d.get("joint") or {}).get("out")
+    if jo_ and Path(jo_, "zone_day.tif").exists():
+        from topobathy.shore import read_on_grid
+        zd_ = read_on_grid(Path(jo_, "zone_day.tif"), prof, np.float32)
+        zd_ = np.where((zd_ == -9999) | (zd_ <= 0), np.nan, zd_).astype(np.float32)   # read_on_grid resamples nodata to 0
+        if np.isfinite(zd_).any():
+            params["_zone_day"] = zd_
+            print(f"  zone's day: {np.isfinite(zd_).mean():.3f} of the grid zoned, days {sorted(set(np.unique(zd_[np.isfinite(zd_)]).round(2).tolist()))[:6]}")
     # the observed water surface (lake levels) and the surface cells judged last time: those are
     # water-classed holes now, so this pass cannot see them -- without carrying them over the next
     # build calls them ground again (Grewingk 2021's 50.14 m strips came back as pimples, 2026-10-12)
@@ -1116,7 +1126,7 @@ def cmd_fill(a):
         print(f"  shoreline stage: {out / 'shore_label.tif'} (and its level) decide the shore")
     R = FL.fill_holes(z, cls, res, CLASSES, params, log=print)
     for k in ("_outside", "_transform", "_water_z", "_water_prior", "_water_blind", "_surface_prev", "_bodies", "_land_n", "_mapped_island", "_mapped_lake", "_ml_near",
-              "_shore_label", "_shore_level", "_shore_slope"):
+              "_shore_label", "_shore_level", "_shore_slope", "_zone_day", "_point_year"):
         params.pop(k, None)
     if R.get("lakes"):
         T = prof["transform"]
