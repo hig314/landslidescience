@@ -148,6 +148,11 @@ def _tide_lines(P, T, shape, res, log):
                 if ok.any():
                     L[r[ok], c[ok]] = float(lv); n += 1
                     items.append((fi, float(lv), r[ok], c[ok]))
+    la = P.get("_low_angle")
+    if la is not None and la.any():                      # not on low-angle surfaces (fill._low_angle)
+        L = np.where(la, np.nan, L).astype(np.float32)
+        items = [(fi_, lv_, r_[~la[r_, c_]], c_[~la[r_, c_]]) for fi_, lv_, r_, c_ in items]
+        items = [it for it in items if len(it[2])]
     log(f"  shoreface: edited tide lines from {path}: {n} segments in the grid")
     return L, items
 
@@ -790,7 +795,17 @@ def _mapped_shores(P, T, shape):
     if c_.exists():
         G_ = [(f["geometry"], 1) for f in json.load(open(c_))["features"] if shape_(f["geometry"]).intersects(b_)]
         Lc = features.rasterize(G_, out_shape=shape, transform=T, fill=0, dtype="uint8", all_touched=True) > 0 if G_ else np.zeros(shape, bool)
-    return Ll, poly(h_), poly(l_), Hl, Lc
+    Hw, Lw = poly(h_), poly(l_)
+    la = P.get("_low_angle")
+    if la is not None and la.any():
+        # LOW-ANGLE SURFACES (fill._low_angle, Hig 2026-11-10: the traced shorelines are not synchronized with the data on an active
+        # delta or a flat): there the coast is unmapped -- no line levels, neither polygon claims a cell; the base contour and the casts decide
+        Ll = np.where(la, np.nan, Ll).astype(np.float32); Hw = Hw & ~la; Lw = Lw & ~la
+        if Hl is not None: Hl = np.where(la, np.nan, Hl).astype(np.float32)
+        if Lc is not None: Lc = Lc & ~la
+        if not np.isfinite(Ll).any():
+            return None, None, None, None, None
+    return Ll, Hw, Lw, Hl, Lc
 
 
 def _past_closure(band, Lw, Lc, land, res, tol_m=6.0, casts=None, low=None, cast_reach_m=500.0):

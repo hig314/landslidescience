@@ -1126,7 +1126,7 @@ def cmd_fill(a):
         print(f"  shoreline stage: {out / 'shore_label.tif'} (and its level) decide the shore")
     R = FL.fill_holes(z, cls, res, CLASSES, params, log=print)
     for k in ("_outside", "_transform", "_water_z", "_water_prior", "_water_blind", "_surface_prev", "_bodies", "_land_n", "_mapped_island", "_mapped_lake", "_ml_near",
-              "_shore_label", "_shore_level", "_shore_slope", "_zone_day", "_point_year"):
+              "_shore_label", "_shore_level", "_shore_slope", "_zone_day", "_point_year", "_low_angle", "_low_angle_prior"):
         params.pop(k, None)
     if R.get("lakes"):
         T = prof["transform"]

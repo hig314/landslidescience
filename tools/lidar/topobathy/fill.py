@@ -72,7 +72,7 @@ import numpy as np
 from scipy import ndimage, sparse
 from scipy.sparse.linalg import cg, spsolve
 
-DEFAULTS = dict(shore_model=None, tide_lines=None, rocks=None, sea_prior="local", intertidal_band=False, tide_max_m=4.5, band_ground=True, band_ground_sigma_m=1.0, band_ground_min_m=0.3, band_edge_deg=3.0, band_blend_max_m=500.0, ground_water=None, sea_profile_bins=20, sea_profile_min_n=30, sea_profile_local_m=1500.0, sea_profile_anchor_m=200.0, sea_profile_min_casts=40, sea_profile_cap_k=32, sea_profile_local_min_n=8, floor_sound_smooth_m=20.0, sound_prior_gap_mult=1.0, fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, slope_min_deg=1.0, slope_max_deg=60.0, low_tide_m=-2.9,
+DEFAULTS = dict(low_angle_slope=0.01, low_angle_sigma_m=20.0, low_angle_min_ha=5.0, low_angle_reach_m=250.0, low_angle_prior_tol_m=0.3, shore_model=None, tide_lines=None, rocks=None, sea_prior="local", intertidal_band=False, tide_max_m=4.5, band_ground=True, band_ground_sigma_m=1.0, band_ground_min_m=0.3, band_edge_deg=3.0, band_blend_max_m=500.0, ground_water=None, sea_profile_bins=20, sea_profile_min_n=30, sea_profile_local_m=1500.0, sea_profile_anchor_m=200.0, sea_profile_min_casts=40, sea_profile_cap_k=32, sea_profile_local_min_n=8, floor_sound_smooth_m=20.0, sound_prior_gap_mult=1.0, fill_margin=True, close_m=60, island_max_m2=2000, inland_m=10, slope_min_deg=1.0, slope_max_deg=60.0, low_tide_m=-2.9,
                 marine_rim_max_m=6.0, lake_depth_m=5.0, sigma_prior_m=1.0, sigma_rim_m=2.0, lake_sigma_m=5.0,
                 cond_m=30.0, cg_iters=300, coarse=16,
                 lake_min_m2=100, lake_water_frac=0.5, lake_vd=0.5, hollister_k=0.5, huggel_a=0.104, huggel_b=1.42, lake_sigma_frac=0.5, channel_elong=3.0, lake_surface_tol_m=0.2, lake_islet_m2=50, lake_island_dz_m=0.65, floating_ice=True, floating_ice_corr=0.25, floating_ice_max_m2=20000, mapped_edge_near_m=200.0, mapped_edge_dz_m=1.0, points_despike_m=5.0, points_despike_r_m=40.0, points_despike_n=6, void_shore_m=2.0, dry_max_km2=1.0, points=None,
@@ -976,12 +976,81 @@ def split_by_level(lw, nw, wz, res, P, bodies=None, log=print):
     return out, n, nsplit, rivers
 
 
+def _low_angle(z, res, P, log=print):
+    """LOW-ANGLE SURFACES -- active deltas and tidal flats (2026-11-10, Hig, the Grewingk Creek delta 59.65371,-151.18883: "a change
+    in the river course has led to erosion of the end of the spit ... the way I'd previously built shorelines is not helping - it
+    isn't synchronized with the available data, and it wasn't intended to be a single elevation").  Measured cells in the tide's
+    band (shore_base .. tide_max) whose slope, smoothed over low_angle_sigma_m, is under low_angle_slope, in pieces of at least
+    low_angle_min_ha; then grown across the UNMEASURED cells beside them up to low_angle_reach_m (a gap between the flats and the
+    sea), never across measured ground or bed.  Inside it the traced tide lines are not used.  None when nothing qualifies."""
+    sl_max = float(P.get("low_angle_slope", 0.0))
+    if sl_max <= 0:
+        return None
+    lo = float(P.get("shore_base_m", float(P.get("low_tide_m", -1.38)) - 2.0)); hi = float(P.get("tide_max_m", 4.5))
+    obs = np.isfinite(z)
+    band = obs & (z >= lo) & (z <= hi)
+    if band.sum() < 100:
+        return None
+    sg = max(float(P.get("low_angle_sigma_m", 20.0)) / res, 1.0)
+    w_ = ndimage.gaussian_filter(obs.astype(np.float32), sg)
+    zs = ndimage.gaussian_filter(np.where(obs, z, 0).astype(np.float32), sg) / np.maximum(w_, 1e-6)
+    gy, gx = np.gradient(zs, res)
+    flat = band & (np.hypot(gx, gy) < sl_max) & (w_ > 0.5); del zs, gy, gx, w_
+    lab_, n_ = ndimage.label(flat, structure=np.ones((3, 3), bool))
+    if n_ == 0:
+        return None
+    big = np.zeros(n_ + 1, bool); big[1:] = np.bincount(lab_.ravel(), minlength=n_ + 1)[1:] * res * res / 1e4 >= float(P.get("low_angle_min_ha", 5.0))
+    flat = big[lab_]; del lab_
+    if not flat.any():
+        return None
+    # flat pieces' small speckle of steeper cells inside them (a channel bank) belongs to them
+    flat = ndimage.binary_closing(flat, structure=np.ones((3, 3), bool), iterations=3) & obs | flat
+    reach = int(round(float(P.get("low_angle_reach_m", 250.0)) / res))
+    grow = ndimage.binary_dilation(flat, structure=np.ones((3, 3), bool), iterations=reach, mask=flat | ~obs)
+    log(f"  low-angle surfaces (slope < {sl_max * 100:g} % over {float(P.get('low_angle_sigma_m', 20.0)):g} m, >= {float(P.get('low_angle_min_ha', 5.0)):g} ha, "
+        f"grown {float(P.get('low_angle_reach_m', 250.0)):g} m into unmeasured cells): {float(flat.sum()) * res * res / 1e4:.1f} ha measured, "
+        f"{float((grow & ~obs).sum()) * res * res / 1e4:.1f} ha of gaps -- the traced tide lines are not used there")
+    return grow
+
+
 def fill_holes(z, cls, res, classes, p=None, log=print):
     """z: composite (NaN = hole); cls: class_now codes; classes: name -> code.  Returns dict of
     arrays: fill, prior, mask, sigma."""
     P = dict(DEFAULTS); P.update(p or {})
     H, W = z.shape
     hole = ~np.isfinite(z)
+    # LOW-ANGLE SURFACES (_low_angle): the traced tide lines are not used there (shoreface._tide_lines, the tide polygons, the
+    # low-tide cap), and in their gaps the ground prior (3DEP) is ground below the tide's reach, skeptically: not where a lidar saw
+    # water unless it stands low_angle_prior_tol_m or more under that water (a lower tide resolved), never at 3DEP's flattened 0.
+    la_ = _low_angle(z, res, P, log=log); P["_low_angle"] = la_
+    if la_ is not None and P.get("ground_prior") and P.get("_transform") is not None and P.get("_crs") is not None:
+        gap_ = la_ & hole
+        if gap_.any():
+            rs_, cs_ = np.nonzero(gap_)
+            pz_ = _read_on_grid(P["ground_prior"], P["_transform"], P["_crs"], z.shape, (int(rs_.min()), int(rs_.max()) + 1),
+                                (int(cs_.min()), int(cs_.max()) + 1), sea_zero=True)
+            lo_ = float(P.get("shore_base_m", float(P.get("low_tide_m", -1.38)) - 2.0))
+            ok_ = gap_ & np.isfinite(pz_) & (pz_ >= lo_) & (pz_ < float(P.get("void_ground_m", 4.5)))
+            wz0_ = P.get("_water_z"); n_wet_ = 0
+            if wz0_ is not None and np.isfinite(wz0_).any():
+                wf_ = np.isfinite(wz0_)
+                wc_ = ndimage.binary_closing(wf_, structure=np.ones((3, 3), bool), iterations=max(int(round(10.0 / res / 2)), 1)) | wf_
+                _, (iy_, ix_) = ndimage.distance_transform_edt(~wf_, return_indices=True)
+                wn_ = wz0_[iy_, ix_]; del iy_, ix_
+                under_ = wc_ & ~(pz_ < wn_ - float(P.get("low_angle_prior_tol_m", 0.3)))
+                n_wet_ = int((ok_ & under_).sum()); ok_ &= ~under_
+                bed_ = ok_ & wc_                                   # 3DEP under the lidar's water: a bed at a lower tide
+            else:
+                bed_ = np.zeros(z.shape, bool)
+            if ok_.any():
+                z = z.copy(); cls = cls.copy()
+                z[ok_] = pz_[ok_]; cls[ok_] = classes.get("ground", 1)
+                if "bed" in classes:
+                    cls[bed_] = classes["bed"]
+                hole = ~np.isfinite(z); P["_low_angle_prior"] = (ok_, np.where(ok_, pz_, np.nan).astype(np.float32))
+            log(f"  low-angle gaps: the ground prior stands on {float(ok_.sum()) * res * res / 1e4:.1f} ha ({float(bed_.sum()) * res * res / 1e4:.1f} ha under a lidar's water, "
+                f"a lower tide); {n_wet_ * res * res / 1e4:.1f} ha at or above the lidar's water left out")
+            del pz_
     # THE SHORELINE STAGE DECIDES (topobathy/shore.py, 2026-10-24): where its label and level exist, the land / water /
     # floating / glacier label replaces the fill's own shore rules below (the domain-closure judgement, the surface,
     # speck, low-island and floating-ice tests), and the observed water surface the fill reads IS the stage's level
@@ -2826,6 +2895,9 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     if prior_ground.any():                                        # the ground prior inside a large void (above): carried as the fill
         fill[prior_ground] = prior_gz[prior_ground]; mask[prior_ground] = 8
         sigma[prior_ground] = float(P.get("prior_ground_sigma_m", 3.0))
+    if P.get("_low_angle_prior") is not None:                   # the low-angle gaps' ground prior, carried out as the fill (mask 8)
+        lap_, laz_ = P["_low_angle_prior"]
+        fill[lap_] = laz_[lap_]; mask[lap_] = 8; sigma[lap_] = float(P.get("prior_ground_sigma_m", 3.0))
     log(f"  filled {int(np.isfinite(fill).sum()) * res * res / 1e6:.3f} km2: band {int(band.sum()) * res * res / 1e6:.3f}, "
         f"interior {int(interior.sum()) * res * res / 1e6:.3f}, conditioned {int(cond.sum()) * res * res / 1e6:.3f} km2; "
         f"sigma p50 {np.nanmedian(sigma):.2f} m")
@@ -3026,6 +3098,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                         rk_[int(k_)] = True
                 perch_ = inw & rk_[np.clip(bid_, 0, mx_)] & np.isfinite(lvl_) & (lvl_ > Lw + pm_)
                 n_perch = int((perch_ & (mask > 0) & np.isfinite(fill) & (fill > Lw)).sum()); inw &= ~perch_
+            if P.get("_low_angle") is not None:
+                inw &= ~P["_low_angle"]                     # the traced lines are not used on low-angle surfaces (_low_angle)
             cap = inw & (mask > 0) & np.isfinite(fill) & (fill > Lw)
             if n_perch:
                 log(f"  the mapped low-tide water: {n_perch * res * res / 1e4:.2f} ha under a river's or tidal body's own water > {pm_:g} m above it left to its water")
