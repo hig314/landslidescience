@@ -259,6 +259,20 @@
    "live": "2026-11-10 17:48:31",
    "commit": "53ff22a",
    "what": "fill: the low-tide cap leaves a river's or tidal body's own water > 0.5 m above low tide alone (Woz delta basin 59.54998,-151.38389)"
+  },
+  {
+   "id": "changetaper",
+   "stage": "joint",
+   "live": "2026-11-10 18:23:46",
+   "commit": "bb707f5",
+   "what": "joint + recipes: change kbay2023 - bathy2009 measured inside kbay2023's vintage zones, graded over the multibeam to 0 at 120 m (the Woz front's 7 m step)"
+  },
+  {
+   "id": "derivedwater",
+   "stage": "joint",
+   "live": "2026-11-10 18:23:46",
+   "commit": "bb707f5",
+   "what": "joint: derived ground (ArcticDEM, Chugachmiut) yields where a lidar saw water, within 0.3 m of that water or above it (upper-bay flats, r7c4)"
   }
  ]
 }
