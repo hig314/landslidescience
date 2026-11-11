@@ -287,6 +287,13 @@
    "live": "2026-11-10 19:27:58",
    "commit": "1c201c6",
    "what": "change taper only from overlap patches with median change >= 0.5 m, smooth field (selhead streaks); low-angle 3DEP not inside vintage zones (Woz delta)"
+  },
+  {
+   "id": "watersheet",
+   "stage": "fill",
+   "live": "2026-11-11 03:00:31",
+   "commit": "262a5ed",
+   "what": "fill: modelled beds under seen water (river/tidal/perched/sloped/ephemeral; sea on low-angle surfaces) 0.15 m under the water's smoothed lower envelope, fill_mask 10 = upper bound; replaces channel resolving there (Woz delta)"
   }
  ]
 }
