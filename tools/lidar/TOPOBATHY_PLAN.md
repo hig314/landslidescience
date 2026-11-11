@@ -1,5 +1,17 @@
 # Topobathy compositing: tools and interface
 
+## Resume here (2026-11-10, 19:10) — run_1110b: the 31 boxes the rules touch, on a41945e
+
+**Running:** `$W/run_1110b.sh` (log `$W/test_cm18.log`): group A r6c3 r5c3 r4c1 r7c4 r6c2 r6c1 r6c4 r4c5 r3c4 r4c3 r7c2 r7c3 r5c2 ->
+publish; B r7c0 r6c0 r2c5 r3c5 r2c4 -> publish; C r7c1 r4c2 r3c1 r3c3 r5c1 r5c4 r4c4 r7c5 r2c2 r2c3 r3c2 r3c0 r4c0 -> publish.
+run_1110 was stopped in r6c3's joint.  Untouched by any rule (scan of joint outputs, left as they are): rows 0-1, r2c0 r2c1 r5c0 r5c5 r6c5.
+**New rules (Hig 2026-11-10):** `changetaper` (recipes' change_pairs kbay2023-bathy2009, Woz front), `derivedwater` (ArcticDEM at/above a
+lidar's water is no ground), `lowangle` (flats/active deltas: no traced tide lines, polygons or low-tide cap; 3DEP in their gaps unless
+at/above a lidar's water -- Grewingk Creek delta, Hig: the traced shorelines are not synchronized with the data there).
+**Open:** the 59.55909,-151.27770 channel's pocked OCM floor (smooth it or drop it -- asked Hig); /lidar/ "saturates at" reads m/yr
+(Hig took it for m: offer a metres-equivalent label, main repo).  Low-angle crop set (wozflat tongue selhead ad_r7c4 kasflat) was still
+running at commit: check review_1110/*_lowangle.png and $W/run_lowangle.log.
+
 ## Resume here (2026-11-10, 17:50) — run_1110 rerun of all 48 boxes; three more rules live mid-run (53ff22a)
 
 **Running:** `$W/run_1110.sh` (log `$W/run_1110.out`, `$W/test_cm18.log`), group 1 of 3; r6c1 done, r6c2 in its fill.  r6c1/r6c2 lack 53ff22a.
