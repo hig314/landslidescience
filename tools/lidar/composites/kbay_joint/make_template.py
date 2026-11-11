@@ -106,6 +106,7 @@ j['vintage'] = [
 ]
 j['derived_ground_gap_m'] = 50.0   # a compilation's bed yields in gaps of measured ground up to 50 m (Hoen's Lagoon's pits, 2026-10-29)
 j['derived_fine_m'] = 10.0   # the finest stage of the calibration cascade (joint.py 2c): a compilation passes through sparse measured beds (Bluff Point, 2026-10-29)
+j['change_pairs'] = [{"new": "kbay2023", "old": "bathy2009", "taper_m": 120}]   # change between two trusted surveys graded out over the older (joint.py 2c, the Woz front, Hig 2026-11-10)
 j['notes'] = 'BAY_SOURCES.md 2026-10-29. Lidar from the shared units cache (joint_pilot.py units --recipe), grids as observations.'
 t['joint'] = j
 

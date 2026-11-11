@@ -635,6 +635,70 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             log(f"  {n:14s} calibrated to {', '.join(meas)}: overlap {ov:.3f} km2, offset {g:+.2f} m, field p10/50/90 "
                 f"{rep['derived_adjust'][n]['field_p10_50_90']}, residual rms p50 {rep['derived_adjust'][n]['residual_rms_p50']:.2f} m")
             del num, den, r2, F, s_
+    # ---- 2c. CHANGE BETWEEN TWO TRUSTED SURVEYS, GRADED OUT OVER THE OLDER ONE (2026-11-10, Hig, the Woz delta front, "real change
+    # 2008-2023": the 2023 lidar's front at -1.6 m beside the 2009 multibeam at -8.4 m, a 7 m step wherever the joint swapped from one
+    # to the other -- a bar above a pool at sea level, the pool no evidence of the bed, the multibeam the next best thing).  For each
+    # pair named in cfg change_pairs ({"new", "old", "taper_m"}), and only inside the vintage zones where `new` alone is allowed (where
+    # the surface is known to move; elsewhere a lidar's misread sea surface over the multibeam would tilt it), the change new - old is
+    # measured where both have a cell (new's ground), smoothed (change_smooth_m); beyond, the older survey takes the change of the
+    # nearest measured cell, tapering linearly to zero at taper_m from it.  Changes under change_min_m are survey noise and none.
+    rep["change_pairs"] = {}
+    for cp_ in (cfg.get("change_pairs") or []):
+        nw_, od_ = cp_.get("new"), cp_.get("old")
+        if nw_ not in S or od_ not in S or Z.get(nw_) is None or Z.get(od_) is None:
+            continue
+        zk_ = [k for k, e in enumerate(vint, 1) if isinstance(e.get("allow"), list) and e["allow"] == [nw_]]
+        zone_ = np.isin(V, zk_) if zk_ else np.zeros((H, W), bool)
+        both_ = zone_ & np.isfinite(Z[nw_]) & np.isfinite(Z[od_])
+        if both_.sum() < int(cp_.get("min_cells", 50)):
+            rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=int(both_.sum()), applied=False); continue
+        d_ = np.where(both_, Z[nw_] - Z[od_], 0.0).astype(np.float32)
+        sg_ = float(cp_.get("change_smooth_m", 10.0)) / res
+        num_ = ndimage.gaussian_filter(d_, sg_); den_ = ndimage.gaussian_filter(both_.astype(np.float32), sg_)
+        ds_ = np.where(both_, num_ / np.maximum(den_, 1e-6), 0.0).astype(np.float32)
+        ds_[np.abs(ds_) < float(cp_.get("change_min_m", 0.5))] = 0.0
+        dist_, (iy_, ix_) = ndimage.distance_transform_edt(~both_, sampling=res, return_indices=True)
+        tap_ = np.clip(1.0 - dist_ / float(cp_.get("taper_m", 120.0)), 0.0, 1.0)
+        F_ = (ds_[iy_, ix_] * tap_).astype(np.float32)
+        hit_ = np.isfinite(Z[od_]) & (F_ != 0)
+        Z[od_] = np.where(hit_, Z[od_] + F_, Z[od_]).astype(np.float32)
+        rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=int(both_.sum()), change_p10_50_90=np.round(np.percentile(d_[both_], [10, 50, 90]), 2).tolist(),
+                                                   adjusted_ha=round(float(hit_.sum()) * res * res / 1e4, 2), beyond_ha=round(float((hit_ & ~both_).sum()) * res * res / 1e4, 2))
+        log(f"  change {nw_} - {od_} inside {nw_}'s zones: {int(both_.sum())} cells measured, p10/50/90 {rep['change_pairs'][f'{nw_}-{od_}']['change_p10_50_90']} m; "
+            f"{od_} adjusted on {rep['change_pairs'][f'{nw_}-{od_}']['adjusted_ha']} ha ({rep['change_pairs'][f'{nw_}-{od_}']['beyond_ha']} beyond the overlap, tapering to 0 at {float(cp_.get('taper_m', 120.0)):g} m)")
+        del d_, num_, den_, ds_, dist_, iy_, ix_, tap_, F_, hit_, both_, zone_
+    # ---- 2d. A DERIVED GROUND WHERE A LIDAR SAW WATER (2026-11-10, Hig, 59.55909,-151.27770: "we should not substitute ArcticDEM or
+    # 3DEP where we know from lidar there's water - whatever data they have is wrong").  ArcticDEM in r7c4 stood alone on 815 ha of cells
+    # holding a lidar's water returns, within 0.03 m of that water (median): it is the water surface, read as ground.  A derived ground
+    # source (ArcticDEM, Chugachmiut's DTM) yields in every cell a lidar saw water in, and inside that water closed over
+    # derived_water_close_m.  (3DEP's prior is withdrawn wherever a lidar flew already: layer_flown.)
+    dwc_ = float(cfg.get("derived_water_close_m", 10.0)); rep["derived_in_lidar_water_cells"] = {}
+    if dwc_ >= 0 and any(S[n].derived and S[n].cls == "ground" for n in names):
+        # ...only where it stands AT or above that water (within derived_water_tol_m under it): ArcticDEM in r7c4 sat on the water's
+        # level, the water surface itself; 3DEP across the Grewingk Creek delta's 2021 gap (59.65371,-151.18883) stands 0.1-0.5 m under
+        # the 2021 water at +0.6 m, a bed seen at a lower tide and the only one there (Hig: "something pretty smooth").
+        wz_ = np.full((H, W), np.inf, np.float32)
+        for m in names:
+            if S[m].kind == "lidar" and obs.get(m) is not None and "z_w" in obs[m]:
+                wz_ = np.fmin(wz_, np.where(np.isfinite(obs[m]["z_w"]) & (obs[m]["n_w"] > 0), obs[m]["z_w"], np.inf))
+        lw_ = np.isfinite(wz_)
+        if lw_.any():
+            ci_ = int(round(dwc_ / res / 2))
+            if ci_ > 0:
+                lc_ = ndimage.binary_closing(lw_, structure=np.ones((3, 3), bool), iterations=ci_) & ~lw_
+                if lc_.any():
+                    _, (iy_, ix_) = ndimage.distance_transform_edt(~lw_, return_indices=True)
+                    wz_ = np.where(lc_, wz_[iy_, ix_], wz_); del iy_, ix_
+                lw_ = lw_ | lc_
+            wtol_ = float(cfg.get("derived_water_tol_m", 0.3))
+            for n in names:
+                if S[n].derived and S[n].cls == "ground":
+                    dr_ = allow[n] & np.isfinite(Z[n]) & lw_ & (Z[n] >= np.where(lw_, wz_, np.inf) - wtol_)
+                    rep["derived_in_lidar_water_cells"][n] = int(dr_.sum())
+                    if dr_.any():
+                        allow[n] = allow[n] & ~dr_
+                        log(f"  {n:14s} derived ground where a lidar saw water (closed over {dwc_:g} m): {float(dr_.sum()) * res * res / 1e4:.2f} ha dropped")
+        del lw_, wz_
     # ---- 3. epoch: an older source yields wherever a source newer by > pool_years has a local surface
     xs = cfg["xc_sigma_m"] / res; minw = cfg["xc_minw"]
     # a lidar's SMALL DEEP PATCH above the tide's reach goes before anything is judged by date (2026-11-10, Hig,

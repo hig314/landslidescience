@@ -661,7 +661,14 @@
    ]
   },
   "derived_ground_gap_m": 50.0,
-  "derived_fine_m": 10.0
+  "derived_fine_m": 10.0,
+  "change_pairs": [
+   {
+    "new": "kbay2023",
+    "old": "bathy2009",
+    "taper_m": 120
+   }
+  ]
  },
  "shore": {
   "glaciers": "/Volumes/Nunatak/permafrost_src/glaciers/AK_2020_overall_glacier_covered_area.shp",
