@@ -231,6 +231,14 @@ CLAUDE.md §/glaciers:
 - **Gruber's `.hdr` cellsize is truncated** (0.008333 for 1/120°); trust
   the stated 43200×18000 grid and pin `-a_ullr -180 90 180 -60` instead
   or the raster drifts 1 km per 10° of longitude.
+- **Stored aspect is on grid north, not true north** (found 2026-11-10). The
+  60 m aspect grid and the cube's `aspect` were computed in EPSG:3338, whose
+  north leans from true by 0.8627 x (lon + 154) degrees: +18 at 175 W, -21 at
+  130 W. Checked two ways: the 60 m aspect matches the 1 km lattice's grid
+  downhill azimuth everywhere, and the formula matches rasterio. The stereonet
+  rotates to true north; the x-y panel's aspect axis and the aspect overlay do
+  not, while the map paint (`ls_sample.js`, from Web Mercator tiles) is true
+  north already, so that panel's paint and plot disagree by up to ~20 degrees.
 - **Aspect sign.** `gdaldem aspect` is the DOWNSLOPE azimuth clockwise from
   north: a north-facing slope is 0, and northness `cos(aspect)·sin(slope)`
   is +1 there. The browser-derived northness in the old permafrost panel

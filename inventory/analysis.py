@@ -24,6 +24,9 @@ once per process. Three endpoints:
          stats: {x, y}, outline (circle only)}. The unit is the 1 km cell:
          a cell is in when its centre is, and a landslide when its cell is,
          so a rate's two halves share one footprint (Hig, 2026-10-31).
+      Two options for the stereonet (stereonet.js): xbins=<n> replaces the
+      x axis's bin count, and true_north=1 (x=aspect only) rotates aspect
+      from the Alaska Albers grid to true north, cell by cell.
   GET api/analysis/reviewed/
       -> {version, cells, outside: [landslide ids]}
       the reviewed area (table reviewed_areas, migrate_reviewed_areas): its
@@ -44,6 +47,10 @@ from django.http import JsonResponse
 
 CUBE = Path(settings.BASE_DIR) / 'data' / 'quantities'
 R_MAX_KM = 50.0      # the panel's sample is up to 100 km across
+# EPSG:3338's cone constant and central meridian: grid north leans from true
+# north by CONE * (lon - LON0) degrees at a longitude (checked against
+# rasterio's own transform, 2026-11-10: 18.12 deg at 175 W, -20.71 at 130 W).
+CONE, LON0 = 0.8627, -154.0
 _cache = {}
 
 
@@ -264,11 +271,23 @@ def _installed():
     return (CUBE / 'grid.json').is_file()
 
 
-def _axis(q):
-    """Bin edges for a quantity: its range, or class positions for an ordinal one."""
+def _axis(q, bins=None):
+    """Bin edges for a quantity: its range (in `bins` bins if given), or class positions for an ordinal one."""
     if q.get('classes'):
         return np.arange(len(q['classes']) + 1, dtype=np.float64)
-    return np.linspace(q['min'], q['max'], q['bins'] + 1)
+    return np.linspace(q['min'], q['max'], (bins or q['bins']) + 1)
+
+
+def _to_true_north(aspect, lon):
+    """Grid aspect -> true azimuth, for cells at longitude `lon` (NaN stays NaN)."""
+    dl = (lon - LON0 + 180.0) % 360.0 - 180.0
+    return (aspect + CONE * dl) % 360.0
+
+
+def _lons_of(flat):
+    """Longitudes of land cells given their flat lattice indices."""
+    ll = _land_lonlat()
+    return ll['lon'][np.searchsorted(ll['idx'], flat)]
 
 
 def _positions(q, v):
@@ -303,7 +322,14 @@ def api_density(request):
         return JsonResponse({'error': 'view is w,s,e,n and circle is lon,lat,r_km'}, status=400)
     version, mask = _rv_mask()
     qx, qy = meta['quantities'][kx], meta['quantities'][ky]
-    ex, ey = _axis(qx), _axis(qy)
+    try:
+        xbins = int(request.GET.get('xbins') or 0)
+    except ValueError:
+        return JsonResponse({'error': 'xbins is an integer'}, status=400)
+    if xbins and not 2 <= xbins <= 720:
+        return JsonResponse({'error': 'xbins must be between 2 and 720'}, status=400)
+    true_north = request.GET.get('true_north') == '1' and kx == 'aspect'
+    ex, ey = _axis(qx, xbins), _axis(qy)
 
     def hist(x, y):
         ok = np.isfinite(x) & np.isfinite(y)
@@ -314,15 +340,18 @@ def api_density(request):
         return {'xsize': len(ex) - 1, 'ysize': len(ey) - 1, 'grid': h.ravel().tolist(), 'max': int(h.max()), 'total': int(h.sum())}
 
     if sub is None:
-        key = f'{kx}|{ky}|{version}'
+        key = f'{kx}|{ky}|{version}|{xbins}|{int(true_north)}'
         if key not in _cache:
             x = _positions(qx, np.asarray(_grid(kx))); y = _positions(qy, np.asarray(_grid(ky)))
             land = np.asarray(meta['land']) & mask
-            _cache[key] = dict(hist(x[land], y[land]), x=qx, y=qy, reviewed=version)
+            xl = _to_true_north(x[land], _lons_of(np.flatnonzero(land))) if true_north else x[land]
+            _cache[key] = dict(hist(xl, y[land]), x=qx, y=qy, reviewed=version)
         return JsonResponse(_cache[key])
     kind, args = sub
     flat, ids, window = _subset_cells(kind, args, mask)
     vx = np.asarray(_grid(kx)).ravel()[flat]; vy = np.asarray(_grid(ky)).ravel()[flat]
+    if true_north:
+        vx = _to_true_north(vx, _lons_of(flat))
     out = dict(hist(_positions(qx, vx), _positions(qy, vy)), x=qx, y=qy, reviewed=version)
     out['subset'] = {'kind': kind, 'args': list(args), 'cells': int(len(flat)), 'ids': [int(i) for i in ids],
                      'stats': {'x': _stats(qx, vx), 'y': _stats(qy, vy)}}

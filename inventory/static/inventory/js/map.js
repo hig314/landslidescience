@@ -105,7 +105,9 @@
     //                 constraint
     //   tab=<key>     active sidebar tab (inventory | refmaps | analysis),
     //                 written only when not the inventory default
-    //   an=<key>,…    open analysis panels (hist | timing | analysis | opera;
+    //   sn=<slope>,<sectors>,<ring>,<rim>,<mode>  the stereonet (stereonet.js),
+    //   sb=a0,a1,s0,s1 its brush, spt=0 its paint off; absent = leave alone
+    //   an=<key>,…    open analysis panels (hist | timing | analysis | stereo | opera;
     //                 scatter and pf are read as analysis on their old axes)
     //   ax=<x>,<y>    the analysis panel's axes (quantity keys, analysis.js);
     //   bx=x0,x1,y0,y1 its brush; ls=count|prop its landslide layer when
@@ -169,6 +171,16 @@
             if (x.ls === 'count' || x.ls === 'prop') out.ax.ls = x.ls;
             if (x.gr != null && /^\d$/.test(x.gr)) out.ax.gr = +x.gr;   // the grid slider (2^gr bins merged)
             if (x.pt === '0') out.ax.paint = false;                         // the brush's map paint switched off
+        }
+        // The stereonet (stereonet.js).
+        if (x.sn != null && /^[a-z0-9_]+,\d+,\d+,\d+,[a-z]+$/.test(x.sn)) {
+            var snp = x.sn.split(',');
+            out.sn = { S: snp[0], sectors: +snp[1], ring: +snp[2], rim: +snp[3], ls: snp[4], brush: null };
+            if (x.sb != null) {
+                var sbp = x.sb.split(',').map(parseFloat);
+                if (sbp.length === 4 && sbp.every(isFinite)) out.sn.brush = { a0: sbp[0], a1: sbp[1], s0: sbp[2], s1: sbp[3] };
+            }
+            if (x.spt === '0') out.sn.paint = false;
         }
         // Elevation profile: pr = flat lat,lon list (5 dp), pw = window along
         // the line in metres (d0,d1), pve = 0 when the chart is unlocked
@@ -1727,6 +1739,7 @@
                     _swipeSetFeatures(data);
                     if (map.getLayer('points')) buildFilter();
                     if (typeof LSAnalysis !== 'undefined') LSAnalysis.redraw();   // its points come from this set
+                    if (typeof LSStereonet !== 'undefined') LSStereonet.redraw();
                 });
                 if (map.getSource('landslides')) map.getSource('landslides').setData(data);
                 _swipeSetFeatures(data);
@@ -7539,6 +7552,7 @@
             _swipeFilter = hideAll;   // so a swipe map enabled later doesn't resurrect the old filter
             _swipeSetFilter(hideAll);
             if (typeof LSAnalysis !== 'undefined') LSAnalysis.onFilter();
+            if (typeof LSStereonet !== 'undefined') LSStereonet.onFilter();
             updateHistogram();
             updateTimeline();
             scheduleSidebarCountUpdate();
@@ -7628,6 +7642,7 @@
         scheduleSidebarCountUpdate();
         updateSuscCount();
         if (typeof LSAnalysis !== 'undefined') LSAnalysis.onFilter();   // the panel follows the filter; lw x n10 box follows the sliders
+        if (typeof LSStereonet !== 'undefined') LSStereonet.onFilter();
         writeUrlState();
     }
 
@@ -7828,6 +7843,7 @@
         updateHistogram();
         updateTimeline();
         if (typeof LSAnalysis !== 'undefined') LSAnalysis.onLimitView();   // its header box, and the sample is put away
+        if (typeof LSStereonet !== 'undefined') LSStereonet.onLimitView();
         writeUrlState();
     });
 
@@ -9308,7 +9324,7 @@
     // analysis panel, OPERA) are all floating, draggable, resizable panels.
     // Panel objects are assigned at their wiring sites below; declared here
     // so the async URL-state hydration (which runs after init) can open them.
-    var histFP, timingFP, anFP;
+    var histFP, timingFP, anFP, snFP;
 
     // Shared floating-panel behavior: toggle/close, jump-free header drag
     // (clamped to the offset parent), and a debounced redraw on resize. opts:
@@ -9329,7 +9345,7 @@
     // built lazily because the four controllers are assigned at different
     // points during startup; keys are the hash vocabulary.
     function _anPanels() {
-        return { hist: histFP, timing: timingFP, analysis: anFP, opera: operaFP };
+        return { hist: histFP, timing: timingFP, analysis: anFP, stereo: snFP, opera: operaFP };
     }
     // Panels that became presets of the analysis panel (2026-10-10): a link
     // naming them opens it on the axes they had.
@@ -10302,6 +10318,30 @@
         anFP = LSAnalysis.panel();
         _leftPanelSync();
     }
+    // The slope-aspect stereonet (stereonet.js): the analysis panel's data on
+    // a circle. It does not touch the wiper; its axes are fixed.
+    if (typeof LSStereonet !== 'undefined' && typeof LSAnalysis !== 'undefined') {
+        LSStereonet.init({
+            map: map, apiBase: API_BASE, makePanel: makeFloatingPanel,
+            features: function () { return _featuresData; },
+            values: function () { return _suscValuesPromise; },
+            passes: function (ft) { return !_swipeFilter || !!_exprEval(_swipeFilter, ft.properties || {}); },
+            limitView: {
+                get: function () { return !!(cbLimitView && cbLimitView.checked); },
+                set: function (on) {
+                    if (!cbLimitView || cbLimitView.checked === !!on) return;
+                    cbLimitView.checked = !!on;
+                    cbLimitView.dispatchEvent(new Event('change'));
+                }
+            },
+            openLandslide: function (id, ft) {
+                if (ft && ft.geometry) map.flyTo({ center: ft.geometry.coordinates, zoom: Math.max(map.getZoom(), 11) });
+                showDetail(id);
+            },
+            onChange: function () { if (_mapReady) writeHashState(); }
+        });
+        snFP = LSStereonet.panel();
+    }
     // The permafrost patch detail (permafrost.js, Panel B of the old
     // permafrost panel): the four patch.py plots for the sample circle,
     // opened from the analysis panel when both axes are permafrost products.
@@ -10801,6 +10841,20 @@
           },
           apply: function (s) {
               if (s.ax && typeof LSAnalysis !== 'undefined') LSAnalysis.setState(s.ax);
+          } },
+        // The stereonet's slope axis, grid, landslide layer and brush (stereonet.js).
+        { key: 'sn', cold: true,
+          collect: function (mode, o) {
+              if (typeof LSStereonet === 'undefined' || !snFP) return;
+              var open = _anEncodeHash().split(',').indexOf('stereo') >= 0;
+              if (!open) return;
+              var st = LSStereonet.state();
+              o.extras.sn = [st.S, st.sectors, st.ring, st.rim, st.ls].join(',');
+              if (st.brush) o.extras.sb = [st.brush.a0, st.brush.a1, st.brush.s0, st.brush.s1].join(',');
+              if (st.paint === false) o.extras.spt = '0';
+          },
+          apply: function (s) {
+              if (s.sn && typeof LSStereonet !== 'undefined') LSStereonet.setState(s.sn);
           } },
         { key: 'tab', cold: true,
           collect: function (mode, o) {

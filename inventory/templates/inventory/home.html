@@ -394,6 +394,7 @@
         <a href="#" data-an-preset="pzi|prob" title="Permafrost: Gruber's zonation index × Obu's probability, with the patch detail plots.">permafrost Obu × Gruber</a>
         <a href="#" data-an-preset="slope|elev" title="Slope × elevation from the 60 m terrain grids.">slope × elevation</a>
       </div>
+      <button id="sn-toggle" class="inv-analysis-btn" title="Slope and aspect on a circle, like a domed hill seen from above: aspect is the direction from the centre, slope the distance out. Terrain on the left, landslides on the right.">&#9656; Slope-aspect stereonet</button>
       <button id="opera-toggle" class="inv-analysis-btn" title="Histogram of OPERA InSAR velocity values across the pixels currently in view (asc/desc). Values are 8-bit quantized and clipped at ±30 mm/yr.">&#9656; OPERA velocity in view</button>
       <p style="font-size:11px; color:#888; margin:10px 0 0;">
         Counts and chart data respect the "Limit to map view" toggle in the
@@ -517,6 +518,61 @@
       <div id="an-body"><canvas id="an-heat"></canvas><svg id="an-svg"></svg></div>
       <div id="an-foot" class="scatter-legend-foot" style="display:none"></div>
       <div id="an-note" style="display:none"></div>
+    </div>
+    {% comment %}
+    The slope-aspect stereonet (stereonet.js): the analysis panel's two plots
+    on a circle. Same data and subsets; fixed axes, no wiper.
+    {% endcomment %}
+    <div id="sn-float" class="float-panel hidden">
+      <div class="float-header pf-header an-header">
+        <label class="an-axis" title="Which slope is the radius. Aspect is always the 60 m grid's, so at the longer scales the two are measured over different lengths.">slope
+          <select id="sn-slope">
+            <option value="slope" selected>60 m grid</option>
+            <option value="slope_local">local</option>
+            <option value="slope_200">200 m</option>
+            <option value="slope_500">500 m</option>
+            <option value="slope_1k">1 km</option>
+            <option value="slope_2k">2 km</option>
+          </select></label>
+        <label class="an-axis" title="How many sectors of aspect. They are centred on the compass points.">sectors
+          <select id="sn-sectors">
+            <option value="144">144 (2.5&deg;)</option>
+            <option value="72">72 (5&deg;)</option>
+            <option value="48">48 (7.5&deg;)</option>
+            <option value="24" selected>24 (15&deg;)</option>
+            <option value="12">12 (30&deg;)</option>
+            <option value="8">8 (45&deg;)</option>
+            <option value="4">4 (90&deg;)</option>
+          </select></label>
+        <label class="an-axis" title="The width of each slope ring.">rings
+          <select id="sn-rings">
+            <option value="2">2&deg;</option>
+            <option value="5" selected>5&deg;</option>
+            <option value="10">10&deg;</option>
+            <option value="15">15&deg;</option>
+          </select></label>
+        <label class="an-axis" title="The slope at the rim. Almost no ground is steeper than 60&deg;, so a 60&deg; rim gives the data more room.">rim
+          <select id="sn-rim">
+            <option value="90" selected>90&deg;</option>
+            <option value="60">60&deg;</option>
+          </select></label>
+        <label class="an-axis" title="The landslide plot: each landslide as a point at its own values; or per cell, as a count or as landslides per 1000 km² of terrain with those values.">slides
+          <select id="sn-ls">
+            <option value="points" selected>points</option>
+            <option value="count">count / cell</option>
+            <option value="prop">per 1000 km²</option>
+          </select></label>
+        <button type="button" id="sn-sample" title="Sample tool: a circle of this diameter follows the cursor over the map; each click makes the 1 km cells inside it the subset. Click again, or Esc, to put the tool away.">&#9678; Sample</button>
+        <span class="pf-unit" title="Sample diameter">&#8960;</span><input type="number" id="sn-radius" min="1" max="100" step="1" value="20" title="Sample diameter, km"><span class="pf-unit">km</span>
+        <label class="an-axis" title="Count only the landslides and terrain in the current map view (the same box as “Limit counts to map view” on the Inventory tab)."><input type="checkbox" id="sn-limit"> map view</label>
+        <label class="an-axis" title="Paint the map where the ground falls inside the brush (60 m slope grid only). Shows from zoom 8."><input type="checkbox" id="sn-paint" checked> paint map</label>
+        <span id="sn-count"></span>
+        <a href="#" id="sn-clear" class="disabled" title="Clear the brush.">clear box</a>
+        <button type="button" id="sn-close" title="Close">&times;</button>
+      </div>
+      <div id="sn-body"><canvas id="sn-heat"></canvas><svg id="sn-svg"></svg></div>
+      <div id="sn-foot" class="scatter-legend-foot" style="display:none"></div>
+      <div id="sn-note" style="display:none"></div>
     </div>
     <div id="pf-patch-float" class="float-panel hidden">
       <div class="float-header pf-header">
@@ -661,6 +717,7 @@
 <script src="{% static 'inventory/js/soundings.js' %}"></script>
 <script src="{% static 'inventory/js/ls_sample.js' %}"></script>
 <script src="{% static 'inventory/js/analysis.js' %}"></script>
+<script src="{% static 'inventory/js/stereonet.js' %}"></script>
 <script src="{% static 'inventory/js/permafrost.js' %}"></script>
 {# maplibre-contour (MIT): contour lines generated in the browser from terrain tiles; the Contours overlay. #}
 <script src="https://unpkg.com/maplibre-contour@0.1.1/dist/index.min.js"></script>

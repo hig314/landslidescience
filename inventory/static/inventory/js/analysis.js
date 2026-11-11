@@ -125,6 +125,7 @@ window.LSAnalysis = (function () {
   var syncing = false, pendingState = null, _hl = [];
   var paintOn = true, paintSeq = 0, paintSpec = null;   // {fx, fy, box} read by the protocol; null = nothing to paint
   var paintTiles = {};                                  // rendered tiles for the current seq, shared by both panes
+  var extPaint = null;                                  // the stereonet's box (setExternalPaint); wins while set
 
   // ---- init --------------------------------------------------------------------------
   function init(opts) {
@@ -726,7 +727,7 @@ window.LSAnalysis = (function () {
   // Re-point the paint layer at the current box: a new tile URL version
   // makes MapLibre refetch every tile through the protocol.
   function updatePaint() {
-    var want = (paintOn && brush && canPaint() && fp && fp.isOpen()) ? { fx: byKey[X].fine, fy: byKey[Y].fine, box: brush } : null;
+    var want = extPaint || ((paintOn && brush && canPaint() && fp && fp.isOpen()) ? { fx: byKey[X].fine, fy: byKey[Y].fine, box: brush } : null);
     var same = JSON.stringify(want) === JSON.stringify(paintSpec);
     paintSpec = want;
     if (!same) { paintSeq++; paintTiles = {}; }
@@ -739,6 +740,8 @@ window.LSAnalysis = (function () {
       }
     });
   }
+  // The stereonet's brush paints through this layer too: {fx, fy, box}, or null to give it back.
+  function setExternalPaint(spec) { extPaint = spec; updatePaint(); }
   function emptyTile() {
     return new Promise(function (resolve, reject) {
       var c = document.createElement('canvas'); c.width = c.height = 1;
@@ -758,6 +761,7 @@ window.LSAnalysis = (function () {
     var Z = LSSample.Z, N = 256, c = document.createElement('canvas'); c.width = c.height = N;
     var ctx = c.getContext('2d'), img = ctx.createImageData(N, N), d = img.data;
     var bx0 = spec.box.x0, bx1 = spec.box.x1, by0 = spec.box.y0, by1 = spec.box.y1;
+    var wrap = bx0 > bx1;     // an aspect range across north (the stereonet): NaN still fails both tests
     var R = PAINT_RGBA[0], G = PAINT_RGBA[1], B = PAINT_RGBA[2], A = PAINT_RGBA[3];
     var jobs = [];
     if (z >= Z) {
@@ -770,7 +774,7 @@ window.LSAnalysis = (function () {
           var sy = Math.min(h - 1, Math.floor((oy + j / N / frac) * h)) * w, row = j * N * 4;
           for (var i = 0; i < N; i++) {
             var k = sy + Math.min(w - 1, Math.floor((ox + i / N / frac) * w)), vx = ad[k], vy = bd[k];
-            if (vx >= bx0 && vx <= bx1 && vy >= by0 && vy <= by1) { var o4 = row + i * 4; d[o4] = R; d[o4 + 1] = G; d[o4 + 2] = B; d[o4 + 3] = A; }
+            if ((wrap ? (vx >= bx0 || vx <= bx1) : (vx >= bx0 && vx <= bx1)) && vy >= by0 && vy <= by1) { var o4 = row + i * 4; d[o4] = R; d[o4 + 1] = G; d[o4 + 2] = B; d[o4 + 3] = A; }
           }
         }
       }));
@@ -786,7 +790,7 @@ window.LSAnalysis = (function () {
             var sy = Math.floor((j + 0.5) / sub * h) * w, row = ((cy * sub + j) * N + cx * sub) * 4;
             for (var i = 0; i < sub; i++) {
               var k = sy + Math.floor((i + 0.5) / sub * w), vx = ad[k], vy = bd[k];
-              if (vx >= bx0 && vx <= bx1 && vy >= by0 && vy <= by1) { var o4 = row + i * 4; d[o4] = R; d[o4 + 1] = G; d[o4 + 2] = B; d[o4 + 3] = A; }
+              if ((wrap ? (vx >= bx0 || vx <= bx1) : (vx >= bx0 && vx <= bx1)) && vy >= by0 && vy <= by1) { var o4 = row + i * 4; d[o4] = R; d[o4 + 1] = G; d[o4 + 2] = B; d[o4 + 3] = A; }
             }
           }
         }));
@@ -938,5 +942,9 @@ window.LSAnalysis = (function () {
   function keys() { return X && Y ? [X, Y] : null; }
 
   return { init: init, panel: panel, openWith: openWith, onOverlays: onOverlays, onFilter: onFilter, onLayers: onLayers,
-           onLimitView: onLimitView, redraw: draw, state: state, setState: setState, keys: keys };
+           onLimitView: onLimitView, redraw: draw, state: state, setState: setState, keys: keys,
+           // the colour scales, legend and map layers, shared with stereonet.js
+           shared: { T_RAMP: T_RAMP, LS_RAMP: LS_RAMP, LS_CATCH: LS_CATCH, RATE_LO: RATE_LO, RATE_HI: RATE_HI, PAINT_MINZ: PAINT_MINZ,
+                     logRangeBinner: logRangeBinner, logCatchBinner: logCatchBinner, legendBar: legendBar, fmtNum: fmtNum,
+                     highlight: highlight, outline: outline, setExternalPaint: setExternalPaint } };
 })();

@@ -46,7 +46,7 @@ window.LSSample = (function () {
   var SRC = 'ls-sample', GHOST = 'ls-sample-ghost', COLOR = '#ff8f00';
 
   var map = null, apiBase = '', onArm = function () {};
-  var circle = null, pending = null, listeners = [];
+  var circle = null, pending = null, listeners = [], armListeners = [];
   var armed = false, radius = 10, ghostAt = null;
   var archives = {}, tileCache = {};
 
@@ -105,6 +105,7 @@ window.LSSample = (function () {
   function clear() { if (!circle) return; circle = null; render(); emit(); }
   function get() { return circle; }
   function on(fn) { listeners.push(fn); }
+  function onArmChange(fn) { armListeners.push(fn); }
   // Inside the circle? (lon, lat), metres on a local flat earth -- fine at 30 km.
   function inside(lon, lat) {
     if (!circle) return false;
@@ -119,6 +120,7 @@ window.LSSample = (function () {
     else { LSTools.cursor.clear('tool'); clear(); }   // the sample goes with the tool
     renderGhost();
     onArm(on);
+    armListeners.forEach(function (fn) { fn(on); });
   }
   function arm(r) { if (r) radius = r; if (LSTools.claim('sample')) setArmed(true); }
   function disarm() { if (armed) { LSTools.release('sample'); setArmed(false); } }
@@ -267,7 +269,7 @@ window.LSSample = (function () {
     if (map) arm(st.r);
   }
 
-  return { init: init, FINE: FINE, Z: Z, set: set, clear: clear, get: get, on: on, inside: inside,
+  return { init: init, FINE: FINE, Z: Z, set: set, clear: clear, get: get, on: on, onArmChange: onArmChange, inside: inside,
            arm: arm, disarm: disarm, isArmed: isArmed, setRadius: setRadius, cells: cells, fine: fine, fineTile: fineTile,
            state: state, setState: setState };
 })();

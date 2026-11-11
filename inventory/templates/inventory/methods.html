@@ -627,6 +627,26 @@
   code is in <code>tools/permafrost/</code> of the site repository.
 </p>
 
+<h4>The slope-aspect stereonet</h4>
+<p>
+  Aspect is cyclic, so a linear axis puts 359&deg; and 1&deg; at opposite
+  ends of the plot. The Analysis tab's <strong>Slope-aspect stereonet</strong>
+  draws the same two plots as the panel above on a circle, read like a domed
+  hill seen from above: the direction from the centre is the aspect, the
+  distance from the centre is the slope, linear from flat at the centre to
+  the rim (a polar plot, not an equal-area projection). Sectors are centred
+  on the compass points. A cell further out is larger on the page but covers
+  the same range of slope and aspect, and its colour is per cell, so size is
+  not ground area; the rate per 1000&nbsp;km² is a ratio and is unaffected.
+  Terrain, landslide values, the reviewed area and the subsets are those of
+  the panel above. Aspect here is <strong>measured from true north</strong>:
+  the stored aspect grid is measured on the Alaska Albers grid, whose north
+  leans from true north by up to about 20&deg; at the edges of the state
+  (18&deg; in the western Aleutians, 21&deg; at the southern panhandle), so
+  every cell and landslide is rotated by the local grid convergence. The
+  aspect axis of the panel above and the aspect overlay are still on grid
+  north.
+</p>
 <h4>Country attribution</h4>
 <p>
   Each record carries a derived <code>country</code> attribute: the primary
