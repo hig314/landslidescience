@@ -3118,7 +3118,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
     # river, tidal, perched, sloped or ephemeral body, and the sea's on a low-angle surface -- the bed is the water's lower envelope, smoothed,
     # water_sheet_depth_m under it: an UPPER BOUND on the bed, fill_mask 10, for a later round to lower.  Not lakes (their depth is the
     # lake model's), not the open sea off the flats (bathymetry), never a measured bed, never the ground prior (3DEP below the water: a
-    # lower tide resolved).  Within water_sheet_taper_m of the wet cells it does not cover it blends into their surface (no step at a
+    # lower tide resolved).  A sounded bed (fill_mask 3) is only ever lowered to it.  Within water_sheet_taper_m of the wet cells it does not cover it blends into their surface (no step at a
     # river mouth or a multibeam edge).
     if float(P.get("water_sheet", 0.0)) > 0 and lvl_ is not None and shore and P.get("_bodies") is not None:
         bid_, btab_ = P["_bodies"]; mx_ = int(bid_.max()) if bid_.size else 0
@@ -3163,7 +3163,12 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 w_ = np.ones(z.shape, np.float32)
             old_ = fill[S_]; sh_ = sheet_[S_]
             new_ = (w_[S_] * sh_ + (1.0 - w_[S_]) * np.fmin(old_, sh_)).astype(np.float32)
-            ok_ = np.isfinite(new_)
+            # a bed the soundings conditioned (fill_mask 3) is never raised by the sheet: a sounded bed deeper than the water agrees with
+            # it (2026-11-11, r6c2: Homer Harbor's dredged basin raised 12 m to the water); one standing above the seen water comes down
+            # to the sheet.  Only the cells it lowers become fill_mask 10.
+            snd_ = mask[S_] == 3
+            new_[snd_] = np.fmin(old_[snd_], sh_[snd_])
+            ok_ = np.isfinite(new_) & ~(snd_ & ~(new_ < old_))
             dz_ = (new_ - old_)[ok_]
             rr_, cc_ = np.nonzero(S_); rr_, cc_ = rr_[ok_], cc_[ok_]
             fill[rr_, cc_] = new_[ok_]; mask[rr_, cc_] = 10
