@@ -273,6 +273,13 @@
    "live": "2026-11-10 18:23:46",
    "commit": "bb707f5",
    "what": "joint: derived ground (ArcticDEM, Chugachmiut) yields where a lidar saw water, within 0.3 m of that water or above it (upper-bay flats, r7c4)"
+  },
+  {
+   "id": "lowangle",
+   "stage": "fill+shore",
+   "live": "2026-11-10 19:05:26",
+   "commit": "81cbade",
+   "what": "fill + shoreface: on low-angle surfaces (slope < 1 % over 20 m, >= 5 ha, grown 250 m into gaps) no traced tide lines/polygons/low-tide cap; 3DEP ground in their gaps unless at/above a lidar's water (Grewingk Creek delta)"
   }
  ]
 }
