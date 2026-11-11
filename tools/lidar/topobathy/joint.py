@@ -653,20 +653,38 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         if both_.sum() < int(cp_.get("min_cells", 50)):
             rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=int(both_.sum()), applied=False); continue
         d_ = np.where(both_, Z[nw_] - Z[od_], 0.0).astype(np.float32)
-        sg_ = float(cp_.get("change_smooth_m", 10.0)) / res
+        # ...only where the change is REAL: a connected patch of the overlap (joined over 10 m) whose MEDIAN change is change_min_m or more,
+        # on min_cells (2026-11-10, selhead: scattered disagreements of 0.08-1.28 m about a median 0.38 between multibeam lines were
+        # graded out as streaks; the Woz front's patch is +5.65 m)
+        lp_, np_ = ndimage.label(ndimage.binary_dilation(both_, iterations=max(int(round(5.0 / res)), 1)) , structure=np.ones((3, 3), bool))
+        lp_ = np.where(both_, lp_, 0)
+        cnt_ = np.bincount(lp_.ravel(), minlength=np_ + 1)
+        med_ = np.asarray(ndimage.median(d_, lp_, np.arange(1, np_ + 1))) if np_ else np.zeros(0)
+        okp_ = np.zeros(np_ + 1, bool)
+        okp_[1:] = (cnt_[1:] >= int(cp_.get("min_cells", 50))) & (np.abs(med_) >= float(cp_.get("change_min_m", 0.5)))
+        real_ = okp_[lp_] & both_; del lp_, cnt_, med_
+        if not real_.any():
+            rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=int(both_.sum()), applied=False, note="no patch with a median change >= change_min_m")
+            log(f"  change {nw_} - {od_} inside {nw_}'s zones: {int(both_.sum())} cells measured, no patch changed by >= {float(cp_.get('change_min_m', 0.5)):g} m (median): none applied")
+            continue
+        both_ = real_; d_ = np.where(both_, d_, 0.0).astype(np.float32)
+        # ...a SMOOTH field, not the nearest cell's (2026-11-10, selhead: 2,105 overlap cells, median 0.38 m, and the few over 0.5 m
+        # carried out by nearest neighbour over 11 ha drew diagonal streaks): the change averaged over change_smooth_m (normalised
+        # Gaussian of the overlap), so a field is only as strong as the overlap around it agrees; under change_min_m it is none
+        tm_ = float(cp_.get("taper_m", 120.0)); sg_ = float(cp_.get("change_smooth_m", tm_ / 3.0)) / res
         num_ = ndimage.gaussian_filter(d_, sg_); den_ = ndimage.gaussian_filter(both_.astype(np.float32), sg_)
-        ds_ = np.where(both_, num_ / np.maximum(den_, 1e-6), 0.0).astype(np.float32)
+        dist_ = ndimage.distance_transform_edt(~both_, sampling=res)
+        ds_ = np.where(den_ > 1e-4, num_ / np.maximum(den_, 1e-4), 0.0).astype(np.float32)
         ds_[np.abs(ds_) < float(cp_.get("change_min_m", 0.5))] = 0.0
-        dist_, (iy_, ix_) = ndimage.distance_transform_edt(~both_, sampling=res, return_indices=True)
-        tap_ = np.clip(1.0 - dist_ / float(cp_.get("taper_m", 120.0)), 0.0, 1.0)
-        F_ = (ds_[iy_, ix_] * tap_).astype(np.float32)
+        tap_ = np.clip(1.0 - dist_ / tm_, 0.0, 1.0)
+        F_ = np.where(both_, d_, ds_ * tap_).astype(np.float32)          # in the overlap the measured change itself (old = new there)
         hit_ = np.isfinite(Z[od_]) & (F_ != 0)
         Z[od_] = np.where(hit_, Z[od_] + F_, Z[od_]).astype(np.float32)
         rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=int(both_.sum()), change_p10_50_90=np.round(np.percentile(d_[both_], [10, 50, 90]), 2).tolist(),
                                                    adjusted_ha=round(float(hit_.sum()) * res * res / 1e4, 2), beyond_ha=round(float((hit_ & ~both_).sum()) * res * res / 1e4, 2))
         log(f"  change {nw_} - {od_} inside {nw_}'s zones: {int(both_.sum())} cells measured, p10/50/90 {rep['change_pairs'][f'{nw_}-{od_}']['change_p10_50_90']} m; "
             f"{od_} adjusted on {rep['change_pairs'][f'{nw_}-{od_}']['adjusted_ha']} ha ({rep['change_pairs'][f'{nw_}-{od_}']['beyond_ha']} beyond the overlap, tapering to 0 at {float(cp_.get('taper_m', 120.0)):g} m)")
-        del d_, num_, den_, ds_, dist_, iy_, ix_, tap_, F_, hit_, both_, zone_
+        del d_, num_, den_, ds_, dist_, tap_, F_, hit_, both_, zone_
     # ---- 2d. A DERIVED GROUND WHERE A LIDAR SAW WATER (2026-11-10, Hig, 59.55909,-151.27770: "we should not substitute ArcticDEM or
     # 3DEP where we know from lidar there's water - whatever data they have is wrong").  ArcticDEM in r7c4 stood alone on 815 ha of cells
     # holding a lidar's water returns, within 0.03 m of that water (median): it is the water surface, read as ground.  A derived ground

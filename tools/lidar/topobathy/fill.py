@@ -1031,6 +1031,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                                 (int(cs_.min()), int(cs_.max()) + 1), sea_zero=True)
             lo_ = float(P.get("shore_base_m", float(P.get("low_tide_m", -1.38)) - 2.0))
             ok_ = gap_ & np.isfinite(pz_) & (pz_ >= lo_) & (pz_ < float(P.get("void_ground_m", 4.5)))
+            if P.get("_zone_day") is not None:               # not inside a vintage zone: a newer lidar holds the moving surface, 3DEP predates it
+                ok_ &= ~np.isfinite(P["_zone_day"])          # (the Woz delta: 3DEP 1.5 m under the 2023 flats in their gaps)
             wz0_ = P.get("_water_z"); n_wet_ = 0
             if wz0_ is not None and np.isfinite(wz0_).any():
                 wf_ = np.isfinite(wz0_)
