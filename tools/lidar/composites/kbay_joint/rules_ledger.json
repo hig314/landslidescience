@@ -294,6 +294,13 @@
    "live": "2026-11-11 03:00:31",
    "commit": "262a5ed",
    "what": "fill: modelled beds under seen water (river/tidal/perched/sloped/ephemeral; sea on low-angle surfaces) 0.15 m under the water's smoothed lower envelope, fill_mask 10 = upper bound; replaces channel resolving there (Woz delta)"
+  },
+  {
+   "id": "sheetsound",
+   "stage": "fill",
+   "live": "2026-11-11 12:46:59",
+   "commit": "f5c3125",
+   "what": "fill: the water sheet never raises a soundings-conditioned bed (fill_mask 3), only lowers one above the seen water"
   }
  ]
 }
