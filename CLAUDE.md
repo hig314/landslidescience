@@ -131,6 +131,15 @@ written down anywhere — read `/lidar/audit/`.
   Aspect is true north here and still grid north in the x-y panel and the
   aspect overlay (HAZARDS §Raster sources). That panel's `draw()` also still
   sizes its canvas before writing its legend, the stretch fixed here.
+  **Equal-area cells + aspect effect** (2026-11-11, tested in dev by Hig,
+  deployed the same day): sectors × rings replaced by equal-area cells on the
+  hemisphere of slope normals (cap + rings of 6k, `cells` select,
+  `sn=<slope>,e<K>,<rim>,<mode>`, old form still read) and an *aspect effect*
+  mode (observed ÷ expected from a 2°-smoothed slope rate, key in powers of
+  two about 1). Sparse cells are drawn, never masked (Hig: go bigger if there
+  is less data). Net markings black and fine, cell edges white. Offline
+  comparison of methods: kernel vs. hex grid scored by held-out likelihood,
+  both ~0.90 nats/landslide vs 0.85 for slope alone.
 
 **Open threads**, in no particular order:
 

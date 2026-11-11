@@ -634,10 +634,26 @@
   draws the same two plots as the panel above on a circle, read like a domed
   hill seen from above: the direction from the centre is the aspect, the
   distance from the centre is the slope, linear from flat at the centre to
-  the rim (a polar plot, not an equal-area projection). Sectors are centred
-  on the compass points. A cell further out is larger on the page but covers
-  the same range of slope and aspect, and its colour is per cell, so size is
-  not ground area; the rate per 1000&nbsp;km² is a ratio and is unaffected.
+  the rim (a polar plot, not an equal-area projection). Each point is the
+  pole to a slope, so the angle between two points is how different the two
+  slopes are, and near-flat ground facing north and facing south are
+  neighbours. The plot is divided into <strong>cells of equal solid
+  angle</strong> on that hemisphere (the zonal construction of Leopardi,
+  2006): a cap of near-flat ground of any aspect, then rings of 6, 12,
+  18&nbsp;&hellip; cells out to 60&deg;, each ring centring a cell on north
+  and staggered against the next. Gentle slopes therefore get few aspect
+  divisions and steep slopes many, and every cell is the same angular size.
+  Sparse cells are drawn as they are; choosing fewer, larger cells is the
+  remedy. On the page an outer cell looks up to about a fifth larger than the
+  cap, because the radius is linear in slope; it is not more ground.
+  The <strong>aspect effect</strong> view divides the landslides in each cell
+  by the number expected from slope alone: the cell's terrain times the
+  landslide rate at its slope, smoothed over 2&deg; of slope from the same
+  terrain and landslides. 1 means slope alone accounts for the cell; the
+  colour scale is symmetric about 1 in powers of two and widens to fit the
+  data. Rate is steeply dependent on slope (about tenfold from flat ground
+  to 10&ndash;20&deg;), and this ratio removes that, so what remains is the
+  effect of aspect at a given slope.
   Terrain, landslide values, the reviewed area and the subsets are those of
   the panel above. Aspect here is <strong>measured from true north</strong>:
   the stored aspect grid is measured on the Alaska Albers grid, whose north

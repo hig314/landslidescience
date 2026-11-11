@@ -105,7 +105,7 @@
     //                 constraint
     //   tab=<key>     active sidebar tab (inventory | refmaps | analysis),
     //                 written only when not the inventory default
-    //   sn=<slope>,<sectors>,<ring>,<rim>,<mode>  the stereonet (stereonet.js),
+    //   sn=<slope>,e<K>,<rim>,<mode>  the stereonet (stereonet.js; K rings of cells),
     //   sb=a0,a1,s0,s1 its brush, spt=0 its paint off; absent = leave alone
     //   an=<key>,…    open analysis panels (hist | timing | analysis | stereo | opera;
     //                 scatter and pf are read as analysis on their old axes)
@@ -173,9 +173,11 @@
             if (x.pt === '0') out.ax.paint = false;                         // the brush's map paint switched off
         }
         // The stereonet (stereonet.js).
-        if (x.sn != null && /^[a-z0-9_]+,\d+,\d+,\d+,[a-z]+$/.test(x.sn)) {
-            var snp = x.sn.split(',');
-            out.sn = { S: snp[0], sectors: +snp[1], ring: +snp[2], rim: +snp[3], ls: snp[4], brush: null };
+        // sn=<slope>,e<K>,<rim>,<mode>; the first form (2026-11-10) was
+        // <slope>,<sectors>,<ring>,<rim>,<mode>, read at the default cells.
+        if (x.sn != null && /^[a-z0-9_]+,(e\d+|\d+,\d+),\d+,[a-z]+$/.test(x.sn)) {
+            var snp = x.sn.split(','), snOld = snp.length === 5;
+            out.sn = { S: snp[0], K: snOld ? null : +snp[1].slice(1), rim: +snp[snOld ? 3 : 2], ls: snp[snOld ? 4 : 3], brush: null };
             if (x.sb != null) {
                 var sbp = x.sb.split(',').map(parseFloat);
                 if (sbp.length === 4 && sbp.every(isFinite)) out.sn.brush = { a0: sbp[0], a1: sbp[1], s0: sbp[2], s1: sbp[3] };
@@ -10849,7 +10851,7 @@
               var open = _anEncodeHash().split(',').indexOf('stereo') >= 0;
               if (!open) return;
               var st = LSStereonet.state();
-              o.extras.sn = [st.S, st.sectors, st.ring, st.rim, st.ls].join(',');
+              o.extras.sn = [st.S, 'e' + st.K, st.rim, st.ls].join(',');
               if (st.brush) o.extras.sb = [st.brush.a0, st.brush.a1, st.brush.s0, st.brush.s1].join(',');
               if (st.paint === false) o.extras.spt = '0';
           },

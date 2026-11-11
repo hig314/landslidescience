@@ -21,17 +21,36 @@
  * landslides. The map paint needs no rotation: its aspect is derived from
  * north-up Web Mercator tiles (ls_sample.js).
  *
- * SECTORS ARE CENTRED ON THE COMPASS POINTS, so "south" is a wedge straddling
- * 180°, not one starting there. The server bins aspect at 1.25° (?xbins=288):
- * every sector width offered here is an EVEN number of those bins, which is
- * what lets a sector straddle north.
+ * THE CELLS ARE EQUAL-AREA ON THE HEMISPHERE OF SLOPE NORMALS (Hig,
+ * 2026-11-11). A point here is the pole to a slope, so "how far apart are two
+ * slopes" is the angle between their normals, and near-flat ground facing
+ * north and facing south are neighbours. The grid is a cap on the vertical,
+ * then K rings of 6, 12, 18 … cells out to 60° (1 + 3K(K+1) cells; the
+ * zonal construction of Leopardi 2006). Ring radii are equal-area: with the
+ * Lambert radius r = 2 sin(slope/2), ring k ends at r0·sqrt(1 + 3k(k+1)).
+ * Every cell has the same solid angle, so gentle slopes get few aspect
+ * divisions and steep ones many; consecutive rings never share an aspect
+ * boundary (one has 6k cells, the next 6k+6), so the cells sit like bricks.
+ * Each ring centres a cell on north. The 288 x 60 server histogram (1.25° x
+ * 1°) is split 4 x 8 and each piece goes to the cell its centre falls in, so
+ * cell edges are exact to 0.3° of aspect and 0.125° of slope. Sparse cells are drawn as they are:
+ * the cure for noise is fewer, bigger cells (the "cells" select).
  *
- * Polar cells grow with radius on the page, but each covers the same range of
- * aspect and slope, and colour is per cell, so a large outer cell is not more
- * ground. Rate is a ratio and is unaffected either way.
+ * The page is still linear in slope, so an outer cell looks up to ~20 %
+ * larger than the cap at 60°; it is not more ground.
  *
- * URL: an=stereo; sn=<slope key>,<sectors>,<ring°>,<rim°>,<points|count|prop>;
- * sb=a0,a1,s0,s1 the brush (a0 > a1 crosses north); spt=0 paint off.
+ * ASPECT EFFECT (mode 'effect'): landslides observed in a cell / expected from
+ * slope alone, where "expected" is the cell's terrain times the rate at its
+ * slope, smoothed over slope (Gaussian, SLOPE_H = 2°) from the same terrain
+ * and landslides. 1 = what slope predicts. The key is symmetric about 1 in
+ * powers of two, wide enough for the data: the low end rounded down to 1/2^s,
+ * the high end up to 2^s. A cell with terrain and no landslides is 0, in the
+ * lowest class.
+ *
+ * URL: an=stereo; sn=<slope key>,e<K>,<rim°>,<points|count|prop|effect>;
+ * sb=a0,a1,s0,s1 the brush (a0 > a1 crosses north); spt=0 paint off. The old
+ * sn=<slope>,<sectors>,<ring°>,<rim°>,<mode> (2026-11-10) is still read, at
+ * the default cells.
  *
  * Global `window.LSStereonet`; map.js calls init() after LSAnalysis.init().
  */
@@ -46,7 +65,10 @@ window.LSStereonet = (function () {
   var WIND = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 
   var map = null, o = {}, el = {}, fp = null, sh = null;
-  var S = 'slope', sectors = 24, ringW = 5, rim = 90, lsMode = 'points', paintOn = true;
+  var KS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12], SUBX = 4, SUBY = 8, SLOPE_H = 2, SMAX = 60;
+  var EFFECT_BLUE = ['#d1e5f0', '#92c5de', '#4393c3', '#2166ac', '#053061'];   // RdBu, from 1 outwards
+  var EFFECT_RED = ['#fddbc7', '#f4a582', '#d6604d', '#b2182b', '#67001f'];
+  var S = 'slope', K = 6, rim = 90, lsMode = 'points', paintOn = true;
   var brush = null;                              // {a0, a1, s0, s1}; a0 > a1 crosses north
   var lsv = null, kidx = {}, outside = null;
   var dens = null, densCache = {}, densSeq = 0;
@@ -57,15 +79,14 @@ window.LSStereonet = (function () {
   function init(opts) {
     o = opts; map = opts.map; sh = LSAnalysis.shared;
     var panel = document.getElementById('sn-float'); if (!panel) return;
-    ['slope', 'sectors', 'rings', 'rim', 'ls', 'sample', 'radius', 'limit', 'paint', 'count', 'clear', 'close', 'body', 'heat', 'svg', 'foot', 'note'].forEach(function (k) {
+    ['slope', 'cells', 'rim', 'ls', 'sample', 'radius', 'limit', 'paint', 'count', 'clear', 'close', 'body', 'heat', 'svg', 'foot', 'note'].forEach(function (k) {
       el[k] = panel.querySelector('#sn-' + k);
     });
     el.tip = document.createElement('div'); el.tip.className = 'pf-tip'; el.body.appendChild(el.tip);
     fp = o.makePanel(panel, { handle: panel.querySelector('.an-header'), toggle: document.getElementById('sn-toggle'),
                               close: el.close, onResize: draw, onChange: onOpenClose });
     el.slope.addEventListener('change', function () { S = el.slope.value; brush = null; reload(); o.onChange(); });
-    el.sectors.addEventListener('change', function () { sectors = +el.sectors.value; draw(); o.onChange(); });
-    el.rings.addEventListener('change', function () { ringW = +el.rings.value; draw(); o.onChange(); });
+    el.cells.addEventListener('change', function () { K = +el.cells.value; draw(); o.onChange(); });
     el.rim.addEventListener('change', function () { rim = +el.rim.value; draw(); o.onChange(); });
     el.ls.addEventListener('change', function () { lsMode = el.ls.value; draw(); o.onChange(); });
     el.sample.addEventListener('click', function (e) {
@@ -170,19 +191,78 @@ window.LSStereonet = (function () {
     return (((aspect + CONE * dl) % 360) + 360) % 360;
   }
 
-  // ---- polar cells ----------------------------------------------------------------------
-  // A sector is centred on its compass point, so the first runs from -w/2 to +w/2.
-  function nRings() { return Math.ceil(60 / ringW); }
-  function sectorOfBase(b) { var n = BASE / sectors; return Math.floor(((b + n / 2) % BASE) / n); }
-  function merge(src, nx, ny) {
-    var nr = nRings(), out = new Float64Array(nr * sectors);
-    for (var yi = 0; yi < ny; yi++) {
-      var ring = Math.min(nr - 1, Math.floor(yi / ringW));
-      for (var xi = 0; xi < nx; xi++) out[ring * sectors + sectorOfBase(xi)] += src[yi * nx + xi];
-    }
-    return out;
+  // ---- equal-area cells -----------------------------------------------------------------
+  var geoCache = {};
+  function geo(k) {
+    if (geoCache[k]) return geoCache[k];
+    var n = 1 + 3 * k * (k + 1), r0 = 2 * Math.sin(rad(SMAX / 2)) / Math.sqrt(n), edge = [], i;
+    for (i = 0; i <= k; i++) edge.push(2 * Math.asin(Math.min(1, r0 * Math.sqrt(1 + 3 * i * (i + 1)) / 2)) * 180 / Math.PI);
+    edge[k] = SMAX;
+    var g = { K: k, n: n, edge: edge, maps: {} };
+    g.cellOf = function (az, sl) {
+      sl = Math.min(sl, SMAX - 1e-9);
+      var ring = 0; while (sl >= edge[ring]) ring++;
+      if (ring === 0) return 0;
+      var m = 6 * ring;
+      return 1 + 3 * ring * (ring - 1) + Math.floor(((az + 180 / m) % 360) / (360 / m)) % m;
+    };
+    // id -> {ring, a0, a1, s0, s1, c}: c the centre azimuth
+    g.span = function (id) {
+      if (id === 0) return { ring: 0, a0: 0, a1: 360, s0: 0, s1: edge[0], c: null };
+      var ring = 1; while (1 + 3 * (ring + 1) * ring <= id) ring++;
+      var m = 6 * ring, j = id - (1 + 3 * ring * (ring - 1)), w = 360 / m, c = j * w;
+      return { ring: ring, a0: (c - w / 2 + 360) % 360, a1: (c + w / 2) % 360, s0: edge[ring - 1], s1: edge[ring], c: c };
+    };
+    geoCache[k] = g; return g;
   }
-  function sectorSpan(i) { var w = 360 / sectors, c = i * w; return [(c - w / 2 + 360) % 360, (c + w / 2) % 360]; }
+  // The cell of each quarter-bin piece of the server histogram (nx x ny over
+  // 360° x 0..SMAX°), cached per grid and histogram shape.
+  function pieceMap(g, nx, ny) {
+    var key = nx + 'x' + ny; if (g.maps[key]) return g.maps[key];
+    var out = new Int32Array(nx * ny * SUBX * SUBY), dx = 360 / nx, dy = SMAX / ny, q = 0;
+    for (var yi = 0; yi < ny; yi++) for (var xi = 0; xi < nx; xi++)
+      for (var sy = 0; sy < SUBY; sy++) for (var sx = 0; sx < SUBX; sx++)
+        out[q++] = g.cellOf((xi + (sx + 0.5) / SUBX) * dx, (yi + (sy + 0.5) / SUBY) * dy);
+    g.maps[key] = out; return out;
+  }
+  // Histogram -> km² per cell, and (with rowW, a weight per slope row) the sum of km² x weight.
+  function merge(g, src, nx, ny, rowW) {
+    var pm = pieceMap(g, nx, ny), out = new Float64Array(g.n), wout = rowW ? new Float64Array(g.n) : null;
+    var pp = SUBX * SUBY, f = 1 / pp, q = 0;
+    for (var yi = 0; yi < ny; yi++) {
+      var w = rowW ? rowW[yi] : 0;
+      for (var xi = 0; xi < nx; xi++) {
+        var v = src[yi * nx + xi] * f;
+        if (!v) { q += pp; continue; }
+        for (var k = 0; k < pp; k++, q++) { out[pm[q]] += v; if (wout) wout[pm[q]] += v * w; }
+      }
+    }
+    return { a: out, e: wout };
+  }
+  // Landslides per km² at each slope row's centre, smoothed over slope: the
+  // "expected from slope alone" of the aspect effect.
+  function slopeRate(src, nx, ny, slopes) {
+    var dy = SMAX / ny, rowT = new Float64Array(ny), lam = new Float64Array(ny), y, x, i;
+    for (y = 0; y < ny; y++) for (x = 0; x < nx; x++) rowT[y] += src[y * nx + x];
+    for (y = 0; y < ny; y++) {
+      var c = (y + 0.5) * dy, num = 0, den = 0, t;
+      for (i = 0; i < slopes.length; i++) { t = (slopes[i] - c) / SLOPE_H; if (t > -5 && t < 5) num += Math.exp(-0.5 * t * t); }
+      for (i = 0; i < ny; i++) { t = ((i + 0.5) * dy - c) / SLOPE_H; if (t > -5 && t < 5) den += Math.exp(-0.5 * t * t) * rowT[i]; }
+      lam[y] = den > 0 ? num / den : 0;
+    }
+    return lam;
+  }
+  // The aspect effect's classes: s per side of 1, in powers of two.
+  function effectScale(vals, counts, exps) {
+    var lo = Infinity, hi = 0;
+    for (var i = 0; i < vals.length; i++) if (exps[i] > 0 && counts[i] > 0) { lo = Math.min(lo, vals[i]); hi = Math.max(hi, vals[i]); }
+    var span = hi > 0 ? Math.max(hi, 1 / lo, 1.0001) : 2;
+    var sd = Math.max(1, Math.min(5, Math.ceil(Math.log(span) / Math.LN2 - 1e-9)));
+    var colors = EFFECT_BLUE.slice(0, sd).reverse().concat(EFFECT_RED.slice(0, sd));
+    return { s: sd, colors: colors,
+             bin: function (v) { if (!(v > 0)) return 0; var b = Math.floor(Math.log(v) / Math.LN2) + sd; return Math.max(0, Math.min(2 * sd - 1, b)); } };
+  }
+  function fracLabel(e) { return e === 0 ? '1' : e > 0 ? String(Math.pow(2, e)) : '1/' + Math.pow(2, -e); }
   function inArc(a, a0, a1) { return a0 <= a1 ? (a >= a0 && a <= a1) : (a >= a0 || a <= a1); }
 
   function dims() {
@@ -205,6 +285,11 @@ window.LSStereonet = (function () {
     ctx.beginPath(); ctx.arc(p.cx, p.cy, r1 + 0.3, t0, t1); ctx.arc(p.cx, p.cy, Math.max(0, r0 - 0.3), t1, t0, true); ctx.closePath(); ctx.fill();
   }
   function wedgePath(p, R, a0, a1, s0, s1) {
+    if (a0 === 0 && a1 === 360) {     // the cap: a disc (or a full ring)
+      var ro = R * Math.min(s1, rim) / rim, ri = R * Math.min(s0, rim) / rim;
+      var circ = function (r, sw) { return 'M' + (p.cx - r) + ' ' + p.cy + 'a' + r + ' ' + r + ' 0 1 ' + sw + ' ' + (2 * r) + ' 0a' + r + ' ' + r + ' 0 1 ' + sw + ' ' + (-2 * r) + ' 0Z'; };
+      return circ(ro, 1) + (ri > 0 ? circ(ri, 0) : '');
+    }
     var A = toXY(p, R, a0, s1), B = toXY(p, R, a1, s1), C = toXY(p, R, a1, s0), D = toXY(p, R, a0, s0);
     var span = ((a1 - a0) + 360) % 360 || 360, large = span > 180 ? 1 : 0;
     var r1 = R * Math.min(s1, rim) / rim, r0 = R * Math.min(s0, rim) / rim;
@@ -216,13 +301,13 @@ window.LSStereonet = (function () {
   function draw(settled) {
     if (!el.svg || !fp || !fp.isOpen()) return;
     var d = dims(); if (d.R <= 20) return;
-    var R = d.R, nr = nRings(), T = sh;
+    var R = d.R, g = geo(K), T = sh;
     var cv = el.heat, dpr = window.devicePixelRatio || 1;
     cv.width = Math.round(d.W * dpr); cv.height = Math.round(d.H * dpr);
     var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, d.W, d.H);
 
     var kind = subsetKind(), subOk = !kind || !!(sub && sub.idset);
-    var pts = [], fd = o.features ? o.features() : null, lsg = new Float64Array(nr * sectors);
+    var pts = [], fd = o.features ? o.features() : null, lsg = new Float64Array(g.n);
     var nOut = 0, nFilt = 0, nFlat = 0, nMissing = 0, B = d.panes[1];
     if (lsv && fd && fd.features && subOk) {
       fd.features.forEach(function (ft) {
@@ -233,35 +318,50 @@ window.LSStereonet = (function () {
         if (!lsv.values[String(id)] || vs == null) { nMissing++; return; }
         if (va == null || !c) { nFlat++; return; }
         var az = rotateLs(va, c[0]);
-        var sec = sectorOfBase(Math.min(BASE - 1, Math.floor(az / BASE_DEG)));
-        lsg[Math.min(nr - 1, Math.floor(Math.min(vs, 59.999) / ringW)) * sectors + sec]++;
+        lsg[g.cellOf(az, vs)]++;
         var xy = toXY(B, R, az, vs);
         var type = (ft.properties.landslide_type || '').toLowerCase().indexOf('cat') === 0 ? 'catastrophic' : 'slow';
         pts.push({ x: xy.x, y: xy.y, id: id, name: ft.properties.unique_name, ft: ft, az: az, s: vs, type: type, lon: c[0], lat: c[1] });
       });
     }
     var source = kind ? (sub && sub.xsize === BASE ? sub : null) : (dens && dens.xsize === BASE ? dens : null);
-    var tg = source ? merge(source.grid, source.xsize, source.ysize) : null;
-    var grid = lsMode !== 'points', i, ring, sec, span;
+    var effect = lsMode === 'effect', lam = null, mg = null;
+    if (source && effect) lam = slopeRate(source.grid, source.xsize, source.ysize, pts.map(function (p) { return Math.min(p.s, SMAX - 1e-9); }));
+    if (source) mg = merge(g, source.grid, source.xsize, source.ysize, lam);
+    var tg = mg ? mg.a : null, eg = mg ? mg.e : null;
+    var grid = lsMode !== 'points', i, sp;
 
     // pane 0 the terrain; a faint copy under the landslides, as in the x-y panel
     var tMax = 0, tBins = null;
     if (tg) {
       for (i = 0; i < tg.length; i++) if (tg[i] > tMax) tMax = tg[i];
       tBins = T.logRangeBinner(1, Math.max(2, tMax), T.T_RAMP.length);
-      for (ring = 0; ring < nr; ring++) for (sec = 0; sec < sectors; sec++) {
-        var tv = tg[ring * sectors + sec]; if (!tv) continue;
-        span = sectorSpan(sec);
+      for (i = 0; i < g.n; i++) {
+        var tv = tg[i]; if (!tv) continue;
+        sp = g.span(i);
         ctx.fillStyle = T.T_RAMP[Math.max(1, tBins.bin(tv)) - 1];
-        wedge(ctx, d.panes[0], R, span[0], span[1], ring * ringW, (ring + 1) * ringW);
-        ctx.globalAlpha = 0.28;
-        wedge(ctx, d.panes[1], R, span[0], span[1], ring * ringW, (ring + 1) * ringW);
-        ctx.globalAlpha = 1;
+        wedge(ctx, d.panes[0], R, sp.a0, sp.a1, sp.s0, sp.s1);
+        if (!effect) {
+          ctx.globalAlpha = 0.28;
+          wedge(ctx, d.panes[1], R, sp.a0, sp.a1, sp.s0, sp.s1);
+          ctx.globalAlpha = 1;
+        }
       }
     }
     // pane 1 the landslide grid
-    var lBins = null, noTerrain = 0;
-    if (grid) {
+    var lBins = null, noTerrain = 0, eff = null;
+    if (effect && eg) {
+      var ev = new Float64Array(g.n);
+      for (i = 0; i < g.n; i++) ev[i] = eg[i] > 0 ? lsg[i] / eg[i] : 0;
+      eff = effectScale(ev, lsg, eg);
+      for (i = 0; i < g.n; i++) {
+        if (!(eg[i] > 0) && !lsg[i]) continue;
+        if (!(eg[i] > 0)) { noTerrain++; ctx.fillStyle = T.LS_CATCH; }
+        else ctx.fillStyle = eff.colors[eff.bin(ev[i])];
+        sp = g.span(i);
+        wedge(ctx, B, R, sp.a0, sp.a1, sp.s0, sp.s1);
+      }
+    } else if (grid && !effect) {
       var vals = new Float64Array(lsg.length), vmax = 0;
       for (i = 0; i < lsg.length; i++) {
         if (!lsg[i]) continue;
@@ -269,13 +369,13 @@ window.LSStereonet = (function () {
         vals[i] = v; if (v > vmax) vmax = v;
       }
       lBins = lsMode === 'prop' ? T.logRangeBinner(T.RATE_LO, T.RATE_HI, T.LS_RAMP.length) : T.logCatchBinner(vmax, T.LS_RAMP.length);
-      for (ring = 0; ring < nr; ring++) for (sec = 0; sec < sectors; sec++) {
-        i = ring * sectors + sec; if (!vals[i]) continue;
+      for (i = 0; i < g.n; i++) {
+        if (!vals[i]) continue;
         var b = vals[i] < 0 ? 0 : lBins.bin(vals[i]);
         if (vals[i] < 0) noTerrain++;
         ctx.fillStyle = b === 0 ? T.LS_CATCH : T.LS_RAMP[b - 1];
-        span = sectorSpan(sec);
-        wedge(ctx, B, R, span[0], span[1], ring * ringW, (ring + 1) * ringW);
+        sp = g.span(i);
+        wedge(ctx, B, R, sp.a0, sp.a1, sp.s0, sp.s1);
       }
     }
 
@@ -283,9 +383,9 @@ window.LSStereonet = (function () {
     var svg = el.svg; while (svg.firstChild) svg.removeChild(svg.firstChild);
     var where = kind === 'sample' ? ' · in the sample' : kind ? ' · in the map view' : '';
     var titles = ['Terrain · km² per cell' + where,
-                  'Landslides · ' + (lsMode === 'points' ? 'points' : lsMode === 'count' ? 'count per cell' : 'per 1000 km²') + where];
-    d.panes.forEach(function (p, pi) { net(svg, p, R); txt(svg, titles[pi], p.cx, 11, 'middle', '#555'); });
-    txt(svg, 'centre = flat, rim = ' + rim + '° · aspect from true north · click a cell for a brush, drag for any sector', d.W / 2, d.H - 4, 'middle', '#bbb');
+                  'Landslides · ' + (lsMode === 'points' ? 'points' : lsMode === 'count' ? 'count per cell' : lsMode === 'prop' ? 'per 1000 km²' : 'observed / expected from slope') + where];
+    d.panes.forEach(function (p, pi) { cellLines(svg, p, R, g, pi === 1 && !grid); net(svg, p, R); txt(svg, titles[pi], p.cx, 11, 'middle', '#555'); });
+    txt(svg, 'centre = flat, rim = ' + rim + '° · ' + g.n + ' equal-area cells to 60° · aspect from true north · click a cell for a brush, drag for any sector', d.W / 2, d.H - 4, 'middle', '#bbb');
 
     var hl = [], drawn = [], sampled = kind === 'sample';
     pts.forEach(function (p) {
@@ -304,7 +404,7 @@ window.LSStereonet = (function () {
                                       'stroke-width': 1, 'stroke-dasharray': '3 2', 'pointer-events': 'none' }));
     });
     svg.appendChild(svgEl('path', { id: 'sn-drag', fill: 'rgba(0,0,0,0.06)', stroke: '#666', 'stroke-width': 1, display: 'none', 'pointer-events': 'none' }));
-    P = { d: d, pts: pts, drawn: drawn, tg: tg, lsg: lsg, nr: nr };
+    P = { d: d, pts: pts, drawn: drawn, tg: tg, eg: eg, lsg: lsg, g: g };
     sh.highlight(hl);
     el.clear.classList.toggle('disabled', !brush);
 
@@ -322,31 +422,46 @@ window.LSStereonet = (function () {
     if (cubeError) lines.push('<div class="an-err">' + esc(cubeError) + '</div>');
     if (brush && !FINE[S]) lines.push('<div>The brush paints the map only with the 60 m slope grid, which has a value archive.</div>');
     el.note.innerHTML = lines.join(''); el.note.style.display = lines.length ? '' : 'none';
-    foot(tBins, lBins, noTerrain, kind, source, pts.length);
+    foot(tBins, lBins, noTerrain, kind, source, pts.length, eff);
     // The legend and notes just written can change the plot's height, and the
     // panel's ResizeObserver does not see that (the panel itself did not
     // resize). The canvas would then be stretched against the net: draw once
     // more at the real size. The second pass writes the same legend, so it stops.
     if (settled !== true && (el.svg.clientWidth !== d.W || el.svg.clientHeight !== d.H)) draw(true);
   }
+  // Faint cell edges, so the grid reads where cells are empty; skipped under points.
+  function cellLines(svg, p, R, g, skip) {
+    if (skip) return;
+    var dd = '', k, j, e;
+    for (k = 0; k < g.K; k++) {
+      e = g.edge[k]; if (e >= rim) break;
+      var r = R * e / rim; dd += 'M' + (p.cx - r) + ' ' + p.cy + 'a' + r + ' ' + r + ' 0 1 0 ' + (2 * r) + ' 0a' + r + ' ' + r + ' 0 1 0 ' + (-2 * r) + ' 0';
+    }
+    for (k = 1; k <= g.K; k++) {
+      var m = 6 * k, s0 = g.edge[k - 1], s1 = g.edge[k];
+      if (s0 >= rim) break;
+      for (j = 0; j < m; j++) { var a = j * 360 / m + 180 / m, A = toXY(p, R, a, s0), Bq = toXY(p, R, a, s1); dd += 'M' + A.x.toFixed(1) + ' ' + A.y.toFixed(1) + 'L' + Bq.x.toFixed(1) + ' ' + Bq.y.toFixed(1); }
+    }
+    svg.appendChild(svgEl('path', { d: dd, fill: 'none', stroke: 'rgba(255,255,255,0.7)', 'stroke-width': 0.6, 'pointer-events': 'none' }));
+  }
   function net(svg, p, R) {
-    var line = '#d4d4d4', step = rim >= 90 ? 30 : 15, s, a;
+    var line = '#000', step = rim >= 90 ? 30 : 15, s, a;
     for (s = step; s <= rim; s += step) {
       var r = R * s / rim;
-      svg.appendChild(svgEl('circle', { cx: p.cx, cy: p.cy, r: r, fill: 'none', stroke: s === rim ? '#999' : line, 'pointer-events': 'none' }));
-      var lab = txt(svg, s + '°', p.cx + 2, p.cy - r + 9, 'start', '#777');
+      svg.appendChild(svgEl('circle', { cx: p.cx, cy: p.cy, r: r, fill: 'none', stroke: line, 'stroke-width': s === rim ? 0.6 : 0.35, 'pointer-events': 'none' }));
+      var lab = txt(svg, s + '°', p.cx + 2, p.cy - r + 9, 'start', '#000');
       lab.setAttribute('paint-order', 'stroke'); lab.setAttribute('stroke', '#fff'); lab.setAttribute('stroke-width', 2.5);
     }
     for (a = 0; a < 180; a += 45) {
       var q = toXY(p, R, a, rim), q2 = toXY(p, R, a + 180, rim);
-      svg.appendChild(svgEl('line', { x1: q.x, y1: q.y, x2: q2.x, y2: q2.y, stroke: line, 'pointer-events': 'none' }));
+      svg.appendChild(svgEl('line', { x1: q.x, y1: q.y, x2: q2.x, y2: q2.y, stroke: line, 'stroke-width': 0.35, 'pointer-events': 'none' }));
     }
     [['N', 0], ['E', 90], ['S', 180], ['W', 270]].forEach(function (t) {
       var at = { x: p.cx + (R + 9) * Math.sin(rad(t[1])), y: p.cy - (R + 9) * Math.cos(rad(t[1])) };
-      var c = txt(svg, t[0], at.x, at.y + 3, 'middle', '#555'); c.setAttribute('font-weight', '600');
+      var c = txt(svg, t[0], at.x, at.y + 3, 'middle', '#000'); c.setAttribute('font-weight', '600');
     });
   }
-  function foot(tBins, lBins, noTerrain, kind, source, nLs) {
+  function foot(tBins, lBins, noTerrain, kind, source, nLs, eff) {
     var T = sh, html = '', fmt = T.fmtNum, i;
     if (tBins) {
       var tbar = '<div class="leg-bar">' + T.T_RAMP.map(function (c, i) { return '<span style="background:' + c + '" title="' + fmt(tBins.edges[i + 1]) + ' – ' + fmt(tBins.edges[i + 2]) + ' km²"></span>'; }).join('') + '</div>';
@@ -359,6 +474,14 @@ window.LSStereonet = (function () {
                 T.LS_RAMP.map(function (c, i) { return '<span style="background:' + c + '" title="' + fmt(lBins.edges[i + 1]) + ' – ' + fmt(lBins.edges[i + 2]) + '"></span>'; }).join('') + '</div>';
       var lt = [{ at: 0, label: '0' }]; for (i = 1; i < lBins.edges.length; i++) lt.push({ at: i / cells, label: fmt(lBins.edges[i]) });
       html += '<div class="leg-row"><span class="leg-title" title="' + (lsMode === 'prop' ? 'Fixed scale, the same as the x-y panel’s.' : 'Scaled to this plot’s fullest cell.') + '">' + (lsMode === 'prop' ? 'Slides/1000 km² (fixed)' : 'Slides/cell') + '</span>' + T.legendBar(bar, lt) + '</div>';
+    }
+    if (eff) {
+      var ebar = '<div class="leg-bar">' + eff.colors.map(function (c, i) {
+        return '<span style="background:' + c + '" title="' + fracLabel(i - eff.s) + ' – ' + fracLabel(i - eff.s + 1) + (i === 0 ? ' (and cells with none observed)' : '') + '"></span>';
+      }).join('') + '</div>';
+      var et = []; for (i = 0; i <= 2 * eff.s; i++) et.push({ at: i / (2 * eff.s), label: fracLabel(i - eff.s) });
+      html += '<div class="leg-row"><span class="leg-title" title="Landslides in the cell ÷ the number its terrain would hold at the rate for its slope (smoothed over ' + SLOPE_H + '° of slope). 1 = what slope alone predicts. The scale widens in powers of two to fit the data; a cell with terrain and no landslides is 0, in the lowest class.' +
+              (noTerrain ? ' Grey: landslides in a cell with no sampled terrain (' + noTerrain + ').' : '') + '">Observed / expected</span>' + T.legendBar(ebar, et) + '</div>';
     }
     if (brush) {
       html += '<div class="an-sample">Box: aspect ' + deg(brush.a0) + '–' + deg(brush.a1) + '° · slope ' + Math.round(brush.s0) + '–' + Math.round(brush.s1) + '°' +
@@ -388,10 +511,6 @@ window.LSStereonet = (function () {
     }
     return null;
   }
-  function cellAt(az, s) {
-    var w = 360 / sectors;
-    return { sec: Math.floor(((az + w / 2) % 360) / w) % sectors, ring: Math.min(P.nr - 1, Math.floor(s / ringW)) };
-  }
   // Two azimuths -> the shorter arc between them, in clockwise order.
   function arc(a, b) { return ((b - a + 540) % 360) - 180 >= 0 ? [a, b] : [b, a]; }
   function wireBrush() {
@@ -411,8 +530,8 @@ window.LSStereonet = (function () {
         if (Math.abs(l.x - start.l.x) < 4 && Math.abs(l.y - start.l.y) < 4) {
           if (nearest(e)) return;                          // a click on a point opens it (the click handler)
           if (start.s >= 60) return;                       // the cube's slope axis ends at 60°
-          var cc = cellAt(start.az, start.s), span = sectorSpan(cc.sec);
-          setBrush({ a0: span[0], a1: span[1], s0: cc.ring * ringW, s1: (cc.ring + 1) * ringW });
+          var sp = P.g.span(P.g.cellOf(start.az, start.s));
+          setBrush({ a0: +sp.a0.toFixed(2), a1: +sp.a1.toFixed(2), s0: +sp.s0.toFixed(2), s1: +sp.s1.toFixed(2) });
           return;
         }
         var c = polar(l); if (!c || c.pane !== start.pane) return;
@@ -438,11 +557,12 @@ window.LSStereonet = (function () {
     if (!P) return;
     var l = local(e), html = null, c = polar(l), p = c && c.pane === 1 ? nearest(e) : null;
     if (p) html = '<b>' + esc(p.name || ('#' + p.id)) + '</b><br>' + windName(p.az) + ' (' + Math.round(p.az) + '°) · slope ' + Math.round(p.s) + '°';
-    else if (c && c.s < 60) {
-      var cc = cellAt(c.az, c.s), i = cc.ring * sectors + cc.sec, span = sectorSpan(cc.sec);
-      var tv = P.tg ? P.tg[i] || 0 : 0, lv = P.lsg[i] || 0;
-      html = windName(cc.sec * 360 / sectors) + ' (' + deg(span[0]) + '–' + deg(span[1]) + '°) · slope ' + cc.ring * ringW + '–' + (cc.ring + 1) * ringW + '°<br>' +
-             sh.fmtNum(tv) + ' km² · ' + lv + ' slide' + (lv === 1 ? '' : 's') + (lv && tv ? ' (' + sh.fmtNum(lv / tv * 1000) + '/1000 km²)' : lv ? ' (no sampled terrain)' : '');
+    else if (c && c.s < SMAX) {
+      var i = P.g.cellOf(c.az, c.s), sp = P.g.span(i);
+      var tv = P.tg ? P.tg[i] || 0 : 0, lv = P.lsg[i] || 0, ev = P.eg ? P.eg[i] || 0 : 0;
+      html = (sp.c == null ? 'Any aspect' : windName(sp.c) + ' (' + deg(sp.a0) + '–' + deg(sp.a1) + '°)') + ' · slope ' + sp.s0.toFixed(1) + '–' + sp.s1.toFixed(1) + '°<br>' +
+             sh.fmtNum(tv) + ' km² · ' + lv + ' slide' + (lv === 1 ? '' : 's') + (lv && tv ? ' (' + sh.fmtNum(lv / tv * 1000) + '/1000 km²)' : lv ? ' (no sampled terrain)' : '') +
+             (P.eg ? '<br>expected from slope ' + (ev >= 10 ? ev.toFixed(0) : ev.toFixed(1)) + (ev > 0 ? ' · observed / expected ' + (lv / ev).toFixed(2) : '') : '');
     }
     if (!html) { el.tip.style.display = 'none'; return; }
     el.tip.innerHTML = html; el.tip.style.display = 'block';
@@ -458,14 +578,13 @@ window.LSStereonet = (function () {
   }
 
   // ---- URL state (map.js _VIEW_PARAMS row 'sn') -----------------------------------------
-  function state() { return { S: S, sectors: sectors, ring: ringW, rim: rim, ls: lsMode, brush: brush, paint: paintOn }; }
+  function state() { return { S: S, K: K, rim: rim, ls: lsMode, brush: brush, paint: paintOn }; }
   function setState(s) {
     if (!el.svg) { pendingState = s; return; }
     if (S_LABEL[s.S]) { S = s.S; el.slope.value = S; }
-    if ([144, 72, 48, 24, 12, 8, 4].indexOf(s.sectors) >= 0) { sectors = s.sectors; el.sectors.value = sectors; }
-    if ([2, 5, 10, 15].indexOf(s.ring) >= 0) { ringW = s.ring; el.rings.value = ringW; }
+    if (KS.indexOf(s.K) >= 0) { K = s.K; el.cells.value = K; }
     if (s.rim === 60 || s.rim === 90) { rim = s.rim; el.rim.value = rim; }
-    if (['points', 'count', 'prop'].indexOf(s.ls) >= 0) { lsMode = s.ls; el.ls.value = lsMode; }
+    if (['points', 'count', 'prop', 'effect'].indexOf(s.ls) >= 0) { lsMode = s.ls; el.ls.value = lsMode; }
     if (s.paint !== undefined) { paintOn = s.paint !== false; el.paint.checked = paintOn; }
     if (s.brush !== undefined) brush = s.brush;
     if (fp && fp.isOpen()) reload();

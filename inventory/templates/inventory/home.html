@@ -534,33 +534,30 @@
             <option value="slope_1k">1 km</option>
             <option value="slope_2k">2 km</option>
           </select></label>
-        <label class="an-axis" title="How many sectors of aspect. They are centred on the compass points.">sectors
-          <select id="sn-sectors">
-            <option value="144">144 (2.5&deg;)</option>
-            <option value="72">72 (5&deg;)</option>
-            <option value="48">48 (7.5&deg;)</option>
-            <option value="24" selected>24 (15&deg;)</option>
-            <option value="12">12 (30&deg;)</option>
-            <option value="8">8 (45&deg;)</option>
-            <option value="4">4 (90&deg;)</option>
-          </select></label>
-        <label class="an-axis" title="The width of each slope ring.">rings
-          <select id="sn-rings">
-            <option value="2">2&deg;</option>
-            <option value="5" selected>5&deg;</option>
-            <option value="10">10&deg;</option>
-            <option value="15">15&deg;</option>
+        <label class="an-axis" title="Equal-area cells on the hemisphere of slope directions: a cap of near-flat ground (any aspect), then rings of 6, 12, 18 … cells out to 60&deg;. Every cell is the same solid angle, so gentle slopes get few aspect divisions and steep ones many. Where the data are sparse, choose fewer, larger cells.">cells
+          <select id="sn-cells">
+            <option value="3">37 (~19&deg;)</option>
+            <option value="4">61 (~15&deg;)</option>
+            <option value="5">91 (~12&deg;)</option>
+            <option value="6" selected>127 (~10&deg;)</option>
+            <option value="7">169 (~9&deg;)</option>
+            <option value="8">217 (~8&deg;)</option>
+            <option value="9">271 (~7&deg;)</option>
+            <option value="10">331 (~6&deg;)</option>
+            <option value="11">397 (~6&deg;)</option>
+            <option value="12">469 (~5&deg;)</option>
           </select></label>
         <label class="an-axis" title="The slope at the rim. Almost no ground is steeper than 60&deg;, so a 60&deg; rim gives the data more room.">rim
           <select id="sn-rim">
             <option value="90" selected>90&deg;</option>
             <option value="60">60&deg;</option>
           </select></label>
-        <label class="an-axis" title="The landslide plot: each landslide as a point at its own values; or per cell, as a count or as landslides per 1000 km² of terrain with those values.">slides
+        <label class="an-axis" title="The landslide plot: each landslide as a point at its own values; or per cell, as a count or as landslides per 1000 km² of terrain with those values; or the aspect effect, landslides observed ÷ expected from slope alone (1 = what slope predicts).">slides
           <select id="sn-ls">
             <option value="points" selected>points</option>
             <option value="count">count / cell</option>
             <option value="prop">per 1000 km²</option>
+            <option value="effect">aspect effect</option>
           </select></label>
         <button type="button" id="sn-sample" title="Sample tool: a circle of this diameter follows the cursor over the map; each click makes the 1 km cells inside it the subset. Click again, or Esc, to put the tool away.">&#9678; Sample</button>
         <span class="pf-unit" title="Sample diameter">&#8960;</span><input type="number" id="sn-radius" min="1" max="100" step="1" value="20" title="Sample diameter, km"><span class="pf-unit">km</span>
