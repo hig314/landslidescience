@@ -122,6 +122,16 @@ written down anywhere — read `/lidar/audit/`.
   before the commit: see *Erosion rate overlays*. See *NOAA chart basemap*
   and the NASA paragraph under *Susceptibility tiles*.
 
+- **Slope-aspect stereonet** (2026-11-10, b3d1906; `stereonet.js`, `#sn-float`,
+  `an=stereo`, `sn=`/`sb=`/`spt=`). The analysis panel's two plots on a polar
+  net, reusing its density endpoint (`xbins=288&true_north=1`: 1.25° bins, so
+  sectors down to 2.5° centre on the compass) and, through `LSAnalysis.shared`,
+  its scales and map layers. No wiper, no data to deploy. Hig tested it in dev;
+  on prod the endpoints were checked and the plot drawn once in a browser.
+  Aspect is true north here and still grid north in the x-y panel and the
+  aspect overlay (HAZARDS §Raster sources). That panel's `draw()` also still
+  sizes its canvas before writing its legend, the stretch fixed here.
+
 **Open threads**, in no particular order:
 
 - **Homer 2019 + 2021 NCMP green lidar, and point clouds on R2**
