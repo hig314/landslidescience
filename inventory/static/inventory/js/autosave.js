@@ -80,7 +80,19 @@
             field._lsBaseline = res.j.value;
           }
           applyDerived(res.j.derived);
-          setStatus(field, 'saved', '✓ saved');
+          // Other fields the save changed (year_text refilled from the dates).
+          if (res.j.fields) {
+            applyDerived(res.j.fields);
+            Object.keys(res.j.fields).forEach(function (k) {
+              var el = form.querySelector('[name="' + k + '"]');
+              if (el) {
+                el._lsBaseline = el.value;
+                setStatus(el, 'saved', res.j.fields[k] ? '✓ filled from the dates' : '✓ cleared');
+              }
+            });
+          }
+          if (res.j.warning) setStatus(field, 'warning', '✓ saved. ' + res.j.warning);
+          else setStatus(field, 'saved', '✓ saved');
         } else {
           setStatus(field, 'error', (res.j && res.j.error) || 'save failed');
         }

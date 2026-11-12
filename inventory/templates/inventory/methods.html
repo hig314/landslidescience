@@ -1293,6 +1293,17 @@
     months or years.
   </li>
 </ul>
+<p>
+  The bracket is kept in order and constrains <code>year_text</code> at entry
+  (from November 2026): when both dates fall in one year, the year text is
+  that year and nothing else is accepted; when they span years and
+  <code>date_min</code> falls between 1851 and 2011, a blank year text is
+  filled with "Modern" (from 2012 on it is left blank, since
+  <code>date_min</code> already places the event after 2012). A specific year
+  inside a wider bracket is accepted with a warning that the dates alone do
+  not establish it; a year outside the bracket is refused, and "Holocene" with
+  a <code>date_min</code> after 1850 is flagged as inconsistent.
+</p>
 
 
 <!-- ================================================================== -->

@@ -1,0 +1,35 @@
+{% comment %}
+Banner at the top of the edit / review form when a save was refused by the
+form's own validation. Without it the only sign was a small red line under the
+offending field, often off screen or in a collapsed group, so a refused save
+looked like a Save button that did nothing (record 1626, 2026-11-11: date_max
+before date_min). Each entry jumps to its field, opening any closed section.
+{% endcomment %}
+{% if form.errors %}
+  <div id="form-errors" role="alert" style="margin: 14px 0; padding: 10px 14px; background:#fef0f0; border:1px solid #f5c2c2; border-radius:4px; color:#902;">
+    <strong>Not saved.</strong> Fix {% if form.errors|length == 1 %}this field{% else %}these fields{% endif %}, then save again:
+    <ul style="margin: 6px 0 0; padding-left: 20px;">
+      {% for err in form.non_field_errors %}<li>{{ err }}</li>{% endfor %}
+      {% for field in form %}{% if field.errors %}
+        <li><a href="#" class="form-error-jump" data-field="{{ field.name }}" style="color:#902; font-weight:600;">{{ field.label }}</a>: {{ field.errors|join:", " }}</li>
+      {% endif %}{% endfor %}
+    </ul>
+  </div>
+  <script>
+  (function () {
+    var box = document.getElementById('form-errors');
+    if (box) box.scrollIntoView({ block: 'center' });
+    document.querySelectorAll('.form-error-jump').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        var el = document.querySelector('.ls-field[data-field="' + a.dataset.field + '"]');
+        if (!el) return;
+        for (var p = el.parentElement; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+        el.scrollIntoView({ block: 'center' });
+        var input = el.querySelector('input, select, textarea');
+        if (input) input.focus({ preventScroll: true });
+      });
+    });
+  })();
+  </script>
+{% endif %}

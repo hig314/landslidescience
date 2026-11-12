@@ -237,6 +237,10 @@
             return s.zoom != null ? s : null;
         } catch (err) { return null; }
     }
+    // A link naming only a record (#id=N: the explorer's row links, View on
+    // map) goes to that record's default view once it opens, as a double-click
+    // does; before 2026-11-11 the explorer's new tab opened statewide.
+    var _idOnlyLink = !!(_initialHash.id && _initialHash.zoom == null);
     if (_initialHash.zoom == null) {
         var _sessView = _sessionViewRead();
         if (_sessView) {
@@ -1676,6 +1680,7 @@
         initLayers(_settings);
         if (_pendingDetailId != null) {
             showDetail(_pendingDetailId);
+            if (_idOnlyLink) _goToRecordView(_pendingDetailId);
             _pendingDetailId = null;
             writeHashState();   // strips id= now that the panel is open
         }
@@ -7989,10 +7994,15 @@
         var p = e.features[0].properties;
         var id = p.id != null ? p.id : p.landslide_id;
         if (!id) return;
+        _goToRecordView(id, true);
+    }
+    // A record's curated default view, or its centroid at zoom 13 when none is
+    // stored. render = also re-render the detail panel with the fresh data.
+    function _goToRecordView(id, render) {
         fetch(API_BASE + 'api/landslide/' + id + '/')
             .then(function (r) { return r.json(); })
             .then(function (d) {
-                renderDetail(d);
+                if (render) renderDetail(d);
                 if (d.default_map_view) {
                     applyViewString(d.default_map_view);
                 } else if (d.centroid_lat != null && d.centroid_lon != null) {

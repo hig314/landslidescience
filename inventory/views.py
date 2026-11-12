@@ -3335,6 +3335,60 @@ def manage_edit_field(request, landslide_id):
         private_layers = (view_state_private_layers(val)
                           if name == 'default_map_view' and val else None)
 
+        # The date bracket must stay in order. The full form checks it
+        # (_LandslideEditFormBase.clean), but each field autosaves alone, so a
+        # reversed pair was stored here and then blocked every review save
+        # (record 1626, 2026-11-11).
+        if name in ('date_min', 'date_max') and val is not None:
+            other = 'date_max' if name == 'date_min' else 'date_min'
+            cur.execute(f"SELECT {other} FROM landslides WHERE id = %s", (landslide_id,))
+            r0 = cur.fetchone()
+            ov = r0[0] if r0 else None
+            if ov is not None and (val > ov if name == 'date_min' else val < ov):
+                conn.rollback()
+                ov_s = ov.strftime('%d-%b-%Y')
+                return JsonResponse({'ok': False, 'error': (
+                    f'Must be on or {"before" if name == "date_min" else "after"} '
+                    f'{other} ({ov_s}). To move the whole bracket, change '
+                    f'{other} first.')}, status=400)
+
+        # year_text follows the bracket (forms.check_year_text): checked when it
+        # is typed, refilled when a date changes. A changed year_text re-runs the
+        # cascade below (it feeds the class rule).
+        from .forms import check_year_text, year_text_auto
+        warning = None
+        year_text_set = None          # new year_text written beside a date edit
+        if name in ('year_text', 'date_min', 'date_max'):
+            cur.execute("SELECT date_min, date_max, year_text FROM landslides WHERE id = %s",
+                        (landslide_id,))
+            r0 = cur.fetchone()
+            if r0:
+                d_min, d_max, cur_yt = r0
+                if name == 'date_min':
+                    d_min = val
+                elif name == 'date_max':
+                    d_max = val
+                if name == 'year_text':
+                    v, err, warning = check_year_text(val, d_min, d_max)
+                    if err:
+                        conn.rollback()
+                        return JsonResponse({'ok': False, 'error': err}, status=400)
+                    val = v or None
+                else:
+                    auto, binding = year_text_auto(d_min, d_max)
+                    yt = (cur_yt or '').strip()
+                    new_yt = yt
+                    if binding or (auto and not yt):
+                        new_yt = auto
+                    elif yt == 'Modern' and d_min and d_min.year >= 2012:
+                        new_yt = ''          # post-2012: "Modern" would misclass it
+                    if new_yt != yt:
+                        year_text_set = new_yt
+                    else:
+                        _v, err, warning = check_year_text(yt, d_min, d_max)
+                        if err:
+                            warning = f'Year text now conflicts: {err}'
+
         # planet_story_link keeps the N:M story tables in step (this autosave
         # endpoint is the main path scalar fields save through — without the
         # sync a review-form link never reached planet_stories, so nothing
@@ -3356,7 +3410,12 @@ def manage_edit_field(request, landslide_id):
         if name == 'planet_story_link':
             new_story_slug = planet.sync_story_link(cur, landslide_id, old_story_url, val)
 
-        cascaded = (name in rule_inputs) and (name not in rule_targets)
+        if year_text_set is not None:
+            cur.execute("UPDATE landslides SET year_text = %s WHERE id = %s",
+                        (year_text_set or None, landslide_id))
+
+        cascaded = ((name in rule_inputs) and (name not in rule_targets)) \
+            or year_text_set is not None
         if cascaded:
             _derived.apply_rules_for_landslide(cur, landslide_id)
             derived_vals = _read_derived_cols(cur, landslide_id)
@@ -3377,7 +3436,13 @@ def manage_edit_field(request, landslide_id):
 
     # Render dates back in the human format for the field's own display refresh.
     out_val = val.strftime('%d-%b-%Y') if hasattr(val, 'strftime') and col['udt'] == 'date' else None
+    if name == 'year_text':
+        out_val = val or ''          # may have been filled from the bracket
     resp = {'ok': True, 'derived': derived_vals, 'value': out_val}
+    if year_text_set is not None:
+        resp['fields'] = {'year_text': year_text_set}
+    if warning:
+        resp['warning'] = warning
     if private_layers:
         resp['private_layers'] = private_layers
     return JsonResponse(resp)

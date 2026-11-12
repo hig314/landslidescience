@@ -139,13 +139,77 @@ DISPLAY_REQUIRED = {
 }
 
 
+# --- year_text from the date bracket (Hig, 2026-11-11) ----------------------
+# Both dates in one year -> year_text IS that year (anything else refused).
+# Otherwise a date_min after 1850 and before 2012 -> "Modern" when blank; a
+# specific year is accepted there with a warning that the bracket does not pin
+# it. From 2012 on year_text is left blank: the class rule reads year_text
+# before date_min, so "Modern" would turn a post-2012 record into "Catastrophic
+# Modern" (Hig's call). Any 4-digit year outside the bracket is refused.
+YEAR_TEXT_MODERN_AFTER = 1850
+YEAR_TEXT_MODERN_BEFORE = 2012
+
+
+def year_text_auto(d_min, d_max):
+    """The value the bracket implies for year_text, and whether it is binding:
+    (value, binding). value None = nothing to fill."""
+    if d_min and d_max and d_min.year == d_max.year:
+        return str(d_min.year), True
+    if d_min and YEAR_TEXT_MODERN_AFTER < d_min.year < YEAR_TEXT_MODERN_BEFORE:
+        return 'Modern', False
+    return None, False
+
+
+def _fmt(d):
+    return d.strftime('%d-%b-%Y')
+
+
+def check_year_text(val, d_min, d_max):
+    """Validate a year_text value against the bracket.
+    Returns (value_to_store, error, warning); a blank value becomes the
+    bracket's own value when it implies one."""
+    v = (val or '').strip()
+    auto, binding = year_text_auto(d_min, d_max)
+    if not v:
+        return auto, None, None
+    if binding:
+        if v != auto:
+            return v, (f'Both dates fall in {auto} ({_fmt(d_min)} to {_fmt(d_max)}), '
+                       f'so year text must be {auto}. To enter another, change the '
+                       f'dates first.'), None
+        return v, None, None
+    if v.isdigit() and len(v) == 4:
+        y = int(v)
+        if (d_min and y < d_min.year) or (d_max and y > d_max.year):
+            span = ' to '.join(_fmt(d) for d in (d_min, d_max) if d)
+            return v, (f'{y} is outside the date bracket ({span}). To enter it, '
+                       f'change the dates first.'), None
+        if d_min or d_max:
+            span = ' to '.join(_fmt(d) for d in (d_min, d_max) if d)
+            return v, None, (f'The dates ({span}) do not constrain the event to {y}; '
+                             f'make sure another source does.')
+    if 'holocene' in v.lower() and d_min and d_min.year > YEAR_TEXT_MODERN_AFTER:
+        return v, None, (f'Inconsistent: date_min ({_fmt(d_min)}) is after '
+                         f'{YEAR_TEXT_MODERN_AFTER}, which is Modern, but year text '
+                         f'says Holocene. Check the dates or the label.')
+    return v, None, None
+
+
 class _LandslideEditFormBase(forms.Form):
-    """Base form: shared validation (date ordering) for the dynamically-built subclass."""
+    """Base form: shared validation (date ordering, year_text against the
+    bracket) for the dynamically-built subclass."""
     def clean(self):
         cleaned = super().clean()
         d_min, d_max = cleaned.get('date_min'), cleaned.get('date_max')
         if d_min and d_max and d_max < d_min:
             self.add_error('date_max', 'date_max must be on or after date_min')
+        elif 'year_text' in self.fields and 'year_text' not in self.errors:
+            v, err, _warn = check_year_text(cleaned.get('year_text'), d_min, d_max)
+            if err:
+                self.add_error('year_text', err)
+            else:
+                cleaned['year_text'] = v or getattr(
+                    self.fields['year_text'], 'empty_value', None)
         return cleaned
 
 
