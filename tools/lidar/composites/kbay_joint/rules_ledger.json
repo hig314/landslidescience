@@ -308,6 +308,13 @@
    "live": "2026-11-11 18:36:08",
    "commit": "6ca95b9",
    "what": "fill: river/sloped bodies take the lidar's own surface, blurred (6 m), pinned to the banks, 0.3 m under it 10 m in, fill_mask 11; nothing else fills them (Woz delta)"
+  },
+  {
+   "id": "rimlevel",
+   "stage": "shore",
+   "live": "2026-11-11 19:20:27",
+   "commit": "7858108",
+   "what": "shore: levelless water inside a trusted lake polygon takes its rim's level (p10 of ground within 6 m outside) rather than becoming no water"
   }
  ]
 }
