@@ -315,6 +315,41 @@
    "live": "2026-11-11 19:20:27",
    "commit": "7858108",
    "what": "shore: levelless water inside a trusted lake polygon takes its rim's level (p10 of ground within 6 m outside) rather than becoming no water"
+  },
+  {
+   "id": "structure",
+   "stage": "joint",
+   "live": "2026-11-12 09:42:35",
+   "commit": "cfe8b9f",
+   "what": "joint: returns with no ground/water/bed near sea-level water or bed (30 m) are a structure over water: water at the local level"
+  },
+  {
+   "id": "superseded",
+   "stage": "build",
+   "live": "2026-11-12 09:42:35",
+   "commit": "cfe8b9f",
+   "what": "composite: a lower layer not fully compatible with the class-now is withdrawn where a higher layer shows (and the feather underlay)"
+  },
+  {
+   "id": "bedprotect",
+   "stage": "highline",
+   "live": "2026-11-12 09:42:35",
+   "commit": "cfe8b9f",
+   "what": "highline: a measured bed is protected from the tide lines like lidar"
+  },
+  {
+   "id": "perchedsound",
+   "stage": "fill",
+   "live": "2026-11-12 09:42:35",
+   "commit": "cfe8b9f",
+   "what": "fill: marine soundings are stale in water above the highest tide"
+  },
+  {
+   "id": "spitpuddles",
+   "stage": "water",
+   "live": "2026-11-12 09:42:35",
+   "commit": "cfe8b9f",
+   "what": "water edits: Hig's Homer Spit puddles dmax 0.1 m at their 2023 levels"
   }
  ]
 }
