@@ -76,7 +76,7 @@ DEFAULTS = dict(island_tall_frac=0.25, band_m=40.0, band_tidal_m=100.0, sure_dz_
                 inland_m=10.0, slope_min_deg=1.0, slope_max_deg=70.0,
                 glacier_min_km2=0.5, glacier_touch_m2=10000.0, glacier_near_m=300.0, island_corr=0.25, island_min_m2=50.0,
                 river_smooth_m=50.0, tidal_smooth_m=20.0, glaciers=None, min_ring_m=20.0,
-                nobody_min_cells=4, nobody_flat_m=0.5, river_max_rms_m=1.0, berg_max_m2=50000.0, route_m=60.0, prior_flat_m=1.0,
+                nobody_min_cells=4, nobody_flat_m=0.5, river_max_rms_m=1.0, berg_max_m2=50000.0, route_m=60.0, prior_flat_m=1.0, rim_level=1.0, rim_level_ring_m=6.0, rim_level_q=10.0,
                 tide_max_m=4.5, tide_stand_lo_m=0.5, low_tide_m=None, river_tide_tol_m=0.3,
                 nobody_isolated_cells=100, poly_level_cells=100, poly_level_tol_m=0.1, lake_ground_tol_m=0.2)
 LAND_CODES = ("ground", "built", "canopy", "snow")
@@ -1171,6 +1171,27 @@ def run(recipe, log=print):
             sea_ = np.isfinite(md_) & (md_ < lo_r)
             lvl_ = np.where(sea_, float(cfg["low_tide_m"]), lvl_)
             flat_ = flat_ | sea_
+        # ...but a patch inside a trusted water polygon is water by the map whatever the prior says (2026-11-11, Hig's
+        # review of r5c3: a mapped pond near the Woz with no returns at all became no water and the fill domed it 2 m over
+        # its rim).  With no level of its own it stands at its RIM's: the rim_level_q percentile of the measured ground in
+        # a ring rim_level_ring_m outside the patch (the spill side of the shore, never above the lowest of it much).
+        n_rim = 0
+        if float(cfg.get("rim_level", 0.0)) > 0 and mp.any():
+            inmp_ = ndimage.sum((mp & ~mi), nl_, idx_) / np.maximum(np.bincount(nl_.ravel(), minlength=nn_ + 1)[1:], 1)
+            obj_ = ndimage.find_objects(nl_)
+            gnd_ = np.isfinite(z) & np.isin(cls, lc_) & ~prior_cell
+            rr_ = max(int(round(float(cfg.get("rim_level_ring_m", 6.0)) / res)), 1)
+            for j_ in np.nonzero(~np.isfinite(lvl_) & (inmp_ >= 0.5))[0]:
+                sl_ = obj_[j_]
+                if sl_ is None:
+                    continue
+                sl_ = tuple(slice(max(q.start - rr_ - 1, 0), min(q.stop + rr_ + 1, n)) for q, n in zip(sl_, nl_.shape))
+                pc_ = nl_[sl_] == j_ + 1
+                ring_ = ndimage.binary_dilation(pc_, S8, iterations=rr_) & ~pc_ & gnd_[sl_]
+                if ring_.sum() >= 10:
+                    lvl_[j_] = float(np.percentile(z[sl_][ring_], float(cfg.get("rim_level_q", 10.0)))); n_rim += 1
+            if n_rim:
+                log(f"  wet patches no level reaches inside a trusted polygon, levelled at their rim: {n_rim}")
         lut_ = np.r_[np.nan, lvl_].astype(np.float32)
         v_ = lut_[nl_]
         take_ = nolev & np.isfinite(v_)
