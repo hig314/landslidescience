@@ -301,6 +301,13 @@
    "live": "2026-11-11 12:46:59",
    "commit": "f5c3125",
    "what": "fill: the water sheet never raises a soundings-conditioned bed (fill_mask 3), only lowers one above the seen water"
+  },
+  {
+   "id": "riverbed",
+   "stage": "fill",
+   "live": "2026-11-11 18:36:08",
+   "commit": "6ca95b9",
+   "what": "fill: river/sloped bodies take the lidar's own surface, blurred (6 m), pinned to the banks, 0.3 m under it 10 m in, fill_mask 11; nothing else fills them (Woz delta)"
   }
  ]
 }
