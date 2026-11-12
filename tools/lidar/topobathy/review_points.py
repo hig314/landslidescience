@@ -275,7 +275,7 @@ const CLASS = {0: ['void', '#7f7f7f'], 1: ['ground', '#a6773f'], 2: ['water', '#
 const CLSNUM = {void: 0, ground: 1, water: 2, bed: 3, ice: 4};
 const SHORE = {0: ['none', '#7f7f7f'], 1: ['land', '#a6773f'], 2: ['water', '#1f5fbf'], 3: ['floating', '#9e9ac8'], 4: ['glacier', '#9ecae1'], 255: ['nodata', '#444444']};
 const FILLM = {0: ['not filled', '#7f7f7f'], 1: ['band', '#ff7f0e'], 2: ['interior', '#d62728'], 3: ['conditioned by soundings', '#2ca02c'],
-  4: ['margin', '#9467bd'], 5: ['lake', '#1f77b4'], 6: ['channel', '#17becf'], 7: ['tidal', '#bcbd22'], 8: ['ground prior', '#8c564b'], 9: ['shoreface', '#e377c2'], 10: ['water sheet (upper bound)', '#aec7e8']};
+  4: ['margin', '#9467bd'], 5: ['lake', '#1f77b4'], 6: ['channel', '#17becf'], 7: ['tidal', '#bcbd22'], 8: ['ground prior', '#8c564b'], 9: ['shoreface', '#e377c2'], 10: ['water sheet (upper bound)', '#aec7e8'], 11: ['river bed (upper bound)', '#ffbb78']};
 const NA = [128, 128, 128];
 // a viridis-like ramp for the continuous modes
 const RAMP = ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'].map(hex);

@@ -83,7 +83,7 @@ DEFAULTS = dict(low_angle_slope=0.01, low_angle_sigma_m=20.0, low_angle_min_ha=5
                 ice_face="shore", lake_dmax=None, shore_grad_m=None, shore_grad_r_m=150.0, shore_grad_n0=3.0, shore_grad_smooth_m=120.0,
                 rim_widen=True, points_dz_m=0.0, tidal_lens=True, tidal_sigma_m=1.0, lens_max_m=None, sound_hyps_min_n=30,
                 points_max_sites=2500, points_max_eval=4_000_000, points_free_min=30, ground_prior=None, void_ground_m=4.5,
-                gap_fit_w0_m=6.0, gap_fit_w1_m=25.0, gap_fit_min_cells=25, slope_water_depth_m=0.0, flat_fit_min_ha=5.0, flat_fit_zlo_m=-4.5, flat_fit_ring_m=200.0, flat_fit_obs_slope=0.05, flat_fit_gmax=0.02, flat_fit_mad_m=1.2, low_water_cap=1.0, low_water_level_m=-1.87, low_water_edge_m=30.0, low_water_gap_m=48.0, rock_near_m=40.0, slope_water_min=0.0005, slope_water_smooth_m=25.0, lake_marine_min_n=5, lake_marine_slope_min_deg=2.0, lake_marine_prior="profile", lake_marine_fit="tension", water_sheet=1.0, water_sheet_depth_m=0.15, water_sheet_env_m=10.0, water_sheet_sigma_m=10.0, water_sheet_drop_m=0.5, water_sheet_taper_m=100.0)
+                gap_fit_w0_m=6.0, gap_fit_w1_m=25.0, gap_fit_min_cells=25, slope_water_depth_m=0.0, flat_fit_min_ha=5.0, flat_fit_zlo_m=-4.5, flat_fit_ring_m=200.0, flat_fit_obs_slope=0.05, flat_fit_gmax=0.02, flat_fit_mad_m=1.2, low_water_cap=1.0, low_water_level_m=-1.87, low_water_edge_m=30.0, low_water_gap_m=48.0, rock_near_m=40.0, slope_water_min=0.0005, slope_water_smooth_m=25.0, lake_marine_min_n=5, lake_marine_slope_min_deg=2.0, lake_marine_prior="profile", lake_marine_fit="tension", water_sheet=1.0, water_sheet_depth_m=0.15, water_sheet_env_m=10.0, water_sheet_sigma_m=10.0, water_sheet_drop_m=0.5, water_sheet_taper_m=100.0, river_bed=1.0, river_bed_sigma_m=6.0, river_bed_depth_m=0.3, river_bed_depth_dist_m=10.0, river_bed_pin_m=10.0)
 LAND_CLASSES = ("ground", "built", "snow", "canopy", "ice")
 
 
@@ -3111,6 +3111,52 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                 fill[cap] = Lw
             del prot, og
         del inw
+    # THE RIVER BED (2026-11-11, Hig's review of the Woz delta on the water sheet: "build a simpler rule pipeline - we need to generate river
+    # polygons anyway, so within those let's depress the surface from the edge going in, and use a blur to smooth out topography, and pin the
+    # edge of that blurred area to the shore so that the transition is smooth ... the lidar still 'owns' the surface over the river").  In
+    # every wet cell of a river or sloped body, whatever filled it (the 3DEP prior, soundings, channels, the sheet): the lidar's own surface
+    # (measured ground where there is some, else the returns off the water, else the level), blurred over river_bed_sigma_m with the banks,
+    # pinned to the banks (their residual from the blur carried in and faded over river_bed_pin_m), and depressed river_bed_depth_m, reached
+    # river_bed_depth_dist_m in from the edge.  fill_mask 11: an upper bound, like the sheet's.
+    rv_done_ = None
+    if float(P.get("river_bed", 0.0)) > 0 and lvl_ is not None and shore and P.get("_bodies") is not None:
+        bid_, btab_ = P["_bodies"]; mx_ = int(bid_.max()) if bid_.size else 0
+        rk_ = np.zeros(mx_ + 1, bool)
+        for k_, b_ in btab_.items():
+            if 0 < int(k_) <= mx_ and b_.get("kind") in ("river", "sloped"):
+                rk_[int(k_)] = True
+        R_ = rk_[np.clip(bid_, 0, mx_)] & (bid_ > 0) & (shore_lab == 2)
+        if R_.any():
+            wo_ = P.get("_water_obs")
+            src_ = np.where(np.isfinite(z), z, np.nan)
+            if wo_ is not None:
+                src_ = np.where(np.isfinite(src_), src_, wo_)
+            src_ = np.where(np.isfinite(src_), src_, lvl_)
+            # inside: the lidar's surface; outside: the final surface (the banks)
+            inp_ = np.where(R_, src_, fill).astype(np.float64)
+            ok_ = np.isfinite(inp_)
+            sg_ = float(P.get("river_bed_sigma_m", 6.0)) / res
+            num_ = _gsmooth(np.where(ok_, inp_, 0.0), sg_); den_ = _gsmooth(ok_.astype(np.float64), sg_)
+            B_ = np.where(den_ > 1e-3, num_ / np.maximum(den_, 1e-3), np.nan)
+            # the banks' residual from the blur, carried in and faded: the edge lands on the shore
+            ring_ = ~R_ & ok_ & (ndimage.binary_dilation(R_, iterations=2))
+            rsd_ = np.where(ring_, fill - B_, 0.0); rsd_[~np.isfinite(rsd_)] = 0.0
+            nr_ = _gsmooth(rsd_, max(sg_, 1.0)); dr_ = _gsmooth((ring_ & np.isfinite(fill - B_)).astype(np.float64), max(sg_, 1.0))
+            rex_ = np.where(dr_ > 1e-3, nr_ / np.maximum(dr_, 1e-3), 0.0)
+            dist_ = ndimage.distance_transform_edt(R_, sampling=res)
+            pin_ = 1.0 - np.clip(dist_ / max(float(P.get("river_bed_pin_m", 10.0)), res), 0.0, 1.0)
+            dep_ = float(P.get("river_bed_depth_m", 0.3)) * np.clip(dist_ / max(float(P.get("river_bed_depth_dist_m", 10.0)), res), 0.0, 1.0)
+            new_ = (B_ + pin_ * rex_ - dep_)
+            good_ = R_ & np.isfinite(new_)
+            dz_ = (new_ - fill)[good_]; dz_ = dz_[np.isfinite(dz_)]
+            fill[good_] = new_[good_].astype(fill.dtype); mask[good_] = 11
+            if ceil_mask is not None:
+                ceil_mask[good_] = 0
+            rv_done_ = good_
+            log(f"  the river bed: {int(good_.sum()) * res * res / 1e4:.1f} ha of river/sloped water, the lidar's surface blurred (sigma {sg_ * res:g} m), "
+                f"pinned to its banks and {float(P.get('river_bed_depth_m', 0.3)):g} m under it {float(P.get('river_bed_depth_dist_m', 10.0)):g} m in (fill_mask 11); "
+                f"changed by p10/p50/p90 {np.percentile(dz_, [10, 50, 90]).round(2).tolist() if dz_.size else []} m")
+            del num_, den_, B_, rsd_, nr_, dr_, rex_, dist_, pin_, dep_, new_, inp_, src_
     # THE WATER SHEET (2026-11-11, Hig's cm18 review of the Woz delta: "the river becomes broad and then terminates, and some weird fill
     # surfaces appear in the bottom of the basin ... make a surface that is just barely under the water - smoothed to pass uniformly under
     # surface roughness picked up in the lidar returns.  This will understate depth ... as long as we remember where the water is, we can then
@@ -3134,6 +3180,8 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         la_s = P.get("_low_angle")
         scope_ = sk_[bc_] | (sea_ & (la_s if la_s is not None else False))
         S_ = scope_ & (shore_lab == 2) & (mask > 0) & ~np.isin(mask, (5, 8)) & np.isfinite(fill) & np.isfinite(lvl_)
+        if rv_done_ is not None:
+            S_ &= ~rv_done_
         if S_.any():
             dsh_ = float(P.get("water_sheet_depth_m", 0.15))
             wo_ = P.get("_water_obs")
