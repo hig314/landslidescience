@@ -132,6 +132,34 @@ def post_masks(recipe, grid, layers, rules, win=None):
         raw = rules["masks"][i]; fix = ~cov & (raw > 0) & L["valid"]
         if fix.any():
             L["auto"] = np.where(fix, raw, L["auto"]).astype(np.float32); cov |= fix
+    # A SUPERSEDED TAKE NEVER SHOWS THROUGH (Hig's cm18 review, 2026-11-12, Homer small-boat harbour).  The sequential rules
+    # leave an earlier layer's mask set where a later one beat it (only an eviction clears it), harmless while the later
+    # layer shows at full weight -- but under a partial weight (despeckle, feather) the fold blended the two: the DGGS 2019
+    # DTM's "ground" (the dock decks, +2..+3 m) through the green lidar's -5 m bed, 394 cells round one float.  Wherever a
+    # higher layer shows, a lower layer whose class is not FULLY compatible with the class-now there is withdrawn.
+    cn_ = rules.get("class_now")
+    if cn_ is not None:
+        from topobathy.axes import TARGETS as _T, CLASSES as _C
+        tab_ = _T[recipe.d.get("target", "ground_current")]
+        def _full(L_):
+            if L_.get("cls") is None: return np.ones(cn_.shape, bool)
+            f_ = np.zeros(cn_.shape, bool)
+            for now_, allowed_ in tab_.items():
+                sel_ = cn_ == _C[now_]
+                if not sel_.any(): continue
+                for obs_, w_ in allowed_.items():
+                    if w_ >= 1: f_ |= sel_ & (L_["cls"] == _C[obs_])
+            return f_
+        above_ = np.zeros(cn_.shape, bool); n_wd = 0
+        for i in range(len(layers) - 1, -1, -1):
+            a_ = layers[i]["auto"]
+            if i < len(layers) - 1 and (a_ > 0).any():
+                wd_ = above_ & (a_ > 0) & ~_full(layers[i])
+                if wd_.any():
+                    layers[i]["auto"] = np.where(wd_, 0.0, a_).astype(np.float32); n_wd += int(wd_.sum())
+            above_ |= layers[i]["auto"] > 0
+        if n_wd:
+            print(f"  superseded takes withdrawn under a higher layer: {n_wd} cells")
     # Feather underlay (Hig, 2026-10-14: no feathering where the Grewingk 2021 lidar drops off).  A
     # feathered edge blends a layer with what is shown below it -- but the base is shown only where the
     # rules took it, so beside a fallback the ramp sat over nothing, fold_step gave the layer the cell
@@ -161,6 +189,24 @@ def post_masks(recipe, grid, layers, rules, win=None):
             from topobathy.axes import CLASSES as _C
             surf = layers[j]["valid"] if layers[j].get("cls") is None else \
                 (layers[j]["valid"] & ~np.isin(layers[j]["cls"], [_C["void"], _C["water"], _C["canopy"]]))
+            # ...and only a cell where the lower layer's class is FULLY compatible with the class-now there (Hig's review of
+            # cm18, 2026-11-12, Homer Spit tip): the joint's bed in the harbour is speckle (bed returns between docks and
+            # boats), so its edge ramped everywhere and the underlay laid the DGGS 2019 vendor DTM beneath it -- docks, the
+            # water surface and its TIN bridges as "ground"/"modelled" at +2 to +5 m, blended over the 2019 green lidar's
+            # -7.9 m bed in the harbour entrance and the multibeam's -39 m at the deep-water dock (the "wall", the "line of
+            # spikes").  The rules would never show an older ground where a newer survey saw bed, nor a modelled stand-in
+            # where an observation exists; the underlay may not either.
+            cn_ = rules.get("class_now")
+            if cn_ is not None and layers[j].get("cls") is not None:
+                from topobathy.axes import TARGETS as _T
+                tab_ = _T[recipe.d.get("target", "ground_current")]
+                full_ = np.zeros(cn_.shape, bool)
+                for now_, allowed_ in tab_.items():
+                    sel_ = cn_ == _C[now_]
+                    if not sel_.any(): continue
+                    for obs_, w_ in allowed_.items():
+                        if w_ >= 1: full_ |= sel_ & (layers[j]["cls"] == _C[obs_])
+                surf = surf & full_
             give = need & surf & near
             if give.any():
                 layers[j]["auto"] = np.where(give, 1.0, layers[j]["auto"]).astype(np.float32); need &= ~give
@@ -914,6 +960,19 @@ def cmd_highline(a):
     lines = [f for f in json.load(open(F["tide_lines"]))["features"] if _shape(f["geometry"]).intersects(b_)]
     sea = [_mapping(g) for g in (_shape(f["geometry"]) for f in json.load(open(F["tide_sea"]))["features"]) if g.intersects(b_)]
     lidar_ = HL.lidar_on_grid(T, prof["crs"], z.shape)
+    # ...nor a MEASURED BED (Hig, 2026-11-04: tide lines "shouldn't overrule lidar or multibeam"; cm18 review 2026-11-12, Homer
+    # Spit: a 230 m high-tide trace along the deep-water dock stood at +4.9 m on the 2009 multibeam's -39 m bed, ramped 20 m
+    # either side -- the "wall", the "line of spikes").  "Lidar" was the topographic lidar footprints alone; a bed the composite
+    # shows from an observation (class_now bed, not a filled cell) is protected the same way, whichever survey measured it.
+    if (out / "class_now.tif").exists() and (out / "fill_mask.tif").exists():
+        from topobathy.axes import CLASSES as _C
+        with rasterio.open(out / "class_now.tif") as ds:
+            cn_ = ds.read(1)
+        with rasterio.open(out / "fill_mask.tif") as ds:
+            fm_ = ds.read(1)
+        mb_ = np.isin(cn_, [_C["bed"], _C["subglacial"]]) & (fm_ == 0) & np.isfinite(z)
+        print(f"  measured bed protected from the tide lines: {float(mb_.sum()) * res * res / 1e4:.1f} ha")
+        lidar_ = lidar_ | mb_
     new, code, rep_ = HL.apply(z, T, res, lines, sea, lidar_)
     hw_ = Path(F["tide_sea"]).with_name("tide_high_water.geojson")
     if hw_.exists() and (out / "fill_mask.tif").exists():

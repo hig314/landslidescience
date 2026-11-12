@@ -103,6 +103,16 @@ def _point_stale(P, path, row, rr, cc):
     around at +1.2 m, and the fill dug pits and discs to them).  The joint's own rule (the zone's day, ZD) applied to the fill's
     points: P["_zone_day"] is the joint's zone_day.tif on the grid (NaN = pooled); a point's year from its survey's name, else
     its file's; an undated point is old.  Outside the zones nothing changes."""
+    # A SEA SOUNDING IS NO EVIDENCE IN WATER ABOVE THE HIGHEST TIDE (Hig's cm18 review, 2026-11-12, Homer Spit tip: puddles on
+    # the spit at +7.9 m held 10-11 of NOS h-surveys' 1977-84 casts at -5..-9 m, from before the tip was built up, and the
+    # spline dug them 6-9 m deep).  A point from a marine file (marine_points_re: the NOS surveys, CRM's cell centres) in a
+    # cell whose shoreline-stage level stands above tide_max_m is stale, whatever its date: the sea cannot have put it there.
+    rx_ = P.get("marine_points_re", r"nos_|crm_")
+    sl_ = P.get("_shore_level")
+    if rx_ and sl_ is not None and re.search(rx_, os.path.basename(path)):
+        v_ = sl_[rr, cc]
+        if np.isfinite(v_) and v_ > float(P.get("tide_max_m", 4.5)):
+            return True
     zd = P.get("_zone_day")
     if zd is None or not np.isfinite(zd[rr, cc]):
         return False

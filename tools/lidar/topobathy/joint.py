@@ -56,7 +56,7 @@ from scipy import ndimage
 CLS = {"void": 0, "ground": 1, "water": 2, "bed": 3, "ice": 4}
 DEFAULTS = dict(res_m=1.0, pool_years={"ground": 5.0, "bed": 30.0, "ice": 0.5}, rates={"ground": 0.01, "bed": 0.02, "ice": 3.0}, tol_m=0.15, tol_low_m=1.0, xc_sigma_m=2.0, xc_minw=1.5,
                 over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, bed_stand_dz_m=2.0, derived_stand_dz_m=4.0, derived_stand_frac=0.5, derived_stand_slope=0.01, sheet_level_tol_m=0.5, sheet_level_slope=0.0015, low_water_stand_m=1.0, derived_under_sheet_m=6.0, low_water_level_m=-1.87, low_water_edge_m=30.0, rock_near_m=40.0, mesa_level_m=1.0, mesa_level_frac=0.8, mesa_rise_m=1.0, mesa_ring_m=6.0, mesa_ring_frac=0.6, mesa_min_cells=1, mesa_slope=0.05, speck_near_m=300.0, speck_sparse_frac=0.25, derived_ground_gap_m=0.0, derived_ground_dense_frac=0.5, sonar_min_depth_m=1.5, sparse_bed_min_n=5, coarse_factor=4.0, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, derived_fine_m=0.0, derived_fine_frac=0.05, surf_near_m=30.0, speck_cast_m=150.0, derived_ground_bed_dz_m=3.0, derived_ground_bed_top_m=0.0,
-                sigma_floor_m=0.03, gap_m=2.0, wet_m=15.0, steep_deg=20.0, prior_slope_res_m=5.0, hole_rim_tol_m=1.0, grid_wc=0.1, grid_better=0.75,
+                sigma_floor_m=0.03, gap_m=2.0, wet_m=15.0, structure_m=30.0, steep_deg=20.0, prior_slope_res_m=5.0, hole_rim_tol_m=1.0, grid_wc=0.1, grid_better=0.75,
                 lidar_sigma_m=0.08, grid_xy_sigma_m=0.0, align_min_cells=1000)
 
 
@@ -1541,7 +1541,7 @@ def layer(recipe_path, win=None, out=None, res=None, log=print, tag=""):
             a = s.read(1).astype(dt)
             if dt is np.float32: a[a == s.nodata] = np.nan
             return a
-    Z = rd("joint_z"); Wz = rd("water_z"); CJ = rd("joint_cls", np.uint8)
+    Z = rd("joint_z"); Wz = rd("water_z"); CJ = rd("joint_cls", np.uint8); rep = {}
     # any return at all, per lidar source (zmax), for the hole test and the footprint fallback
     zmax = np.full(Z.shape, np.nan, np.float32); obs_any = {}
     for s in srcs:
@@ -1569,6 +1569,22 @@ def layer(recipe_path, win=None, out=None, res=None, log=print, tag=""):
     lev = nearest_fill(smooth(Wz, w, 3.0 / res))
     wet = w | (~g & (dw < dg) & (dw <= cfg["wet_m"]) & (noret | (np.nan_to_num(zmax, nan=-1e9) < lev + 1.0)))
     wet = ndimage.binary_opening(wet, iterations=1) | w
+    # A STRUCTURE OVER WATER IS NOT GROUND (Hig's cm18 review, 2026-11-12, Homer small-boat harbour: "the docks are not well
+    # filtered ... accurately classify non-water as structures").  Over the floats and the deep-water dock both green
+    # lidars (2019, 2021 NCMP) returned at +1..+10 m and classed none of it ground, water or bed; the cell was a void, the
+    # composite's class-now fell back to the DGGS 2019 vendor DTM's "ground" -- the decks -- and the fill stood the harbour
+    # floor on them.  A cell with returns but no ground, water or bed, nearer the survey's water or bed than any dry ground
+    # and within structure_m of it, is a structure over water: water at the local level (its bed unknown -- the fill's,
+    # from the measured floor around it), so no older surface can stand on it.  layer_structure.tif says where.
+    if float(cfg.get("structure_m", 0) or 0) > 0:
+        wb_ = w | (g & (CJ == CLS["bed"])); dry_ = g & (CJ != CLS["bed"])
+        dwb_ = ndimage.distance_transform_edt(~wb_, sampling=res) if wb_.any() else np.full(Z.shape, np.inf)
+        ddr_ = ndimage.distance_transform_edt(~dry_, sampling=res) if dry_.any() else np.full(Z.shape, np.inf)
+        struct = ~g & ~wet & np.isfinite(zmax) & (dwb_ <= float(cfg["structure_m"])) & (dwb_ < ddr_) & (np.nan_to_num(lev, nan=1e9) <= float(cfg.get("structure_level_max_m", 4.5)))
+        del dwb_, ddr_, wb_, dry_
+        wet |= struct
+        rep["structure_over_water_km2"] = round(float(struct.sum()) * res * res / 1e6, 4)
+        write(out / f"layer{tag}_structure.tif", struct.astype(np.uint8), win, res, epsg, "uint8", 255)
     level = np.where(wet, lev, np.nan)
     # returns but no ground (a bush) within gap_m of GROUND -- not of a bed (2026-10-29, Bluff Point run 4: Homer 2019's
     # sea-surface returns, their "ground" judged the sea, beside Homer 2018's green-lidar bed became 0.26 km2 of land at
@@ -1579,7 +1595,7 @@ def layer(recipe_path, win=None, out=None, res=None, log=print, tag=""):
     F = footprint(srcs, obs_any, win, res, epsg)
     steep = prior_slope(prior, win, res, epsg, cfg) > cfg["steep_deg"] if prior else np.zeros(Z.shape, bool)
     hole = noret & ~wet & ~gap
-    lab, n = ndimage.label(hole, structure=np.ones((3, 3))); rep = {}
+    lab, n = ndimage.label(hole, structure=np.ones((3, 3)))
     if n:
         ring = ndimage.binary_dilation(hole, structure=np.ones((3, 3))) & ~hole
         rl = ndimage.grey_dilation(lab, size=3) * ring

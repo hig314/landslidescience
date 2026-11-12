@@ -204,6 +204,44 @@
     "date": "2026-11-05",
     "why": "Hoen's Lagoon inner flat: nearly perfectly flat mud at about 0.8 m whose lidar returns are classed as water at its own level (hard to tell mud from water even standing on it). The lidar height is right; these cells are ground. The contour shore model's run cm16 dug it to -3.7 m over 3.4 ha (the mapped low water took it as sea). Polygon drawn by Hig in QGIS, 2026-11-05 (15.6 ha); the very shallow pools outside it stay water."
    }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -151.42299,
+     59.60727
+    ]
+   },
+   "properties": {
+    "id": "homer_spit_puddle_1",
+    "kind": "lake",
+    "dmax_m": 0.1,
+    "who": "Hig",
+    "date": "2026-11-12",
+    "why": "Puddle on the Homer Spit tip at about +7.9 m, mapped as a pond with substantial depth (NOS 1977-84 casts from before the tip was built up fell inside it and the spline dug it 6-9 m). Hig, cm18 review: assign a depth of just 0.1 m. Level 7.89 m: the 2023 lidar's own water surface on the puddle (an edit's kind 'lake' without a level left a sloped body without a consensus, and the shore stage took 2.6 m from elsewhere).",
+    "level_m": 7.89
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -151.42591,
+     59.60795
+    ]
+   },
+   "properties": {
+    "id": "homer_spit_puddle_2",
+    "kind": "lake",
+    "dmax_m": 0.1,
+    "who": "Hig",
+    "date": "2026-11-12",
+    "why": "Puddle on the Homer Spit tip at about +7.9 m, mapped as a pond with substantial depth (NOS 1977-84 casts from before the tip was built up fell inside it and the spline dug it 6-9 m). Hig, cm18 review: assign a depth of just 0.1 m. Level 7.87 m: the 2023 lidar's own water surface on the puddle (an edit's kind 'lake' without a level left a sloped body without a consensus, and the shore stage took 2.6 m from elsewhere).",
+    "level_m": 7.87
+   }
   }
  ]
 }
