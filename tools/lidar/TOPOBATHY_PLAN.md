@@ -1,5 +1,19 @@
 # Topobathy compositing: tools and interface
 
+## Resume here (2026-11-12, 10:00) — full run on one code: run_1110b (A B C) then run_1112d (D)
+
+**Running:** `$W/run_1110b.sh` (groups A -> publish, B -> publish, C -> publish) and `$W/run_1112d.sh`, which waits for
+"run_1110b done" in `$W/test_cm18.log`, then group D = the 17 boxes no earlier rule touched (rows 0-1, r2c0 r2c1 r5c0 r5c5 r6c5)
++ the 6 that ran before cfe8b9f (r3c4 r4c3 r7c2 r7c3 r5c2 r4c1), then publishes all 48.  r6c3 requeued at the end of group A.
+**Live 2026-11-12 09:42 (cfe8b9f, ledger 0948e7e), from Hig's Homer Spit tip review** (crop harbor_t, dev1112d):
+`structure` (joint: returns with no ground/water/bed near sea-level water = structure over water -> water), `superseded`
+(composite: a lower take not fully compatible with class-now never shows under a higher layer -- DGGS 2019 decks blended
+through the green-lidar bed), `bedprotect` (highline: a measured bed is protected from the tide lines -- Hig's high-tide trace
+along the deep-water dock stood at +4.9 on -39 m), `perchedsound` (fill: NOS/CRM casts stale in water above 4.5 m), `spitpuddles`
+(water/edits.geojson dmax 0.1).  Entrance +1.95 -> -8.26, spike line +4.88 -> -39.48, small-boat floor +2.75 -> -3.3.
+**Open:** a few dock decks remain where the DGGS 2019 POINT cloud classes them ground (joint bit 128); gate clip_shelf counts
+Hig's 0.1 m puddles by design.  Don't run crops beside a fill: r6c3 took 8.5 h under swap pressure 2026-11-11/12.
+
 ## Resume here (2026-11-10, 19:10) — run_1110b: the 31 boxes the rules touch, on a41945e
 
 **Running:** `$W/run_1110b.sh` (log `$W/test_cm18.log`): group A r6c3 r5c3 r4c1 r7c4 r6c2 r6c1 r6c4 r4c5 r3c4 r4c3 r7c2 r7c3 r5c2 ->
