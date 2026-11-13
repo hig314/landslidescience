@@ -216,7 +216,7 @@
   var S = {
     mode: Q.get('m') === 'together' ? 'together' : 'frame',
     res: qn('res', 3), pitch: qn('p', 50), ex: qn('ex', 10) / 10, t3d: Q.get('t3d') !== '0',
-    shade: Q.get('sh') || 'preset', bm: Q.get('bm') || 'esri-img', op: qn('op', 100) / 100,
+    shade: Q.get('sh') || 'preset', bm: Q.get('bm') === 'none' ? '' : (Q.get('bm') || 'esri-img'), op: qn('op', 100) / 100,
     sunRel: Q.get('sr') !== '0', az: qn('az', 315), cols: qn('cols', 0),
     locks: {}, title: Q.get('t') || null
   };
@@ -786,8 +786,24 @@
 
   function fillBase() {
     var sel = $('bm'), html = '<option value="">None (white)</option>';
-    BASEMAPS.forEach(function (b) { html += '<option value="' + b.id + '">' + b.label + '</option>'; });
+    BASEMAPS.forEach(function (b) { html += '<option value="' + b.id + '">' + esc(b.label) + '</option>'; });
     sel.innerHTML = html;
+    if (BASEMAPS.some(function (b) { return b.id === S.bm; }) || !S.bm) sel.value = S.bm;
+  }
+  // Shared QMS layers (Bing, Google, ...), as on /lidar/ and /inventory/, scoped
+  // to who is looking. A link naming one keeps it in S.bm until the list
+  // arrives; a viewer who cannot see it gets a white base, the id untouched.
+  function loadSharedBases() {
+    fetch('/inventory/api/qms/promoted/').then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        var extra = d && (d.layers || d.results || (Array.isArray(d) ? d : null));
+        if (!extra || !extra.length) return;
+        var have = {}; BASEMAPS.forEach(function (b) { have[b.id] = 1; });
+        BASEMAPS = BASEMAPS.concat(extra.filter(function (b) { return b.tiles && !have[b.id]; }));
+        fillBase();
+        P.forEach(function (p) { if (p.map && p.loaded && !p.map.getSource('base')) setBase(p); });
+        credits();
+      }).catch(function () {});
   }
 
   function bindKey() {
@@ -1765,7 +1781,7 @@
     var q = new URLSearchParams();
     q.set('m', S.mode); q.set('res', S.res.toFixed(3)); q.set('p', Math.round(S.pitch));
     q.set('ex', Math.round(S.ex * 10)); q.set('t3d', S.t3d ? 1 : 0); q.set('sh', S.shade);
-    q.set('bm', S.bm); q.set('op', Math.round(S.op * 100)); q.set('sr', S.sunRel ? 1 : 0); q.set('az', S.az);
+    q.set('bm', S.bm || 'none'); q.set('op', Math.round(S.op * 100)); q.set('sr', S.sunRel ? 1 : 0); q.set('az', S.az);
     if (S.title) q.set('t', S.title);
     if (S.cols) q.set('cols', S.cols);
     var lk = Object.keys(S.locks); if (lk.length) q.set('lk', lk.join(','));
@@ -1854,7 +1870,7 @@
 
   // ---- boot ------------------------------------------------------------------
   if (Q.get('perf') === '1') { $('perf').style.display = ''; $('perflbl').style.display = ''; }
-  fillBase();
+  fillBase(); loadSharedBases();
   bindKey();
   editable($('ptitle'), function () { return S.title; }, function (v) { S.title = v; },
            function () { return 'Untitled comparison'; }, 'Title of this comparison (Frame mode)');
