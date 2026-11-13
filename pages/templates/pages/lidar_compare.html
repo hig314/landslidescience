@@ -35,10 +35,10 @@
   #scalebar { display: inline-flex; flex-direction: column; align-items: flex-start; }
   #scalebar i { display: block; height: 5px; border: 2px solid #222; border-top: 0; }
   #grid { flex: 1; display: grid; gap: 4px; padding: 4px; min-height: 0; background: #ddd; }
-  .pane { position: relative; display: flex; flex-direction: column; min-height: 0; background: #fff; }
+  .pane { position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; background: #fff; }
   .strip { flex: none; display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px;
            border-bottom: 1px solid #ddd; overflow: hidden; }
-  .strip .ttl { flex: 1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
+  .strip .ttl { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
   
   .strip .north { width: 16px; height: 16px; flex: none; }
   .strip .meas { font-size: 11px; color: #777; font-variant-numeric: tabular-nums; }
@@ -151,7 +151,8 @@
     <span class="grp frameonly"><button id="annbtn" title="Scale bar and north arrow on the ground in every pane: settings for all panes here, angle and position per pane">Scale bar &amp; north arrow…</button>
       <button id="pfbtn" title="A profile line in every pane, each drawn in an inset at one shared scale">Profiles…</button></span>
     <span class="grp"><label>Export <select id="expscale"><option value="2">2×</option><option value="4">4×</option></select></label>
-      <button id="exportpng" title="A PNG of the whole sheet, every pane redrawn at this pixel ratio with deeper tiles">Export PNG</button>
+      <select id="expfmt" title="PNG is lossless; JPEG (quality 90) is several times smaller and hard to tell apart on imagery and shading"><option value="png">PNG</option><option value="jpg">JPEG</option></select>
+      <button id="exportpng" title="The whole sheet as an image, every pane redrawn at this pixel ratio with deeper tiles">Export</button>
       <button id="hidectl" title="Hide the controls; titles, panes and credits stay">Hide controls</button></span>
     <span class="grp"><button id="copy">Copy link</button><button id="reset" title="Back to the view this link opened with">Reset</button>
       <label id="perflbl" style="display:none"><input type="checkbox" id="perfon" checked> perf</label>
@@ -314,8 +315,10 @@
   function layoutGrid() {
     var n = P.length, cols = S.cols || Math.ceil(Math.sqrt(n));
     var rows = Math.ceil(n / cols);
-    grid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
-    grid.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)';
+    // minmax(0, 1fr), not 1fr: a 1fr track never shrinks below its content's
+    // minimum, so a long title or the survey pull-down made its column wider.
+    grid.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+    grid.style.gridTemplateRows = 'repeat(' + rows + ', minmax(0, 1fr))';
     P.forEach(function (p) { if (p.map) p.map.resize(); if (p.el) pfPlace(p); });
   }
 
@@ -872,7 +875,7 @@
     $('pfbtn').addEventListener('click', function () { if (pfEditing) pfClose(); else pfOpen(); });
     $('hidectl').addEventListener('click', function () { setClean(true); });
     $('showctl').addEventListener('click', function () { setClean(false); });
-    $('exportpng').addEventListener('click', function () { exportPng(+$('expscale').value); });
+    $('exportpng').addEventListener('click', function () { exportPng(+$('expscale').value, $('expfmt').value); });
   }
 
   function removePane(i) {
@@ -1690,7 +1693,8 @@
   // `scale`× and the bar and arrow redrawn larger, then copied into the sheet
   // and restored before the next. One at a time keeps GPU memory to one
   // pane's worth (a 4× pane's terrain textures are ~16 MB each).
-  async function exportPng(scale) {
+  async function exportPng(scale, fmt) {
+    var jpg = fmt === 'jpg';
     if (editing) annClose();
     if (pfEditing) pfClose();
     var busy = $('busy'); busy.style.display = 'flex';
@@ -1759,13 +1763,14 @@
         line += w + ' ';
       });
       g.fillText(line, pad, y);
-      var blob = await new Promise(function (r) { out.toBlob(r, 'image/png'); });
+      // JPEG at quality 0.9: the sheet is painted on white, so no alpha is lost.
+      var blob = await new Promise(function (r) { out.toBlob(r, jpg ? 'image/jpeg' : 'image/png', jpg ? 0.9 : undefined); });
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = ((S.title || 'terrain-comparison').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'terrain-comparison') + '_' + scale + 'x.png';
+      a.download = ((S.title || 'terrain-comparison').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'terrain-comparison') + '_' + scale + 'x.' + (jpg ? 'jpg' : 'png');
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 60000);
-      toast('Exported ' + out.width + ' × ' + out.height + ' px');
+      toast('Exported ' + out.width + ' × ' + out.height + ' px, ' + (blob.size / 1048576).toFixed(1) + ' MB ' + (jpg ? 'JPEG' : 'PNG'));
     } catch (err) {
       console.error(err); toast('Export failed: ' + err.message);
       P.forEach(function (p, i) {
