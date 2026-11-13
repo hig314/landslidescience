@@ -371,6 +371,13 @@
    "live": "2026-11-12 15:40:28",
    "commit": "8a1f407",
    "what": "fill water sheet: a measured bed under the level pulls the sheet down around it"
+  },
+  {
+   "id": "sheettaper",
+   "stage": "fill",
+   "live": "2026-11-12 15:52:12",
+   "commit": "a00983e",
+   "what": "fill water sheet: no taper toward water-surface returns (the pits between them); sheetbed near the sheet"
   }
  ]
 }
