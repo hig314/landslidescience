@@ -45,6 +45,20 @@
   .strip .meas.bad { color: #c00; font-weight: 600; }
   .strip select { font: inherit; font-size: 11px; max-width: 150px; }
   .strip .rm { border: 0; background: none; cursor: pointer; color: #999; }
+  /* Re-ordering: drag a pane by its handle; the others make room as it passes. */
+  .strip .mv { flex: none; cursor: grab; color: #888; font-size: 14px; line-height: 1; padding: 0 2px;
+               user-select: none; touch-action: none; }
+  .strip .mv:hover { color: #222; }
+  body.reorder, body.reorder * { cursor: grabbing !important; }
+  body.reorder .pane .mapbox { pointer-events: none; }
+  body.reorder .pane::after { content: attr(data-n); position: absolute; inset: 24px 0 0 0; z-index: 6;
+                              display: flex; align-items: center; justify-content: center;
+                              font: 700 44px system-ui, sans-serif; color: rgba(0,0,0,.45);
+                              background: rgba(255,255,255,.35); pointer-events: none; }
+  body.reorder .pane.moving::after { color: #2a6fdb; background: rgba(42,111,219,.18);
+                                     border: 4px solid #2a6fdb; inset: 0; }
+  body.reorder .pane.moving .strip { background: #dbe7fb; }
+  body.clean .strip .mv { display: none !important; }
   .frameonly { display: none; }
   body.frame .frameonly { display: inline-block; }
   /* #key .grp sets display: flex, which outranks .frameonly; hide them again. */
@@ -211,7 +225,9 @@
   if (Q.get('pn')) {
     Q.get('pn').split(';').forEach(function (s) {
       var a = s.split(',');
-      if (a.length < 4 || !isFinite(+a[0]) || !isFinite(+a[1])) return;
+      // A context-only pane is written lat,lon,bearing (trailing empties
+      // trimmed), so three fields are a whole pane.
+      if (a.length < 2 || a[0] === '' || a[1] === '' || !isFinite(+a[0]) || !isFinite(+a[1])) return;
       P.push({ lat: +a[0], lon: +a[1], b: +a[2] || 0, ds: a[3] || null,
                title: a[4] ? decodeURIComponent(a[4]) : null, dsAuto: a[5] !== 'm' });
     });
@@ -273,6 +289,9 @@
   // the asking map's worker, so a second map asking the same URL got a
   // detached buffer (the /lidar/ export's &export=1 fault). Unknown params
   // are ignored by its parser.
+  // The key is the pane's own id, not its position: after a re-order two panes
+  // would otherwise ask for the same keyed URL.
+  var paneSeq = 0;
   function keyed(u, i) { return u + (u.indexOf('?') < 0 ? '?' : '&') + 'pk=' + i; }
 
   var PRESETS = {
@@ -283,7 +302,7 @@
   function sunAz(p) { return S.sunRel ? ((S.az + p.b) % 360 + 360) % 360 : S.az; }
   function shadeUrl(p, i) {
     var o = Object.assign({}, PRESETS[S.shade] || PRESETS.hillshade, { az: Math.round(sunAz(p)) });
-    return keyed(DemShade.url(regFor(p.ds), o), i);
+    return keyed(DemShade.url(regFor(p.ds), o), p.uid);
   }
 
   var BASEMAPS = LSBasemaps.DEFAULTS.filter(function (b) { return !b.style && b.tiles; });
@@ -416,7 +435,8 @@
     var p = P[i];
     var el = document.createElement('div');
     el.className = 'pane';
-    el.innerHTML = '<div class="strip"><span class="ttl"></span><select class="frameonly ds"></select>' +
+    if (p.uid === undefined) p.uid = paneSeq++;
+    el.innerHTML = '<div class="strip"><span class="mv frameonly" title="Drag to move this pane; Esc puts it back">⠿</span><span class="ttl"></span><select class="frameonly ds"></select>' +
                    '<span class="meas"></span>' + northSvg() +
                    '<button class="rm frameonly" title="Remove pane">✕</button></div><div class="panebar"></div><div class="mapbox"></div>';
     grid.appendChild(el);
@@ -439,6 +459,7 @@
       rebuildSources(p, P.indexOf(p)); surveyOptions(p); credits(); syncUrl();
     });
     el.querySelector('.rm').addEventListener('click', function () { removePane(P.indexOf(p)); });
+    reorderAttach(p);
     pfAttach(p);
     annAttach(p);
 
@@ -517,7 +538,7 @@
                             'raster-opacity-transition': { duration: 0, delay: 0 } } }, firstAnnLayer(m));
     }
     p.shadeAz = Math.round(sunAz(p));
-    m.addSource('dem', { type: 'raster-dem', tiles: [keyed(DemShade.demUrl(regFor(p.ds), 256), i)],
+    m.addSource('dem', { type: 'raster-dem', tiles: [keyed(DemShade.demUrl(regFor(p.ds), 256), p.uid)],
                          encoding: 'mapbox', tileSize: 256, minzoom: 0, maxzoom: sp ? sp.max_zoom : 14 });
     applyTerrain(p);
     restack(p);
@@ -847,6 +868,68 @@
     if (S.pf.on) pfRenderAll();
     layoutGrid(); credits(); syncUrl(); syncKey();
   }
+  // ---- re-ordering panes -----------------------------------------------------
+  // Drag a pane by the ⠿ handle in its title strip (Frame mode). The grid
+  // re-flows live as the pointer crosses other panes; release keeps the new
+  // order, Esc restores the old one. A pane's maps, settings, scale bar, north
+  // arrow and profile travel with it; only its position in the link changes.
+  function placePanes() { P.forEach(function (p, i) { grid.appendChild(p.el); p.el.setAttribute('data-n', i + 1); }); }
+  function movePane(from, to) {
+    if (from === to || from < 0 || to < 0 || from >= P.length || to >= P.length) return;
+    var drv = P[driver], act = P[activePane];
+    P.splice(to, 0, P.splice(from, 1)[0]);
+    placePanes();
+    driver = drv ? P.indexOf(drv) : -1;
+    if (act) activePane = P.indexOf(act);
+  }
+  function reorderAttach(p) {
+    var h = p.el.querySelector('.mv');
+    h.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0 || P.length < 2) return;
+      e.preventDefault(); e.stopPropagation();
+      var before = P.slice();
+      try { h.setPointerCapture(e.pointerId); } catch (err) {}
+      document.body.classList.add('reorder');
+      p.el.classList.add('moving');
+      placePanes();
+      function over(ev) {
+        var t = document.elementFromPoint(ev.clientX, ev.clientY);
+        var el = t && t.closest ? t.closest('.pane') : null;
+        var j = -1;
+        P.forEach(function (q, k) { if (q.el === el) j = k; });
+        return j;
+      }
+      function mv(ev) { var j = over(ev); if (j >= 0) movePane(P.indexOf(p), j); }
+      function end(cancel) {
+        window.removeEventListener('pointermove', mv, true);
+        window.removeEventListener('pointerup', up, true);
+        window.removeEventListener('pointercancel', cx, true);
+        document.removeEventListener('keydown', key, true);
+        document.body.classList.remove('reorder');
+        p.el.classList.remove('moving');
+        if (cancel) {
+          var drv = P[driver], act = P[activePane];
+          P = before; placePanes();
+          driver = drv ? P.indexOf(drv) : -1; if (act) activePane = P.indexOf(act);
+        }
+        var changed = P.some(function (q, k) { return q !== before[k]; });
+        if (!changed) return;
+        if (S.pf.on) pfRenderAll();
+        credits(); syncUrl(); syncKey();
+        toast('Pane moved to position ' + (P.indexOf(p) + 1));
+      }
+      function up() { end(false); }
+      function cx() { end(true); }
+      function key(ev) { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); end(true); } }
+      // On the window, not the handle: a lost capture must not leave the page
+      // stuck in re-ordering.
+      window.addEventListener('pointermove', mv, true);
+      window.addEventListener('pointerup', up, true);
+      window.addEventListener('pointercancel', cx, true);
+      document.addEventListener('keydown', key, true);
+    });
+  }
+
   function setPaneCount(n) {
     n = Math.max(1, Math.min(MAXP, n));
     while (P.length > n) removePane(P.length - 1);
@@ -864,7 +947,7 @@
   // and bends over relief, like paint on the landscape. Lengths are
   // horizontal ground metres. While its panel is open a press on it drags it
   // and any other press works the map; with the panel closed it is fixed.
-  var editing = false, annSeq = 0, activePane = 0;
+  var editing = false, annSeq = 0, activePane = 0, annRedrawT = null;
   // One fixed stack per pane, bottom to top: base, shading, scale bar, north
   // arrow, profile line. Every rebuild re-inserts layers relative to others,
   // and two rebuilds in a row (the export) left the profile under the base;
@@ -903,45 +986,79 @@
   };
   // Canvas for an annotation, and the ground size (metres) it spans.
   // `a.k` (export only) draws the same picture on a canvas k× larger.
+  // Labels on the bar and arrow have one ground size for the whole sheet, set
+  // so that at the shared scale they read about as large as the profile
+  // insets' 10 px labels (Hig, 2026-11-13), whatever the bar's length or the
+  // arrow's size. Small / medium / large scale that.
+  var LBL_PX = 10, LBL_MULT = [0.8, 1, 1.35];
+  function lblGround(a) { return LBL_PX * (LBL_MULT[(a.fs || 2) - 1] || 1) * a.res; }
   function annCanvas(a, outline) {
     var c = document.createElement('canvas'), g, k = COL[a.col] || COL.d, W, H, rk = a.k || 1;
     function sized(w, h) { c.width = w * rk; c.height = h * rk; g = c.getContext('2d'); g.scale(rk, rk); }
+    function font(fs, w) { g.font = w + ' ' + fs + 'px system-ui, sans-serif'; }
     if (a.type === 'scale') {
-      var CW = 2048, BL = Math.round(CW / 1.25), x0 = (CW - BL) / 2;
-      var barH = [22, 38, 60][a.th - 1] || 38, fs = [64, 92, 130][a.fs - 1] || 92;
-      var CH = Math.round(24 + fs * 1.2 + 18 + barH + 24);
+      // Canvas resolution follows the label: a bar of 1638 px, rescaled
+      // (256-4096 px) so its labels land between 32 and 300 canvas px.
+      var BL = 1638, f0 = lblGround(a) * BL / a.len;
+      BL = Math.round(Math.max(256, Math.min(4096, BL * Math.min(1, 300 / f0) * Math.max(1, 32 / f0))));
+      var ppm = BL / a.len;                             // canvas px per ground metre
+      var barH = Math.round(([22, 38, 60][a.th - 1] || 38) * BL / 1638);
+      var fs = Math.max(6, lblGround(a) * ppm);
+      var U = unitFor(a.len), unit = ' ' + U.n, n = a.seg || 1, sw = BL / n;
+      // Label every tick, every other, ... until neighbours clear each other
+      // (the labels keep their size, so a short bar shows fewer numbers);
+      // 0 and the end are always labelled.
+      sized(8, 8); font(fs, 600);
+      var widest = 0, j;
+      for (j = 0; j <= n; j++) widest = Math.max(widest, g.measureText(fmtLen(a.len / U.f * j / n)).width);
+      var step = n > 5 ? 2 : 1;
+      while (step < n && step * sw < widest + fs * 0.6) step++;
+      var ticks = [];
+      for (j = 0; j < n; j += step) if (n - j >= step || j === 0) ticks.push(j);
+      ticks.push(n);
+      // Margins wide enough for the end labels, the same both sides so the
+      // bar stays centred on its placement.
+      var first = g.measureText(fmtLen(0)).width / 2, lastNum = fmtLen(a.len / U.f);
+      var last = g.measureText(lastNum).width / 2 + g.measureText(unit).width;
+      var mg = Math.ceil(Math.max(24, first, last) + fs * 0.3), CW = BL + 2 * mg, x0 = mg;
+      var pad = Math.max(12, fs * 0.25), CH = Math.round(pad + fs * 1.2 + fs * 0.25 + barH + 24);
       sized(CW, CH);
-      var by = CH - 24 - barH, n = a.seg || 1, sw = BL / n;
-      for (var i = 0; i < n; i++) { g.fillStyle = i % 2 ? k.b : k.a; g.fillRect(x0 + i * sw, by, sw, barH); }
+      var by = CH - 24 - barH, i;
+      for (i = 0; i < n; i++) { g.fillStyle = i % 2 ? k.b : k.a; g.fillRect(x0 + i * sw, by, sw, barH); }
       g.lineWidth = Math.max(4, barH * 0.14); g.strokeStyle = k.line; g.strokeRect(x0, by, BL, barH);
-      var U = unitFor(a.len), unit = ' ' + U.n;
-      g.font = '600 ' + fs + 'px system-ui, sans-serif'; g.textBaseline = 'alphabetic';
+      font(fs, 600); g.textBaseline = 'alphabetic';
       g.lineJoin = 'round'; g.lineWidth = fs * 0.22; g.strokeStyle = k.halo; g.fillStyle = k.text;
       // Numbers centred on their tick; the unit hangs off the last one. Ten
       // segments label every other tick.
-      var ty = by - 18, step = n > 5 ? 2 : 1, ticks = [];
-      for (var j = 0; j < n; j += step) ticks.push(j);
-      ticks.push(n);
+      var ty = by - fs * 0.25;
       ticks.forEach(function (j) {
         var num = fmtLen(a.len / U.f * j / n);
         var t = num + (j === n ? unit : ''), tx = x0 + j * sw - g.measureText(num).width / 2;
         g.strokeText(t, tx, ty); g.fillText(t, tx, ty);
       });
-      W = a.len * 1.25; H = W * CH / CW;
+      W = CW / ppm; H = CH / ppm;
     } else {
-      var S2 = 1024; sized(S2, S2);
-      var cx = S2 / 2, top = 70, bot = S2 * 0.62, half = S2 * 0.2;
+      // The arrow fills a 1024 px square (its size on the ground); the N
+      // below it is sized like the bar's labels, so the canvas grows or
+      // shrinks under the arrow to hold it.
+      var S2 = 1024, n0 = lblGround(a) * 1.3 * S2 / a.len;
+      S2 = Math.round(Math.max(128, Math.min(1024, S2 * Math.min(1, 300 / n0))));
+      var ppmN = S2 / a.len, fsN = Math.max(8, lblGround(a) * 1.3 * ppmN), sc = S2 / 1024;
+      var bot = S2 * 0.62, CHN = Math.round(bot + fsN * 0.25 + fsN + Math.max(16, fsN * 0.3));
+      sized(S2, CHN);
+      var cx = S2 / 2, top = 70 * sc, half = S2 * 0.2;
       g.lineJoin = 'round';
       g.beginPath(); g.moveTo(cx, top); g.lineTo(cx + half, bot); g.lineTo(cx, bot - half * 0.55); g.closePath();
       g.fillStyle = k.a; g.fill();
       g.beginPath(); g.moveTo(cx, top); g.lineTo(cx - half, bot); g.lineTo(cx, bot - half * 0.55); g.closePath();
       g.fillStyle = k.b; g.fill();
       g.beginPath(); g.moveTo(cx, top); g.lineTo(cx + half, bot); g.lineTo(cx, bot - half * 0.55); g.lineTo(cx - half, bot); g.closePath();
-      g.lineWidth = 14; g.strokeStyle = k.line; g.stroke();
-      g.font = '700 300px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
-      g.lineWidth = 60; g.strokeStyle = k.halo; g.strokeText('N', cx, S2 - 60);
-      g.fillStyle = k.text; g.fillText('N', cx, S2 - 60);
-      W = H = a.len;
+      g.lineWidth = Math.max(3, 14 * sc); g.strokeStyle = k.line; g.stroke();
+      font(fsN, 700); g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+      var nY = bot + fsN * 0.25 + fsN * 0.85;
+      g.lineWidth = fsN * 0.2; g.strokeStyle = k.halo; g.strokeText('N', cx, nY);
+      g.fillStyle = k.text; g.fillText('N', cx, nY);
+      W = a.len; H = CHN / ppmN;
     }
     if (outline) {
       g.setLineDash([40, 24]); g.lineWidth = 12; g.strokeStyle = '#e8590c';
@@ -966,8 +1083,9 @@
   // perpendicular (left to right across the view) plus the pane's offset.
   function annItem(p, type) {
     if (type === 'scale') return p.sb && { type: 'scale', lon: p.sb.lon, lat: p.sb.lat, len: S.sb.len, units: S.units, k: p.annK,
-      rot: ((p.b + 90 + p.sb.rel) % 360 + 360) % 360, seg: S.sb.seg, th: S.sb.th, fs: S.sb.fs, col: S.sb.col };
-    return p.na && { type: 'north', lon: p.na.lon, lat: p.na.lat, len: S.na.size, rot: 90, col: S.na.col, k: p.annK };
+      rot: ((p.b + 90 + p.sb.rel) % 360 + 360) % 360, seg: S.sb.seg, th: S.sb.th, fs: S.sb.fs, col: S.sb.col, res: S.res };
+    return p.na && { type: 'north', lon: p.na.lon, lat: p.na.lat, len: S.na.size, rot: 90, col: S.na.col, k: p.annK,
+                     fs: S.sb.fs, res: S.res };
   }
   function annId(p, type) { return 'ann-' + type + '-' + (p.annKey || (p.annKey = ++annSeq)); }
   function niceRound(m) {
@@ -995,9 +1113,12 @@
         return;
       }
       if (type === 'scale' ? !p.sb : !p.na) annPlace(p, type);
-      var a = annItem(p, type), look = JSON.stringify([a.len, a.seg, a.th, a.fs, a.col, a.units, a.k, !!editing]);
+      var a = annItem(p, type), look = JSON.stringify([a.len, a.seg, a.th, a.fs, a.col, a.units, a.k, !!editing, +a.res.toPrecision(3)]);
       var src = m.getSource(id);
       p.annLook = p.annLook || {};
+      // Mid-gesture only the corners move; a scale change re-draws the labels
+      // once the view rests.
+      if (src && moveOnly && p.annLook[type] !== look) { clearTimeout(annRedrawT); annRedrawT = setTimeout(function () { annAll(); }, 250); }
       if (src && (moveOnly || p.annLook[type] === look)) {
         var dims = p.annDims[type];
         src.setCoordinates(annCorners(a, dims[0], dims[1]));
@@ -1105,7 +1226,7 @@
       ' <select id="an-pre"></select></div>' +
       '<div class="row"><label>Segments</label><select id="an-seg"><option>1</option><option>2</option><option>4</option><option>5</option><option>10</option></select>' +
       '<label>Bar</label><select id="an-th"><option value="1">thin</option><option value="2">medium</option><option value="3">thick</option></select></div>' +
-      '<div class="row"><label>Labels</label><select id="an-fs"><option value="1">small</option><option value="2">medium</option><option value="3">large</option></select>' +
+      '<div class="row"><label title="Bar numbers and the arrow\'s N, one ground size in every pane: medium reads like the profile labels">Labels</label><select id="an-fs"><option value="1">small</option><option value="2">medium</option><option value="3">large</option></select>' +
       '<select id="an-col"><option value="d">dark on light</option><option value="l">light on dark</option></select></div>' +
       '<div class="row" style="margin-top:9px"><label><input type="checkbox" id="an-naon"> North arrow</label>' +
       '<label>Size</label><input type="number" id="an-size" min="1" step="any"> m on the ground</div>' +

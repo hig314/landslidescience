@@ -448,3 +448,19 @@ plot height ×1.5 and ×3.0 the 1:1 height at VE 1.5 and 3. Each pane's own
 profile is now a heavier, darker line (2.2 px, #111) over a paler fill, and
 **every other pane's profile is drawn faint** (grey, 55 %) behind it at the
 same scale, shifted to this pane's mid-height so shapes compare directly.
+
+**Round 9 (2026-11-13, Hig): re-ordering, label size.** Panes re-order by
+dragging the ⠿ handle in the title strip (Frame mode): the grid re-flows live
+as the pointer crosses other panes, release keeps the order, Esc restores it;
+everything per pane travels with it and the link's indices (`pn`, `pl`, `sp`,
+`np`) follow. Listeners sit on the window, not the handle: a lost pointer
+capture had left the page stuck mid-drag. Tile URLs are now keyed by a fixed
+per-pane id (`pk=uid`), not position, or two panes could ask for one URL after
+a move (the shared-buffer fault). **Bar and arrow labels have one ground
+size** = 10 px × the shared m/px (× 0.8 / 1 / 1.35 for small / medium /
+large), so they read like the profile labels whatever the bar's length or the
+arrow's size; redrawn 250 ms after a scale change; a short bar labels fewer
+ticks (0 and the end always). Canvas resolution follows the label (bar
+256–4096 px, labels 32–300 canvas px). Fixed on the way: a context-only pane
+is written `lat,lon,bearing` and the reader wanted four fields, so it dropped
+out of a reopened link.
