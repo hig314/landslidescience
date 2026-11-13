@@ -10,7 +10,7 @@ This file is the deep per-feature reference. **Two work streams run in
 parallel in separate worktrees — read [WORKSTREAMS.md](WORKSTREAMS.md)
 before touching anything under `tools/lidar/`.**
 
-## State of play (2026-11-05) — the one dated snapshot in this file
+## State of play (2026-11-11) — the one dated snapshot in this file
 
 Everything else here describes how things work and should stay true.
 **This section is a snapshot and will rot**; correct it or delete it rather
@@ -140,8 +140,35 @@ written down anywhere — read `/lidar/audit/`.
   is less data). Net markings black and fine, cell edges white. Offline
   comparison of methods: kernel vs. hex grid scored by held-out likelihood,
   both ~0.90 nats/landslide vs 0.85 for slope alone.
+- **Edit-form checks + Explore opens the record's view** (2026-11-11,
+  069905e; tested in dev by Hig, deployed the same day). A refused full-form
+  save shows a banner (`_form_errors.html`); autosave refuses a date that
+  would invert the bracket (record 1626 had stored one); year text follows
+  the bracket (`forms.check_year_text` / `year_text_auto`, see *Form
+  ergonomics*); `#id=N` links with no camera open the record's default view.
+  On prod only page loads, the served JS and the container's code were
+  checked: a test POST inside the prod container was refused by the
+  permission check and not retried, so nobody has yet saved through the new
+  checks there.
 
 **Open threads**, in no particular order:
+
+- **Edit-form follow-ups (2026-11-11).** Prod records the year-text check
+  will catch on their next edit (read-only survey of 256 dated records: 212
+  already agree, 42 will show the "dates do not constrain" warning):
+  *Caribou Divide 2001* (1166: "Modern" with both dates in 2001) is refused
+  on its next full save until year text reads 2001, and the banner says so;
+  *Chitna Creek A Holocene* (1174: "Holocene", `date_min` 1979) gets the
+  amber Holocene warning but saves; *Jan Mayan 2024* (1504: blank) is filled
+  with 2024 on its next save. An autosave on dev 1490 returned 500 at 03:13
+  that day from the catch-all in `manage_edit_field`, which logs nothing, so
+  the field and cause are unknown (offered to log the exception: unanswered).
+  Dev 1490's `updated_at` and audit row were stamped by a diagnostic POST
+  (dates written then cleared, both NULL again). Unanswered offers: a
+  "Saved" notice after the edit page's own reload; grid-north aspect in the
+  x-y panel and aspect overlay; the analysis panel `draw()` canvas ordering;
+  `docker builder prune` on the droplet. Pre-existing on prod: console
+  "Style is not done loading" from `ensurePendingLayers`.
 
 - **Homer 2019 + 2021 NCMP green lidar, and point clouds on R2**
   (2026-11-06). `homer_2019_ncmp` and `homer_2021_ncmp` are **published**
