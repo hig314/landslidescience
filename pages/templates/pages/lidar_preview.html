@@ -307,6 +307,7 @@ vanish depending on which way you light them.
 
   <div id="status"></div>
   <button type="button" id="copyurl">Copy link to this view</button>
+  {% if compare_start %}<button type="button" id="cmpstart" title="Open a terrain comparison with this view as its first pane: same place, direction, survey, scale, tilt, exaggeration, shading and base. Add more panes there.">Start comparison ↗</button>{% endif %}
   <details id="exp">
     <summary title="A PNG of the view as it is on screen, rendered again at a higher pixel ratio (not an upscaled screenshot). Surveys gain detail down to their deepest zoom.">Save image (PNG)</summary>
     <div class="row"><label>Size <select id="exp-scale"></select></label></div>
@@ -574,6 +575,7 @@ vanish depending on which way you light them.
 
   var status = document.getElementById('status');
   var active = null;          // dataset id whose DEM is currently loaded
+  var publicIds = {};         // ids in the PUBLIC catalogue (not the gated one)
   var catalog = null;
 
   function fmtBytes(n) {
@@ -1722,6 +1724,33 @@ vanish depending on which way you light them.
      });
   });
 
+  // Start a terrain comparison (LIDAR_COMPARE_PLAN.md; the button exists for
+  // editors). Nothing is stored: the comparison is its link, so each click
+  // opens a new, self-contained sheet in a new tab. Only a PUBLIC survey id
+  // goes into it: the link is shared, and a gated id must never reach someone
+  // who cannot see it (the comparison reads the public catalogue only).
+  var cmpBtn = document.getElementById('cmpstart');
+  if (cmpBtn) cmpBtn.addEventListener('click', function () {
+    var c = map.getCenter(), b = map.getBearing();
+    // Same ground scale: metres per pixel at the centre (512 px world tiles).
+    var res = 40075016.686 * Math.cos(c.lat * Math.PI / 180) / (512 * Math.pow(2, map.getZoom()));
+    var on3d = document.getElementById('t3d').checked;
+    // The comparison names a style, not the sliders: bands -> Preset, a slope
+    // ramp alone -> Slope, otherwise Hillshade.
+    var sh = V('md') > 0 ? 'preset' : V('sl') > 0 ? 'slope' : 'hillshade';
+    // Its sun is fixed to the view; carry the light as it falls here.
+    var azRel = ((V('az') - b) % 360 + 360) % 360;
+    var q = new URLSearchParams();
+    q.set('m', 'frame'); q.set('res', res.toFixed(3));
+    q.set('p', on3d ? Math.round(map.getPitch()) : 0); q.set('t3d', on3d ? 1 : 0);
+    q.set('ex', Math.max(5, Math.round(V('ex')))); q.set('sh', sh);
+    q.set('bm', document.getElementById('bm').value || 'esri-img');
+    q.set('op', Math.round(V('op'))); q.set('sr', 1); q.set('az', Math.round(azRel));
+    var ds = active && publicIds[active] ? active : '';
+    q.set('pn', [c.lat.toFixed(6), c.lng.toFixed(6), (((b % 360) + 360) % 360).toFixed(1), ds].join(','));
+    window.open('/lidar/compare/?' + q.toString(), '_blank', 'noopener');
+  });
+
   // ---- save image (PNG) -------------------------------------------------
   // The engine is /inventory/'s (ls_export.js): an offscreen copy of the map
   // from getStyle() at a higher pixelRatio, raster sources asked for deeper
@@ -1997,6 +2026,7 @@ vanish depending on which way you light them.
     Promise.all([_pubCat, _gatedCat])
       .then(function (both) {
         var fc = both[0];
+        fc.features.forEach(function (f) { publicIds[f.properties.id] = true; });
         if (both[1] && both[1].features && both[1].features.length) {
           // Keep every other property of the public catalogue (context in
           // particular); only the feature list grows.
@@ -2064,7 +2094,12 @@ vanish depending on which way you light them.
             'tiles ' + fmtBytes(p.pmtiles_bytes) +
             ' · <a href="' + p.cog_url + '" title="Cloud-optimized GeoTIFF of the full-resolution DTM in ' +
             p.horizontal_crs + '; opens directly in QGIS by URL">Download DTM (' + fmtBytes(p.cog_bytes) +
-            ')</a> · <a href="#" class="zoomto">zoom to</a></div>';
+            ')</a>' +
+            (p.points_url
+              ? ' · <a href="' + p.points_url + '" target="_blank" rel="noopener" title="The point cloud ' +
+                'this surface was gridded from: each revision, what changed in it, and a tile index">Point cloud</a>'
+              : '') +
+            ' · <a href="#" class="zoomto">zoom to</a></div>';
           // Selecting a dataset deliberately does NOT move the camera: holding
           // the view still is what lets you flip between overlapping surveys
           // and see the change between them. "zoom to" is the explicit opt-in.

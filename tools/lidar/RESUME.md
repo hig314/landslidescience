@@ -703,14 +703,20 @@ reclassification and the use of overlaps are worked out.
 
 - **Kenai 2008 r1** (our PTD ground classification, Powder `lidar_build/kenai_2008/classified`):
   3,110 tiles, 67.13 GiB, 14,054,222,606 points; 20 empty tile squares left out. r0 is
-  USGS's EPT, linked. Upload started 2026-11-06 09:40 AKST, detached; log
-  `lidar_build/points/publish_kenai_2008_r1.log` (rclone's own:
-  `upload_kenai_2008_r1.log`). The chain is upload, verify (size + md5 against the index),
-  then `survey --upload`, which writes `points/kenai_2008/index.{json,html}` last. Resume by
-  re-running the three commands; rclone skips what is there.
+  USGS's EPT, linked. **Published 2026-11-06**: upload 09:40–23:22 AKST (~13.7 h at
+  ~1.2 MiB/s), `verify` 3,110 of 3,110 tiles with size and md5 matching, index files
+  present, `chain exit 0`; logs `lidar_build/points/publish_kenai_2008_r1.log` and rclone's
+  `upload_kenai_2008_r1.log`. Public at
+  `https://lidar.landslidescience.org/points/kenai_2008/index.html` (checked: the five
+  index files 200, a mid-list tile's Content-Length equal to the index's bytes). To
+  re-run after a change: the three commands (upload, verify, survey --upload); rclone
+  skips what is there.
 - `make_catalog.py` writes `points_url` for a survey in the registry once its `index.json`
   is on the bucket; `/lidar/` shows a *Point cloud* link on that survey's row; Methods §1
-  explains it. In dev, uncommitted, until Hig approves.
+  explains it. The dev catalogue was rebuilt 2026-11-06 23:30 and carries `points_url` for
+  kenai_2008 (the only one). The two templates are in dev, uncommitted, until Hig approves;
+  then commit, push, deploy, and rebuild + scp the prod catalogue (recipe above), which
+  will then carry the link too.
 - Not built: the `recipe` kind of revision; a points entry for any other survey.
 - What we hold, for the next decision (2026-11-06): KBay 2023 163 GB (Powder; NOAA 10418
   serves it), Kenai raw EPT 72 GB, Grewingk 2021 21 GB, Homer 2019 DGGS 11 GB (72 of 157

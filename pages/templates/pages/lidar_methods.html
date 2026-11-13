@@ -52,6 +52,16 @@ Anchors are load-bearing: lidar_preview.html links to them.
   collaborators. <em>Only surveys in view</em> limits the list to surveys
   whose footprint the map currently shows.
 </p>
+<p id="points">
+  Where a survey's row has a <em>Point cloud</em> link, the points the surface
+  was gridded from are available too. The page it opens lists the cloud's
+  revisions: the cloud as the surveyor delivered it (linked at the agency that
+  serves it, where one does) and any revision made here, such as a new ground
+  classification, with what was changed and why. Each hosted revision has a
+  tile index (GeoJSON, with every tile's footprint, size and checksum) and a
+  plain list of tile addresses. A published revision is never altered; a
+  correction is a new revision.
+</p>
 
 <h3 id="basemap">2. Basemap and lidar opacity</h3>
 <p>
@@ -298,6 +308,44 @@ Anchors are load-bearing: lidar_preview.html links to them.
   metre, depending on the geoid model used to convert their GPS heights,
   which is exactly what a flat-coloured <a href="#difference">difference</a>
   reveals.
+</p>
+
+<h3 id="compare">13. Terrain comparison</h3>
+<p>
+  <a href="/lidar/compare/">Terrain comparison</a> puts several places side by
+  side in small panes drawn alike: the same ground scale, tilt, vertical
+  exaggeration, shading and base layer in every pane, so that slopes, scarps
+  and landforms can be compared by eye. Each pane keeps its own place, look
+  direction and survey. Editors start one from a view here with
+  <em>Start comparison</em>; the whole comparison lives in its link, so a link
+  is the way to keep or share one.
+</p>
+<p>
+  <em>Same scale</em> means the same metres per screen pixel at the centre of
+  every pane, wherever it is: map zoom levels are not used, because a zoom
+  level covers less ground the farther north it is. In 3D the camera in every
+  pane sits the same distance from the ground under its centre. Away from the
+  centre a tilted view foreshortens, in every pane alike. The sun is placed at
+  the upper left of each view by default, so that slopes facing different
+  ways are lit alike relative to the viewer; the key can fix it to a compass
+  bearing instead.
+</p>
+<p>
+  In <em>Together</em> mode a pan, zoom, rotation or tilt in any pane moves
+  them all: a pan by the same ground distance in each pane's own screen
+  direction, a rotation by the same angle. <em>Frame</em> mode moves one pane
+  at a time, to set its place and direction, and gives the titles and the
+  per-pane survey choice. A pane's survey is picked automatically (the finest,
+  then newest, covering the centre) until one is chosen by hand.
+</p>
+<p>
+  Scale bars and north arrows are drawn on the ground, so they foreshorten and
+  follow the relief like everything else in the pane; a bar's length is a
+  horizontal ground distance, and on a slope it covers a longer distance along
+  the ground. A bar is set square to its pane's look direction unless turned.
+  <em>Export PNG</em> redraws every pane at two or four times the screen
+  resolution, from more detailed tiles, with the titles, the shared settings
+  and the credits.
 </p>
 
 </div>

@@ -152,6 +152,20 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
   (`addFeatures` returns `valid:false` without throwing). Stored geometry is
   15 dp — round to 9 dp on the way in (`round9`), or polygons "load" empty.
 
+- **Pages with several MapLibre maps** (`/lidar/compare/`), two traps found
+  2026-11-12:
+  - **`jumpTo()` stops a gesture in progress on that map** (`Map._stop` →
+    handler reset). Linking maps by `jumpTo` on every `move` must never touch
+    the map being dragged, or a slow drag dies after one frame. Correct it at
+    gesture end, or change its camera through `_getTransformForUpdate` /
+    `_applyUpdatedTransform`, which does not stop the gesture.
+  - **A mouse drag ends only on a mouseup aimed at its own map.** Released
+    over a neighbouring map (or any other element), the first map stays
+    mid-drag. Forward stray mouseups to any map with
+    `handlers._eventsInProgress`. The handler reset also re-enables text
+    selection page-wide (`DOM.enableDrag`), so such pages set
+    `user-select: none`.
+
 ## Maps, projections, and the globe
 
 - **The map runs MapLibre's globe projection.** Consequences, all hit in

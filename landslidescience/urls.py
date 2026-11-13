@@ -165,6 +165,10 @@ urlpatterns = [
     path('traffic/optout/', analytics.optout, name='traffic_optout'),
     path('lidar/', lidar_serve.preview),
     path('lidar/methods/', lidar_serve.methods, name='lidar_methods'),
+    # Terrain comparison (public; state in the URL). /spike/ is its dev-time
+    # address, kept so links made while it was built still open.
+    path('lidar/compare/', lidar_serve.compare, name='lidar_compare'),
+    path('lidar/compare/spike/', lidar_serve.compare),
     path('lidar/catalog.geojson', lidar_serve.catalog),
     path('lidar/catalog-gated.geojson', lidar_serve.catalog_gated),
     path('lidar/audit/', lidar_serve.publish_audit, name='publish_audit'),

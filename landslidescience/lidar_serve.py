@@ -72,7 +72,7 @@ OVERLAYS_PUBLIC_BASE = getattr(settings, 'OVERLAYS_PUBLIC_BASE',
 
 
 GATED_CATALOG = LIDAR_DIR / 'catalog-gated.geojson'
-_gated_cache = {'mtime': None, 'ids': frozenset()}
+_gated_cache = {'mtime': None, 'ids': frozenset(), 'owner': frozenset()}
 
 
 def gated_ids():
@@ -80,15 +80,16 @@ def gated_ids():
     try:
         mtime = GATED_CATALOG.stat().st_mtime
     except OSError:
-        _gated_cache.update(mtime=None, ids=frozenset())
+        _gated_cache.update(mtime=None, ids=frozenset(), owner=frozenset())
         return _gated_cache['ids']
     if _gated_cache['mtime'] != mtime:
         try:
             import json
             fc = json.loads(GATED_CATALOG.read_text())
-            out = set()
+            out, owner = set(), set()
             for f in fc.get('features', []):
                 props = f.get('properties', {})
+                before = set(out)
                 out.add(props.get('id'))
                 # A gated survey's orthomosaic is a separate archive under its
                 # own id. Gating the survey and leaving its imagery open would
@@ -101,11 +102,23 @@ def gated_ids():
                 # were served to anyone who guessed the name. Added whether or
                 # not one has been built, so a later build is gated on arrival.
                 out.add(f"{props.get('id')}_slope")
-            ids = frozenset(out)
+                if props.get('owner_only'):
+                    owner |= out - before
+            ids, owner = frozenset(out), frozenset(owner)
         except (OSError, ValueError):
-            ids = frozenset()
-        _gated_cache.update(mtime=mtime, ids=ids)
+            ids, owner = frozenset(), frozenset()
+        _gated_cache.update(mtime=mtime, ids=ids, owner=owner)
     return _gated_cache['ids']
+
+
+def owner_only_ids():
+    """The gated surveys (and their _slope/_ortho) served to superusers alone.
+
+    A subset of gated_ids(), from `owner_only` in the gated catalogue. Losing
+    the flag falls back to ordinary gating, never to public.
+    """
+    gated_ids()
+    return _gated_cache['owner']
 
 
 def _gate(request, dataset_id):
@@ -118,6 +131,8 @@ def _gate(request, dataset_id):
     """
     if dataset_id not in gated_ids():
         return None
+    if dataset_id in owner_only_ids():
+        return None if request.user.is_superuser else _cors(HttpResponseForbidden())
     from inventory.auth import can_view_restricted
     if can_view_restricted(request.user):
         return None
@@ -335,6 +350,15 @@ def catalog_gated(request):
         return HttpResponseForbidden()
     if not GATED_CATALOG.is_file():
         raise Http404
+    hidden = owner_only_ids()
+    if hidden and not request.user.is_superuser:
+        import json
+        fc = json.loads(GATED_CATALOG.read_text())
+        fc['features'] = [f for f in fc.get('features', [])
+                          if f.get('properties', {}).get('id') not in hidden]
+        resp = HttpResponse(json.dumps(fc), content_type='application/geo+json')
+        resp['Cache-Control'] = 'private, max-age=60'
+        return resp
     return serve_ranged(request, GATED_CATALOG,
                         'application/geo+json', 'private, max-age=60')
 
@@ -397,7 +421,11 @@ def dev_pmtiles(request, dataset_id):
 def preview(request):
     """Standalone dev page that exercises the whole hosting path."""
     from django.shortcuts import render
-    return render(request, 'pages/lidar_preview.html')
+    # Start comparison: offered to the people who make comparisons (editors
+    # and superusers, Hig 2026-11-12). The comparison page itself is public.
+    from inventory.auth import is_inventory_editor
+    return render(request, 'pages/lidar_preview.html',
+                  {'compare_start': is_inventory_editor(request.user)})
 
 
 def methods(request):
@@ -435,6 +463,10 @@ def publish_audit(request):
     prod = request.build_absolute_uri('/').rstrip('/')
     rows, problems, meta = mod.audit(prod=prod, no_r2=not want_r2,
                                      catalog_dir=LIDAR_DIR)
+    if not request.user.is_superuser:
+        hidden = owner_only_ids()
+        rows = [r for r in rows if r['id'] not in hidden]
+        problems = [p for p in problems if p[0] not in hidden]
     # audit() already returns each row as the dict this template reads, 'bad'
     # included; re-keying it here is how the two fell out of step before.
     return _render(request, 'pages/publish_audit.html', {
@@ -442,3 +474,12 @@ def publish_audit(request):
         'uncredited': [r for r in rows if not r['source'] and r['state'] != 'retired'],
         'want_r2': want_r2, 'prod': prod,
     })
+
+
+def compare(request):
+    """Terrain comparison: small multiples of lidar terrain at one shared
+    ground scale, tilt, exaggeration and shading (LIDAR_COMPARE_PLAN.md).
+    Public; the whole comparison lives in the URL and nothing is stored. It
+    reads the public catalogue only, so a gated survey cannot appear in it."""
+    from django.shortcuts import render
+    return render(request, 'pages/lidar_compare.html')

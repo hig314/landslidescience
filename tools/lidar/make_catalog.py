@@ -328,6 +328,8 @@ def main():
         if ds.get("retired"):
             print(f"  skip {ds['id']}: retired -- {ds['retired'][:80]}", file=sys.stderr)
             continue
+        if ds.get("owner_only") and not ds.get("gated"):
+            sys.exit(f"{ds['id']}: owner_only without gated would publish it")
         if gated_only and not ds.get("gated"):
             continue
         # Listing a survey whose tiles are not there yet is the one failure
@@ -418,6 +420,8 @@ def main():
                 "native_res_m": round(ds["native_res_m"], 4),
                 "horizontal_crs": f"EPSG:{ds['target_epsg']}",
                 "vertical_datum": ds.get("vertical_datum"),
+                # Gated surveys only: served to superusers, not all data users.
+                "owner_only": bool(ds.get("owner_only")) or None,
                 "min_zoom": ds["min_zoom"],
                 "max_zoom": ds["max_zoom"],
                 "grid": f"{width} x {height}",

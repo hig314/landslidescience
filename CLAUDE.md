@@ -151,6 +151,21 @@ written down anywhere — read `/lidar/audit/`.
   permission check and not retried, so nobody has yet saved through the new
   checks there.
 
+- **Terrain comparison, `/lidar/compare/`** (2026-11-12; plan, decisions and
+  measurements in [LIDAR_COMPARE_PLAN.md](LIDAR_COMPARE_PLAN.md) §10–11).
+  Up to 12 panes (9 measured), one MapLibre map each, at one shared ground
+  scale (m/px at the centre, so zoom differs by latitude; each centre kept
+  on the ground, ×0.999 measured through the camera), tilt, VE, shading,
+  base + opacity; per pane place, bearing, survey (Auto = finest then newest
+  covering the centre; pull-down lists surveys in view), title. Frame /
+  Together modes, locks, page + pane titles, ground-draped scale bar and
+  north arrow (shared spec, per-pane position and angle relative to the
+  look direction), Hide controls, Export PNG 2×/4×. State is the URL only;
+  public catalogue only. *Start comparison* on `/lidar/` for editors carries
+  only public survey ids. The perf readout shows with `?perf=1`. Nine panes
+  are slow to settle (single shading worker; options in the plan §11). Not
+  built: server-side sheets, publish/branch, the `lidar_scene.js` extraction.
+
 **Open threads**, in no particular order:
 
 - **Edit-form follow-ups (2026-11-11).** Prod records the year-text check
@@ -175,10 +190,12 @@ written down anywhere — read `/lidar/audit/`.
   (8a7a653; 50 public surveys). Point clouds have a registry
   (`tools/lidar/points.json`), a tool (`points_publish.py`) and a bucket
   layout (`points/<survey>/<rev>/`); Kenai 2008 r1 (our ground
-  classification, 67 GiB) is the one test upload, running detached since
-  09:38 (~12 h). The `/lidar/` *Point cloud* link and its Methods paragraph
-  are **in dev, uncommitted**, until the upload finishes and Hig sees the
-  link. Hig's rule: link a cloud an agency already
+  classification, 67 GiB, 3,110 tiles) is the one test upload — **done and
+  verified 2026-11-06 23:22**, public at
+  `lidar.landslidescience.org/points/kenai_2008/`. The `/lidar/` *Point
+  cloud* link and its Methods paragraph **shipped 2026-11-12** with the
+  terrain comparison (Hig approved); the prod catalogue is rebuilt with
+  `points_url` per the recipe in `tools/lidar/RESUME.md`. Hig's rule: link a cloud an agency already
   serves well, do not copy it; nothing beyond Kenai 2008 until the layout is
   judged; Grewingk waits on the reclassification work. State and commands:
   the last entry of `tools/lidar/RESUME.md`.
@@ -365,6 +382,7 @@ pushing untested code to GH.
 | `/inventory/export/` | public | Download zip of GeoJSON + QGIS .qml styles |
 | `/inventory/api/review/*`, `/inventory/tiles/review/…` | any signed-in account | Imagery review history: log, meta, share, point, tiles — one's own, or another's after they opt in (see *Imagery review history*) |
 | `/lidar/` | public | Standalone lidar/bathymetry viewer + the ranged `pmtiles`/`cog`/catalogue routes |
+| `/lidar/compare/` | public | Terrain comparison: small multiples at one ground scale/tilt/VE/shading, linked navigation, ground-draped scale bar + north arrow, PNG export. State only in the URL; public catalogue only. `/lidar/compare/spike/` = same page (dev-time address). See *Terrain comparison* in State of play |
 | `/lidar/methods/` | public | Reader-facing account of the viewer (`pages/lidar_methods.html`); the sidebar keeps a tooltip per control and a `?` per section linking here |
 | `/lidar/audit/` | data admins | Publish-state check: for every survey, built / on R2 / in the catalogue / what the gate does |
 | `/lidar/?catalog=dev` | dev only | Same viewer over research surfaces in `data/lidar_dev/` (`lidar/dev/*` routes 404 unless DEBUG). Kept OUTSIDE `data/lidar/` because the redeploy rsync in `tools/lidar/RESUME.md` copies all of `data/lidar/` to the droplet. |
@@ -2047,6 +2065,14 @@ answers instead, in this order:
   publishing recipe, plus the incidents behind it (BAG extraction modes,
   rclone filters, the overnight uploader). 50 public and 7 gated as of
   2026-11-06 (Homer 2019 and 2021 NCMP added that day), which is the number `/lidar/audit/` will confirm or correct.
+
+**An owner-only tier sits inside gating** (2026-11-10): `"owner_only": true`
+beside `"gated": true` rides the gated catalogue, and `lidar_serve.owner_only_ids()`
+limits that survey and its `_slope`/`_ortho` to superusers (bytes, gated
+catalogue, `/lidar/audit/`, stored default views). Losing the flag falls back
+to ordinary gating, never to public; `make_catalog.py` refuses `owner_only`
+without `gated`. **Deploy the code before installing a catalogue that uses it**:
+older code ignores the flag and serves the survey to every data user.
 
 **Gating is by manifest flag and enforced on the BYTES.** `"gated": true` on
 a dataset keeps it out of `catalog.geojson` and into the companion

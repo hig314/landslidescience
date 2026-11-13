@@ -305,7 +305,7 @@ def view_state_private_layers(v):
 
     One dict per layer: `kind` (base | swipe | lidar | imagery), `id` (as
     written in the string), `who` -- who CAN see it: 'restricted' (data users
-    and editors), 'editors', or 'nobody' (a browser-local QMS layer, a layer
+    and editors), 'editors', 'owner' (superusers), or 'nobody' (a browser-local QMS layer, a layer
     that no longer exists) -- and `why`, a phrase for the editor. Empty list =
     everyone sees the whole view."""
     from .models import QmsLayer
@@ -330,13 +330,15 @@ def view_state_private_layers(v):
                             'why': f'"{lay.name}" is shared with data admins only'})
     m = _VIEW_LI_RE.search(v or '')
     if m and m.group(1):
-        from landslidescience.lidar_serve import gated_ids
+        from landslidescience.lidar_serve import gated_ids, owner_only_ids
         public_ids, gated = _public_lidar_ids(), gated_ids()
+        owner_only = owner_only_ids()
         for ent in m.group(1).split(','):
             lid = ent.split('.', 1)[0]
             if lid and lid not in public_ids:
                 if lid in gated:
-                    out.append({'kind': 'lidar', 'id': lid, 'who': 'restricted',
+                    out.append({'kind': 'lidar', 'id': lid,
+                                'who': 'owner' if lid in owner_only else 'restricted',
                                 'why': f'lidar "{lid}" is restricted'})
                 else:
                     out.append({'kind': 'lidar', 'id': lid, 'who': 'nobody',
@@ -371,6 +373,8 @@ def _may_see(who, user):
         return can_view_restricted(user)
     if who == 'editors':
         return is_inventory_editor(user)
+    if who == 'owner':
+        return user.is_superuser
     return False
 
 

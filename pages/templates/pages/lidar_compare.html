@@ -1,0 +1,1270 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Terrain comparison</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<style>
+  /* Terrain comparison (LIDAR_COMPARE_PLAN.md). The perf box is a
+     development readout, shown only with ?perf=1. */
+  html, body { margin: 0; height: 100%; font: 13px/1.35 system-ui, sans-serif; background: #fff; color: #222; }
+  /* No text selection anywhere but an editable title: every linked jumpTo
+     re-enables selection page-wide (MapLibre's handler reset), mid-drag. */
+  body { -webkit-user-select: none; user-select: none; }
+  [contenteditable=true], #key input { -webkit-user-select: text; user-select: text; }
+  #wrap { display: flex; flex-direction: column; height: 100%; }
+  #pagehead { flex: none; padding: 7px 10px 2px; background: #f6f6f4; }
+  #ptitle { display: inline-block; min-width: 12em; font-size: 18px; font-weight: 600; outline: none; }
+  /* In Frame mode titles look editable: dashed underline, text cursor, a hint
+     on hover; Enter or clicking away commits, an emptied title reverts. */
+  body.frame #ptitle, body.frame .strip .ttl { border-bottom: 1px dashed #999; cursor: text; }
+  body.frame #ptitle:focus, body.frame .strip .ttl:focus { border-bottom-style: solid; background: #fffbe0; }
+  #key { flex: none; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center;
+         padding: 6px 10px; border-bottom: 1px solid #ccc; background: #f6f6f4; }
+  #key .grp { display: flex; align-items: center; gap: 5px; }
+  #key label { white-space: nowrap; }
+  #key input[type=range] { width: 90px; }
+  #key .v { display: inline-block; min-width: 2.6em; font-variant-numeric: tabular-nums; }
+  #key button, #key select { font: inherit; }
+  #key .lock { font-size: 12px; color: #555; }
+  #key .lock input { margin: 0 2px 0 0; }
+  #seg button { border: 1px solid #999; background: #fff; padding: 2px 8px; cursor: pointer; }
+  #seg button.on { background: #333; color: #fff; }
+  #scalebar { display: inline-flex; flex-direction: column; align-items: flex-start; }
+  #scalebar i { display: block; height: 5px; border: 2px solid #222; border-top: 0; }
+  #grid { flex: 1; display: grid; gap: 4px; padding: 4px; min-height: 0; background: #ddd; }
+  .pane { position: relative; display: flex; flex-direction: column; min-height: 0; background: #fff; }
+  .strip { flex: none; display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px;
+           border-bottom: 1px solid #ddd; overflow: hidden; }
+  .strip .ttl { flex: 1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
+  
+  .strip .north { width: 16px; height: 16px; flex: none; }
+  .strip .meas { font-size: 11px; color: #777; font-variant-numeric: tabular-nums; }
+  .strip .meas.bad { color: #c00; font-weight: 600; }
+  .strip select { font: inherit; font-size: 11px; max-width: 150px; }
+  .strip .rm { border: 0; background: none; cursor: pointer; color: #999; }
+  .frameonly { display: none; }
+  body.frame .frameonly { display: inline-block; }
+  .mapbox { flex: 1; min-height: 0; position: relative; }
+  .pane.drv .strip { background: #eef4ff; }
+  .lost { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+          background: rgba(255,255,255,.85); color: #a00; font-weight: 600; }
+  #perf { position: fixed; right: 8px; bottom: 8px; z-index: 5; background: rgba(0,0,0,.78); color: #eee;
+          font: 11px/1.4 ui-monospace, monospace; padding: 6px 8px; border-radius: 4px; white-space: pre; }
+  #credits { flex: none; font-size: 11px; color: #666; padding: 3px 10px; border-top: 1px solid #ddd; }
+  #credits a { color: #666; }
+  /* Annotation panel (scale bar / north arrow), hide-controls, export. */
+  #annpanel { position: fixed; right: 12px; top: 96px; z-index: 8; width: 270px; background: #fff;
+              border: 1px solid #bbb; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,.2); padding: 8px 10px; }
+  #annpanel h4 { margin: 0 0 6px; font-size: 13px; }
+  #annpanel .row { display: flex; align-items: center; gap: 6px; margin: 5px 0; flex-wrap: wrap; }
+  #annpanel label { white-space: nowrap; }
+  #annpanel input[type=number] { width: 80px; }
+  #annpanel input[type=range] { flex: 1; min-width: 90px; }
+  #annpanel .hint { font-size: 11px; color: #666; margin-top: 6px; }
+  #annpanel .btns { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  #annpanel button, #showctl { font: inherit; }
+  .panectl { position: absolute; left: 6px; bottom: 6px; z-index: 3; display: none; align-items: center; gap: 5px;
+              background: rgba(255,255,255,.9); border: 1px solid #bbb; border-radius: 3px; padding: 3px 6px; font-size: 11px; }
+  .panectl input[type=range] { width: 110px; }
+  body.annedit .panectl.on { display: flex; }
+  body.clean .panectl { display: none !important; }
+  #showctl { position: fixed; right: 8px; top: 8px; z-index: 9; display: none; }
+  body.clean #key, body.clean #perf, body.clean #annpanel, body.clean .strip .ds,
+  body.clean .strip .meas, body.clean .strip .rm { display: none !important; }
+  body.clean #showctl { display: block; }
+  body.clean .pane.drv .strip { background: none; }
+  #busy { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center;
+          background: rgba(255,255,255,.6); font-size: 16px; font-weight: 600; }
+  #_coord-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 10;
+                  background: rgba(0,0,0,.8); color: #fff; padding: 5px 10px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="pagehead"><span id="ptitle" spellcheck="false"></span></div>
+  <div id="key">
+    <span id="seg"><button data-m="frame">Frame</button><button data-m="together">Together</button></span>
+    <span class="grp" title="Ground scale at the centre of every pane (the same in all)">
+      <span id="scalebar"><span id="sbl">—</span><i id="sbi"></i></span>
+      <label class="lock"><input type="checkbox" data-lock="scale">lock</label></span>
+    <span class="grp"><label>Tilt <span class="v" id="pv"></span></label><input type="range" id="pitch" min="0" max="80" step="1">
+      <label class="lock"><input type="checkbox" data-lock="tilt">lock</label></span>
+    <span class="grp"><label>Rotation</label>
+      <label class="lock"><input type="checkbox" data-lock="rotation">lock</label></span>
+    <span class="grp"><label>Position</label>
+      <label class="lock"><input type="checkbox" data-lock="position">lock</label></span>
+    <span class="grp"><label><input type="checkbox" id="t3d"> 3D</label>
+      <label>VE <span class="v" id="exv"></span></label><input type="range" id="ex" min="5" max="40" step="1">
+      <label class="lock"><input type="checkbox" data-lock="ex">lock</label></span>
+    <span class="grp"><select id="mode">
+        <option value="preset">Preset</option><option value="hillshade">Hillshade</option>
+        <option value="slope">Slope</option><option value="none">No shading</option></select>
+      <label title="Sun fixed to the view (upper left of every pane) rather than to true north"><input type="checkbox" id="sunrel"> sun ↖ view</label>
+      <label>az <span class="v" id="azv"></span></label><input type="range" id="az" min="0" max="359" step="1">
+      <label class="lock"><input type="checkbox" data-lock="style">lock</label></span>
+    <span class="grp"><label>Base</label><select id="bm"></select>
+      <label>shading <span class="v" id="opv"></span></label><input type="range" id="op" min="0" max="100" step="1"></span>
+    <span class="grp"><label>Panes</label><select id="npanes"><option>1</option><option>2</option><option>3</option><option>4</option>
+        <option>6</option><option>9</option><option>12</option></select>
+      <label>cols</label><select id="cols"><option value="0">auto</option><option>1</option><option>2</option><option>3</option><option>4</option></select></span>
+    <span class="grp frameonly"><input id="addlink" placeholder="paste a /lidar/ link to add a pane" size="28"></span>
+    <span class="grp frameonly"><button id="annbtn" title="Scale bar and north arrow on the ground in every pane: settings for all panes here, angle and position per pane">Scale bar &amp; north arrow…</button></span>
+    <span class="grp"><label>Export <select id="expscale"><option value="2">2×</option><option value="4">4×</option></select></label>
+      <button id="exportpng" title="A PNG of the whole sheet, every pane redrawn at this pixel ratio with deeper tiles">Export PNG</button>
+      <button id="hidectl" title="Hide the controls; titles, panes and credits stay">Hide controls</button></span>
+    <span class="grp"><button id="copy">Copy link</button><button id="reset" title="Back to the view this link opened with">Reset</button>
+      <label id="perflbl" style="display:none"><input type="checkbox" id="perfon" checked> perf</label>
+      <a href="/lidar/methods/#compare" target="_blank" rel="noopener" title="How this works">?</a></span>
+  </div>
+  <div id="grid"></div>
+  <div id="credits"></div>
+</div>
+<div id="perf" style="display:none"></div>
+<div id="annpanel" style="display:none"></div>
+<button id="showctl" title="Show the controls again">Show controls</button>
+<div id="busy"></div>
+
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
+<script>
+  // The package's caches default to 220 decoded elevation tiles and 200
+  // shaded tiles -- sized for one map. Nine panes share one instance (and its
+  // one worker). ?cache=N sets both, for comparing; default 600.
+  (function () {
+    var n = +(new URLSearchParams(location.search).get('cache') || 600);
+    window.DEMSHADE_OPTIONS = { elevationCacheSize: n, tileCacheSize: n };
+  })();
+</script>
+<script src="{% static 'inventory/js/vendor/maplibre-gl-demshade.iife.js' %}"></script>
+<script src="{% static 'inventory/js/dem_shade_bridge.js' %}"></script>
+<script src="{% static 'inventory/js/basemaps.js' %}"></script>
+<script>
+(function () {
+  'use strict';
+  /* Same-scale linked panes (LIDAR_COMPARE_PLAN.md §2-§3, §7). Shared state S
+   * (metres per pixel, tilt, exaggeration, shading, base, opacity); per pane
+   * P[i] (centre, bearing, survey, title). Every gesture in one pane becomes
+   * changes to S and to the panes' cameras; nothing reads a pane's zoom back
+   * except to learn a user's zoom gesture. */
+  var protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol('pmtiles', protocol.tile);
+  LSBasemaps.registerProtocols();
+
+  var C = 40075016.686, M = 6378137 * Math.PI / 180, D2R = Math.PI / 180;
+  var MAXP = 12;
+  function zFor(res, lat) { return Math.log2(C * Math.cos(lat * D2R) / (512 * res)); }
+  function resFor(z, lat) { return C * Math.cos(lat * D2R) / (512 * Math.pow(2, z)); }
+  function wrap180(d) { return ((d + 540) % 360) - 180; }
+  function $(id) { return document.getElementById(id); }
+
+  // ---- state ---------------------------------------------------------------
+  var DEFAULT_PANES = [
+    ['barry_arm_2023', 61.149, -148.138, 0], ['portage_2020', 60.745, -148.811, 30],
+    ['maynard_2022', 60.783, -148.743, 60], ['columbia_2022', 61.203, -146.981, 90],
+    ['goodwin_2023', 60.611, -144.998, 120], ['glen_alps_2024', 61.084, -149.666, 150],
+    ['eagle_river_2024', 61.225, -149.437, 180], ['taan_2016', 60.085, -141.362, 210],
+    ['ketchikan_2023', 55.357, -131.671, 240], ['homer_2019', 59.653, -151.552, 270],
+    ['sitka_2019', 57.095, -135.254, 300], ['dickason_2024', 61.817, -151.752, 330]
+  ].map(function (a) { return { ds: a[0], lat: a[1], lon: a[2], b: a[3], title: null }; });
+
+  var Q = new URLSearchParams(location.search);
+  function qn(k, d) { var v = Q.get(k); return v === null || v === '' || !isFinite(+v) ? d : +v; }
+  var S = {
+    mode: Q.get('m') === 'together' ? 'together' : 'frame',
+    res: qn('res', 3), pitch: qn('p', 50), ex: qn('ex', 10) / 10, t3d: Q.get('t3d') !== '0',
+    shade: Q.get('sh') || 'preset', bm: Q.get('bm') || 'esri-img', op: qn('op', 100) / 100,
+    sunRel: Q.get('sr') !== '0', az: qn('az', 315), cols: qn('cols', 0),
+    locks: {}, title: Q.get('t') || null
+  };
+  (Q.get('lk') || '').split(',').forEach(function (k) { if (k) S.locks[k] = true; });
+  var P = [];
+  if (Q.get('pn')) {
+    Q.get('pn').split(';').forEach(function (s) {
+      var a = s.split(',');
+      if (a.length < 4 || !isFinite(+a[0]) || !isFinite(+a[1])) return;
+      P.push({ lat: +a[0], lon: +a[1], b: +a[2] || 0, ds: a[3] || null,
+               title: a[4] ? decodeURIComponent(a[4]) : null, dsAuto: a[5] !== 'm' });
+    });
+  }
+  var nWanted = P.length ? P.length : Math.min(MAXP, qn('n', 9));
+  if (!P.length) P = DEFAULT_PANES.slice(0, nWanted).map(function (p) { return Object.assign({}, p); });
+  // Scale bar and north arrow: the spec is shared (sb=len,seg,th,fs,col and
+  // na=size,col; present = on), the placement is per pane (sp=i,lon,lat,rel
+  // with rel the bar's angle from perpendicular to the look direction, and
+  // np=i,lon,lat).
+  (function () {
+    var a = (Q.get('sb') || '').split(','), b = (Q.get('na') || '').split(',');
+    S.sb = { on: !!Q.get('sb'), len: +a[0] || 0, seg: +a[1] || 4, th: +a[2] || 2, fs: +a[3] || 2, col: a[4] === 'l' ? 'l' : 'd' };
+    S.na = { on: !!Q.get('na'), size: +b[0] || 0, col: b[1] === 'l' ? 'l' : 'd' };
+    (Q.get('sp') || '').split(';').forEach(function (t) {
+      var v = t.split(','), p = P[+v[0]];
+      if (p && isFinite(+v[1]) && isFinite(+v[2])) p.sb = { lon: +v[1], lat: +v[2], rel: +v[3] || 0 };
+    });
+    (Q.get('np') || '').split(';').forEach(function (t) {
+      var v = t.split(','), p = P[+v[0]];
+      if (p && isFinite(+v[1]) && isFinite(+v[2])) p.na = { lon: +v[1], lat: +v[2] };
+    });
+  })();
+  var initialSearch = location.search;
+
+  // ---- catalogue + DEM registrations --------------------------------------
+  var props = {}, outer = {}, catalog = null, ctxId = 'mapterhorn';
+  DemShade.addDataset('mapterhorn', null, {
+    tiles: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp', encoding: 'terrarium', tileSize: 512,
+    minzoom: 0, maxzoom: 13, overzoom: true, nodataAtOrBelow: 0
+  });
+  // One registration per survey: the survey over the context (Mapterhorn
+  // beyond our 3DEP bake), filled OUTSIDE its boundary only. It feeds both the
+  // shading and the terrain of a pane, so a pane is one raster source + one
+  // raster-dem source. In-browser gradient slope (no pre-baked slope): the
+  // baked pyramid covers only the survey, not the filled context.
+  function regFor(ds) {
+    var p = ds && props[ds];
+    if (!p) return ctxId;
+    var id = ds + '_cmp';
+    DemShade.addDataset(id, p.pmtiles_url, DemShade.catalogOpts(p, {
+      fill: ctxId, fillMode: p.fill_mode || 'outside', footprint: outer[ds] || null,
+      slope: null, slopeTiles: null }));
+    return id;
+  }
+  // Per-pane URL key: the package caches by URL and transfers the buffer to
+  // the asking map's worker, so a second map asking the same URL got a
+  // detached buffer (the /lidar/ export's &export=1 fault). Unknown params
+  // are ignored by its parser.
+  function keyed(u, i) { return u + (u.indexOf('?') < 0 ? '?' : '&') + 'pk=' + i; }
+
+  var PRESETS = {
+    preset:    { hs: 1, sl: 0.6, md: 1, as: 0, alt: 45, ve: 1, bl: 2 },
+    hillshade: { hs: 1, sl: 0, md: 0, as: 0, alt: 45, ve: 1, bl: 0 },
+    slope:     { hs: 1, sl: 1, md: 0, as: 0, alt: 45, ve: 1, bl: 2 }
+  };
+  function sunAz(p) { return S.sunRel ? ((S.az + p.b) % 360 + 360) % 360 : S.az; }
+  function shadeUrl(p, i) {
+    var o = Object.assign({}, PRESETS[S.shade] || PRESETS.hillshade, { az: Math.round(sunAz(p)) });
+    return keyed(DemShade.url(regFor(p.ds), o), i);
+  }
+
+  var BASEMAPS = LSBasemaps.DEFAULTS.filter(function (b) { return !b.style && b.tiles; });
+
+  // ---- panes ----------------------------------------------------------------
+  var grid = $('grid');
+  var driver = -1, applying = false;
+
+  function layoutGrid() {
+    var n = P.length, cols = S.cols || Math.ceil(Math.sqrt(n));
+    var rows = Math.ceil(n / cols);
+    grid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+    grid.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)';
+    P.forEach(function (p) { if (p.map) p.map.resize(); });
+  }
+
+  function northSvg() {
+    return '<svg class="north" viewBox="-8 -8 16 16"><g><path d="M0,-7 L3,2 L0,0 L-3,2Z" fill="#c00"/>' +
+           '<path d="M0,7 L3,2 L0,0 L-3,2Z" fill="#999"/></g></svg>';
+  }
+
+  // ---- which surveys cover a pane ---------------------------------------
+  // Footprints are the catalogue's real data outlines (outer rings), not
+  // bounding boxes: Homer's bbox is 6.7x its data.
+  function inRing(x, y, ring) {
+    var c = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+    }
+    return c;
+  }
+  function covers(id, lon, lat) {
+    var bb = props[id] && props[id].bounds, rings = outer[id];
+    if (!rings || (bb && (lon < bb[0] || lon > bb[2] || lat < bb[1] || lat > bb[3]))) return false;
+    return rings.some(function (r) { return inRing(lon, lat, r); });
+  }
+  // The ground a pane actually shows near to mid range: the lower two thirds
+  // of the canvas (the top of a tilted pane is horizon, kilometres away).
+  function viewQuad(p) {
+    var m = p.map, w = m.getContainer().clientWidth, h = m.getContainer().clientHeight;
+    return [[0, h / 3], [w, h / 3], [w, h], [0, h]].map(function (pt) {
+      var ll = m.unproject(pt); return [ll.lng, ll.lat];
+    });
+  }
+  function inView(id, p, quad) {
+    if (covers(id, p.lon, p.lat)) return true;
+    var bb = props[id] && props[id].bounds;
+    var qx = quad.map(function (q) { return q[0]; }), qy = quad.map(function (q) { return q[1]; });
+    var qb = [Math.min.apply(null, qx), Math.min.apply(null, qy), Math.max.apply(null, qx), Math.max.apply(null, qy)];
+    if (bb && (bb[2] < qb[0] || bb[0] > qb[2] || bb[3] < qb[1] || bb[1] > qb[3])) return false;
+    if (quad.some(function (q) { return covers(id, q[0], q[1]); })) return true;
+    return (outer[id] || []).some(function (r) {
+      return r.some(function (v) { return inRing(v[0], v[1], quad); });
+    });
+  }
+  // Best survey under the centre: finest, then newest.
+  function bestAt(lon, lat) {
+    var c = Object.keys(props).filter(function (id) { return covers(id, lon, lat); });
+    c.sort(function (a, b) {
+      return (props[a].native_res_m || 99) - (props[b].native_res_m || 99) || (props[b].year || 0) - (props[a].year || 0);
+    });
+    return c[0] || null;
+  }
+  // Auto (the default): when the centre is where the pane's survey has no
+  // data -- a new location, or panned off its edge -- take the survey that
+  // covers it, or the context terrain if none does. A survey picked by hand
+  // is kept until Auto is chosen again.
+  function autoPick(p) {
+    if (!catalog || p.dsAuto === false || !p.map) return;
+    if (p.ds && covers(p.ds, p.lon, p.lat)) return;
+    var best = bestAt(p.lon, p.lat);
+    if (best === p.ds) return;
+    p.ds = best;
+    if (!p.title) p.el.querySelector('.ttl').textContent = best ? props[best].title : 'Context';
+    rebuildSources(p, P.indexOf(p)); credits(); syncUrl();
+  }
+  function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  // The pull-down: Auto, the surveys reaching this pane's view (default), or
+  // every survey once asked for; context only last.
+  function surveyOptions(p) {
+    var sel = p.el.querySelector('.ds');
+    if (!catalog) return;
+    var ids = Object.keys(props), list;
+    if (p.showAll || !p.map) list = ids;
+    else {
+      var quad = null;
+      try { quad = viewQuad(p); } catch (e) {}
+      list = quad ? ids.filter(function (id) { return inView(id, p, quad); }) : ids;
+    }
+    if (p.ds && list.indexOf(p.ds) < 0) list.push(p.ds);
+    list.sort(function (a, b) { return props[a].title.localeCompare(props[b].title); });
+    var html = '<option value="__auto">Auto' + (p.dsAuto !== false ? ': ' + esc(p.ds ? props[p.ds].title : 'no survey here') : '') + '</option>' +
+      '<optgroup label="' + (p.showAll ? 'All surveys' : 'In view (' + list.length + ')') + '">' +
+      list.map(function (id) { return '<option value="' + id + '">' + esc(props[id].title) + '</option>'; }).join('') +
+      '</optgroup>' +
+      (p.showAll ? '<option value="__view">Only surveys in view</option>' : '<option value="__all">Show all surveys…</option>') +
+      '<option value="">Context terrain only</option>';
+    sel.innerHTML = html;
+    sel.value = p.dsAuto !== false ? '__auto' : (p.ds || '');
+  }
+
+  // An editable title: typing updates the state (and the link) as you go,
+  // Enter or clicking away commits, an emptied title reverts to its default.
+  function editable(el, get, set, fallback, hint) {
+    el.spellcheck = false;
+    el.textContent = get() || fallback();
+    el.title = hint;
+    el.addEventListener('input', function () { set(el.textContent.trim() || null); syncUrl(); if (el.id === 'ptitle') docTitle(); });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); el.blur(); }
+      e.stopPropagation();                   // keep keys away from the maps
+    });
+    el.addEventListener('blur', function () {
+      var v = el.textContent.trim();
+      set(v || null);
+      if (!v) el.textContent = fallback();
+      syncUrl(); if (el.id === 'ptitle') docTitle();
+    });
+    // Pasting rich text would bring its markup along.
+    el.addEventListener('paste', function (e) {
+      e.preventDefault();
+      var t = (e.clipboardData || window.clipboardData).getData('text').replace(/\s+/g, ' ');
+      document.execCommand('insertText', false, t);
+    });
+  }
+  function docTitle() { document.title = (S.title || 'Untitled comparison') + ' · terrain comparison'; }
+
+  function buildPane(i) {
+    var p = P[i];
+    var el = document.createElement('div');
+    el.className = 'pane';
+    el.innerHTML = '<div class="strip"><span class="ttl"></span><select class="frameonly ds"></select>' +
+                   '<span class="meas"></span>' + northSvg() +
+                   '<button class="rm frameonly" title="Remove pane">✕</button></div><div class="mapbox"></div>';
+    grid.appendChild(el);
+    p.el = el;
+    var ttl = el.querySelector('.ttl');
+    editable(ttl, function () { return p.title; },
+             function (v) { p.title = v; },
+             function () { return props[p.ds] ? props[p.ds].title : 'Context'; },
+             'Rename this pane (Frame mode). Empty it to go back to the survey name.');
+    var sel = el.querySelector('.ds');
+    if (p.dsAuto === undefined) p.dsAuto = true;
+    surveyOptions(p);
+    sel.addEventListener('change', function () {
+      var v = sel.value;
+      if (v === '__all' || v === '__view') { p.showAll = v === '__all'; surveyOptions(p); return; }
+      if (v === '__auto') { p.dsAuto = true; surveyOptions(p); autoPick(p); surveyOptions(p); syncUrl(); return; }
+      p.dsAuto = false;
+      p.ds = v || null;
+      if (!p.title) ttl.textContent = props[p.ds] ? props[p.ds].title : 'Context';
+      rebuildSources(p, P.indexOf(p)); surveyOptions(p); credits(); syncUrl();
+    });
+    el.querySelector('.rm').addEventListener('click', function () { removePane(P.indexOf(p)); });
+    annAttach(p);
+
+    var m = new maplibregl.Map({
+      container: el.querySelector('.mapbox'),
+      center: [p.lon, p.lat], zoom: zFor(S.res, p.lat), bearing: p.b, pitch: S.pitch,
+      maxPitch: 85, minZoom: 3, maxZoom: 21,
+      attributionControl: false, fadeDuration: 0, pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      // No maxTileCacheSize: 80 was below what a tilted pane shows at once,
+      // so a pan evicted and re-fetched tiles still on screen.
+      transformRequest: LSBasemaps.transformRequest,
+      style: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#fff' } }] }
+    });
+    p.map = m;
+    if (m.setCenterClampedToGround) m.setCenterClampedToGround(false);
+    m.getCanvas().addEventListener('webglcontextlost', function () {
+      var d = document.createElement('div'); d.className = 'lost'; d.textContent = 'WebGL context lost';
+      el.querySelector('.mapbox').appendChild(d); perf.lost++;
+    });
+    m.on('load', function () {
+      p.loaded = true;
+      setBase(p); rebuildSources(p, P.indexOf(p)); applyLocks(p);
+      annPane(p);
+      autoPick(p); surveyOptions(p);
+    });
+    m.on('movestart', function (e) { if (e.originalEvent) setDriver(P.indexOf(p)); });
+    m.on('move', function (e) { if (e.originalEvent && !applying) onDriverMove(P.indexOf(p)); });
+    // Gesture ends, not moveend: the driver's own jumpTo (zoom held to its
+    // latitude) ends its movement without an originalEvent.
+    ['dragend', 'rotateend', 'pitchend', 'zoomend', 'moveend'].forEach(function (ev) {
+      m.on(ev, function (e) { if (e.originalEvent && !applying) gestureEnded(); });
+    });
+    m.on('idle', function () { settle(p); measure(p); checkAllIdle(p); });
+    m.on('moveend', function () { measure(p); });
+    m.on('render', function () { perf.renders++; });
+    m.on('contextmenu', function (e) {
+      e.preventDefault();
+      var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
+      var done = function () { toast(txt + ' copied'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, function () { toast(txt); });
+      else toast(txt);
+    });
+    floorTerrain(p);
+    drawNorth(p);
+  }
+
+  function setBase(p) {
+    var m = p.map;
+    if (m.getLayer('base')) { m.removeLayer('base'); m.removeSource('base'); }
+    var bm = BASEMAPS.filter(function (b) { return b.id === S.bm; })[0];
+    if (!bm) return;
+    var st = LSBasemaps.buildRasterStyle(bm);
+    if (p.exportTS) st.sources.basemap.tileSize = (st.sources.basemap.tileSize || 256) * p.exportTS / 256;
+    m.addSource('base', st.sources.basemap);
+    m.addLayer({ id: 'base', type: 'raster', source: 'base', paint: { 'raster-fade-duration': 0 } },
+               m.getLayer('shade') ? 'shade' : firstAnnLayer(m));
+  }
+
+  function rebuildSources(p, i) {
+    var m = p.map;
+    // Not isStyleLoaded(): it is false while any source is loading, which is
+    // always the case straight after the base layer is added.
+    if (!m || !p.loaded) return;
+    if (m.getLayer('shade')) m.removeLayer('shade');
+    if (m.getSource('shade')) m.removeSource('shade');
+    if (m.getTerrain()) m.setTerrain(null);
+    if (m.getSource('dem')) m.removeSource('dem');
+    var sp = props[p.ds];
+    if (S.shade !== 'none') {
+      m.addSource('shade', { type: 'raster', tiles: [shadeUrl(p, i)], tileSize: p.exportTS || 256,
+                             minzoom: 0, maxzoom: sp ? sp.max_zoom : 14 });
+      m.addLayer({ id: 'shade', type: 'raster', source: 'shade',
+                   paint: { 'raster-opacity': S.op, 'raster-fade-duration': 0,
+                            'raster-opacity-transition': { duration: 0, delay: 0 } } }, firstAnnLayer(m));
+    }
+    p.shadeAz = Math.round(sunAz(p));
+    m.addSource('dem', { type: 'raster-dem', tiles: [keyed(DemShade.demUrl(regFor(p.ds), 256), i)],
+                         encoding: 'mapbox', tileSize: 256, minzoom: 0, maxzoom: sp ? sp.max_zoom : 14 });
+    applyTerrain(p);
+  }
+  function applyTerrain(p) {
+    var m = p.map;
+    if (!m || !m.getSource('dem')) return;
+    if (S.t3d) m.setTerrain({ source: 'dem', exaggeration: S.ex });
+    else m.setTerrain(null);
+    p.settled = false;
+  }
+
+  // The /lidar/ terrain floor (lidar_preview.html floorTerrainMinimum): a
+  // centre tile reporting 0 m makes MapLibre clip a deep seabed white.
+  function floorTerrain(p) {
+    var m = p.map, tries = 0;
+    function tryIt() {
+      var t = (m.style && m.style.terrain) || m.terrain || (m.painter && m.painter.terrain);
+      if (!t || typeof t.getMinTileElevationForLngLatZoom !== 'function' || t._lsFloored) return;
+      t._lsFloored = true;
+      var inner = t.getMinTileElevationForLngLatZoom.bind(t);
+      t.getMinTileElevationForLngLatZoom = function (ll, z) {
+        var v = inner(ll, z), sp = props[p.ds];
+        return sp && sp.z_min != null ? Math.min(v, sp.z_min * (t.exaggeration || 1)) : v;
+      };
+    }
+    m.on('render', function () { if (m.getTerrain() && ++tries < 600) tryIt(); });
+  }
+
+  // ---- linked navigation (plan §3) ----------------------------------------
+  function setDriver(i) {
+    driver = i;
+    P.forEach(function (p, j) { p.el.classList.toggle('drv', j === i); });
+    perf.gestureStart = performance.now();
+  }
+  function onDriverMove(i) {
+    var d = P[i], m = d.map;
+    if (!d || !m) return;
+    var c = m.getCenter(), z = m.getZoom(), b = m.getBearing(), pt = m.getPitch();
+    var L = S.locks;
+    // Zoom: only a change of the map's zoom since the last event is a scale
+    // gesture. Panning north at a fixed zoom changes metres per pixel too;
+    // that drift is corrected when the gesture ends, not adopted.
+    perf.gesture = 'pane ' + (i + 1) + ' ' + Object.keys((m.handlers && m.handlers._eventsInProgress) || {}).join('+');
+    if (d.lastZ == null) d.lastZ = z;
+    if (Math.abs(z - d.lastZ) > 1e-6 && !L.scale) S.res = resFor(z, c.lat);
+    d.lastZ = z;
+    if (!L.tilt) S.pitch = pt;
+    // Pan in metres, in the driver's screen frame (before this frame's rotation).
+    var dLat = L.position ? 0 : c.lat - d.lat, dLon = L.position ? 0 : wrap180(c.lng - d.lon);
+    var dx = dLon * Math.cos(d.lat * D2R) * M, dy = dLat * M;
+    var bd = d.b * D2R, sx = dx * Math.cos(bd) - dy * Math.sin(bd), sy = dx * Math.sin(bd) + dy * Math.cos(bd);
+    var db = L.rotation ? 0 : wrap180(b - d.b);
+    var together = S.mode === 'together';
+    P.forEach(function (p, j) {
+      if (j === i) { p.lat += dLat; p.lon += dLon; p.b = ((p.b + db) % 360 + 360) % 360; return; }
+      if (!together) return;
+      var bf = p.b * D2R;
+      var ex = sx * Math.cos(bf) + sy * Math.sin(bf), ny = -sx * Math.sin(bf) + sy * Math.cos(bf);
+      p.lat = Math.max(-85, Math.min(85, p.lat + ny / M));
+      p.lon = wrap180(p.lon + ex / (M * Math.cos(p.lat * D2R)));
+      p.b = ((p.b + db) % 360 + 360) % 360;
+    });
+    applyAll(i);
+    groundDriver(d);
+    annPane(d, true);
+    syncUrl(); syncKey();
+  }
+  // Keep the dragged pane's centre on the ground DURING the gesture, through
+  // MapLibre's transform-update path (what the package's terrain tracker
+  // uses): it does not call stop(), so the gesture survives. Without it the
+  // centre went stale over the drag and every pane lurched when it ended.
+  function groundDriver(d) {
+    var m = d.map;
+    if (!S.t3d || !m.getTerrain() || !m._getTransformForUpdate || !m._applyUpdatedTransform) return;
+    var h = m.queryTerrainElevation(m.getCenter());
+    if (h == null || !isFinite(h) || Math.abs(h - m.getCenterElevation()) < Math.max(0.5, S.res * 0.5)) return;
+    var tr = m._getTransformForUpdate();
+    tr.setElevation(h);
+    m._applyUpdatedTransform(tr);
+  }
+  // The driver is NEVER moved during its own gesture: jumpTo() stops the
+  // gesture in progress (MapLibre's _stop), so correcting its zoom every
+  // frame killed a slow drag after one frame. Its latitude zoom correction
+  // and any locked component are applied once the gesture ends.
+  // Put every pane's camera where the state says, except `skip` (the pane
+  // being dragged; -1 = all, used at gesture end and by the key's controls).
+  function applyAll(skip) {
+    applying = true;
+    try {
+      P.forEach(function (p, j) {
+        var m = p.map;
+        if (!m) return;
+        var want = { center: [p.lon, p.lat], zoom: zFor(S.res, p.lat), bearing: p.b, pitch: S.pitch };
+        if (j === skip) return;
+        if (S.t3d && m.getTerrain()) {
+          var h = m.queryTerrainElevation(want.center);
+          if (h != null && isFinite(h)) want.elevation = h;
+        }
+        var c = m.getCenter();
+        if (Math.abs(c.lat - p.lat) < 1e-10 && Math.abs(wrap180(c.lng - p.lon)) < 1e-10 &&
+            Math.abs(m.getZoom() - want.zoom) < 1e-7 && Math.abs(wrap180(m.getBearing() - p.b)) < 1e-7 &&
+            Math.abs(m.getPitch() - S.pitch) < 1e-7 &&
+            (want.elevation == null || Math.abs(m.getCenterElevation() - want.elevation) < 0.05)) return;
+        m.jumpTo(want);
+        p.lastZ = want.zoom;
+        annPane(p, true);
+        drawNorth(p);
+        p.settled = false;
+      });
+    } finally { applying = false; }
+  }
+  var endTimer = null;
+  function gestureEnded() {
+    clearTimeout(endTimer);
+    // The clock starts at once: a pane can go idle inside the debounce below.
+    perf.gestureEnd = performance.now(); perf.waitingIdle = true; perf.idleSeen = {};
+    perf.gesture = (perf.gesture || '').split(' ').slice(0, 2).join(' ') + ' ended';
+    endTimer = setTimeout(function () {
+      if (P.some(function (p) { return p.map && p.map.isMoving(); })) return;   // inertia: a later end will come
+      applyAll(-1);           // the driver's latitude zoom, and locked components
+      P.forEach(function (p) { if (p.loaded) { autoPick(p); surveyOptions(p); } });
+      // View-relative sun: a rotation re-shades, once the gesture is over.
+      P.forEach(function (p, j) {
+        if (p.map && p.map.getSource('shade') && Math.round(sunAz(p)) !== p.shadeAz) {
+          p.shadeAz = Math.round(sunAz(p));
+          p.map.getSource('shade').setTiles([shadeUrl(p, j)]);
+        }
+        settle(p);
+      });
+    }, 120);
+  }
+
+  // Centre on the ground at the SHARED scale. MapLibre's zoom fixes the
+  // camera's distance to the centre point at the centre's elevation, so the
+  // scale at the centre is right only once that elevation is the ground's.
+  // The /lidar/ tracker keeps the camera still and re-solves the zoom, which
+  // would give each pane its own scale; here the zoom is held and the camera
+  // moves (eased) instead.
+  function settle(p) {
+    var m = p.map;
+    if (!m || !m.getTerrain() || m.isMoving()) return;
+    var h = m.queryTerrainElevation(m.getCenter());
+    if (h == null || !isFinite(h)) return;
+    var ce = m.getCenterElevation ? m.getCenterElevation() : 0;
+    var tol = Math.max(0.5, S.res * 0.5);
+    if (Math.abs(h - ce) < tol) { p.settled = true; return; }
+    // jumpTo, not easeTo: an ease that a tile load interrupts left panes
+    // reporting isMoving() for good, and settle() then never ran again.
+    applying = true;
+    try { m.jumpTo({ elevation: h, zoom: zFor(S.res, p.lat) }); }
+    finally { applying = false; }
+  }
+  // idle needs every tile loaded, which an underground camera can postpone
+  // indefinitely, so unsettled panes are also retried on a timer.
+  setInterval(function () {
+    if (driver >= 0 && P[driver] && P[driver].map && P[driver].map.isMoving()) return;
+    // Every pane, every tick: a query made before the terrain tile arrived
+    // reads 0 m, so 'settled' is never final. A no-op when within tolerance.
+    P.forEach(settle);
+  }, 300);
+
+  // Scale check (plan §7), by the camera rather than by rays on the ground:
+  // distance from the camera (MapLibre's own position and altitude) to the
+  // centre point at its elevation, divided by the optical distance in pixels
+  // (cameraToCenterDistance = half height / tan(half fov)), is the ground
+  // scale at the centre. Rays cast ±N px onto the terrain were tried first
+  // and read relief, not scale: on a 12 m rise beside the centre, ×1.95.
+  function measure(p) {
+    var m = p.map, out = p.el.querySelector('.meas'), t = m && m.transform;
+    if (!t || !t.getCameraLngLat || !t.getCameraAltitude) { out.textContent = ''; return; }
+    var cam = t.getCameraLngLat(), alt = t.getCameraAltitude();
+    var ce = m.getTerrain() ? m.getCenterElevation() : 0;
+    var horiz = new maplibregl.LngLat(cam.lng, cam.lat).distanceTo(m.getCenter());
+    var r = Math.hypot(horiz, alt - ce) / t.cameraToCenterDistance / S.res;
+    // And whether the centre is on the ground (the other half of the claim).
+    var g = m.getTerrain() ? m.queryTerrainElevation(m.getCenter()) : 0;
+    var off = g == null ? 0 : Math.abs(g - ce);
+    p.meas = r; p.groundOff = off;
+    out.textContent = '×' + r.toFixed(3) + (off > Math.max(1, S.res) ? ' ↕' + Math.round(off) + 'm' : '');
+    out.className = 'meas' + (Math.abs(r - 1) > 0.02 || off > Math.max(1, S.res) ? ' bad' : '');
+    out.title = 'camera-measured ground scale at the centre ÷ the shared scale' +
+                (off > Math.max(1, S.res) ? '; centre is ' + Math.round(off) + ' m off the ground (not yet settled)' : '');
+  }
+
+  function drawNorth(p) {
+    var g = p.el && p.el.querySelector('.north g');
+    if (g) g.setAttribute('transform', 'rotate(' + (-p.b) + ')');
+  }
+
+  // ---- locks (plan §3: the creator's working aid) --------------------------
+  function applyLocks(p) {
+    var m = p.map, L = S.locks;
+    if (!m) return;
+    if (L.tilt) { m.setMinPitch(S.pitch); m.setMaxPitch(S.pitch); }
+    else { m.setMinPitch(0); m.setMaxPitch(85); }
+    ['scrollZoom', 'doubleClickZoom', 'boxZoom'].forEach(function (h) { L.scale ? m[h].disable() : m[h].enable(); });
+    if (L.scale) m.keyboard.disable(); else m.keyboard.enable();
+    if (L.position) { m.dragPan.disable(); if (!L.scale) m.scrollZoom.enable({ around: 'center' }); }
+    else { m.dragPan.enable(); if (!L.scale) m.scrollZoom.enable(); }
+  }
+  function syncLockUI() {
+    document.querySelectorAll('[data-lock]').forEach(function (cb) { cb.checked = !!S.locks[cb.dataset.lock]; });
+    $('pitch').disabled = !!S.locks.tilt;
+    $('ex').disabled = !!S.locks.ex; $('t3d').disabled = !!S.locks.ex;
+    ['mode', 'sunrel', 'az'].forEach(function (id) { $(id).disabled = !!S.locks.style; });
+  }
+
+  // ---- key ---------------------------------------------------------------------
+  function niceLen(m) {
+    var e = Math.pow(10, Math.floor(Math.log10(m))), f = m / e;
+    return (f >= 5 ? 5 : f >= 2 ? 2 : 1) * e;
+  }
+  function syncKey() {
+    var len = niceLen(S.res * 120);
+    $('sbl').textContent = len >= 1000 ? (len / 1000) + ' km' : len + ' m';
+    $('sbi').style.width = (len / S.res) + 'px';
+    $('sbl').parentNode.title = S.res.toFixed(2) + ' m per pixel at every pane centre';
+    $('pitch').value = Math.round(S.pitch); $('pv').textContent = Math.round(S.pitch) + '°';
+    $('ex').value = Math.round(S.ex * 10); $('exv').textContent = '×' + S.ex.toFixed(1);
+    $('t3d').checked = S.t3d;
+    $('mode').value = S.shade; $('sunrel').checked = S.sunRel;
+    $('az').value = S.az; $('azv').textContent = S.az + '°' + (S.sunRel ? ' rel' : '');
+    $('op').value = Math.round(S.op * 100); $('opv').textContent = Math.round(S.op * 100) + '%';
+    $('bm').value = S.bm; $('cols').value = String(S.cols); $('npanes').value = String(P.length);
+    document.querySelectorAll('#seg button').forEach(function (b) { b.classList.toggle('on', b.dataset.m === S.mode); });
+    document.body.classList.toggle('frame', S.mode === 'frame');
+    P.forEach(function (p) {
+      var t = p.el && p.el.querySelector('.ttl');
+      if (t) t.contentEditable = S.mode === 'frame' ? 'true' : 'false';
+    });
+    $('ptitle').contentEditable = S.mode === 'frame' ? 'true' : 'false';
+    syncLockUI();
+  }
+  function credits() {
+    var seen = {}, parts = [];
+    P.forEach(function (p) { if (props[p.ds] && !seen[p.ds]) { seen[p.ds] = 1; parts.push(props[p.ds].title); } });
+    var bm = BASEMAPS.filter(function (b) { return b.id === S.bm; })[0];
+    $('credits').innerHTML = 'Surveys: ' + (parts.join(' · ') || '—') +
+      '. Terrain beyond the surveys: <a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">Mapterhorn</a> (USGS 3DEP; Copernicus DEM).' +
+      (bm ? ' Base: ' + (bm.attribution || bm.label).replace(/<[^>]+>/g, '') + '.' : '');
+  }
+
+  function fillBase() {
+    var sel = $('bm'), html = '<option value="">None (white)</option>';
+    BASEMAPS.forEach(function (b) { html += '<option value="' + b.id + '">' + b.label + '</option>'; });
+    sel.innerHTML = html;
+  }
+
+  function bindKey() {
+    document.querySelectorAll('#seg button').forEach(function (b) {
+      b.addEventListener('click', function () { S.mode = b.dataset.m; syncKey(); syncUrl(); });
+    });
+    $('pitch').addEventListener('input', function () { S.pitch = +this.value; applyAll(-1); syncKey(); syncUrl(); gestureEnded(); });
+    var exFrame = null;
+    $('ex').addEventListener('input', function () {
+      S.ex = +this.value / 10; syncKey(); syncUrl();
+      if (exFrame) return;
+      exFrame = requestAnimationFrame(function () { exFrame = null; P.forEach(applyTerrain); gestureEnded(); });
+    });
+    $('t3d').addEventListener('change', function () { S.t3d = this.checked; P.forEach(applyTerrain); syncKey(); syncUrl(); gestureEnded(); });
+    function reshade() { P.forEach(function (p, j) { rebuildSources(p, j); }); syncKey(); syncUrl(); }
+    $('mode').addEventListener('change', function () { S.shade = this.value; reshade(); });
+    $('sunrel').addEventListener('change', function () { S.sunRel = this.checked; reshade(); });
+    var azT = null;
+    $('az').addEventListener('input', function () {
+      S.az = +this.value; syncKey(); clearTimeout(azT);
+      azT = setTimeout(function () {
+        P.forEach(function (p, j) { if (p.map && p.map.getSource('shade')) { p.shadeAz = Math.round(sunAz(p)); p.map.getSource('shade').setTiles([shadeUrl(p, j)]); } });
+        syncUrl();
+      }, 150);
+    });
+    $('op').addEventListener('input', function () {
+      S.op = +this.value / 100; syncKey(); syncUrl();
+      P.forEach(function (p) { if (p.map && p.map.getLayer('shade')) p.map.setPaintProperty('shade', 'raster-opacity', S.op); });
+    });
+    $('bm').addEventListener('change', function () {
+      S.bm = this.value; P.forEach(function (p) { if (p.map && p.loaded) setBase(p); }); credits(); syncUrl();
+    });
+    $('cols').addEventListener('change', function () { S.cols = +this.value; layoutGrid(); syncUrl(); });
+    $('npanes').addEventListener('change', function () { setPaneCount(+this.value); });
+    document.querySelectorAll('[data-lock]').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        if (cb.checked) S.locks[cb.dataset.lock] = true; else delete S.locks[cb.dataset.lock];
+        P.forEach(applyLocks); syncLockUI(); syncUrl();
+      });
+    });
+    $('copy').addEventListener('click', function () {
+      writeUrl();
+      navigator.clipboard && navigator.clipboard.writeText(location.href).then(function () { toast('Link copied'); });
+    });
+    $('reset').addEventListener('click', function () { location.search = initialSearch; });
+    $('addlink').addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      try {
+        var u = new URL(this.value.trim(), location.href), q = u.searchParams;
+        if (!isFinite(+q.get('lat')) || !isFinite(+q.get('lon'))) throw new Error('no lat/lon');
+        if (P.length >= MAXP) { toast('At most ' + MAXP + ' panes'); return; }
+        // A /lidar/ link names its survey only if one was on; with none, Auto
+        // picks the survey under the centre.
+        P.push({ lat: +q.get('lat'), lon: +q.get('lon'), b: +q.get('b') || 0, ds: q.get('ds') || null, title: null,
+                 dsAuto: !q.get('ds') });
+        buildPane(P.length - 1); layoutGrid(); applyAll(-1); syncKey(); credits(); syncUrl();
+        this.value = '';
+      } catch (err) { toast('Not a /lidar/ link with lat and lon'); }
+    });
+    $('perfon').addEventListener('change', function () { $('perf').style.display = this.checked ? '' : 'none'; });
+    $('annbtn').addEventListener('click', function () { if (editing) annClose(); else annOpen(); });
+    $('hidectl').addEventListener('click', function () { setClean(true); });
+    $('showctl').addEventListener('click', function () { setClean(false); });
+    $('exportpng').addEventListener('click', function () { exportPng(+$('expscale').value); });
+  }
+
+  function removePane(i) {
+    var p = P[i];
+    if (!p || P.length <= 1) return;
+    if (p.map) p.map.remove();
+    p.el.remove();
+    P.splice(i, 1);
+    layoutGrid(); credits(); syncUrl(); syncKey();
+  }
+  function setPaneCount(n) {
+    n = Math.max(1, Math.min(MAXP, n));
+    while (P.length > n) removePane(P.length - 1);
+    while (P.length < n) {
+      var d = DEFAULT_PANES[P.length % DEFAULT_PANES.length];
+      P.push(Object.assign({}, d));
+      buildPane(P.length - 1);
+    }
+    layoutGrid(); applyAll(-1); credits(); syncUrl(); syncKey();
+  }
+
+  // ---- annotations: scale bar and north arrow on the ground ----------------
+  // Each is drawn on a canvas and laid on the terrain as an image source with
+  // four ground corners, so MapLibre drapes it: it foreshortens with the view
+  // and bends over relief, like paint on the landscape. Lengths are
+  // horizontal ground metres. While its panel is open a press on it drags it
+  // and any other press works the map; with the panel closed it is fixed.
+  var editing = false, annSeq = 0, activePane = 0;
+  function firstAnnLayer(m) {
+    var ls = m.getStyle().layers;
+    for (var k = 0; k < ls.length; k++) if (/^ann-/.test(ls[k].id)) return ls[k].id;
+    return undefined;
+  }
+  function setActive(i) {
+    activePane = i;
+    P.forEach(function (p, j) { p.el.classList.toggle('drv', j === i); });
+  }
+  function fmtLen(v) { return (+v.toFixed(2)).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+  var COL = {
+    d: { a: '#111', b: '#fff', line: '#111', text: '#111', halo: 'rgba(255,255,255,.92)' },
+    l: { a: '#fff', b: '#111', line: '#fff', text: '#fff', halo: 'rgba(0,0,0,.8)' }
+  };
+  // Canvas for an annotation, and the ground size (metres) it spans.
+  function annCanvas(a, outline) {
+    var c = document.createElement('canvas'), g, k = COL[a.col] || COL.d, W, H;
+    if (a.type === 'scale') {
+      var CW = 2048, BL = Math.round(CW / 1.25), x0 = (CW - BL) / 2;
+      var barH = [22, 38, 60][a.th - 1] || 38, fs = [64, 92, 130][a.fs - 1] || 92;
+      var CH = Math.round(24 + fs * 1.2 + 18 + barH + 24);
+      c.width = CW; c.height = CH; g = c.getContext('2d');
+      var by = CH - 24 - barH, n = a.seg || 1, sw = BL / n;
+      for (var i = 0; i < n; i++) { g.fillStyle = i % 2 ? k.b : k.a; g.fillRect(x0 + i * sw, by, sw, barH); }
+      g.lineWidth = Math.max(4, barH * 0.14); g.strokeStyle = k.line; g.strokeRect(x0, by, BL, barH);
+      var km = a.len >= 1000, unit = km ? ' km' : ' m';
+      g.font = '600 ' + fs + 'px system-ui, sans-serif'; g.textBaseline = 'alphabetic';
+      g.lineJoin = 'round'; g.lineWidth = fs * 0.22; g.strokeStyle = k.halo; g.fillStyle = k.text;
+      // Numbers centred on their tick; the unit hangs off the last one. Ten
+      // segments label every other tick.
+      var ty = by - 18, step = n > 5 ? 2 : 1, ticks = [];
+      for (var j = 0; j < n; j += step) ticks.push(j);
+      ticks.push(n);
+      ticks.forEach(function (j) {
+        var num = fmtLen((km ? a.len / 1000 : a.len) * j / n);
+        var t = num + (j === n ? unit : ''), tx = x0 + j * sw - g.measureText(num).width / 2;
+        g.strokeText(t, tx, ty); g.fillText(t, tx, ty);
+      });
+      W = a.len * 1.25; H = W * CH / CW;
+    } else {
+      var S2 = 1024; c.width = c.height = S2; g = c.getContext('2d');
+      var cx = S2 / 2, top = 70, bot = S2 * 0.62, half = S2 * 0.2;
+      g.lineJoin = 'round';
+      g.beginPath(); g.moveTo(cx, top); g.lineTo(cx + half, bot); g.lineTo(cx, bot - half * 0.55); g.closePath();
+      g.fillStyle = k.a; g.fill();
+      g.beginPath(); g.moveTo(cx, top); g.lineTo(cx - half, bot); g.lineTo(cx, bot - half * 0.55); g.closePath();
+      g.fillStyle = k.b; g.fill();
+      g.beginPath(); g.moveTo(cx, top); g.lineTo(cx + half, bot); g.lineTo(cx, bot - half * 0.55); g.lineTo(cx - half, bot); g.closePath();
+      g.lineWidth = 14; g.strokeStyle = k.line; g.stroke();
+      g.font = '700 300px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+      g.lineWidth = 60; g.strokeStyle = k.halo; g.strokeText('N', cx, S2 - 60);
+      g.fillStyle = k.text; g.fillText('N', cx, S2 - 60);
+      W = H = a.len;
+    }
+    if (outline) {
+      g.setLineDash([40, 24]); g.lineWidth = 12; g.strokeStyle = '#e8590c';
+      g.strokeRect(6, 6, c.width - 12, c.height - 12);
+    }
+    return { canvas: c, W: W, H: H };
+  }
+  // Ground corners [TL, TR, BR, BL]: u along the bar (rot = its compass
+  // bearing), v = u turned 90° left (the image's up). North arrow: rot 90,
+  // so its up is true north.
+  function annCorners(a, W, H) {
+    var r = a.rot * D2R, ux = Math.sin(r), uy = Math.cos(r), vx = -uy, vy = ux;
+    var kx = 1 / (M * Math.cos(a.lat * D2R)), ky = 1 / M;
+    function pt(su, sv) {
+      var e = su * W / 2 * ux + sv * H / 2 * vx, n = su * W / 2 * uy + sv * H / 2 * vy;
+      return [a.lon + e * kx, a.lat + n * ky];
+    }
+    return [pt(-1, 1), pt(1, 1), pt(1, -1), pt(-1, -1)];
+  }
+  // The drawable for one pane: the shared spec plus the pane's placement.
+  // The bar's compass bearing follows the pane's look direction:
+  // perpendicular (left to right across the view) plus the pane's offset.
+  function annItem(p, type) {
+    if (type === 'scale') return p.sb && { type: 'scale', lon: p.sb.lon, lat: p.sb.lat, len: S.sb.len,
+      rot: ((p.b + 90 + p.sb.rel) % 360 + 360) % 360, seg: S.sb.seg, th: S.sb.th, fs: S.sb.fs, col: S.sb.col };
+    return p.na && { type: 'north', lon: p.na.lon, lat: p.na.lat, len: S.na.size, rot: 90, col: S.na.col };
+  }
+  function annId(p, type) { return 'ann-' + type + '-' + (p.annKey || (p.annKey = ++annSeq)); }
+  function niceRound(m) {
+    var e = Math.pow(10, Math.floor(Math.log10(m))), f = m / e;
+    return (f >= 5 ? 5 : f >= 2 ? 2 : 1) * e;
+  }
+  function paneSize(p) { var c = p.map.getContainer(); return [c.clientWidth, c.clientHeight]; }
+  // Default spots: the bar low and centred, the arrow lower right.
+  function annPlace(p, type) {
+    var wh = paneSize(p), at = type === 'scale' ? [wh[0] * 0.5, wh[1] * 0.82] : [wh[0] * 0.88, wh[1] * 0.75];
+    var g = p.map.unproject(at) || p.map.getCenter();
+    if (type === 'scale') p.sb = { lon: g.lng, lat: g.lat, rel: p.sb ? p.sb.rel : 0 };
+    else p.na = { lon: g.lng, lat: g.lat };
+  }
+  // Draw (or remove) both items in a pane from the current state. Re-render
+  // the image only when its look changed; otherwise just move its corners.
+  function annPane(p, moveOnly) {
+    var m = p.map;
+    if (!m || !p.loaded) return;
+    ['scale', 'north'].forEach(function (type) {
+      var on = type === 'scale' ? S.sb.on : S.na.on, id = annId(p, type);
+      if (!on) {
+        if (m.getLayer(id)) m.removeLayer(id);
+        if (m.getSource(id)) m.removeSource(id);
+        return;
+      }
+      if (type === 'scale' ? !p.sb : !p.na) annPlace(p, type);
+      var a = annItem(p, type), look = JSON.stringify([a.len, a.seg, a.th, a.fs, a.col, !!editing]);
+      var src = m.getSource(id);
+      p.annLook = p.annLook || {};
+      if (src && (moveOnly || p.annLook[type] === look)) {
+        var dims = p.annDims[type];
+        src.setCoordinates(annCorners(a, dims[0], dims[1]));
+        return;
+      }
+      var r = annCanvas(a, !!editing);
+      p.annDims = p.annDims || {}; p.annDims[type] = [r.W, r.H]; p.annLook[type] = look;
+      var coords = annCorners(a, r.W, r.H), url = r.canvas.toDataURL('image/png');
+      if (src) src.updateImage({ url: url, coordinates: coords });
+      else {
+        m.addSource(id, { type: 'image', url: url, coordinates: coords });
+        m.addLayer({ id: id, type: 'raster', source: id, paint: { 'raster-fade-duration': 0 } });
+      }
+    });
+    var ctl = p.el.querySelector('.panectl');
+    if (ctl) {
+      ctl.classList.toggle('on', S.sb.on);
+      var rg = ctl.querySelector('input'); if (rg && document.activeElement !== rg) rg.value = p.sb ? p.sb.rel : 0;
+      ctl.querySelector('.v').textContent = (p.sb ? p.sb.rel : 0) + '°';
+    }
+  }
+  function annAll(moveOnly) { P.forEach(function (p) { annPane(p, moveOnly); }); }
+  // Is ground point g on this pane's item (generous margin, to be easy to grab)?
+  function annHit(p, type, g) {
+    var a = annItem(p, type), d = p.annDims && p.annDims[type];
+    if (!a || !d || !g) return false;
+    var e = (g.lng - a.lon) * M * Math.cos(a.lat * D2R), n = (g.lat - a.lat) * M, r = a.rot * D2R;
+    var along = e * Math.sin(r) + n * Math.cos(r), across = -e * Math.cos(r) + n * Math.sin(r);
+    return Math.abs(along) <= d[0] * 0.6 && Math.abs(across) <= d[1] * 0.65;
+  }
+  function localPt(m, e) {
+    var rc = m.getCanvas().getBoundingClientRect();
+    return [e.clientX - rc.left, e.clientY - rc.top];
+  }
+  function hitType(p, g) {
+    if (S.na.on && annHit(p, 'north', g)) return 'north';
+    if (S.sb.on && annHit(p, 'scale', g)) return 'scale';
+    return null;
+  }
+  // Capture phase on the pane, ahead of MapLibre: while the settings are open
+  // a press on this pane's bar or arrow drags it; anything else is the map's.
+  function annAttach(p) {
+    var box = p.el.querySelector('.mapbox');
+    var ctl = document.createElement('div');
+    ctl.className = 'panectl';
+    ctl.innerHTML = '<span title="Bar angle from perpendicular to this pane\'s look direction">bar ∠</span>' +
+      '<input type="range" min="-90" max="90" step="1"><span class="v"></span>' +
+      '<button type="button" title="Back to perpendicular to the look direction">⟂</button>';
+    box.appendChild(ctl);
+    ['mousedown', 'wheel', 'dblclick', 'contextmenu'].forEach(function (ev) {
+      ctl.addEventListener(ev, function (e) { e.stopPropagation(); });
+    });
+    var rg = ctl.querySelector('input');
+    rg.addEventListener('input', function () { if (!p.sb) return; p.sb.rel = +rg.value; annPane(p, true); ctl.querySelector('.v').textContent = rg.value + '°'; syncUrl(); });
+    ctl.querySelector('button').addEventListener('click', function () { if (!p.sb) return; p.sb.rel = 0; annPane(p, true); syncUrl(); });
+    box.addEventListener('mousedown', function (e) {
+      setActive(P.indexOf(p));
+      if (!editing || e.button !== 0 || ctl.contains(e.target)) return;
+      var m = p.map, g0 = m.unproject(localPt(m, e)), type = hitType(p, g0);
+      if (!type) return;
+      e.stopPropagation(); e.preventDefault();
+      var pl = type === 'scale' ? p.sb : p.na, a0 = { lon: pl.lon, lat: pl.lat };
+      function mv(ev) {
+        var g = m.unproject(localPt(m, ev));
+        if (!g) return;
+        pl.lon = a0.lon + (g.lng - g0.lng); pl.lat = a0.lat + (g.lat - g0.lat);
+        annPane(p, true);
+      }
+      function up() {
+        document.removeEventListener('mousemove', mv, true);
+        document.removeEventListener('mouseup', up, true);
+        syncUrl();
+      }
+      document.addEventListener('mousemove', mv, true);
+      document.addEventListener('mouseup', up, true);
+    }, true);
+    box.addEventListener('mousemove', function (e) {
+      if (!editing || e.buttons || ctl.contains(e.target)) return;
+      var m = p.map;
+      m.getCanvas().style.cursor = hitType(p, m.unproject(localPt(m, e))) ? 'move' : '';
+    });
+  }
+  // The settings panel: everything that is the same in every pane. Opening it
+  // turns on editing (outlines, dragging, the per-pane angle controls).
+  function annOpen() {
+    if (!S.sb.len) S.sb.len = niceRound(S.res * Math.min.apply(null, P.map(function (p) { return paneSize(p)[0]; })) * 0.35);
+    if (!S.na.size) S.na.size = Math.max(1, Math.round(S.res * Math.min.apply(null, P.map(function (p) { return paneSize(p)[1]; })) * 0.18));
+    if (!S.sb.on && !S.na.on) { S.sb.on = true; S.na.on = true; }
+    editing = true; document.body.classList.add('annedit');
+    annAll(); annPanel(); syncUrl();
+  }
+  function annClose() {
+    editing = false; document.body.classList.remove('annedit');
+    $('annpanel').style.display = 'none';
+    P.forEach(function (p) { if (p.map) p.map.getCanvas().style.cursor = ''; });
+    annAll(); syncUrl();
+  }
+  function annPanel() {
+    var pn = $('annpanel');
+    pn.innerHTML = '<h4>Scale bar &amp; north arrow — all panes</h4>' +
+      '<div class="row"><label><input type="checkbox" id="an-sbon"> Scale bar</label></div>' +
+      '<div class="row"><label>Length</label><input type="number" id="an-len" min="1" step="any"> m' +
+      ' <select id="an-pre"><option value="">presets</option>' +
+      [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000].map(function (v) { return '<option>' + v + '</option>'; }).join('') + '</select></div>' +
+      '<div class="row"><label>Segments</label><select id="an-seg"><option>1</option><option>2</option><option>4</option><option>5</option><option>10</option></select>' +
+      '<label>Bar</label><select id="an-th"><option value="1">thin</option><option value="2">medium</option><option value="3">thick</option></select></div>' +
+      '<div class="row"><label>Labels</label><select id="an-fs"><option value="1">small</option><option value="2">medium</option><option value="3">large</option></select>' +
+      '<select id="an-col"><option value="d">dark on light</option><option value="l">light on dark</option></select></div>' +
+      '<div class="row" style="margin-top:9px"><label><input type="checkbox" id="an-naon"> North arrow</label>' +
+      '<label>Size</label><input type="number" id="an-size" min="1" step="any"> m</div>' +
+      '<div class="row"><select id="an-ncol"><option value="d">dark on light</option><option value="l">light on dark</option></select></div>' +
+      '<div class="btns"><button id="an-reset" title="Put every pane\'s bar and arrow back at the default spots in its current view">Re-place in view</button>' +
+      '<button id="an-done"><b>Done</b></button></div>' +
+      '<div class="hint">Drag a bar or arrow in any pane while this is open; elsewhere drags move the view. ' +
+      'Each pane\'s <b>bar ∠</b> (bottom left) turns its bar from perpendicular to the look direction. ' +
+      'Lengths are horizontal ground distances. Done fixes them in place.</div>';
+    pn.style.display = '';
+    function f(id) { return document.getElementById(id); }
+    f('an-sbon').checked = S.sb.on; f('an-naon').checked = S.na.on;
+    f('an-len').value = S.sb.len; f('an-seg').value = String(S.sb.seg); f('an-th').value = String(S.sb.th);
+    f('an-fs').value = String(S.sb.fs); f('an-col').value = S.sb.col;
+    f('an-size').value = S.na.size; f('an-ncol').value = S.na.col;
+    function upd() { annAll(); syncUrl(); }
+    f('an-sbon').onchange = function () { S.sb.on = this.checked; upd(); };
+    f('an-naon').onchange = function () { S.na.on = this.checked; upd(); };
+    f('an-len').onchange = function () { if (+this.value > 0) { S.sb.len = +this.value; upd(); } };
+    f('an-pre').onchange = function () { if (this.value) { S.sb.len = +this.value; f('an-len').value = S.sb.len; upd(); } this.value = ''; };
+    ['seg', 'th', 'fs'].forEach(function (k) { f('an-' + k).onchange = function () { S.sb[k] = +this.value; upd(); }; });
+    f('an-col').onchange = function () { S.sb.col = this.value; upd(); };
+    f('an-size').onchange = function () { if (+this.value > 0) { S.na.size = +this.value; upd(); } };
+    f('an-ncol').onchange = function () { S.na.col = this.value; upd(); };
+    f('an-reset').onclick = function () { P.forEach(function (p) { if (p.loaded) { annPlace(p, 'scale'); annPlace(p, 'north'); } }); upd(); };
+    f('an-done').onclick = annClose;
+  }
+
+  // ---- hide controls / export ------------------------------------------------
+  function setClean(on) {
+    if (on && editing) annClose();
+    document.body.classList.toggle('clean', on);
+    setTimeout(layoutGrid, 0);
+  }
+  function waitIdle(m, ms) {
+    return new Promise(function (res) {
+      var done = false, t = setTimeout(fin, ms);
+      function fin() { if (!done) { done = true; clearTimeout(t); res(); } }
+      setTimeout(function () { m.once('idle', fin); m.triggerRepaint(); }, 400);
+    });
+  }
+  // Every pane redrawn at `scale`× its pixel ratio, with raster sources asked
+  // for tiles `scale`× deeper (a smaller tileSize), so the shading and base
+  // gain real detail rather than being upscaled; then composited with the
+  // titles, a key line and the credits as laid out on screen.
+  async function exportPng(scale) {
+    if (editing) annClose();
+    var busy = $('busy'); busy.textContent = 'Rendering ' + P.length + ' panes at ' + scale + '×…'; busy.style.display = 'flex';
+    var dpr0 = Math.min(window.devicePixelRatio || 1, 2);
+    try {
+      P.forEach(function (p, i) {
+        p.exportTS = 256 / scale;
+        p.map.setPixelRatio(scale);
+        setBase(p); rebuildSources(p, i);
+        ['scale', 'north'].forEach(function (t) { var m = p.map, id = annId(p, t); if (m.getLayer(id)) m.moveLayer(id); });
+      });
+      await Promise.all(P.map(function (p) { return waitIdle(p.map, 90000); }));
+      await new Promise(function (r) { setTimeout(r, 300); });
+      var gr = $('grid').getBoundingClientRect(), pad = 12, head = 52, foot = 40;
+      var out = document.createElement('canvas');
+      out.width = Math.round((gr.width + 2 * pad) * scale); out.height = Math.round((head + gr.height + foot) * scale);
+      var g = out.getContext('2d');
+      g.scale(scale, scale);
+      g.fillStyle = '#fff'; g.fillRect(0, 0, out.width, out.height);
+      g.fillStyle = '#222'; g.font = '600 18px system-ui, sans-serif'; g.textBaseline = 'top';
+      g.fillText(S.title || 'Untitled comparison', pad, 10);
+      g.font = '12px system-ui, sans-serif'; g.fillStyle = '#555';
+      var shadeName = { preset: 'Preset shading', hillshade: 'Hillshade', slope: 'Slope', none: 'No shading' }[S.shade];
+      var bmL = (BASEMAPS.filter(function (b) { return b.id === S.bm; })[0] || {}).label || 'no base';
+      g.fillText('Same ground scale in every pane: ' + S.res.toFixed(2) + ' m per pixel at the centre (screen) · tilt ' +
+                 Math.round(S.pitch) + '° · vertical exaggeration ×' + S.ex.toFixed(1) + ' · ' + shadeName + ' over ' + bmL +
+                 ' · sun ' + (S.sunRel ? 'from upper left of each view' : S.az + '°') + ' · bars and arrows are horizontal ground lengths',
+                 pad, 34);
+      var ox = pad - gr.left, oy = head - gr.top;
+      P.forEach(function (p) {
+        var st = p.el.querySelector('.strip').getBoundingClientRect(), mb = p.el.querySelector('.mapbox').getBoundingClientRect();
+        g.fillStyle = '#fff'; g.fillRect(st.left + ox, st.top + oy, st.width, st.height);
+        g.fillStyle = '#222'; g.font = '600 13px system-ui, sans-serif'; g.textBaseline = 'middle';
+        g.fillText(p.el.querySelector('.ttl').textContent, st.left + ox + 6, st.top + oy + st.height / 2, st.width - 40);
+        // north indicator, as in the strip
+        g.save(); g.translate(st.right + ox - 14, st.top + oy + st.height / 2); g.rotate(-p.b * D2R);
+        g.beginPath(); g.moveTo(0, -7); g.lineTo(3, 2); g.lineTo(0, 0); g.lineTo(-3, 2); g.closePath(); g.fillStyle = '#c00'; g.fill();
+        g.beginPath(); g.moveTo(0, 7); g.lineTo(3, 2); g.lineTo(0, 0); g.lineTo(-3, 2); g.closePath(); g.fillStyle = '#999'; g.fill();
+        g.restore();
+        p.map.redraw();                         // synchronous: the buffer is still there for drawImage
+        g.drawImage(p.map.getCanvas(), mb.left + ox, mb.top + oy, mb.width, mb.height);
+      });
+      g.fillStyle = '#666'; g.font = '11px system-ui, sans-serif'; g.textBaseline = 'top';
+      var cr = $('credits').textContent.replace(/\s+/g, ' ').trim(), y = head + gr.height + 6, line = '';
+      cr.split(' ').forEach(function (w) {
+        if (g.measureText(line + w).width > gr.width) { g.fillText(line, pad, y); y += 14; line = ''; }
+        line += w + ' ';
+      });
+      g.fillText(line, pad, y);
+      var blob = await new Promise(function (r) { out.toBlob(r, 'image/png'); });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = ((S.title || 'terrain-comparison').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'terrain-comparison') + '_' + scale + 'x.png';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+      toast('Exported ' + out.width + ' × ' + out.height + ' px');
+    } catch (err) {
+      console.error(err); toast('Export failed: ' + err.message);
+    } finally {
+      P.forEach(function (p, i) {
+        p.exportTS = null; p.map.setPixelRatio(dpr0);
+        setBase(p); rebuildSources(p, i);
+        ['scale', 'north'].forEach(function (t) { var m = p.map, id = annId(p, t); if (m.getLayer(id)) m.moveLayer(id); });
+      });
+      busy.style.display = 'none';
+    }
+  }
+
+  // ---- URL -------------------------------------------------------------------
+  var urlT = null;
+  function syncUrl() { clearTimeout(urlT); urlT = setTimeout(writeUrl, 300); }
+  function writeUrl() {
+    var q = new URLSearchParams();
+    q.set('m', S.mode); q.set('res', S.res.toFixed(3)); q.set('p', Math.round(S.pitch));
+    q.set('ex', Math.round(S.ex * 10)); q.set('t3d', S.t3d ? 1 : 0); q.set('sh', S.shade);
+    q.set('bm', S.bm); q.set('op', Math.round(S.op * 100)); q.set('sr', S.sunRel ? 1 : 0); q.set('az', S.az);
+    if (S.title) q.set('t', S.title);
+    if (S.cols) q.set('cols', S.cols);
+    var lk = Object.keys(S.locks); if (lk.length) q.set('lk', lk.join(','));
+    q.set('pn', P.map(function (p) {
+      return [p.lat.toFixed(6), p.lon.toFixed(6), p.b.toFixed(1), p.ds || '',
+              p.title ? encodeURIComponent(p.title) : '', p.dsAuto === false ? 'm' : ''].join(',').replace(/,+$/, '');
+    }).join(';'));
+    if (S.sb.on) q.set('sb', [S.sb.len, S.sb.seg, S.sb.th, S.sb.fs, S.sb.col].join(','));
+    if (S.na.on) q.set('na', [S.na.size, S.na.col].join(','));
+    var sp = [], np = [];
+    P.forEach(function (p, i) {
+      if (p.sb) sp.push([i, p.sb.lon.toFixed(6), p.sb.lat.toFixed(6), Math.round(p.sb.rel)].join(','));
+      if (p.na) np.push([i, p.na.lon.toFixed(6), p.na.lat.toFixed(6)].join(','));
+    });
+    if (S.sb.on && sp.length) q.set('sp', sp.join(';'));
+    if (S.na.on && np.length) q.set('np', np.join(';'));
+    history.replaceState(null, '', location.pathname + '?' + q.toString());
+  }
+
+  function toast(msg) {
+    var t = $('_coord-toast');
+    if (!t) { t = document.createElement('div'); t.id = '_coord-toast'; document.body.appendChild(t); }
+    t.textContent = msg; t.style.display = '';
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, 1600);
+  }
+
+  // ---- performance readout (plan §9 phase 0) -------------------------------
+  var T0 = performance.now(), firstIdle = {}, coldMs = null;
+  var perf = { frames: 0, renders: 0, lost: 0, fps: 0, rps: 0, last: performance.now(),
+               gestureStart: 0, gestureEnd: 0, waitingIdle: false, settleMs: null, worstFrame: 0, prevFrame: 0 };
+  function frame(t) {
+    perf.frames++;
+    if (perf.prevFrame) perf.worstFrame = Math.max(perf.worstFrame, t - perf.prevFrame);
+    perf.prevFrame = t;
+    if (t - perf.last >= 1000) {
+      perf.fps = perf.frames * 1000 / (t - perf.last); perf.rps = perf.renders * 1000 / (t - perf.last);
+      perf.frames = 0; perf.renders = 0; perf.last = t;
+      showPerf(); perf.worstFrame = 0;
+    }
+    requestAnimationFrame(frame);
+  }
+  // Every pane has fired 'idle' since the gesture ended (areTilesLoaded()
+  // never goes true on a pitched 3D view: the horizon keeps loading).
+  function checkAllIdle(p) {
+    if (p && coldMs == null) {
+      firstIdle[P.indexOf(p)] = true;
+      if (Object.keys(firstIdle).length >= P.length) coldMs = performance.now() - T0;
+    }
+    if (!perf.waitingIdle || !p) return;
+    perf.idleSeen[P.indexOf(p)] = true;
+    if (Object.keys(perf.idleSeen).length >= P.length) {
+      perf.settleMs = performance.now() - perf.gestureEnd; perf.waitingIdle = false;
+    }
+  }
+  function showPerf() {
+    if ($('perf').style.display === 'none') return;
+    var mem = performance.memory ? (performance.memory.usedJSHeapSize / 1048576).toFixed(0) + ' MB' : 'n/a';
+    var st = DemShade.stats() || {};
+    var meas = P.map(function (p) { return p.meas; }).filter(function (r) { return r != null; });
+    var worst = meas.length ? Math.max.apply(null, meas.map(function (r) { return Math.abs(r - 1); })) : null;
+    $('perf').textContent =
+      'cold load to all idle ' + (coldMs == null ? '…' : (coldMs / 1000).toFixed(1) + ' s') + '  cache ' + (window.DEMSHADE_OPTIONS || {}).tileCacheSize + '\n' +
+      'panes ' + P.length + (perf.lost ? '  CONTEXTS LOST ' + perf.lost : '') + '\n' +
+      'page fps ' + perf.fps.toFixed(0) + '  worst frame ' + perf.worstFrame.toFixed(0) + ' ms\n' +
+      'map renders/s ' + perf.rps.toFixed(0) + '\n' +
+      'JS heap ' + mem + '\n' +
+      'demshade elev cached ' + (st.elevCached || 0) + '  tiles cached ' + (st.tilesCached || 0) +
+      '  hit ' + (st.tileHit || 0) + '/' + ((st.tileHit || 0) + (st.tileMiss || 0)) + '\n' +
+      'gesture ' + (perf.gesture || '—') + '\n' +
+      'all idle after gesture ' + (perf.waitingIdle ? '…' : perf.settleMs == null ? '—' : (perf.settleMs / 1000).toFixed(2) + ' s') + '\n' +
+      'scale check worst ' + (worst == null ? '—' : (worst * 100).toFixed(2) + ' %') +
+      '  off ground ' + P.filter(function (p) { return p.groundOff > Math.max(1, S.res); }).length;
+  }
+
+  // ---- boot ------------------------------------------------------------------
+  if (Q.get('perf') === '1') { $('perf').style.display = ''; $('perflbl').style.display = ''; }
+  fillBase();
+  bindKey();
+  editable($('ptitle'), function () { return S.title; }, function (v) { S.title = v; },
+           function () { return 'Untitled comparison'; }, 'Title of this comparison (Frame mode)');
+  docTitle();
+  fetch('/lidar/catalog.geojson').then(function (r) { return r.json(); }).then(function (fc) {
+    catalog = fc;
+    fc.features.forEach(function (f) {
+      var p = f.properties;
+      props[p.id] = p;
+      var cs = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates];
+      outer[p.id] = cs.map(function (poly) { return poly[0]; });
+    });
+    if (fc.context) {
+      DemShade.addDataset(fc.context.id + '_live', fc.context.pmtiles_url,
+                          DemShade.catalogOpts(fc.context, { overzoom: true, fill: 'mapterhorn', nodataAtOrBelow: 0 }));
+      ctxId = fc.context.id + '_live';
+    }
+    P.forEach(function (p) { if (p.ds && !props[p.ds]) p.ds = null; });
+    P.forEach(function (p, i) { buildPane(i); });
+    layoutGrid(); syncKey(); credits(); syncUrl();
+    requestAnimationFrame(frame);
+  });
+  window.addEventListener('resize', layoutGrid);
+  // A drag that ends over another pane (or the key) is never ended: MapLibre
+  // only ends a mouse drag on a mouseup aimed at its own map. Forward any
+  // stray release to every pane still mid-gesture.
+  document.addEventListener('mouseup', function (e) {
+    P.forEach(function (p) {
+      var m = p.map, inProg = m && m.handlers && m.handlers._eventsInProgress;
+      if (!inProg || !Object.keys(inProg).length || m.getContainer().contains(e.target)) return;
+      m.getCanvas().dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true, clientX: e.clientX, clientY: e.clientY, button: e.button, buttons: e.buttons,
+        ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey }));
+    });
+  }, true);
+  window.__cmp = { S: S, P: P, perf: function () { return perf; } };   // console / headless probes
+})();
+</script>
+</body>
+</html>
