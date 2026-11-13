@@ -1743,7 +1743,7 @@ vanish depending on which way you light them.
     var q = new URLSearchParams();
     q.set('m', 'frame'); q.set('res', res.toFixed(3));
     q.set('p', on3d ? Math.round(map.getPitch()) : 0); q.set('t3d', on3d ? 1 : 0);
-    q.set('ex', Math.max(5, Math.round(V('ex')))); q.set('sh', sh);
+    q.set('ex', Math.round(V('ex'))); q.set('sh', sh);
     q.set('bm', document.getElementById('bm').value || 'esri-img');
     q.set('op', Math.round(V('op'))); q.set('sr', 1); q.set('az', Math.round(azRel));
     var ds = active && publicIds[active] ? active : '';

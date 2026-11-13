@@ -189,6 +189,13 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
   identical z10 tiles). MapLibre picks tile z from `zoom +
   log2(512/tileSize)`, so the export clone divides each raster source's
   declared `tileSize` (see `deepenRasters()` in `ls_export.js`).
+- **In 3D, draped layers are capped at 2 device px per screen px whatever
+  the pixel ratio.** MapLibre renders every draped layer (rasters, lines,
+  image sources) into per-terrain-tile textures of `tileSize ×
+  terrain.qualityFactor`, and `qualityFactor` is 2 (5.24). A 4× export with
+  terrain on was 2× detail upscaled. `/lidar/compare/`'s export raises it per
+  pane by rebuilding `painter.renderToTexture` (`setRttQuality`), one pane
+  at a time: at 4× each terrain-tile texture is ~16 MB.
 - **Self-hosted science rasters have baked zoom ceilings** (susceptibility/
   ITS_LIVE/Hugonnet z10, OPERA z12). Past those they upscale, no matter
   what. Deeper detail requires re-baking pyramids, not client tricks.

@@ -160,7 +160,13 @@ written down anywhere — read `/lidar/audit/`.
   covering the centre; pull-down lists surveys in view), title. Frame /
   Together modes, locks, page + pane titles, ground-draped scale bar and
   north arrow (shared spec, per-pane position and angle relative to the
-  look direction), Hide controls, Export PNG 2×/4×. State is the URL only;
+  look direction), Hide controls, Export PNG 2×/4×. **Round 2 (deployed
+  the same day):** statute units (`u=us`), VE 0–10 (0 = flat map),
+  settings docked under the key, and **profiles**: one line per pane
+  (`pl=`), insets on one shared scale (`pf=` 1:1 / match 3D VE /
+  freeform), movable and resizable, other panes' profiles drawn faint at
+  this pane's mid-height; exports render each pane in turn at full
+  resolution (`setRttQuality`, HAZARDS). State is the URL only;
   public catalogue only. *Start comparison* on `/lidar/` for editors carries
   only public survey ids. The perf readout shows with `?perf=1`. Nine panes
   are slow to settle (single shading worker; options in the plan §11). Not

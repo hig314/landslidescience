@@ -393,3 +393,58 @@ for every pane's `idle`, then composites each pane with `map.redraw()` +
 (scale, tilt, VE, shading, base, sun), with the credits below, and restores.
 Checked: 4 panes at 2× → 3504 × 1994 px in 16.5 s, every pane, bar and
 arrow present.
+
+**Round 6 (2026-11-12, Hig, in dev): units, profiles, VE range, docked
+controls.**
+
+- **Statute units** for the scale bar (ft, switching to mi from half a mile;
+  presets per unit; length stored in metres, typed in the display unit);
+  `u=us` in the URL. The same switch sets the profile axes.
+- **Profiles.** A line A→A′ per pane, draped (GeoJSON line, A/A′ as HTML
+  markers), default through the centre along the look direction at one
+  ground length in every pane; drag an end, drag the line, or *along view /
+  across / flip* in the pane's row. Each pane's profile is an SVG inset at
+  **one shared scale**: the horizontal fits the longest line, the vertical
+  window the largest relief (×1.12), each pane centred on its own heights.
+  *1:1* sets vertical = horizontal (height follows; if too tall both shrink,
+  still 1:1); *freeform* takes the inset height and states the VE. The
+  corner grip resizes every inset together; each inset can be dragged within
+  its own pane (per-pane position, `pl` fields 6–7 in thousandths). Heights:
+  live from the loaded terrain while dragging (÷ VE), then read properly
+  through `LSDemRead` from the pane's survey, Mapterhorn beyond it.
+  `pf=<1|f>,w,h`, `pl=i,lonA,latA,lonB,latB[,x,y]`. Export draws the insets
+  and A/A′ labels. Checked: drag of A′ moved 59 px with the cursor, map
+  still, length 1000 → 1383 m, full re-read; 1:1 insets identical in all
+  panes; freeform VE stated; one grip drag resized all four to 340 × 160;
+  export with lines, labels and insets.
+- **Layer order is restacked** after every rebuild (base, shade, scale bar,
+  arrow, profile): two rebuilds in a row (the export) had left the profile
+  line under the base.
+- **VE 0–10×** (step 0.1); 0 = map mode, terrain off at the same tilt.
+- **Controls never over the map** (Hig): the two settings panels are bars
+  docked under the key (panes shrink), the per-pane controls a row under
+  each pane's title, shown only while a panel is open.
+
+**Round 7 (2026-11-12, Hig: "the scale bar and north arrow … can end up
+pixelated" at high-res export).** Cause: in 3D MapLibre draws every draped
+layer into per-terrain-tile textures at `qualityFactor` 2 device px per
+screen px, whatever the pixel ratio (HAZARDS.md). The export now renders
+**one pane at a time**: pixel ratio and tile depth as before, plus the pane's
+terrain texture pool rebuilt at `qualityFactor` = the export scale
+(`setRttQuality`), and the bar and arrow redrawn on a canvas `scale/2`×
+larger; the pane is then copied into the sheet and restored. One at a time
+keeps GPU memory to one pane (a 4× terrain-tile texture is ~16 MB). Checked:
+2 panes at 4× → 7008 × 3719 px in 30 s, qualityFactor 2 → 4 → 2, bar
+lettering and profile line sharp at full resolution. Nine panes at 4× will
+take a couple of minutes; the busy note counts panes.
+
+**Round 8 (2026-11-12, Hig): profile scale and look.** A third profile scale,
+*match 3D VE* (`pf=v,…`): the profile's vertical exaggeration equals the
+terrain exaggeration, so a profile is as steep as the view; it follows the
+VE slider and the 3D box live, and on a flat map (VE 0 or 3D off) falls back
+to 1:1, labelled so. 1:1 and match share one rule (fixed ratio of horizontal
+to vertical scale; if too tall both shrink, the ratio kept). Checked: inset
+plot height ×1.5 and ×3.0 the 1:1 height at VE 1.5 and 3. Each pane's own
+profile is now a heavier, darker line (2.2 px, #111) over a paler fill, and
+**every other pane's profile is drawn faint** (grey, 55 %) behind it at the
+same scale, shifted to this pane's mid-height so shapes compare directly.

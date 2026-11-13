@@ -47,6 +47,8 @@
   .strip .rm { border: 0; background: none; cursor: pointer; color: #999; }
   .frameonly { display: none; }
   body.frame .frameonly { display: inline-block; }
+  /* #key .grp sets display: flex, which outranks .frameonly; hide them again. */
+  body:not(.frame) #key .grp.frameonly { display: none; }
   .mapbox { flex: 1; min-height: 0; position: relative; }
   .pane.drv .strip { background: #eef4ff; }
   .lost { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -56,20 +58,41 @@
   #credits { flex: none; font-size: 11px; color: #666; padding: 3px 10px; border-top: 1px solid #ddd; }
   #credits a { color: #666; }
   /* Annotation panel (scale bar / north arrow), hide-controls, export. */
-  #annpanel { position: fixed; right: 12px; top: 96px; z-index: 8; width: 270px; background: #fff;
-              border: 1px solid #bbb; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,.2); padding: 8px 10px; }
-  #annpanel h4 { margin: 0 0 6px; font-size: 13px; }
-  #annpanel .row { display: flex; align-items: center; gap: 6px; margin: 5px 0; flex-wrap: wrap; }
-  #annpanel label { white-space: nowrap; }
-  #annpanel input[type=number] { width: 80px; }
-  #annpanel input[type=range] { flex: 1; min-width: 90px; }
-  #annpanel .hint { font-size: 11px; color: #666; margin-top: 6px; }
-  #annpanel .btns { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  /* The two settings panels are bars docked under the key: the panes shrink
+     to make room rather than being covered (Hig, 2026-11-12). */
+  .dockbar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px;
+             padding: 5px 10px; background: #fff8e6; border-bottom: 1px solid #e0c98a; }
+  .dockbar h4 { margin: 0; font-size: 13px; }
+  .dockbar .row, .dockbar .btns { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .dockbar label { white-space: nowrap; }
+  .dockbar input[type=number] { width: 70px; }
+  .dockbar .hint { flex-basis: 100%; font-size: 11px; color: #6b5a2a; }
+  body.clean .dockbar { display: none !important; }
   #annpanel button, #showctl { font: inherit; }
-  .panectl { position: absolute; left: 6px; bottom: 6px; z-index: 3; display: none; align-items: center; gap: 5px;
-              background: rgba(255,255,255,.9); border: 1px solid #bbb; border-radius: 3px; padding: 3px 6px; font-size: 11px; }
+  /* Profiles: an inset per pane at one shared scale, anchored bottom right;
+     its top-left grip resizes every inset together. */
+  .pfinset { position: absolute; z-index: 3; display: none; }
+  .pfinset svg { display: block; }
+  .pfinset .grip { position: absolute; left: -5px; top: -5px; width: 12px; height: 12px; cursor: nwse-resize;
+                   background: #fff; border: 1px solid #666; border-radius: 2px; display: none; }
+  body.pfedit .pfinset .grip { display: block; }
+  body.clean .pfinset .grip { display: none !important; }
+  /* Per-pane controls live in a row under the pane's title, shown while a
+     settings bar is open, never over the map. */
+  .panebar { flex: none; display: none; align-items: center; gap: 14px; padding: 2px 6px; font-size: 11px;
+             background: #fffcf2; border-bottom: 1px solid #e8dcb8; min-height: 22px; }
+  body.annedit .panebar, body.pfedit .panebar { display: flex; }
+  body.clean .panebar { display: none !important; }
+  .pfinset.movable { cursor: move; }
+  .pfctl { display: none; align-items: center; gap: 4px; }
+  .pfctl button { font-size: 11px; }
+  body.pfedit .pfctl { display: inline-flex; }
+  body.clean .pfctl { display: none !important; }
+  .pflbl { font: 700 13px system-ui, sans-serif; color: #111; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
+           pointer-events: none; }
+  .panectl { display: none; align-items: center; gap: 5px; }
   .panectl input[type=range] { width: 110px; }
-  body.annedit .panectl.on { display: flex; }
+  body.annedit .panectl.on { display: inline-flex; }
   body.clean .panectl { display: none !important; }
   #showctl { position: fixed; right: 8px; top: 8px; z-index: 9; display: none; }
   body.clean #key, body.clean #perf, body.clean #annpanel, body.clean .strip .ds,
@@ -97,7 +120,7 @@
     <span class="grp"><label>Position</label>
       <label class="lock"><input type="checkbox" data-lock="position">lock</label></span>
     <span class="grp"><label><input type="checkbox" id="t3d"> 3D</label>
-      <label>VE <span class="v" id="exv"></span></label><input type="range" id="ex" min="5" max="40" step="1">
+      <label>VE <span class="v" id="exv"></span></label><input type="range" id="ex" min="0" max="100" step="1" title="Terrain exaggeration, 0 to 10×. At 0 the panes are a flat map (still tilted); profiles always read true heights.">
       <label class="lock"><input type="checkbox" data-lock="ex">lock</label></span>
     <span class="grp"><select id="mode">
         <option value="preset">Preset</option><option value="hillshade">Hillshade</option>
@@ -111,7 +134,8 @@
         <option>6</option><option>9</option><option>12</option></select>
       <label>cols</label><select id="cols"><option value="0">auto</option><option>1</option><option>2</option><option>3</option><option>4</option></select></span>
     <span class="grp frameonly"><input id="addlink" placeholder="paste a /lidar/ link to add a pane" size="28"></span>
-    <span class="grp frameonly"><button id="annbtn" title="Scale bar and north arrow on the ground in every pane: settings for all panes here, angle and position per pane">Scale bar &amp; north arrow…</button></span>
+    <span class="grp frameonly"><button id="annbtn" title="Scale bar and north arrow on the ground in every pane: settings for all panes here, angle and position per pane">Scale bar &amp; north arrow…</button>
+      <button id="pfbtn" title="A profile line in every pane, each drawn in an inset at one shared scale">Profiles…</button></span>
     <span class="grp"><label>Export <select id="expscale"><option value="2">2×</option><option value="4">4×</option></select></label>
       <button id="exportpng" title="A PNG of the whole sheet, every pane redrawn at this pixel ratio with deeper tiles">Export PNG</button>
       <button id="hidectl" title="Hide the controls; titles, panes and credits stay">Hide controls</button></span>
@@ -119,11 +143,13 @@
       <label id="perflbl" style="display:none"><input type="checkbox" id="perfon" checked> perf</label>
       <a href="/lidar/methods/#compare" target="_blank" rel="noopener" title="How this works">?</a></span>
   </div>
+  <div id="annpanel" class="dockbar" style="display:none"></div>
+  <div id="pfpanel" class="dockbar" style="display:none"></div>
   <div id="grid"></div>
   <div id="credits"></div>
 </div>
 <div id="perf" style="display:none"></div>
-<div id="annpanel" style="display:none"></div>
+
 <button id="showctl" title="Show the controls again">Show controls</button>
 <div id="busy"></div>
 
@@ -141,6 +167,7 @@
 <script src="{% static 'inventory/js/vendor/maplibre-gl-demshade.iife.js' %}"></script>
 <script src="{% static 'inventory/js/dem_shade_bridge.js' %}"></script>
 <script src="{% static 'inventory/js/basemaps.js' %}"></script>
+<script src="{% static 'inventory/js/dem_read.js' %}"></script>
 <script>
 (function () {
   'use strict';
@@ -198,6 +225,18 @@
   (function () {
     var a = (Q.get('sb') || '').split(','), b = (Q.get('na') || '').split(',');
     S.sb = { on: !!Q.get('sb'), len: +a[0] || 0, seg: +a[1] || 4, th: +a[2] || 2, fs: +a[3] || 2, col: a[4] === 'l' ? 'l' : 'd' };
+    // Units for the scale bar and the profile axes: metric or statute (u=us).
+    S.units = Q.get('u') === 'us' ? 'us' : 'm';
+    // Profiles: pf=<1|f>,<w>,<h> (present = on; 1 = 1:1, f = freeform; inset
+    // size in screen px), lines pl=i,lonA,latA,lonB,latB.
+    var pf = (Q.get('pf') || '').split(',');
+    // Scale modes: '1' = 1:1, 'v' = the profile's VE equals the 3D view's, 'f' = freeform.
+    S.pf = { on: !!Q.get('pf'), mode: pf[0] === 'f' || pf[0] === 'v' ? pf[0] : '1', w: +pf[1] || 260, h: +pf[2] || 120 };
+    (Q.get('pl') || '').split(';').forEach(function (t) {
+      var v = t.split(',').map(Number), p = P[v[0]];
+      if (p && v.length >= 5 && v.slice(1, 5).every(isFinite)) p.pl = { a: [v[1], v[2]], b: [v[3], v[4]] };
+      if (p && isFinite(v[5]) && isFinite(v[6])) p.pfPos = { x: v[5] / 1000, y: v[6] / 1000 };
+    });
     S.na = { on: !!Q.get('na'), size: +b[0] || 0, col: b[1] === 'l' ? 'l' : 'd' };
     (Q.get('sp') || '').split(';').forEach(function (t) {
       var v = t.split(','), p = P[+v[0]];
@@ -258,7 +297,7 @@
     var rows = Math.ceil(n / cols);
     grid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
     grid.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)';
-    P.forEach(function (p) { if (p.map) p.map.resize(); });
+    P.forEach(function (p) { if (p.map) p.map.resize(); if (p.el) pfPlace(p); });
   }
 
   function northSvg() {
@@ -379,7 +418,7 @@
     el.className = 'pane';
     el.innerHTML = '<div class="strip"><span class="ttl"></span><select class="frameonly ds"></select>' +
                    '<span class="meas"></span>' + northSvg() +
-                   '<button class="rm frameonly" title="Remove pane">✕</button></div><div class="mapbox"></div>';
+                   '<button class="rm frameonly" title="Remove pane">✕</button></div><div class="panebar"></div><div class="mapbox"></div>';
     grid.appendChild(el);
     p.el = el;
     var ttl = el.querySelector('.ttl');
@@ -400,6 +439,7 @@
       rebuildSources(p, P.indexOf(p)); surveyOptions(p); credits(); syncUrl();
     });
     el.querySelector('.rm').addEventListener('click', function () { removePane(P.indexOf(p)); });
+    pfAttach(p);
     annAttach(p);
 
     var m = new maplibregl.Map({
@@ -422,6 +462,7 @@
       p.loaded = true;
       setBase(p); rebuildSources(p, P.indexOf(p)); applyLocks(p);
       annPane(p);
+      pfPane(p);
       autoPick(p); surveyOptions(p);
     });
     m.on('movestart', function (e) { if (e.originalEvent) setDriver(P.indexOf(p)); });
@@ -455,6 +496,7 @@
     m.addSource('base', st.sources.basemap);
     m.addLayer({ id: 'base', type: 'raster', source: 'base', paint: { 'raster-fade-duration': 0 } },
                m.getLayer('shade') ? 'shade' : firstAnnLayer(m));
+    restack(p);
   }
 
   function rebuildSources(p, i) {
@@ -478,11 +520,14 @@
     m.addSource('dem', { type: 'raster-dem', tiles: [keyed(DemShade.demUrl(regFor(p.ds), 256), i)],
                          encoding: 'mapbox', tileSize: 256, minzoom: 0, maxzoom: sp ? sp.max_zoom : 14 });
     applyTerrain(p);
+    restack(p);
+    if (S.pf && S.pf.on && p.pl) pfSample(p);      // the pane's survey may have changed
   }
   function applyTerrain(p) {
     var m = p.map;
     if (!m || !m.getSource('dem')) return;
-    if (S.t3d) m.setTerrain({ source: 'dem', exaggeration: S.ex });
+    // VE 0 is map mode: no terrain, a flat map at the same tilt.
+    if (S.t3d && S.ex > 0) m.setTerrain({ source: 'dem', exaggeration: S.ex });
     else m.setTerrain(null);
     p.settled = false;
   }
@@ -694,7 +739,7 @@
     $('sbi').style.width = (len / S.res) + 'px';
     $('sbl').parentNode.title = S.res.toFixed(2) + ' m per pixel at every pane centre';
     $('pitch').value = Math.round(S.pitch); $('pv').textContent = Math.round(S.pitch) + '°';
-    $('ex').value = Math.round(S.ex * 10); $('exv').textContent = '×' + S.ex.toFixed(1);
+    $('ex').value = Math.round(S.ex * 10); $('exv').textContent = S.ex > 0 ? '×' + S.ex.toFixed(1) : '0 (map)';
     $('t3d').checked = S.t3d;
     $('mode').value = S.shade; $('sunrel').checked = S.sunRel;
     $('az').value = S.az; $('azv').textContent = S.az + '°' + (S.sunRel ? ' rel' : '');
@@ -732,10 +777,14 @@
     var exFrame = null;
     $('ex').addEventListener('input', function () {
       S.ex = +this.value / 10; syncKey(); syncUrl();
+      if (S.pf.on && S.pf.mode === 'v') pfRenderAll();
       if (exFrame) return;
       exFrame = requestAnimationFrame(function () { exFrame = null; P.forEach(applyTerrain); gestureEnded(); });
     });
-    $('t3d').addEventListener('change', function () { S.t3d = this.checked; P.forEach(applyTerrain); syncKey(); syncUrl(); gestureEnded(); });
+    $('t3d').addEventListener('change', function () {
+      S.t3d = this.checked; P.forEach(applyTerrain); syncKey(); syncUrl(); gestureEnded();
+      if (S.pf.on && S.pf.mode === 'v') pfRenderAll();
+    });
     function reshade() { P.forEach(function (p, j) { rebuildSources(p, j); }); syncKey(); syncUrl(); }
     $('mode').addEventListener('change', function () { S.shade = this.value; reshade(); });
     $('sunrel').addEventListener('change', function () { S.sunRel = this.checked; reshade(); });
@@ -783,6 +832,7 @@
     });
     $('perfon').addEventListener('change', function () { $('perf').style.display = this.checked ? '' : 'none'; });
     $('annbtn').addEventListener('click', function () { if (editing) annClose(); else annOpen(); });
+    $('pfbtn').addEventListener('click', function () { if (pfEditing) pfClose(); else pfOpen(); });
     $('hidectl').addEventListener('click', function () { setClean(true); });
     $('showctl').addEventListener('click', function () { setClean(false); });
     $('exportpng').addEventListener('click', function () { exportPng(+$('expscale').value); });
@@ -794,6 +844,7 @@
     if (p.map) p.map.remove();
     p.el.remove();
     P.splice(i, 1);
+    if (S.pf.on) pfRenderAll();
     layoutGrid(); credits(); syncUrl(); syncKey();
   }
   function setPaneCount(n) {
@@ -814,6 +865,17 @@
   // horizontal ground metres. While its panel is open a press on it drags it
   // and any other press works the map; with the panel closed it is fixed.
   var editing = false, annSeq = 0, activePane = 0;
+  // One fixed stack per pane, bottom to top: base, shading, scale bar, north
+  // arrow, profile line. Every rebuild re-inserts layers relative to others,
+  // and two rebuilds in a row (the export) left the profile under the base;
+  // so after any of them the whole order is set again.
+  function restack(p) {
+    var m = p.map;
+    if (!m || !p.loaded) return;
+    var k = p.annKey;
+    ['base', 'shade', 'ann-scale-' + k, 'ann-north-' + k, 'pf-' + k + '-case', 'pf-' + k + '-line', 'pf-' + k + '-end']
+      .forEach(function (id) { if (m.getLayer(id)) m.moveLayer(id); });
+  }
   function firstAnnLayer(m) {
     var ls = m.getStyle().layers;
     for (var k = 0; k < ls.length; k++) if (/^ann-/.test(ls[k].id)) return ls[k].id;
@@ -823,23 +885,36 @@
     activePane = i;
     P.forEach(function (p, j) { p.el.classList.toggle('drv', j === i); });
   }
+  // Display unit for a length in metres: m / km, or ft / mi (miles from
+  // half a mile up) when the sheet is in statute units.
+  var FT = 0.3048, MI = 1609.344;
+  function unitFor(m) {
+    if (S.units === 'us') return m >= MI / 2 - 1e-6 ? { f: MI, n: 'mi' } : { f: FT, n: 'ft' };
+    return m >= 1000 ? { f: 1000, n: 'km' } : { f: 1, n: 'm' };
+  }
+  // A round length in the sheet's units, returned in metres.
+  function niceIn(m) {
+    var U = unitFor(m); return niceRound(m / U.f) * U.f;
+  }
   function fmtLen(v) { return (+v.toFixed(2)).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
   var COL = {
     d: { a: '#111', b: '#fff', line: '#111', text: '#111', halo: 'rgba(255,255,255,.92)' },
     l: { a: '#fff', b: '#111', line: '#fff', text: '#fff', halo: 'rgba(0,0,0,.8)' }
   };
   // Canvas for an annotation, and the ground size (metres) it spans.
+  // `a.k` (export only) draws the same picture on a canvas k× larger.
   function annCanvas(a, outline) {
-    var c = document.createElement('canvas'), g, k = COL[a.col] || COL.d, W, H;
+    var c = document.createElement('canvas'), g, k = COL[a.col] || COL.d, W, H, rk = a.k || 1;
+    function sized(w, h) { c.width = w * rk; c.height = h * rk; g = c.getContext('2d'); g.scale(rk, rk); }
     if (a.type === 'scale') {
       var CW = 2048, BL = Math.round(CW / 1.25), x0 = (CW - BL) / 2;
       var barH = [22, 38, 60][a.th - 1] || 38, fs = [64, 92, 130][a.fs - 1] || 92;
       var CH = Math.round(24 + fs * 1.2 + 18 + barH + 24);
-      c.width = CW; c.height = CH; g = c.getContext('2d');
+      sized(CW, CH);
       var by = CH - 24 - barH, n = a.seg || 1, sw = BL / n;
       for (var i = 0; i < n; i++) { g.fillStyle = i % 2 ? k.b : k.a; g.fillRect(x0 + i * sw, by, sw, barH); }
       g.lineWidth = Math.max(4, barH * 0.14); g.strokeStyle = k.line; g.strokeRect(x0, by, BL, barH);
-      var km = a.len >= 1000, unit = km ? ' km' : ' m';
+      var U = unitFor(a.len), unit = ' ' + U.n;
       g.font = '600 ' + fs + 'px system-ui, sans-serif'; g.textBaseline = 'alphabetic';
       g.lineJoin = 'round'; g.lineWidth = fs * 0.22; g.strokeStyle = k.halo; g.fillStyle = k.text;
       // Numbers centred on their tick; the unit hangs off the last one. Ten
@@ -848,13 +923,13 @@
       for (var j = 0; j < n; j += step) ticks.push(j);
       ticks.push(n);
       ticks.forEach(function (j) {
-        var num = fmtLen((km ? a.len / 1000 : a.len) * j / n);
+        var num = fmtLen(a.len / U.f * j / n);
         var t = num + (j === n ? unit : ''), tx = x0 + j * sw - g.measureText(num).width / 2;
         g.strokeText(t, tx, ty); g.fillText(t, tx, ty);
       });
       W = a.len * 1.25; H = W * CH / CW;
     } else {
-      var S2 = 1024; c.width = c.height = S2; g = c.getContext('2d');
+      var S2 = 1024; sized(S2, S2);
       var cx = S2 / 2, top = 70, bot = S2 * 0.62, half = S2 * 0.2;
       g.lineJoin = 'round';
       g.beginPath(); g.moveTo(cx, top); g.lineTo(cx + half, bot); g.lineTo(cx, bot - half * 0.55); g.closePath();
@@ -870,7 +945,7 @@
     }
     if (outline) {
       g.setLineDash([40, 24]); g.lineWidth = 12; g.strokeStyle = '#e8590c';
-      g.strokeRect(6, 6, c.width - 12, c.height - 12);
+      g.strokeRect(6, 6, c.width / rk - 12, c.height / rk - 12);
     }
     return { canvas: c, W: W, H: H };
   }
@@ -890,9 +965,9 @@
   // The bar's compass bearing follows the pane's look direction:
   // perpendicular (left to right across the view) plus the pane's offset.
   function annItem(p, type) {
-    if (type === 'scale') return p.sb && { type: 'scale', lon: p.sb.lon, lat: p.sb.lat, len: S.sb.len,
+    if (type === 'scale') return p.sb && { type: 'scale', lon: p.sb.lon, lat: p.sb.lat, len: S.sb.len, units: S.units, k: p.annK,
       rot: ((p.b + 90 + p.sb.rel) % 360 + 360) % 360, seg: S.sb.seg, th: S.sb.th, fs: S.sb.fs, col: S.sb.col };
-    return p.na && { type: 'north', lon: p.na.lon, lat: p.na.lat, len: S.na.size, rot: 90, col: S.na.col };
+    return p.na && { type: 'north', lon: p.na.lon, lat: p.na.lat, len: S.na.size, rot: 90, col: S.na.col, k: p.annK };
   }
   function annId(p, type) { return 'ann-' + type + '-' + (p.annKey || (p.annKey = ++annSeq)); }
   function niceRound(m) {
@@ -920,7 +995,7 @@
         return;
       }
       if (type === 'scale' ? !p.sb : !p.na) annPlace(p, type);
-      var a = annItem(p, type), look = JSON.stringify([a.len, a.seg, a.th, a.fs, a.col, !!editing]);
+      var a = annItem(p, type), look = JSON.stringify([a.len, a.seg, a.th, a.fs, a.col, a.units, a.k, !!editing]);
       var src = m.getSource(id);
       p.annLook = p.annLook || {};
       if (src && (moveOnly || p.annLook[type] === look)) {
@@ -935,6 +1010,7 @@
       else {
         m.addSource(id, { type: 'image', url: url, coordinates: coords });
         m.addLayer({ id: id, type: 'raster', source: id, paint: { 'raster-fade-duration': 0 } });
+        restack(p);
       }
     });
     var ctl = p.el.querySelector('.panectl');
@@ -971,7 +1047,7 @@
     ctl.innerHTML = '<span title="Bar angle from perpendicular to this pane\'s look direction">bar ∠</span>' +
       '<input type="range" min="-90" max="90" step="1"><span class="v"></span>' +
       '<button type="button" title="Back to perpendicular to the look direction">⟂</button>';
-    box.appendChild(ctl);
+    p.el.querySelector('.panebar').appendChild(ctl);
     ['mousedown', 'wheel', 'dblclick', 'contextmenu'].forEach(function (ev) {
       ctl.addEventListener(ev, function (e) { e.stopPropagation(); });
     });
@@ -1008,14 +1084,14 @@
   // The settings panel: everything that is the same in every pane. Opening it
   // turns on editing (outlines, dragging, the per-pane angle controls).
   function annOpen() {
-    if (!S.sb.len) S.sb.len = niceRound(S.res * Math.min.apply(null, P.map(function (p) { return paneSize(p)[0]; })) * 0.35);
+    if (!S.sb.len) S.sb.len = niceIn(S.res * Math.min.apply(null, P.map(function (p) { return paneSize(p)[0]; })) * 0.35);
     if (!S.na.size) S.na.size = Math.max(1, Math.round(S.res * Math.min.apply(null, P.map(function (p) { return paneSize(p)[1]; })) * 0.18));
     if (!S.sb.on && !S.na.on) { S.sb.on = true; S.na.on = true; }
-    editing = true; document.body.classList.add('annedit');
+    editing = true; document.body.classList.add('annedit'); setTimeout(layoutGrid, 0);
     annAll(); annPanel(); syncUrl();
   }
   function annClose() {
-    editing = false; document.body.classList.remove('annedit');
+    editing = false; document.body.classList.remove('annedit'); setTimeout(layoutGrid, 0);
     $('annpanel').style.display = 'none';
     P.forEach(function (p) { if (p.map) p.map.getCanvas().style.cursor = ''; });
     annAll(); syncUrl();
@@ -1023,39 +1099,421 @@
   function annPanel() {
     var pn = $('annpanel');
     pn.innerHTML = '<h4>Scale bar &amp; north arrow — all panes</h4>' +
-      '<div class="row"><label><input type="checkbox" id="an-sbon"> Scale bar</label></div>' +
-      '<div class="row"><label>Length</label><input type="number" id="an-len" min="1" step="any"> m' +
-      ' <select id="an-pre"><option value="">presets</option>' +
-      [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000].map(function (v) { return '<option>' + v + '</option>'; }).join('') + '</select></div>' +
+      '<div class="row"><label><input type="checkbox" id="an-sbon"> Scale bar</label>' +
+      '<select id="an-units" title="Also the profile axes"><option value="m">metric</option><option value="us">statute (ft, mi)</option></select></div>' +
+      '<div class="row"><label>Length</label><input type="number" id="an-len" min="0" step="any"> <span id="an-lenu"></span>' +
+      ' <select id="an-pre"></select></div>' +
       '<div class="row"><label>Segments</label><select id="an-seg"><option>1</option><option>2</option><option>4</option><option>5</option><option>10</option></select>' +
       '<label>Bar</label><select id="an-th"><option value="1">thin</option><option value="2">medium</option><option value="3">thick</option></select></div>' +
       '<div class="row"><label>Labels</label><select id="an-fs"><option value="1">small</option><option value="2">medium</option><option value="3">large</option></select>' +
       '<select id="an-col"><option value="d">dark on light</option><option value="l">light on dark</option></select></div>' +
       '<div class="row" style="margin-top:9px"><label><input type="checkbox" id="an-naon"> North arrow</label>' +
-      '<label>Size</label><input type="number" id="an-size" min="1" step="any"> m</div>' +
+      '<label>Size</label><input type="number" id="an-size" min="1" step="any"> m on the ground</div>' +
       '<div class="row"><select id="an-ncol"><option value="d">dark on light</option><option value="l">light on dark</option></select></div>' +
       '<div class="btns"><button id="an-reset" title="Put every pane\'s bar and arrow back at the default spots in its current view">Re-place in view</button>' +
       '<button id="an-done"><b>Done</b></button></div>' +
       '<div class="hint">Drag a bar or arrow in any pane while this is open; elsewhere drags move the view. ' +
-      'Each pane\'s <b>bar ∠</b> (bottom left) turns its bar from perpendicular to the look direction. ' +
+      'Each pane\'s <b>bar ∠</b> (in the row under its title) turns its bar from perpendicular to the look direction. ' +
       'Lengths are horizontal ground distances. Done fixes them in place.</div>';
     pn.style.display = '';
     function f(id) { return document.getElementById(id); }
     f('an-sbon').checked = S.sb.on; f('an-naon').checked = S.na.on;
-    f('an-len').value = S.sb.len; f('an-seg').value = String(S.sb.seg); f('an-th').value = String(S.sb.th);
+    // Length is typed in the bar's display unit (m or km; ft or mi), stored in metres.
+    function lenUI() {
+      var U = unitFor(S.sb.len);
+      f('an-units').value = S.units; f('an-len').value = +(S.sb.len / U.f).toFixed(3); f('an-lenu').textContent = U.n;
+      var pre = S.units === 'us'
+        ? [[50, 'ft'], [100, 'ft'], [200, 'ft'], [250, 'ft'], [500, 'ft'], [1000, 'ft'], [2000, 'ft'], [0.5, 'mi'], [1, 'mi'], [2, 'mi'], [5, 'mi']]
+        : [[10, 'm'], [20, 'm'], [25, 'm'], [50, 'm'], [100, 'm'], [200, 'm'], [250, 'm'], [500, 'm'], [1, 'km'], [2, 'km'], [5, 'km']];
+      var fac = { m: 1, km: 1000, ft: FT, mi: MI };
+      f('an-pre').innerHTML = '<option value="">presets</option>' + pre.map(function (v) {
+        return '<option value="' + v[0] * fac[v[1]] + '">' + v[0] + ' ' + v[1] + '</option>'; }).join('');
+    }
+    lenUI();
+    f('an-seg').value = String(S.sb.seg); f('an-th').value = String(S.sb.th);
     f('an-fs').value = String(S.sb.fs); f('an-col').value = S.sb.col;
     f('an-size').value = S.na.size; f('an-ncol').value = S.na.col;
     function upd() { annAll(); syncUrl(); }
     f('an-sbon').onchange = function () { S.sb.on = this.checked; upd(); };
     f('an-naon').onchange = function () { S.na.on = this.checked; upd(); };
-    f('an-len').onchange = function () { if (+this.value > 0) { S.sb.len = +this.value; upd(); } };
-    f('an-pre').onchange = function () { if (this.value) { S.sb.len = +this.value; f('an-len').value = S.sb.len; upd(); } this.value = ''; };
+    f('an-len').onchange = function () { if (+this.value > 0) { S.sb.len = +this.value * unitFor(S.sb.len).f; lenUI(); upd(); } };
+    f('an-pre').onchange = function () { if (this.value) { S.sb.len = +this.value; lenUI(); upd(); } };
+    f('an-units').onchange = function () {
+      S.units = this.value; S.sb.len = niceIn(S.sb.len); lenUI(); upd(); pfRenderAll(); pfPanelSync();
+    };
     ['seg', 'th', 'fs'].forEach(function (k) { f('an-' + k).onchange = function () { S.sb[k] = +this.value; upd(); }; });
     f('an-col').onchange = function () { S.sb.col = this.value; upd(); };
     f('an-size').onchange = function () { if (+this.value > 0) { S.na.size = +this.value; upd(); } };
     f('an-ncol').onchange = function () { S.na.col = this.value; upd(); };
     f('an-reset').onclick = function () { P.forEach(function (p) { if (p.loaded) { annPlace(p, 'scale'); annPlace(p, 'north'); } }); upd(); };
     f('an-done').onclick = annClose;
+  }
+
+  // ---- profiles: a line per pane, an inset per pane, one shared scale --------
+  // Each pane's line A->A' is a GeoJSON line draped on the terrain. Its
+  // profile is drawn in an inset at the bottom right of the pane, and every
+  // inset uses the same horizontal and vertical scale, so profiles compare
+  // directly: the horizontal scale fits the longest line, the vertical window
+  // fits the largest relief, each pane centred on its own elevations. 1:1 sets
+  // the vertical scale equal to the horizontal (the inset's height follows);
+  // freeform takes the inset's own height and states the exaggeration.
+  var pfEditing = false, pfGeom = {};
+  var PF_COL = '#ffbf00';
+  function pfId(p) { return 'pf-' + (p.annKey || (p.annKey = ++annSeq)); }
+  function gdist(a, b) {                       // metres, local equirectangular
+    var la = (a[1] + b[1]) / 2 * D2R;
+    return Math.hypot((b[0] - a[0]) * M * Math.cos(la), (b[1] - a[1]) * M);
+  }
+  // Default line: through the pane's centre, along its look direction (near
+  // end A, far end A'), the same ground length in every pane.
+  function pfDefaultLen() {
+    var hs = P.filter(function (p) { return p.map; }).map(function (p) { return paneSize(p)[1]; });
+    return niceIn(S.res * Math.min.apply(null, hs.length ? hs : [300]) * 1.4);
+  }
+  function pfLine(p, along, len, c) {
+    var m = p.map;
+    c = c || (p.pl ? [(p.pl.a[0] + p.pl.b[0]) / 2, (p.pl.a[1] + p.pl.b[1]) / 2] : m.getCenter().toArray());
+    len = len || (p.pl ? gdist(p.pl.a, p.pl.b) : pfDefaultLen());
+    var r = (p.b + (along ? 0 : 90)) * D2R, e = Math.sin(r) * len / 2, n = Math.cos(r) * len / 2;
+    var kx = 1 / (M * Math.cos(c[1] * D2R));
+    p.pl = { a: [c[0] - e * kx, c[1] - n / M], b: [c[0] + e * kx, c[1] + n / M] };
+  }
+  function pfDraw(p) {
+    var m = p.map, id = pfId(p);
+    if (!m || !p.loaded) return;
+    if (!S.pf.on || !p.pl) {
+      [id + '-end', id + '-line', id + '-case'].forEach(function (l) { if (m.getLayer(l)) m.removeLayer(l); });
+      if (m.getSource(id)) m.removeSource(id);
+      (p.pfMarks || []).forEach(function (k) { k.remove(); }); p.pfMarks = null;
+      p.el.querySelector('.pfinset').style.display = 'none';
+      return;
+    }
+    var fc = { type: 'FeatureCollection', features: [
+      { type: 'Feature', geometry: { type: 'LineString', coordinates: [p.pl.a, p.pl.b] }, properties: {} },
+      { type: 'Feature', geometry: { type: 'MultiPoint', coordinates: [p.pl.a, p.pl.b] }, properties: {} }] };
+    if (m.getSource(id)) m.getSource(id).setData(fc);
+    else {
+      m.addSource(id, { type: 'geojson', data: fc });
+      m.addLayer({ id: id + '-case', type: 'line', source: id, filter: ['==', '$type', 'LineString'],
+                   paint: { 'line-color': '#222', 'line-width': 5.5 }, layout: { 'line-cap': 'round' } });
+      m.addLayer({ id: id + '-line', type: 'line', source: id, filter: ['==', '$type', 'LineString'],
+                   paint: { 'line-color': PF_COL, 'line-width': 3 }, layout: { 'line-cap': 'round' } });
+      m.addLayer({ id: id + '-end', type: 'circle', source: id, filter: ['==', '$type', 'Point'],
+                   paint: { 'circle-radius': 4.5, 'circle-color': PF_COL, 'circle-stroke-color': '#222',
+                            'circle-stroke-width': 1.5, 'circle-pitch-alignment': 'map' } });
+      restack(p);
+    }
+    if (!p.pfMarks) {
+      p.pfMarks = ['A', 'A′'].map(function (t) {
+        var el = document.createElement('div'); el.className = 'pflbl'; el.textContent = t;
+        return new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -6] }).setLngLat(p.pl.a).addTo(m);
+      });
+    }
+    p.pfMarks[0].setLngLat(p.pl.a); p.pfMarks[1].setLngLat(p.pl.b);
+  }
+  function pfPane(p) {
+    if (!p.loaded) return;
+    if (S.pf.on && !p.pl) pfLine(p, true);
+    pfDraw(p);
+    if (S.pf.on && p.pl) pfSample(p);
+  }
+  // Elevations along the line. Quick: the terrain already loaded in the pane
+  // (live while dragging). Full: the pane's survey read properly through
+  // LSDemRead, Mapterhorn beyond it; voids stay gaps.
+  var PF_N = 160;
+  function pfPoints(p) {
+    var out = [];
+    for (var i = 0; i <= PF_N; i++) {
+      var t = i / PF_N;
+      out.push([p.pl.a[0] + (p.pl.b[0] - p.pl.a[0]) * t, p.pl.a[1] + (p.pl.b[1] - p.pl.a[1]) * t]);
+    }
+    return out;
+  }
+  function pfQuick(p) {
+    var m = p.map, ex = S.t3d ? S.ex : 1;
+    if (!m.getTerrain()) return;
+    p.pfData = { L: gdist(p.pl.a, p.pl.b), z: pfPoints(p).map(function (q) {
+      var h = m.queryTerrainElevation(q); return h == null ? NaN : h / ex; }), quick: true };
+  }
+  function pfSample(p) {
+    if (!p.pl || !window.LSDemRead) return;
+    var key = JSON.stringify([p.pl, p.ds]);
+    if (p.pfKey === key && p.pfData && !p.pfData.quick) { pfRenderAll(); return; }
+    p.pfKey = key;
+    var pts = pfPoints(p), L = gdist(p.pl.a, p.pl.b), step = L / PF_N, lat = (p.pl.a[1] + p.pl.b[1]) / 2;
+    var sp = p.ds && props[p.ds] ? LSDemRead.surveySource(props[p.ds]) : null;
+    var zs = sp ? LSDemRead.zoomFor(sp, lat, step) : 0, zm = LSDemRead.zoomFor(LSDemRead.MAPTERHORN, lat, step);
+    Promise.all(pts.map(function (q) {
+      var first = sp && covers(p.ds, q[0], q[1]) ? LSDemRead.readAt(sp, zs, q[0], q[1]) : Promise.resolve(NaN);
+      return first.then(function (v) { return isFinite(v) ? v : LSDemRead.readAt(LSDemRead.MAPTERHORN, zm, q[0], q[1]); });
+    })).then(function (z) {
+      if (p.pfKey !== key) return;                  // the line moved since
+      p.pfData = { L: L, z: z };
+      pfRenderAll();
+    });
+  }
+  // Shared geometry, then one SVG per pane.
+  // r leaves room for the distance unit after the last tick label.
+  var PF_PAD = { l: 42, r: 26, t: 14, b: 20 };
+  function pfRenderAll() {
+    var live = P.filter(function (p) { return S.pf.on && p.pl && p.pfData && p.el; });
+    // 'block', not '': the stylesheet hides insets by default.
+    P.forEach(function (p) { if (p.el) p.el.querySelector('.pfinset').style.display = S.pf.on && p.pl && p.pfData ? 'block' : 'none'; });
+    if (!live.length) return;
+    var Lmax = 0, Rmax = 10;
+    live.forEach(function (p) {
+      var z = p.pfData.z.filter(isFinite);
+      Lmax = Math.max(Lmax, p.pfData.L);
+      if (z.length) Rmax = Math.max(Rmax, Math.max.apply(null, z) - Math.min.apply(null, z));
+    });
+    Rmax *= 1.12;
+    var W = Math.max(140, S.pf.w), iw = W - PF_PAD.l - PF_PAD.r, hx = Lmax / iw, hv, H;
+    var paneH = Math.min.apply(null, live.map(function (p) { return paneSize(p)[1]; }));
+    // 1:1 and match-3D share one rule: a fixed ratio of horizontal to vertical
+    // scale (1, or the terrain exaggeration; a flat map falls back to 1).
+    var fixedVE = S.pf.mode === '1' ? 1 : S.pf.mode === 'v' ? pfViewVE() : null;
+    if (fixedVE) {
+      var maxIH = Math.max(30, paneH * 0.55 - PF_PAD.t - PF_PAD.b);
+      hv = hx / fixedVE;
+      if (Rmax / hv > maxIH) { hv = Rmax / maxIH; hx = hv * fixedVE; }   // too tall: shrink both, ratio kept
+      H = Rmax / hv + PF_PAD.t + PF_PAD.b;
+      W = Lmax / hx + PF_PAD.l + PF_PAD.r;
+    } else {
+      H = Math.max(70, Math.min(S.pf.h, paneH - 40));
+      hv = Rmax / (H - PF_PAD.t - PF_PAD.b);
+    }
+    pfGeom = { hx: hx, hv: hv, W: W, H: H, Lmax: Lmax, Rmax: Rmax, ve: hx / hv };
+    live.forEach(function (p) { pfSvg(p, live); });
+    P.forEach(pfPlace);
+  }
+  function pfViewVE() { return S.t3d && S.ex > 0 ? S.ex : 1; }
+  function pfScaleLabel() {
+    if (S.pf.mode === '1') return '1:1';
+    if (S.pf.mode === 'v') return S.t3d && S.ex > 0 ? 'VE ×' + S.ex.toFixed(1) + ', as 3D' : '1:1 (flat map)';
+    return 'VE ×' + (pfGeom.ve || 1).toFixed(1);
+  }
+  function tickStep(span, n) { return niceRound(span / n) || 1; }
+  function pfMid(d) {
+    var fin = d.z.filter(isFinite);
+    return fin.length ? (Math.max.apply(null, fin) + Math.min.apply(null, fin)) / 2 : 0;
+  }
+  // Polyline path of a profile, broken at voids.
+  function pfPath(d, X, Y, shift) {
+    var out = '', run = [];
+    function flush() {
+      if (run.length > 1) out += 'M' + run.map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join('L');
+      run = [];
+    }
+    d.z.forEach(function (h, i) { if (isFinite(h)) run.push([X(d.L * i / PF_N), Y(h + shift)]); else flush(); });
+    flush();
+    return out;
+  }
+  function pfSvg(p, live) {
+    var G = pfGeom, d = p.pfData, box = p.el.querySelector('.pfinset');
+    var us = S.units === 'us', zu = us ? FT : 1, zn = us ? 'ft' : 'm';
+    var du = unitFor(G.Lmax), z = d.z, fin = z.filter(isFinite);
+    var mid = fin.length ? (Math.max.apply(null, fin) + Math.min.apply(null, fin)) / 2 : 0;
+    var base = mid - G.Rmax / 2, x0 = PF_PAD.l, y1 = G.H - PF_PAD.b;
+    function X(dist) { return x0 + dist / G.hx; }
+    function Y(h) { return y1 - (h - base) / G.hv; }
+    var pts = z.map(function (h, i) { return isFinite(h) ? [X(d.L * i / PF_N), Y(h)] : null; });
+    var path = '', fill = '', run = [];
+    function flush() {
+      if (run.length > 1) {
+        path += 'M' + run.map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join('L');
+        fill += 'M' + run[0][0].toFixed(1) + ',' + y1 + 'L' + run.map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join('L') +
+                'L' + run[run.length - 1][0].toFixed(1) + ',' + y1 + 'Z';
+      }
+      run = [];
+    }
+    pts.forEach(function (q) { if (q) run.push(q); else flush(); }); flush();
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + Math.round(G.W) + '" height="' + Math.round(G.H) + '" font-family="system-ui, sans-serif" font-size="10">' +
+      '<rect width="100%" height="100%" fill="rgba(255,255,255,0.9)" stroke="#888" stroke-width="1"/>' +
+      '<path d="' + fill + '" fill="' + PF_COL + '" fill-opacity="0.2"/>';
+    // Every other pane's profile, faint, at the same scale and shifted to this
+    // pane's mid-height so shapes compare directly (Hig, 2026-11-12).
+    (live || []).forEach(function (q) {
+      if (q === p || !q.pfData) return;
+      svg += '<path d="' + pfPath(q.pfData, X, Y, mid - pfMid(q.pfData)) + '" fill="none" stroke="#777" stroke-opacity="0.55" ' +
+             'stroke-width="1" stroke-linejoin="round"/>';
+    });
+    svg += '<path d="' + path + '" fill="none" stroke="#111" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>';
+    // elevation ticks (own values), distance ticks (shared)
+    var es = tickStep(G.Rmax / zu, 3) * zu;
+    for (var h = Math.ceil(base / es) * es; h <= base + G.Rmax + 1e-6; h += es) {
+      var y = Y(h);
+      svg += '<line x1="' + (x0 - 3) + '" x2="' + x0 + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="#555"/>' +
+             '<text x="' + (x0 - 5) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end" fill="#333">' + Math.round(h / zu) + '</text>';
+    }
+    var ds = tickStep(G.Lmax / du.f, 4) * du.f;
+    for (var t = 0; t <= d.L + 1e-6; t += ds) {
+      var x = X(t);
+      svg += '<line x1="' + x.toFixed(1) + '" x2="' + x.toFixed(1) + '" y1="' + y1 + '" y2="' + (y1 + 3) + '" stroke="#555"/>' +
+             '<text x="' + x.toFixed(1) + '" y="' + (y1 + 13) + '" text-anchor="middle" fill="#333">' + fmtLen(t / du.f) + '</text>';
+    }
+    svg += '<line x1="' + x0 + '" x2="' + X(d.L).toFixed(1) + '" y1="' + y1 + '" y2="' + y1 + '" stroke="#555"/>' +
+      '<line x1="' + x0 + '" x2="' + x0 + '" y1="' + PF_PAD.t + '" y2="' + y1 + '" stroke="#555"/>' +
+      '<text x="' + (x0 + 3) + '" y="' + (PF_PAD.t - 3) + '" font-weight="700">A</text>' +
+      '<text x="' + (X(d.L) - 3).toFixed(1) + '" y="' + (PF_PAD.t - 3) + '" text-anchor="end" font-weight="700">A′</text>' +
+      '<text x="' + (G.W - 4) + '" y="' + (y1 + 13) + '" text-anchor="end" fill="#333">' + du.n + '</text>' +
+      '<text x="3" y="' + (PF_PAD.t - 3) + '" fill="#333">' + zn + '</text>' +
+      '<text x="' + (G.W / 2).toFixed(0) + '" y="' + (PF_PAD.t - 3) + '" text-anchor="middle" fill="#555">' +
+        pfScaleLabel() + (d.quick ? ' · …' : '') + '</text></svg>';
+    box.querySelector('.svgwrap').innerHTML = svg;
+  }
+  // Where the inset sits: its top-left corner as a fraction of the pane
+  // (per pane, so each can be moved off what matters there), kept inside the
+  // pane; bottom right until moved.
+  function pfPlace(p) {
+    var ins = p.el && p.el.querySelector('.pfinset');
+    if (!ins || ins.style.display === 'none') return;
+    var box = p.el.querySelector('.mapbox'), W = box.clientWidth, H = box.clientHeight;
+    var w = ins.offsetWidth, h = ins.offsetHeight;
+    var x = p.pfPos ? p.pfPos.x * W : W - w - 6, y = p.pfPos ? p.pfPos.y * H : H - h - 6;
+    ins.style.left = Math.max(0, Math.min(W - w, x)) + 'px';
+    ins.style.top = Math.max(0, Math.min(H - h, y)) + 'px';
+  }
+  // The inset as an image, for the PNG export.
+  function pfInsetImage(p) {
+    var box = p.el && p.el.querySelector('.pfinset'), sv = box && box.querySelector('svg');
+    if (!S.pf.on || !sv || box.style.display === 'none') return Promise.resolve(null);
+    var r = sv.getBoundingClientRect(), img = new Image();
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(sv));
+    return img.decode().then(function () { return { img: img, r: r }; }, function () { return null; });
+  }
+  // Pane hooks: the inset (with its resize grip), the per-pane line control,
+  // and dragging the line's ends or the whole line while the panel is open.
+  function pfAttach(p) {
+    var box = p.el.querySelector('.mapbox');
+    var ins = document.createElement('div');
+    ins.className = 'pfinset';
+    ins.innerHTML = '<div class="svgwrap"></div><div class="grip" title="Resize every profile inset"></div>';
+    box.appendChild(ins);
+    var ctl = document.createElement('div');
+    ctl.className = 'pfctl';
+    ctl.innerHTML = '<span>profile</span><button type="button" data-a="along" title="Along the look direction, near to far">along view</button>' +
+      '<button type="button" data-a="across" title="Across the view, left to right">across</button>' +
+      '<button type="button" data-a="flip" title="Swap A and A′">flip</button>';
+    p.el.querySelector('.panebar').appendChild(ctl);
+    [ins, ctl].forEach(function (el) {
+      ['mousedown', 'wheel', 'dblclick', 'contextmenu'].forEach(function (ev) {
+        el.addEventListener(ev, function (e) { e.stopPropagation(); });
+      });
+    });
+    ctl.addEventListener('click', function (e) {
+      var a = e.target.dataset && e.target.dataset.a;
+      if (!a || !p.pl) return;
+      if (a === 'flip') p.pl = { a: p.pl.b, b: p.pl.a };
+      else pfLine(p, a === 'along');
+      pfDraw(p); pfSample(p); syncUrl();
+    });
+    ins.classList.add('movable');
+    ins.title = 'Drag to move this profile; the corner handle resizes them all';
+    ins.addEventListener('mousedown', function (e) {
+      if (e.button !== 0 || e.target.classList.contains('grip') || document.body.classList.contains('clean')) return;
+      e.preventDefault();
+      var bx = box.getBoundingClientRect(), r0 = ins.getBoundingClientRect(), dx = e.clientX - r0.left, dy = e.clientY - r0.top;
+      function mv(ev) {
+        p.pfPos = { x: (ev.clientX - dx - bx.left) / bx.width, y: (ev.clientY - dy - bx.top) / bx.height };
+        pfPlace(p);
+      }
+      function up() {
+        document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
+        var r = ins.getBoundingClientRect();          // store where it was clamped to
+        p.pfPos = { x: (r.left - bx.left) / bx.width, y: (r.top - bx.top) / bx.height };
+        syncUrl();
+      }
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+    });
+    ins.querySelector('.grip').addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      var x0 = e.clientX, y0 = e.clientY, w0 = pfGeom.W || S.pf.w, h0 = pfGeom.H || S.pf.h;
+      function mv(ev) {
+        S.pf.w = Math.max(140, w0 - (ev.clientX - x0));
+        S.pf.h = Math.max(70, h0 - (ev.clientY - y0));
+        pfRenderAll();
+      }
+      function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); syncUrl(); }
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+    });
+    box.addEventListener('mousedown', function (e) {
+      setActive(P.indexOf(p));
+      if (!pfEditing || !p.pl || e.button !== 0 || ins.contains(e.target) || ctl.contains(e.target)) return;
+      var m = p.map, pt = localPt(m, e), A = m.project(p.pl.a), B = m.project(p.pl.b);
+      var dA = Math.hypot(pt[0] - A.x, pt[1] - A.y), dB = Math.hypot(pt[0] - B.x, pt[1] - B.y), what = null;
+      if (Math.min(dA, dB) <= 12) what = dA <= dB ? 'a' : 'b';
+      else {                                       // near the segment on screen?
+        var vx = B.x - A.x, vy = B.y - A.y, L2 = vx * vx + vy * vy || 1;
+        var t = Math.max(0, Math.min(1, ((pt[0] - A.x) * vx + (pt[1] - A.y) * vy) / L2));
+        if (Math.hypot(pt[0] - (A.x + t * vx), pt[1] - (A.y + t * vy)) <= 8) what = 'line';
+      }
+      if (!what) return;
+      e.stopImmediatePropagation(); e.preventDefault();
+      var g0 = m.unproject(pt), pl0 = { a: p.pl.a.slice(), b: p.pl.b.slice() };
+      function mv(ev) {
+        var g = m.unproject(localPt(m, ev));
+        if (!g) return;
+        if (what === 'line') {
+          var dx = g.lng - g0.lng, dy = g.lat - g0.lat;
+          p.pl = { a: [pl0.a[0] + dx, pl0.a[1] + dy], b: [pl0.b[0] + dx, pl0.b[1] + dy] };
+        } else p.pl[what] = [g.lng, g.lat];
+        pfDraw(p); pfQuick(p); pfRenderAll();
+      }
+      function up() {
+        document.removeEventListener('mousemove', mv, true);
+        document.removeEventListener('mouseup', up, true);
+        pfSample(p); syncUrl();
+      }
+      document.addEventListener('mousemove', mv, true);
+      document.addEventListener('mouseup', up, true);
+    }, true);
+    box.addEventListener('mousemove', function (e) {
+      if (!pfEditing || !p.pl || e.buttons || ins.contains(e.target) || ctl.contains(e.target)) return;
+      var m = p.map, pt = localPt(m, e), A = m.project(p.pl.a), B = m.project(p.pl.b);
+      var near = Math.min(Math.hypot(pt[0] - A.x, pt[1] - A.y), Math.hypot(pt[0] - B.x, pt[1] - B.y)) <= 12;
+      if (near) m.getCanvas().style.cursor = 'crosshair';
+      else if (!editing) m.getCanvas().style.cursor = '';
+    });
+  }
+  function pfOpen() {
+    S.pf.on = true; pfEditing = true; document.body.classList.add('pfedit'); setTimeout(layoutGrid, 0);
+    P.forEach(pfPane); pfPanel(); syncUrl();
+  }
+  function pfClose() {
+    pfEditing = false; document.body.classList.remove('pfedit'); setTimeout(layoutGrid, 0);
+    $('pfpanel').style.display = 'none';
+    P.forEach(function (p) { if (p.map) p.map.getCanvas().style.cursor = ''; });
+    syncUrl();
+  }
+  function pfPanelSync() {
+    var u = document.getElementById('pf-units'); if (u) u.value = S.units;
+  }
+  function pfPanel() {
+    var pn = $('pfpanel');
+    pn.innerHTML = '<h4>Profiles — all panes</h4>' +
+      '<div class="row"><label><input type="checkbox" id="pf-on"> Show profiles</label></div>' +
+      '<div class="row"><label>Scale</label><select id="pf-mode"><option value="1">1:1 (true shape)</option>' +
+      '<option value="v">match 3D VE</option>' +
+      '<option value="f">freeform (set the height)</option></select></div>' +
+      '<div class="row"><label>Units</label><select id="pf-units"><option value="m">metric</option><option value="us">statute (ft, mi)</option></select></div>' +
+      '<div class="btns"><button id="pf-along" title="Every line through its pane\'s centre, along the look direction">All along view</button>' +
+      '<button id="pf-reset" title="Every line back to the default length, through each pane\'s centre">Reset lines</button>' +
+      '<button id="pf-done"><b>Done</b></button></div>' +
+      '<div class="hint">Drag a line\'s end, or the line itself, in any pane. Every inset uses the same scale: ' +
+      'the longest line sets the horizontal, the largest relief the vertical. The other panes\' profiles are drawn faint in each, shifted to its mid-height. Drag an inset to move it in its pane; drag its corner to resize them all. ' +
+      'Heights are read from the pane\'s survey, Mapterhorn beyond it.</div>';
+    pn.style.display = '';
+    function f(id) { return document.getElementById(id); }
+    f('pf-on').checked = S.pf.on; f('pf-mode').value = S.pf.mode; pfPanelSync();
+    f('pf-on').onchange = function () { S.pf.on = this.checked; P.forEach(pfPane); pfRenderAll(); syncUrl(); };
+    f('pf-mode').onchange = function () { S.pf.mode = this.value; pfRenderAll(); syncUrl(); };
+    f('pf-units').onchange = function () { S.units = this.value; if (S.sb.len) S.sb.len = niceIn(S.sb.len); annAll(); pfRenderAll(); syncUrl(); };
+    f('pf-along').onclick = function () { P.forEach(function (p) { if (p.loaded) { pfLine(p, true); pfDraw(p); pfSample(p); } }); syncUrl(); };
+    f('pf-reset').onclick = function () {
+      var L = pfDefaultLen();
+      P.forEach(function (p) { if (p.loaded) { pfLine(p, true, L, p.map.getCenter().toArray()); pfDraw(p); pfSample(p); } }); syncUrl();
+    };
+    f('pf-done').onclick = pfClose;
   }
 
   // ---- hide controls / export ------------------------------------------------
@@ -1071,23 +1529,33 @@
       setTimeout(function () { m.once('idle', fin); m.triggerRepaint(); }, 400);
     });
   }
-  // Every pane redrawn at `scale`× its pixel ratio, with raster sources asked
-  // for tiles `scale`× deeper (a smaller tileSize), so the shading and base
-  // gain real detail rather than being upscaled; then composited with the
-  // titles, a key line and the credits as laid out on screen.
+  // Draped layers in 3D (shading, base, bar, arrow, profile line) are drawn
+  // into per-terrain-tile textures at MapLibre's qualityFactor (2) device
+  // pixels per screen pixel, whatever the canvas's pixel ratio: a 4× export
+  // was 2× detail upscaled. Raise it for the export by rebuilding the pane's
+  // texture pool (MapLibre makes one per setTerrain, filled lazily).
+  function setRttQuality(m, q) {
+    var t = m.terrain, pr = m.painter;
+    if (!t || !pr || !pr.renderToTexture || t.qualityFactor === q) return;
+    t.qualityFactor = q;
+    var Ctor = pr.renderToTexture.constructor;
+    pr.renderToTexture.destruct();
+    pr.renderToTexture = new Ctor(pr, t);
+    if (t.tileManager && t.tileManager.freeRtt) t.tileManager.freeRtt();
+    m.triggerRepaint();
+  }
+  // One pane at a time: redrawn at `scale`× its pixel ratio, raster sources
+  // asked for tiles `scale`× deeper (a smaller tileSize), terrain textures at
+  // `scale`× and the bar and arrow redrawn larger, then copied into the sheet
+  // and restored before the next. One at a time keeps GPU memory to one
+  // pane's worth (a 4× pane's terrain textures are ~16 MB each).
   async function exportPng(scale) {
     if (editing) annClose();
-    var busy = $('busy'); busy.textContent = 'Rendering ' + P.length + ' panes at ' + scale + '×…'; busy.style.display = 'flex';
+    if (pfEditing) pfClose();
+    var busy = $('busy'); busy.style.display = 'flex';
     var dpr0 = Math.min(window.devicePixelRatio || 1, 2);
+    await new Promise(function (r) { setTimeout(r, 200); });       // closed panels: let the layout settle
     try {
-      P.forEach(function (p, i) {
-        p.exportTS = 256 / scale;
-        p.map.setPixelRatio(scale);
-        setBase(p); rebuildSources(p, i);
-        ['scale', 'north'].forEach(function (t) { var m = p.map, id = annId(p, t); if (m.getLayer(id)) m.moveLayer(id); });
-      });
-      await Promise.all(P.map(function (p) { return waitIdle(p.map, 90000); }));
-      await new Promise(function (r) { setTimeout(r, 300); });
       var gr = $('grid').getBoundingClientRect(), pad = 12, head = 52, foot = 40;
       var out = document.createElement('canvas');
       out.width = Math.round((gr.width + 2 * pad) * scale); out.height = Math.round((head + gr.height + foot) * scale);
@@ -1100,23 +1568,49 @@
       var shadeName = { preset: 'Preset shading', hillshade: 'Hillshade', slope: 'Slope', none: 'No shading' }[S.shade];
       var bmL = (BASEMAPS.filter(function (b) { return b.id === S.bm; })[0] || {}).label || 'no base';
       g.fillText('Same ground scale in every pane: ' + S.res.toFixed(2) + ' m per pixel at the centre (screen) · tilt ' +
-                 Math.round(S.pitch) + '° · vertical exaggeration ×' + S.ex.toFixed(1) + ' · ' + shadeName + ' over ' + bmL +
-                 ' · sun ' + (S.sunRel ? 'from upper left of each view' : S.az + '°') + ' · bars and arrows are horizontal ground lengths',
+                 Math.round(S.pitch) + '°' + (S.t3d && S.ex > 0 ? ' · vertical exaggeration ×' + S.ex.toFixed(1) : ' · flat map') + ' · ' + shadeName + ' over ' + bmL +
+                 ' · sun ' + (S.sunRel ? 'from upper left of each view' : S.az + '°') + ' · bars and arrows are horizontal ground lengths' +
+                 (S.pf.on ? ' · profiles at one scale (' + pfScaleLabel() + ')' : ''),
                  pad, 34);
       var ox = pad - gr.left, oy = head - gr.top;
-      P.forEach(function (p) {
+      var insets = await Promise.all(P.map(pfInsetImage));
+      for (var pi = 0; pi < P.length; pi++) {
+        var p = P[pi], m = p.map;
+        busy.textContent = 'Rendering pane ' + (pi + 1) + ' of ' + P.length + ' at ' + scale + '×…';
+        p.exportTS = 256 / scale; p.annK = scale / 2 > 1 ? scale / 2 : null;
+        m.setPixelRatio(scale);
+        setBase(p); rebuildSources(p, pi);
+        setRttQuality(m, Math.max(2, scale));
+        annPane(p);
+        await waitIdle(m, 90000);
+        await new Promise(function (r) { setTimeout(r, 300); });
         var st = p.el.querySelector('.strip').getBoundingClientRect(), mb = p.el.querySelector('.mapbox').getBoundingClientRect();
         g.fillStyle = '#fff'; g.fillRect(st.left + ox, st.top + oy, st.width, st.height);
-        g.fillStyle = '#222'; g.font = '600 13px system-ui, sans-serif'; g.textBaseline = 'middle';
+        g.fillStyle = '#222'; g.font = '600 13px system-ui, sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'left';
         g.fillText(p.el.querySelector('.ttl').textContent, st.left + ox + 6, st.top + oy + st.height / 2, st.width - 40);
-        // north indicator, as in the strip
         g.save(); g.translate(st.right + ox - 14, st.top + oy + st.height / 2); g.rotate(-p.b * D2R);
         g.beginPath(); g.moveTo(0, -7); g.lineTo(3, 2); g.lineTo(0, 0); g.lineTo(-3, 2); g.closePath(); g.fillStyle = '#c00'; g.fill();
         g.beginPath(); g.moveTo(0, 7); g.lineTo(3, 2); g.lineTo(0, 0); g.lineTo(-3, 2); g.closePath(); g.fillStyle = '#999'; g.fill();
         g.restore();
-        p.map.redraw();                         // synchronous: the buffer is still there for drawImage
-        g.drawImage(p.map.getCanvas(), mb.left + ox, mb.top + oy, mb.width, mb.height);
-      });
+        m.redraw();                             // synchronous: the buffer is still there for drawImage
+        g.drawImage(m.getCanvas(), mb.left + ox, mb.top + oy, mb.width, mb.height);
+        if (S.pf.on && p.pl) {
+          g.save(); g.beginPath(); g.rect(mb.left + ox, mb.top + oy, mb.width, mb.height); g.clip();
+          g.font = '700 13px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+          g.lineJoin = 'round'; g.lineWidth = 4; g.strokeStyle = '#fff'; g.fillStyle = '#111';
+          [[p.pl.a, 'A'], [p.pl.b, 'A′']].forEach(function (e) {
+            var q = m.project(e[0]); var x = mb.left + ox + q.x, y = mb.top + oy + q.y - 13;
+            g.strokeText(e[1], x, y); g.fillText(e[1], x, y);
+          });
+          g.restore();
+        }
+        if (insets[pi]) g.drawImage(insets[pi].img, insets[pi].r.left + ox, insets[pi].r.top + oy, insets[pi].r.width, insets[pi].r.height);
+        // restore this pane before the next
+        p.exportTS = null; p.annK = null;
+        m.setPixelRatio(dpr0);
+        setBase(p); rebuildSources(p, pi); annPane(p);
+      }
+      g.textAlign = 'left';
       g.fillStyle = '#666'; g.font = '11px system-ui, sans-serif'; g.textBaseline = 'top';
       var cr = $('credits').textContent.replace(/\s+/g, ' ').trim(), y = head + gr.height + 6, line = '';
       cr.split(' ').forEach(function (w) {
@@ -1129,16 +1623,16 @@
       a.href = URL.createObjectURL(blob);
       a.download = ((S.title || 'terrain-comparison').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'terrain-comparison') + '_' + scale + 'x.png';
       document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 60000);
       toast('Exported ' + out.width + ' × ' + out.height + ' px');
     } catch (err) {
       console.error(err); toast('Export failed: ' + err.message);
-    } finally {
       P.forEach(function (p, i) {
-        p.exportTS = null; p.map.setPixelRatio(dpr0);
-        setBase(p); rebuildSources(p, i);
-        ['scale', 'north'].forEach(function (t) { var m = p.map, id = annId(p, t); if (m.getLayer(id)) m.moveLayer(id); });
+        if (!p.exportTS && !p.annK) return;
+        p.exportTS = null; p.annK = null; p.map.setPixelRatio(dpr0);
+        setBase(p); rebuildSources(p, i); annPane(p);
       });
+    } finally {
       busy.style.display = 'none';
     }
   }
@@ -1158,7 +1652,19 @@
       return [p.lat.toFixed(6), p.lon.toFixed(6), p.b.toFixed(1), p.ds || '',
               p.title ? encodeURIComponent(p.title) : '', p.dsAuto === false ? 'm' : ''].join(',').replace(/,+$/, '');
     }).join(';'));
-    if (S.sb.on) q.set('sb', [S.sb.len, S.sb.seg, S.sb.th, S.sb.fs, S.sb.col].join(','));
+    if (S.sb.on) q.set('sb', [+S.sb.len.toFixed(3), S.sb.seg, S.sb.th, S.sb.fs, S.sb.col].join(','));
+    if (S.units === 'us') q.set('u', 'us');
+    if (S.pf.on) {
+      q.set('pf', [S.pf.mode, Math.round(S.pf.w), Math.round(S.pf.h)].join(','));
+      var pl = [];
+      P.forEach(function (p, i) {
+        if (!p.pl) return;
+        var e = [i, p.pl.a[0].toFixed(6), p.pl.a[1].toFixed(6), p.pl.b[0].toFixed(6), p.pl.b[1].toFixed(6)];
+        if (p.pfPos) e.push(Math.round(p.pfPos.x * 1000), Math.round(p.pfPos.y * 1000));
+        pl.push(e.join(','));
+      });
+      if (pl.length) q.set('pl', pl.join(';'));
+    }
     if (S.na.on) q.set('na', [S.na.size, S.na.col].join(','));
     var sp = [], np = [];
     P.forEach(function (p, i) {
