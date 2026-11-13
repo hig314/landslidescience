@@ -378,6 +378,20 @@
    "live": "2026-11-12 15:52:12",
    "commit": "a00983e",
    "what": "fill water sheet: no taper toward water-surface returns (the pits between them); sheetbed near the sheet"
+  },
+  {
+   "id": "objects",
+   "stage": "joint",
+   "live": "2026-11-13 12:15:40",
+   "commit": "720d30f",
+   "what": "joint layer: small ground ringed by a deep measured bed (boats, floats) is water at the local level, off mapped rocks"
+  },
+  {
+   "id": "postguard",
+   "stage": "build",
+   "live": "2026-11-13 12:15:40",
+   "commit": "720d30f",
+   "what": "composite: post-processing never extends a layer onto a class the class-now rules out; coverage guard restores the rules' winner first"
   }
  ]
 }
