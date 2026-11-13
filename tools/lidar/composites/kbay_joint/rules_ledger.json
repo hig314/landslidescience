@@ -350,6 +350,27 @@
    "live": "2026-11-12 09:42:35",
    "commit": "cfe8b9f",
    "what": "water edits: Hig's Homer Spit puddles dmax 0.1 m at their 2023 levels"
+  },
+  {
+   "id": "soundprior",
+   "stage": "shore",
+   "live": "2026-11-12 15:40:28",
+   "commit": "8a1f407",
+   "what": "shore: a lake sounding under a prior's flat patch makes the patch water at the nearest level"
+  },
+  {
+   "id": "lagoonprior",
+   "stage": "fill",
+   "live": "2026-11-12 15:40:28",
+   "commit": "8a1f407",
+   "what": "fill/shoreface: the ground prior never stands in a lake/perched lagoon/pond the lidar saw (or within 10 m)"
+  },
+  {
+   "id": "sheetbed",
+   "stage": "fill",
+   "live": "2026-11-12 15:40:28",
+   "commit": "8a1f407",
+   "what": "fill water sheet: a measured bed under the level pulls the sheet down around it"
   }
  ]
 }
