@@ -56,7 +56,7 @@ from scipy import ndimage
 CLS = {"void": 0, "ground": 1, "water": 2, "bed": 3, "ice": 4}
 DEFAULTS = dict(res_m=1.0, pool_years={"ground": 5.0, "bed": 30.0, "ice": 0.5}, rates={"ground": 0.01, "bed": 0.02, "ice": 3.0}, tol_m=0.15, tol_low_m=1.0, xc_sigma_m=2.0, xc_minw=1.5,
                 over_water_m=50.0, over_water_dry_m=10.0, over_water_tol_m=0.5, bed_over_water_tol_m=0.3, over_water_max_m=30.0, tide_max_m=4.5, stand_flat_m=0.3, stand_frac=0.05, stand_min_cells=10, stand_dz_m=1.0, bed_stand_dz_m=2.0, derived_stand_dz_m=4.0, derived_stand_frac=0.5, derived_stand_slope=0.01, sheet_level_tol_m=0.5, sheet_level_slope=0.0015, low_water_stand_m=1.0, derived_under_sheet_m=6.0, low_water_level_m=-1.87, low_water_edge_m=30.0, rock_near_m=40.0, mesa_level_m=1.0, mesa_level_frac=0.8, mesa_rise_m=1.0, mesa_ring_m=6.0, mesa_ring_frac=0.6, mesa_min_cells=1, mesa_slope=0.05, speck_near_m=300.0, speck_sparse_frac=0.25, derived_ground_gap_m=0.0, derived_ground_dense_frac=0.5, sonar_min_depth_m=1.5, sparse_bed_min_n=5, coarse_factor=4.0, derived_gap_m=0.0, derived_adjust_m=150.0, derived_adjust_coarse=4, derived_fine_m=0.0, derived_fine_frac=0.05, surf_near_m=30.0, speck_cast_m=150.0, derived_ground_bed_dz_m=3.0, derived_ground_bed_top_m=0.0,
-                sigma_floor_m=0.03, gap_m=2.0, wet_m=15.0, structure_m=30.0, steep_deg=20.0, prior_slope_res_m=5.0, hole_rim_tol_m=1.0, grid_wc=0.1, grid_better=0.75,
+                sigma_floor_m=0.03, gap_m=2.0, wet_m=15.0, structure_m=30.0, object_max_m2=3000.0, object_ring_m=6.0, object_ring_frac=0.6, object_dz_m=2.0, steep_deg=20.0, prior_slope_res_m=5.0, hole_rim_tol_m=1.0, grid_wc=0.1, grid_better=0.75,
                 lidar_sigma_m=0.08, grid_xy_sigma_m=0.0, align_min_cells=1000)
 
 
@@ -1585,6 +1585,65 @@ def layer(recipe_path, win=None, out=None, res=None, log=print, tag=""):
         wet |= struct
         rep["structure_over_water_km2"] = round(float(struct.sum()) * res * res / 1e6, 4)
         write(out / f"layer{tag}_structure.tif", struct.astype(np.uint8), win, res, epsg, "uint8", 255)
+    # AN OBJECT ON THE WATER IS NOT GROUND (Hig's cm18 review, 2026-11-13, Homer small-boat harbour: "still some serious
+    # problems").  Homer 2021 NCMP classed the boats and the floats' boxes as ground at +2..+5 m on the dredged floor at
+    # -5.5; rough, so the mesa rule (level pieces) never took them, and the fill's interior between the floats bent up to
+    # them (-2.5 m ridges).  A small piece of ground (object_max_m2) whose ring (object_ring_m outside it) is mostly a
+    # measured bed (object_ring_frac of the ring's bed and ground) lying object_dz_m and more below the piece's foot (its
+    # 10th percentile), the foot itself at or above the water seen about (within 1 m), off every mapped rock and island
+    # (rock_near_m), is a thing afloat or on piles: water at the local level, its bed the fill's from the floor about.
+    # A rock or an islet rises out of its own flanks (a bed within reach of its foot); a boat stands on the water.
+    if float(cfg.get("object_max_m2", 0) or 0) > 0 and g.any():
+        bedc_ = g & (CJ == CLS["bed"]); gl_ = g & (CJ != CLS["bed"])
+        rr_ = max(int(round(float(cfg.get("object_ring_m", 6.0)) / res)), 1)
+        lO_, nO_ = ndimage.label(gl_, structure=np.ones((3, 3), bool))
+        if nO_ and bedc_.any():
+            idx_ = np.arange(1, nO_ + 1)
+            cO_ = np.bincount(lO_.ravel(), minlength=nO_ + 1)
+            nearb_ = ndimage.binary_dilation(bedc_, iterations=rr_)
+            cand_ = (cO_[1:] * res * res <= float(cfg["object_max_m2"])) & (np.asarray(ndimage.maximum(nearb_, lO_, idx_)) > 0)
+            del nearb_
+            prot_ = np.zeros(Z.shape, bool)
+            rp_ = cfg.get("rocks", str(Path(__file__).resolve().parent.parent / "water" / "rocks.geojson"))
+            if rp_ and os.path.exists(rp_):
+                for f_ in json.load(open(rp_))["features"]:
+                    if (f_["properties"].get("type") or "") == "Deep":
+                        continue
+                    x_, y_ = f_["geometry"]["coordinates"][:2]; c_ = int((x_ - win[0]) // res); r_ = int((win[3] - y_) // res)
+                    if 0 <= r_ < Z.shape[0] and 0 <= c_ < Z.shape[1]: prot_[r_, c_] = True
+            ip_ = Path(cfg.get("low_water", str(Path(__file__).resolve().parent.parent / "water" / "tide_low_water.geojson"))).parent / "tide_islands.geojson"
+            if ip_.exists():
+                from rasterio.features import rasterize
+                from rasterio.transform import from_origin as _fo
+                prot_ |= rasterize([(f_["geometry"], 1) for f_ in json.load(open(ip_))["features"]], out_shape=Z.shape,
+                                   transform=_fo(win[0], win[3], res, res), fill=0, dtype="uint8").astype(bool)
+            if prot_.any():
+                prot_ = ndimage.distance_transform_edt(~prot_, sampling=res) <= float(cfg.get("rock_near_m", 40.0))
+            obj_ = np.zeros(Z.shape, bool); nobj_ = 0
+            sl_ = ndimage.find_objects(lO_); H_, W_ = Z.shape
+            dz_ = float(cfg.get("object_dz_m", 2.0)); fr_ = float(cfg.get("object_ring_frac", 0.6))
+            for i_ in np.nonzero(cand_)[0]:
+                s_ = sl_[i_]
+                if s_ is None: continue
+                r0, r1 = max(s_[0].start - rr_, 0), min(s_[0].stop + rr_, H_); c0, c1 = max(s_[1].start - rr_, 0), min(s_[1].stop + rr_, W_)
+                P_ = lO_[r0:r1, c0:c1] == i_ + 1
+                if (P_ & prot_[r0:r1, c0:c1]).any(): continue
+                R_ = ndimage.binary_dilation(P_, iterations=rr_) & ~P_
+                zb_ = Z[r0:r1, c0:c1][R_ & bedc_[r0:r1, c0:c1]]
+                ng_ = int((R_ & gl_[r0:r1, c0:c1]).sum())
+                if zb_.size == 0 or zb_.size < fr_ * (zb_.size + ng_): continue
+                zp_ = Z[r0:r1, c0:c1][P_]; foot_ = float(np.percentile(zp_, 10))
+                if float(np.percentile(zb_, 90)) > foot_ - dz_: continue
+                if foot_ < float(np.median(lev[r0:r1, c0:c1][P_])) - 1.0: continue
+                obj_[r0:r1, c0:c1] |= P_; nobj_ += 1
+            del lO_, sl_, prot_
+            if nobj_:
+                g = g & ~obj_; wet = wet | obj_
+                rep["objects_on_water"] = dict(pieces=int(nobj_), ha=round(float(obj_.sum()) * res * res / 1e4, 3))
+                log(f"  objects on the water (small ground ringed by a deep measured bed, off mapped rocks): {nobj_} pieces, {float(obj_.sum()) * res * res / 1e4:.2f} ha")
+            write(out / f"layer{tag}_objects.tif", obj_.astype(np.uint8), win, res, epsg, "uint8", 255)
+            del obj_
+        del bedc_, gl_
     level = np.where(wet, lev, np.nan)
     # returns but no ground (a bush) within gap_m of GROUND -- not of a bed (2026-10-29, Bluff Point run 4: Homer 2019's
     # sea-surface returns, their "ground" judged the sea, beside Homer 2018's green-lidar bed became 0.26 km2 of land at

@@ -92,6 +92,24 @@ def post_masks(recipe, grid, layers, rules, win=None):
                 ext = ((m > 0.5) | hole).astype(np.float32)
                 m = (_feather(ext, w_, grid.res) * (m > 0.5)).astype(np.float32)
             elif name in OPS: m = OPS[name](m, kw.get("width_m", kw.get("sigma_m", kw.get("dist_m"))), grid.res)
+        # ...nor a cell whose class the class-now does not FULLY admit, unless the rules took it there (Hig's cm18 review,
+        # 2026-11-13, Homer small-boat harbour): the despeckle closed the green lidar's bed rings round the boats -- holes
+        # under 2,000 m2 in the DGGS 2019 DTM's take -- with that DTM's "ground", the boats at +3 m, and removed the same
+        # rings from the joint's take as specks: 930 cells of measured -5.5 m bed shown as boats.  A despeckle cleans a seam
+        # between two surveys that agree on what is there; it never shows a surface the newest survey says is gone.
+        cn_m = rules.get("class_now")
+        if cn_m is not None and L.get("cls") is not None and cn_m.shape == m.shape:
+            from topobathy.axes import TARGETS as _T, CLASSES as _C
+            tab_ = _T[recipe.d.get("target", "ground_current")]
+            full_ = np.zeros(cn_m.shape, bool)
+            for now_, allowed_ in tab_.items():
+                sel_ = cn_m == _C[now_]
+                if not sel_.any(): continue
+                for obs_, w_ in allowed_.items():
+                    if w_ >= 1: full_ |= sel_ & (L["cls"] == _C[obs_])
+            grown_ = (m > 0) & ~(rules["masks"][i] > 0) & ~full_
+            if grown_.any():
+                m = np.where(grown_, 0.0, m).astype(np.float32)
         # whatever the post-processing did (a despeckle closes small holes in a take mask), a cell this layer
         # does not call a SURFACE is never shown: OCM's void-classed -0.54 m (its SDB value above the water
         # cutoff) came back at full weight inside its taken bed at Bluff Point (2026-10-16, the "lump")
@@ -127,11 +145,17 @@ def post_masks(recipe, grid, layers, rules, win=None):
     cov = layers[0]["auto"] > 0
     for L in layers[1:]:
         cov |= L["auto"] > 0
-    for i, L in enumerate(layers):
-        if i == 0: continue
-        raw = rules["masks"][i]; fix = ~cov & (raw > 0) & L["valid"]
-        if fix.any():
-            L["auto"] = np.where(fix, raw, L["auto"]).astype(np.float32); cov |= fix
+    # ...to the rules' own WINNER first (2026-11-13, Homer small-boat harbour): bottom-up, any layer whose raw take survived
+    # the walk got the cell, so where the despeckle had removed the joint's bed ring the DGGS 2019 DTM's earlier take of
+    # the boats came back before the winner was asked
+    win_ = rules.get("winner")
+    for pass_ in ((0, 1) if win_ is not None else (1,)):
+        for i, L in enumerate(layers):
+            if i == 0: continue
+            raw = rules["masks"][i]; fix = ~cov & (raw > 0) & L["valid"]
+            if pass_ == 0: fix &= win_ == i
+            if fix.any():
+                L["auto"] = np.where(fix, raw, L["auto"]).astype(np.float32); cov |= fix
     # A SUPERSEDED TAKE NEVER SHOWS THROUGH (Hig's cm18 review, 2026-11-12, Homer small-boat harbour).  The sequential rules
     # leave an earlier layer's mask set where a later one beat it (only an eviction clears it), harmless while the later
     # layer shows at full weight -- but under a partial weight (despeckle, feather) the fold blended the two: the DGGS 2019
