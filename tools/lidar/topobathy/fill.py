@@ -3262,7 +3262,11 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             # ground prior's cells (3DEP is no measurement of a bed under the water).
             n_mb_ = 0
             if float(P.get("water_sheet_bed", 1.0)) > 0:
-                mb_ = np.isfinite(z) & wet_ & scope_ & np.isfinite(lvl_) & (z < lvl_ - dsh_) & ~prior_ground
+                # the measurements are ground returns, not water returns, so they lie outside the bodies' raster: any measured wet cell
+                # within water_sheet_bed_near_m of the sheet's own cells
+                nr_ = max(int(round(float(P.get("water_sheet_bed_near_m", 10.0)) / res)), 1)
+                mb_ = (np.isfinite(z) & wet_ & np.isfinite(lvl_) & (z < lvl_ - dsh_) & ~prior_ground
+                       & ndimage.binary_dilation(S_, structure=np.ones((3, 3), bool), iterations=nr_))
                 lap_ = P.get("_low_angle_prior")
                 if lap_ is not None:
                     mb_ &= ~lap_[0]
@@ -3283,7 +3287,10 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     del dep_, nb_, db_, Db_, dd_, bedc_, low_
                 del mb_
             # blend into the wet cells it does not cover
-            other_ = wet_ & ~S_ & (np.isfinite(z) | np.isfinite(fill))
+            # ...a modelled bed, or a measured one: a return AT the water (within water_sheet_depth_m of the level, or above it) is the
+            # surface, not a bed to meet (Hig's cm18 review, 2026-11-12, Port Graham's lagoon at 59.37286,-151.85718: beside every
+            # water return the taper kept the old fill, 2.5 m down in the gaps between them -- a pit the sheet never reached)
+            other_ = wet_ & ~S_ & (np.isfinite(fill) | (np.isfinite(z) & ~(z >= lvl_ - dsh_)))
             tp_ = float(P.get("water_sheet_taper_m", 100.0))
             if other_.any() and tp_ > 0:
                 dist_ = ndimage.distance_transform_edt(~other_, sampling=res)
