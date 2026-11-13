@@ -97,6 +97,39 @@ def _points_files(P):
 _YR = re.compile(r"(?<!\d)(19\d\d|20\d\d)(?!\d)")
 
 
+def _lagoon_seen(P, wobs, shape, res):
+    """Cells inside, or within prior_lagoon_buf_m of, water a lidar SAW in a still body (prior_lagoon_kinds: a lake, a perched
+    lagoon, a pond -- not tidal water, where 3DEP under the water is a bed at a lower tide, the low-angle rule): there the ground prior (3DEP) never stands (Hig's cm18 review, 2026-11-12, Nanwalek lagoon at
+    59.34933,-151.91852 and 59.34784,-151.92048: in the 2023 lidar's gaps over the water 3DEP's 5 m surface stood as a 4 m trench
+    and 5-7 m ridges -- coarse and misregistered there, its bank lands in the lagoon).  The gaps fill from the lidar around them.
+    wobs: the lidar's own water returns (NaN = none).  None when nothing qualifies."""
+    if wobs is None or not np.isfinite(wobs).any() or float(P.get("prior_lagoon", 1.0)) <= 0:
+        return None
+    wf = np.isfinite(wobs)
+    b = P.get("_bodies")
+    if b is not None:
+        bid, btab = b; mx = int(bid.max()) if bid.size else 0
+        ns = np.zeros(mx + 1, bool)
+        for k, v in btab.items():
+            if 0 < int(k) <= mx and v.get("kind") in tuple(P.get("prior_lagoon_kinds", ("lake", "perched", "ephemeral"))):
+                ns[int(k)] = True
+        bc = np.clip(bid, 0, mx)
+        # a body's cells and its returns: a return outside every body is no lagoon of known kind
+        wf &= ns[bc] & (bid > 0)
+        if not wf.any():
+            return None
+        inside = ns[bc] & (bid > 0)
+    else:
+        return None
+    k = max(int(round(10.0 / res / 2)), 1)
+    wc = ndimage.binary_closing(wf, structure=np.ones((3, 3), bool), iterations=k) | wf
+    near = ndimage.distance_transform_edt(~wc, sampling=res) <= float(P.get("prior_lagoon_buf_m", 10.0))
+    # the body's own footprint around the seen water counts (the gaps inside it), but only bodies the lidar saw water in
+    lab, n = ndimage.label(inside, structure=np.ones((3, 3), bool))
+    seen = np.unique(lab[wf]); seen = seen[seen > 0]
+    return near | np.isin(lab, seen)
+
+
 def _point_stale(P, path, row, rr, cc):
     """A cast older than its vintage zone's survey is no evidence of the bed there (2026-11-10, Hig's cm18 review, the Woz delta
     basin at 59.54998,-151.38389: NOS h09877's 1978 casts at -1.4..-5.4 m inside channels the 2023 lidar saw the delta built up
@@ -1043,6 +1076,10 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             ok_ = gap_ & np.isfinite(pz_) & (pz_ >= lo_) & (pz_ < float(P.get("void_ground_m", 4.5)))
             if P.get("_zone_day") is not None:               # not inside a vintage zone: a newer lidar holds the moving surface, 3DEP predates it
                 ok_ &= ~np.isfinite(P["_zone_day"])          # (the Woz delta: 3DEP 1.5 m under the 2023 flats in their gaps)
+            lg_ = _lagoon_seen(P, P.get("_water_z"), z.shape, res)   # never in a lagoon or pond the lidar saw (_lagoon_seen)
+            n_lg_ = 0
+            if lg_ is not None:
+                n_lg_ = int((ok_ & lg_).sum()); ok_ &= ~lg_
             wz0_ = P.get("_water_z"); n_wet_ = 0
             if wz0_ is not None and np.isfinite(wz0_).any():
                 wf_ = np.isfinite(wz0_)
@@ -1061,7 +1098,7 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
                     cls[bed_] = classes["bed"]
                 hole = ~np.isfinite(z); P["_low_angle_prior"] = (ok_, np.where(ok_, pz_, np.nan).astype(np.float32))
             log(f"  low-angle gaps: the ground prior stands on {float(ok_.sum()) * res * res / 1e4:.1f} ha ({float(bed_.sum()) * res * res / 1e4:.1f} ha under a lidar's water, "
-                f"a lower tide); {n_wet_ * res * res / 1e4:.1f} ha at or above the lidar's water left out")
+                f"a lower tide); {n_wet_ * res * res / 1e4:.1f} ha at or above the lidar's water left out; {n_lg_ * res * res / 1e4:.1f} ha in a lagoon or pond the lidar saw left out")
             del pz_
     # THE SHORELINE STAGE DECIDES (topobathy/shore.py, 2026-10-24): where its label and level exist, the land / water /
     # floating / glacier label replaces the fill's own shore rules below (the domain-closure judgement, the surface,
@@ -1323,6 +1360,11 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             if P.get("tide_sea"):                 # ...but not in mapped high-tide water: there 3DEP's reading is the smear of the cliff behind it (tide_vectors.py, 2026-11-04)
                 from .shoreface import _ground_sea
                 hi_g &= ~_ground_sea(P, P["_transform"], z.shape)
+            wob_ = P.get("_water_obs") if P.get("_water_obs") is not None else P.get("_water_z")
+            lg_ = _lagoon_seen(P, wob_, z.shape, res)
+            if lg_ is not None and (hi_g & lg_).any():
+                log(f"  ...not in a lagoon or pond the lidar saw: {int((hi_g & lg_).sum()) * res * res / 1e4:.2f} ha of the ground prior left a hole")
+                hi_g &= ~lg_
             del rs_, cs_, bigm
             if hi_g.any():
                 z = z.copy(); cls = cls.copy()
@@ -3211,6 +3253,35 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             sm_ = np.where(den_ > 1e-3, num_ / np.maximum(den_, 1e-3), np.nan)
             sheet_ = np.fmin(np.where(np.isfinite(sm_), sm_, base_), base_) - dsh_
             del num_, den_, sm_, env_, hb_
+            # A MEASURED BED UNDER THE WATER PULLS THE SHEET DOWN AROUND IT (Hig's cm18 review, 2026-11-12, Port Graham's lagoon at
+            # 59.37286,-151.85718: "a very localized deep spot ... could represent a larger area but is definitely not accurate in the
+            # sense that it's very local").  The 2023 lidar saw ground through the shallow water there, 1-3 m under the level, and the
+            # sheet held every cell around it 0.15 m under the water: the measurements stood as a pit.  Where a lidar measured the bed
+            # under a sheet body's level, that depth (smoothed over water_sheet_bed_sigma_m, at most water_sheet_bed_max_m) carries out
+            # from it, fading over water_sheet_bed_reach_m: a basin round the measurements, never deeper than they are.  Never the
+            # ground prior's cells (3DEP is no measurement of a bed under the water).
+            n_mb_ = 0
+            if float(P.get("water_sheet_bed", 1.0)) > 0:
+                mb_ = np.isfinite(z) & wet_ & scope_ & np.isfinite(lvl_) & (z < lvl_ - dsh_) & ~prior_ground
+                lap_ = P.get("_low_angle_prior")
+                if lap_ is not None:
+                    mb_ &= ~lap_[0]
+                if mb_.any():
+                    dep_ = np.where(mb_, np.minimum(lvl_ - z, float(P.get("water_sheet_bed_max_m", 5.0))), 0.0).astype(np.float64)
+                    sgb_ = float(P.get("water_sheet_bed_sigma_m", 10.0)) / res
+                    nb_ = _gsmooth(dep_, sgb_); db_ = _gsmooth(mb_.astype(np.float64), sgb_)
+                    Db_ = np.where(db_ > 1e-6, nb_ / np.maximum(db_, 1e-6), 0.0)
+                    dd_ = ndimage.distance_transform_edt(~mb_, sampling=res)
+                    bedc_ = lvl_ - Db_ * np.exp(-(dd_ / float(P.get("water_sheet_bed_reach_m", 30.0))) ** 2)
+                    low_ = S_ & np.isfinite(bedc_) & (bedc_ < sheet_)
+                    n_mb_ = int(low_.sum())
+                    if n_mb_:
+                        log(f"  the water sheet over measured bed: {int(mb_.sum()) * res * res / 1e4:.2f} ha of bed a lidar saw under the level "
+                            f"pull {n_mb_ * res * res / 1e4:.2f} ha of the sheet down around them (by p50/p90 "
+                            f"{np.percentile((sheet_ - bedc_)[low_], [50, 90]).round(2).tolist()} m)")
+                        sheet_ = np.where(low_, bedc_, sheet_)
+                    del dep_, nb_, db_, Db_, dd_, bedc_, low_
+                del mb_
             # blend into the wet cells it does not cover
             other_ = wet_ & ~S_ & (np.isfinite(z) | np.isfinite(fill))
             tp_ = float(P.get("water_sheet_taper_m", 100.0))

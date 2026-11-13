@@ -292,6 +292,14 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
         hi = C & np.isfinite(pz) & (pz >= top + 1.0) & ~_ground_sea(P, T, shape)      # mapped high-tide water: 3DEP's smear of a cliff there is no land (tide_vectors.py)
         if P.get("_bodies") is not None:
             hi &= (P["_bodies"][0] <= 0) | _dem_body_ground(pz, P, res, lo=top + 1.0)      # an island inside a tidal body is land too (3DEP wins over a sounding, Hig 2026-11-03)
+        # ...never in a lagoon or pond the lidar saw (fill._lagoon_seen; Hig's cm18 review 2026-11-12, Nanwalek lagoon: 3DEP's 5-7 m bank
+        # inside the perched lagoon's gaps, shifted toward the 2.2 m water beside it, stood as 5-7 m ridges and a -2 m trench)
+        from .fill import _lagoon_seen
+        wob_ = P.get("_water_obs") if P.get("_water_obs") is not None else P.get("_water_z")
+        lg_ = _lagoon_seen(P, wob_, shape, res)
+        if lg_ is not None and (hi & lg_).any():
+            log(f"  shoreface: the ground prior left out of {int((hi & lg_).sum()) * res * res / 1e4:.2f} ha in a lagoon or pond the lidar saw")
+            hi &= ~lg_
         if hi.any():
             ob0 = np.isfinite(z); edge0 = ob0 & ndimage.binary_dilation(hi, structure=np.ones((3, 3), bool))
             sb_ = max(30.0 / res, 1.0); m0 = _gsmooth(edge0.astype(np.float32), sb_)

@@ -841,6 +841,56 @@ def run(recipe, log=print):
         rcell = np.isin(bid, river_ids0)
         sure_water |= (water_cls & np.isfinite(wzr) & rcell & np.isfinite(lev) & (wzr >= lev - sw)
                        & (wzr <= float(cfg["tide_max_m"])) & ~sure_land)
+    # SOUNDINGS OUTRANK A PRIOR (Hig's cm18 review, 2026-11-12, Petrof Lake's shallow side arm at 59.39671,-150.81488: "Soundings
+    # should win out over 3DEP and ArcticDEM").  The 2023 lidar saw no return off the arm, 3DEP's hydroflattened 16.2 m (an older,
+    # higher stand) showed through, and the 2022 sounding 6 m deep (bed 2.42 m) stood alone as a one-cell pit in it: a prior's
+    # cell is no observation, so the cut had nothing to weigh but the one bed cell.  A lake sounding standing below the nearest
+    # level, beside a prior's FLAT patch more than sounding_prior_dz_m above it, says that patch is water: every cell of it within
+    # sounding_prior_reach_m of such soundings is sure water at that level, and the fill takes it as a hole (a prior's cell inside
+    # the water) conditioned by the soundings.  Lake files only (marine_points_re excluded): the 1977-84 casts predate both priors
+    # and the shore has moved since (the spit).
+    n_sp = 0
+    pts_ = (recipe.d.get("fill") or {}).get("points")
+    if float(cfg.get("sounding_prior", 1.0)) > 0 and pts_ and prior_cell.any():
+        import csv as _csv, re as _re, os as _os
+        fcfg_ = recipe.d.get("fill") or {}
+        rx_ = fcfg_.get("marine_points_re", r"nos_|crm_"); dzp_ = fcfg_.get("points_dz_m") or 0.0
+        T_ = prof["transform"]; H_, W_ = z.shape
+        seed_ = np.zeros(z.shape, bool); sz_ = np.full(z.shape, np.nan, np.float32)
+        for pf_ in ([pts_] if isinstance(pts_, str) else list(pts_)):
+            if rx_ and _re.search(rx_, _os.path.basename(str(pf_))):
+                continue
+            with open(pf_) as fh_:
+                for row_ in _csv.DictReader(fh_):
+                    if row_.get("bound") or row_.get("z") in (None, ""):
+                        continue
+                    cc_, rr_ = ~T_ * (float(row_["x"]), float(row_["y"])); rr_, cc_ = int(rr_), int(cc_)
+                    if not (0 <= rr_ < H_ and 0 <= cc_ < W_):
+                        continue
+                    d_ = float(dzp_.get(row_.get("survey", ""), 0.0)) if isinstance(dzp_, dict) else float(dzp_)
+                    zz_ = float(row_["z"]) + d_
+                    if np.isfinite(L_near[rr_, cc_]) and zz_ < L_near[rr_, cc_] - sw:
+                        seed_[rr_, cc_] = True; sz_[rr_, cc_] = zz_ if not np.isfinite(sz_[rr_, cc_]) else min(sz_[rr_, cc_], zz_)
+        if seed_.any():
+            zp_ = np.where(prior_cell & np.isfinite(z), z, np.nan).astype(np.float32)
+            hi_ = ndimage.maximum_filter(np.nan_to_num(zp_, nan=-1e9), size=5); lo_ = -ndimage.maximum_filter(np.nan_to_num(-zp_, nan=-1e9), size=5)
+            flat_p = prior_cell & np.isfinite(zp_) & ((hi_ - lo_) <= float(cfg.get("sounding_prior_flat_m", 0.3)))
+            del hi_, lo_
+            # a seed counts where a flat prior cell within 2 cells stands sounding_prior_dz_m above the sounding
+            near_ = ndimage.maximum_filter(np.where(flat_p, zp_, -1e9), size=5)
+            seed_ &= near_ > sz_ + float(cfg.get("sounding_prior_dz_m", 2.0))
+            if seed_.any():
+                fl_, nf_ = ndimage.label(flat_p, structure=S8)
+                hit_ = np.unique(fl_[ndimage.binary_dilation(seed_, S8, iterations=2) & flat_p]); hit_ = hit_[hit_ > 0]
+                reach_ = ndimage.distance_transform_edt(~seed_, sampling=res) <= float(cfg.get("sounding_prior_reach_m", 300.0))
+                patch_ = np.isin(fl_, hit_) & reach_ & ~outside
+                if patch_.any():
+                    lev[patch_] = L_near[patch_]
+                    sure_water |= patch_; n_sp = int(seed_.sum())
+                    log(f"  soundings under a prior's flat: {n_sp} lake soundings more than {float(cfg.get('sounding_prior_dz_m', 2.0)):g} m under a "
+                        f"flat prior patch beside them; {int(patch_.sum()) * res * res / 1e4:.2f} ha of it is water at the nearest level")
+                del fl_, reach_, patch_
+            del zp_, flat_p, near_
     hole_water = ~obs & in_body & ~outside                      # a hole inside a body: water, no observation
     # the band is a ribbon either side of the water's edge: within bw of water, and within bw of the dry side
     dnw = ndimage.distance_transform_edt(water_any, sampling=res)
