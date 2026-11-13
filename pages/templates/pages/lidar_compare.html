@@ -218,7 +218,7 @@
     res: qn('res', 3), pitch: qn('p', 50), ex: qn('ex', 10) / 10, t3d: Q.get('t3d') !== '0',
     shade: Q.get('sh') || 'preset', bm: Q.get('bm') === 'none' ? '' : (Q.get('bm') || 'esri-img'), op: qn('op', 100) / 100,
     sunRel: Q.get('sr') !== '0', az: qn('az', 315), cols: qn('cols', 0),
-    locks: {}, title: Q.get('t') || null
+    locks: {}, title: Q.get('t') || null, clean: Q.get('hc') === '1'
   };
   (Q.get('lk') || '').split(',').forEach(function (k) { if (k) S.locks[k] = true; });
   var P = [];
@@ -1654,10 +1654,14 @@
   }
 
   // ---- hide controls / export ------------------------------------------------
+  // Hide controls is part of the view: a link written with them hidden
+  // (hc=1) opens with them hidden, Show controls at top right.
   function setClean(on) {
     if (on && editing) annClose();
-    document.body.classList.toggle('clean', on);
+    S.clean = !!on;
+    document.body.classList.toggle('clean', S.clean);
     setTimeout(layoutGrid, 0);
+    syncUrl();
   }
   function waitIdle(m, ms) {
     return new Promise(function (res) {
@@ -1783,6 +1787,7 @@
     q.set('ex', Math.round(S.ex * 10)); q.set('t3d', S.t3d ? 1 : 0); q.set('sh', S.shade);
     q.set('bm', S.bm || 'none'); q.set('op', Math.round(S.op * 100)); q.set('sr', S.sunRel ? 1 : 0); q.set('az', S.az);
     if (S.title) q.set('t', S.title);
+    if (S.clean) q.set('hc', 1);
     if (S.cols) q.set('cols', S.cols);
     var lk = Object.keys(S.locks); if (lk.length) q.set('lk', lk.join(','));
     q.set('pn', P.map(function (p) {
@@ -1872,6 +1877,7 @@
   if (Q.get('perf') === '1') { $('perf').style.display = ''; $('perflbl').style.display = ''; }
   fillBase(); loadSharedBases();
   bindKey();
+  if (S.clean) document.body.classList.add('clean');
   editable($('ptitle'), function () { return S.title; }, function (v) { S.title = v; },
            function () { return 'Untitled comparison'; }, 'Title of this comparison (Frame mode)');
   docTitle();
