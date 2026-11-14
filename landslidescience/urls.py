@@ -164,6 +164,8 @@ urlpatterns = [
     path('traffic/', analytics.dashboard, name='traffic'),
     # Public on purpose — see analytics.optout.
     path('traffic/optout/', analytics.optout, name='traffic_optout'),
+    # Outside-service status (tools/ops/probe_services.py), site admins only.
+    path('traffic/services/', analytics.services, name='traffic_services'),
     path('lidar/', lidar_serve.preview),
     path('lidar/methods/', lidar_serve.methods, name='lidar_methods'),
     # Terrain comparison (public; state in the URL). /spike/ is its dev-time

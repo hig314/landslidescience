@@ -103,7 +103,9 @@ def main():
 
 
 def _run(a):
-    manifest = json.loads((HERE / "datasets.json").read_text())["datasets"]
+    sys.path.insert(0, str(HERE))
+    import lidar_manifest          # datasets.json + the gitignored datasets.local.json
+    manifest = lidar_manifest.load()["datasets"]
     if getattr(a, "catalog_dir", None):
         # Running ON the server that serves these: read the files rather than
         # asking the server to make an HTTP request to itself, which is both

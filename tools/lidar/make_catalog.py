@@ -273,7 +273,9 @@ def main():
                     help="include datasets marked dev_only (method tests, never published)")
     args = ap.parse_args()
 
-    manifest = json.loads((HERE / "datasets.json").read_text())
+    sys.path.insert(0, str(HERE))
+    import lidar_manifest          # datasets.json + the gitignored datasets.local.json
+    manifest = lidar_manifest.load()
     points_path = HERE / "points.json"
     points_ids = ({s["id"] for s in json.loads(points_path.read_text())["surveys"]}
                   if points_path.exists() else set())

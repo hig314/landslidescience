@@ -56,7 +56,7 @@ export RCLONE_CONFIG_R2_TYPE=s3 \
 # here at the same time it gets a builder. Ours are prepended, so a caller
 # cannot accidentally out-rank them; pass `--filter '- foo.tif'` rather than
 # `--exclude foo.tif`, or it will be ignored exactly as described above.
-for id in $(python3 -c "import json;print(' '.join(d['id'] for d in json.load(open('$ROOT/tools/lidar/datasets.json'))['datasets'] if d.get('gated')))"); do
+for id in $(python3 -c "import sys; sys.path.insert(0,'$ROOT/tools/lidar'); import lidar_manifest; print(' '.join(d['id'] for d in lidar_manifest.load()['datasets'] if d.get('gated') or d.get('owner_only')))"); do
   set -- --filter "- $id.tif" --filter "- $id.pmtiles" \
          --filter "- ${id}_slope.pmtiles" --filter "- ${id}_ortho.pmtiles" "$@"
 done

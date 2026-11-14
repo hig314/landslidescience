@@ -10,6 +10,7 @@ use raw psycopg2 (not Django ORM) so no migrations are needed for landslide
 data — Django doesn't need to know about these tables at all.
 """
 import json
+import logging
 import os
 import re
 import threading
@@ -28,6 +29,8 @@ from . import planet
 from .derived import split_features as _split_features
 from . import cache_stamp
 from .auth import inventory_editor_required
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Module-level response cache
@@ -1371,6 +1374,8 @@ _RAMP_SPECS = {
     'sp-slope-2k':  {'file': 'permafrost/sp_color_slope.txt', 'label': 'Slope — 2 km', 'units': 'degrees · steepest 2 km line centred on the pixel'},
     'sp-aspect': {'file': 'permafrost/sp_color_aspect.txt', 'label': 'Aspect', 'units': 'degrees clockwise from north · 60 m (flat reads as north)'},
     'sp-north':  {'file': 'permafrost/sp_color_north.txt',  'label': 'Northness', 'units': 'cos(aspect)·sin(slope): −1 steep south face … +1 steep north face'},
+    'sp-creq-20-200': {'file': 'terrain/scoops/color_creq.txt', 'label': 'Required cohesion, φ 20°, 10⁹–10¹⁰ m³', 'units': 'kPa · 200 m grid, γ 26 kN/m³', 'kind': 'classes',
+                       'classes': [('1–25', 1), ('25–50', 25), ('50–100', 50), ('100–200', 100), ('200–400', 200), ('400–800', 400), ('800–1600', 800), ('over 1600', 1600)]},
     'glac-outline-2020': {'file': 'permafrost/glac_color_outline.txt', 'label': 'Glacier covered area, Alaska 2020', 'units': 'ice (fill) · outline · NSIDC G10040, Landsat, 30 m'},
     'pf-gruber-maat':   {'file': 'permafrost/pf_color_maat.txt', 'label': 'Mean annual air temperature (Gruber 2012)', 'units': '°C · 1 km'},
     'pf-gruber-maat60': {'file': 'permafrost/pf_color_maat.txt', 'label': 'Mean annual air temperature, terrain-downscaled', 'units': '°C · 60 m'},
@@ -3426,6 +3431,11 @@ def manage_edit_field(request, landslide_id):
         conn.commit()
     except Exception as exc:
         conn.rollback()
+        # Logged with the traceback: the response alone reaches only the
+        # editor's field status, so a 500 here used to leave no record of
+        # which field or why (dev record 1490, 2026-11-11).
+        logger.exception('manage_edit_field failed: landslide %s, field %r, user %s',
+                         landslide_id, name, request.user.get_username())
         return JsonResponse({'ok': False, 'error': f'Save failed: {exc}'}, status=500)
     finally:
         _put_conn(conn)
@@ -3540,100 +3550,10 @@ def manage_polygon_role(request, landslide_id):
 
 @inventory_editor_required
 def manage_new(request):
-    """Create a brand-new landslide by drawing it in the browser.
-
-    GET  → render the draw page (imagery map + Terra Draw + name/type/role form).
-    POST → JSON {unique_name, landslide_type, polygons:[{role, geometry}]}.
-           The drawn data is shaped into the same upload form the file-import
-           path produces and run through `apply_import`, so it shares one
-           insert + collision-detection + validation pipeline. Drawn Polygons
-           are wrapped as MultiPolygon to match the landslide_polygons column.
-           On success the record is inserted PENDING (reviewed_at NULL); the
-           rule cascade is run so it's map-ready, and the editor is sent into
-           the review flow. Returns {ok, redirect} or {ok:false, error}."""
-    from . import derived
-    from .io_geojson import apply_import, ImportError_
-
-    if request.method != 'POST':
-        return render(request, 'inventory/manage_new.html', {})
-
-    try:
-        payload = json.loads(request.body.decode('utf-8'))
-    except (ValueError, UnicodeDecodeError):
-        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
-
-    unique_name = (payload.get('unique_name') or '').strip()
-    ls_type     = (payload.get('landslide_type') or '').strip().lower()
-    drawn       = payload.get('polygons') or []
-
-    if not unique_name:
-        return JsonResponse({'ok': False, 'error': 'A unique name is required.'}, status=400)
-    if ls_type not in ('slow', 'catastrophic'):
-        return JsonResponse({'ok': False, 'error': 'Landslide type must be slow or catastrophic.'}, status=400)
-    if not drawn:
-        return JsonResponse({'ok': False, 'error': 'Draw at least one polygon.'}, status=400)
-    for d in drawn:
-        if (d.get('role') or '').strip().lower() not in _POLY_ROLES:
-            return JsonResponse({'ok': False, 'error': 'Each polygon needs a role (source / body / deposit).'}, status=400)
-        g = d.get('geometry') or {}
-        if g.get('type') not in ('Polygon', 'MultiPolygon'):
-            return JsonResponse({'ok': False, 'error': 'Each polygon must have polygon geometry.'}, status=400)
-
-    # Shape the drawn data into the file-import upload form. A synthetic string
-    # id ties the polygons to the not-yet-inserted landslide; apply_import
-    # treats string ids as new records (same as a fresh file upload).
-    synth_id = 'draw-1'
-    landslides_fc = {'type': 'FeatureCollection', 'features': [{
-        'type': 'Feature', 'geometry': None,
-        'properties': {'id': synth_id, 'unique_name': unique_name,
-                       'landslide_type': ls_type},
-    }]}
-    poly_feats = []
-    for i, d in enumerate(drawn, 1):
-        g = d['geometry']
-        # Coerce Polygon → MultiPolygon to match landslide_polygons.geom typmod
-        # (apply_import inserts the geometry verbatim via ST_GeomFromGeoJSON).
-        if g['type'] == 'Polygon':
-            g = {'type': 'MultiPolygon', 'coordinates': [g['coordinates']]}
-        poly_feats.append({
-            'type': 'Feature', 'geometry': g,
-            'properties': {'id': f'{synth_id}-p{i}', 'landslide_id': synth_id,
-                           'role': d['role'].strip().lower()},
-        })
-    polygons_fc = {'type': 'FeatureCollection', 'features': poly_feats}
-
-    try:
-        apply_import(landslides_fc, polygons_fc, request.user,
-                     common_fields=_editor_identity_fields(request.user))
-    except ImportError_ as e:
-        # Name-exact collision (unique_name taken) and other blocks land here.
-        return JsonResponse({'ok': False, 'error': str(e)}, status=409)
-    except Exception as exc:
-        return JsonResponse({'ok': False, 'error': f'Create failed — nothing saved. {exc}'}, status=500)
-
-    # apply_import doesn't run the rule cascade; do it now so the new record has
-    # area/centroid/class populated and shows on the map once reviewed.
-    conn = _get_conn()
-    new_id = None
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM landslides WHERE unique_name = %s", (unique_name,))
-        r = cur.fetchone()
-        if r:
-            new_id = r[0]
-            derived.apply_rules_for_landslide(cur, new_id)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-    finally:
-        _put_conn(conn)
-
-    _invalidate('features', 'home_counts', 'unclassified_count',
-                'timed_events', 'timeline_events', 'slug_map', 'slug_for_id')
-
-    redirect_url = (reverse('inventory:manage_review', kwargs={'landslide_id': new_id})
-                    if new_id else reverse('inventory:manage_list'))
-    return JsonResponse({'ok': True, 'landslide_id': new_id, 'redirect': redirect_url})
+    """Retired 2026-11-14. The standalone draw page was superseded by the
+    main map's draw tool (the pencil: manage/draw/*); the address is kept as
+    a redirect so an old bookmark lands on the map rather than a 404."""
+    return redirect('/inventory/')
 
 
 # ---------------------------------------------------------------------------

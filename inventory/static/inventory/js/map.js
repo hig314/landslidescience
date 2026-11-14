@@ -2500,6 +2500,12 @@
                   'steepest line 1 km long centred on each pixel · Alaska'),
         _slopeRow('sp-slope-2k', 'Slope — 2 km', '2k',
                   'steepest line 2 km long centred on each pixel · Alaska'),
+        // Exploratory (tools/terrain/scoops/statewide.py): the cohesion a uniform
+        // material would need for the worst spherical failure of one size class.
+        { id: 'sp-creq-20-200', layerId: 'ov-sp-creq-20-200', sourceId: 'ov-sp-creq-20-200-src',
+          label: 'Required cohesion — φ 20°, 10⁹–10¹⁰ m³',
+          sub: 'kPa, γ 26 kN/m³, on a 200 m grid · a search of spherical surfaces, not a hazard estimate · clear = none needed',
+          sourceDef: function () { return _pfSourceDef('sp_creq_phi20_200m', 10, SP_ATTR); }, defOpacity: 0.85 },
         { id: 'sp-aspect', layerId: 'ov-sp-aspect', sourceId: 'ov-sp-aspect-src',
           label: 'Aspect', sub: 'N blue · E green · S yellow · W magenta, 60 m · flat cells read as north',
           sourceDef: function () { return _pfSourceDef('sp_aspect', 10, SP_ATTR); }, defOpacity: 0.7 },
@@ -2684,6 +2690,16 @@
               ],
               popup: function (hits) { return _denPopupHtml(hits); }
           } };
+    }
+    // Required cohesion (tools/terrain/scoops/, exploratory): the row above is
+    // kept out of the registry until that work resumes. Its archive
+    // (sp_creq_phi20_200m.pmtiles) exists only on the dev machine, so on
+    // production the row would be an empty layer. CREQ_ACTIVE = true (with the
+    // archive under data/overlays/) brings it back; the category is skipped
+    // while its only id is absent.
+    var CREQ_ACTIVE = false;
+    if (!CREQ_ACTIVE) {
+        OVERLAYS = OVERLAYS.filter(function (ov) { return ov.id !== 'sp-creq-20-200'; });
     }
     if (EROSION_ACTIVE) {
         ['2-0', '4-2', '6-4', '8-6'].forEach(function (iv) { OVERLAYS.push(_exhRow(iv)); });
@@ -4575,6 +4591,8 @@
             { key: 'sp',     label: 'DEM statistics',
               ids: ['sp-elev', 'sp-slope-local', 'sp-slope', 'sp-slope-200', 'sp-slope-500',
                     'sp-slope-1k', 'sp-slope-2k', 'sp-aspect', 'sp-north'] },
+            { key: 'creq',   label: 'Required strength (exploratory)',
+              ids: ['sp-creq-20-200'] },
             { key: 'relief', label: 'DEM visualizations',
               ids: ['relief-mt-hs', 'relief-mt-pre', 'relief-adem-hs', 'relief-adem-pre', 'sp-contours'] },
         ] },

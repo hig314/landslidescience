@@ -6,8 +6,10 @@
 set -eu
 id="$1"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-if python3 -c "import json,sys; d={x['id']:x for x in json.load(open('$ROOT/tools/lidar/datasets.json'))['datasets']}; sys.exit(0 if d.get('$id',{}).get('gated') else 1)"; then
-  echo "$id is gated; not uploading" >&2; exit 1
+# Read through lidar_manifest so a local-only survey (datasets.local.json) is
+# known here too; an id in neither file is refused rather than assumed public.
+if ! python3 -c "import sys; sys.path.insert(0,'$ROOT/tools/lidar'); import lidar_manifest; d={x['id']:x for x in lidar_manifest.load()['datasets']}; e=d.get('$id'); sys.exit(0 if e is not None and not e.get('gated') and not e.get('owner_only') else 1)"; then
+  echo "$id is gated, local-only or not in the manifest; not uploading" >&2; exit 1
 fi
 set -a; . "$HOME/.r2.env"; set +a
 export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \

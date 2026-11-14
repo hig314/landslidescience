@@ -354,3 +354,45 @@ def _plain(message):
         '<h1 style="font-size:17px">Traffic analytics</h1><p>' + message + '</p>'
         '<p><a href="/inventory/manage/" style="color:#5D4037">← Back to Manage</a></p></div>',
         content_type='text/html', status=503)
+
+
+@login_required
+@require_safe
+def services(request):
+    """What tools/ops/probe_services.py last found: is each outside service
+    the map reads (NOAA, NRCan, PGC, Mapterhorn, ...) answering. Reads the
+    state file the cron job writes; makes no outside request itself."""
+    import json
+    from django.http import HttpResponse
+    from django.utils.html import escape
+    if not _can_view_traffic(request.user):
+        return HttpResponseForbidden('Restricted to site admins.')
+    path = settings.BASE_DIR / 'data' / 'service_status.json'
+    try:
+        state = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return HttpResponse('No probe has run yet (tools/ops/probe_cron.sh writes '
+                            'data/service_status.json).', content_type='text/plain')
+    rows = sorted(state.get('services', {}).values(), key=lambda r: (r['ok'], r['name']))
+    out = ['<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex">',
+           '<title>Outside services</title>',
+           '<style>body{font:14px system-ui;margin:24px;max-width:1000px}table{border-collapse:collapse}'
+           'td,th{padding:4px 10px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top}'
+           '.down{color:#b00020;font-weight:600}.ok{color:#1b7f3b}small{color:#777}</style>',
+           '<h2>Outside services the site reads</h2>',
+           '<p>Last checked %s UTC. One request per service every 30 minutes, checked for the '
+           'kind of answer expected, not just a status.</p>' % escape(state.get('checked', '?')),
+           '<table><tr><th>State</th><th>Service</th><th>What depends on it</th><th>Since</th><th>Detail</th></tr>']
+    for r in rows:
+        out.append('<tr><td class="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td><small>%s%s</small></td></tr>' % (
+            'ok' if r['ok'] else 'down', 'ok' if r['ok'] else 'DOWN', escape(r['name']),
+            escape(r.get('used_by', '')), escape(r.get('since', '')), escape(r.get('detail', '')),
+            ' %d ms' % r['ms'] if r['ok'] else ''))
+    out.append('</table><h3>Recent changes</h3><table>')
+    for c in reversed(state.get('changes', [])[-40:]):
+        out.append('<tr><td>%s</td><td class="%s">%s</td><td>%s</td><td><small>%s</small></td></tr>' % (
+            escape(c['at']), 'ok' if c['ok'] else 'down', 'recovered' if c['ok'] else 'went down',
+            escape(c['name']), escape(c.get('detail', ''))))
+    out.append('</table>')
+    return HttpResponse(''.join(out))
+

@@ -213,7 +213,9 @@ def clean_env():
 
 
 def load_manifest():
-    data = json.loads(MANIFEST.read_text())
+    sys.path.insert(0, str(HERE))
+    import lidar_manifest          # datasets.json + the gitignored datasets.local.json
+    data = lidar_manifest.load()
     return {d["id"]: d for d in data["datasets"]}
 
 
