@@ -21,6 +21,8 @@ they pick the files up without a change.
 | `export_ui.js` | `LSExportUI` | PNG export controls (engine: `ls_export.js`) |
 | `insar_ts.js` | `LSInsarTs` | InSAR point time-series tool |
 | `photos.js` | `LSPhotos` | Field photos: detail-panel strip, lightbox, map dots |
+| `dist.js` | `LSDist` | OPERA DIST: colour loader + `distcolor` protocol, date steppers, source defs |
+| `trace_rasters.js` | `LSTraceRasters` | Editor GeoTIFF uploads + Sentinel fetches: registry, layers, `im=` state, upload UI, rows |
 | `external_inv.js` | `LSExternal` | Mirrored third-party inventories (registry, sidebar rows, bbox fetch, popups); promotion stays in `map.js` |
 
 The method and its static checks are in **`tools/jscheck/README.md`**: list a
@@ -30,8 +32,11 @@ never-reassigned variables move verbatim; the first four were that kind.
 Where state was written on both sides (photos, external inventories), the
 outside writes were first turned into small functions inside the section
 (`_photoShow`, `_photoOpenAt`, `_extEnsureRegistry`, `_extApplyOrDefer`) so
-the state became private to it, and then it moved verbatim. **Next, each
-needing the same treatment**: trace rasters, the DIST overlay, then the
+the state became private to it, and then it moved verbatim. Trace rasters
+and DIST went the same way (`_traceRows`, `_traceLoadAtStart`,
+`_getLastDetail`, `_ovRegistry`); trace rasters were in two places in
+map.js and were first brought together. **Next, each needing the same
+treatment**: the
 charts (histogram / timeline), the wiper, and the overlay framework. A new
 feature for the map page starts as its own file in this pattern, not as
 another section of map.js.

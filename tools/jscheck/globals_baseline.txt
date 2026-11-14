@@ -26,6 +26,7 @@ localStorage
 location
 LSAnalysis
 LSBasemaps
+LSDist
 LSExport
 LSExternal
 LSFloat
@@ -41,6 +42,7 @@ LSSlope
 LSSoundings
 LSStereonet
 LSTools
+LSTraceRasters
 LSTrack
 Map
 maplibregl

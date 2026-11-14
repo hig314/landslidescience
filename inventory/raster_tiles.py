@@ -14,8 +14,9 @@ Pipeline: validate (must carry a CRS + real geotransform) → WarpedVRT to
 EPSG:3857 snapped to the max-zoom tile grid (so every tile is an exact
 pixel-aligned window; no boundless reads) → per-band 2–98 % percentile
 stretch for non-uint8 imagery (uint16 Planet/Landsat renders black without
-it) → write 256px RGBA PNGs, skipping fully-transparent tiles (the
-susc-tiles precedent). Zoom range derives from the native ground resolution,
+it) → write 256px RGBA PNGs at the finest zoom, skipping fully-transparent
+tiles (the susc-tiles precedent) → build each coarser zoom by averaging the
+four child tiles. Zoom range derives from the native ground resolution,
 clamped by a total tile budget.
 """
 import logging
@@ -451,46 +452,83 @@ def _bake(src_path, out_dir, render='auto', fmt='png', quality=85, max_zoom_cap=
                 png_profile = dict(driver='PNG', width=TILE_SIZE, height=TILE_SIZE,
                                    count=4, dtype='uint8')
                 ext = '.png'
-            for z in range(min_zoom, max_zoom + 1):
+            def write_tile(z, x, y, out):
+                tile_path = out_dir / str(z) / str(x) / f'{y}{ext}'
+                tile_path.parent.mkdir(parents=True, exist_ok=True)
+                with rasterio.open(tile_path, 'w', **png_profile) as dst:
+                    dst.write(out)
+                # GDAL's PNG driver may drop a .aux.xml sidecar; we
+                # serve raw pixels only.
+                aux = tile_path.with_suffix(ext + '.aux.xml')
+                if aux.exists():
+                    aux.unlink()
+                return tile_path.stat().st_size
+
+            # Finest zoom: read from the warped grid, one grid pixel per
+            # output pixel, so each read touches only the source blocks under
+            # that tile.
+            z = max_zoom
+            span = _tile_span(z)
+            tx0, tx1, ty0, ty1 = _tile_range(z, *bounds)
+            have = set()          # (x, y) written at the zoom just finished
+            for x in range(tx0, tx1 + 1):
+                for y in range(ty0, ty1 + 1):
+                    # Window of this tile in the grid-aligned VRT, via
+                    # mercator offsets so the alignment stays exact.
+                    wminx = -_MERC_MAX + x * span
+                    wmaxy = _MERC_MAX - y * span
+                    goffx = round((wminx - grid_origin_x) / res)
+                    goffy = round((grid_origin_y - wmaxy) / res)
+                    win = rasterio.windows.Window(goffx, goffy, TILE_SIZE, TILE_SIZE)
+                    a = vrt.read(indexes=alpha_idx, window=win)
+                    if not a.any():
+                        continue   # fully transparent — skip, like susc tiles
+                    rgb = vrt.read(indexes=rgb_idx, window=win)
+                    out = np.empty((4, TILE_SIZE, TILE_SIZE), dtype=np.uint8)
+                    if len(rgb_idx) == 1:
+                        g = to_uint8(rgb[0], 0)
+                        out[0] = out[1] = out[2] = g
+                    else:
+                        for b in range(3):
+                            out[b] = to_uint8(rgb[b], b)
+                    out[3] = np.where(a > 0, 255, 0).astype(np.uint8)
+                    tile_bytes += write_tile(z, x, y, out)
+                    tile_count += 1
+                    have.add((x, y))
+
+            # Coarser zooms: each tile is the 2x2 average of its four
+            # children, read back from the tiles just written. Until
+            # 2026-11-14 every zoom was a decimated read of the warped grid,
+            # which for a coarse tile means warping most of the source at full
+            # resolution: a 23,434 x 6,605 px upload with no overviews spent
+            # nine minutes on its first tile. The average is weighted by
+            # alpha, so transparent pixels at the image edge do not darken it.
+            for z in range(max_zoom - 1, min_zoom - 1, -1):
                 tx0, tx1, ty0, ty1 = _tile_range(z, *bounds)
-                scale = 1 << (max_zoom - z)   # grid pixels per output pixel
+                done = set()
                 for x in range(tx0, tx1 + 1):
                     for y in range(ty0, ty1 + 1):
-                        # Window of this tile in the grid-aligned VRT, via
-                        # mercator offsets so the alignment stays exact.
-                        span = _tile_span(z)
-                        wminx = -_MERC_MAX + x * span
-                        wmaxy = _MERC_MAX - y * span
-                        goffx = round((wminx - grid_origin_x) / res)
-                        goffy = round((grid_origin_y - wmaxy) / res)
-                        win = rasterio.windows.Window(goffx, goffy,
-                                                      TILE_SIZE * scale, TILE_SIZE * scale)
-                        a = vrt.read(indexes=alpha_idx, window=win,
-                                     out_shape=(TILE_SIZE, TILE_SIZE))
-                        if not a.any():
-                            continue   # fully transparent — skip, like susc tiles
-                        rgb = vrt.read(indexes=rgb_idx, window=win,
-                                       out_shape=(len(rgb_idx), TILE_SIZE, TILE_SIZE))
+                        kids = [(dx, dy) for dx in (0, 1) for dy in (0, 1)
+                                if (2 * x + dx, 2 * y + dy) in have]
+                        if not kids:
+                            continue
+                        quad = np.zeros((4, 2 * TILE_SIZE, 2 * TILE_SIZE), dtype=np.float32)
+                        for dx, dy in kids:
+                            kp = out_dir / str(z + 1) / str(2 * x + dx) / f'{2 * y + dy}{ext}'
+                            with rasterio.open(kp) as kid:
+                                quad[:, dy * TILE_SIZE:(dy + 1) * TILE_SIZE,
+                                     dx * TILE_SIZE:(dx + 1) * TILE_SIZE] = kid.read()
+                        w = (quad[3] > 0).astype(np.float32)
+                        wsum = w.reshape(TILE_SIZE, 2, TILE_SIZE, 2).sum(axis=(1, 3))
                         out = np.empty((4, TILE_SIZE, TILE_SIZE), dtype=np.uint8)
-                        if len(rgb_idx) == 1:
-                            g = to_uint8(rgb[0], 0)
-                            out[0] = out[1] = out[2] = g
-                        else:
-                            for b in range(3):
-                                out[b] = to_uint8(rgb[b], b)
-                        out[3] = np.where(a > 0, 255, 0).astype(np.uint8)
-
-                        tile_path = out_dir / str(z) / str(x) / f'{y}{ext}'
-                        tile_path.parent.mkdir(parents=True, exist_ok=True)
-                        with rasterio.open(tile_path, 'w', **png_profile) as dst:
-                            dst.write(out)
-                        # GDAL's PNG driver may drop a .aux.xml sidecar; we
-                        # serve raw pixels only.
-                        aux = tile_path.with_suffix(ext + '.aux.xml')
-                        if aux.exists():
-                            aux.unlink()
+                        for b in range(3):
+                            csum = (quad[b] * w).reshape(TILE_SIZE, 2, TILE_SIZE, 2).sum(axis=(1, 3))
+                            out[b] = np.rint(csum / np.maximum(wsum, 1.0)).astype(np.uint8)
+                        out[3] = np.where(wsum > 0, 255, 0).astype(np.uint8)
+                        tile_bytes += write_tile(z, x, y, out)
                         tile_count += 1
-                        tile_bytes += tile_path.stat().st_size
+                        done.add((x, y))
+                have = done
 
             if tile_count == 0:
                 raise ValueError('No visible tiles produced — the raster may be '

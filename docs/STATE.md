@@ -38,6 +38,8 @@ by curl, by API or not at all.
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-14 · map.js split, round 3: `trace_rasters.js`, `dist.js` (not browser-tested before deploy; Hig approved from the description) · docs/MAP_UI.md
+- 2026-11-14 · Trace-raster bake builds coarse zooms from child tiles (minutes, not hours, for a large upload); `deploy_ready` guard in the deploy line after a deploy killed a bake · docs/TRACE_RASTERS.md
 - 2026-11-14 · map.js split, round 2: `photos.js`, `external_inv.js` (tested in dev by Hig); their state is now private behind `_photoShow` / `_photoOpenAt` / `_extEnsureRegistry` / `_extApplyOrDefer` · docs/MAP_UI.md
 - 2026-11-14 · map.js split, round 1: `measure.js`, `opera_hist.js`, `export_ui.js`, `insar_ts.js` (tested in dev by Hig); InSAR tool no longer blanks when one pass has no coverage (ASF's 400 "no data" read as no coverage) · docs/MAP_UI.md, tools/jscheck/
 - 2026-11-14 · Baked overlays (susceptibility, coherence, IceBoost, ITS_LIVE, Hugonnet) read from PMTiles on R2 (fad9b74); the five tile folders deleted from the droplet · docs/OVERLAYS.md

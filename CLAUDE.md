@@ -169,8 +169,14 @@ Deploy:
 ssh root@143.198.140.54 'cd /opt/landslidescience && \
   git pull && \
   docker compose -f docker-compose.yml -f docker-compose.prod.yml build && \
+  docker exec landslidescience-web python manage.py deploy_ready --wait 30 && \
   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate'
 ```
+
+`deploy_ready` stops the deploy while an editor's GeoTIFF upload is still
+baking (the bake is a thread in the container about to be replaced; a deploy
+killed one on 2026-11-14). The image is already built at that point, so
+re-running the last line later is enough.
 
 After a deploy that adds new migrations or new groups: run `python manage.py migrate` and/or `python manage.py init_groups` once via `docker exec landslidescience-web ...` (migrations also auto-run on container startup via `entrypoint.sh`, so usually only `init_groups` is needed).
 
