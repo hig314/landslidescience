@@ -6,6 +6,24 @@ The overlay framework; InSAR (OPERA, NRCan), coherence, OPERA DIST, Canadian and
 
 ## The overlay framework, InSAR, basemaps, erosion rates, shaded relief
 
+**Baked overlays are PMTiles on R2, not tile trees on the droplet (2026-11-14).**
+The susceptibility models (`susc_lw`, `susc_n10`, `susc_dggs`), summer
+coherence (`coh_summer`), IceBoost (`iceboost_thickness|bed|overdeep`),
+ITS_LIVE (`itslive_v|vamp|dvdt`) and Hugonnet (`hugonnet_dhdt|dhdt_smooth`)
+are each one archive under R2 `overlays/`, read through
+`/overlays/<id>.pmtiles` like the permafrost layers (`_ovArchiveTiles` in
+`map.js`, `rasterDef` in `ls_overlays.js`; `/glaciers/` loads `pmtiles.js`
+for it). The build scripts still write a `{z}/{x}/{y}.png` tree under
+`data/…_tiles/`; **`tools/ops/pack_tile_tree.py <tree> data/overlays/<id>.pmtiles "<name>"`**
+packs it byte for byte and `tools/permafrost/r2_sync_overlays.sh` pushes it
+(that script pushes all of `data/overlays/`: exclude what is not for
+publication with `--filter "- name*"`). The paragraphs below that describe
+`/tiles/susc/…`, `/tiles/coherence/…` routes and `?v=` tokens (`SUSC_TILE_V`,
+`DGGS_SUSC_V`, `COHERENCE_TILE_V`, `ICEBOOST_TILE_V`) are how it worked
+before: the routes still exist in `urls.py` but nothing requests them, and a
+rebuild with different pixels now gets a **new archive id** instead of a
+token bump. The proxy caches (OPERA, DIST, BC ortho) are unchanged.
+
 **Raster overlays — one framework** (`OVERLAYS` registry + `_ovEnsure`/`_ovApply`/`_overlayRow` in map.js): the two USGS susceptibility models AND the two OPERA InSAR velocity mosaics. **Bedrock geology** (2026-09-26) is the USGS Geologic Map of Alaska (SIM 3340, 1:1.58M) as Macrostrat's carto tiles (CC-BY 4.0, CORS open, no proxy, no bake); a click looks the unit up at Macrostrat's point API. It is the first RASTER click target: `ls_tools.js` accepts a `reference` entry with no `layers` and a `test(e)` predicate for exactly this (lowest priority, so faults/scarps/staged win under the same click). `keyNote` on an overlay renders a sentence in the key instead of a ramp. Per-overlay state is `{left, right, opLeft, opRight}` persisted per-browser (`localStorage['ls_overlays']`; migrates the short-lived `pane` form and the retired shared-`opacity` form, seeding both sides): the sidebar's Overlays section carries an on/off checkbox + opacity slider for the **left (main) pane**, the wiper's floating panel carries the same rows for the **right pane** — opacity is fully independent per pane. So ESRI can sit on both sides of the wiper with ASCENDING velocity left and DESCENDING right — each side configured on its own panel, no combined selector. Overlays are imagery-like and therefore **per-pane by design** — the pane-parity rule applies to landslide DATA only (which stays mirrored); this replaced the old mutually-exclusive susc checkboxes and the unconditional susc mirroring in `_swipeAddData`. Layers occupy the old susceptibility stack slot (above basemap/trace/pending, below faults + data); susc layer ids are unchanged so the trace-raster insertion chain still works.
 
 **NRCan InSAR velocity overlay (2026-10-29).** Row `nrcan-asc` (Surface change, beside OPERA): NRCan's *Pilot national scale maps of active deformation processes in Canada* (Samsonov, CCMEO; Sentinel-1 2017–2024 snow-free, GAMMA + MSBAS v10, 40 m, long-wavelength signal filtered out; Open Government Licence – Canada, Open Canada record `1da588c1-0dc6-45e4-9e63-9acf2fdc353a`). Covers Canada **and parts of SE Alaska**. Tiles come straight from the GeoDatacube WMS (`datacube.services.geo.ca/ows/land-deformation`, layer `mosaic-asc`, EPSG:3857, CORS echoes the origin), ~1.5 s a tile, **pre-coloured** with NRCan's turbo-like ramp over ±0.12 m/yr — so it cannot share OPERA's ramp or feed the asc × desc histogram. `tools/nrcan_insar_color_vel.txt` is their legend written down for the key/export. Sign convention matches OPERA (negative = away from the satellite).

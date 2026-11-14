@@ -1800,10 +1800,19 @@
     // identical paint on both panes, so nothing can drift). Visibility is read
     // from the sidebar checkboxes at build time; later toggles mirror to both
     // maps via _swipeAlso.
+    // A baked overlay's tiles: one PMTiles archive, read by range requests
+    // through /overlays/<id>.pmtiles (a local copy in dev, else a redirect to
+    // R2). Tile trees on the droplet are being retired in favour of this.
+    function _ovArchiveTiles(id) {
+        return 'pmtiles://' + location.origin + '/overlays/' + id + '.pmtiles/{z}/{x}/{y}';
+    }
     function _suscSourceDef(s) {
         return {
             type: 'raster',
-            tiles: [SUSC_TILE_BASE + s.key + '/{z}/{x}/{y}.png?v=' + SUSC_TILE_V],
+            // One PMTiles archive per model on R2 (2026-11-14; was a tile tree on
+            // the droplet under /tiles/susc/). A rebuild with different pixels
+            // gets a new archive id rather than a ?v= bump.
+            tiles: [_ovArchiveTiles('susc_' + s.key)],
             tileSize: 256,
             minzoom: 3,
             maxzoom: 10,
@@ -1859,7 +1868,7 @@
             // maxzoom 12 is the data's own ceiling: the source is a 20 m grid,
             // which is 19.1 m/px at z12 for 60 N, so z13 would only invent
             // detail. The client overzooms above it.
-            tiles: [SUSC_TILE_BASE + 'dggs/{z}/{x}/{y}.png?v=' + DGGS_SUSC_V],
+            tiles: [_ovArchiveTiles('susc_dggs')],
             tileSize: 256,
             minzoom: 3,
             maxzoom: 12,
@@ -1986,7 +1995,8 @@
         maplibregl.addProtocol('distcolor', _distLoader);
         // Pre-baked trace imagery arrives as one PMTiles archive per render
         // mode (tools/imagery/bake_trace.py) and is read by range requests.
-        if (typeof pmtiles !== 'undefined') {
+        if (typeof pmtiles !== 'undefined' && !window.__lsPmtilesReg) {   // ls_overlays.js may have
+            window.__lsPmtilesReg = true;
             maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile);
         }
         // demshade:// — lidar DEM tiles shaded in the browser. Guarded because
@@ -2973,7 +2983,7 @@
     function _coherenceSourceDef(season) {
         return {
             type: 'raster',
-            tiles: ['/tiles/coherence/' + season + '/{z}/{x}/{y}.png?v=' + COHERENCE_TILE_V],
+            tiles: [_ovArchiveTiles('coh_' + season)],
             tileSize: 256, minzoom: 3, maxzoom: 10,
             attribution: COHERENCE_ATTR
         };
@@ -2983,7 +2993,7 @@
     function _iceboostSourceDef(product) {
         return {
             type: 'raster',
-            tiles: ['/tiles/iceboost/' + product + '/{z}/{x}/{y}.png?v=' + ICEBOOST_TILE_V],
+            tiles: [_ovArchiveTiles('iceboost_' + product)],
             tileSize: 256, minzoom: 3, maxzoom: 10,
             attribution: ICEBOOST_ATTR
         };

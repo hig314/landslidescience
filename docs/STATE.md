@@ -45,6 +45,12 @@ Nothing here is pushed or deployed.
 - **Local-only lidar manifest** (`datasets.local.json`, docs/LIDAR.md).
 - **Service probe + `/traffic/services/`**, **`site_backup`** (docs/OPERATIONS.md):
   written and dry-run in dev; neither cron is installed on the droplet.
+- **Tile trees → PMTiles on R2** (docs/OVERLAYS.md): twelve archives packed
+  and verified against the trees (sampled tiles byte-identical, counts
+  equal), sources switched in `map.js` / `ls_overlays.js`, `/glaciers/`
+  loads `pmtiles.js`. After Hig's test and the deploy: delete
+  `data/{susc,coherence,iceboost,itslive,hugonnet}_tiles` on the droplet
+  (2.3 GB) and, later, the dead `/tiles/…` routes.
 - **Found on the droplet, not acted on**: no `mailcam` line in root's crontab
   or `/etc/cron.d`, and `/var/log/mailcam.log` ends 2026-11-01, so the emailed
   game-cam feed appears to have stopped then. `/var/log/journal` is 2.9 GB.

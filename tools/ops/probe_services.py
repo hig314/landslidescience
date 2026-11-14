@@ -111,8 +111,9 @@ PROBES = [
      'https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js', '', 100000, 1),
     ('Uppy CDN', 'photo drop uploader',
      'https://releases.transloadit.com/uppy/v4.13.3/uppy.min.mjs', '', 50000, 1),
-    ('landslidescience.org', 'the site',
-     'https://landslidescience.org/inventory/methods/', 'text/html', 2000, 1),
+    # The site itself is not probed: this runs inside its own container, which
+    # cannot reach the droplet's public address, and a host cannot usefully
+    # watch itself anyway.
 ]
 
 
