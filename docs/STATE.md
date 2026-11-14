@@ -38,6 +38,7 @@ by curl, by API or not at all.
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-14 · map.js split, round 2: `photos.js`, `external_inv.js` (tested in dev by Hig); their state is now private behind `_photoShow` / `_photoOpenAt` / `_extEnsureRegistry` / `_extApplyOrDefer` · docs/MAP_UI.md
 - 2026-11-14 · map.js split, round 1: `measure.js`, `opera_hist.js`, `export_ui.js`, `insar_ts.js` (tested in dev by Hig); InSAR tool no longer blanks when one pass has no coverage (ASF's 400 "no data" read as no coverage) · docs/MAP_UI.md, tools/jscheck/
 - 2026-11-14 · Baked overlays (susceptibility, coherence, IceBoost, ITS_LIVE, Hugonnet) read from PMTiles on R2 (fad9b74); the five tile folders deleted from the droplet · docs/OVERLAYS.md
 - 2026-11-14 · `check_invariants`, service probe + `/traffic/services/`, nightly `site_backup` to R2, local-only lidar manifest, autosave error logging, `/manage/new/` retired, Scoops tools committed with the row off (15186a4) · docs/OPERATIONS.md, docs/LIDAR.md

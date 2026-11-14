@@ -27,9 +27,11 @@ location
 LSAnalysis
 LSBasemaps
 LSExport
+LSExternal
 LSFloat
 LSGoto
 LSPermafrost
+LSPhotos
 LSProfile
 LSReview
 LSRevise

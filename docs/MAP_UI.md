@@ -20,14 +20,18 @@ they pick the files up without a change.
 | `opera_hist.js` | `LSOperaHist` | OPERA asc × desc view histogram panel |
 | `export_ui.js` | `LSExportUI` | PNG export controls (engine: `ls_export.js`) |
 | `insar_ts.js` | `LSInsarTs` | InSAR point time-series tool |
+| `photos.js` | `LSPhotos` | Field photos: detail-panel strip, lightbox, map dots |
+| `external_inv.js` | `LSExternal` | Mirrored third-party inventories (registry, sidebar rows, bbox fetch, popups); promotion stays in `map.js` |
 
 The method and its static checks are in **`tools/jscheck/README.md`**: list a
 section's crossings (`deps.js`), move it (`extract.py`), prove no name was
 left behind (`verify.sh`). Sections whose only crossings are functions and
-never-reassigned variables move verbatim; these four were that kind. **Next,
-each needing a small interface because state is written on both sides**:
-field photos (`_detailPhotos`), external inventories (`_extSources`,
-`_extPending`, `_pendingExt`), trace rasters, the DIST overlay, then the
+never-reassigned variables move verbatim; the first four were that kind.
+Where state was written on both sides (photos, external inventories), the
+outside writes were first turned into small functions inside the section
+(`_photoShow`, `_photoOpenAt`, `_extEnsureRegistry`, `_extApplyOrDefer`) so
+the state became private to it, and then it moved verbatim. **Next, each
+needing the same treatment**: trace rasters, the DIST overlay, then the
 charts (histogram / timeline), the wiper, and the overlay framework. A new
 feature for the map page starts as its own file in this pattern, not as
 another section of map.js.
