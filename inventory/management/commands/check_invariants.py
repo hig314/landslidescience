@@ -17,7 +17,7 @@ CODE checks (exit status 1 if any fails):
   2. Every copy of the year_num SQL expression is the same text.
   3. forms.DISPLAY_REQUIRED names only fields the class / creep / era rules
      read (or landslide_type); rule inputs it does not mark are listed.
-  4. map.js _PIN_LABELS and home.html's #pin-field options name the same fields.
+  4. draw_ui.js _PIN_LABELS and home.html's #pin-field options name the same fields.
   5. Every ramp file in views._RAMP_SPECS exists.
 
 DATA checks (reported; exit status 1 only with --strict):
@@ -138,15 +138,15 @@ def check_display_required():
 
 
 def check_pin_labels():
-    js = MAP_JS.read_text(encoding='utf-8')
+    js = (MAP_JS.parent / 'draw_ui.js').read_text(encoding='utf-8')   # moved out of map.js 2026-11-14
     m = re.search(r'var _PIN_LABELS = \{(.*?)\};', js, re.S)
     h = re.search(r'id="pin-field".*?</select>', HOME.read_text(encoding='utf-8'), re.S)
     if not m or not h:
-        return ['could not find _PIN_LABELS in map.js or #pin-field in home.html'], []
+        return ['could not find _PIN_LABELS in draw_ui.js or #pin-field in home.html'], []
     a = set(re.findall(r'(\w+)\s*:', m.group(1)))
     b = set(re.findall(r'<option value="(\w+)"', h.group(0)))
     if a != b:
-        return [f'pinned-label fields differ: map.js only {sorted(a - b)}, home.html only {sorted(b - a)}'], []
+        return [f'pinned-label fields differ: draw_ui.js only {sorted(a - b)}, home.html only {sorted(b - a)}'], []
     return [], []
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Guard the two things about the DIST palette that can silently drift.
 
-  1. map.js DIST_CLASSES must agree with tools/dist_color_status.txt, class
+  1. dist.js DIST_CLASSES must agree with tools/dist_color_status.txt, class
      by class. The ramp file feeds the colour key and the export legend; the
      JS table paints the pixels. If they disagree the key describes something
      the map is not drawing.
@@ -40,7 +40,7 @@ def main():
             continue
         txt[int(float(parts[0]))] = [int(v) for v in parts[1:5]]
 
-    js = (ROOT / 'inventory/static/inventory/js/map.js').read_text()
+    js = (ROOT / 'inventory/static/inventory/js/dist.js').read_text()
     blk = js[js.index('var DIST_CLASSES'):]
     blk = blk[:blk.index('];')]
     paint = {int(c): [int(v) for v in ours.split(',')]
@@ -48,7 +48,7 @@ def main():
                  r'\[(\d),\s*\[([^\]]+)\],\s*\[([^\]]+)\]\]', blk)}
     for code in range(9):
         if paint.get(code) != txt.get(code):
-            fails.append('class %d: map.js %s != ramp file %s'
+            fails.append('class %d: dist.js %s != ramp file %s'
                          % (code, paint.get(code), txt.get(code)))
 
     py = (ROOT / 'inventory/dist.py').read_text()
@@ -63,7 +63,7 @@ def main():
     for f in fails:
         print('FAIL  ' + f)
     if not fails:
-        print('ok  map.js and the ramp file agree on all 9 classes')
+        print('ok  dist.js and the ramp file agree on all 9 classes')
         print('ok  MERGE_PRIORITY matches the ramp\'s darkest-first order: %s' % pri)
         print('    (%s)' % ', '.join('%d:L*%.0f' % (c, lightness(txt[c][:3]))
                                      for c in pri if c in txt and c != 0))

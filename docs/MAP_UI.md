@@ -23,6 +23,11 @@ they pick the files up without a change.
 | `photos.js` | `LSPhotos` | Field photos: detail-panel strip, lightbox, map dots |
 | `dist.js` | `LSDist` | OPERA DIST: colour loader + `distcolor` protocol, date steppers, source defs |
 | `trace_rasters.js` | `LSTraceRasters` | Editor GeoTIFF uploads + Sentinel fetches: registry, layers, `im=` state, upload UI, rows |
+| `draw_ui.js` | `LSDrawUI` | Editor drawing: New button, draw control + session panel, provisional and pending layers, pinned labels, promotion of a mirrored record (engine: `terra_draw.js`) |
+| `lidar_ui.js` | `LSLidarUI` | Lidar catalogue, layers, `li=` state, footprints, the zoom-gated raster lists for both panes |
+| `scarp_ui.js` | `LSScarpUI` | Landform traces on the map page: session panel, popup, layer load (engine: `scarps.js`) |
+| `revise_ui.js` | `LSReviseUI` | Revising an existing outline: bar, tool hold, splicing the result back (engine: `revise.js`) |
+| `charts.js` | `LSCharts` | Seasonal histogram and timeline: compute, draw, canvas tooltips |
 | `external_inv.js` | `LSExternal` | Mirrored third-party inventories (registry, sidebar rows, bbox fetch, popups); promotion stays in `map.js` |
 
 The method and its static checks are in **`tools/jscheck/README.md`**: list a
@@ -35,9 +40,26 @@ outside writes were first turned into small functions inside the section
 the state became private to it, and then it moved verbatim. Trace rasters
 and DIST went the same way (`_traceRows`, `_traceLoadAtStart`,
 `_getLastDetail`, `_ovRegistry`); trace rasters were in two places in
-map.js and were first brought together. **Next, each needing the same
-treatment**: the
-charts (histogram / timeline), the wiper, and the overlay framework. A new
+map.js and were first brought together. Round 4 (2026-11-14) took the rest of the
+self-contained features. Three things it added to the method:
+
+- **Start-up order.** Deps are passed by value when `init` runs, so a dep
+  that another module returns *later* in start-up is still undefined. Such
+  a function is passed as a wrapper (`extract.py --late name`), and
+  `python3 tools/jscheck/order.py` fails on any plain dep assigned below its
+  init call. Run it with `verify.sh`.
+- **State map.js reassigns** (`_featuresData`, `_polygonsData`, `_mapReady`,
+  `_currentBasemap`, the chart event lists) is read through small getter
+  functions next to its declaration, never passed once.
+- **Checks that read names out of the JS** follow the code: `check_invariants`
+  reads `_PIN_LABELS` from `draw_ui.js`, `tools/check_dist_palette.py` reads
+  `DIST_CLASSES` from `dist.js`.
+
+**What is left in map.js** (about 6,000 lines): the overlay framework
+(registry, source defs, sidebar categories; the next and largest job, to
+be done as registry first, UI second), then the core that stays: wiper,
+basemaps, URL-state table, filters and counts, detail panel, click
+handling. A new
 feature for the map page starts as its own file in this pattern, not as
 another section of map.js.
 

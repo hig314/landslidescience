@@ -1,4 +1,4 @@
-"""extract.py A B Global file.js "desc" --dep name[=expr] ... --export name ...
+"""extract.py A B Global file.js "desc" --dep name[=expr] ... --late fn ... --export name ...
 Move map.js lines A..B (1-based, inclusive) verbatim into a new module and
 replace them with one init call. Deps are passed by value under their own
 names, so the moved text is unchanged apart from four more spaces of indent."""
@@ -7,12 +7,14 @@ ap=argparse.ArgumentParser(); ap.add_argument('a',type=int); ap.add_argument('b'
 ap.add_argument('glob'); ap.add_argument('fname'); ap.add_argument('desc')
 ap.add_argument('--dep',action='append',default=[]); ap.add_argument('--export',action='append',default=[])
 ap.add_argument('--header',default='')
+ap.add_argument('--late',action='append',default=[],help='a function map.js only defines LATER in start-up: passed as a wrapper that looks it up when called')
 o=ap.parse_args()
 MAP='inventory/static/inventory/js/map.js'; OUT='inventory/static/inventory/js/'+o.fname
 L=open(MAP,encoding='utf-8').read().split('\n')
 body=L[o.a-1:o.b]
 assert True or not any('`' in l for l in body), 'template literal in range: indent would change it'
 deps=[d.split('=',1) if '=' in d else [d,d] for d in o.dep]
+deps+=[[n,'function () { return %s.apply(this, arguments); }' % n] for n in o.late]
 out=['/* %s — %s' % (o.fname, o.desc), ' *',
      ' * Moved out of map.js on 2026-11-14 without changing its text. map.js calls',
      ' * window.%s.init(ctx) once, at the point in its start-up where this code' % o.glob,

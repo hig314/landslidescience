@@ -38,6 +38,7 @@ by curl, by API or not at all.
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-14 · map.js split, round 4: `draw_ui.js`, `lidar_ui.js`, `scarp_ui.js`, `revise_ui.js`, `charts.js`; map.js is 333 KB. Start-up and opening each tool checked in Chrome on dev; drawing/committing, lidar layers, saving an outline edit, scarp tracing NOT exercised before deploy · docs/MAP_UI.md
 - 2026-11-14 · map.js split, round 3: `trace_rasters.js`, `dist.js` (not browser-tested before deploy; Hig approved from the description) · docs/MAP_UI.md
 - 2026-11-14 · Trace-raster bake builds coarse zooms from child tiles (minutes, not hours, for a large upload); `deploy_ready` guard in the deploy line after a deploy killed a bake · docs/TRACE_RASTERS.md
 - 2026-11-14 · map.js split, round 2: `photos.js`, `external_inv.js` (tested in dev by Hig); their state is now private behind `_photoShow` / `_photoOpenAt` / `_extEnsureRegistry` / `_extApplyOrDefer` · docs/MAP_UI.md

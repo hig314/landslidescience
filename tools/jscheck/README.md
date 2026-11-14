@@ -19,6 +19,12 @@ tools make that a static check. One-time setup: `cd tools/jscheck && npm install
   neither defined in it nor in `globals_baseline.txt`. Add a line to the
   baseline when a new module global (`window.LSSomething`) is introduced.
 
+A dep that is a **function another module returns later in start-up** (its
+`var` is assigned after this section's init call) is passed with `--late name`:
+a wrapper that looks the function up when it is called. `python3
+tools/jscheck/order.py` lists every init call whose plain dep is assigned
+below it, which is exactly that mistake.
+
 Before extracting, also check by eye: every export's first outside use comes
 after the section (a `function` used to be hoisted; the `var` that replaces
 it is not), and every dep is assigned before the section's position.
