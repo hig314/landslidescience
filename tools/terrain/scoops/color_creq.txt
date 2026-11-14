@@ -1,0 +1,12 @@
+# Required cohesion (kPa), statewide.py: eight classes, doubling, ColorBrewer
+# YlOrRd. Lower bound of each class; under 1 kPa is clear. Classes rather than a
+# ramp because values near the threshold are search-dependent to tens of percent.
+nv   0   0   0   0
+1    255 237 160 170
+25   254 217 118 185
+50   254 178  76 200
+100  253 141  60 215
+200  252  78  42 225
+400  227  26  28 235
+800  189   0  38 245
+1600 128   0  38 255

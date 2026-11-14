@@ -8,3 +8,6 @@ staticfiles/
 *.sqlite3
 .DS_Store
 .claude/
+tools/terrain/scoops/_scoops_core.so
+CLAUDE.local.md
+tools/lidar/datasets.local.json
