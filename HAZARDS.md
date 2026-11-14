@@ -1,7 +1,7 @@
 # HAZARDS.md — footguns, each earned by a real incident
 
 Read before editing. Entries state the hazard, the incident that earned it,
-and the correct move. Deep background lives in [CLAUDE.md](CLAUDE.md);
+and the correct move. Deep background lives in `docs/` (indexed in [CLAUDE.md](CLAUDE.md));
 orientation in [ONBOARDING.md](ONBOARDING.md).
 
 ## Deployment & environments
