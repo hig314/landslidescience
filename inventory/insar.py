@@ -145,7 +145,11 @@ def timeseries(request):
         # with this detail string. That is a normal answer, not a failure —
         # return the empty shape so the chart says "no coverage", and cache
         # it so repeat ocean clicks don't re-ask.
-        if 'No valid data found' in detail:
+        # Since about 2026-11 the same answer also arrives as a 400, "No data
+        # available for provided aoi ... No data exists for wkt POINT(...)":
+        # one pass has no frame over the point while the other does.
+        if ('No valid data found' in detail or 'No data available' in detail
+                or 'No data exists' in detail):
             out = {'series': [], 'n': 0, 'cell': None}
             cached.write_text(json.dumps(out))
             return JsonResponse(out)
