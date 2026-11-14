@@ -1,0 +1,39 @@
+{% extends "inventory/base.html" %}
+{% comment %}
+The public list of saved terrain comparisons (pages.SavedComparison). Entries
+are added from the comparison page's Submit button and edited in the Django
+admin. Each links by its short code, so a link follows later updates.
+{% endcomment %}
+{% block title %}Saved terrain comparisons — landslidescience.org{% endblock %}
+{% block page_title %}Saved terrain comparisons{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div class="methods-page">
+<h2>Saved terrain comparisons</h2>
+<p class="methods-intro">
+  Comparisons from the <a href="/lidar/compare/">terrain comparison</a> page
+  worth keeping: places side by side at one ground scale, tilt and shading.
+  <a href="/lidar/methods/#compare">How the comparison works</a>.
+  {% if can_edit %}<a href="/admin/pages/savedcomparison/">Edit the list</a>.{% endif %}
+</p>
+{% if items %}
+<ul class="saved-cmp">
+  {% for c in items %}
+  <li><a href="/lidar/compare/s/{{ c.code }}/">{{ c.name }}</a>
+    <span class="saved-cmp-code">{{ c.code }}</span>
+    {% if c.notes %}<div class="saved-cmp-notes">{{ c.notes|linebreaksbr }}</div>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% else %}
+<p>None yet.</p>
+{% endif %}
+</div>
+<style>
+  .saved-cmp { list-style: none; padding: 0; }
+  .saved-cmp li { padding: 6px 0; border-bottom: 1px solid #e3e3e3; }
+  .saved-cmp a { font-size: 1.05em; }
+  .saved-cmp-code { color: #888; font: 12px ui-monospace, Menlo, monospace; margin-left: 6px; }
+  .saved-cmp-notes { color: #555; font-size: 0.92em; margin-top: 2px; }
+</style>
+{% endblock %}

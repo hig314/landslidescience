@@ -147,6 +147,7 @@ def glacierfit_tile(request, var, z, x, y):
 # lidar_serve.py rather than django.views.static.serve (which, as of Django
 # 5.2, ignores Range entirely). Built by tools/lidar/build_lidar.py.
 from landslidescience import analytics, lidar_serve  # noqa: E402
+from pages import views as pages_views  # noqa: E402
 
 
 urlpatterns = [
@@ -169,6 +170,11 @@ urlpatterns = [
     # address, kept so links made while it was built still open.
     path('lidar/compare/', lidar_serve.compare, name='lidar_compare'),
     path('lidar/compare/spike/', lidar_serve.compare),
+    # Saved comparisons: the public list, the short link that follows a
+    # comparison's updates, and the page's Submit/Update endpoint.
+    path('lidar/compare/saved/', pages_views.compare_saved_list, name='lidar_compare_saved'),
+    re_path(r'^lidar/compare/s/(?P<code>[0-9a-f]{3})/$', pages_views.compare_short, name='lidar_compare_short'),
+    path('lidar/compare/save/', pages_views.compare_save, name='lidar_compare_save'),
     path('lidar/catalog.geojson', lidar_serve.catalog),
     path('lidar/catalog-gated.geojson', lidar_serve.catalog_gated),
     path('lidar/audit/', lidar_serve.publish_audit, name='publish_audit'),

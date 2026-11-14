@@ -479,7 +479,20 @@ def publish_audit(request):
 def compare(request):
     """Terrain comparison: small multiples of lidar terrain at one shared
     ground scale, tilt, exaggeration and shading (LIDAR_COMPARE_PLAN.md).
-    Public; the whole comparison lives in the URL and nothing is stored. It
+    Public; the whole comparison lives in the URL (saved ones are kept on
+    the list at /lidar/compare/saved/, pages.SavedComparison). It
     reads the public catalogue only, so a gated survey cannot appear in it."""
     from django.shortcuts import render
-    return render(request, 'pages/lidar_compare.html')
+    from pages.models import SavedComparison
+    from pages.views import can_save_comparison
+    saved = None
+    sv = (request.GET.get('sv') or '').lower()
+    if re.match(r'^[0-9a-f]{3}$', sv):
+        sc = SavedComparison.objects.filter(code=sv).first()
+        if sc:
+            saved = {'code': sc.code, 'name': sc.name}
+    return render(request, 'pages/lidar_compare.html', {
+        'saved': saved,
+        'can_save': can_save_comparison(request.user),
+        'can_update': can_save_comparison(request.user, update=True),
+    })

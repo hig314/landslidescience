@@ -157,6 +157,11 @@
     <span class="grp"><button id="copy">Copy link</button><button id="reset" title="Back to the view this link opened with">Reset</button>
       <label id="perflbl" style="display:none"><input type="checkbox" id="perfon" checked> perf</label>
       <a href="/lidar/methods/#compare" target="_blank" rel="noopener" title="How this works">?</a></span>
+    <span class="grp"><a href="/lidar/compare/saved/" title="The list of saved comparisons">Saved list</a>{% if can_save %}
+      <input id="svname" size="18" placeholder="name on the list" title="The name this comparison is listed under">
+      <button id="svsubmit" title="Add this comparison to the public list as a new entry, with a new id">Submit</button>
+      <button id="svupdate" style="display:none" title="Overwrite the saved entry this comparison was opened from">Update</button>{% endif %}
+      <span id="svcode" class="v" title="Id of the saved entry this comparison came from"></span></span>
   </div>
   <div id="annpanel" class="dockbar" style="display:none"></div>
   <div id="pfpanel" class="dockbar" style="display:none"></div>
@@ -168,6 +173,8 @@
 <button id="showctl" title="Show the controls again">Show controls</button>
 <div id="busy"></div>
 
+{{ saved|json_script:"sv-data" }}
+<script>window.LS_SAVE = { can: {{ can_save|yesno:"true,false" }}, canUpdate: {{ can_update|yesno:"true,false" }}, csrf: '{% if can_save %}{{ csrf_token }}{% endif %}' };</script>
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
 <script>
@@ -221,6 +228,10 @@
     sunRel: Q.get('sr') !== '0', az: qn('az', 315), cols: qn('cols', 0),
     locks: {}, title: Q.get('t') || null, clean: Q.get('hc') === '1'
   };
+  // Saved-list entry this comparison was opened from (sv=, checked by the
+  // server: an unknown id arrives as null and is dropped from the link).
+  var SAVED = JSON.parse(document.getElementById('sv-data').textContent || 'null');
+  S.sv = SAVED ? SAVED.code : null;
   (Q.get('lk') || '').split(',').forEach(function (k) { if (k) S.locks[k] = true; });
   var P = [];
   if (Q.get('pn')) {
@@ -421,6 +432,7 @@
     });
     el.addEventListener('blur', function () {
       var v = el.textContent.trim();
+      if (v === fallback()) v = '';          // the placeholder is not a title
       set(v || null);
       if (!v) el.textContent = fallback();
       syncUrl(); if (el.id === 'ptitle') docTitle();
@@ -856,6 +868,10 @@
       navigator.clipboard && navigator.clipboard.writeText(location.href).then(function () { toast('Link copied'); });
     });
     $('reset').addEventListener('click', function () { location.search = initialSearch; });
+    if (LS_SAVE.can) {
+      $('svsubmit').addEventListener('click', function () { saveComparison(false); });
+      $('svupdate').addEventListener('click', function () { saveComparison(true); });
+    }
     $('addlink').addEventListener('keydown', function (e) {
       if (e.key !== 'Enter') return;
       try {
@@ -1793,6 +1809,7 @@
     q.set('bm', S.bm || 'none'); q.set('op', Math.round(S.op * 100)); q.set('sr', S.sunRel ? 1 : 0); q.set('az', S.az);
     if (S.title) q.set('t', S.title);
     if (S.clean) q.set('hc', 1);
+    if (S.sv) q.set('sv', S.sv);
     if (S.cols) q.set('cols', S.cols);
     var lk = Object.keys(S.locks); if (lk.length) q.set('lk', lk.join(','));
     q.set('pn', P.map(function (p) {
@@ -1821,6 +1838,36 @@
     if (S.sb.on && sp.length) q.set('sp', sp.join(';'));
     if (S.na.on && np.length) q.set('np', np.join(';'));
     history.replaceState(null, '', location.pathname + '?' + q.toString());
+  }
+
+  // ---- saved list ------------------------------------------------------------
+  // The list name follows the page title (never "Untitled comparison") until
+  // a different name is typed; clearing the box, or typing the title, hands
+  // it back to the title.
+  function titleName() { var t = (S.title || '').trim(); return /^untitled comparison$/i.test(t) ? '' : t; }
+  var svNameAuto = true;
+  function followTitle() { if (LS_SAVE.can && svNameAuto) $('svname').value = titleName(); }
+  function syncSaved() {
+    $('svcode').textContent = S.sv ? 'id ' + S.sv : '';
+    if (LS_SAVE.can) $('svupdate').style.display = S.sv && LS_SAVE.canUpdate ? '' : 'none';
+    if (LS_SAVE.can) $('svupdate').textContent = S.sv ? 'Update ' + S.sv : 'Update';
+  }
+  function saveComparison(update) {
+    var name = $('svname').value.trim() || titleName();
+    if (!name) { toast('Give it a name first'); $('svname').focus(); return; }
+    writeUrl();
+    var q = new URLSearchParams(location.search); q.delete('sv');
+    fetch('/lidar/compare/save/', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': LS_SAVE.csrf },
+      body: JSON.stringify({ name: name, query: q.toString(), code: update ? S.sv : '' })
+    }).then(function (r) {
+      return r.json().catch(function () { return { error: 'HTTP ' + r.status }; })
+        .then(function (j) { if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status); return j; });
+    }).then(function (j) {
+      S.sv = j.code; $('svname').value = j.name; svNameAuto = j.name === titleName(); syncSaved(); writeUrl();
+      toast((j.updated ? 'Updated ' : 'Added to the list as ') + j.code);
+    }).catch(function (e) { toast('Not saved: ' + e.message); });
   }
 
   function toast(msg) {
@@ -1883,7 +1930,16 @@
   fillBase(); loadSharedBases();
   bindKey();
   if (S.clean) document.body.classList.add('clean');
-  editable($('ptitle'), function () { return S.title; }, function (v) { S.title = v; },
+  if (LS_SAVE.can) {
+    svNameAuto = !SAVED || SAVED.name === titleName();
+    $('svname').value = SAVED ? SAVED.name : titleName();
+    $('svname').addEventListener('input', function () {
+      var v = this.value.trim(); svNameAuto = !v || v === titleName();
+    });
+    $('svname').addEventListener('keydown', function (e) { e.stopPropagation(); });
+  }
+  syncSaved();
+  editable($('ptitle'), function () { return S.title; }, function (v) { S.title = v; followTitle(); },
            function () { return 'Untitled comparison'; }, 'Title of this comparison (Frame mode)');
   docTitle();
   fetch('/lidar/catalog.geojson').then(function (r) { return r.json(); }).then(function (fc) {
