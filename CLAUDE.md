@@ -28,7 +28,7 @@ anything under `tools/lidar/`.
 | Editor GeoTIFF uploads to trace over | [docs/TRACE_RASTERS.md](docs/TRACE_RASTERS.md) |
 | Mirrored third-party inventories, promotion | [docs/EXTERNAL_INVENTORIES.md](docs/EXTERNAL_INVENTORIES.md) |
 | Explorer `/inventory/table/` | [docs/EXPLORER.md](docs/EXPLORER.md) |
-| `/files/`, photo drops `/drops/` (incl. emailed game cams), field photos | [docs/FILES_DROPS_PHOTOS.md](docs/FILES_DROPS_PHOTOS.md) |
+| `/files/`, photo drops `/drops/`, field photos | [docs/FILES_DROPS_PHOTOS.md](docs/FILES_DROPS_PHOTOS.md) |
 | `/glaciers/` | [docs/GLACIERS.md](docs/GLACIERS.md) |
 | Groups, permissions, the two sign-in doors, sessions | [docs/ACCOUNTS.md](docs/ACCOUNTS.md) |
 | Refresh dev from prod, robots/indexing, Umami analytics, Tethys relationship | [docs/OPERATIONS.md](docs/OPERATIONS.md) |

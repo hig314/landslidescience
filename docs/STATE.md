@@ -139,9 +139,6 @@ In no particular order.
   go; so can the `CREATE` branches in `terra_draw.js` / `_polygon_map.html`
   (the retired `/manage/new/` page). The dev trees under `data/*_tiles/`
   are the only tile-tree copies left (the archives on R2 hold the same bytes).
-- **Emailed game-cam feed moved to the monitoring project**; this site's
-  `drops_mailcam` code and `/drops/cam/…/latest` routes are stale and
-  undecided (docs/FILES_DROPS_PHOTOS.md).
 - **Shaded relief / ArcticDEM follow-ons, deferred** (not to start
   unprompted): bake the 2 m ArcticDEM ourselves; deeper Mapterhorn zooms
   outside Alaska; ArcticDEM through the tile Worker. The PGC service gives
