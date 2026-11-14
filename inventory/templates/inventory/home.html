@@ -735,5 +735,10 @@
 <script src="{% static 'inventory/js/ls_export.js' %}"></script>
 <script src="{% static 'inventory/js/ls_hash.js' %}"></script>
 {% if user.is_authenticated %}<script src="{% static 'inventory/js/ls_review.js' %}"></script>{% endif %}
+{# Sections of the map page that live in their own files; map.js calls each one's init() (docs/MAP_UI.md). #}
+<script src="{% static 'inventory/js/measure.js' %}"></script>
+<script src="{% static 'inventory/js/opera_hist.js' %}"></script>
+<script src="{% static 'inventory/js/export_ui.js' %}"></script>
+<script src="{% static 'inventory/js/insar_ts.js' %}"></script>
 <script src="{% static 'inventory/js/map.js' %}"></script>
 {% endblock %}

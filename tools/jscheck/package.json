@@ -1,0 +1,1 @@
+{ "name": "jscheck", "private": true, "description": "Static checks used when moving code out of map.js", "dependencies": { "acorn": "^8", "eslint-scope": "^8" } }

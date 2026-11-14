@@ -4,6 +4,34 @@ The `/inventory/` map page itself (`map.js` and its shared modules).
 
 *Part of the per-feature reference split out of [CLAUDE.md](../CLAUDE.md) on 2026-11-14 (text moved verbatim). "Above"/"below" references to other sections may now point into a sibling file — the index is in CLAUDE.md.*
 
+## How map.js is being split (started 2026-11-14)
+
+`map.js` is one closure (609 KB before the split). Sections move out one at a
+time into their own files, each exposing `window.LS<Name>.init(ctx)`; map.js
+calls `init` once, **at the place in its start-up where the code used to
+sit**, passing what the section needs under the same names it always used,
+so the moved text is unchanged. `home.html` loads the files just before
+`map.js`. Snapshots copy the whole static folder and render `home.html`, so
+they pick the files up without a change.
+
+| File | Global | What |
+|---|---|---|
+| `measure.js` | `LSMeasure` | `MeasureControl` (distance / area) and `fmtArea` |
+| `opera_hist.js` | `LSOperaHist` | OPERA asc × desc view histogram panel |
+| `export_ui.js` | `LSExportUI` | PNG export controls (engine: `ls_export.js`) |
+| `insar_ts.js` | `LSInsarTs` | InSAR point time-series tool |
+
+The method and its static checks are in **`tools/jscheck/README.md`**: list a
+section's crossings (`deps.js`), move it (`extract.py`), prove no name was
+left behind (`verify.sh`). Sections whose only crossings are functions and
+never-reassigned variables move verbatim; these four were that kind. **Next,
+each needing a small interface because state is written on both sides**:
+field photos (`_detailPhotos`), external inventories (`_extSources`,
+`_extPending`, `_pendingExt`), trace rasters, the DIST overlay, then the
+charts (histogram / timeline), the wiper, and the overlay framework. A new
+feature for the map page starts as its own file in this pattern, not as
+another section of map.js.
+
 ## Inventory map UI structure
 
 The sidebar at `/inventory/` is a three-tab layout with a pinned strip on top:
