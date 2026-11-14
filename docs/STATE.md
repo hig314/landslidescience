@@ -29,36 +29,18 @@ by curl, by API or not at all.
 - [ ] **Edit-form checks** (069905e, 2026-11-11): nobody has saved through the banner / date-bracket / year-text checks on prod. Records 1166, 1174 and 1504 will trip them on their next edit (see *Edit-form follow-ups* below).
 - [ ] **Terrain comparison** (2026-11-12/13): profiles, shared QMS bases, `hc=1`, JPEG export not browser-tested on prod.
 - [ ] **Saved comparisons** (6c8dc13, 2026-11-13): nothing saved on prod yet; the first signed-in *Submit* is the first real test.
+- [ ] **`/traffic/services/`** (2026-11-14): not opened signed in on prod.
+- [ ] **Autosave error logging; `/manage/new/` redirect** (15186a4): nothing has failed on prod since, so the log line is unseen.
+- [ ] **Restore from backup** (2026-11-14): the first backup uploaded 2.6 GB; nobody has restored anything from it.
 - [ ] **`/lidar/` Save image** (a43bf5c, 2026-10-19): the export engine's polling-for-done change was not re-tested on `/inventory/`'s own PNG export.
-
-## Built in dev, waiting for Hig's test (2026-11-14)
-
-Nothing here is pushed or deployed.
-
-- **Docs split**: CLAUDE.md is the short index; the reference is `docs/`.
-- **`check_invariants`** (docs/OPERATIONS.md). First run on dev found *Ban
-  Island Holocene* (dev id 1123) hidden by a bare `Catastrophic` class; prod
-  not yet checked.
-- **`manage_edit_field` logs its failures**; **`/manage/new/` retired**
-  (redirects to the map; ☰ *New record* removed; the `CREATE` branches in
-  `terra_draw.js` / `_polygon_map.html` are dead code still to remove).
-- **Local-only lidar manifest** (`datasets.local.json`, docs/LIDAR.md).
-- **Service probe + `/traffic/services/`**, **`site_backup`** (docs/OPERATIONS.md):
-  written and dry-run in dev; neither cron is installed on the droplet.
-- **Tile trees → PMTiles on R2** (docs/OVERLAYS.md): twelve archives packed
-  and verified against the trees (sampled tiles byte-identical, counts
-  equal), sources switched in `map.js` / `ls_overlays.js`, `/glaciers/`
-  loads `pmtiles.js`. After Hig's test and the deploy: delete
-  `data/{susc,coherence,iceboost,itslive,hugonnet}_tiles` on the droplet
-  (2.3 GB) and, later, the dead `/tiles/…` routes.
-- **Found on the droplet, not acted on**: no `mailcam` line in root's crontab
-  or `/etc/cron.d`, and `/var/log/mailcam.log` ends 2026-11-01, so the emailed
-  game-cam feed appears to have stopped then. `/var/log/journal` is 2.9 GB.
 
 ## Shipped log
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-14 · Baked overlays (susceptibility, coherence, IceBoost, ITS_LIVE, Hugonnet) read from PMTiles on R2 (fad9b74); the five tile folders deleted from the droplet · docs/OVERLAYS.md
+- 2026-11-14 · `check_invariants`, service probe + `/traffic/services/`, nightly `site_backup` to R2, local-only lidar manifest, autosave error logging, `/manage/new/` retired, Scoops tools committed with the row off (15186a4) · docs/OPERATIONS.md, docs/LIDAR.md
+- 2026-11-14 · CLAUDE.md split into an index plus `docs/` (725b3c8)
 - 2026-11-13 · Terrain comparison later rounds: re-order panes (09fcec9), QMS bases in the link (0af7cb2), `hc=1` (e4f502f), equal panes + JPEG (f2b7e33), saved comparisons (6c8dc13) · docs/LIDAR.md
 - 2026-11-12 · Terrain comparison `/lidar/compare/` with profiles (7c93ea1, bf27a7c); `/lidar/` *Point cloud* link · docs/LIDAR.md, LIDAR_COMPARE_PLAN.md
 - 2026-11-11 · Edit-form checks; Explore opens the record's view (069905e) · docs/RECORDS.md, docs/EXPLORER.md
@@ -144,14 +126,22 @@ In no particular order.
   retired and its 1 GB removed from the droplet. Same day (c309b1c): the
   `_slope` pyramids of gated surveys had been open to anonymous requests;
   now gated. Details: the last entry of `tools/lidar/RESUME.md`.
-- **Droplet disk is tight**: 4.7 GB free of 78 (94%), measured 2026-11-14.
-  Where it goes: the monitoring stack's `data/` 29 GB (the other repo),
-  Docker images 18.5 GB, Docker build cache 6.2 GB (3.5 reclaimable with
-  `docker builder prune`), `/var/log` 3 GB, and this site's `data/` 12 GB:
-  lidar 4.9 (gated pyramids 3.9, gated COGs 0.9), media 1.6 (field photos
-  1.5), susc_tiles 1.4, planet_stories 0.7, quantities 0.5, glaciers 0.5,
-  trace_tiles 0.4, opera/itslive/coherence/hugonnet/iceboost tiles ~1.3,
+- **Droplet disk**: 12 GB free of 78 (85%) on 2026-11-14, after a Docker
+  build-cache prune (3.5 GB) and moving five tile trees to R2 (2.3 GB).
+  What is left: the monitoring stack's Timescale database 29 GB (the other
+  repo), Docker images 18.5 GB, `/var/log/journal` 2.9 GB (a vacuum to
+  500 MB freed nothing: the files are active, not archived), and this site's
+  `data/` ~10 GB: gated lidar 4.8, field photos 1.5, planet_stories 0.7,
+  quantities 0.5, glaciers 0.5, trace_tiles 0.4, opera cache 0.3,
   permafrost 0.25.
+- **Leftovers of the tile move**: the `/tiles/susc|coherence|iceboost|itslive|hugonnet/`
+  routes and views in `landslidescience/urls.py` serve nothing now and can
+  go; so can the `CREATE` branches in `terra_draw.js` / `_polygon_map.html`
+  (the retired `/manage/new/` page). The dev trees under `data/*_tiles/`
+  are the only tile-tree copies left (the archives on R2 hold the same bytes).
+- **Emailed game-cam feed moved to the monitoring project**; this site's
+  `drops_mailcam` code and `/drops/cam/…/latest` routes are stale and
+  undecided (docs/FILES_DROPS_PHOTOS.md).
 - **Shaded relief / ArcticDEM follow-ons, deferred** (not to start
   unprompted): bake the 2 m ArcticDEM ourselves; deeper Mapterhorn zooms
   outside Alaska; ArcticDEM through the tile Worker. The PGC service gives

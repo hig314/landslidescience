@@ -103,6 +103,13 @@ file counts, close/reopen. Both land in the same table.
   of each frame and records the raw value in EXIF `UserComment`; its
   docstring records how the Portage offset was estimated from the
   night-mode switch.
+- **The emailed-camera feed below stopped on 2026-11-01 and now runs in the
+  monitoring project** (Hig, 2026-11-14; its `camera_mail_cron.sh`, which
+  does not touch this site). The cron line described below is gone from the
+  droplet; the wrapper script, `drops_mailcam`, `drops/mailcam.py` and the
+  public `/drops/cam/<camera>/latest.jpg|json` routes are still here, and
+  `latest` still answers with the last frame this site received
+  (2026-10-31). Whether to retire that code and those routes is undecided.
 - **Emailed game cameras (2026-10-29)** feed the closed drop "Game cam
   email feed" (`LjSRG_RBBCZL`): `manage.py drops_mailcam` reads
   camfeed@groundtruthalaska.org over IMAP, accepts only DMARC-passing
