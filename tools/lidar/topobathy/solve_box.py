@@ -7,7 +7,7 @@ Reads the box's finished outputs ($W/<box>/out_<tag>/) and writes $W/<box>/out_<
 re-solved.  Each tile is solved with a halo and the tiles are FEATHERED across the halo (weight 1 in the core, falling to 0 at the
 window's edge), so no tile edge shows.  Only cells the solve treats as free or weighted are replaced; land above the tide, the ice,
 confident measurements and the deep modelled sea are the product's own.  Also <box>_kind.tif (what each cell was) and solve.log."""
-import argparse, json, sys, time
+import argparse, json, os, sys, time
 from pathlib import Path
 import numpy as np, rasterio
 from rasterio.windows import Window
@@ -32,6 +32,7 @@ def main():
     def log(s): print(s, flush=True); lg.write(s + "\n"); lg.flush()
     with rasterio.open(d / f"{a.box}.tif") as s:
         cur = s.read(1); prof = s.profile; T = s.transform; res = s.res[0]; H, Wd = cur.shape; nd = s.nodata
+    zown = np.full(cur.shape, np.nan, np.float32)
     num = np.zeros(cur.shape, np.float32); den = np.zeros(cur.shape, np.float32); kind = np.full(cur.shape, 255, np.uint8); typ = np.zeros(cur.shape, np.uint8)
     nc = int(round(a.core / res)); nh = int(round(a.halo / res)); t0 = time.time(); n_t = n_s = 0; free = 0
     # the lakes that hold soundings, on the whole box
@@ -71,19 +72,28 @@ def main():
         wt = np.clip(np.minimum(wy[:, None], wx[None, :]), 0.0, 1.0); m = k >= 2
         num[r0:r1, c0:c1][m] += (wt * z)[m]; den[r0:r1, c0:c1][m] += wt[m]
         core = np.zeros(k.shape, bool); core[r - r0:r - r0 + nc, c - c0:c - c0 + nc] = True
-        kind[r0:r1, c0:c1][core] = k[core]; typ[r0:r1, c0:c1][core] = R["typing"][core]
+        kind[r0:r1, c0:c1][core] = k[core]; typ[r0:r1, c0:c1][core] = R["typing"][core]; zown[r0:r1, c0:c1][core] = z[core]
         n_s += 1; free += R["free"]
         log(f"  tile r{r} c{c}: {R['free']} free cells, {dt:.0f} s" + "".join("\n      " + l.strip() for l in R["log"] if any(q in l for q in ("guard:", "lone deep", "still water", "low-tide water:")) and not l.strip().endswith("dropped: 0")))
-    out = np.where(den > 1e-6, num / np.maximum(den, 1e-6), cur).astype(np.float32)
+    # A cell is replaced only where the tile that OWNS it (its core) types it soft or free.  A window's outermost rows are soft to the tile
+    # that sees them as the edge of its data, and where no other tile had a say they went out as fitted: a cross of lines at every window
+    # corner, +2.8 m at one on the bay floor off the Spit (Hig's review of 2026-11-15, 59.59694,-151.40752: "box edge artifacts?").
+    own = (den > 1e-6) & (kind >= 2) & (kind != 255)
+    out = np.where(own, num / np.maximum(den, 1e-6), cur).astype(np.float32)
+    # ...and a FIXED MEASURED cell is written as its tile returned it: the product's own cell where the product shows a measured layer, the
+    # joint's measurement where the product had modelled over it (the solve held a gravel bar the product had dug a river bed into, and
+    # the product's cell was kept here: pits in the solved bed, Hig 2026-11-15)
+    fm0 = (kind == 0) & np.isfinite(zown); n_back = int((fm0 & (np.abs(zown - cur) > 0.05)).sum()); out = np.where(fm0, zown, out).astype(np.float32)
     if nd is not None: out = np.where(cur == nd, nd, out).astype(np.float32)
-    ch = (den > 1e-6) & (cur != nd if nd is not None else True); dz = (out - cur)[ch]
+    ch = own & (cur != nd if nd is not None else True); dz = (out - cur)[ch]
     prof.update(dtype="float32", compress="ZSTD", tiled=True, BIGTIFF="IF_SAFER")
-    with rasterio.open(o / f"{a.box}.tif", "w", **prof) as ds: ds.write(out, 1)
     kp = dict(prof); kp.update(dtype="uint8", nodata=255)
-    with rasterio.open(o / f"{a.box}_kind.tif", "w", **kp) as ds: ds.write(kind, 1)
-    with rasterio.open(o / f"{a.box}_typing.tif", "w", **kp) as ds: ds.write(typ, 1)
+    for nm_, arr_, pf_ in ((f"{a.box}.tif", out, prof), (f"{a.box}_kind.tif", kind, kp), (f"{a.box}_typing.tif", typ, kp)):   # written whole, then put in place: a mosaic reading meanwhile sees the old file or the new
+        with rasterio.open(o / (nm_ + ".part"), "w", **pf_) as ds: ds.write(arr_, 1)
+        os.replace(o / (nm_ + ".part"), o / nm_)
+    log(f"[{a.box}] {n_back} fixed measured cells the product had modelled over are back as measured")
     log(f"[{a.box}] done: {n_s} of {n_t} tiles solved, {free} free cells, {int(ch.sum())} cells replaced ({ch.mean():.1%} of the box); solve - product p1/p50/p99 {np.percentile(dz, [1, 50, 99]).round(2) if dz.size else '-'} m; {time.time() - t0:.0f} s")
-    json.dump(dict(box=a.box, tag=a.tag, out_tag=a.out_tag, tiles=n_t, solved=n_s, free=free, replaced=int(ch.sum()), seconds=round(time.time() - t0)), open(o / "solve.json", "w"))
+    json.dump(dict(box=a.box, tag=a.tag, out_tag=a.out_tag, tiles=n_t, solved=n_s, free=free, replaced=int(ch.sum()), seconds=round(time.time() - t0), edgefix=True, rules="1115d", measured_back=n_back), open(o / "solve.json", "w"))
 
 
 if __name__ == "__main__":
