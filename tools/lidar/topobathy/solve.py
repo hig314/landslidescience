@@ -248,7 +248,7 @@ def main(argv=None, ret=False):
     #     joins the lake at the lake's level (the stage's own berg rule, applied to what it kinded a river: the 51 m pillar at the face).
     #   - glacier ice is a surface of its own: fixed as the product has it, and CUT from the bed (ice_face "free": the face is a cliff, the
     #     bed beside it is not a continuation of the ice).
-    kinds = {}
+    kinds = {}; tab = {}
     try:
         tab = {int(f["properties"]["id"]): f["properties"] for f in json.load(open(d / "water_bodies.geojson"))["features"]}
         ov = d / "shore_bodies.json"
@@ -396,7 +396,11 @@ def main(argv=None, ret=False):
     # A BODY OF ONE LEVEL WITHIN THE TIDE'S REACH (a lagoon, a pond: no river, whose one level is not its surface, and not the open sea) has
     # its bed below that level whether a lidar saw the water or a map did (2026-11-15: the outer coast's lagoons, known only from 3DEP's lake
     # polygons, were bridged over at the level of the ground around them).  The product holds them under the same sheet.
-    pond = np.isin(lab, (2, 3)) & np.isfinite(lev) & np.isin(bid, [k for k, v in kinds.items() if v in ("lake", "perched", "ephemeral", "tidal")]) & ~still & inwin
+    # A body a MAP calls a lake is one too, whatever the box edge made of its kind: the same lagoon is "tidal" in the box that holds all of it
+    # and "sea" in the three that cut it (59.14455,-151.50240; Gore Lake in r3c5), and the mosaic then blends a bounded bed with bridged ones.
+    one_level = [k for k, v in kinds.items() if v in ("lake", "perched", "ephemeral", "tidal")
+                 or (v != "river" and tab.get(k, {}).get("mapped_kind") == "lake" and (tab.get(k, {}).get("mapped_frac") or 0) >= 0.5)]
+    pond = np.isin(lab, (2, 3)) & np.isfinite(lev) & np.isin(bid, one_level) & ~still & inwin
     ub = np.where(pond & ~fixed, np.fmin(ub, lev - p["still_gap_m"]), ub)
     if pond.any(): log(f"  one-level water within the tide's reach (lagoons, ponds): {pond[inwin].mean():.1%} of the window bounded by its level")
     # SLOPED WATER HAS GROUND JUST BENEATH IT (Hig 2026-11-14, the Woz delta): where a lidar saw water running downhill and nothing measured
