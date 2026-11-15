@@ -1737,6 +1737,11 @@ def main():
     ap.add_argument("--win", type=float, nargs=4, metavar=("X0", "Y0", "X1", "Y1")); ap.add_argument("--out"); ap.add_argument("--res", type=float); ap.add_argument("--tag", default="")
     ap.add_argument("--dump", action="store_true", help="write points.npz (per-source cells and verdicts) for the review point cloud")
     a = ap.parse_args()
+    try:
+        import timing as _tm                                          # run as a script: topobathy/ is sys.path[0]
+    except ImportError:
+        from topobathy import timing as _tm
+    _tm.install("joint")
     preflight(a.recipe)
     if a.stage in ("fuse", "all"): fuse(a.recipe, a.win, a.out, a.res, dump=a.dump)
     if a.stage in ("layer", "all"): layer(a.recipe, a.win, a.out, a.res, tag=a.tag)

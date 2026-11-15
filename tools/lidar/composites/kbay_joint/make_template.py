@@ -52,7 +52,7 @@ j['units'] = dict(out=UNITS, buf=30, workers=4, surveys=[
     dict(name='seldovia2019', reader='copc', tiles='/Volumes/Nunatak/lidar_src/seldovia_2019_ncmp', glob='*.copc.laz', srs='EPSG:6393',
          drop=[7, 18, 23], ground=dict(classes=[2]), water=[9], bed=[29], date='2019-07-17'),
     # Kenai 2008, our PTD reclassification in 2 km tiles named by their corner; the USGS classes carry no water
-    dict(name='kenai2008', reader='las', tiles='/Volumes/Powder/lidar_build/kenai_2008/classified', glob='t_*.laz',
+    dict(name='kenai2008', reader='las', tiles='/Volumes/Powder/lidar_build/kenai_2008/classified_r2', glob='t_*.laz',
          index=dict(regex=r't_(\d+)_(\d+)', size_m=2000), drop=[7, 18], ground=dict(classes=[2]), water=[9], date='2008-06-01',
          water_raster=dict(path=f'{NUN}/obs/kenai_2008/class.vrt', water=[2])),
     dict(name='homer2019', reader='las', tiles='/Volumes/Nunatak/lidar_build/homer_2019_pc/laz/dds4/homer_2019/laz', glob='pt*.laz',

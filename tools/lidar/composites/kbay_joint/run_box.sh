@@ -10,7 +10,7 @@ HERE=${0:a:h}; TL=${HERE:h:h}; cd $TL
 BOX=$1; TAG=${2:-run1}
 RECIPE=$HERE/boxes/$BOX/recipe.json; [[ -f $RECIPE ]] || RECIPE=$HERE/crops/$BOX/recipe.json; [[ -f $RECIPE ]] || { echo "no recipe for $BOX (make_boxes.py / make_crop.py)"; exit 1; }
 WORK=/Volumes/Nunatak/lidar_build/composite/$BOX; JOUT=$($PY -c "import json,sys; print(json.load(open(sys.argv[1]))['joint']['out'])" $RECIPE)
-mkdir -p $WORK $JOUT; LOG=$WORK/chain.log
+mkdir -p $WORK $JOUT; LOG=$WORK/chain.log; export TOPO_TIMING_DIR=$WORK
 stamp() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $BOX $TAG: $1" | tee -a $LOG; }
 for v in /Volumes/Nunatak /Volumes/Powder; do [[ -d $v/lidar_build ]] || { echo "$v not mounted"; exit 1; }; done
 FREE=$(df -g / | awk 'NR==2{print $4}'); (( FREE >= 12 )) || { stamp "boot disk $FREE GB free -- refusing"; exit 1; }

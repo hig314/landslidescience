@@ -15,6 +15,7 @@ ID=$($PY -c "import json,sys; print(json.load(open(sys.argv[1]))['id'])" "$RECIP
 WORK=${LIDAR_BUILD:-/Volumes/Nunatak/lidar_build}/composite/$ID
 mkdir -p "$WORK"
 LOG=$WORK/chain.log
+export TOPO_TIMING_DIR="$WORK"          # topobathy/timing.py: every step slower than 5 s, per stage, in timing_<stage>.log
 stamp() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG"; }
 cd "$HERE"
 # a previous run's stage products must not feed this run's first build (2026-10-17: build 1 read the LAST run's

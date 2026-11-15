@@ -1327,6 +1327,7 @@ def main():
     wt.add_argument("recipe"); wt.add_argument("--edits", help="edits GeoJSON (default tools/lidar/water/edits.geojson)")
     wt.add_argument("--coarse", type=int, help="read every Nth cell (auto when the grid is large)")
     a = p.parse_args()
+    from topobathy import timing as _tm; _tm.install(a.cmd)          # sub-step times to $TOPO_TIMING_DIR/timing_<stage>.log (no-op without the variable)
     sys.exit({"build": cmd_build, "regress": cmd_regress, "masks": cmd_masks, "import-mask": cmd_import_mask,
               "export-mask": cmd_export_mask, "publish": cmd_publish, "fill": cmd_fill, "water": cmd_water, "shore": cmd_shore, "highline": cmd_highline}[a.cmd](a) or 0)
 

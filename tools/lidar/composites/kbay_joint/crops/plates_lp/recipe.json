@@ -606,7 +606,7 @@
     {
      "name": "kenai2008",
      "reader": "las",
-     "tiles": "/Volumes/Powder/lidar_build/kenai_2008/classified",
+     "tiles": "/Volumes/Powder/lidar_build/kenai_2008/classified_r2",
      "glob": "t_*.laz",
      "index": {
       "regex": "t_(\\d+)_(\\d+)",
