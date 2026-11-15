@@ -29,7 +29,7 @@ W = Path("/Volumes/Nunatak/lidar_build/composite"); WATER = Path("/Users/Hig/Cla
 EDITS = W / "review_1114" / "solve_edits.geojson"       # a reviewer's typing of evidence: polygons, kind "not_bed" (optionally only cells deeper_than_m)
 COMP = ("ocm2023", "ncei2010", "cudem2022", "crm")
 DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hig's low-tide mapping
-P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0,
+P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24)
 
@@ -295,7 +295,12 @@ def main(argv=None, ret=False):
     lake_keep = still & ~lake_solve & np.isfinite(cur) & (cur < lev) & ~bergm
     land3 = np.isin(si, (0, 1)) & np.isfinite(cur) & ~has & inwin & ~still
     fix_meas = conf & (din > p["fix_edge_m"]) & ~ice
-    high = (si != 3) & np.isfinite(cur) & (cur > p["tide_max_m"] + 1.0) & inwin & ~still                 # ground above the tide's reach is out of scope: as the product has it
+    # GROUND ABOVE THE TIDE'S REACH IS OUT OF SCOPE: as the product has it.  That holds for what the product MODELLED there too (a hole in the
+    # land it bridged from a ground prior, the icefield's gaps: 2026-11-15, 97,000 cells at 1,200 m re-bridged 30 m off), unless the cell is
+    # water to the stages or to a lidar, or stands within scope_dry_m of the margin (a bank, a bluff toe: solved with it, so no seam at the tide's reach).
+    wetc = np.isin(lab, (2, 3)) | np.isfinite(wz); margin = (np.isfinite(cur) & (cur <= p["tide_max_m"] + 1.0)) | wetc | still
+    dryfill = (si == 3) & ~wetc & (ndimage.distance_transform_edt(~margin) * res > p["scope_dry_m"])
+    high = ((si != 3) | dryfill) & np.isfinite(cur) & (cur > p["tide_max_m"] + 1.0) & inwin & ~still
     # SCOPE: the water margin.  The modelled sea deeper than scope_deep_m is as the product has it (its basin spline between soundings).
     scope = (si == 3) & np.isfinite(cur) & (cur < p["scope_deep_m"]) & ~still & inwin & ~editp
     fix_other = (ice | high | scope | lake_keep) & ~fix_meas
@@ -388,6 +393,12 @@ def main(argv=None, ret=False):
     w[wet_g] -= 1 / sg[wet_g] ** 2; b[wet_g] -= jz[wet_g] / sg[wet_g] ** 2; w = np.maximum(w, 0.0); b[w == 0] = 0.0; soft &= ~wet_g; lidar_soft = soft.copy()
     log(f"  soft measured cells at or above the water seen in their own cell: {int(wet_g.sum())} dropped as evidence")
     ub = np.where(still & ~fixed, lev - p["still_gap_m"], ub)
+    # A BODY OF ONE LEVEL WITHIN THE TIDE'S REACH (a lagoon, a pond: no river, whose one level is not its surface, and not the open sea) has
+    # its bed below that level whether a lidar saw the water or a map did (2026-11-15: the outer coast's lagoons, known only from 3DEP's lake
+    # polygons, were bridged over at the level of the ground around them).  The product holds them under the same sheet.
+    pond = np.isin(lab, (2, 3)) & np.isfinite(lev) & np.isin(bid, [k for k, v in kinds.items() if v in ("lake", "perched", "ephemeral", "tidal")]) & ~still & inwin
+    ub = np.where(pond & ~fixed, np.fmin(ub, lev - p["still_gap_m"]), ub)
+    if pond.any(): log(f"  one-level water within the tide's reach (lagoons, ponds): {pond[inwin].mean():.1%} of the window bounded by its level")
     # SLOPED WATER HAS GROUND JUST BENEATH IT (Hig 2026-11-14, the Woz delta): where a lidar saw water running downhill and nothing measured
     # its bed, the bed is sloped_depth_m under that water -- data (sigma sloped_sigma_m), not a prior the fit may wander from.
     sd = sloped & ~fixed & np.isfinite(env) & ~lowb                                                      # inside Hig's low-tide water the water seen is the sea at some stand, not a stream
