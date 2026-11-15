@@ -1,6 +1,6 @@
 # State of play
 
-*Last revised 2026-11-14.* The one dated snapshot in the project notes: what
+*Last revised 2026-11-15.* The one dated snapshot in the project notes: what
 is waiting to be confirmed on production, what is open, and a short log of
 what shipped. **It rots**; correct or delete an entry rather than working
 around it. For lidar publishing state do not trust any number written down
@@ -30,6 +30,8 @@ by curl, by API or not at all.
 - [ ] **Terrain comparison** (2026-11-12/13): profiles, shared QMS bases, `hc=1`, JPEG export not browser-tested on prod.
 - [ ] **Saved comparisons** (6c8dc13, 2026-11-13): nothing saved on prod yet; the first signed-in *Submit* is the first real test.
 - [ ] **`/traffic/services/`** (2026-11-14): not opened signed in on prod.
+- [ ] **Faster trace-raster bake** (3e8ec3b, 2026-11-14): one 8-bit RGB re-bake on prod (row 9, 3,308 tiles, minutes) and a 16-bit one on dev; a false-colour (4-band) bake and an upload through the browser have not run on the new code.
+- [ ] **map.js split rounds 3–4** (3e8ec3b, eeb5f31): Hig used the map after each and found nothing; not knowingly exercised: committing a drawn polygon, promotion through to a saved record, saving an outline edit, tracing a scarp, the signed-out page.
 - [ ] **Autosave error logging; `/manage/new/` redirect** (15186a4): nothing has failed on prod since, so the log line is unseen.
 - [ ] **Restore from backup** (2026-11-14): the first backup uploaded 2.6 GB; nobody has restored anything from it.
 - [ ] **`/lidar/` Save image** (a43bf5c, 2026-10-19): the export engine's polling-for-done change was not re-tested on `/inventory/`'s own PNG export.
@@ -38,8 +40,8 @@ by curl, by API or not at all.
 
 One line each, newest first; detail is in the `docs/` file named.
 
-- 2026-11-14 · map.js split, round 4: `draw_ui.js`, `lidar_ui.js`, `scarp_ui.js`, `revise_ui.js`, `charts.js`; map.js is 333 KB. Start-up and opening each tool checked in Chrome on dev; drawing/committing, lidar layers, saving an outline edit, scarp tracing NOT exercised before deploy · docs/MAP_UI.md
-- 2026-11-14 · map.js split, round 3: `trace_rasters.js`, `dist.js` (not browser-tested before deploy; Hig approved from the description) · docs/MAP_UI.md
+- 2026-11-14 · map.js split, round 4: `draw_ui.js`, `lidar_ui.js`, `scarp_ui.js`, `revise_ui.js`, `charts.js`; map.js is 333 KB. Start-up and opening each tool checked in Chrome on dev and prod; Hig tested after the deploy ("looks good", 2026-11-15) (eeb5f31) · docs/MAP_UI.md
+- 2026-11-14 · map.js split, round 3: `trace_rasters.js`, `dist.js` (3e8ec3b; deployed on Hig's approval of the description, used by him on prod afterwards: "all looks good so far") · docs/MAP_UI.md
 - 2026-11-14 · Trace-raster bake builds coarse zooms from child tiles (minutes, not hours, for a large upload); `deploy_ready` guard in the deploy line after a deploy killed a bake · docs/TRACE_RASTERS.md
 - 2026-11-14 · map.js split, round 2: `photos.js`, `external_inv.js` (tested in dev by Hig); their state is now private behind `_photoShow` / `_photoOpenAt` / `_extEnsureRegistry` / `_extApplyOrDefer` · docs/MAP_UI.md
 - 2026-11-14 · map.js split, round 1: `measure.js`, `opera_hist.js`, `export_ui.js`, `insar_ts.js` (tested in dev by Hig); InSAR tool no longer blanks when one pass has no coverage (ASF's 400 "no data" read as no coverage) · docs/MAP_UI.md, tools/jscheck/
@@ -72,6 +74,27 @@ One line each, newest first; detail is in the `docs/` file named.
 ## Open threads
 
 In no particular order.
+
+- **Where the 2026-11-14 session stopped (nothing in flight).** main =
+  origin/main = droplet at eeb5f31, apart from docs-only commits after it;
+  the only uncommitted file is the local-only Nunatak mount line in
+  `docker-compose.override.yml`, which stays uncommitted. Hig's stated next
+  topic: back to the **terrain comparison** (`/lidar/compare/`; decisions and
+  measurements in LIDAR_COMPARE_PLAN.md §10–11; not built: server-side
+  sheets, publish/branch, the `lidar_scene.js` extraction, a shading worker
+  pool; on prod, profiles / shared QMS bases / `hc=1` / JPEG export and the
+  first *Submit* of a saved comparison are still untried, see the checklist).
+- **map.js split, paused after round 4** (609 KB → 333 KB, 13 files out).
+  Next is the overlay framework (registry and source defs first, sidebar UI
+  second), then stop: the wiper, basemaps, URL-state table, filters, detail
+  panel and click handling stay. Method, tools and the three rules the last
+  round added: docs/MAP_UI.md and `tools/jscheck/README.md`. Before any
+  deploy that touches these files: `verify.sh`, `order.py`, `check_invariants`.
+- **Deploys and bakes.** The deploy line runs `deploy_ready --wait 30`
+  (CLAUDE.md). Known blind spot: for 30 min after a restart that killed a
+  bake it still reports that bake as running (it cannot tell a dead thread
+  from a live one); `rebuild_trace_rasters --stalled` clears it. A scratch
+  log `data/rebake-9.log` on the droplet can be deleted.
 
 - **Edit-form follow-ups (2026-11-11).** Prod records the year-text check
   will catch on their next edit (read-only survey of 256 dated records: 212
