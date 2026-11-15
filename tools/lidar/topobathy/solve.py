@@ -26,9 +26,10 @@ from rasterio import features
 from scipy import ndimage
 
 W = Path("/Volumes/Nunatak/lidar_build/composite"); WATER = Path("/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water")
+EDITS = W / "review_1114" / "solve_edits.geojson"       # a reviewer's typing of evidence: polygons, kind "not_bed" (optionally only cells deeper_than_m)
 COMP = ("ocm2023", "ncei2010", "cudem2022", "crm")
 DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hig's low-tide mapping
-P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1.0, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=15.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=5.0, lone_max_m2=10000.0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0,
+P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24)
 
@@ -201,13 +202,13 @@ def _feats(name):
     """A water/*.geojson layer as [(geometry, properties)], read once per process."""
     if name not in _CACHE:
         from shapely.geometry import shape as shp_
-        _CACHE[name] = [(shp_(f["geometry"]), f["properties"]) for f in json.load(open(WATER / name))["features"] if f.get("geometry")]
+        _CACHE[name] = [(shp_(f["geometry"]), f["properties"]) for f in json.load(open(name if os.path.isabs(name) else WATER / name))["features"] if f.get("geometry")]
     return _CACHE[name]
 
 
 def main(argv=None, ret=False):
     ap = argparse.ArgumentParser(); ap.add_argument("box"); ap.add_argument("name"); ap.add_argument("win", nargs=4, type=float)
-    ap.add_argument("--nofig", action="store_true"); ap.add_argument("--nowrite", action="store_true"); ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--lakes"); ap.add_argument("--nofig", action="store_true"); ap.add_argument("--nowrite", action="store_true"); ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--tag", default="cm18"); ap.add_argument("--out", default=str(W / "review_1114" / "solve")); ap.add_argument("--holdout", type=float, default=0.0)
     ap.add_argument("--set", nargs="*", default=[]); a = ap.parse_args(argv)
     p = dict(P); p.update({k: type(P[k])(v) for k, v in (s.split("=") for s in a.set)})
@@ -256,7 +257,7 @@ def main(argv=None, ret=False):
                 if int(k) in tab and "kind" in o: tab[int(k)]["kind"] = o["kind"]
         kinds = {k: v.get("kind") for k, v in tab.items()}
     except Exception as e: log(f"  (no body table: {e})")
-    rivers = [k for k, v in kinds.items() if v in ("river", "sloped", "ephemeral", "tidal", "sea", "perched")]
+    rivers = [k for k, v in kinds.items() if v in ("river", "tidal", "sea")]                            # water.py FLAT_KINDS (lake, perched, ephemeral) have one level: still water
     wetl = np.isin(lab, (2, 3)) & np.isfinite(lev) & (lev > p["tide_max_m"] + 1.0) & inwin
     still = wetl & ~np.isin(bid, rivers); n_berg = 0; bergm = np.zeros(jz.shape, bool)
     cand = wetl & ~still
@@ -270,17 +271,37 @@ def main(argv=None, ret=False):
                 lev[sl2][c_] = float(np.median(lev[sl2][rs])); still[sl2] |= c_; cur[sl2][c_] = np.nan; bergm[sl2] |= c_; n_berg += int(c_.sum())   # its "bed" in the product is the pillar: no prior from it
     ice = (lab == 4) & np.isfinite(cur) & inwin
     notbed = still & has & (cls != 3)                                                                   # the surface of the water, or something on it
+    n_edit = 0; editp = np.zeros(jz.shape, bool)                                                         # ...the product's own modelled cells there are not its shape either
+    if EDITS.exists():                                                                                   # ...and what a reviewer has said is not bed (the 59.47321 multibeam pit)
+        from shapely.geometry import box as sbox_
+        for g_, pr_ in _feats(str(EDITS)):
+            if pr_.get("kind") != "not_bed" or not g_.intersects(sbox_(*win)): continue
+            ep = np.pad(features.rasterize([(g_, 1)], out_shape=(H0, W0), transform=T).astype(bool), pad); em = ep & has
+            if pr_.get("deeper_than_m") is not None: em &= jz < float(pr_["deeper_than_m"]); ep &= np.isfinite(cur) & (cur < float(pr_["deeper_than_m"]))
+            notbed |= em; n_edit += int(em.sum()); editp |= ep
     has &= ~notbed; meas &= ~notbed; conf &= ~notbed; comp_only &= ~notbed
     lake = still
+    # A LAKE WITH NO SOUNDING IN IT IS OUT OF SCOPE (Hig: "the small lakes are ok for now"): its bed is the lake model's, fixed here.  The box
+    # driver passes the lakes that hold soundings (--lakes, decided on the whole box so that a lake is not solved in one tile and kept in the next).
+    if a.lakes:
+        lk_, _, _ = read(a.lakes, win); lake_solve = padf(lk_, 0) > 0
+    else:
+        Ls_, ns_ = ndimage.label(still, structure=np.ones((3, 3), bool)); hit = np.zeros(ns_ + 1, bool)
+        for path in R["fill"]["points"]:
+            for row in _rows(path):
+                if win[0] < row["x"] < win[2] and win[1] < row["y"] < win[3]:
+                    c_, r_ = ~T * (row["x"], row["y"]); hit[Ls_[int(r_), int(c_)]] = True
+        hit[0] = False; lake_solve = hit[Ls_]
+    lake_keep = still & ~lake_solve & np.isfinite(cur) & (cur < lev) & ~bergm
     land3 = np.isin(si, (0, 1)) & np.isfinite(cur) & ~has & inwin & ~still
     fix_meas = conf & (din > p["fix_edge_m"]) & ~ice
     high = (si != 3) & np.isfinite(cur) & (cur > p["tide_max_m"] + 1.0) & inwin & ~still                 # ground above the tide's reach is out of scope: as the product has it
     # SCOPE: the water margin.  The modelled sea deeper than scope_deep_m is as the product has it (its basin spline between soundings).
-    scope = (si == 3) & np.isfinite(cur) & (cur < p["scope_deep_m"]) & ~still & inwin
-    fix_other = (ice | high | scope) & ~fix_meas
+    scope = (si == 3) & np.isfinite(cur) & (cur < p["scope_deep_m"]) & ~still & inwin & ~editp
+    fix_other = (ice | high | scope | lake_keep) & ~fix_meas
     fixed = fix_meas | fix_other; zfix = np.where(fix_meas, jz, np.where(fix_other, cur, 0.0))
     if ret and int((~fixed & inwin).sum()) < 20: return None                                             # nothing to solve in this tile
-    if still.any(): log(f"  still water above the tide: {still[inwin].mean():.1%} of the window (level p50 {np.nanmedian(lev[still]):.2f} m); {int(notbed.sum())} cells standing at its surface are no bed evidence; {n_berg} cells of berg-top water joined to it; ice {ice[inwin].mean():.1%} (cut from the bed)")
+    if still.any(): log(f"  still water above the tide: {still[inwin].mean():.1%} of the window (level p50 {np.nanmedian(lev[still]):.2f} m); {int(notbed.sum())} cells standing at its surface are no bed evidence; {n_berg} cells of berg-top water joined to it; ice {ice[inwin].mean():.1%} (cut from the bed); lakes with no sounding left as the product has them: {lake_keep[inwin].mean():.1%}; reviewer's edits: {n_edit} cells not bed")
     # --- soft data -----------------------------------------------------------------------------------------------------
     w = np.zeros(jz.shape); b = np.zeros(jz.shape)
     soft = meas & ~fixed & np.isfinite(js) & ~ice
@@ -370,12 +391,16 @@ def main(argv=None, ret=False):
     # SLOPED WATER HAS GROUND JUST BENEATH IT (Hig 2026-11-14, the Woz delta): where a lidar saw water running downhill and nothing measured
     # its bed, the bed is sloped_depth_m under that water -- data (sigma sloped_sigma_m), not a prior the fit may wander from.
     sd = sloped & ~fixed & np.isfinite(env) & ~lowb                                                      # inside Hig's low-tide water the water seen is the sea at some stand, not a stream
+    # ...and a shallow stream only where nothing says the water is deep: not within 20 m of a compilation cell or a modelled sea bed more than
+    # 2 m under the water seen (Halibut Cove's narrows: tide running over a 30 m channel that NCEI has)
+    dp_ = (comp_only & np.isfinite(env) & (jz < env - 2.0)) | ((si == 3) & np.isfinite(cur) & np.isfinite(env) & (cur < env - 2.0) & (cur < p["deep_prior_m"]))
+    if dp_.any(): sd &= ~ndimage.binary_dilation(dp_, iterations=int(round(20.0 / res)))
     w[sd] += 1 / p["sloped_sigma_m"] ** 2; b[sd] += (env[sd] - p["sloped_depth_m"]) / p["sloped_sigma_m"] ** 2
     # LONE DEEP RETURNS: a thin or edge measured cell more than lone_deep_m below the DEEPEST confident measurement or sounding within lone_ref_m is
     # noise in the water column, not bed (the 59.47321,-151.68254 pit: green-lidar "bed" at -23 m beside multibeam at -5 and soundings at -4)
     k_ = int(round(p["lone_ref_m"] / res)) * 2 + 1
     ref = ndimage.minimum_filter(np.minimum(np.where(fix_meas, jz, np.inf), np.where(ws > 0, bs / np.maximum(ws, 1e-30), np.inf)), size=k_)
-    lone = soft & np.isfinite(ref) & (jz < ref - p["lone_deep_m"])                                       # bed or "ground": either class of return can be noise in the water
+    lone = soft & np.isfinite(ref) & (jz < ref - p["lone_deep_m"]) & (p["lone_deep_m"] > 0)             # OFF by default (lone_deep_m 0): on the Woz box it flattened Halibut Cove's real 30 m channel; a wrong hole is a reviewer's edit (EDITS)
     # ...and only a CLOSED, small hole: a steep wall is also "deeper than the flat above it", but it runs on into deeper measurements.  A
     # patch is dropped when it is under lone_max_m2 and nothing measured within 6 m of it lies deeper than it does.
     if lone.any():
@@ -400,7 +425,7 @@ def main(argv=None, ret=False):
         z0 = np.where(wf & ~sloped, env - D, np.nan)
     z0 = np.where(comp_only, np.where(np.isfinite(ub), np.minimum(jz, ub), jz), z0)
     # the deep basin between soundings, and a lake's bed, keep the present model as their SHAPE (a prior, not a fixed surface)
-    deep = (si == 3) & np.isfinite(cur) & ~comp_only & (((cur < p["deep_prior_m"]) & ~still) | (still & (cur < lev - 0.5)))
+    deep = (si == 3) & np.isfinite(cur) & ~comp_only & ~editp & (((cur < p["deep_prior_m"]) & ~still) | (still & (cur < lev - 0.5)))
     z0 = np.where(deep, cur, z0)
     # the prior's small holes (a compilation cell the joint set aside under a lidar's water or "ground") take the prior around them
     h0 = np.isfinite(z0); gn = ndimage.gaussian_filter(np.where(h0, z0, 0.0), 10.0); gd = ndimage.gaussian_filter(h0.astype(float), 10.0)
@@ -432,7 +457,7 @@ def main(argv=None, ret=False):
     # narrower than that is bridged by the measurements on its two sides (the -26 m compilation pit between lidar and multibeam)
     fxn = fixed & ~ice                                                                    # the ice is no measurement of the bed: a prior does not fade beside it
     dfx = ndimage.distance_transform_edt(~fxn) * res if fxn.any() else np.full(jz.shape, 1e4)
-    mu *= np.minimum(1.0, (dfx / np.where(deep, p["deep_near_m"], p["prior_near_m"])) ** 4)
+    mu *= np.where((ptype == 2) & (p["taper_comp"] == 0), 1.0, np.minimum(1.0, (dfx / np.where(deep, p["deep_near_m"], p["prior_near_m"])) ** 4))   # a compilation is NOT faded: in a narrow inlet it is all there is (Woz box: a -6.5 m inlet rose to -0.2)
     # --- the solve -----------------------------------------------------------------------------------------------------------
     # SOUNDINGS are sparse points with noise: fitted one by one they dimple the surface (Hig: "localized high curvature").  They adjust a
     # smooth surface at THEIR OWN SPACING instead:  (A) the fit WITHOUT them;  (B) their residuals to A, averaged by a kernel never

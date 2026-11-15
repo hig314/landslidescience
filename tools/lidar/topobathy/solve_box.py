@@ -34,13 +34,27 @@ def main():
         cur = s.read(1); prof = s.profile; T = s.transform; res = s.res[0]; H, Wd = cur.shape; nd = s.nodata
     num = np.zeros(cur.shape, np.float32); den = np.zeros(cur.shape, np.float32); kind = np.full(cur.shape, 255, np.uint8); typ = np.zeros(cur.shape, np.uint8)
     nc = int(round(a.core / res)); nh = int(round(a.halo / res)); t0 = time.time(); n_t = n_s = 0; free = 0
+    # the lakes that hold soundings, on the whole box
+    from scipy import ndimage
+    lab = rasterio.open(d / "shore_label.tif").read(1); lev = rasterio.open(d / "fill_water_level.tif").read(1)
+    wet = np.isin(lab, (2, 3)) & (lev > -9000) & (lev > S.P["tide_max_m"] + 1.0); del lab, lev
+    L, nl = ndimage.label(wet, structure=np.ones((3, 3), bool)); hit = np.zeros(nl + 1, bool); R_ = json.load(open(d / "recipe.json"))
+    for path in R_["fill"]["points"]:
+        for row in S._rows(path):
+            cc, rr = ~T * (row["x"], row["y"]); rr, cc = int(rr), int(cc)
+            if 0 <= rr < H and 0 <= cc < Wd: hit[L[rr, cc]] = True
+    hit[0] = False; lk = hit[L].astype(np.uint8); del L
+    lp = dict(prof); lp.update(dtype="uint8", nodata=255, compress="ZSTD", tiled=True); lakes = o / f"{a.box}_lakes_solved.tif"
+    with rasterio.open(lakes, "w", **lp) as ds: ds.write(lk, 1)
+    log(f"  still water above the tide: {wet.mean():.1%} of the box in {nl} pieces; {int(hit.sum())} hold soundings ({lk.mean():.1%} of the box) and are solved")
+    del wet, lk
     tiles = [(r, c) for r in range(0, H, nc) for c in range(0, Wd, nc)]
     log(f"[{a.box}] {a.tag} -> {a.out_tag}: {H}x{Wd} cells, {len(tiles)} tiles of {a.core:g} m + {a.halo:g} m halo")
     jobs = []
     for r, c in tiles:
         r0, r1, c0, c1 = max(r - nh, 0), min(r + nc + nh, H), max(c - nh, 0), min(c + nc + nh, Wd)
         x0, y1 = T * (c0, r0); x1, y0 = T * (c1, r1)
-        jobs.append((r, c, [a.box, f"tile_{r}_{c}", str(x0), str(y0), str(x1), str(y1), "--tag", a.tag, "--nofig", "--nowrite", "--quiet"] + (["--set"] + a.set if a.set else [])))
+        jobs.append((r, c, [a.box, f"tile_{r}_{c}", str(x0), str(y0), str(x1), str(y1), "--tag", a.tag, "--lakes", str(lakes), "--nofig", "--nowrite", "--quiet"] + (["--set"] + a.set if a.set else [])))
     from concurrent.futures import ProcessPoolExecutor
     ex = ProcessPoolExecutor(a.workers)
     for r, c, R, dt in ex.map(_tile, jobs):
