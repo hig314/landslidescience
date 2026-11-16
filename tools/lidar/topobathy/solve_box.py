@@ -34,6 +34,7 @@ def _tile(job):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("box"); ap.add_argument("--tag", default="cm18"); ap.add_argument("--out-tag", default="s1"); ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--core", type=float, default=2000.0); ap.add_argument("--halo", type=float, default=400.0); ap.add_argument("--set", nargs="*", default=[])
+    ap.add_argument("--snd-lakes", action="store_true", help="tiles holding a sounded lake are solved with the casts as data (snd_mode=1); the rest as --set says")
     ap.add_argument("--deep-grid", type=float, default=0.0, help="solve the deep sea over the whole box at this resolution first (m); 0 = off")
     a = ap.parse_args(); d = S.W / a.box / f"out_{a.tag}"; o = S.W / a.box / f"out_{a.out_tag}"; o.mkdir(parents=True, exist_ok=True)
     lg = open(o / "solve.log", "w")
@@ -76,10 +77,12 @@ def main():
             cc, rr = ~T * (row["x"], row["y"]); rr, cc = int(rr), int(cc)
             if 0 <= rr < H and 0 <= cc < Wd: hit[L[rr, cc]] = True
     hit[0] = False; lk = hit[L].astype(np.uint8); del L
+    lkm = lk > 0                                                                           # (--snd-lakes: which tiles hold a sounded lake)
     lp = dict(prof); lp.update(dtype="uint8", nodata=255, compress="ZSTD", tiled=True); lakes = o / f"{a.box}_lakes_solved.tif"
     with rasterio.open(lakes, "w", **lp) as ds: ds.write(lk, 1)
     log(f"  still water above the tide: {wet.mean():.1%} of the box in {nl} pieces; {int(hit.sum())} hold soundings ({lk.mean():.1%} of the box) and are solved")
     del wet, lk
+    if a.snd_lakes: log(f"  --snd-lakes: tiles with a sounded lake are solved with the casts as data")
     tiles = [(r, c) for r in range(0, H, nc) for c in range(0, Wd, nc)]
     log(f"[{a.box}] {a.tag} -> {a.out_tag}: {H}x{Wd} cells, {len(tiles)} tiles of {a.core:g} m + {a.halo:g} m halo")
     jobs = []
@@ -87,6 +90,10 @@ def main():
         r0, r1, c0, c1 = max(r - nh, 0), min(r + nc + nh, H), max(c - nh, 0), min(c + nc + nh, Wd)
         x0, y1 = T * (c0, r0); x1, y0 = T * (c1, r1)
         st_ = list(a.set) + (["snd_scope=0"] if a.deep_grid > 0 else [])
+        # SOUNDINGS AS DATA WHERE A LAKE HOLDS THEM (2026-11-16): at 2 m the snd mode costs ~15 min a 2.4 km window, too slow for a whole box;
+        # the open sea's casts are deep and taken by the deep pass, so the fine mode is spent only on tiles with a sounded lake (Gore, Grewingk)
+        if a.snd_lakes and lkm[r0:r1, c0:c1].any():
+            st_ = [x for x in st_ if not x.startswith("snd_mode=")] + ["snd_mode=1"]
         jobs.append((r, c, [a.box, f"tile_{r}_{c}", str(x0), str(y0), str(x1), str(y1), "--tag", a.tag, "--lakes", str(lakes), "--nofig", "--nowrite", "--quiet"] + (["--cur", str(curfile)] if curfile else []) + (["--set"] + st_ if st_ else [])))
     from concurrent.futures import ProcessPoolExecutor
     ex = ProcessPoolExecutor(a.workers)
