@@ -652,6 +652,23 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         both_ = zone_ & np.isfinite(Z[nw_]) & np.isfinite(Z[od_])
         if both_.sum() < int(cp_.get("min_cells", 50)):
             rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=int(both_.sum()), applied=False); continue
+        # ...and only on GENTLE ground (2026-11-15, Hig's review, Tutka Bay 59.43498,-151.33746, "two different versions of the bathymetry
+        # with a hard margin between them": on a steep rock shore the lidar's ground and the multibeam differ by tens of metres with no
+        # change at all -- r4c3: 3,629 cells, median 18 m, p90 41 m, carried 120 m out over 150 ha of multibeam).  A horizontal misfit of
+        # a few metres is a small height only where the ground is gentle, so a cell counts where the older surface's slope (the newer's
+        # where the older has no neighbour to take one from) is change_slope_max or less.  Worked on the overlap's bounding box only.
+        rr_, cc_ = np.nonzero(both_.any(1))[0], np.nonzero(both_.any(0))[0]
+        r0_, r1_, c0_, c1_ = max(rr_[0] - 2, 0), min(rr_[-1] + 3, H), max(cc_[0] - 2, 0), min(cc_[-1] + 3, W)
+        def _slope(z):
+            gy, gx = np.gradient(z[r0_:r1_, c0_:c1_].astype(np.float32), res); return np.hypot(gx, gy)
+        slo_, sln_ = _slope(Z[od_]), _slope(Z[nw_])
+        sl_ = np.where(np.isfinite(slo_), slo_, sln_); del slo_, sln_
+        steep_ = np.zeros((H, W), bool); steep_[r0_:r1_, c0_:c1_] = ~(sl_ <= float(cp_.get("change_slope_max", 0.6))); del sl_
+        n_all_ = int(both_.sum()); both_ &= ~steep_; del steep_
+        if both_.sum() < int(cp_.get("min_cells", 50)):
+            rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=n_all_, gentle=int(both_.sum()), applied=False, note="too few cells on gentle ground")
+            log(f"  change {nw_} - {od_} inside {nw_}'s zones: {n_all_} cells measured, {int(both_.sum())} on ground gentler than {float(cp_.get('change_slope_max', 0.6)):g}: none applied")
+            continue
         d_ = np.where(both_, Z[nw_] - Z[od_], 0.0).astype(np.float32)
         # ...only where the change is REAL: a connected patch of the overlap (joined over 10 m) whose MEDIAN change is change_min_m or more,
         # on min_cells (2026-11-10, selhead: scattered disagreements of 0.08-1.28 m about a median 0.38 between multibeam lines were
@@ -662,10 +679,17 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         med_ = np.asarray(ndimage.median(d_, lp_, np.arange(1, np_ + 1))) if np_ else np.zeros(0)
         okp_ = np.zeros(np_ + 1, bool)
         okp_[1:] = (cnt_[1:] >= int(cp_.get("min_cells", 50))) & (np.abs(med_) >= float(cp_.get("change_min_m", 0.5)))
+        # ...and COHERENT (2026-11-15, the same review): one event moves a patch by about one amount; a patch whose cells scatter about
+        # their median by more than max(1 m, half the median) (NMAD) is two surfaces that do not describe the same ground
+        if np_:
+            mf_ = np.concatenate([[0.0], med_]).astype(np.float32)
+            nmad_ = 1.4826 * np.asarray(ndimage.median(np.abs(d_ - mf_[lp_]), lp_, np.arange(1, np_ + 1)))
+            okp_[1:] &= nmad_ <= np.maximum(float(cp_.get("change_nmad_m", 1.0)), float(cp_.get("change_nmad_frac", 0.5)) * np.abs(med_))
+            del mf_, nmad_
         real_ = okp_[lp_] & both_; del lp_, cnt_, med_
         if not real_.any():
-            rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=int(both_.sum()), applied=False, note="no patch with a median change >= change_min_m")
-            log(f"  change {nw_} - {od_} inside {nw_}'s zones: {int(both_.sum())} cells measured, no patch changed by >= {float(cp_.get('change_min_m', 0.5)):g} m (median): none applied")
+            rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=int(both_.sum()), applied=False, note="no coherent patch with a median change >= change_min_m")
+            log(f"  change {nw_} - {od_} inside {nw_}'s zones: {int(both_.sum())} cells measured, no coherent patch changed by >= {float(cp_.get('change_min_m', 0.5)):g} m (median): none applied")
             continue
         both_ = real_; d_ = np.where(both_, d_, 0.0).astype(np.float32)
         # ...a SMOOTH field, not the nearest cell's (2026-11-10, selhead: 2,105 overlap cells, median 0.38 m, and the few over 0.5 m
@@ -675,12 +699,15 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         num_ = ndimage.gaussian_filter(d_, sg_); den_ = ndimage.gaussian_filter(both_.astype(np.float32), sg_)
         dist_ = ndimage.distance_transform_edt(~both_, sampling=res)
         ds_ = np.where(den_ > 1e-4, num_ / np.maximum(den_, 1e-4), 0.0).astype(np.float32)
-        ds_[np.abs(ds_) < float(cp_.get("change_min_m", 0.5))] = 0.0
-        tap_ = np.clip(1.0 - dist_ / tm_, 0.0, 1.0)
+        # (2026-11-15: no hard cut and no kink -- the field ramps in between half of change_min_m and change_min_m, and the taper is
+        # a smooth step, level at both ends, so the older survey's surface meets its unadjusted self without an edge)
+        cm_ = float(cp_.get("change_min_m", 0.5))
+        ds_ *= np.clip((np.abs(ds_) - 0.5 * cm_) / (0.5 * cm_), 0.0, 1.0)
+        tap_ = np.clip(1.0 - dist_ / tm_, 0.0, 1.0); tap_ = tap_ * tap_ * (3.0 - 2.0 * tap_)
         F_ = np.where(both_, d_, ds_ * tap_).astype(np.float32)          # in the overlap the measured change itself (old = new there)
         hit_ = np.isfinite(Z[od_]) & (F_ != 0)
         Z[od_] = np.where(hit_, Z[od_] + F_, Z[od_]).astype(np.float32)
-        rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=int(both_.sum()), change_p10_50_90=np.round(np.percentile(d_[both_], [10, 50, 90]), 2).tolist(),
+        rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=n_all_, gentle_coherent=int(both_.sum()), change_p10_50_90=np.round(np.percentile(d_[both_], [10, 50, 90]), 2).tolist(),
                                                    adjusted_ha=round(float(hit_.sum()) * res * res / 1e4, 2), beyond_ha=round(float((hit_ & ~both_).sum()) * res * res / 1e4, 2))
         log(f"  change {nw_} - {od_} inside {nw_}'s zones: {int(both_.sum())} cells measured, p10/50/90 {rep['change_pairs'][f'{nw_}-{od_}']['change_p10_50_90']} m; "
             f"{od_} adjusted on {rep['change_pairs'][f'{nw_}-{od_}']['adjusted_ha']} ha ({rep['change_pairs'][f'{nw_}-{od_}']['beyond_ha']} beyond the overlap, tapering to 0 at {float(cp_.get('taper_m', 120.0)):g} m)")

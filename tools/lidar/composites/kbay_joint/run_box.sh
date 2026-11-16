@@ -5,6 +5,7 @@
 # Refuses to start with < 12 GB free on the boot disk or a Docker build running (the fill needs ~22 GB RAM).
 set -e
 export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES PATH=/opt/homebrew/bin:$PATH
+export PYTHONPATH=/Volumes/Nunatak/lidar_build/composite/guard${PYTHONPATH:+:$PYTHONPATH}   # SIGUSR1 prints the Python stack (memguard2.sh, 2026-11-16)
 PY=/opt/anaconda3/bin/python3
 HERE=${0:a:h}; TL=${HERE:h:h}; cd $TL
 BOX=$1; TAG=${2:-run1}

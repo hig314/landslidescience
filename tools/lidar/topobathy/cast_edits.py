@@ -6,6 +6,12 @@
   cast_edits.py apply                                            the base CSVs + the edits -> *_edited.csv, which the recipes read
   cast_edits.py sync-dev                                         the moves into the dev database, so the dev viewer draws them (apply does this too)
   cast_edits.py reread KEY DEPTH_M --basis TEXT [--source URL]   a depth READ AGAIN FROM THE SURVEY'S OWN SHEET, where the digital file disagrees with it (then run apply)
+  cast_edits.py reject KEY --basis TEXT [--withdraw]             a cast the REVIEWER rejects outright (then run apply)
+
+A REJECTION IS THE REVIEWER'S CALL, NAMED AND WRITTEN DOWN (2026-11-16, Hig: "Let's reject this one", nos_h05191:61292 at 59.06360,-151.37572:
+3 fathoms in the 1931 lead-line record among 33-35 fathoms, nearest neighbour 222 m, almost certainly a dropped digit; no sheet to reread it from).
+The cast leaves the edited CSV every recipe reads; the base CSV keeps it, the dev database flags it 'rejected' (drawn as a grey ring), and
+--withdraw puts it back.  Rules never reject: a lone cast that only looks unlikely goes on the review list, not here.
 
 A REREAD IS NOT A REJECTION, AND NOT AN OPINION ABOUT THE SEA BED (2026-11-05, Hig's review of cm18, nos_h05187:55404 at 59.16419,-151.51308: 0.9 m among 11-13 fathoms, no rock on the chart; the 1931 smooth sheet shows
 a plain "12" there, keyed as "1/2" fathom when the sheet was digitized).  The measurement is the surveyor's number on the sheet; the digital file is a copy of it, and where the copy is wrong the sheet is put back.  A reread
@@ -78,7 +84,7 @@ def export(a):
 def merge(a):
     with tempfile.TemporaryDirectory() as td:
         g = f"{td}/e.geojson"; subprocess.run([OGR, "-q", "-f", "GeoJSON", g, a.edited, "cast_review"], check=True); F = json.load(open(g))["features"]
-    E = _edits(); seen = set(); today = datetime.date.today().isoformat(); n = dict(move=0, use=0, questionable=0, reread=0, cancelled=0, bad_decision=[], depth_changed=[])
+    E = _edits(); seen = set(); today = datetime.date.today().isoformat(); n = dict(move=0, use=0, questionable=0, reread=0, reject=0, cancelled=0, bad_decision=[], depth_changed=[])
     for f in F:
         q = f["properties"]; k = q["key"]; seen.add(k); x, y = f["geometry"]["coordinates"][:2]; dx, dy = x - q["x0"], y - q["y0"]; moved = float(np.hypot(dx, dy)) > MOVED_M
         d = (q.get("decision") or "").strip().lower() or ("move" if moved else "")
@@ -86,6 +92,8 @@ def merge(a):
             if moved:
                 E[k]["geometry"]["coordinates"] = [round(x, 2), round(y, 2)]; E[k]["properties"].update(dx=round(dx, 2), dy=round(dy, 2))
             n["reread"] += 1; continue
+        if k in E and E[k]["properties"]["decision"] == "reject":          # made by `reject`: only `reject --withdraw` undoes it
+            n["reject"] += 1; continue
         if d not in ("", "move", "use", "questionable"):
             n["bad_decision"].append(k); continue
         if moved and d != "move":
@@ -163,15 +171,40 @@ def unbound(a):
     print(f"{len(rows)} soundings read as ordinary; {len(E)} edits on file.  Now: cast_edits.py apply")
 
 
+def reject(a):
+    """Record (or with --withdraw remove) a reviewer's rejection of one NOS cast."""
+    E = _edits()
+    if a.withdraw:
+        if E.get(a.key, {}).get("properties", {}).get("decision") != "reject":
+            raise SystemExit(f"{a.key} is not rejected")
+        del E[a.key]
+    else:
+        row = next((r for src in BASE for r in csv.DictReader(open(src)) if _key(r) == a.key), None)
+        if row is None:
+            raise SystemExit(f"{a.key} is in no base file")
+        if not (a.basis or "").strip():
+            raise SystemExit("a rejection needs its basis: why, and whose call")
+        if a.key in E and E[a.key]["properties"]["decision"] not in ("reject",):
+            raise SystemExit(f"{a.key} already has a {E[a.key]['properties']['decision']} edit: withdraw that first")
+        x0, y0 = float(row["x"]), float(row["y"])
+        E[a.key] = dict(type="Feature", geometry=dict(type="Point", coordinates=[round(x0, 2), round(y0, 2)]),
+                        properties=dict(key=a.key, survey=row["survey"], z=float(row["z"]), decision="reject", x0=x0, y0=y0, dx=0.0, dy=0.0, depth0_m=float(row["depth_m"]),
+                                        basis=a.basis.strip(), date=datetime.date.today().isoformat()))
+    EDITS.write_text(json.dumps(dict(type="FeatureCollection", crs=dict(type="name", properties=dict(name="EPSG:6334")), features=list(E.values())), indent=0))
+    print(f"{a.key}: {'rejection withdrawn' if a.withdraw else 'rejected'}; {len(E)} edits on file.  Now: cast_edits.py apply")
+
+
 def apply(a):
     E = _edits(); used = set()
     for src, dst in {**BASE, **LAKE}.items():
         with open(src) as fh:
-            rd = csv.DictReader(fh); fld = rd.fieldnames + ["x0", "y0", "moved", "held", "depth0", "bound0"]; rows = []
+            rd = csv.DictReader(fh); fld = rd.fieldnames + ["x0", "y0", "moved", "held", "depth0", "bound0"]; rows = []; nrej = 0
             for r in rd:
                 e = E.get(_key(r)); r.update(x0="", y0="", moved="", held="", depth0="", bound0="")
                 if e and src in LAKE and e["properties"]["decision"] != "unbound":
                     e = None                                   # a lake sounding takes only an unbound
+                if e and e["properties"]["decision"] == "reject":
+                    used.add(_key(r)); nrej += 1; continue          # the reviewer's rejection: out of what the recipes read
                 if e:
                     used.add(_key(r)); p = e["properties"]
                     if p["decision"] == "unbound":
@@ -191,7 +224,7 @@ def apply(a):
                 rows.append(r)
         with open(str(dst) + ".part", "w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=fld, lineterminator="\n"); w.writeheader(); w.writerows(rows)
-        os.replace(str(dst) + ".part", dst); print(f"{dst.name}: {len(rows)} rows, {sum(r['moved'] == '1' for r in rows)} moved, {sum(r['held'] == '1' for r in rows)} held, {sum(r['depth0'] != '' for r in rows)} reread, {sum(r['bound0'] != '' for r in rows)} unbound")
+        os.replace(str(dst) + ".part", dst); print(f"{dst.name}: {len(rows)} rows, {sum(r['moved'] == '1' for r in rows)} moved, {sum(r['held'] == '1' for r in rows)} held, {sum(r['depth0'] != '' for r in rows)} reread, {sum(r['bound0'] != '' for r in rows)} unbound, {nrej} rejected")
     miss = set(E) - used
     if miss:
         print("edits whose cast is in no base file:", sorted(miss)[:10])
@@ -250,6 +283,20 @@ def sync_dev(a=None):
             n["ambiguous"].append(k); continue                               # the database's depth is not the digital file's: someone else changed it
         note = (f"{old} | " if old else "") + f"{Q}{k} was {p['depth0_m']} m in the digital file; reread from the survey's sheet as {p['depth_m']} m ({p['date']}). {p['basis'].replace('|', '/')} ||"    # after a move's header, which sync reads from the front
         sql.append(f"UPDATE soundings SET depth_m = {float(p['depth_m'])}, notes = '{note.replace(chr(39), chr(39) * 2)}', updated_at = now() WHERE id = {int(i)};"); n["reread"] += 1
+    # the rejections: flag 'rejected' with the basis as the reason (prefixed, so a withdrawn one is cleared)
+    J = "cast_reject:"; RJ = {k: f for k, f in _edits().items() if f["properties"]["decision"] == "reject"}; n.update(rejected=0, reject_withdrawn=0)
+    for ln in _psql(f"SELECT id, flag_reason FROM soundings WHERE flag_reason LIKE '{J}%';").splitlines():
+        i, fr = ln.split("|", 1)
+        if fr[len(J):].split(" ", 1)[0] not in RJ:
+            sql.append(f"UPDATE soundings SET flag = NULL, flag_reason = NULL, updated_at = now() WHERE id = {int(i)};"); n["reject_withdrawn"] += 1
+    for k, f in RJ.items():
+        p = f["properties"]
+        R = _psql(f"SELECT s.id FROM soundings s JOIN sounding_surveys u ON u.id = s.survey_id WHERE u.slug = '{p['survey']}' AND ST_DWithin(ST_Transform(s.geom, 6334), "
+                  f"ST_SetSRID(ST_MakePoint({p['x0']}, {p['y0']}), 6334), 1.0);").splitlines()
+        if len(R) != 1:
+            n["not_found" if not R else "ambiguous"].append(k); continue
+        reason = f"{J}{k} {p['basis']} ({p['date']})".replace("'", "''")
+        sql.append(f"UPDATE soundings SET flag = 'rejected', flag_reason = '{reason}', updated_at = now() WHERE id = {int(R[0])};"); n["rejected"] += 1
     if sql:
         _psql("\n".join(sql))
     print("dev database:", {k: (v if not isinstance(v, list) else v[:10]) for k, v in n.items()})
@@ -260,6 +307,7 @@ if __name__ == "__main__":
     c = sp.add_parser("export"); c.add_argument("out"); c.add_argument("--review")
     m = sp.add_parser("merge"); m.add_argument("edited"); m.add_argument("--basis")
     sp.add_parser("apply"); sp.add_parser("sync-dev")
+    j = sp.add_parser("reject"); j.add_argument("key"); j.add_argument("--basis"); j.add_argument("--withdraw", action="store_true")
     c = sp.add_parser("reread"); c.add_argument("key"); c.add_argument("depth_m", type=float); c.add_argument("--basis", required=True); c.add_argument("--source")
     c = sp.add_parser("unbound"); c.add_argument("keys", nargs="+"); c.add_argument("--basis", required=True)
-    a = ap.parse_args(); dict(export=export, merge=merge, apply=apply, reread=reread, unbound=unbound, **{"sync-dev": sync_dev})[a.cmd](a)
+    a = ap.parse_args(); dict(export=export, merge=merge, apply=apply, reread=reread, unbound=unbound, reject=reject, **{"sync-dev": sync_dev})[a.cmd](a)

@@ -48,6 +48,12 @@
      "default": "ground"
     },
     {
+     "value": {
+      "eq": 0.0,
+      "as": "void"
+     }
+    },
+    {
      "raster": {
       "path": "/Volumes/Nunatak/lidar_build/composite/kj_r5c2/obs/water_3dep.tif",
       "map": {
@@ -203,7 +209,8 @@
    "source_bits": "/Volumes/Powder/lidar_build/kbay_joint/boxes/kj_r5c2/joint_src.tif",
    "water_blind": [
     "sfm2023bare",
-    "arcticdem"
+    "arcticdem",
+    "arcticdem_alpine"
    ],
    "water_blind_notes": "photogrammetry cannot observe a water surface or a bed: over Emerald Lake the 2023 SfM reconstructed a noisy surface 1-3 m under the 3DEP level (p5-p95 347.3-351.7 at 351.1) that run 18 took for the shore and the bed. Inside a body or a trusted polygon, cells the SfM alone won are unobserved to the shoreline stage and holes to the fill (shore.water_blind_mask).",
    "land_support_notes": "joint.py: surveys with a surviving ground/bed cell (the berg rule counts surveys, not layers)",
@@ -430,7 +437,7 @@
     "name": "bathy2009",
     "kind": "grid",
     "cls": "bed",
-    "src": "/Volumes/Nunatak/lidar_build/bathy_src/kachemak_2008_2009_mllw_nad83_clean.vrt",
+    "src": "/Volumes/Nunatak/lidar_build/bathy_src/kachemak_2008_2009_mllw_nad83_margin.vrt",
     "date": "2009-07-01",
     "sigma_m": 0.5,
     "shift_m": -1.38,
@@ -487,6 +494,19 @@
     "sigma_m": 1.5,
     "footprint_close_m": 10,
     "notes": "ArcticDEM mosaic v4.1 (2011-2021 strips, dated at their middle), NAVD88 via GEOID12B and the ITRF-NAD83 shift, real data only (datamask), and only where it stands < 1 m above 3DEP (topobathy/arcticdem_ground_cand.py: a surface model -- canopy and snow stand on it; where it reads lower than or level with the IfSAR it matches the lidar bare earth as well as or better than 3DEP, Hig 2026-10-31). Derived: calibrated against the lidar it overlaps (+0.7 m over the Homer bench) and yielding to it. The compilations cgoa and crm left the layer the same day: NOS soundings (nos_*.csv) and CRM's cell centres are fill points instead.",
+    "adjust_global_m": 0.0,
+    "adjust_stable_m": 5.0
+   },
+   {
+    "name": "arcticdem_alpine",
+    "kind": "grid",
+    "cls": "ground",
+    "derived": true,
+    "src": "/Volumes/Powder/lidar_build/kbay_joint/obs/arcticdem_alpine_2m.tif",
+    "date": "2016-07-01",
+    "sigma_m": 2.0,
+    "footprint_close_m": 10,
+    "notes": "ArcticDEM on high, steep ground the < 1 m gate rejects (topobathy/arcticdem_alpine.py, Hig 2026-11-16: 'using ArcticDEM as better than 3DEP for high steep terrain'): 3DEP >= 300 m and slope >= 20 deg, ArcticDEM less its 1.4 m bias, never under 3DEP, feathered 30 m, off the 2020 glacier outline + 100 m. Validated against lidar off the ice: RMS 3.1-3.6 m vs 3DEP 4.3-4.9 m, closer on 65-71 % (review_1114/adem_alpine_val.py, REVIEW.md section 17).",
     "adjust_global_m": 0.0,
     "adjust_stable_m": 5.0
    },

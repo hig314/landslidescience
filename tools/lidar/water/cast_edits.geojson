@@ -2133,6 +2133,29 @@
 "basis": "Hig 2026-11-08/10: the Grewingk ice face was straight; the stretch of Berg's 2017 ice-face line that swings >30 m lakeward of the straight face (through 59.6038,-151.0800, 122-140 m deep) is an ordinary sounding, not a minimum depth",
 "date": "2026-11-10"
 }
+},
+{
+"type": "Feature",
+"geometry": {
+"type": "Point",
+"coordinates": [
+593138.76,
+6548263.58
+]
+},
+"properties": {
+"key": "nos_h05191:61292",
+"survey": "nos_h05191",
+"z": -8.58,
+"decision": "reject",
+"x0": 593138.76,
+"y0": 6548263.58,
+"dx": 0.0,
+"dy": 0.0,
+"depth0_m": 5.5,
+"basis": "Hig 2026-11-16: 3 fathoms in the 1931 lead-line record (H05191) among 33-35 fathom neighbours, nearest 222 m; almost certainly a dropped digit (33 -> 3). Rejected by the reviewer.",
+"date": "2026-11-16"
+}
 }
 ]
 }

@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np, rasterio
 from rasterio.windows import from_bounds
 from rasterio import features
+from rasterio.enums import Resampling
 from scipy import ndimage
 
 W = Path("/Volumes/Nunatak/lidar_build/composite"); WATER = Path("/Users/Hig/Claude_projects/landslidescience-topobathy/tools/lidar/water")
@@ -31,18 +32,40 @@ COMP = ("ocm2023", "ncei2010", "cudem2022", "crm")
 DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hig's low-tide mapping
 P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
-         level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24)
+         level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24, amg=1,
+         snd_mode=0, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
+
+
+GRID = dict(res=0.0)      # > 0: every raster is read onto this resolution (the box driver's coarse deep-sea pass, --set grid_m=16)
 
 
 def read(path, win):
     with rasterio.open(path) as s:
         w = from_bounds(*win, s.transform).round_offsets().round_lengths()
+        if GRID["res"] > 0:
+            # ONE COARSE GRID FOR EVERY INPUT whatever its own resolution (the water bodies are 8 m, the rest 2 m): the window's extent at
+            # GRID["res"]; floats averaged over their valid cells, classes and ids by the nearest cell
+            oh, ow = max(int(round((win[3] - win[1]) / GRID["res"])), 1), max(int(round((win[2] - win[0]) / GRID["res"])), 1)
+            fl = np.dtype(s.dtypes[0]).kind == "f"
+            a = s.read(1, window=w, boundless=True, fill_value=(s.nodata if s.nodata is not None else 0), out_shape=(oh, ow),
+                       resampling=Resampling.average if fl else Resampling.nearest, masked=fl)
+            if fl: a = np.ma.filled(a.astype(np.float64), np.nan)
+            T_ = rasterio.transform.from_bounds(win[0], win[1], win[2], win[3], ow, oh)
+            if a.dtype.kind == "f": a[a < -9000] = np.nan
+            return a, GRID["res"], T_
         a = s.read(1, window=w, boundless=True, fill_value=(s.nodata if s.nodata is not None else 0))
         if a.dtype.kind == "f":
             a = a.astype(np.float64)
             if s.nodata is not None: a[a == s.nodata] = np.nan
             a[a < -9000] = np.nan
         return a, s.res[0], s.window_transform(w)
+
+
+try:
+    import pyamg as _AMG
+except ImportError:
+    _AMG = None
+AMG = dict(on=True, min_n=5000, tol=1e-10, dx=0.003, heavy=50.0, drift=0.0, cycle="W", maxit=200, rebuild_at=90, builds=0, its=0, calls=0, sec=0.0, tb=0.0, cpu=0.0)
 
 
 def lap(z, ex=None, ey=None):
@@ -64,7 +87,7 @@ def links(cut):
     return (~(cut[:, 1:] ^ cut[:, :-1])).astype(float), (~(cut[1:] ^ cut[:-1])).astype(float)
 
 
-def _operator(shape, free, lt, lb, ex, ey, beta):
+def _operator(shape, free, lt, lb, ex, ey, beta, tens=None):
     """The smoothness operator  lt G + lb G diag(beta) G  assembled sparse, reduced to the FREE cells: (rows of the free cells over all cells,
     free x free block, its diagonal, the free cells' indices).  The fit then costs the free cells, not the tile."""
     import scipy.sparse as sp
@@ -73,24 +96,60 @@ def _operator(shape, free, lt, lb, ex, ey, beta):
     Dx = sp.kron(sp.identity(h, format="csr"), D(w_), format="csr"); Dy = sp.kron(D(h), sp.identity(w_, format="csr"), format="csr")
     Wx = sp.diags(np.ones(h * (w_ - 1)) if ex is None else ex.ravel()); Wy = sp.diags(np.ones((h - 1) * w_) if ey is None else ey.ravel())
     G = (Dx.T @ Wx @ Dx + Dy.T @ Wy @ Dy).tocsr()
+    Gt = G
+    if tens is not None:                                                             # the tension, cell by cell (a link takes the mean of its two cells)
+        tx = 0.5 * (tens[:, 1:] + tens[:, :-1]).ravel(); ty = 0.5 * (tens[1:] + tens[:-1]).ravel()
+        Gt = (Dx.T @ (Wx @ sp.diags(tx)) @ Dx + Dy.T @ (Wy @ sp.diags(ty)) @ Dy).tocsr()
     fi = np.flatnonzero(free.ravel() > 0)
     Gf = G[fi]                                                                      # free rows
-    M = lt * Gf
+    M = lt * Gt[fi]
     if lb: M = M + lb * (Gf @ (G if beta is None else sp.diags(beta.ravel()) @ G))
     M = M.tocsr(); Mff = M[:, fi].tocsr()
     return M, Mff, Mff.diagonal(), fi
 
 
-def pcg(x, free, wt, rhs, lt, lb, iters, ex=None, ey=None, beta=None, op=None):
+def pcg(x, free, wt, rhs, lt, lb, iters, ex=None, ey=None, beta=None, op=None, tens=None, zp=None):
     """Jacobi-preconditioned CG on the free cells of  (wt + lt G + lb G beta G) x = rhs,  x given on the others.  `op` caches the
     assembled operator between calls on the same level (the set of free cells, the cuts and the stiffness do not change)."""
     if op is None: op = {}
-    if "M" not in op: op["M"], op["Mff"], op["d"], op["fi"] = _operator(x.shape, free, lt, lb, ex, ey, beta)
+    if "M" not in op: op["M"], op["Mff"], op["d"], op["fi"] = _operator(x.shape, free, lt, lb, ex, ey, beta, tens)
     M, Mff, dM, fi = op["M"], op["Mff"], op["d"], op["fi"]
     if not fi.size: return x, 0.0
     xf_all = x.ravel(); wf_ = wt.ravel()[fi]
     base = M @ np.where(free.ravel() > 0, 0.0, xf_all)                              # what the fixed cells contribute
     bf = rhs.ravel()[fi] - base; xf = xf_all[fi].copy(); Mi = 1.0 / (wf_ + dM + 1e-12)
+    if zp is not None: bf = bf + M @ zp.ravel()
+    if _AMG is not None and AMG["on"] and fi.size >= AMG["min_n"]:
+        # Jacobi-CG does not converge on this system in any useful time (the shoal window, 495,616 unknowns: 1.9 m from the true minimum after
+        # 6,000 iterations; the cascade's start 2.2 m from it).  Smoothed aggregation with the plate's null space reaches 1 cm in ~40.
+        # The hierarchy is built once per level on the first diagonal it meets and reused while the diagonal (data weights, bounds) moves;
+        # rebuilt when that stops working.
+        import scipy.sparse as sp
+        t_ = time.time(); tc_ = time.process_time(); A = (Mff + sp.diags(wf_)).tocsr(); bn = float(np.sqrt(bf @ bf)) + 1e-30; built = False; k_tot = 0
+        def build():
+            yy_, xx_ = np.divmod(fi, x.shape[1])
+            tb_ = time.time(); op["ml"] = _AMG.smoothed_aggregation_solver(A, B=np.column_stack([np.ones(fi.size), xx_ - xx_.mean(), yy_ - yy_.mean()]), max_coarse=500, smooth=("energy", {"degree": 1})); AMG["builds"] += 1; AMG["tb"] = time.time() - tb_
+        # ...rebuilt when the set of HELD cells has changed (a bound's or a basin's penalty, a cast's weight: a diagonal 100 or more where the
+        # hierarchy knew none, or the reverse) -- a stale one costs ~90 iterations where a fresh one costs 20-40 and 5-10 s of set-up.
+        hv_ = wf_ >= AMG["heavy"]                                               # (a few cells joining or leaving do not stale it: over drift x n do)
+        if "ml" not in op or op["ml_hv"].size != hv_.size or int((hv_ ^ op["ml_hv"]).sum()) > max(50, AMG["drift"] * fi.size): build(); built = True; op["ml_hv"] = hv_
+        # stop on the STEP, not the residual: 1 cm of error is |r|/|b| 1.6e-6 on the shoal and 4e-8 on Gore Lake (the bounds' penalties
+        # swell |b|); the sum of the last five steps' largest moves under AMG["dx"] is the same thing on both.
+        from collections import deque
+        while True:
+            Pm = op["ml"].aspreconditioner(cycle=AMG["cycle"]); r = bf - A @ xf; zv = Pm @ r; pv = zv.copy(); rz = float(r @ zv); ok = False; st = deque(maxlen=5)
+            for _ in range(AMG["maxit"] if built else AMG["rebuild_at"]):
+                if np.sqrt(float(r @ r)) < AMG["tol"] * bn or (len(st) == 5 and sum(st) < AMG["dx"]): ok = True; break
+                Ap = A @ pv; pAp = float(pv @ Ap)
+                if pAp <= 0: break
+                al = rz / pAp; xf += al * pv; r -= al * Ap; st.append(abs(al) * float(np.abs(pv).max()))
+                zv = Pm @ r; rz1 = float(r @ zv); pv = zv + (rz1 / rz) * pv; rz = rz1; k_tot += 1
+            if ok or built: break
+            build(); built = True; op["ml_hv"] = hv_
+        AMG["its"] += k_tot; AMG["calls"] += 1; AMG["sec"] += time.time() - t_; AMG["cpu"] += time.process_time() - tc_
+        if os.environ.get("AMG_DEBUG"): print(f"      amg {x.shape[0]}x{x.shape[1]} n {fi.size}: built {built} ({AMG['tb']:.1f} s), {k_tot} its, {time.time() - t_:.1f} s, |r|/|b| {np.sqrt(float(r @ r)) / bn:.1e}", flush=True)
+        out = xf_all.copy(); out[fi] = xf
+        return out.reshape(x.shape), np.sqrt(float(r @ r)) / bn
     r = bf - (Mff @ xf + wf_ * xf); zv = Mi * r; pv = zv.copy(); rz = float(r @ zv); r0 = np.sqrt(float(r @ r)) + 1e-30
     for _ in range(iters):
         Ap = Mff @ pv + wf_ * pv; pAp = float(pv @ Ap)
@@ -113,11 +172,11 @@ def coarsen(a, how):
             warnings.simplefilter("ignore"); return np.nanmean(b, (1, 3))
 
 
-def solve(fixed, zfix, w, b, mu, z1, ub, lam, tau, p, level=0, log=None, cut=None, stop_level=0, beta=None, ops=None):
+def solve(fixed, zfix, w, b, mu, z1, ub, lam, tau, p, level=0, log=None, cut=None, stop_level=0, beta=None, ops=None, z0=None):
     """The fit on one level, started from the level below (cascade): fixed cells hold zfix; soft data (w, b = sum w d); the weak pull mu
     toward z1; the bound ub (NaN = none).  Returns (z, active)."""
     h, w_ = fixed.shape
-    if min(h, w_) > 48 and h % 2 == 0 and w_ % 2 == 0 and level < 7:
+    if z0 is None and min(h, w_) > 48 and h % 2 == 0 and w_ % 2 == 0 and level < 7:
         ct = cut if cut is not None else np.zeros(fixed.shape, bool)
         ncut = coarsen(ct.astype(float), "sum"); cutc = ncut >= 2                       # a coarse cell is ice when half of it is
         fnc = fixed & ~ct; nf = coarsen(fnc.astype(float), "sum"); fx = cutc | ((nf + ncut) == 4)
@@ -126,13 +185,17 @@ def solve(fixed, zfix, w, b, mu, z1, ub, lam, tau, p, level=0, log=None, cut=Non
         wc = coarsen(np.where(fixed, 0.0, w), "sum") + np.where(fx, 0.0, p["w_fix"] * nf)   # the ice's heights never weigh on the bed beside it
         bc = coarsen(np.where(fixed, 0.0, b), "sum") + np.where(fx, 0.0, p["w_fix"] * nf * zf_nc)
         muc = coarsen(mu, "sum"); z1c = np.where(muc > 0, coarsen(mu * z1, "sum") / np.maximum(muc, 1e-30), 0.0)
-        zc, _ = solve(fx, zf, wc, bc, muc, z1c, coarsen(ub, "mean"), lam, tau, p, level + 1, log, cutc if cut is not None else None, stop_level, None if beta is None else coarsen(beta, "sum") / 4.0, ops)
+        pc_ = p if p.get("_tens") is None else dict(p, _tens=coarsen(p["_tens"], "mean"))
+        if p.get("_zp") is not None: pc_ = dict(pc_, _zp=coarsen(p["_zp"], "mean"))
+        zc, _ = solve(fx, zf, wc, bc, muc, z1c, coarsen(ub, "mean"), lam, tau, pc_, level + 1, log, cutc if cut is not None else None, stop_level, None if beta is None else coarsen(beta, "sum") / 4.0, ops)
         if cut is not None and cutc.any():                                              # carried up on each side of the cut separately
             zm = lambda q, m_: ndimage.zoom(q * m_, 2, order=1, mode="nearest", grid_mode=True) / np.maximum(ndimage.zoom(m_, 2, order=1, mode="nearest", grid_mode=True), 1e-6)
             zl = zm(zc, (~cutc).astype(float)); zi = zm(zc, cutc.astype(float)); has_l = ndimage.zoom((~cutc).astype(float), 2, order=1, mode="nearest", grid_mode=True) > 0.05
             z = np.where(ct, zi, np.where(has_l, zl, ndimage.zoom(zc, 2, order=0, mode="nearest", grid_mode=True)))
         else:
             z = ndimage.zoom(zc, 2, order=1, mode="nearest", grid_mode=True)
+    elif z0 is not None:
+        z = z0.copy()
     else:
         ok = fixed | (w > 0); z = np.full(fixed.shape, float(np.where(fixed, zfix, b / np.maximum(w, 1e-30))[ok].mean()) if ok.any() else 0.0)
     z = np.where(fixed, zfix, z); free = (~fixed).astype(float)
@@ -140,16 +203,39 @@ def solve(fixed, zfix, w, b, mu, z1, ub, lam, tau, p, level=0, log=None, cut=Non
     ex, ey = links(cut); op = (ops if ops is not None else {}).setdefault(level, {})
     lt, lb = lam * tau, lam * (1 - tau) / 4.0 ** level                 # tension is scale-free in 2-D; curvature scales with 1 / h^2
     hasb = np.isfinite(ub) & ~fixed; ubz = np.where(hasb, ub, 0.0); act = np.zeros(fixed.shape, bool); res = 0.0
-    mv = 0.0
-    for rnd in range(p["rounds"] if level else p["rounds"] + 1):
-        act = hasb & (z > ub - 0.02)
-        wb = np.where(act, p["bound_w"], 0.0); zp = z
-        z, res = pcg(z, free, w + mu + wb, b + mu * z1 + wb * ubz, lt, lb, p["iters"] * (4 if min(h, w_) <= 96 else 1), ex, ey, beta, op)
-        mv = float(np.percentile(np.abs(z - zp)[~fixed], 99.9)) if (~fixed).any() else 0.0
-    for _ in range(int(p["max_rounds"])):                                           # every level runs until a round no longer moves it
-        if mv < p["converge_m"]: break
-        act = hasb & (z > ub - 0.02); wb = np.where(act, p["bound_w"], 0.0); zp = z
-        z, res = pcg(z, free, w + mu + wb, b + mu * z1 + wb * ubz, lt, lb, p["iters"], ex, ey, beta, op); mv = float(np.percentile(np.abs(z - zp)[~fixed], 99.9)) if (~fixed).any() else 0.0
+    if _AMG is not None and AMG["on"] and p.get("snd_mode") and int(free.sum()) >= AMG["min_n"]:
+        tn_ = p.get("_tens"); wq_ = w + mu; rq_ = b + mu * z1; fr_ = free.ravel() > 0
+        def J(zz):
+            if "M" not in op: return 0.0
+            Mo, fo = op["M"], op["fi"]; zr = zz.ravel(); zf = zr[fo]
+            q = 0.5 * zf @ (Mo @ zr + Mo @ np.where(fr_, 0.0, zr)) + 0.5 * (wq_.ravel()[fo] * zf) @ zf - rq_.ravel()[fo] @ zf
+            if p.get("_zp") is not None: q -= zf @ (Mo @ p["_zp"].ravel())
+            return float(q + 0.5 * p["bound_w"] * (np.maximum(np.where(hasb, zz - ubz, 0.0), 0.0) ** 2).sum())
+        act_p = None; mv = 0.0; Jc = None; n_half = 0
+        for rnd in range(int(p["max_rounds"]) + 2):
+            act = hasb & (z > ub + 1e-4)
+            if act_p is not None and not (act ^ act_p).any(): break
+            wb = np.where(act, p["bound_w"], 0.0)
+            zN, res = pcg(z, free, wq_ + wb, rq_ + wb * ubz, lt, lb, p["iters"], ex, ey, beta, op, tn_, p.get("_zp"))
+            if Jc is None: Jc = J(z)
+            t_ = 1.0; zt = zN; Jt = J(zt)
+            while Jt > Jc and t_ > 1.0 / 64:
+                t_ *= 0.5; zt = z + t_ * (zN - z); Jt = J(zt); n_half += 1
+            mv = float(np.percentile(np.abs(zt - z)[~fixed], 99.9)) if (~fixed).any() else 0.0
+            z = zt; Jc = Jt; act_p = act
+            if mv < p["converge_m"]: break
+        if os.environ.get("AMG_DEBUG"): print(f"      newton {h}x{w_}: {rnd + 1} rounds, {n_half} halvings, active {int(act.sum())}, last move {mv:.3f} m", flush=True)
+    else:
+        mv = 0.0
+        for rnd in range(p["rounds"] if level else p["rounds"] + 1):
+            act = hasb & (z > ub + 1e-4)
+            wb = np.where(act, p["bound_w"], 0.0); zp = z
+            z, res = pcg(z, free, w + mu + wb, b + mu * z1 + wb * ubz, lt, lb, p["iters"] * (4 if min(h, w_) <= 96 else 1), ex, ey, beta, op, p.get("_tens"), p.get("_zp"))
+            mv = float(np.percentile(np.abs(z - zp)[~fixed], 99.9)) if (~fixed).any() else 0.0
+        for _ in range(int(p["max_rounds"])):                                           # every level runs until a round no longer moves it
+            if mv < p["converge_m"]: break
+            act = hasb & (z > ub + 1e-4); wb = np.where(act, p["bound_w"], 0.0); zp = z
+            z, res = pcg(z, free, w + mu + wb, b + mu * z1 + wb * ubz, lt, lb, p["iters"], ex, ey, beta, op, p.get("_tens"), p.get("_zp")); mv = float(np.percentile(np.abs(z - zp)[~fixed], 99.9)) if (~fixed).any() else 0.0
     if log: log(f"    level {level}: {h}x{w_}, free {int(free.sum())}, bound active {int(act.sum())}, last round moved p99.9 {mv:.3f} m")
     return z, act
 
@@ -163,12 +249,14 @@ def _box(free, pad=4, m=64):
     return slice(r0, r1), slice(c0, c1)
 
 
-def solve_in(fixed, zfix, w, b, mu, z1, ub, lam, tau, p, log=None, cut=None, stop_level=0, beta=None, ops=None):
+def solve_in(fixed, zfix, w, b, mu, z1, ub, lam, tau, p, log=None, cut=None, stop_level=0, beta=None, ops=None, z0=None):
     """solve() on the bounding box of the free cells (a tile with a strip of water along one side costs that strip)."""
     sl = _box(~fixed)
     if sl is None: return np.where(fixed, zfix, 0.0), np.zeros(fixed.shape, bool)
     q = lambda x: None if x is None else x[sl]
-    zs, acts = solve(fixed[sl], zfix[sl], w[sl], b[sl], mu[sl], z1[sl], ub[sl], lam, tau, p, 0, log, q(cut), stop_level, q(beta), ops)
+    if p.get("_tens") is not None: p = dict(p, _tens=p["_tens"][sl])
+    if p.get("_zp") is not None: p = dict(p, _zp=p["_zp"][sl])
+    zs, acts = solve(fixed[sl], zfix[sl], w[sl], b[sl], mu[sl], z1[sl], ub[sl], lam, tau, p, 0, log, q(cut), stop_level, q(beta), ops, q(z0))
     z = np.where(fixed, zfix, 0.0); z[sl] = zs; act = np.zeros(fixed.shape, bool); act[sl] = acts
     return z, act
 
@@ -194,8 +282,21 @@ _CACHE = {}
 def _rows(path):
     """A points file's rows (x, y, z, sigma, bound, survey), read once per process (a box is solved in a hundred tiles)."""
     if path not in _CACHE:
-        _CACHE[path] = [dict(x=float(r["x"]), y=float(r["y"]), z=r["z"], sigma=r["sigma"], bound=r.get("bound") or "", survey=r.get("survey") or "") for r in csv.DictReader(open(path))]
+        _CACHE[path] = [dict(x=float(r["x"]), y=float(r["y"]), z=r["z"], sigma=r["sigma"], bound=r.get("bound") or "", survey=r.get("survey") or "", depth=r.get("depth_m") or "", f=os.path.basename(path)) for r in csv.DictReader(open(path))]
     return _CACHE[path]
+
+
+def _surv_min(path):
+    """The least sigma each survey carries in a points file (what its export gives a cast on flat ground)."""
+    k = ("min", path)
+    if k not in _CACHE:
+        m = {}
+        for r in _rows(path):
+            try: v = float(r["sigma"])
+            except (TypeError, ValueError): continue
+            if v < m.get(r["survey"], 1e9): m[r["survey"]] = v
+        _CACHE[k] = m
+    return _CACHE[k]
 
 
 def _feats(name):
@@ -210,8 +311,9 @@ def main(argv=None, ret=False):
     ap = argparse.ArgumentParser(); ap.add_argument("box"); ap.add_argument("name"); ap.add_argument("win", nargs=4, type=float)
     ap.add_argument("--lakes"); ap.add_argument("--nofig", action="store_true"); ap.add_argument("--nowrite", action="store_true"); ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--tag", default="cm18"); ap.add_argument("--out", default=str(W / "review_1114" / "solve")); ap.add_argument("--holdout", type=float, default=0.0)
+    ap.add_argument("--cur", help="read the product the solve starts from here instead of the box's own (the driver's deep-sea pass merged in)")
     ap.add_argument("--set", nargs="*", default=[]); a = ap.parse_args(argv)
-    p = dict(P); p.update({k: type(P[k])(v) for k, v in (s.split("=") for s in a.set)})
+    p = dict(P); p.update({k: type(P[k])(v) for k, v in (s.split("=") for s in a.set)}); GRID.update(res=float(p["grid_m"])); AMG.update(on=bool(p["amg"]), builds=0, its=0, calls=0, sec=0.0, cpu=0.0)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True); rep = []
     def log(s):
         if not a.quiet: print(s, flush=True)
@@ -219,7 +321,7 @@ def main(argv=None, ret=False):
     t0 = time.time(); d = W / a.box / f"out_{a.tag}"; R = json.load(open(d / "recipe.json")); J = Path(R["joint"]["out"]); win = a.win
     jz, res, T = read(J / "joint_z.tif", win); js, _, _ = read(J / "joint_sigma.tif", win); jn, _, _ = read(J / "joint_n.tif", win)
     src, _, _ = read(J / "joint_src.tif", win); cls, _, _ = read(J / "joint_cls.tif", win); wz, _, _ = read(J / "water_z.tif", win)
-    cur, _, _ = read(d / f"{a.box}.tif", win); si, _, _ = read(d / "source_index.tif", win); lab, _, _ = read(d / "shore_label.tif", win)
+    cur, _, _ = read(a.cur or (d / f"{a.box}.tif"), win); si, _, _ = read(d / "source_index.tif", win); lab, _, _ = read(d / "shore_label.tif", win)
     bid, rb, _ = read(d / "water_bodies.tif", win); lev, _, _ = read(d / "fill_water_level.tif", win)
     zday = read(J / "zone_day.tif", win)[0] if (J / "zone_day.tif").exists() else np.full(jz.shape, np.nan)
     objs = read(J / "layer_objects.tif", win)[0] if (J / "layer_objects.tif").exists() else np.zeros(jz.shape, np.uint8)   # what the layer stage typed an object on the water
@@ -234,7 +336,7 @@ def main(argv=None, ret=False):
     bits = json.load(open(J / "joint_report.json"))["src_bits"]; kind = {s["name"]: s.get("kind") for s in R["joint"]["sources"]}
     mask = lambda names: sum(v for k, v in bits.items() if k in names)
     comp_b = mask(COMP); pts_b = mask([k for k in bits if kind.get(k) == "points"]); lidar_b = mask([k for k in bits if kind.get(k) == "lidar"])
-    doubt_b = mask(DOUBT); grid_b = mask([k for k in bits if kind.get(k) == "grid" and k not in COMP and k != "arcticdem"])
+    doubt_b = mask(DOUBT); grid_b = mask([k for k in bits if kind.get(k) == "grid" and k not in COMP and not k.startswith("arcticdem")])   # every ArcticDEM layer is derived (the alpine one too, 2026-11-16)
     has = np.isfinite(jz) & np.isin(cls, (1, 3, 4)) & ((src & ~pts_b) != 0)
     # WHAT THE LAYER STAGE TYPED AN OBJECT ON THE WATER (a float, a boat: layer_objects, 720d30f) IS NO GROUND (Hig's review of 2026-11-15,
     # the Homer harbour: "clumps of bad points" -- the solve read the joint's cells and not that typing, held 68 float cells fixed 3-8 m
@@ -267,6 +369,29 @@ def main(argv=None, ret=False):
                 if int(k) in tab and "kind" in o: tab[int(k)]["kind"] = o["kind"]
         kinds = {k: v.get("kind") for k, v in tab.items()}
     except Exception as e: log(f"  (no body table: {e})")
+    if p["snd_mode"]:
+        # A BODY'S LEVEL IS ITS SOUNDINGS' OWN (level = z + depth, the survey's): Gore Lake stands at 1.59 m by Hig's 2022 casts and at -3.13 in
+        # the box that took it for tidal water -- and a bound at -3.13 forbids the casts at -2.41.
+        # ...of the WHOLE connected water, not of one body id: Gore Lake is body 3 and thirteen slivers of its own outline (27, 43, 54 ...);
+        # the slivers kept -3.13 and their beds were bound 4.7 m under the lake -- Hig's "rectilinear closed basins" (2026-11-15).
+        nr_ = [k for k, v in kinds.items() if v in ("river", "sea")]
+        wc_ = np.isin(lab, (2, 3)) & np.isfinite(bid) & (bid > 0) & ~np.isin(bid, nr_); Lw_, nw_ = ndimage.label(wc_, structure=np.ones((3, 3), bool)); lv_ = {}
+        for path in R["fill"]["points"]:
+            if re.search(r"nos_|crm_", os.path.basename(path)): continue
+            for row in _rows(path):
+                if not (win[0] < row["x"] < win[2] and win[1] < row["y"] < win[3]) or not row["depth"]: continue
+                c_, r_ = ~T * (row["x"], row["y"]); k_ = Lw_[int(r_), int(c_)]
+                if k_ > 0: lv_.setdefault(int(k_), []).append(float(row["z"]) + float(row["depth"]))
+        for k_, v_ in lv_.items():
+            if len(v_) >= 3:
+                m_ = Lw_ == k_; log(f"  still water of {m_.sum() * res * res / 1e4:.1f} ha in {len(np.unique(bid[m_]))} bodies: level {np.nanmedian(lev[m_]):.2f} m in the product, {np.median(v_):.2f} m by its {len(v_)} soundings: theirs taken, for all of it"); lev[m_] = float(np.median(v_))
+    # WATER WITH NO BODY: a cell the shoreline stage labels water that the water-body raster leaves at 0 (its coarser grid, a sliver) takes
+    # the body nearest it within 20 m.  Left at 0 it counted as still water of an unsounded lake and kept the product's bed -- a 13 m hole in
+    # the Woz at +11 m (59.536174,-151.352177; Hig 2026-11-16).
+    orph_ = np.isin(lab, (2, 3)) & (bid == 0) & inwin
+    if orph_.any() and (bid > 0).any():
+        di_, ix_ = ndimage.distance_transform_edt(bid == 0, return_indices=True); tk_ = orph_ & (di_ * res <= 20.0)
+        bid = bid.copy(); bid[tk_] = bid[ix_[0][tk_], ix_[1][tk_]]; log(f"  water with no body: {int(orph_.sum())} cells, {int(tk_.sum())} take the nearest body's id"); del di_, ix_
     rivers = [k for k, v in kinds.items() if v in ("river", "tidal", "sea")]                            # water.py FLAT_KINDS (lake, perched, ephemeral) have one level: still water
     wetl = np.isin(lab, (2, 3)) & np.isfinite(lev) & (lev > p["tide_max_m"] + 1.0) & inwin
     still = wetl & ~np.isin(bid, rivers); n_berg = 0; bergm = np.zeros(jz.shape, bool)
@@ -281,6 +406,16 @@ def main(argv=None, ret=False):
                 lev[sl2][c_] = float(np.median(lev[sl2][rs])); still[sl2] |= c_; cur[sl2][c_] = np.nan; bergm[sl2] |= c_; n_berg += int(c_.sum())   # its "bed" in the product is the pillar: no prior from it
     ice = (lab == 4) & np.isfinite(cur) & inwin
     notbed = still & has & (cls != 3)                                                                   # the surface of the water, or something on it
+    # ...and, IN STILL WATER, no cell a WATER-BLIND source (photogrammetry: recipe layers' water_blind) took part in, whatever its class: the
+    # joint fused one sfm2023bare "ground" cell at the lake's surface (~46 m) with a 2017 sonar cast (-19 m) into a "bed" at +4.64 m, and the
+    # solve bent the lake bed up to it -- the spike at Grewingk, 59.60276,-151.07895 (Hig, 2026-11-15/16).  The casts enter as casts.
+    wbl_ = next((l.get("water_blind") for l in R.get("layers", []) if isinstance(l, dict) and l.get("water_blind")), None) or ["sfm2023bare", "arcticdem", "arcticdem_alpine"]
+    blind_b = mask(wbl_); nblind = int((still & has & ((src & blind_b) != 0) & ~notbed).sum())
+    notbed |= still & has & ((src & blind_b) != 0)
+    # ...and in a RIVER standing above the tide's reach a COMPILATION's cell is no bed either (OCM 2023 typed bed at -2.4 m in the Woz at
+    # +11 m, 59.53618,-151.35209, beside ArcticDEM's gravel at +10.5: Hig 2026-11-16, "an error to have that deep hole")
+    rva_ = np.isin(bid, [k for k, v in kinds.items() if v == "river"]) & np.isfinite(lev) & (lev > p["tide_max_m"]) & inwin
+    ncr = int((rva_ & comp_only & ~notbed).sum()); notbed |= rva_ & comp_only
     n_edit = 0; editp = np.zeros(jz.shape, bool)                                                         # ...the product's own modelled cells there are not its shape either
     if EDITS.exists():                                                                                   # ...and what a reviewer has said is not bed (the 59.47321 multibeam pit)
         from shapely.geometry import box as sbox_
@@ -321,6 +456,7 @@ def main(argv=None, ret=False):
     # ...of the open sea: in a one-level body the product is a flat sheet with a cone at each sounding (Gore Lake, Hig 2026-11-15: "a nearly
     # flat bottom with circular basins around the soundings"), no shape to keep.
     scope = (si == 3) & np.isfinite(cur) & (cur < p["scope_deep_m"]) & ~still & inwin & ~editp & ~pond
+    if p["snd_mode"] and p["snd_scope"]: scope &= False                                # the deep sea between soundings is solved with them (its model the prior)
     fix_other = (ice | high | scope | lake_keep) & ~fix_meas
     # A fixed measured cell stands AS THE PRODUCT SHOWS IT where the product shows a measured layer (its composite of the layers: 0.94 km2 of
     # the Spit box differs from the joint's own cell by a median 0.26 m), and as the joint measured it where the product had MODELLED over it
@@ -328,6 +464,8 @@ def main(argv=None, ret=False):
     # present in the lidar" -- the solve held the bar, the box driver kept the product's cell).  The driver writes these cells as returned here.
     fixed = fix_meas | fix_other; zfix = np.where(fix_meas, np.where((si != 3) & np.isfinite(cur), cur, jz), np.where(fix_other, cur, 0.0))
     if ret and int((~fixed & inwin).sum()) < 20: return None                                             # nothing to solve in this tile
+    if nblind: log(f"  still water: {nblind} cells a water-blind source took part in are no bed evidence")
+    if ncr: log(f"  rivers above the tide: {ncr} compilation cells are no bed evidence")
     if still.any(): log(f"  still water above the tide: {still[inwin].mean():.1%} of the window (level p50 {np.nanmedian(lev[still]):.2f} m); {int(notbed.sum())} cells standing at its surface are no bed evidence; {n_berg} cells of berg-top water joined to it; ice {ice[inwin].mean():.1%} (cut from the bed); lakes with no sounding left as the product has them: {lake_keep[inwin].mean():.1%}; reviewer's edits: {n_edit} cells not bed")
     # --- soft data -----------------------------------------------------------------------------------------------------
     w = np.zeros(jz.shape); b = np.zeros(jz.shape)
@@ -335,7 +473,7 @@ def main(argv=None, ret=False):
     sg = np.maximum(np.where(np.isfinite(js), js, 1.0), 0.03) * (1.0 + p["edge_gain"] * np.exp(-din / p["edge_len_m"]))
     w[soft] = 1 / sg[soft] ** 2; b[soft] = jz[soft] / sg[soft] ** 2; lidar_soft = soft.copy()
     s3 = land3 & ~fixed; w[s3] += 1 / p["prior3dep_sigma_m"] ** 2; b[s3] += cur[s3] / p["prior3dep_sigma_m"] ** 2
-    rng = np.random.default_rng(1); held = []; ns = nb_ = n_stale = 0; snd = np.zeros(jz.shape, bool); ws = np.zeros(jz.shape); bs = np.zeros(jz.shape); mins = []; dzp = R["fill"].get("points_dz_m") or {}; dzp = dzp if isinstance(dzp, dict) else {}
+    rng = np.random.default_rng(1); held = []; ns = nb_ = n_stale = 0; snd = np.zeros(jz.shape, bool); ws = np.zeros(jz.shape); bs = np.zeros(jz.shape); mins = []; sl_ = []; dzp = R["fill"].get("points_dz_m") or {}; dzp = dzp if isinstance(dzp, dict) else {}
     for path in R["fill"]["points"]:
         for row in _rows(path):
             px, py = row["x"], row["y"]
@@ -349,10 +487,21 @@ def main(argv=None, ret=False):
                 if not ys_ or max(ys_) + 1.0 < zday[r, c]: n_stale += 1; continue
             if still[r, c] and re.search(r"nos_|crm_", os.path.basename(path)): n_stale += 1; continue
             zz = float(row["z"]) + float(dzp.get(row.get("survey"), 0.0)); s_ = max(float(row["sigma"] or 0.5), p["sounding_sigma_min_m"])
+            if p["snd_mode"]:
+                # the VERTICAL sigma of the cast (Hig: ~1.5 % of depth for the lake casts; a survey's level uncertainty is one offset for the
+                # body, not noise per cast; an NOS survey's own least sigma is what its export gives it on flat ground), and its POSITION
+                # radius, which costs height only where the fitted bed slopes
+                lake_f = not re.search(r"nos_|crm_", row["f"])
+                if lake_f and row["depth"]: s_ = float(np.hypot(p["snd_floor_m"], p["snd_frac"] * float(row["depth"])))
+                elif row["depth"]:                                                    # an NOS cast: lead line or early echo, read to half a fathom
+                    old_ = bool(re.search(r"19[0-4]\d", row["f"])); s_ = float(np.hypot(p["snd_old_floor_m"] if old_ else p["snd_new_floor_m"], (p["snd_old_frac"] if old_ else p["snd_new_frac"]) * float(row["depth"])))
+                else: s_ = max(_surv_min(path).get(row.get("survey"), s_), p["sounding_sigma_min_m"])
+                rp_ = p["snd_pos_lake_m"] if lake_f else (p["snd_pos_old_m"] if re.search(r"19[0-4]\d", row["f"]) else p["snd_pos_new_m"])
             if row.get("bound"):                                                    # "min": the line did not reach the bed -- the bed is at least this deep
                 nb_ += 1; mins.append((r, c, zz, s_)); continue
             if a.holdout and rng.random() < a.holdout: held.append((r, c, zz, s_)); continue
             ws[r, c] += 1 / s_ ** 2; bs[r, c] += zz / s_ ** 2; ns += 1; snd[r, c] = True
+            if p["snd_mode"]: sl_.append((r, c, zz, s_, rp_, px, py, row.get("survey")))
     nl = nlf = 0; linecells = np.zeros(jz.shape, bool)
     from shapely.geometry import shape as shp, box as sbox
     wb_ = sbox(*win)
@@ -499,9 +648,20 @@ def main(argv=None, ret=False):
     # the deep basin between soundings, and a lake's bed, keep the present model as their SHAPE (a prior, not a fixed surface)
     deep = (si == 3) & np.isfinite(cur) & ~comp_only & ~editp & ~pond & (((cur < p["deep_prior_m"]) & ~still) | (still & (cur < lev - 0.5)))
     z0 = np.where(deep, cur, z0)
+    # A RIVER ABOVE THE TIDE has its bed just under its water, seen or not (Hig 2026-11-16, the Woz at 59.53618,-151.35209: "very thin water
+    # over nearly-emergent sand bars ... simply modeling a smooth ground surface just under this water would be good -- it's an error to have
+    # that deep hole").  Where no lidar saw the water the solve had no bound and followed OCM 2023's grid (2.3 m low on the Woz flat even
+    # before a river standing at +11 m): no compilation or product prior in a river body standing above the tide's reach, and its bed is
+    # sloped_depth_m under the river's level (the water seen where there is some, else the body's level) as data, like seen sloping water.
+    rvk_ = [k for k, v in kinds.items() if v == "river"]
+    riv = np.isin(bid, rvk_) & np.isfinite(lev) & (lev > p["tide_max_m"]) & ~fixed & inwin & ~still
+    if riv.any():
+        z0 = np.where(riv, np.nan, z0); rvd = riv & ~sd; rlev = np.where(np.isfinite(env), env, lev)
+        w[rvd] += 1 / p["sloped_sigma_m"] ** 2; b[rvd] += (rlev[rvd] - p["sloped_depth_m"]) / p["sloped_sigma_m"] ** 2
+        log(f"  rivers above the tide: {int(riv.sum())} cells without a prior, {int(rvd.sum())} take a bed {p['sloped_depth_m']:g} m under the river's level as data")
     # the prior's small holes (a compilation cell the joint set aside under a lidar's water or "ground") take the prior around them
     h0 = np.isfinite(z0); gn = ndimage.gaussian_filter(np.where(h0, z0, 0.0), 10.0); gd = ndimage.gaussian_filter(h0.astype(float), 10.0)
-    near = ~h0 & ~fixed & (gd > 0.02) & (ndimage.distance_transform_edt(~h0) * res <= p["prior_fill_m"])
+    near = ~h0 & ~fixed & (gd > 0.02) & (ndimage.distance_transform_edt(~h0) * res <= p["prior_fill_m"]) & ~riv
     z0 = np.where(near, gn / np.maximum(gd, 1e-9), z0)
     has0 = np.isfinite(z0)
     # the prior's LEVEL, one field per kind of prior (a guessed profile is corrected freely by the beds measured under the same water; a
@@ -544,47 +704,224 @@ def main(argv=None, ret=False):
     # slope carried down): the bed is continuous across it but need not be smooth -- the bending stiffness is hinge_beta in a band of
     # hinge_cells either side of the line
     beta = None
-    if still.any():
-        shore_ = ndimage.binary_dilation(still, iterations=int(p["hinge_cells"])) & ndimage.binary_dilation(~still & ~ice, iterations=int(p["hinge_cells"]))
+    sw_ = (still | pond) if (p["snd_mode"] and p["snd_hinge"]) else still
+    if sw_.any():
+        shore_ = ndimage.binary_dilation(sw_, iterations=int(p["hinge_cells"])) & ndimage.binary_dilation(~sw_ & ~ice, iterations=int(p["hinge_cells"]))
         if shore_.any(): beta = np.where(shore_, p["hinge_beta"], 1.0)
     ops = {}                                                                                              # the assembled operators, one per level, shared by both fits
-    A, _ = solve_in(fixed, zfix, w, b, mu, z1, ub, p["lam"], p["tau"], p, None, cutm, int(p["a_level"]), beta, ops)   # a_level 0: at full resolution (a lake's shoals are lost at 8 m, and their soundings then read as 20 m residuals)
-    n_min = 0
-    for r, c, zz, s_ in mins:
-        if A[r, c] > zz + s_: ws[r, c] += 1 / s_ ** 2; bs[r, c] += zz / s_ ** 2; n_min += 1   # ...by more than its own sigma
-    # one sounding far from the fit (a wall, a mislocated cast) does not drag its neighbourhood: its residual counts for at most 3 sigma
-    # ...about what the soundings AROUND it say, not about the fit without them: where a lake's casts all read 10-25 m under a fit that had
-    # only its shore to go on, each was cut to 3 sigma and the lake stayed 3 m deep (Gore Lake, 2026-11-15).  The consensus is the casts'
-    # own mean residual over 256 m, counted on sound_n0 of them, found by stepping towards it 3 sigma at a time.
-    r_raw = np.where(ws > 0, bs / np.maximum(ws, 1e-30) - A, 0.0); sg_s = 1.0 / np.sqrt(np.maximum(ws, 1e-30)); m_s = np.zeros(jz.shape)
-    if (ws > 0).any():
-        fq = int(min(max(256.0 / (8.0 * res), 1), 32)); sq = 256.0 / (res * fq); hq, wq = jz.shape[0] // fq, jz.shape[1] // fq
-        bq = lambda x: x.reshape(hq, fq, wq, fq).sum((1, 3)); uq = lambda x: ndimage.zoom(x, fq, order=1, mode="nearest", grid_mode=True)
-        gw = ndimage.gaussian_filter(bq(ws), sq); tq = np.clip(ndimage.gaussian_filter(bq((ws > 0).astype(float)), sq) * (2 * np.pi * sq * sq) / p["sound_n0"], 0.0, 1.0)
-        for _ in range(16):
-            r_c = np.where(ws > 0, m_s + np.clip(r_raw - m_s, -3.0 * sg_s, 3.0 * sg_s), 0.0)
-            m_n = uq(tq * ndimage.gaussian_filter(bq(ws * r_c), sq) / np.maximum(gw, 1e-12)); dm_ = float(np.abs(m_n - m_s)[ws > 0].max()); m_s = m_n
-            if dm_ < 0.1: break
-    r_s = np.where(ws > 0, m_s + np.clip(r_raw - m_s, -3.0 * sg_s, 3.0 * sg_s), 0.0)
-    NUM = ws * r_s; anch = fix_meas & (cls == 3); CNT = (ws > 0).astype(float) + anch; DEN = ws + anch * 0.2; csum = np.zeros(jz.shape); rem = np.ones(jz.shape)
-    if (ws > 0).any():
-        # ...however wide that spacing is (to 512 m: a lake's dozen casts 200 m apart drew a round basin under each, Gore Lake, Hig 2026-11-15);
-        # the wide kernels on blocks of cells (a 512 m Gaussian at 2 m is 2,000 taps a cell)
-        for s_m in (8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0):
-            fb = int(min(max(s_m / (8.0 * res), 1), 32)); s = s_m / (res * fb)
-            if fb > 1:
-                hb_, wb_ = jz.shape[0] // fb, jz.shape[1] // fb; bk_ = lambda x: x.reshape(hb_, fb, wb_, fb).sum((1, 3)); up_ = lambda x: ndimage.zoom(x, fb, order=1, mode="nearest", grid_mode=True)
-                Ns = up_(ndimage.gaussian_filter(bk_(CNT), s)) * (2 * np.pi * s * s); cs = up_(ndimage.gaussian_filter(bk_(NUM), s) / np.maximum(ndimage.gaussian_filter(bk_(DEN), s), 1e-12))
-            else:
-                Ns = ndimage.gaussian_filter(CNT, s) * (2 * np.pi * s * s); cs = ndimage.gaussian_filter(NUM, s) / np.maximum(ndimage.gaussian_filter(DEN, s), 1e-12)
-            sel = np.clip(Ns / p["sound_n0"], 0.0, 1.0) * rem; csum += sel * cs; rem = rem * (1.0 - np.clip(Ns / p["sound_n0"], 0.0, 1.0))
-    tot = 1.0 - rem if (ws > 0).any() else np.zeros(jz.shape)
-    mus = np.where(~fixed, p["lam"] * (1 - p["tau"]) / (p["sound_len_m"] / res) ** 4, 0.0) * tot * ((ws > 0).any())
-    ts = A + csum
-    if np.isfinite(ub).any(): ts = np.where(np.isfinite(ub), np.minimum(ts, ub), ts)
-    mut = mu + mus; z1t = np.where(mut > 0, (mu * z1 + mus * ts) / np.maximum(mut, 1e-30), 0.0)
-    log(f"  soundings: {n_dense} cells in dense runs fitted as data; {int((ws > 0).sum())} sparse cells ({n_min} of {len(mins)} depth bounds joined them); their smooth adjustment of the fit without them: p5/p50/p95 {np.percentile(csum[(tot > 0.5) & ~fixed], [5, 50, 95]).round(2) if ((tot > 0.5) & ~fixed).any() else 'none'} m over {((tot > 0.5) & ~fixed)[inwin].mean():.1%} of the window")
-    z, act = solve_in(fixed, zfix, w, b, mut, z1t, ub, p["lam"], p["tau"], p, log, cutm, 0, beta, ops)
+    if p["snd_mode"]:
+        # --- SOUNDINGS AS DATA (prototype, Hig 2026-11-15) -----------------------------------------------------------------------------
+        # (1) every sparse cast is a datum of the one fit, at its own vertical sigma;  (2) the surface is MINIMUM CURVATURE at scales under the
+        # local spacing of the data and takes tension, and its prior, only beyond it: the hand-over length l (bending ~ tension at l) is the
+        # radius of the largest empty disc a cell lies in, not the fixed 8.7 m that makes a cone of every point;  (3) a cast's position radius
+        # costs height only where the fitted bed slopes (sigma^2 = sigma_z^2 + (slope x r)^2, from the fit itself, twice);  (4) no cast is
+        # clipped against anything;  (5) NO CLOSED BASIN WITHOUT A DATUM IN IT: where the fit dips below every path to a datum it is raised
+        # to that pass (a lower bound, the mirror of the water's upper one).  Peaks are left alone.
+        lt0, lb0 = p["lam"] * p["tau"], p["lam"] * (1 - p["tau"]); l0 = float(np.sqrt(lb0 / lt0) * res)
+        # THE WATER'S EDGE IS WHERE THE BED MEETS THE LEVEL: the outermost ring of a still body's cells is data at its level (less the gap).
+        # Without it the bank's height runs into the lake and the bound has to push a strip down all round the shore -- a contact problem
+        # that took the fit dozens of rounds (Gore: 24 full-resolution rounds, the last still moving 2 cm) for what is known beforehand.
+        if p["snd_shore"] and sw_.any():
+            ring_ = sw_ & ~fixed & np.isfinite(lev) & ndimage.binary_dilation(~sw_ & ~ice & inwin, structure=np.ones((3, 3), bool))
+            # (held exactly, not by a penalty: a ring cell on a spring beside a 5 m bank stands 0.3 m over its level and flickers in and
+            # out of the bound's active set, 0.2-0.3 m a round)
+            fixed = fixed | ring_; zfix = np.where(ring_, lev - p["still_gap_m"], zfix); fix_other = fix_other | ring_
+            log(f"  the water's edge: {int(ring_.sum())} cells of still water beside its shore are held at its level")
+        sp_ = ws > 0; datam = fixed | (w > 0) | sp_
+        d1 = ndimage.distance_transform_edt(~datam) * res; Lm = np.full(jz.shape, l0); r_ = 16.0
+        while r_ <= p["snd_len_max_m"]:
+            core = d1 >= r_
+            if not core.any(): break
+            Lm = np.where(ndimage.distance_transform_edt(~core) * res <= r_, r_, Lm); r_ *= 2
+        dsn = ndimage.distance_transform_edt(~sp_) * res if sp_.any() else np.full(jz.shape, 1e9)
+        dom = dsn <= 2.0 * Lm + 16.0
+        if p["snd_profile"]: dom |= sw_ & ~fixed
+        Lc = np.where(dom, np.clip(p["snd_len_k"] * Lm, l0, p["snd_len_max_m"]), l0); Lc = np.maximum(ndimage.gaussian_filter(Lc, 8.0), l0)
+        # ...and A CAST OUTWEIGHS THE STIFFNESS: the stiffness that lets a lidar margin's noisy cells average out also lets a plate shrug off a
+        # point (a cast is met only to ~ 22 m / its neighbours' distance in cells: 2 m where casts stand 20 m apart, and a deep cast at 2 % of
+        # 250 m not at all), so a cast's weight is snd_gain / sigma^2.  (Scaling the stiffness down in the casts' domain instead is the same
+        # thing in the open sea and wrong in a lake: the stiff shore then rules the soft bed -- a sheet at the lake's level, a pit per cast.)
+        p = dict(p, _tens=(l0 / Lc) ** 2)
+        # the deep basin's model was fitted to these same casts: among them it is no second opinion, and it does not pull (it would hold a
+        # shoal's four casts 2.5 m under themselves); a guessed profile or a compilation pulls no harder than at the casts' own spacing
+        mu = np.where(dom & (ptype == 3), 0.0, np.where(dom & (mu > 0), np.minimum(mu, lb0 / (Lc / res) ** 4), mu))
+        # A LAKE DEEPENS AWAY FROM ITS SHORE, BY AS MUCH AS ITS OWN CASTS SHOW (Hig 2026-11-15, the converged Gore patch: "broad areas with very
+        # minimal depth, including between islands ... where two soundings are surrounded by closed basins"; "ultra-shallow benches").  With
+        # the edge held at the level and nothing else said, the smoothest bed between shores is a sheet at the level, and every cast a pit in
+        # it.  The prior: depth as a non-decreasing function of the distance from shore (islands are shore), fitted to the body's casts
+        # (isotonic), 0 at the edge; the fit leans on it at snd_prior_k x the local spacing, so a cast still rules its neighbourhood.
+        zano = np.zeros(jz.shape); prof_ = np.zeros(jz.shape, bool)
+        if p["snd_profile"] and sw_.any():
+            dsh = ndimage.distance_transform_edt(sw_ | ~inwin) * res; Lb_, nb_ = ndimage.label(sw_, structure=np.ones((3, 3), bool)); cb_ = {}
+            # WHERE THE LAND IS STEEP THE LAKE DEEPENS FASTER (Hig 2026-11-15: "some sense of extrapolating the land slope down under the lake ...
+            # gently nudged": carried down outright, the slope overstates the depth and the casts come out as bumps in a basin they are typical
+            # of).  The land's slope at the shore (height above the level over distance, in the band snd_slope_band_m wide, averaged along the
+            # shore) is carried into the water as a harmonic field -- every shore speaks, the near one loudest, no seam down the middle -- and
+            # it STRETCHES THE DISTANCE FROM SHORE: d_eff = d x (slope / the lake's median) ^ gamma.  The profile is fitted to the casts in
+            # d_eff, so a steep shore reaches a depth sooner and no shore reaches one the casts do not show.  gamma is the casts' choice
+            # among 0, 0.25, 0.5 (a larger one only if it cuts their scatter about the profile by 5 %): never the full slope.
+            fac_ = {}
+            dl_, il_ = ndimage.distance_transform_edt(~sw_, return_indices=True); dl_ = dl_ * res; lvn_ = lev[il_[0], il_[1]]
+            band_ = ~sw_ & inwin & ~ice & np.isfinite(cur) & np.isfinite(lvn_) & (dl_ >= 6.0) & (dl_ <= p["snd_slope_band_m"])
+            if band_.any():
+                sg_ = 15.0 / res; gb_ = ndimage.gaussian_filter(band_.astype(float), sg_)
+                S_ = np.clip(ndimage.gaussian_filter(np.where(band_, (cur - lvn_) / np.maximum(dl_, res), 0.0), sg_) / np.maximum(gb_, 1e-6), 0.02, 3.0); okS = (gb_ > 0.02) & ~sw_
+                if okS.any():
+                    iS = ndimage.distance_transform_edt(~okS, return_distances=False, return_indices=True); g0_ = S_[iS[0], iS[1]]
+                    gH, _ = pcg(np.where(sw_, float(np.median(S_[okS])), g0_), sw_.astype(float), np.zeros(jz.shape), np.zeros(jz.shape), 1.0, 0.0, 400)
+                    gH = np.clip(gH, 0.02, 3.0)
+                else: gH = None
+            else: gH = None
+            for q in sl_:
+                if sw_[q[0], q[1]] and np.isfinite(lev[q[0], q[1]]): cb_.setdefault(int(Lb_[q[0], q[1]]), []).append((float(dsh[q[0], q[1]]), float(lev[q[0], q[1]] - q[2]), float(gH[q[0], q[1]]) if gH is not None else 1.0))
+            from scipy.interpolate import PchipInterpolator
+            def prof_fit(de, dep):
+                k = np.argsort(de); v_ = list(zip(de[k], dep[k])); g_ = int(p["snd_prof_group"]); blk = []      # casts pooled g_ at a time by distance (medians): one cast 2 m
+                vg_ = [(float(np.median([q[0] for q in v_[i_:i_ + g_]])), float(np.median([q[1] for q in v_[i_:i_ + g_]]))) for i_ in range(0, len(v_) - len(v_) % g_ or len(v_), g_)]   # from the mapped shore in 3 m of water is not a 3 m wall round the lake
+                for d_, e_ in vg_:
+                    blk.append([d_, e_, 1.0])
+                    while len(blk) > 1 and blk[-2][1] > blk[-1][1]:
+                        a_, b_ = blk[-2], blk[-1]; n_ = a_[2] + b_[2]; blk[-2:] = [[(a_[0] * a_[2] + b_[0] * b_[2]) / n_, (a_[1] * a_[2] + b_[1] * b_[2]) / n_, n_]]
+                xs_ = np.array([0.0] + [q[0] for q in blk]); xs_ = np.maximum.accumulate(xs_ + 1e-3 * np.arange(xs_.size)); ys_ = np.maximum(np.array([p["still_gap_m"]] + [q[1] for q in blk]), p["still_gap_m"])
+                f_ = PchipInterpolator(xs_, ys_, extrapolate=False)                                              # monotone and smooth: no break of slope at the nodes
+                D_ = lambda x_: np.where(x_ >= xs_[-1], ys_[-1], np.nan_to_num(f_(np.minimum(x_, xs_[-1])), nan=float(ys_[-1])))
+                return D_, float(np.sqrt(np.mean((dep - D_(de)) ** 2))), xs_, ys_
+            for k_, v_ in cb_.items():
+                if len(v_) < p["snd_prof_min"]: continue
+                va_ = np.array(v_); m_ = Lb_ == k_; gam_ = 0.0; sm_ = 1.0
+                if gH is not None:
+                    sm_ = float(np.median(gH[m_ & (dsh <= 2 * res)])) if (m_ & (dsh <= 2 * res)).any() else float(np.median(gH[m_]))
+                    # (2026-11-15 late: Gore's 33 casts do not settle it -- 9 of them within 80 m of a shore; RMS about the profile 5.43 /
+                    # 5.33 / 5.58 / 5.54 / 5.12 m at gamma 0 / 0.25 / 0.5 / 0.75 / 1 with the slope as the harmonic field, 5.5 / 4.8 / 5.0 /
+                    # 5.1 / 5.4 with the nearest shore's.  So the nudge is a GIVEN, snd_slope_gamma (0.25, Hig's "gently"), and the casts
+                    # move it to 0 or to 0.5 only if that cuts their scatter by a tenth.)
+                    rr_ = {gq_: prof_fit(va_[:, 0] * np.clip((va_[:, 2] / sm_) ** gq_, 0.5, 2.0), va_[:, 1])[1] for gq_ in (0.0, 0.25, 0.5, 0.75, 1.0)}; tr_ = [f"{k:g}: {v:.2f}" for k, v in rr_.items()]
+                    gam_ = float(p["snd_slope_gamma"]); best = rr_.get(gam_, prof_fit(va_[:, 0] * np.clip((va_[:, 2] / sm_) ** gam_, 0.5, 2.0), va_[:, 1])[1])
+                    if len(v_) >= 12:
+                        for gq_ in (0.0, 0.5):
+                            if gq_ <= p["snd_slope_gamma_max"] and rr_[gq_] < 0.9 * best: gam_, best = gq_, rr_[gq_]
+                    log("  land slope and the casts: RMS of the casts about the profile (m) by gamma -- " + ", ".join(tr_) + f"; corr(log slope, log depth / distance) {np.corrcoef(np.log(va_[:, 2]), np.log(va_[:, 1] / np.maximum(va_[:, 0], res)))[0, 1]:+.2f}")
+                fc_ = np.clip((gH / sm_) ** gam_, 0.5, 2.0) if (gH is not None and gam_ > 0) else np.ones(jz.shape)
+                D_, rms_, xs_, ys_ = prof_fit(va_[:, 0] * (np.clip((va_[:, 2] / sm_) ** gam_, 0.5, 2.0) if gam_ > 0 else 1.0), va_[:, 1])
+                zano[m_] = lev[m_] - D_(dsh[m_] * fc_[m_]); prof_ |= m_ & ~fixed
+                log(f"  lake profile from {len(v_)} casts ({m_.sum() * res * res / 1e4:.1f} ha): depth at " + ", ".join(f"{x_:.0f} m: {y_:.1f}" for x_, y_ in zip(xs_[1:], ys_[1:])) + f" (effective distance); casts about it RMS {rms_:.2f} m; land slope at the shore p10/p50/p90 {np.percentile(gH[m_ & (dsh <= 2 * res)], [10, 50, 90]).round(2) if gH is not None and (m_ & (dsh <= 2 * res)).any() else 'none'}, gamma {gam_:g} (distance stretched x {np.percentile(fc_[m_], [5, 95]).round(2)} p5/p95)")
+            if os.environ.get("SND_PROF_ONLY"): raise SystemExit(0)
+            if prof_.any():
+                # ...and the fit is MINIMUM CURVATURE IN THE DEPARTURE FROM THAT PROFILE, not in the bed itself: where no cast speaks the bed is
+                # the profile (no sheet at the level between islands, no bench along the shore), and a cast's departure from it spreads to its
+                # neighbours at their spacing (a mass term pulling the bed to the profile was tried first: at 2 x the spacing the plate between
+                # two shores 60 m apart ignored it; stronger, every cast off the profile is a pit again).  The profile's own creases (the
+                # lake's mid-lines, where the distance from shore turns) are rounded over snd_prof_smooth_m.
+                lk_ = zano != 0; ii_ = ndimage.distance_transform_edt(~lk_, return_distances=False, return_indices=True)
+                Pf_ = zano[ii_[0], ii_[1]]; Pf_ = np.where(lk_, zano, np.where(np.isfinite(lev[ii_[0], ii_[1]]), lev[ii_[0], ii_[1]] - p["still_gap_m"], Pf_))
+                Pf_ = ndimage.gaussian_filter(Pf_, p["snd_prof_smooth_m"] / res); zano = np.where(lk_, Pf_, 0.0); p = dict(p, _zp=Pf_)
+        cur_ = [(q[0], q[1]) for q in sl_]                                    # where each cast's datum sits: its own cell until it has to move
+        def snd_w(zc):
+            # A CAST IS MOVED, NOT DOUBTED (Hig, the NOS casts: "misplaced, not wrong") -- but only when it cannot be met where it is: a cast
+            # the fit misses by more than snd_move_k sigma at its cell, although it is a datum there, is in conflict with its neighbours (two
+            # casts a few metres apart on a wall, a cast against measured ground); it goes to the nearest cell within its position radius where
+            # the fit agrees with it, else to where the fit comes closest.  Placement is by this one test on the full-resolution fit: tried
+            # on the 8 m fit, or re-tried every round, which casts moved depended on the path and the surface between them by metres.
+            wq = np.zeros(jz.shape); bq = np.zeros(jz.shape); mv_ = []
+            for i_, (r, c, zz, s0, rp, *_x) in enumerate(sl_):
+                rr, cc = cur_[i_] if i_ < len(cur_) else (r, c); n_ = int(rp / res)
+                if zc is not None and n_ >= 1 and not dense[r, c] and abs(zc[rr, cc] - zz) > p["snd_move_k"] * s0:
+                    r0, r1, c0, c1 = max(r - n_, 0), min(r + n_ + 1, jz.shape[0]), max(c - n_, 0), min(c + n_ + 1, jz.shape[1])
+                    yy, xx = np.mgrid[r0:r1, c0:c1]; d2 = (yy - r) ** 2 + (xx - c) ** 2; ok_ = (d2 <= n_ * n_) & ~fixed[r0:r1, c0:c1] & inwin[r0:r1, c0:c1]
+                    if ok_.any():
+                        dv = np.where(ok_, np.abs(zc[r0:r1, c0:c1] - zz), np.inf); hit_ = dv <= s0
+                        k_ = np.argmin(np.where(hit_, d2, np.inf)) if hit_.any() else np.argmin(dv)
+                        rr, cc = int(yy.ravel()[k_]), int(xx.ravel()[k_])
+                if i_ < len(cur_): cur_[i_] = (rr, cc)
+                else: cur_.append((rr, cc))
+                mv_.append(float(np.hypot(rr - r, cc - c) * res))
+                if dense[r, c]: continue
+                wq[rr, cc] += p["snd_gain"] / s0 ** 2; bq[rr, cc] += p["snd_gain"] * zz / s0 ** 2
+            return wq, bq, np.array([q[3] for q in sl_]), list(cur_), np.array(mv_)
+        # THE SEARCH IS DONE COARSE, THE ANSWER FINE: which casts move where, which cells the water's level holds down and which basins are
+        # held up are found on a grid snd_coarse_level halvings coarser (8 m: a sixteenth of the unknowns, and the bound's active set grows
+        # a layer of cells a round); the full-resolution fit then starts from that answer and that state, for a few rounds.
+        cl_ = int(p["snd_coarse_level"])
+        wq, bq, se_, at_, mv_ = snd_w(None); z, act = solve_in(fixed, zfix, w + wq, b + bq, mu, z1, ub, p["lam"], p["tau"], p, None, cutm, cl_, beta, ops)
+        n_min = 0
+        for r, c, zz, s_ in mins:
+            if z[r, c] > zz + s_: sl_.append((r, c, zz, s_, 0.0, 0.0, 0.0, "bound")); n_min += 1
+        for it_ in range(int(p["snd_slope_rounds"])):
+            wq, bq, se_, at_, mv_ = snd_w(z); z, act = solve_in(fixed, zfix, w + wq, b + bq, mu, z1, ub, p["lam"], p["tau"], p, None, cutm, cl_, beta, ops)
+        from skimage.morphology import reconstruction
+        lbnd = np.full(jz.shape, -np.inf); wl = np.zeros(jz.shape); edge_ = np.zeros(jz.shape, bool); edge_[0] = edge_[-1] = True; edge_[:, 0] = edge_[:, -1] = True
+        seeds = fixed | ((w + wq) > 0) | edge_ | (ptype == 2) | ~inwin; pit_ha = 0.0; pit_max = 0.0
+        for it_ in range(int(p["pit_rounds"])):
+            q_ = z - zano; F_ = reconstruction(np.where(seeds, q_, q_.max() + 1.0), q_, method="erosion"); pit = ~seeds & (F_ - q_ > p["pit_tol_m"]); F_ = F_ + zano
+            if not pit.any(): break
+            if it_ == 0: pit_ha = float(pit.sum()) * res * res / 1e4; pit_max = float((F_ - z)[pit].max())
+            lbnd = np.where(pit, np.maximum(lbnd, F_ - p["pit_tol_m"]), lbnd); wl = np.where(np.isfinite(lbnd) & (z < lbnd - 1e-4), p["bound_w"], 0.0)
+            z, act = solve_in(fixed, zfix, w + wq + wl, b + bq + wl * np.where(wl > 0, lbnd, 0.0), mu, z1, ub, p["lam"], p["tau"], p, None, cutm, cl_, beta, ops)
+        tf_ = time.time(); z, act = solve_in(fixed, zfix, w + wq + wl, b + bq + wl * np.where(wl > 0, lbnd, 0.0), mu, z1, ub, p["lam"], p["tau"], dict(p, max_rounds=int(p["snd_fine_rounds"])), log, cutm, 0, beta, ops, z0=z)
+        # ...and the casts are placed again on the full-resolution fit (the 8 m fit moved 8 of the shoal's casts where the 2 m fit moves 1,
+        # and the surface between them answered by up to 2.5 m): where their cells change, the fit is run on from where it stands
+        n_re = 0
+        for it_ in range(int(p["snd_fine_moves"])):
+            at0_ = list(at_); wq, bq, se_, at_, mv_ = snd_w(z)
+            if at_ == at0_: break
+            n_re += sum(1 for q0, q1 in zip(at0_, at_) if q0 != q1)
+            z, act = solve_in(fixed, zfix, w + wq + wl, b + bq + wl * np.where(wl > 0, lbnd, 0.0), mu, z1, ub, p["lam"], p["tau"], dict(p, max_rounds=int(p["snd_fine_rounds"])), None, cutm, 0, beta, ops, z0=z)
+        if n_re: log(f"  casts placed again on the full-resolution fit: {n_re} changes of cell")
+        for it_ in range(int(p["snd_fine_pits"])):                              # ...and the basin rule on the full-resolution fit itself
+            q_ = z - zano; F_ = reconstruction(np.where(seeds, q_, q_.max() + 1.0), q_, method="erosion"); pit = ~seeds & (F_ - q_ > p["pit_tol_m"]); F_ = F_ + zano
+            if not pit.any(): break
+            lbnd = np.where(pit, np.maximum(lbnd, F_ - p["pit_tol_m"]), lbnd); wl = np.where(np.isfinite(lbnd) & (z < lbnd - 1e-4), p["bound_w"], 0.0)
+            z, act = solve_in(fixed, zfix, w + wq + wl, b + bq + wl * np.where(wl > 0, lbnd, 0.0), mu, z1, ub, p["lam"], p["tau"], dict(p, max_rounds=int(p["snd_fine_rounds"])), None, cutm, 0, beta, ops, z0=z)
+        q_ = z - zano; F_ = reconstruction(np.where(seeds, q_, q_.max() + 1.0), q_, method="erosion"); pitf = ~seeds & (F_ - q_ > p["pit_tol_m"]); F_ = F_ + zano
+        log(f"  full-resolution fit from the coarse answer: {time.time() - tf_:.0f} s; closed basins without a datum left in it: {float(pitf.sum()) * res * res / 1e4:.2f} ha (to {float((F_ - z)[pitf].max()) if pitf.any() else 0.0:.2f} m)")
+        log(f"  soundings as data: {len(sl_)} casts ({n_dense} cells in dense runs; {n_min} of {len(mins)} depth bounds joined); hand-over length in their domain p10/p50/p90 {np.percentile(Lc[dom & ~fixed], [10, 50, 90]).round(0) if (dom & ~fixed).any() else 'none'} m; sigma used p10/p50/p90 {np.percentile(se_, [10, 50, 90]).round(2) if len(se_) else 'none'} m; moved within their position radius: {int((mv_ > 0).sum())} of them, p50/p90/max {np.percentile(mv_[mv_ > 0], [50, 90, 100]).round(0) if (mv_ > 0).any() else 'none'} m")
+        log(f"  closed basins with no datum in them: {pit_ha:.2f} ha below their pass by up to {pit_max:.2f} m in the first fit; raised to it ({int((wl > 0).sum())} cells held)")
+        rs_ = sorted(((z[ra, ca] - zz, se, x_, y_, sv, zz) for (r, c, zz, s0, rp, x_, y_, sv), se, (ra, ca) in zip(sl_, se_, at_) if not dense[r, c]), key=lambda q: -abs(q[0] / q[1]))
+        if rs_:
+            ra_ = np.array([q[0] for q in rs_]); rn_ = np.array([q[0] / q[1] for q in rs_])
+            log(f"  fit - cast at the {len(rs_)} sparse casts: median {np.median(ra_):+.2f} m, p5/p95 {np.percentile(ra_, 5):+.2f}/{np.percentile(ra_, 95):+.2f}, RMS {np.sqrt(np.mean(ra_ ** 2)):.2f} m, RMS / sigma {np.sqrt(np.mean(rn_ ** 2)):.2f}; beyond 3 sigma: {int((np.abs(rn_) > 3).sum())}")
+            for q in rs_[:8]:
+                if abs(q[0] / q[1]) > 2: log(f"    review: {q[4]} at x {q[2]:.0f} y {q[3]:.0f}: cast {q[5]:.2f}, fit {q[5] + q[0]:.2f} ({q[0]:+.2f} m, {q[0] / q[1]:+.1f} sigma of {q[1]:.2f})")
+        w = w + wq + wl; b = b + bq + wl * np.where(wl > 0, lbnd, 0.0); mut, z1t = mu, z1; A = z.copy(); csum = np.zeros(jz.shape); tot = np.zeros(jz.shape)
+        (out / f"{a.name}_len.npy").parent.mkdir(parents=True, exist_ok=True); np.save(out / f"{a.name}_len.npy", Lc.astype(np.float32))
+    else:
+        A, _ = solve_in(fixed, zfix, w, b, mu, z1, ub, p["lam"], p["tau"], p, None, cutm, int(p["a_level"]), beta, ops)   # a_level 0: at full resolution (a lake's shoals are lost at 8 m, and their soundings then read as 20 m residuals)
+        n_min = 0
+        for r, c, zz, s_ in mins:
+            if A[r, c] > zz + s_: ws[r, c] += 1 / s_ ** 2; bs[r, c] += zz / s_ ** 2; n_min += 1   # ...by more than its own sigma
+        # one sounding far from the fit (a wall, a mislocated cast) does not drag its neighbourhood: its residual counts for at most 3 sigma
+        # ...about what the soundings AROUND it say, not about the fit without them: where a lake's casts all read 10-25 m under a fit that had
+        # only its shore to go on, each was cut to 3 sigma and the lake stayed 3 m deep (Gore Lake, 2026-11-15).  The consensus is the casts'
+        # own mean residual over 256 m, counted on sound_n0 of them, found by stepping towards it 3 sigma at a time.
+        r_raw = np.where(ws > 0, bs / np.maximum(ws, 1e-30) - A, 0.0); sg_s = 1.0 / np.sqrt(np.maximum(ws, 1e-30)); m_s = np.zeros(jz.shape)
+        if (ws > 0).any():
+            fq = int(min(max(256.0 / (8.0 * res), 1), 32)); sq = 256.0 / (res * fq); hq, wq = jz.shape[0] // fq, jz.shape[1] // fq
+            bq = lambda x: x.reshape(hq, fq, wq, fq).sum((1, 3)); uq = lambda x: ndimage.zoom(x, fq, order=1, mode="nearest", grid_mode=True)
+            gw = ndimage.gaussian_filter(bq(ws), sq); tq = np.clip(ndimage.gaussian_filter(bq((ws > 0).astype(float)), sq) * (2 * np.pi * sq * sq) / p["sound_n0"], 0.0, 1.0)
+            for _ in range(16):
+                r_c = np.where(ws > 0, m_s + np.clip(r_raw - m_s, -3.0 * sg_s, 3.0 * sg_s), 0.0)
+                m_n = uq(tq * ndimage.gaussian_filter(bq(ws * r_c), sq) / np.maximum(gw, 1e-12)); dm_ = float(np.abs(m_n - m_s)[ws > 0].max()); m_s = m_n
+                if dm_ < 0.1: break
+        r_s = np.where(ws > 0, m_s + np.clip(r_raw - m_s, -3.0 * sg_s, 3.0 * sg_s), 0.0)
+        NUM = ws * r_s; anch = fix_meas & (cls == 3); CNT = (ws > 0).astype(float) + anch; DEN = ws + anch * 0.2; csum = np.zeros(jz.shape); rem = np.ones(jz.shape)
+        if (ws > 0).any():
+            # ...however wide that spacing is (to 512 m: a lake's dozen casts 200 m apart drew a round basin under each, Gore Lake, Hig 2026-11-15);
+            # the wide kernels on blocks of cells (a 512 m Gaussian at 2 m is 2,000 taps a cell)
+            for s_m in (8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0):
+                fb = int(min(max(s_m / (8.0 * res), 1), 32)); s = s_m / (res * fb)
+                if fb > 1:
+                    hb_, wb_ = jz.shape[0] // fb, jz.shape[1] // fb; bk_ = lambda x: x.reshape(hb_, fb, wb_, fb).sum((1, 3)); up_ = lambda x: ndimage.zoom(x, fb, order=1, mode="nearest", grid_mode=True)
+                    Ns = up_(ndimage.gaussian_filter(bk_(CNT), s)) * (2 * np.pi * s * s); cs = up_(ndimage.gaussian_filter(bk_(NUM), s) / np.maximum(ndimage.gaussian_filter(bk_(DEN), s), 1e-12))
+                else:
+                    Ns = ndimage.gaussian_filter(CNT, s) * (2 * np.pi * s * s); cs = ndimage.gaussian_filter(NUM, s) / np.maximum(ndimage.gaussian_filter(DEN, s), 1e-12)
+                sel = np.clip(Ns / p["sound_n0"], 0.0, 1.0) * rem; csum += sel * cs; rem = rem * (1.0 - np.clip(Ns / p["sound_n0"], 0.0, 1.0))
+        tot = 1.0 - rem if (ws > 0).any() else np.zeros(jz.shape)
+        mus = np.where(~fixed, p["lam"] * (1 - p["tau"]) / (p["sound_len_m"] / res) ** 4, 0.0) * tot * ((ws > 0).any())
+        ts = A + csum
+        if np.isfinite(ub).any(): ts = np.where(np.isfinite(ub), np.minimum(ts, ub), ts)
+        mut = mu + mus; z1t = np.where(mut > 0, (mu * z1 + mus * ts) / np.maximum(mut, 1e-30), 0.0)
+        log(f"  soundings: {n_dense} cells in dense runs fitted as data; {int((ws > 0).sum())} sparse cells ({n_min} of {len(mins)} depth bounds joined them); their smooth adjustment of the fit without them: p5/p50/p95 {np.percentile(csum[(tot > 0.5) & ~fixed], [5, 50, 95]).round(2) if ((tot > 0.5) & ~fixed).any() else 'none'} m over {((tot > 0.5) & ~fixed)[inwin].mean():.1%} of the window")
+        z, act = solve_in(fixed, zfix, w, b, mut, z1t, ub, p["lam"], p["tau"], p, log, cutm, 0, beta, ops)
     mu, z1 = mut, z1t; slh = _box(~fixed); qh = (lambda x: None if x is None else x[slh]); ex_, ey_ = links(qh(cutm))
     if p["huber_k"] > 0 and lidar_soft.any():                                                                        # the consensus outvotes a stray soft cell
         r_ = np.abs(z - jz) * np.sqrt(np.where(lidar_soft, 1 / sg ** 2, 1.0)); dn = lidar_soft & (r_ > p["huber_k"])
@@ -592,14 +929,15 @@ def main(argv=None, ret=False):
         w2 = w.copy(); b2 = b.copy(); w2[dn] -= (1 - fac[dn]) / sg[dn] ** 2; b2[dn] -= (1 - fac[dn]) * jz[dn] / sg[dn] ** 2
         free = (~fixed).astype(float); hasb = np.isfinite(ub); ubz = np.where(hasb, ub, 0.0)
         for _ in range(2):
-            act = hasb & (z > ub - 0.02); wb = np.where(act, p["bound_w"], 0.0)
-            zs_, rs = pcg(z[slh], free[slh], (w2 + mu + wb)[slh], (b2 + mu * z1 + wb * ubz)[slh], p["lam"] * p["tau"], p["lam"] * (1 - p["tau"]), p["iters"], ex_, ey_, qh(beta), ops.get(0)); z[slh] = zs_
+            act = hasb & (z > ub + 1e-4); wb = np.where(act, p["bound_w"], 0.0)
+            zs_, rs = pcg(z[slh], free[slh], (w2 + mu + wb)[slh], (b2 + mu * z1 + wb * ubz)[slh], p["lam"] * p["tau"], p["lam"] * (1 - p["tau"]), p["iters"], ex_, ey_, qh(beta), ops.get(0), None, qh(p.get("_zp"))); z[slh] = zs_
         log(f"  robust pass: {int(dn.sum())} soft measured cells down-weighted (|r| > {p['huber_k']:g} sigma), {int((dn & (fac < 0.25)).sum())} to under a quarter")
     # the bounds are held by a penalty; what is left above one after the fit (shore cells, a few cm to a metre or two) is put on it.  A guard,
     # reported so that it is seen if it ever does real work.
     over = np.isfinite(ub) & ~fixed & (z > ub)
     if over.any(): log(f"  guard: {int(over.sum())} cells still above a bound after the fit (p50 {np.median((z - ub)[over]):.2f} m, max {(z - ub)[over].max():.2f} m) put on it; the worst at x {(T * (np.unravel_index(np.argmax(np.where(over, z - ub, -1)), z.shape)[1] + .5, 0))[0]:.0f} y {(T * (0, np.unravel_index(np.argmax(np.where(over, z - ub, -1)), z.shape)[0] + .5))[1]:.0f}; {int((over & (z - ub > 1.0)).sum())} by more than 1 m"); z = np.where(over, ub, z)
     sec = time.time() - t1
+    if AMG["calls"]: log(f"  solver: multigrid-preconditioned CG, {AMG['calls']} solves, {AMG['its']} iterations, {AMG['builds']} hierarchies built, {AMG['sec']:.0f} s in it ({AMG['cpu']:.0f} s of CPU)")
     # --- report ----------------------------------------------------------------------------------------------------------------
     def scarps(zz, sel):
         n = 0.0

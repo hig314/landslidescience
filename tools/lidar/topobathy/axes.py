@@ -165,6 +165,12 @@ def class_raster(spec, z, valid, below, res_m, info, others=None, grid=None, win
         (name, kw), = step.items()
         if name == "default":
             c[valid] = CLASSES[kw]
+        elif name == "value":
+            # a sentinel VALUE is no observation (2026-11-16, Hig's review of the s1 mosaic, 59.24868,-152.26776: 3DEP flattens the sea
+            # to exactly 0.0 m, and along its quarter-degree seams west of the Chugach Islands those cells were typed ground at 0 m in
+            # 100 m of water -- 8,671 cells in kj_r3c0, and the fill raised boxy "seamounts" to meet them.  738640c dropped them from
+            # the fill's prior only).  {"value": {"eq": 0.0, "as": "void"}}: cells exactly equal to eq take the class `as`.
+            c[valid & (z == np.float32(kw["eq"]))] = CLASSES[kw.get("as", "void")]
         elif name in ("water_level", "below_level"):
             level = kw.get("level", spec.get("water_level_m", "auto"))
             if level == "auto":

@@ -157,6 +157,13 @@ def apply(tiles):
         from scipy import ndimage
         cs = 4.0; nc = int(n * r / cs) + 1; ci = np.clip(((gy - y) / cs).astype(int), 0, nc - 1) * nc + np.clip(((x - gx) / cs).astype(int), 0, nc - 1)
         for k, d in lv[tile].items():
+            # ONLY WHERE THE LINE SAW THE SEA ITSELF (2026-11-16, Hig's review of cm19, r7c4 59.78644,-150.96054 "a strange local basin"): a level
+            # carried in from the line's sea in another tile (own False) does not hold on a tidal flat -- the water there is not level across
+            # 2 km of flats on a falling tide.  The bay head's lines 3027-3029 took 1.28-1.37 m from 2 km west and sent 395k ground points of
+            # the flats at 1.1-1.7 m to water (over half inside the band above the level), and the fill dug a 7 m basin; line 3012 did the
+            # same on the low-tide flat at 59.6586,-151.6835 (23.7k points, 92 % in the band).  The Anchor shelf (line 2030) is own.
+            if not d.get("own", True):
+                per[k] = dict(d, points=0, crests=0, skipped="the line's level came from another tile"); continue
             ln = (a["psid"] == int(k)) & insea; m = ln & (cls == 2) & (z <= d["threshold"])
             # wave crests: a ground point of the line up to crest_m above its sea, in a 12 m neighbourhood where >= crest_frac of the line's
             # returns lie at the sea, is on the water too.  At the waterline the neighbourhood is mixed, so the beach keeps its points.
