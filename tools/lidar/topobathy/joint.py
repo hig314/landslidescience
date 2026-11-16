@@ -685,6 +685,11 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             mf_ = np.concatenate([[0.0], med_]).astype(np.float32)
             nmad_ = 1.4826 * np.asarray(ndimage.median(np.abs(d_ - mf_[lp_]), lp_, np.arange(1, np_ + 1)))
             okp_[1:] &= nmad_ <= np.maximum(float(cp_.get("change_nmad_m", 1.0)), float(cp_.get("change_nmad_frac", 0.5)) * np.abs(med_))
+        # ...and NOT TENS OF METRES (2026-11-16, crop c16_tutka): 234 cells on a "gentle", "coherent" patch beside Tutka's rock shore read a
+        # median change of 31 m (p90 82 m) and moved 14.85 ha of the multibeam; the Woz front's real change is 0.3-6.8 m (p10-p90).  A patch
+        # whose median exceeds change_max_m is two surveys that do not describe the same ground, not a change between them.
+        if np_:
+            okp_[1:] &= np.abs(med_) <= float(cp_.get("change_max_m", 12.0))
             del mf_, nmad_
         real_ = okp_[lp_] & both_; del lp_, cnt_, med_
         if not real_.any():

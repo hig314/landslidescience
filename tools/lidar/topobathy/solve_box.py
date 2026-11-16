@@ -45,7 +45,7 @@ def main():
         from concurrent.futures import ProcessPoolExecutor as PPE
         b_ = rasterio.open(d / f"{a.box}.tif").bounds; t1 = time.time()
         argv_ = [a.box, "deep", str(b_.left), str(b_.bottom), str(b_.right), str(b_.top), "--tag", a.tag, "--nofig", "--nowrite", "--quiet",
-                 "--set", *[x for x in a.set if not x.startswith(("snd_scope=", "grid_m="))], "snd_scope=1", f"grid_m={a.deep_grid:g}"]
+                 "--set", *[x for x in a.set if not x.startswith(("snd_scope=", "grid_m=", "snd_mode="))], "snd_mode=1", "snd_scope=1", f"grid_m={a.deep_grid:g}"]
         with PPE(1) as ex1: Rd = ex1.submit(S.main, argv_, True).result()
         if Rd is None: raise SystemExit("deep pass: nothing to solve")
         zc = Rd["z"].astype(np.float64); hc, wc = zc.shape
