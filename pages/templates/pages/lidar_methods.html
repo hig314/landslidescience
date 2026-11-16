@@ -350,6 +350,20 @@ Anchors are load-bearing: lidar_preview.html links to them.
   and the credits, as a PNG (lossless) or a JPEG (quality 90, several times
   smaller).
 </p>
+<p id="compare-layers">
+  <em>Landslides</em> and <em>overlays</em> come from the
+  <a href="/inventory/">landslide inventory</a> and, like the base layer, are
+  the same in every pane, drawn above the shading. The landslides are styled
+  as on the inventory map (see its <a href="/inventory/methods/">methods</a>):
+  a dot for every record, and the mapped outlines once a pane is zoomed in.
+  Every public record is shown; the inventory map's filters are not applied.
+  The overlays are those the inventory serves from its own prepared tiles
+  (landslide susceptibility, slope at fixed scales and other terrain
+  statistics, permafrost and climate, glaciers and radar coherence), with the
+  same colour scales; the key under the panes gives each one's scale. Pasting
+  an inventory map link adds a pane at its place, facing north, and turns on
+  the landslides and whichever of its overlays this page can draw.
+</p>
 
 </div>
 {% endblock %}

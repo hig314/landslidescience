@@ -464,3 +464,28 @@ ticks (0 and the end always). Canvas resolution follows the label (bar
 256–4096 px, labels 32–300 canvas px). Fixed on the way: a context-only pane
 is written `lat,lon,bearing` and the reader wanted four fields, so it dropped
 out of a reopened link.
+
+**Round 10 (2026-11-15, Hig): landslides and baked overlays.** Revises §4's
+"panes carry nothing": the landslide inventory and the inventory's baked
+overlays can be drawn, and like the base layer they are **shared by every
+pane** (Hig). Link params `ls=1` (landslides) and `ov=<id>.<pct>,…` (overlay
+ids as on `/inventory/`, opacity 0–100, stacked in registry order); both are
+additive and absent means off, so every earlier link reads as before. Stack:
+base, shading, overlays, polygons, points, then scale bars and profiles.
+Shared code, not copies: the overlay rows are `LSOverlays.bakedOverlays()`
+(moved out of `map.js`, which now places them by id; the groups are
+`LSOverlays.CATS`), and the four landslide layers are
+`LSColors.landslideLayers()` (moved out of `map.js` `_landslideLayerDefs`;
+`pitchMap` lays the dots on the ground in a tilted pane). Points come from
+`/inventory/api/features/` once for the sheet; polygons per pane from
+`/inventory/api/polygons/?bbox=` past the inventory's `polygon_zoom`, the far
+edge of a tilted pane cut at six pane-widths, the box padded so small pans
+need no request. **No filters** (Hig: at least at first): every public
+record. Key under the grid: landslide colours (`LSColors.legend`) and each
+overlay's ramp from `/inventory/api/ramps/`; the same key is drawn into the
+export. The paste box takes an `/inventory/` map link (read with
+`ls_hash.js`): a pane at its place facing north, on its lidar survey if it
+shows one, landslides on, and its overlays this page has (a toast names the
+rest). Not yet: OPERA / NRCan / DIST / geology / shaded relief / contours
+(each needs code that lives in `map.js`), the Hugonnet smoothed variant
+(`~s`), clicking a landslide, `/inventory/<slug>/` links (no hash).

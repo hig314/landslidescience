@@ -69,6 +69,23 @@
           background: rgba(255,255,255,.85); color: #a00; font-weight: 600; }
   #perf { position: fixed; right: 8px; bottom: 8px; z-index: 5; background: rgba(0,0,0,.78); color: #eee;
           font: 11px/1.4 ui-monospace, monospace; padding: 6px 8px; border-radius: 4px; white-space: pre; }
+  /* Shared layers (landslides, overlays) and their key under the grid. */
+  #ovlist { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; }
+  #ovlist .ovi { display: inline-flex; align-items: center; gap: 4px; background: #fff; border: 1px solid #ccc;
+                 border-radius: 3px; padding: 0 2px 0 5px; }
+  #ovlist .ovi input[type=range] { width: 60px; }
+  #ovlist .ovi button { border: 0; background: none; cursor: pointer; color: #999; padding: 0 3px; }
+  #ovadd { max-width: 9em; }
+  #legend { flex: none; display: none; flex-wrap: wrap; gap: 3px 18px; align-items: center; padding: 4px 10px;
+            border-top: 1px solid #ddd; font-size: 11px; color: #333; }
+  #legend .lg { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+  #legend .lgh { font-weight: 600; }
+  #legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px;
+                margin-right: 3px; box-sizing: border-box; border: 1px solid #fff; box-shadow: 0 0 0 1px #999; }
+  #legend .sq { display: inline-block; width: 12px; height: 10px; vertical-align: -1px; margin-right: 3px;
+                box-shadow: inset 0 0 0 1px rgba(0,0,0,.25); }
+  #legend .bar { display: inline-block; width: 90px; height: 10px; vertical-align: -1px; margin: 0 4px;
+                 box-shadow: inset 0 0 0 1px rgba(0,0,0,.25); }
   #credits { flex: none; font-size: 11px; color: #666; padding: 3px 10px; border-top: 1px solid #ddd; }
   #credits a { color: #666; }
   /* Annotation panel (scale bar / north arrow), hide-controls, export. */
@@ -144,10 +161,13 @@
       <label class="lock"><input type="checkbox" data-lock="style">lock</label></span>
     <span class="grp"><label>Base</label><select id="bm"></select>
       <label>shading <span class="v" id="opv"></span></label><input type="range" id="op" min="0" max="100" step="1"></span>
+    <span class="grp"><label title="The landslide inventory, styled as on /inventory/ (dots everywhere, outlines once zoomed in). Every public record; the inventory's filters are not applied here."><input type="checkbox" id="lson"> Landslides</label>
+      <select id="ovadd" title="Overlays from /inventory/, shown in every pane, above the shading"></select>
+      <span id="ovlist"></span></span>
     <span class="grp"><label>Panes</label><select id="npanes"><option>1</option><option>2</option><option>3</option><option>4</option>
         <option>6</option><option>9</option><option>12</option></select>
       <label>cols</label><select id="cols"><option value="0">auto</option><option>1</option><option>2</option><option>3</option><option>4</option></select></span>
-    <span class="grp frameonly"><input id="addlink" placeholder="paste a /lidar/ link to add a pane" size="28"></span>
+    <span class="grp frameonly"><input id="addlink" placeholder="paste a /lidar/ or /inventory/ link to add a pane" size="34" title="A /lidar/ link adds its place, look direction and survey. An /inventory/ map link adds its place and turns on its landslides and the overlays this page can show."></span>
     <span class="grp frameonly"><button id="annbtn" title="Scale bar and north arrow on the ground in every pane: settings for all panes here, angle and position per pane">Scale bar &amp; north arrow…</button>
       <button id="pfbtn" title="A profile line in every pane, each drawn in an inset at one shared scale">Profiles…</button></span>
     <span class="grp"><label>Export <select id="expscale"><option value="2">2×</option><option value="4">4×</option></select></label>
@@ -166,6 +186,7 @@
   <div id="annpanel" class="dockbar" style="display:none"></div>
   <div id="pfpanel" class="dockbar" style="display:none"></div>
   <div id="grid"></div>
+  <div id="legend"></div>
   <div id="credits"></div>
 </div>
 <div id="perf" style="display:none"></div>
@@ -190,6 +211,9 @@
 <script src="{% static 'inventory/js/dem_shade_bridge.js' %}"></script>
 <script src="{% static 'inventory/js/basemaps.js' %}"></script>
 <script src="{% static 'inventory/js/dem_read.js' %}"></script>
+<script src="{% static 'inventory/js/ls_colors.js' %}"></script>
+<script src="{% static 'inventory/js/ls_overlays.js' %}"></script>
+<script src="{% static 'inventory/js/ls_hash.js' %}"></script>
 <script>
 (function () {
   'use strict';
@@ -200,6 +224,7 @@
    * except to learn a user's zoom gesture. */
   var protocol = new pmtiles.Protocol();
   maplibregl.addProtocol('pmtiles', protocol.tile);
+  window.__lsPmtilesReg = true;               // ls_overlays.js: already registered
   LSBasemaps.registerProtocols();
 
   var C = 40075016.686, M = 6378137 * Math.PI / 180, D2R = Math.PI / 180;
@@ -233,6 +258,17 @@
   var SAVED = JSON.parse(document.getElementById('sv-data').textContent || 'null');
   S.sv = SAVED ? SAVED.code : null;
   (Q.get('lk') || '').split(',').forEach(function (k) { if (k) S.locks[k] = true; });
+  // Shared layers, the same in every pane (like the base): ls=1 draws the
+  // landslide inventory; ov=<id>.<pct>,... the baked overlays, by their
+  // /inventory/ ids, with opacity 0-100. An id this page does not know is
+  // dropped.
+  var OVR = LSOverlays.bakedOverlays();
+  S.ls = Q.get('ls') === '1';
+  S.ov = {};
+  (Q.get('ov') || '').split(',').forEach(function (t) {
+    var m = /^([a-z0-9-]+)\.(\d+)$/.exec(t);
+    if (m && OVR.byId[m[1]]) S.ov[m[1]] = Math.min(100, +m[2]) / 100;
+  });
   var P = [];
   if (Q.get('pn')) {
     Q.get('pn').split(';').forEach(function (s) {
@@ -497,6 +533,7 @@
     m.on('load', function () {
       p.loaded = true;
       setBase(p); rebuildSources(p, P.indexOf(p)); applyLocks(p);
+      sharedLayers(p);
       annPane(p);
       pfPane(p);
       autoPick(p); surveyOptions(p);
@@ -509,7 +546,10 @@
       m.on(ev, function (e) { if (e.originalEvent && !applying) gestureEnded(); });
     });
     m.on('idle', function () { settle(p); measure(p); checkAllIdle(p); });
-    m.on('moveend', function () { measure(p); });
+    m.on('moveend', function () {
+      measure(p);
+      clearTimeout(p.polyT); p.polyT = setTimeout(function () { lsPolygons(p); }, 250);
+    });
     m.on('render', function () { perf.renders++; });
     m.on('contextmenu', function (e) {
       e.preventDefault();
@@ -566,6 +606,222 @@
     if (S.t3d && S.ex > 0) m.setTerrain({ source: 'dem', exaggeration: S.ex });
     else m.setTerrain(null);
     p.settled = false;
+  }
+
+  // ---- shared layers: overlays + landslides --------------------------------
+  // Both sit above the shading and below the scale bars and profiles, in
+  // every pane. The overlays are ls_overlays.js's baked rows (the same
+  // descriptors /inventory/ uses), stacked in that registry's order. The
+  // landslides are ls_colors.js's layer definitions, fed by the inventory's
+  // public endpoints: every centroid once for the sheet, polygons per pane
+  // by bounding box once a pane is zoomed in past the inventory's own
+  // polygon zoom. No filters: every public record shows.
+  var LS = { pal: null, polyZoom: 7, pts: null, loading: null, ramps: null, rampsLoading: null };
+  var LS_IDS = ['polygon-fill', 'polygon-outline', 'points', 'points-patchy'];
+  var EMPTY_FC = { type: 'FeatureCollection', features: [] };
+  function ovOn() { return OVR.rows.filter(function (r) { return S.ov[r.id] != null; }); }
+  function ovLayerIds() { return ovOn().map(function (r) { return r.layerId; }); }
+  function lsLoad() {
+    if (LS.loading) return LS.loading;
+    LS.loading = Promise.all([
+      fetch('/inventory/api/settings/').then(function (r) { return r.json(); }),
+      fetch('/inventory/api/features/').then(function (r) { return r.json(); })
+    ]).then(function (a) {
+      LS.pal = LSColors.palette(a[0]);
+      LS.polyZoom = parseInt(a[0].polygon_zoom, 10) || 7;
+      LS.pts = a[1];
+      P.forEach(sharedLayers);
+      legend();
+    }).catch(function (e) { LS.loading = null; console.error(e); toast('Could not load the landslides'); });
+    return LS.loading;
+  }
+  function rampsLoad() {
+    if (LS.rampsLoading) return;
+    LS.rampsLoading = fetch('/inventory/api/ramps/').then(function (r) { return r.json(); })
+      .then(function (d) { LS.ramps = d; legend(); }).catch(function () {});
+  }
+  // Bring a pane's shared layers in line with S (add what is on, drop what
+  // is off), then put everything in its place.
+  function sharedLayers(p) {
+    var m = p.map;
+    if (!m || !p.loaded) return;
+    OVR.rows.forEach(function (r) {
+      var op = S.ov[r.id];
+      if (op == null) {
+        if (m.getLayer(r.layerId)) m.removeLayer(r.layerId);
+        if (m.getSource(r.sourceId)) m.removeSource(r.sourceId);
+        return;
+      }
+      if (!m.getSource(r.sourceId)) m.addSource(r.sourceId, r.sourceDef());
+      if (!m.getLayer(r.layerId)) {
+        m.addLayer({ id: r.layerId, type: 'raster', source: r.sourceId,
+                     paint: { 'raster-opacity': op, 'raster-fade-duration': 0 } }, firstAnnLayer(m));
+      } else m.setPaintProperty(r.layerId, 'raster-opacity', op);
+    });
+    var want = S.ls && LS.pal && LS.pts;
+    if (!want) {
+      LS_IDS.forEach(function (id) { if (m.getLayer(id)) m.removeLayer(id); });
+      ['landslides', 'polygons'].forEach(function (id) { if (m.getSource(id)) m.removeSource(id); });
+      p.polyBox = null;
+    } else {
+      if (!m.getSource('landslides')) m.addSource('landslides', { type: 'geojson', data: LS.pts });
+      if (!m.getSource('polygons')) m.addSource('polygons', { type: 'geojson', data: EMPTY_FC });
+      LSColors.landslideLayers(LS.pal, { pitchMap: true }).forEach(function (def) {
+        if (!m.getLayer(def.id)) m.addLayer(def, firstAnnLayer(m));
+      });
+      lsPolygons(p);
+    }
+    restack(p);
+  }
+  // Polygons for the ground a pane shows, fetched for a box half again as
+  // wide so small pans need no new request. The far edge of a tilted pane
+  // is cut at 6 pane-widths from the centre: past that the polygons are
+  // specks, and a view up to the horizon would ask for half the state.
+  function lsPolygons(p) {
+    var m = p.map;
+    if (!S.ls || !LS.pts || !m || !m.getSource('polygons')) return;
+    if (m.getZoom() < LS.polyZoom) { m.getSource('polygons').setData(EMPTY_FC); p.polyBox = null; return; }
+    var c = m.getCenter(), wh = paneSize(p), reach = S.res * Math.max(wh[0], wh[1]) * 6;
+    var dLat = reach / M, dLon = reach / (M * Math.cos(c.lat * D2R));
+    var xs = [], ys = [];
+    [[0, 0], [wh[0], 0], [wh[0], wh[1]], [0, wh[1]]].forEach(function (pt) {
+      var ll = m.unproject(pt); xs.push(ll.lng); ys.push(ll.lat);
+    });
+    var bb = [Math.max(Math.min.apply(null, xs), c.lng - dLon), Math.max(Math.min.apply(null, ys), c.lat - dLat),
+              Math.min(Math.max.apply(null, xs), c.lng + dLon), Math.min(Math.max.apply(null, ys), c.lat + dLat)];
+    var pb = p.polyBox;
+    if (pb && bb[0] >= pb[0] && bb[1] >= pb[1] && bb[2] <= pb[2] && bb[3] <= pb[3]) return;
+    var w = bb[2] - bb[0], h = bb[3] - bb[1];
+    var ask = [bb[0] - w / 4, bb[1] - h / 4, bb[2] + w / 4, bb[3] + h / 4];
+    var seq = p.polySeq = (p.polySeq || 0) + 1;
+    fetch('/inventory/api/polygons/?bbox=' + ask.map(function (v) { return v.toFixed(5); }).join(','))
+      .then(function (r) { return r.json(); })
+      .then(function (fc) {
+        if (seq !== p.polySeq || !m.getSource('polygons')) return;     // a newer request, or switched off
+        m.getSource('polygons').setData(fc); p.polyBox = ask;
+      }).catch(function () {});
+  }
+  function setOverlay(id, op) {
+    if (op == null) delete S.ov[id]; else S.ov[id] = op;
+    P.forEach(sharedLayers);
+    if (op != null) rampsLoad();
+    ovControls(); legend(); credits(); syncUrl();
+  }
+  // The key's overlay controls: a pull-down to add one (grouped as on
+  // /inventory/), and a chip per overlay that is on, with its opacity.
+  function ovControls() {
+    var html = '<option value="">Overlay ＋</option>';
+    LSOverlays.CATS.forEach(function (c) {
+      var groups = c.subs ? c.subs.map(function (sc) { return { label: c.label + ' · ' + sc.label, ids: sc.ids }; })
+                          : [{ label: c.label, ids: c.ids }];
+      groups.forEach(function (g) {
+        var ids = g.ids.filter(function (id) { return OVR.byId[id]; });
+        if (!ids.length) return;
+        html += '<optgroup label="' + esc(g.label) + '">' + ids.map(function (id) {
+          return '<option value="' + id + '"' + (S.ov[id] != null ? ' disabled' : '') + ' title="' + esc(OVR.byId[id].sub || '') + '">' +
+                 esc(OVR.byId[id].label) + '</option>';
+        }).join('') + '</optgroup>';
+      });
+    });
+    $('ovadd').innerHTML = html;
+    $('ovlist').innerHTML = ovOn().map(function (r) {
+      return '<span class="ovi" data-id="' + r.id + '" title="' + esc(r.sub || '') + '">' + esc(r.label) +
+             '<input type="range" min="0" max="100" step="5" value="' + Math.round(S.ov[r.id] * 100) + '" title="Opacity, in every pane">' +
+             '<button title="Remove this overlay">✕</button></span>';
+    }).join('');
+  }
+  // The key under the grid: the landslide colours and each overlay's ramp
+  // (from /inventory/api/ramps/, the file the tiles were coloured from).
+  // legendBlocks() feeds both this and the exported image.
+  function legendBlocks() {
+    var out = [];
+    if (S.ls && LS.pal) LSColors.legend(LS.pal).forEach(function (g, i) {
+      out.push({ head: (i === 0 ? 'Landslides — ' : '') + g.label, items: g.items.map(function (it) {
+        return { kind: 'dot', label: it.label, fill: it.fill, stroke: it.stroke, dot: it.dot };
+      }) });
+    });
+    ovOn().forEach(function (r) {
+      var rp = LS.ramps && LS.ramps[r.id], b = { head: r.label, items: [] };
+      if (rp && rp.kind === 'classes' && rp.classes) {
+        b.items = rp.classes.map(function (c) { return { kind: 'sq', label: c.label, rgba: c.rgba }; });
+      } else if (rp && rp.stops && rp.stops.length) {
+        var st = rp.stops.filter(function (x) { return x.rgba[3] > 0; });
+        if (st.length) b.items = [{ kind: 'bar', stops: st, lo: st[0].v, hi: st[st.length - 1].v, units: rp.units }];
+      }
+      out.push(b);
+    });
+    return out;
+  }
+  function rgbaCss(c) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (c[3] / 255).toFixed(3) + ')'; }
+  function fmtV(v) { return Math.abs(v) >= 100 || v === Math.round(v) ? String(Math.round(v)) : String(+v.toPrecision(3)); }
+  function barCss(it) {
+    var lo = it.lo, span = (it.hi - it.lo) || 1;
+    return 'linear-gradient(to right,' + it.stops.map(function (x) {
+      return rgbaCss(x.rgba) + ' ' + ((x.v - lo) / span * 100).toFixed(1) + '%';
+    }).join(',') + ')';
+  }
+  function legend() {
+    var bl = legendBlocks(), el = $('legend');
+    el.style.display = bl.length ? 'flex' : 'none';
+    el.innerHTML = bl.map(function (b) {
+      return '<span class="lg">' + (b.head ? '<span class="lgh">' + esc(b.head) + '</span>' : '') + b.items.map(function (it) {
+        if (it.kind === 'dot') {
+          return '<span><i class="sw" style="background:' + it.fill + (it.stroke ? ';border:2px solid ' + it.stroke : '') + '">' +
+                 (it.dot ? '<i style="display:block;width:4px;height:4px;margin:2px;border-radius:50%;background:' + it.dot + '"></i>' : '') +
+                 '</i>' + esc(it.label) + '</span>';
+        }
+        if (it.kind === 'sq') return '<span><i class="sq" style="background:' + rgbaCss(it.rgba) + '"></i>' + esc(it.label) + '</span>';
+        return '<span>' + fmtV(it.lo) + '<i class="bar" style="background:' + barCss(it) + '"></i>' + fmtV(it.hi) +
+               (it.units ? ' ' + esc(it.units) : '') + '</span>';
+      }).join('') + '</span>';
+    }).join('');
+    setTimeout(layoutGrid, 0);                 // the grid gives up the legend's height
+  }
+  // The same key drawn on the export canvas, wrapped to width w; returns
+  // the height used (draw = false only measures).
+  function drawLegend(g, x0, y0, w, draw) {
+    var x = x0, y = y0, lh = 15;
+    g.save(); g.font = '11px system-ui, sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'left';
+    function place(width) { if (x > x0 && x + width > x0 + w) { x = x0; y += lh; } var at = x; x += width; return at; }
+    legendBlocks().forEach(function (b) {
+      if (b.head) {
+        g.font = '600 11px system-ui, sans-serif';
+        var tw = g.measureText(b.head).width, at = place(tw + 8);
+        if (draw) { g.fillStyle = '#222'; g.fillText(b.head, at, y + lh / 2); }
+        g.font = '11px system-ui, sans-serif';
+      }
+      b.items.forEach(function (it) {
+        var cy = y + lh / 2, at;
+        if (it.kind === 'bar') {
+          var a = fmtV(it.lo), z = fmtV(it.hi) + (it.units ? ' ' + it.units : '');
+          var wa = g.measureText(a).width, wz = g.measureText(z).width;
+          at = place(wa + 98 + wz + 10); cy = y + lh / 2;
+          if (!draw) return;
+          g.fillStyle = '#333'; g.fillText(a, at, cy);
+          var gr = g.createLinearGradient(at + wa + 4, 0, at + wa + 94, 0), span = (it.hi - it.lo) || 1;
+          it.stops.forEach(function (st) { gr.addColorStop(Math.max(0, Math.min(1, (st.v - it.lo) / span)), rgbaCss(st.rgba)); });
+          g.fillStyle = gr; g.fillRect(at + wa + 4, cy - 5, 90, 10);
+          g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = 1; g.strokeRect(at + wa + 4, cy - 5, 90, 10);
+          g.fillStyle = '#333'; g.fillText(z, at + wa + 98, cy);
+          return;
+        }
+        var tw2 = g.measureText(it.label).width;
+        at = place(tw2 + 26); cy = y + lh / 2;
+        if (!draw) return;
+        if (it.kind === 'dot') {
+          g.beginPath(); g.arc(at + 6, cy, 5, 0, 2 * Math.PI); g.fillStyle = it.fill; g.fill();
+          g.lineWidth = it.stroke ? 2 : 1; g.strokeStyle = it.stroke || '#999'; g.stroke();
+          if (it.dot) { g.beginPath(); g.arc(at + 6, cy, 2, 0, 2 * Math.PI); g.fillStyle = it.dot; g.fill(); }
+        } else {
+          g.fillStyle = rgbaCss(it.rgba); g.fillRect(at, cy - 5, 12, 10);
+          g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = 1; g.strokeRect(at, cy - 5, 12, 10);
+        }
+        g.fillStyle = '#333'; g.fillText(it.label, at + 15, cy);
+      });
+      x += 10;
+    });
+    g.restore();
+    return x === x0 && y === y0 ? 0 : y - y0 + lh;
   }
 
   // The /lidar/ terrain floor (lidar_preview.html floorTerrainMinimum): a
@@ -796,7 +1052,12 @@
     var bm = BASEMAPS.filter(function (b) { return b.id === S.bm; })[0];
     $('credits').innerHTML = 'Surveys: ' + (parts.join(' · ') || '—') +
       '. Terrain beyond the surveys: <a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">Mapterhorn</a> (USGS 3DEP; Copernicus DEM).' +
-      (bm ? ' Base: ' + (bm.attribution || bm.label).replace(/<[^>]+>/g, '') + '.' : '');
+      (bm ? ' Base: ' + (bm.attribution || bm.label).replace(/<[^>]+>/g, '') + '.' : '') +
+      (S.ls ? ' Landslides: <a href="/inventory/methods/" target="_blank" rel="noopener">landslidescience.org inventory</a>.' : '') +
+      ovOn().map(function (r) {
+        var a = r.sourceDef().attribution || r.label;
+        return ' ' + esc(a.replace(/<[^>]+>/g, '')) + '.';
+      }).filter(function (t, i, all) { return all.indexOf(t) === i; }).join('');
   }
 
   function fillBase() {
@@ -855,6 +1116,26 @@
     $('bm').addEventListener('change', function () {
       S.bm = this.value; P.forEach(function (p) { if (p.map && p.loaded) setBase(p); }); credits(); syncUrl();
     });
+    $('lson').addEventListener('change', function () {
+      S.ls = this.checked;
+      if (S.ls) lsLoad();
+      P.forEach(sharedLayers); legend(); credits(); syncUrl();
+    });
+    $('ovadd').addEventListener('change', function () {
+      var id = this.value; this.value = '';
+      if (id && OVR.byId[id]) setOverlay(id, OVR.byId[id].defOpacity != null ? OVR.byId[id].defOpacity : 0.8);
+    });
+    $('ovlist').addEventListener('input', function (e) {
+      var chip = e.target.closest('.ovi');
+      if (!chip || e.target.type !== 'range') return;
+      var id = chip.dataset.id; S.ov[id] = +e.target.value / 100;
+      P.forEach(function (p) { if (p.map && p.map.getLayer(OVR.byId[id].layerId)) p.map.setPaintProperty(OVR.byId[id].layerId, 'raster-opacity', S.ov[id]); });
+      syncUrl();
+    });
+    $('ovlist').addEventListener('click', function (e) {
+      var chip = e.target.closest('.ovi');
+      if (chip && e.target.tagName === 'BUTTON') setOverlay(chip.dataset.id, null);
+    });
     $('cols').addEventListener('change', function () { S.cols = +this.value; layoutGrid(); syncUrl(); });
     $('npanes').addEventListener('change', function () { setPaneCount(+this.value); });
     document.querySelectorAll('[data-lock]').forEach(function (cb) {
@@ -876,6 +1157,7 @@
       if (e.key !== 'Enter') return;
       try {
         var u = new URL(this.value.trim(), location.href), q = u.searchParams;
+        if (/^\/inventory\//.test(u.pathname)) { addInventoryLink(u); this.value = ''; return; }
         if (!isFinite(+q.get('lat')) || !isFinite(+q.get('lon'))) throw new Error('no lat/lon');
         if (P.length >= MAXP) { toast('At most ' + MAXP + ' panes'); return; }
         // A /lidar/ link names its survey only if one was on; with none, Auto
@@ -892,6 +1174,36 @@
     $('hidectl').addEventListener('click', function () { setClean(true); });
     $('showctl').addEventListener('click', function () { setClean(false); });
     $('exportpng').addEventListener('click', function () { exportPng(+$('expscale').value, $('expfmt').value); });
+  }
+
+  // An /inventory/ map link (its state is in the hash, read by ls_hash.js,
+  // the inventory's own codec): a pane at its place, looking north, on the
+  // lidar survey it shows if it shows one; landslides on; and every overlay
+  // it shows that this page has (an overlay on either side of its wiper
+  // counts, the main side's opacity first). The sheet's scale, tilt and
+  // style stay as they are: they are shared.
+  function addInventoryLink(u) {
+    var h = LSHash.parse(u.hash || '');
+    if (h.lat == null || h.lon == null) {
+      toast('That /inventory/ link has no map position: copy the address while the map is open');
+      return;
+    }
+    if (P.length >= MAXP) { toast('At most ' + MAXP + ' panes'); return; }
+    var ds = null;
+    Object.keys(h.li || {}).forEach(function (id) { if (!ds && h.li[id].left && props[id]) ds = id; });
+    P.push({ lat: h.lat, lon: wrap180(h.lon), b: 0, ds: ds, title: null, dsAuto: !ds });
+    buildPane(P.length - 1); layoutGrid(); applyAll(-1); syncKey(); credits(); syncUrl();
+    var added = [], missing = [];
+    Object.keys(h.ov || {}).forEach(function (id) {
+      var e = h.ov[id], op = e.left ? e.opLeft : e.opRight;
+      if (!OVR.byId[id]) { missing.push(id); return; }
+      if (S.ov[id] == null) { S.ov[id] = op != null ? op : OVR.byId[id].defOpacity; added.push(OVR.byId[id].label); }
+    });
+    if (added.length) rampsLoad();
+    if (!S.ls) { S.ls = true; $('lson').checked = true; lsLoad(); }
+    P.forEach(sharedLayers); ovControls(); legend(); credits(); syncUrl();
+    toast('Pane added' + (added.length ? '; overlays on: ' + added.join(', ') : '') +
+          (missing.length ? '; not available here: ' + missing.join(', ') : ''));
   }
 
   function removePane(i) {
@@ -991,7 +1303,8 @@
     var m = p.map;
     if (!m || !p.loaded) return;
     var k = p.annKey;
-    ['base', 'shade', 'ann-scale-' + k, 'ann-north-' + k, 'pf-' + k + '-case', 'pf-' + k + '-line', 'pf-' + k + '-end']
+    ['base', 'shade'].concat(ovLayerIds(), LS_IDS,
+      ['ann-scale-' + k, 'ann-north-' + k, 'pf-' + k + '-case', 'pf-' + k + '-line', 'pf-' + k + '-end'])
       .forEach(function (id) { if (m.getLayer(id)) m.moveLayer(id); });
   }
   function firstAnnLayer(m) {
@@ -1718,6 +2031,9 @@
     await new Promise(function (r) { setTimeout(r, 200); });       // closed panels: let the layout settle
     try {
       var gr = $('grid').getBoundingClientRect(), pad = 12, head = 52, foot = 40;
+      // The landslide / overlay key goes between the grid and the credits.
+      var legH = drawLegend(document.createElement('canvas').getContext('2d'), 0, 0, gr.width, false);
+      if (legH) foot += legH + 6;
       var out = document.createElement('canvas');
       out.width = Math.round((gr.width + 2 * pad) * scale); out.height = Math.round((head + gr.height + foot) * scale);
       var g = out.getContext('2d');
@@ -1773,7 +2089,8 @@
       }
       g.textAlign = 'left';
       g.fillStyle = '#666'; g.font = '11px system-ui, sans-serif'; g.textBaseline = 'top';
-      var cr = $('credits').textContent.replace(/\s+/g, ' ').trim(), y = head + gr.height + 6, line = '';
+      if (legH) drawLegend(g, pad, head + gr.height + 6, gr.width, true);
+      var cr = $('credits').textContent.replace(/\s+/g, ' ').trim(), y = head + gr.height + 6 + (legH ? legH + 6 : 0), line = '';
       cr.split(' ').forEach(function (w) {
         if (g.measureText(line + w).width > gr.width) { g.fillText(line, pad, y); y += 14; line = ''; }
         line += w + ' ';
@@ -1812,6 +2129,9 @@
     if (S.sv) q.set('sv', S.sv);
     if (S.cols) q.set('cols', S.cols);
     var lk = Object.keys(S.locks); if (lk.length) q.set('lk', lk.join(','));
+    if (S.ls) q.set('ls', 1);
+    var ov = ovOn().map(function (r) { return r.id + '.' + Math.round(S.ov[r.id] * 100); });
+    if (ov.length) q.set('ov', ov.join(','));
     q.set('pn', P.map(function (p) {
       return [p.lat.toFixed(6), p.lon.toFixed(6), p.b.toFixed(1), p.ds || '',
               p.title ? encodeURIComponent(p.title) : '', p.dsAuto === false ? 'm' : ''].join(',').replace(/,+$/, '');
@@ -1874,7 +2194,7 @@
     var t = $('_coord-toast');
     if (!t) { t = document.createElement('div'); t.id = '_coord-toast'; document.body.appendChild(t); }
     t.textContent = msg; t.style.display = '';
-    clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, 1600);
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, Math.max(1600, msg.length * 55));
   }
 
   // ---- performance readout (plan §9 phase 0) -------------------------------
@@ -1928,6 +2248,10 @@
   // ---- boot ------------------------------------------------------------------
   if (Q.get('perf') === '1') { $('perf').style.display = ''; $('perflbl').style.display = ''; }
   fillBase(); loadSharedBases();
+  $('lson').checked = S.ls;
+  if (S.ls) lsLoad();
+  if (Object.keys(S.ov).length) rampsLoad();
+  ovControls(); legend();
   bindKey();
   if (S.clean) document.body.classList.add('clean');
   if (LS_SAVE.can) {

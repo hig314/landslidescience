@@ -84,6 +84,12 @@ In no particular order.
   sheets, publish/branch, the `lidar_scene.js` extraction, a shading worker
   pool; on prod, profiles / shared QMS bases / `hc=1` / JPEG export and the
   first *Submit* of a saved comparison are still untried, see the checklist).
+- **Terrain comparison: landslides + baked overlays** (tested by Hig in dev,
+  deployed 2026-11-16): `ls=1` / `ov=` on `/lidar/compare/`, `/inventory/`
+  links in the paste box; the shared overlay rows and landslide layers moved
+  out of `map.js` (LIDAR_COMPARE_PLAN.md round 10). Not done: OPERA / NRCan /
+  DIST / geology / relief / contours on compare, clicking a landslide,
+  `/inventory/<slug>/` links, inventory filters.
 - **map.js split, paused after round 4** (609 KB → 333 KB, 13 files out).
   Next is the overlay framework (registry and source defs first, sidebar UI
   second), then stop: the wiper, basemaps, URL-state table, filters, detail

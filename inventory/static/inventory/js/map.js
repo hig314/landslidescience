@@ -583,8 +583,7 @@
     function _isMapReady() { return _mapReady; }
 
     // Layer style variables set by initLayers, reused by initDataLayers on basemap switch
-    var _palette, _fOp, _lW, _rSm, _rMd, _rLg;
-    var _classFill, _classStroke, _classStrokeW;
+    var _palette, _rSm, _rMd, _rLg;
 
     // tryInit: called once at startup when both map and settings are ready.
     function tryInit() {
@@ -631,11 +630,7 @@
         // Resolve the shared palette + paint expressions (ls_colors.js) so the
         // main map and the per-record form preview map stay in lock-step.
         _palette = window.LSColors.palette(s);
-        _fOp = _palette.fOp; _lW = _palette.lW;
         _rSm = _palette.rSm; _rMd = _palette.rMd; _rLg = _palette.rLg;
-        _classFill    = window.LSColors.classFill(_palette);
-        _classStroke  = window.LSColors.classStroke(_palette);
-        _classStrokeW = window.LSColors.classStrokeWidth();
 
         initDataLayers();
 
@@ -675,37 +670,11 @@
 
     // Landslide data layers (points + the two polygon layers), shared by the
     // main map and the swipe comparison map so their symbology is identical.
-    // Paint references the module-scope style vars set by initLayers + the
-    // shared LSColors expressions. Returns [points, points-patchy, polygon-fill, polygon-outline].
+    // Paint comes from the palette set by initLayers. Returns [points,
+    // points-patchy, polygon-fill, polygon-outline].
     function _landslideLayerDefs() {
-        return [
-            {
-                id: 'points', type: 'circle', source: 'landslides',
-                layout: { 'circle-sort-key': window.LSColors.pointSortKey() },
-                paint: {
-                    'circle-color': _classFill,
-                    'circle-radius': window.LSColors.pointRadius(_palette, 1),
-                    'circle-stroke-width': _classStrokeW,
-                    'circle-stroke-color': _classStroke,
-                    'circle-opacity': 0.9
-                }
-            },
-            // Slow patchy-obvious: a small red center dot over the yellow base
-            // (symbolically "partly obvious"). Scaled to sit inside the dot.
-            { id: 'points-patchy', type: 'circle', source: 'landslides',
-              filter: window.LSColors.PATCHY_FILTER,
-              paint: {
-                  'circle-color': _palette.patchyDot,
-                  'circle-radius': window.LSColors.pointRadius(_palette, 0.45),
-                  'circle-stroke-width': 0,
-                  'circle-opacity': 0.95
-              }
-            },
-            { id: 'polygon-fill', type: 'fill', source: 'polygons',
-              paint: { 'fill-color': window.LSColors.polygonFill(_palette), 'fill-opacity': _fOp } },
-            { id: 'polygon-outline', type: 'line', source: 'polygons',
-              paint: { 'line-color': window.LSColors.polygonOutline(_palette), 'line-width': _lW } },
-        ];
+        // The definitions live in ls_colors.js (shared with /lidar/compare/).
+        return window.LSColors.landslideLayers(_palette);
     }
 
     // Overlay / auxiliary source+layer defs shared verbatim by the main map and
@@ -713,43 +682,9 @@
     // identical paint on both panes, so nothing can drift). Visibility is read
     // from the sidebar checkboxes at build time; later toggles mirror to both
     // maps via _swipeAlso.
-    // A baked overlay's tiles: one PMTiles archive, read by range requests
-    // through /overlays/<id>.pmtiles (a local copy in dev, else a redirect to
-    // R2). Tile trees on the droplet are being retired in favour of this.
-    function _ovArchiveTiles(id) {
-        return 'pmtiles://' + location.origin + '/overlays/' + id + '.pmtiles/{z}/{x}/{y}';
-    }
-    function _suscSourceDef(s) {
-        return {
-            type: 'raster',
-            // One PMTiles archive per model on R2 (2026-11-14; was a tile tree on
-            // the droplet under /tiles/susc/). A rebuild with different pixels
-            // gets a new archive id rather than a ?v= bump.
-            tiles: [_ovArchiveTiles('susc_' + s.key)],
-            tileSize: 256,
-            minzoom: 3,
-            maxzoom: 10,
-            attribution: s.attr
-        };
-    }
+    // Baked overlays (one PMTiles archive each, read through
+    // /overlays/<id>.pmtiles) are defined in ls_overlays.js bakedOverlays().
 
-    // Alaska DGGS deep-seated landslide susceptibility (PIR 2025-3, Wikstrom
-    // Jones & Larsen 2025). Proxied and disk-cached by inventory/susc_dggs.py
-    // — DGGS serves it only as a dynamic MapServer, and that service returned
-    // 504 for half an hour the day this was built, so the cache is what makes
-    // it dependable. Bump when the cached pixels change (a DGGS republish, or
-    // a change to the class-0 handling in susc_dggs.py); the tile route
-    // promises browsers 30 days.
-    // v2 (2026-09-20): rebaked after the tiles were found to stop at 67.65 N.
-    // The bound had been derived from the VRT's corner-based wgs84Extent, and
-    // under Alaska Albers the corners are not the extreme latitudes -- the top
-    // edge reaches 71.53 N, so the Brooks Range and North Slope were missing.
-    // The tile route sends `immutable, max-age=1yr`, so a rebuild is invisible
-    // to anyone who has already loaded the layer until this is bumped.
-    var DGGS_SUSC_V = '2';
-    // maxzoom 14 is THEIR limit, not a choice: the layer carries
-    // maxScale 36000 and z15 comes back blank. Declaring it makes MapLibre
-    // overzoom the z14 tile instead of requesting empties.
     // Statewide bedrock geology: the USGS Geologic Map of Alaska (Wilson,
     // Hults, Mull & Karl 2015, SIM 3340, 1:1,584,000, public domain) as
     // served by Macrostrat's carto tiles (CC-BY 4.0, CORS open, CDN cached;
@@ -765,42 +700,6 @@
             tiles: ['https://tiles.macrostrat.org/carto/{z}/{x}/{y}.png'],
             tileSize: 512, minzoom: 2, maxzoom: 14,
             attribution: GEOLOGY_ATTR
-        };
-    }
-    function _dggsSuscSourceDef() {
-        return {
-            type: 'raster',
-            // Self-hosted baked tiles, coloured from tools/dggs_susc_color.txt
-            // on the same YlOrRd scale as the USGS pair. This replaced the live
-            // proxy at inventory/susc_dggs.py once the raster was recovered:
-            // no dependence on a service that returned 504 repeatedly, and the
-            // colours match the layers it sits beside. The proxy route is left
-            // in place — it still works, and it is the fallback if the bake is
-            // ever dropped.
-            //
-            // maxzoom 12 is the data's own ceiling: the source is a 20 m grid,
-            // which is 19.1 m/px at z12 for 60 N, so z13 would only invent
-            // detail. The client overzooms above it.
-            tiles: [_ovArchiveTiles('susc_dggs')],
-            tileSize: 256,
-            minzoom: 3,
-            maxzoom: 12,
-            attribution: 'Deep-seated landslide susceptibility: Alaska DGGS, ' +
-                         'Wikstrom Jones & Larsen 2025 (PIR 2025-3)'
-        };
-    }
-    // NASA's global susceptibility map (Stanley & Kirschbaum 2017, in the 2023
-    // update NASA distributes): five classes on a 30 arc-second grid, 72 N to
-    // 60 S. Baked by tools/build_nasa_susc.py into one PMTiles archive, classes
-    // coloured from tools/nasa_susc_color.txt on the YlOrRd scale of the three
-    // models beside it. z8 resolves the ~1 km cells; the map overzooms beyond.
-    function _nasaSuscSourceDef() {
-        return {
-            type: 'raster',
-            tiles: ['pmtiles://' + location.origin + '/overlays/susc_nasa.pmtiles/{z}/{x}/{y}'],
-            tileSize: 256, minzoom: 0, maxzoom: 8,
-            attribution: 'Global landslide susceptibility: NASA GSFC, ' +
-                         'Stanley & Kirschbaum 2017 (2023 update)'
         };
     }
 
@@ -965,27 +864,16 @@
 
     // Registry — order = draw order (later entries render on top). Susc layer
     // ids are unchanged so the trace-raster insertion chain keeps working.
+    // The baked-PMTiles rows are defined once in ls_overlays.js (shared with
+    // /lidar/compare/); the registry below places them by id.
+    var _BK = window.LSOverlays.bakedOverlays();
     function _ovRegistry() { return OVERLAYS; }   // for code in other files: the list is reassigned below
     var OVERLAYS = [
-        { id: 'susc-lw',    layerId: 'susc-lw-layer',   sourceId: 'susc-lw',
-          label: 'Susceptibility — lw',  sub: 'USGS Belair et al. 2024, 90 m',
-          sourceDef: function () { return _suscSourceDef(SUSC_LAYERS[0]); }, defOpacity: 1 },
-        { id: 'susc-n10',   layerId: 'susc-n10-layer',  sourceId: 'susc-n10',
-          label: 'Susceptibility — n10', sub: 'USGS Belair et al. 2024, 90 m',
-          sourceDef: function () { return _suscSourceDef(SUSC_LAYERS[1]); }, defOpacity: 1 },
-        // The state's own model, beside the two USGS ones: different method
-        // (rock strength x slope class, not a statistical fit), different
-        // agency, same question.
-        { id: 'susc-dggs', layerId: 'ov-susc-dggs', sourceId: 'ov-susc-dggs-src',
-          label: 'Susceptibility — DGGS',
-          sub: 'Alaska DGGS PIR 2025-3 · rock strength × slope · 20 m',
-          sourceDef: function () { return _dggsSuscSourceDef(); }, defOpacity: 0.8 },
-        // The only one of the four that leaves Alaska: coarse (about 1 km) and
-        // heuristic, but it is there under every record outside the state.
-        { id: 'susc-nasa', layerId: 'ov-susc-nasa', sourceId: 'ov-susc-nasa-src',
-          label: 'Susceptibility — NASA global',
-          sub: 'Stanley & Kirschbaum 2017 (2023 update) · slope, geology, faults, roads, forest loss · ~1 km, 72°N–60°S',
-          sourceDef: function () { return _nasaSuscSourceDef(); }, defOpacity: 0.8 },
+        // Susceptibility (USGS pair, DGGS, NASA): shared rows, ls_overlays.js.
+        _BK.byId['susc-lw'],
+        _BK.byId['susc-n10'],
+        _BK.byId['susc-dggs'],
+        _BK.byId['susc-nasa'],
         { id: 'geology', layerId: 'ov-geology', sourceId: 'ov-geology-src',
           label: 'Bedrock geology',
           sub: 'USGS Geologic Map of Alaska (Wilson et al. 2015, 1:1.58M) · Macrostrat tiles · click for the unit',
@@ -1047,82 +935,37 @@
               labelFilter: ['>=', ['get', 'level'], 1]
           },
           sourceDef: function () { return _contourSourceDef(); }, defOpacity: 0.85 },
-        { id: 'sp-elev', layerId: 'ov-sp-elev', sourceId: 'ov-sp-elev-src',
-          label: 'Elevation', sub: 'm, hypsometric · 3DEP via Mapterhorn, 60 m',
-          sourceDef: function () { return _pfSourceDef('sp_elev', 10, SP_ATTR); }, defOpacity: 0.7 },
-        // Slope at six fixed horizontal scales (2026-11-01, tools/terrain/
-        // bake_slope.py), one colour ramp, baked z3-z11; zooming out averages
-        // the picture and never changes the measure. `sp-slope` was one layer
-        // whose scale followed the zoom; the id stays for stored views and is
-        // now the 60 m row. See _slopeSourceDef for z12.
-        _slopeRow('sp-slope-local', 'Slope — local', 'local',
-                  'ordinary slope on the ~9 m grid · Alaska'),
-        _slopeRow('sp-slope', 'Slope — 60 m', '60',
-                  'steepest line 60 m long centred on each pixel · Alaska'),
-        _slopeRow('sp-slope-200', 'Slope — 200 m', '200',
-                  'steepest line 200 m long centred on each pixel · Alaska'),
-        _slopeRow('sp-slope-500', 'Slope — 500 m', '500',
-                  'steepest line 500 m long centred on each pixel · Alaska'),
-        _slopeRow('sp-slope-1k', 'Slope — 1 km', '1k',
-                  'steepest line 1 km long centred on each pixel · Alaska'),
-        _slopeRow('sp-slope-2k', 'Slope — 2 km', '2k',
-                  'steepest line 2 km long centred on each pixel · Alaska'),
+        _BK.byId['sp-elev'],
+        // Slope at six fixed horizontal scales (shared rows; local and 60 m
+        // are computed in the page at z12 when slope_scales.js is loaded).
+        _BK.byId['sp-slope-local'],
+        _BK.byId['sp-slope'],
+        _BK.byId['sp-slope-200'],
+        _BK.byId['sp-slope-500'],
+        _BK.byId['sp-slope-1k'],
+        _BK.byId['sp-slope-2k'],
         // Exploratory (tools/terrain/scoops/statewide.py): the cohesion a uniform
         // material would need for the worst spherical failure of one size class.
         { id: 'sp-creq-20-200', layerId: 'ov-sp-creq-20-200', sourceId: 'ov-sp-creq-20-200-src',
           label: 'Required cohesion — φ 20°, 10⁹–10¹⁰ m³',
           sub: 'kPa, γ 26 kN/m³, on a 200 m grid · a search of spherical surfaces, not a hazard estimate · clear = none needed',
           sourceDef: function () { return _pfSourceDef('sp_creq_phi20_200m', 10, SP_ATTR); }, defOpacity: 0.85 },
-        { id: 'sp-aspect', layerId: 'ov-sp-aspect', sourceId: 'ov-sp-aspect-src',
-          label: 'Aspect', sub: 'N blue · E green · S yellow · W magenta, 60 m · flat cells read as north',
-          sourceDef: function () { return _pfSourceDef('sp_aspect', 10, SP_ATTR); }, defOpacity: 0.7 },
-        { id: 'sp-north', layerId: 'ov-sp-north', sourceId: 'ov-sp-north-src',
-          label: 'Northness', sub: 'cos(aspect)·sin(slope), 60 m · blue north-facing, red south-facing · the aspect term of the permafrost downscale',
-          sourceDef: function () { return _pfSourceDef('sp_north', 10, SP_ATTR); }, defOpacity: 0.7 },
+        _BK.byId['sp-aspect'],
+        _BK.byId['sp-north'],
         // Glacier covered area 2020 (NSIDC G10040, Landsat-derived, RGI ids
         // carried): the recent outline the permafrost downscale is read
         // against, since the Obu-derived 60 m layers are interpolated THROUGH
         // ice rather than masked. Rasterised fill + edge, baked like the rest.
-        { id: 'glac-outline-2020', layerId: 'ov-glac-outline-2020', sourceId: 'ov-glac-outline-2020-src',
-          label: 'Glacier covered area — 2020',
-          sub: 'Landsat-derived outlines, 30 m · NSIDC G10040 (1985–2020 series, 2020 epoch)',
-          sourceDef: function () { return _pfSourceDef('glac_outline_2020', 12, GLAC_ATTR); }, defOpacity: 0.9 },
-        { id: 'pf-gruber-maat', layerId: 'ov-pf-gruber-maat', sourceId: 'ov-pf-gruber-maat-src',
-          label: 'Mean annual air temperature — Gruber 2012',
-          sub: '°C, 1 km · the MAAT climatology Gruber derived PZI from',
-          sourceDef: function () { return _pfSourceDef('pf_gruber_maat', 9); }, defOpacity: 0.8 },
-        { id: 'pf-gruber-maat60', layerId: 'ov-pf-gruber-maat60', sourceId: 'ov-pf-gruber-maat60-src',
-          label: 'Mean annual air temperature — terrain-downscaled',
-          sub: '°C, 60 m · Gruber MAAT moved by a kernel-fitted local lapse onto 3DEP elevation (our inference)',
-          sourceDef: function () { return _pfSourceDef('pf_gruber_maat60', 11); }, defOpacity: 0.8 },
-        { id: 'pf-gruber-pzi', layerId: 'ov-pf-gruber-pzi', sourceId: 'ov-pf-gruber-pzi-src',
-          label: 'Permafrost zonation index — Gruber 2012',
-          sub: 'PZI 0–1, 1 km · fraction of the cell with permafrost, from MAAT',
-          sourceDef: function () { return _pfSourceDef('pf_gruber_pzi', 9); }, defOpacity: 0.8 },
-        { id: 'pf-gruber-pzi60', layerId: 'ov-pf-gruber-pzi60', sourceId: 'ov-pf-gruber-pzi60-src',
-          label: 'Permafrost zonation index — terrain-downscaled',
-          sub: 'PZI 0–1, 60 m · Gruber MAAT lapse-rate fit per 10 km, applied to 3DEP elevation (our inference)',
-          sourceDef: function () { return _pfSourceDef('pf_gruber_pzi60', 11); }, defOpacity: 0.8 },
-        { id: 'pf-obu-prob', layerId: 'ov-pf-obu-prob', sourceId: 'ov-pf-obu-prob-src',
-          label: 'Permafrost probability — Obu 2019',
-          sub: 'probability 0–1, 1 km · TTOP model on MODIS land-surface temperature, 2000–2016',
-          sourceDef: function () { return _pfSourceDef('pf_obu_prob', 9); }, defOpacity: 0.8 },
-        { id: 'pf-obu-prob60', layerId: 'ov-pf-obu-prob60', sourceId: 'ov-pf-obu-prob60-src',
-          label: 'Permafrost probability — terrain-downscaled',
-          sub: 'probability 0–1, 60 m · Obu MAGT fit on elevation + aspect per 10 km (our inference)',
-          sourceDef: function () { return _pfSourceDef('pf_obu_prob60', 11); }, defOpacity: 0.8 },
-        { id: 'pf-obu-magt', layerId: 'ov-pf-obu-magt', sourceId: 'ov-pf-obu-magt-src',
-          label: 'Ground temperature — Obu 2019',
-          sub: '°C at the permafrost top, 1 km · 0 °C is the permafrost boundary',
-          sourceDef: function () { return _pfSourceDef('pf_obu_magt', 9); }, defOpacity: 0.8 },
-        { id: 'pf-obu-magt60', layerId: 'ov-pf-obu-magt60', sourceId: 'ov-pf-obu-magt60-src',
-          label: 'Ground temperature — terrain-downscaled',
-          sub: '°C, 60 m · the downscaled Obu MAGT the probability above is derived from (our inference)',
-          sourceDef: function () { return _pfSourceDef('pf_obu_magt60', 11); }, defOpacity: 0.8 },
-        { id: 'pf-pastick-nsp', layerId: 'ov-pf-pastick-nsp', sourceId: 'ov-pf-pastick-nsp-src',
-          label: 'Near-surface permafrost probability — Pastick 2015',
-          sub: 'probability 0–1 of permafrost within 1 m, 30 m, Alaska only · field-trained; water, ice, barren, developed masked',
-          sourceDef: function () { return _pfSourceDef('pf_pastick_nsp', 12); }, defOpacity: 0.8 },
+        _BK.byId['glac-outline-2020'],
+        _BK.byId['pf-gruber-maat'],
+        _BK.byId['pf-gruber-maat60'],
+        _BK.byId['pf-gruber-pzi'],
+        _BK.byId['pf-gruber-pzi60'],
+        _BK.byId['pf-obu-prob'],
+        _BK.byId['pf-obu-prob60'],
+        _BK.byId['pf-obu-magt'],
+        _BK.byId['pf-obu-magt60'],
+        _BK.byId['pf-pastick-nsp'],
         { id: 'opera-asc',  layerId: 'ov-opera-asc',    sourceId: 'ov-opera-asc-src',
           label: 'OPERA velocity — ascending', sub: 'InSAR, ±30 mm/yr · NASA/JPL + ASF',
           sourceDef: function () { return _operaSourceDef('asc'); }, defOpacity: 0.75 },
@@ -1141,30 +984,12 @@
         itsliveBase: CFG.itsliveTileBase,
         hugonnetBase: CFG.hugonnetTileBase
     })).concat([
-        // IceBoost v2.0 ice thickness + derived products (Maffezzoli et al.
-        // 2025, GMD, doi:10.5194/gmd-18-2545-2025; CC-BY 4.0). Inventory-map
-        // only for now — deliberately NOT in ls_overlays.glacierOverlays(),
-        // which /glaciers also consumes (colleague's in-flight work). Bed =
-        // (surface - geoid) - thickness, self-consistent within IceBoost;
-        // overdeepenings = per-complex sink-fill depth of the derived bed.
-        { id: 'ice-thick', layerId: 'ov-ice-thick', sourceId: 'ov-ice-thick-src',
-          label: 'Ice thickness', sub: 'IceBoost v2.0, 100 m · Maffezzoli et al. 2025',
-          sourceDef: function () { return _iceboostSourceDef('thickness'); },
-          defOpacity: 0.85 },
-        { id: 'ice-bed', layerId: 'ov-ice-bed', sourceId: 'ov-ice-bed-src',
-          label: 'Bed elevation (under ice)', sub: 'IceBoost surface − thickness · blue = below sea level',
-          sourceDef: function () { return _iceboostSourceDef('bed'); },
-          defOpacity: 0.9 },
-        { id: 'ice-over', layerId: 'ov-ice-over', sourceId: 'ov-ice-over-src',
-          label: 'Bed overdeepenings', sub: 'closed-basin depth >10 m — future lakes / fjord arms',
-          sourceDef: function () { return _iceboostSourceDef('overdeep'); },
-          defOpacity: 0.9 },
-        { id: 'coh-summer', layerId: 'ov-coh-summer', sourceId: 'ov-coh-summer-src',
-          label: 'Radar coherence',
-          sub: 'Sentinel-1 12-day VV summer, 93 m · where InSAR works; ' +
-               'low patches can mark active ground',
-          sourceDef: function () { return _coherenceSourceDef('summer'); },
-          defOpacity: 0.85 },
+        // IceBoost v2.0 ice thickness + derived products and the summer
+        // radar coherence: shared rows (ls_overlays.js bakedOverlays).
+        _BK.byId['ice-thick'],
+        _BK.byId['ice-bed'],
+        _BK.byId['ice-over'],
+        _BK.byId['coh-summer'],
         // OPERA DIST last, so disturbance draws over the glacier fields.
         // Carries a `stepper` — the first overlay whose content depends on a
         // date.
@@ -1456,11 +1281,7 @@
     // that says nothing. See the ramp file for that and for why it is
     // banded.
     var COHERENCE_TILE_V = '1';
-    var COHERENCE_ATTR = 'Sentinel-1 coherence: Kellndorfer et al. 2022 ' +
-                         '(doi:10.1038/s41597-022-01189-6, CC BY 4.0)';
-    var PF_ATTR = 'Permafrost: Gruber 2012 (UZH); Obu et al. 2019 (CC-BY 3.0); Pastick et al. 2015 (USGS); ' +
-                  'downscaled layers © landslidescience.org on Mapterhorn / USGS 3DEP terrain';
-    var SP_ATTR = 'Terrain: USGS 3DEP via Mapterhorn';
+    var PF_ATTR = window.LSOverlays.PF_ATTR, SP_ATTR = window.LSOverlays.SP_ATTR;
     // maplibre-contour: one DEM source for the contour overlay, set up once.
     var _contourDem = null;
     // The two DEMs behind the Shaded relief rows, registered with the shading
@@ -1511,24 +1332,8 @@
             })]
         };
     }
-    var GLAC_ATTR = 'Glacier area 2020: Roberts-Pierel, Kirchner, Kilbride & Kennedy (2022), NSIDC G10040, doi:10.7265/8esq-w553';
-    function _slopeRow(id, label, sid, sub) {
-        return { id: id, layerId: 'ov-' + id, sourceId: 'ov-' + id + '-src', label: label, sub: sub,
-                 sourceDef: function () { return _slopeSourceDef(sid); }, defOpacity: 0.7 };
-    }
-    // The slope rows' tiles. local and 60 m are computed in the page at z12
-    // (slope_scales.js) from the same tiles the bake read; the coarser four
-    // gain nothing past z11. Without slope_scales.js they stop at z11 too.
-    function _slopeSourceDef(sid) {
-        var fine = window.LSSlope && (sid === 'local' || sid === '60');
-        return {
-            type: 'raster',
-            tiles: [fine ? 'lsslope://' + sid + '/{z}/{x}/{y}'
-                         : 'pmtiles://' + location.origin + '/overlays/sp_slope_' + sid + '.pmtiles/{z}/{x}/{y}'],
-            tileSize: 512, minzoom: 3, maxzoom: fine ? 12 : 11,
-            attribution: SP_ATTR
-        };
-    }
+    // The required-cohesion row's tiles (the one baked raster not in the
+    // shared list: it is exploratory and switched off).
     function _pfSourceDef(id, maxzoom, attr) {
         return {
             type: 'raster',
@@ -1537,24 +1342,7 @@
             attribution: attr || PF_ATTR
         };
     }
-    function _coherenceSourceDef(season) {
-        return {
-            type: 'raster',
-            tiles: [_ovArchiveTiles('coh_' + season)],
-            tileSize: 256, minzoom: 3, maxzoom: 10,
-            attribution: COHERENCE_ATTR
-        };
-    }
     var ICEBOOST_TILE_V = '2';   // v2: banded bed hypsometry (v1 continuous)
-    var ICEBOOST_ATTR = 'Ice thickness: IceBoost v2.0 (Maffezzoli et al. 2025, CC-BY 4.0)';
-    function _iceboostSourceDef(product) {
-        return {
-            type: 'raster',
-            tiles: [_ovArchiveTiles('iceboost_' + product)],
-            tileSize: 256, minzoom: 3, maxzoom: 10,
-            attribution: ICEBOOST_ATTR
-        };
-    }
     // Per-overlay state: shown on the left (main) pane, shown on the right
     // (wiper) pane, and a per-pane opacity. Each pane has its own control
     // panel — the sidebar's Overlays section drives the left pane, the
@@ -3146,41 +2934,8 @@
     // temperature side by side, same ramp), then what the surface is doing,
     // then our susceptibility models, then glaciers as one group, then what
     // is under the surface (permafrost indices and bedrock).
-    var _OV_CATS = [
-        { key: 'clim',  label: 'Climate',
-          ids: ['pf-gruber-maat', 'pf-gruber-maat60', 'pf-obu-magt', 'pf-obu-magt60'] },
-        // Surface (2026-11-01, Hig): one group, two levels. Statistics are
-        // values a pixel carries (an axis can be one); visualizations are
-        // pictures of the DEM. The keys 'sp' / 'relief' are only fold-state
-        // names, so they stay.
-        { key: 'surface', label: 'Surface', subs: [
-            { key: 'sp',     label: 'DEM statistics',
-              ids: ['sp-elev', 'sp-slope-local', 'sp-slope', 'sp-slope-200', 'sp-slope-500',
-                    'sp-slope-1k', 'sp-slope-2k', 'sp-aspect', 'sp-north'] },
-            { key: 'creq',   label: 'Required strength (exploratory)',
-              ids: ['sp-creq-20-200'] },
-            { key: 'relief', label: 'DEM visualizations',
-              ids: ['relief-mt-hs', 'relief-mt-pre', 'relief-adem-hs', 'relief-adem-pre', 'sp-contours'] },
-        ] },
-        // 'dist-alert' stays listed although it is retired: _ovRenderGrouped
-        // filters ids that are not in OVERLAYS, so this needs no edit if
-        // DIST_ALERT_ACTIVE is flipped back on.
-        { key: 'surf',  label: 'Surface change',
-          ids: ['opera-asc', 'opera-desc', 'nrcan-asc', 'coh-summer', 'dist-ann', 'dist-alert'] },
-        { key: 'susc',  label: 'Landslide susceptibility',
-          ids: ['susc-lw', 'susc-n10', 'susc-dggs', 'susc-nasa'] },
-        { key: 'glac',  label: 'Glaciers',
-          ids: ['glac-outline-2020', 'ice-v', 'ice-amp', 'ice-dvdt', 'ice-dhdt', 'ice-thick', 'ice-bed', 'ice-over'] },
-        { key: 'sub',   label: 'Subsurface',
-          ids: ['pf-gruber-pzi', 'pf-gruber-pzi60', 'pf-obu-prob', 'pf-obu-prob60', 'pf-pastick-nsp', 'geology'] },
-        // Rates of rock removal, long-term (thermochronology, Myr) and recent
-        // (cosmogenic nuclides, kyr), on one colour scale. Switched off
-        // (EROSION_ACTIVE): absent ids are skipped and the group with them.
-        { key: 'ero',   label: 'Erosion rates',
-          ids: ['exh-2-0', 'exh-4-2', 'exh-6-4', 'exh-8-6', 'den-be10'] },
-        // Signed-in only (the entry exists only then; absent ids are skipped).
-        { key: 'review', label: 'Review history', ids: ['review'] },
-    ];
+    // The groups are shared with /lidar/compare/ (ls_overlays.js CATS).
+    var _OV_CATS = window.LSOverlays.CATS;
     // `onlyAxes` lists just the overlays that can be an analysis axis -- the
     // two pane panels while the analysis panel is open.
     //

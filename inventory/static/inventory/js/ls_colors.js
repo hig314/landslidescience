@@ -156,8 +156,68 @@
       P.sk];
   }
 
+  var PATCHY_FILTER = ['all',
+    ['==', ['get', 'creep_behavior'], 'Patchy obvious creep'],
+    ['==', ['get', 'landslide_type'], 'slow']];
+
+  // The four landslide data layers: points, the red centre of patchy-obvious
+  // points, polygon fill, polygon outline. Used by the inventory map, its
+  // wiper pane and /lidar/compare/, so the symbology cannot drift. Sources
+  // are named 'landslides' (centroids) and 'polygons'. o.pitchMap lays the
+  // dots on the ground (a tilted 3D view) instead of facing the screen.
+  function landslideLayers(P, o) {
+    o = o || {};
+    var flat = o.pitchMap ? { 'circle-pitch-alignment': 'map', 'circle-pitch-scale': 'map' } : {};
+    function pt(paint) { return Object.assign(paint, flat); }
+    return [
+      { id: 'points', type: 'circle', source: 'landslides',
+        layout: { 'circle-sort-key': pointSortKey() },
+        paint: pt({
+          'circle-color': classFill(P),
+          'circle-radius': pointRadius(P, 1),
+          'circle-stroke-width': classStrokeWidth(),
+          'circle-stroke-color': classStroke(P),
+          'circle-opacity': 0.9
+        }) },
+      // Slow patchy-obvious: a small red center dot over the yellow base
+      // (symbolically "partly obvious"). Scaled to sit inside the dot.
+      { id: 'points-patchy', type: 'circle', source: 'landslides',
+        filter: PATCHY_FILTER,
+        paint: pt({
+          'circle-color': P.patchyDot,
+          'circle-radius': pointRadius(P, 0.45),
+          'circle-stroke-width': 0,
+          'circle-opacity': 0.95
+        }) },
+      { id: 'polygon-fill', type: 'fill', source: 'polygons',
+        paint: { 'fill-color': polygonFill(P), 'fill-opacity': P.fOp } },
+      { id: 'polygon-outline', type: 'line', source: 'polygons',
+        paint: { 'line-color': polygonOutline(P), 'line-width': P.lW } },
+    ];
+  }
+
+  // A key to the colours above, for pages without the inventory sidebar's
+  // per-class list: [{label, items: [{label, fill, stroke?, dot?}]}].
+  function legend(P) {
+    return [
+      { label: 'Slow', items: [
+        { label: 'obvious creep', fill: P.cO },
+        { label: 'patchy obvious creep', fill: P.cS, dot: P.patchyDot },
+        { label: 'subtle creep', fill: P.cS },
+        { label: 'geomorphic creep', fill: P.cG }] },
+      { label: 'Catastrophic', items: [
+        { label: '2012 or later', fill: P.cCRecent },
+        { label: '1850–2011', fill: P.cCModern },
+        { label: 'before 1850', fill: P.cCHolocene },
+        { label: 'with precursory creep (ring)', fill: P.cCModern, stroke: P.cO }] },
+      { label: '', items: [{ label: 'incomplete classification', fill: P.INC }] }
+    ];
+  }
+
   window.LSColors = {
     palette: palette,
+    landslideLayers: landslideLayers,
+    legend: legend,
     classFill: classFill,
     classStroke: classStroke,
     classStrokeWidth: classStrokeWidth,
@@ -166,8 +226,6 @@
     polygonFill: polygonFill,
     polygonOutline: polygonOutline,
     // Slow patchy-obvious → a small red center dot over the yellow base.
-    PATCHY_FILTER: ['all',
-      ['==', ['get', 'creep_behavior'], 'Patchy obvious creep'],
-      ['==', ['get', 'landslide_type'], 'slow']]
+    PATCHY_FILTER: PATCHY_FILTER
   };
 })();
