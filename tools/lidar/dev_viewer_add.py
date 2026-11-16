@@ -47,7 +47,11 @@ def main():
     from rasterio.warp import transform_bounds
     src = Path(a.cog)
     with rasterio.open(src) as s:
-        epsg = s.crs.to_epsg() or 6334
+        epsg = s.crs.to_epsg()
+        if not epsg:
+            # a compound CRS (UTM + NAVD88 height) has no single EPSG code; the old fallback to 6334 put a UTM 6N survey's tiles in
+            # zone 5 and built an empty pyramid (Portage Lake, 2026-11-16).  Give the COG its horizontal EPSG; NAVD88 is in the entry.
+            raise SystemExit(f"{a.cog}: no EPSG code for its CRS ({s.crs.to_string()[:80]}...) -- tag it with the horizontal EPSG (gdal_edit.py -a_srs EPSG:NNNN)")
         b = transform_bounds(s.crs, 'EPSG:4326', *s.bounds)
         f = max(1, max(s.width, s.height) // 2000)
         ov = s.read(1, out_shape=(s.height // f, s.width // f), masked=True)
