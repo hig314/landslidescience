@@ -83,14 +83,22 @@ urlpatterns = [
     # Third-party landslide inventories, mirrored verbatim into their own
     # tables (see inventory/external.py). Public reads: these are published
     # datasets whose licences require that we name them, so hiding them behind
-    # a login would be odd as well as unhelpful. No write routes at all -- a
-    # mirror is refreshed by management command, never from the browser.
+    # a login would be odd as well as unhelpful. The mirror itself has no write
+    # route (it is refreshed by management command, never from the browser);
+    # promote/ and review/ are editor-only and write OUR tables. The fixed
+    # review/categories/ path must precede the <sid>/<layer>/ pattern, which
+    # would otherwise read it as source "review", layer "categories".
     path('api/external/', external.api_external_sources, name='api_external_sources'),
+    path('api/external/review/categories/', external.api_external_review_categories,
+         name='api_external_review_categories'),
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/$',
             external.api_external, name='api_external'),
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/record/'
             r'(?P<ext_id>[^/]+)/$',
             external.api_external_record, name='api_external_record'),
+    re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/review/'
+            r'(?P<ext_id>[^/]+)/$',
+            external.api_external_review, name='api_external_review'),
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/promote/'
             r'(?P<ext_id>[^/]+)/$',
             external.api_external_promote, name='api_external_promote'),

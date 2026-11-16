@@ -365,6 +365,168 @@
             if (_extSources) _extApply(spec); else _extPending = spec;
         }
 
+        // -----------------------------------------------------------------------
+        // Review (editors only; inventory/external.py REVIEW). One category per
+        // record from a shared list the editor grows with `+`, and an optional
+        // note. No category = unreviewed. "Promoted" is not a category: the
+        // server reads it from our own records and sends it as _promoted, so it
+        // is shown here as a fact, not offered as a choice.
+        // -----------------------------------------------------------------------
+        var _revCats = null;          // [{id, label, count}], shared by every source
+        var _revCatsWait = null;
+
+        function _revFetchCats(force) {
+            if (_revCats && !force) return Promise.resolve(_revCats);
+            if (_revCatsWait && !force) return _revCatsWait;
+            _revCatsWait = fetch(API_BASE + 'api/external/review/categories/', { credentials: 'same-origin' })
+                .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || r.status); return d; }); })
+                .then(function (d) { _revCats = d.categories || []; _revCatsWait = null; return _revCats; })
+                .catch(function (e) { _revCatsWait = null; throw e; });
+            return _revCatsWait;
+        }
+
+        function _revPost(url, body) {
+            return fetch(url, {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
+                body: JSON.stringify(body)
+            }).then(function (r) {
+                return r.json().catch(function () { return {}; }).then(function (d) {
+                    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+                    return d;
+                });
+            });
+        }
+
+        // Write a saved review into every cached copy of that record's
+        // properties, so the next click on it (either pane) shows what was saved
+        // without waiting for a refetch.
+        function _revStore(s, L, extId, rev) {
+            var k = _extKey(s.id, L.layer), fc = _extData[k];
+            var apply = function (props) {
+                ['_review_id', '_review', '_review_note', '_reviewed_by', '_reviewed_at'].forEach(function (f) {
+                    if (rev[f] === undefined) delete props[f]; else props[f] = rev[f];
+                });
+            };
+            if (fc && fc.features) fc.features.forEach(function (f) {
+                if (f.properties && String(f.properties.ext_id) === String(extId)) apply(f.properties);
+            });
+        }
+
+        function _extReviewUI(box, s, L, p) {
+            var extId = p.ext_id;
+            if (extId === undefined || extId === null) return;
+            box.style.cssText = 'margin:0 0 6px;padding:5px 6px;background:#f6f6f2;border:1px solid #e4e4dc;' +
+                                'border-radius:4px;font-size:11px;';
+            var url = API_BASE + 'api/external/' + s.id + '/' + L.layer + '/review/' + encodeURIComponent(extId) + '/';
+            var promoted = '';
+            (p._promoted || []).forEach(function (pr) {
+                promoted += (promoted ? ', ' : '') + '<a href="#id=' + pr[0] + '">' + esc(pr[1] || ('#' + pr[0])) + '</a>';
+            });
+            box.innerHTML =
+                (promoted ? '<div style="margin-bottom:4px;color:#2e7d32;"><b>Promoted</b> as ' + promoted + '</div>' : '') +
+                '<div style="display:flex;gap:4px;align-items:center;">' +
+                  '<span style="color:#666;flex:none;">Review</span>' +
+                  '<select class="rv-cat" style="flex:1;min-width:0;font-size:11px;"><option value="">Unreviewed</option></select>' +
+                  '<button type="button" class="rv-add" title="Add a review category" ' +
+                  'style="flex:none;font-size:11px;padding:1px 6px;cursor:pointer;">+</button>' +
+                '</div>' +
+                '<div class="rv-new" style="display:none;margin-top:4px;gap:4px;">' +
+                  '<input type="text" class="rv-new-label" maxlength="80" placeholder="New category" ' +
+                  'style="flex:1;min-width:0;font-size:11px;">' +
+                  '<button type="button" class="rv-new-ok" style="font-size:11px;cursor:pointer;">Add</button>' +
+                '</div>' +
+                '<input type="text" class="rv-note" maxlength="2000" placeholder="Note (optional)" ' +
+                'style="display:block;width:100%;box-sizing:border-box;margin-top:4px;font-size:11px;">' +
+                '<div class="rv-status" style="color:#999;font-size:10px;margin-top:2px;min-height:12px;"></div>';
+            var sel = box.querySelector('.rv-cat'), note = box.querySelector('.rv-note'),
+                st = box.querySelector('.rv-status'), addBtn = box.querySelector('.rv-add'),
+                newRow = box.querySelector('.rv-new'), newLab = box.querySelector('.rv-new-label'),
+                newOk = box.querySelector('.rv-new-ok');
+            note.value = p._review_note || '';
+
+            function stamp() {
+                st.style.color = '#999';
+                st.textContent = p._review ? ('by ' + (p._reviewed_by || '?') + ', ' +
+                    String(p._reviewed_at || '').slice(0, 10)) : '';
+                note.disabled = !sel.value;
+                note.title = sel.value ? '' : 'Choose a category first';
+            }
+            function fill(cats) {
+                var keep = sel.value || (p._review_id != null ? String(p._review_id) : '');
+                sel.length = 1;
+                cats.forEach(function (c) {
+                    var o = document.createElement('option');
+                    o.value = String(c.id); o.textContent = c.label;
+                    sel.appendChild(o);
+                });
+                sel.value = keep;
+                stamp();
+            }
+            function save() {
+                st.style.color = '#999'; st.textContent = 'Saving…';
+                var cid = sel.value ? parseInt(sel.value, 10) : null;
+                _revPost(url, { category_id: cid, note: cid ? note.value : '' })
+                    .then(function (d) {
+                        var rev = d.review || {};
+                        _revStore(s, L, extId, rev);
+                        ['_review_id', '_review', '_review_note', '_reviewed_by', '_reviewed_at'].forEach(function (f) {
+                            if (rev[f] === undefined) delete p[f]; else p[f] = rev[f];
+                        });
+                        if (!cid) note.value = '';
+                        stamp();
+                        st.textContent = (cid ? 'Saved' : 'Set back to unreviewed') + (st.textContent ? ' · ' + st.textContent : '');
+                        _revFetchCats(true).then(fill).catch(function () {});
+                    })
+                    .catch(function (e) { st.style.color = '#c0392b'; st.textContent = 'Not saved: ' + e.message; });
+            }
+            function addCategory() {
+                var label = newLab.value.replace(/\s+/g, ' ').trim();
+                if (!label) { newLab.focus(); return; }
+                newOk.disabled = true;
+                _revPost(API_BASE + 'api/external/review/categories/', { label: label })
+                    .then(function (d) {
+                        _revCats = d.categories || _revCats;
+                        newLab.value = ''; newRow.style.display = 'none';
+                        sel.value = '';
+                        fill(_revCats);
+                        sel.value = String(d.id);
+                        save();          // adding a category from a record files that record under it
+                    })
+                    .catch(function (e) { st.style.color = '#c0392b'; st.textContent = 'Category not added: ' + e.message; })
+                    .then(function () { newOk.disabled = false; });
+            }
+
+            sel.addEventListener('change', save);
+            note.addEventListener('change', function () { if (sel.value) save(); });
+            note.addEventListener('keydown', function (e) { if (e.key === 'Enter') note.blur(); });
+            addBtn.addEventListener('click', function () {
+                var open = newRow.style.display === 'none';
+                newRow.style.display = open ? 'flex' : 'none';
+                if (open) newLab.focus();
+            });
+            newOk.addEventListener('click', addCategory);
+            newLab.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); addCategory(); }
+                // Escape here closes the little row, not the popup or a tool.
+                if (e.key === 'Escape') { e.stopPropagation(); newRow.style.display = 'none'; }
+            });
+
+            // The record's own category is shown at once (it rides on the feature),
+            // before the list arrives, so a slow list never shows "Unreviewed".
+            if (p._review_id != null) {
+                var o0 = document.createElement('option');
+                o0.value = String(p._review_id); o0.textContent = p._review;
+                sel.appendChild(o0); sel.value = o0.value;
+            }
+            stamp();
+            _revFetchCats().then(fill).catch(function (e) {
+                st.style.color = '#c0392b';
+                st.textContent = 'Review unavailable: ' + e.message;
+                sel.disabled = true; addBtn.disabled = true; note.disabled = true;
+            });
+        }
+
         // Click: show whatever fields this record actually carries, in the
         // publisher's own words and their own column order. No curation beyond
         // dropping empties -- deciding which of someone else's fields matter is
@@ -375,7 +537,7 @@
             (L.field_order || Object.keys(p)).forEach(function (c) {
                 var v = p[c];
                 if (v === undefined || v === null || v === '') return;
-                if (c === 'id' || c === 'fetched_at') return;
+                if (c === 'id' || c === 'fetched_at' || c.charAt(0) === '_') return;
                 rows += '<div style="margin:1px 0;display:flex;gap:6px;">' +
                         '<span style="color:#888;flex:none;">' + esc(L.fields[c] || c) + ':</span>' +
                         '<span>' + esc(String(v)) + '</span></div>';
@@ -387,6 +549,7 @@
             var html = '<div style="font:12px/1.4 system-ui,sans-serif;max-width:300px;">' +
                 '<div style="font-weight:600;color:' + s.colour + ';margin-bottom:3px;">' +
                     esc(s.short) + ' · ' + esc(L.label) + '</div>' +
+                (window._isInventoryEditor ? '<div class="ext-review"></div>' : '') +
                 '<div class="ext-fields" style="max-height:280px;overflow:auto;">' +
                     rows + '</div>' +
                 '<div style="margin-top:5px;color:#aaa;font-size:10px;border-top:1px solid #eee;' +
@@ -418,6 +581,8 @@
                 .setLngLat(e.lngLat).setHTML(html).addTo(map));
             var box = pop.getElement().querySelector('.ext-fields');
             if (box) box.scrollTop = 0;
+            var rbox = pop.getElement().querySelector('.ext-review');
+            if (rbox) _extReviewUI(rbox, s, L, p);
             var pbtn = pop.getElement().querySelector('.ext-promote');
             if (pbtn) pbtn.addEventListener('click', function () {
                 _promoteStart(s, L, p);

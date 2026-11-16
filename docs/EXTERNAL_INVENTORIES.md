@@ -89,6 +89,37 @@ like any other induction, never straight onto the public map.
   input: copying a value is a deliberate act of typing it, which is the whole
   point of promotion being separate from mirroring.
 
+### Review — an editor's verdict on one of their records
+
+Hig (2026-11-16): a categorical field on every mirrored record, default
+*unreviewed*, some *promoted*, plus review categories he grows ad hoc with a
+`+`. Built as:
+
+- **Its own tables, not a column on the mirror** (`migrate_external_review`,
+  run once per environment): `ext_review_categories` (one **shared** list for
+  every source, so one judgement has one name), `ext_reviews` (current
+  category + optional note per record, keyed by **source, layer and the
+  publisher's id**, so it survives a refetch, which replaces the mirror), and
+  `ext_review_log` (every change, append-only). No row = unreviewed.
+- **"Promoted" is never stored**: it is read live from
+  `landslides.external_source/external_id`, so it cannot disagree with what
+  was actually promoted.
+- **Editors only** (Hig's choice). `api_external` adds `_review*` and
+  `_promoted` properties to each feature for an editor and nothing for anyone
+  else; a leading underscore cannot collide with a publisher column because
+  `_col` strips it. Endpoints: `api/external/review/categories/` (GET list
+  with counts, POST `{label}`, which reuses a label that matches ignoring case
+  and spaces) and `api/external/<sid>/<layer>/review/<ext_id>/` (POST
+  `{category_id | null, note}`; null = back to unreviewed). Both answer 503
+  until the tables exist, so the code can deploy before the migrate command.
+- **UI**: a *Review* box at the top of an editor's popup on a mirrored
+  feature: category drop-down, `+` (adding a category files the record under
+  it), note (saved on change), who and when, and a *Promoted as …* line
+  linking our record(s).
+- The review hangs on the layer the editor clicked: a DGGS deposit and the
+  DGGS point for the same landslide carry different publisher ids (only 1,687
+  of 19,128 deposit ids match a point id), so they are reviewed separately.
+
 ### Refetching, and what a new source costs
 
 ```bash

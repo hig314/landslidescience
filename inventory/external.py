@@ -46,7 +46,7 @@ import urllib.request
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 
-from .auth import inventory_editor_required
+from .auth import inventory_editor_required, is_inventory_editor
 from .views import _get_conn, _put_conn
 
 _UA = 'landslidescience.org external-inventory mirror'
@@ -554,6 +554,12 @@ def api_external(request, sid, layer):
              LIMIT %s
         """, (x0, y0, x1, y1, limit + 1))
         rows = cur.fetchall()
+        # Editors also get their own review of each record (and whether it was
+        # promoted). Never the public: the review is internal (Hig, 2026-11-16).
+        reviews = {}
+        if is_inventory_editor(request.user) and 'ext_id' in cols:
+            ei = cols.index('ext_id') + 1
+            reviews = _reviews_for(cur, sid, layer, [r[ei] for r in rows[:limit]])
         conn.rollback()
     finally:
         _put_conn(conn)
@@ -565,8 +571,182 @@ def api_external(request, sid, layer):
         for k, v in list(props.items()):
             if hasattr(v, 'isoformat'):
                 props[k] = v.isoformat()
+        props = _populated(props)
+        if reviews:
+            props.update(reviews.get(str(props.get('ext_id')), {}))
         feats.append({'type': 'Feature',
                       'geometry': json.loads(r[0]),
-                      'properties': _populated(props)})
+                      'properties': props})
     return JsonResponse({'type': 'FeatureCollection', 'features': feats,
                          'truncated': truncated, 'source': sid, 'layer': layer})
+
+
+# ---------------------------------------------------------------------------
+# REVIEW -- an editor's judgement of one mirrored record
+#
+# Tables: migrate_external_review (its docstring has the reasoning). Keyed by
+# (source, layer, the publisher's id) so a review survives a refetch. A record
+# with no row is unreviewed; "promoted" is read live from landslides, never
+# stored. Categories are one shared list, grown from the popup's `+`.
+#
+# Served to editors only: as `_review*` / `_promoted*` properties on the
+# features of api_external (the leading underscore cannot collide with a
+# publisher column -- `_col` strips it), and through the endpoints below.
+# Every function tolerates the tables being absent, so this code can deploy
+# before `migrate_external_review` has run in that environment.
+# ---------------------------------------------------------------------------
+def _review_tables(cur):
+    cur.execute("SELECT to_regclass('ext_reviews') IS NOT NULL")
+    return cur.fetchone()[0]
+
+
+def _reviews_for(cur, sid, layer, ext_ids):
+    """{ext_id: {_review_id, _review, _review_note, _reviewed_by, _reviewed_at,
+    _promoted: [[landslide id, name], ...]}} for the ids given; ids with
+    neither a review nor a promotion are absent."""
+    ids = sorted({str(x) for x in ext_ids if x is not None})
+    out = {}
+    if not ids:
+        return out
+    if _review_tables(cur):
+        cur.execute("""
+            SELECT r.ext_id, r.category_id, c.label, r.note, r.reviewed_by, r.reviewed_at
+              FROM ext_reviews r JOIN ext_review_categories c ON c.id = r.category_id
+             WHERE r.source = %s AND r.layer = %s AND r.ext_id = ANY(%s)
+        """, (sid, layer, ids))
+        for eid, cid, label, note, by, at in cur.fetchall():
+            d = out.setdefault(eid, {})
+            d.update({'_review_id': cid, '_review': label, '_reviewed_by': by,
+                      '_reviewed_at': at.isoformat() if at else None})
+            if note:
+                d['_review_note'] = note
+    # Promotion records only (source, their id), not the layer, so a promotion
+    # shows on whichever of the source's layers carries that id.
+    cur.execute("""
+        SELECT external_id, id, unique_name FROM landslides
+         WHERE external_source = %s AND external_id = ANY(%s) ORDER BY id
+    """, (sid, ids))
+    for eid, lid, name in cur.fetchall():
+        out.setdefault(eid, {}).setdefault('_promoted', []).append([lid, name])
+    return out
+
+
+def _who(request):
+    return request.user.get_username() if request.user.is_authenticated else None
+
+
+@inventory_editor_required
+@require_http_methods(['GET', 'POST'])
+def api_external_review_categories(request):
+    """GET: the shared category list, with how many records each holds.
+    POST {"label": "..."}: add one (or return the existing one whose label
+    matches ignoring case and outer spaces -- the `+` is pressed mid-review,
+    and a near-duplicate category is worse than a silent reuse)."""
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        if not _review_tables(cur):
+            conn.rollback()
+            return JsonResponse({'error': 'review tables missing: run '
+                                 'manage.py migrate_external_review'}, status=503)
+        created = None
+        if request.method == 'POST':
+            try:
+                body = json.loads((request.body or b'{}').decode('utf-8'))
+            except ValueError:
+                body = {}
+            label = ' '.join(str(body.get('label') or '').split())[:80]
+            if not label:
+                conn.rollback()
+                return JsonResponse({'error': 'label required'}, status=400)
+            cur.execute("""SELECT id FROM ext_review_categories
+                            WHERE lower(btrim(label)) = lower(%s)""", (label,))
+            row = cur.fetchone()
+            if row:
+                created = row[0]
+            else:
+                cur.execute("""INSERT INTO ext_review_categories (label, created_by)
+                               VALUES (%s, %s) RETURNING id""", (label, _who(request)))
+                created = cur.fetchone()[0]
+            conn.commit()
+        cur.execute("""
+            SELECT c.id, c.label, count(r.ext_id)
+              FROM ext_review_categories c
+              LEFT JOIN ext_reviews r ON r.category_id = c.id
+             GROUP BY c.id, c.label ORDER BY lower(c.label)
+        """)
+        cats = [{'id': i, 'label': l, 'count': n} for i, l, n in cur.fetchall()]
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    out = {'categories': cats}
+    if created is not None:
+        out['id'] = created
+    return JsonResponse(out)
+
+
+@inventory_editor_required
+@require_http_methods(['POST'])
+def api_external_review(request, sid, layer, ext_id):
+    """Set one record's review. POST {"category_id": N | null, "note": "..."}.
+    null = back to unreviewed (the row is deleted; the log keeps that it was
+    reviewed). Note is optional and stored as typed, trimmed."""
+    s = SOURCES.get(sid)
+    if not s or layer not in s['fetch']['layers']:
+        return JsonResponse({'error': 'unknown source or layer'}, status=404)
+    try:
+        body = json.loads((request.body or b'{}').decode('utf-8'))
+        cid = body.get('category_id')
+        cid = None if cid in (None, '') else int(cid)
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'category_id must be a number or null'}, status=400)
+    note = (str(body.get('note') or '').strip() or None)
+    eid = str(ext_id)
+    who = _who(request)
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        if not _review_tables(cur):
+            conn.rollback()
+            return JsonResponse({'error': 'review tables missing: run '
+                                 'manage.py migrate_external_review'}, status=503)
+        # The record must exist in the mirror now: a review typed against an id
+        # we do not hold is a typo, not a judgement.
+        t = table_name(sid, layer)
+        cur.execute("SELECT to_regclass(%s)", (t,))
+        if not cur.fetchone()[0]:
+            conn.rollback()
+            return JsonResponse({'error': 'not mirrored here'}, status=404)
+        cur.execute(f'SELECT 1 FROM {t} WHERE ext_id = %s LIMIT 1', (eid,))
+        if not cur.fetchone():
+            conn.rollback()
+            return JsonResponse({'error': 'no such record'}, status=404)
+        if cid is None:
+            cur.execute("""DELETE FROM ext_reviews
+                            WHERE source = %s AND layer = %s AND ext_id = %s""",
+                        (sid, layer, eid))
+            note = None
+        else:
+            cur.execute('SELECT 1 FROM ext_review_categories WHERE id = %s', (cid,))
+            if not cur.fetchone():
+                conn.rollback()
+                return JsonResponse({'error': f'no category {cid}'}, status=404)
+            cur.execute("""
+                INSERT INTO ext_reviews (source, layer, ext_id, category_id, note,
+                                         reviewed_by, reviewed_at)
+                VALUES (%s, %s, %s, %s, %s, %s, now())
+                ON CONFLICT (source, layer, ext_id) DO UPDATE
+                   SET category_id = EXCLUDED.category_id, note = EXCLUDED.note,
+                       reviewed_by = EXCLUDED.reviewed_by, reviewed_at = now()
+            """, (sid, layer, eid, cid, note, who))
+        cur.execute("""INSERT INTO ext_review_log
+                           (source, layer, ext_id, category_id, note, reviewed_by)
+                       VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (sid, layer, eid, cid, note, who))
+        conn.commit()
+        rev = _reviews_for(cur, sid, layer, [eid]).get(eid, {})
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    return JsonResponse({'ok': True, 'ext_id': eid, 'review': rev})
