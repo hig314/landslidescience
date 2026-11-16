@@ -2,7 +2,7 @@
 """Add (or replace) one surface in the DEV /lidar/ catalogue (data/lidar_dev/), for review only.
 
     PATH=/opt/homebrew/bin:$PATH /opt/anaconda3/bin/python3 tools/lidar/dev_viewer_add.py <id> <cog> \
-        --title "..." [--year 2023] [--product "..."] [--notes "..."] [--max-zoom 17]
+        --title "..." [--year 2023] [--product "..."] [--notes "..."] [--max-zoom 17] [--published ISO]
 
 Builds the elevation and slope pyramids with build_lidar.py's own functions (the same terrain-RGB
 encoding and per-zoom resampling as every published survey) into data/lidar_dev/pmtiles/, and writes
@@ -12,6 +12,7 @@ kbay_reclass/model/viewer_build_mosaic.py and grewingk_sonar/level_passes.py eac
 Run from the MAIN worktree's repo (data/lidar_dev is where the dev server reads it).
 """
 import argparse, json, os, sys
+from datetime import datetime
 from pathlib import Path
 
 REPO = Path(os.environ.get('LS_REPO', '/Users/Hig/Claude_projects/landslidescience'))
@@ -35,6 +36,9 @@ def main():
     # --surfaces-only rebuilds just these and updates the survey's catalogue entry, leaving the bed pyramid alone.
     ap.add_argument('--water-surface', default=None, help='water_surface.py output (terrarium pyramid)')
     ap.add_argument('--surfaces-only', action='store_true')
+    # every surface carries WHEN it was published, as a field of its own (Hig 2026-11-16: "a publish datetime on each new surface ... a
+    # standard field that is separate from the title"): ISO 8601 with the UTC offset, set here on every publish; the title stays short
+    ap.add_argument('--published', default=None, help='ISO datetime to record instead of now')
     a = ap.parse_args()
     os.environ['LIDAR_BUILD'] = str(Path(a.work) / a.id)
     os.environ['LIDAR_PM_OUT'] = str(REPO / 'data' / 'lidar_dev' / 'pmtiles')
@@ -67,6 +71,7 @@ def main():
         pr = f[0]['properties']
         if surfaces: pr['surfaces'] = surfaces
         if a.tide_levels: pr['tide_levels'] = json.loads(a.tide_levels)
+        pr['published'] = a.published or datetime.now().astimezone().isoformat(timespec='seconds')
         tmp = cat.with_suffix('.tmp'); tmp.write_text(json.dumps(fc)); os.replace(tmp, cat)
         print(f'dev catalogue: {a.id} surfaces {[x["kind"] for x in surfaces]}')
         return
@@ -94,7 +99,8 @@ def main():
                                pmtiles_url=f'/lidar/dev/pmtiles/{a.id}.pmtiles', pmtiles_bytes=pm.stat().st_size,
                                slope_url=f'/lidar/dev/pmtiles/{a.id}_slope.pmtiles', slope_bytes=spm.stat().st_size,
                                slope_step=0.5, tiles_url=None, slope_tiles_url=None, fill_mode='holes', ortho_url=None,
-                               cog_url=None, z_min=float(v.min()), z_max=float(v.max()), source=a.source, notes=a.notes, **water)}
+                               cog_url=None, z_min=float(v.min()), z_max=float(v.max()), source=a.source, notes=a.notes,
+                               published=a.published or datetime.now().astimezone().isoformat(timespec='seconds'), **water)}
     fc = json.loads(cat.read_text()) if cat.exists() else {'type': 'FeatureCollection', 'features': []}
     fc['features'] = [x for x in fc['features'] if x['properties']['id'] != a.id] + [feat]
     tmp = cat.with_suffix('.tmp'); tmp.write_text(json.dumps(fc)); os.replace(tmp, cat)   # atomic: Docker file sharing
