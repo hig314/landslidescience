@@ -1142,6 +1142,24 @@
       "source": "landslidescience.org composite of: bathy2009 (2009-07-01), grewingk2021 (2021-10-12), kbay2023 (2023-07-01)",
       "dev_only": true,
       "notes": "Test composite set up 2026-10-10 at Hig's request: a setting with several datasets, partial overlap and real gaps. Grid is a snapped 1 m lattice on NAD83(2011)/UTM 5N covering China Poot Bay, Peterson Bay and the Halibut Cove entrance (x 595-606 km, y 6602-6610 km), chosen so that the three-way overlap of Grewingk 2021, KBay 2023 and the Hydropalooza bathymetry (around Halibut Cove) and the two-way KBay + bathymetry case (China Poot Bay) are both inside. Sources are datasets.json ids, read from the archive COGs, all NAVD88 (GEOID12B); the 2009 bathymetry carries its -1.38 m MLLW shift. The KBay 2023 layer is the landslidescience reclassification (kbay_2023_reclass), not the vendor DEM: the vendor COG has a compound NAVD88 CRS that gdalwarp geoid-shifts on full-resolution reads (see CLAUDE.md), and the reclass is the preferred bare earth. Classes: the bathymetry is bed everywhere (gridded from soundings with no interpolation across unsurveyed ground, so there is no TIN hull to reject); Grewingk 2021 (12 Oct) gets the lake-level detector and a snow guess against KBay 2023; KBay 2023 gets the reclass's own fill_mask (2 = harmonic fill, classed modelled), a flat-below-level detector for the sea surface it holds at several tide levels (-3.0..-1.9 m NAVD88 on different lines, plus +0.8), and a compare-to-bathymetry step for water over known bed. `lowest` is on for KBay against Grewingk at region scale: the two lidars differ by +0.58 m median over 31 km2 of overlap (KBay higher), which is canopy, and the lower of two sound DTMs is the better ground. Grewingk 2021 carries shift_m +0.36 (see its notes). COMPOSITE built 2026-10-10T09:15:01 by tools/lidar/composite.py from tools/lidar/composites/kachemak_pedersen/recipe.json (sha 51846aaff33f60ba, paint e3b0c44298fc1c14); fold order bathy2009 (2009-07-01), grewingk2021 (2021-10-12), kbay2023 (2023-07-01). Target ground_current as of 2023-07-01. Composite area by source: bathy2009 26.4 km2; grewingk2021 30.1 km2; kbay2023 31.3 km2; none 0.3 km2. source_index.tif and report.json beside the COG say which layer won where and what was decided."
+    },
+    {
+      "id": "portage_lake_mb_2026_filled",
+      "title": "Portage Lake 2026 multibeam bathymetry, holes filled (from NPS data)",
+      "src": "/Volumes/Nunatak/lidar_build/portage_lake_mb_2026/portage_lake_mb_2026_filled.tif",
+      "target_epsg": 6335,
+      "native_res_m": 2.12,
+      "center_lat": 60.755,
+      "min_zoom": 10,
+      "max_zoom": 16,
+      "year": 2026,
+      "product": "Bathymetry DEM (multibeam), internal holes interpolated",
+      "archive_mode": "translate",
+      "vertical_datum": "NAVD88 (GEOID12B), stated in the delivery metadata",
+      "source": "Derived from National Park Service data: Laroche N. 2026, Portage Lake bathymetry survey, 2026 (NPS Water Resources Division for the US Forest Service, Chugach National Forest)",
+      "source_url": "https://irma.nps.gov/DataStore/Reference/Profile/2320351",
+      "region": "Kenai Peninsula",
+      "notes": "Multibeam survey of Portage Lake by the National Park Service Water Resources Division for the US Forest Service, June-July 2026 (the delivery metadata's dates line reads 2025 in error, per Hig), with an EchoBoat 160 uncrewed surface vessel, a NORBIT iWBMSe multibeam sonar and an Applanix SurfMaster; processed in Hypack/Hysweep. Collected to support modelling of landslide-generated tsunamis at Portage Lake. NAD83(2011) / UTM 6N, NAVD88 (GEOID12B). DERIVED PRODUCT (Hig 2026-11-16): NPS's 2 m GeoTIFF (pixels 2.12 x 2.10 m) with its internal holes -- 16 % of the footprint, 0.86 km2 between swaths -- filled by a surface minimising tension and curvature with every measured cell held, and kept within the range of the measurements within ~50 m; nothing is added outside the survey's footprint (closed over 60 m). Built by lidar_build/portage_lake_mb_2026/fill_holes.py. Why: the gaps open onto the survey's edge, so the viewer's context fill put 3DEP's lake surface (~+30 m) up through them as pillars. The NPS delivery asks that derived products identify the NPS as the source. The 0.5 m point file (11.46 M soundings) is held locally as COPC and not hosted."
     }
   ]
 }
