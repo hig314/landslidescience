@@ -34,6 +34,7 @@ by curl, by API or not at all.
 - [ ] **map.js split rounds 3–4** (3e8ec3b, eeb5f31): Hig used the map after each and found nothing; not knowingly exercised: committing a drawn polygon, promotion through to a saved record, saving an outline edit, tracing a scarp, the signed-out page.
 - [ ] **Autosave error logging; `/manage/new/` redirect** (15186a4): nothing has failed on prod since, so the log line is unseen.
 - [ ] **Restore from backup** (2026-11-14): the first backup uploaded 2.6 GB; nobody has restored anything from it.
+- [ ] **Inventory-tab explorer** (2026-11-16): tested by Hig in dev; on prod not yet loaded (first load builds and caches each source's payload, ~1–2 s), the wiper pane and a review saved from the explorer's popup untested anywhere.
 - [ ] **External-record review** (2026-11-16): tested by Hig in dev; on prod the first category made with `+` and the first saved review are the real test.
 - [ ] **`/lidar/` Save image** (a43bf5c, 2026-10-19): the export engine's polling-for-done change was not re-tested on `/inventory/`'s own PNG export.
 
@@ -41,6 +42,7 @@ by curl, by API or not at all.
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-16 · Inventory-tab explorer for the outside inventories ("Showing" switch; families, ring/size/fade, presets, their fields, review filter, spelling fold) · docs/EXTERNAL_INVENTORIES.md
 - 2026-11-16 · Review of mirrored external records: shared categories (`+`), note, promoted read live; editors only; `migrate_external_review` per environment · docs/EXTERNAL_INVENTORIES.md
 - 2026-11-14 · map.js split, round 4: `draw_ui.js`, `lidar_ui.js`, `scarp_ui.js`, `revise_ui.js`, `charts.js`; map.js is 333 KB. Start-up and opening each tool checked in Chrome on dev and prod; Hig tested after the deploy ("looks good", 2026-11-15) (eeb5f31) · docs/MAP_UI.md
 - 2026-11-14 · map.js split, round 3: `trace_rasters.js`, `dist.js` (3e8ec3b; deployed on Hig's approval of the description, used by him on prod afterwards: "all looks good so far") · docs/MAP_UI.md

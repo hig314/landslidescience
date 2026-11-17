@@ -139,6 +139,33 @@
   </li>
 </ul>
 <p>
+  The Inventory tab can also <strong>show one of these inventories in place of
+  ours</strong>, with filters on their own fields. Their points are coloured by
+  a coarse <em>process family</em> that is ours, not theirs, so that one colour
+  means one kind of process whichever inventory is shown: rock or debris
+  avalanche; rock or mountain slope deformation; rock slide; fall and topple;
+  debris flow and flood; earth and debris slide, earth flow and spread;
+  permafrost and periglacial; undifferentiated or other. Each publisher&rsquo;s
+  own types are assigned to a family by a fixed table in this site&rsquo;s code
+  (<code>inventory/external.py</code>), and their exact type stays visible under
+  each family. A second visual cue shows one of their own fields: for the
+  Canadian database a ring where they record deformation in InSAR and a larger
+  dot for their Large or Giant size class; for DGGS a ring where the landslide
+  was field verified, with fainter dots where their confidence that it exists
+  is &ldquo;probable&rdquo; or &ldquo;questionable&rdquo;.
+</p>
+<p>
+  <strong>Spelling variants are merged for filtering.</strong> Some of their
+  categorical values differ only in leading or trailing spaces or in capitals
+  (for example &ldquo;High&rdquo; and &ldquo;High&nbsp;&rdquo;, or
+  &ldquo;Small&rdquo; and &ldquo;small&rdquo;). The filters treat these as one
+  value, labelled with the commonest spelling and marked with an asterisk that
+  lists the others. This affects the filter lists and counts only: the
+  mirrored tables and each record&rsquo;s popup keep the publisher&rsquo;s text
+  exactly, and the merging is a single switch in the code
+  (<code>EXPLORE_FOLD_SPELLING</code>) that can be turned off.
+</p>
+<p>
   A record of ours may be <em>promoted</em> from one of theirs: an editor
   creates our record starting from their observation, maps its geometry here,
   and fills our fields by hand. A promoted record stores which inventory and

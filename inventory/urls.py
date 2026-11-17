@@ -89,6 +89,8 @@ urlpatterns = [
     # review/categories/ path must precede the <sid>/<layer>/ pattern, which
     # would otherwise read it as source "review", layer "categories".
     path('api/external/', external.api_external_sources, name='api_external_sources'),
+    re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/explore/$', external.api_external_explore,
+            name='api_external_explore'),
     path('api/external/review/categories/', external.api_external_review_categories,
          name='api_external_review_categories'),
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/$',
@@ -96,6 +98,8 @@ urlpatterns = [
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/record/'
             r'(?P<ext_id>[^/]+)/$',
             external.api_external_record, name='api_external_record'),
+    re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/reviews/$',
+            external.api_external_reviews, name='api_external_reviews'),
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/review/'
             r'(?P<ext_id>[^/]+)/$',
             external.api_external_review, name='api_external_review'),

@@ -214,7 +214,32 @@
     ];
   }
 
+  // Process families for the OUTSIDE inventories explored from the Inventory
+  // tab (inventory/external.py FAMILIES has the labels and each source's
+  // type -> family map). One colour per family across every source, chosen
+  // clear of our own class colours (pink / yellow / pale green / blues).
+  // `z` = drawing order, rarest and most wanted on top.
+  var EXT_FAMILIES = {
+    RA:   { col: '#d62728', z: 7 },
+    SD:   { col: '#c2185b', z: 6 },
+    RSL:  { col: '#7b3fa0', z: 5 },
+    FALL: { col: '#6b6b6b', z: 4 },
+    FLOW: { col: '#0f8b8d', z: 3 },
+    SOIL: { col: '#b8860b', z: 2 },
+    PF:   { col: '#4a7c2a', z: 1 },
+    OTH:  { col: '#a8a29a', z: 0 }
+  };
+  // Colour-by one of THEIR fields: categorical, in the field's value order;
+  // blank is always this grey.
+  var EXT_CATEGORICAL = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
+    '#e377c2', '#17becf', '#bcbd22', '#393b79', '#ad494a', '#637939', '#7b4173', '#3182bd',
+    '#e6550d', '#31a354'];
+  var EXT_BLANK = '#c9c5bd';
+
   window.LSColors = {
+    EXT_FAMILIES: EXT_FAMILIES,
+    EXT_CATEGORICAL: EXT_CATEGORICAL,
+    EXT_BLANK: EXT_BLANK,
     palette: palette,
     landslideLayers: landslideLayers,
     legend: legend,

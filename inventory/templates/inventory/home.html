@@ -106,6 +106,22 @@
 
   {# ---- Inventory panel: existing filters ---- #}
   <section class="inv-panel" data-panel="inventory">
+  {% comment %}
+  Which inventory the tab shows (Hig, 2026-11-16). Ours = the list below,
+  unchanged. An outside inventory hides that list and ext_explore.js builds
+  its own filters in #xex-panel from the source's `explore` block in
+  inventory/external.py.
+  {% endcomment %}
+  {% if explore_sources %}
+  <div class="xex-switch">
+    <label for="xex-ds">Showing</label>
+    <select id="xex-ds">
+      <option value="">Landslide Science (this inventory)</option>
+      {% for s in explore_sources %}<option value="{{ s.id }}">{{ s.label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div id="xex-panel" hidden></div>
+  {% endif %}
   <ul class="inv-nav">
     {% comment %}
     Scopes the counts and the Analysis charts to the viewport. It lived in the
@@ -228,7 +244,7 @@
     added in the form appears as a filter on the next load.
     {% endcomment %}
     <li class="nav-item nav-class-header" title="Must have (✓), no preference (·), or exclude (✗) each feature. Records with no features recorded count as not having any.">Landslide features</li>
-    <li class="nav-item filter-control" id="ft-filter">
+    <li class="nav-item filter-control ft-list" id="ft-filter">
       {% for g in feature_groups %}
         <div class="ft-group">{{ g.title }}</div>
         {% for v in g.items %}
@@ -742,6 +758,7 @@
 <script src="{% static 'inventory/js/insar_ts.js' %}"></script>
 <script src="{% static 'inventory/js/photos.js' %}"></script>
 <script src="{% static 'inventory/js/external_inv.js' %}"></script>
+<script src="{% static 'inventory/js/ext_explore.js' %}"></script>
 <script src="{% static 'inventory/js/dist.js' %}"></script>
 <script src="{% static 'inventory/js/trace_rasters.js' %}"></script>
 <script src="{% static 'inventory/js/draw_ui.js' %}"></script>

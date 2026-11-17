@@ -148,6 +148,13 @@
         if (x.tab != null && /^[a-z]+$/.test(x.tab)) out.tab = x.tab;   // validated against real tabs on apply
         if (x.an != null) out.an = x.an.split(',').filter(function (k) { return /^[a-z]+$/.test(k); });
         if (x.sc === '0' || x.sc === '1') out.sc = x.sc === '1';
+        // The Inventory tab's outside-inventory explorer (ext_explore.js): xs = source
+        // id ('' = ours), xf = its filters, xc = colour-by. Grammar in ext_explore.js.
+        if (x.xs != null && /^[a-z0-9_]*$/.test(x.xs)) {
+            out.xs = x.xs;
+            out.xf = (x.xf != null && /^[A-Za-z0-9_.\-~%,]*$/.test(x.xf)) ? x.xf : '';
+            out.xc = (x.xc != null && /^[a-z0-9_]+$/.test(x.xc)) ? x.xc : 'fam';
+        }
         // The sample circle: smp = lat,lon,r_km (ls_sample.js); pp is its old name.
         var smp = x.smp != null ? x.smp : x.pp;
         if (smp != null) {
@@ -1780,6 +1787,8 @@
         // And the staged (uncommitted) polygons, added on style.load before
         // any of this, go back on top of it all.
         if (map.getLayer('prov-fill')) ensureProvLayers();
+        // The outside-inventory explorer's layer and our layers' context switch.
+        if (_LSXex) _LSXex.replay(map);
     }
 
     // Traced imagery belongs at the BOTTOM of the data stack -- it is what the
@@ -2324,6 +2333,7 @@
             cmap.addSource('survey-circles', { type: 'geojson', data: _surveyCirclesData || { type: 'FeatureCollection', features: [] } });
         _surveyCircleLayerDefs().forEach(function (def) { if (!cmap.getLayer(def.id)) cmap.addLayer(def); });
         _ensurePinLabelOn(cmap);   // editor pinned-field labels (top, like the main map)
+        if (_LSXex) _LSXex.replay(cmap);   // the explorer's layer is landslide data: both panes
         // Draw-tool mirrors (editors): staged components + the live TD draft
         // — interaction happens on the main map, but without these the teal
         // staged polygons and the blue draft vanish under the right pane.
@@ -3304,6 +3314,19 @@
     var _extEnsureRegistry = _LSExternal._extEnsureRegistry;
     var _extApplyOrDefer = _LSExternal._extApplyOrDefer;
     var _extWireClicks = _LSExternal._extWireClicks;
+
+    // The Inventory tab's "Showing" switch: explore an outside inventory in place of
+    // ours (ext_explore.js, 2026-11-16). replay() runs after the landslide layers
+    // are (re)built on either map; its URL state is the `xs` row of _VIEW_PARAMS.
+    var _LSXex = window.LSExtExplore.init({
+        API_BASE: API_BASE,
+        map: map,
+        _swipe: _swipe,
+        esc: esc,
+        showRecord: _LSExternal._extShowRecord,
+        ourLayers: _landslideFilterLayers,
+        writeUrlState: function () { writeUrlState(); }
+    });
 
 
     // Sidebar tab switching: one panel visible at a time. Shared by the tab
@@ -5602,6 +5625,18 @@
           },
           apply: function (s) {
               if (s.ext) _extApplyOrDefer(s.ext);
+          } },
+        // Outside-inventory explorer: written to the address bar and the restored
+        // view, never into a record's default view (like the filters).
+        { key: 'xs', cold: true,
+          collect: function (mode, o) {
+              if (mode === 'view' || !_LSXex) return;
+              var v = _LSXex.spec();
+              if (v) Object.keys(v).forEach(function (k) { o.extras[k] = v[k]; });
+          },
+          apply: function (s, how) {
+              if (how === 'view' || !_LSXex) return;
+              _LSXex.applyHash(s);
           } },
         { key: 'im', cold: '_pendingIm, applied when the imagery list arrives',
           collect: function (mode, o) {

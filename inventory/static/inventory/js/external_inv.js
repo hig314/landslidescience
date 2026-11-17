@@ -4,7 +4,7 @@
  * window.LSExternal.init(ctx) once, at the point in its start-up where this code
  * used to sit, and passes in the few things it needs from the map page:
  *   API_BASE, _pendingExt, map, _swipe, _promoteStart, esc.
- * It returns what map.js still uses: _extSpec, _extReplayLayers, _extEnsureRegistry, _extApplyOrDefer, _extWireClicks.
+ * It returns what map.js still uses: _extShowRecord (for ext_explore.js), _extSpec, _extReplayLayers, _extEnsureRegistry, _extApplyOrDefer, _extWireClicks.
  *
  * _pendingExt is the ext= spec from the page's first URL hash, passed once by value;
  * this file clears its own copy after applying it, and map.js never reads it again.
@@ -470,6 +470,10 @@
                     .then(function (d) {
                         var rev = d.review || {};
                         _revStore(s, L, extId, rev);
+                        // The Inventory-tab explorer (ext_explore.js) keeps its own copy of
+                        // who is reviewed as what, for its Review filter.
+                        window.dispatchEvent(new CustomEvent('ls:ext-review', { detail:
+                            { sid: s.id, layer: L.layer, ext_id: String(extId), review: rev } }));
                         ['_review_id', '_review', '_review_note', '_reviewed_by', '_reviewed_at'].forEach(function (f) {
                             if (rev[f] === undefined) delete p[f]; else p[f] = rev[f];
                         });
@@ -585,6 +589,9 @@
             if (rbox) _extReviewUI(rbox, s, L, p);
             var pbtn = pop.getElement().querySelector('.ext-promote');
             if (pbtn) pbtn.addEventListener('click', function () {
+                // The explorer hands the Inventory tab back to our own records
+                // before the outline is drawn (Hig, 2026-11-16).
+                window.dispatchEvent(new CustomEvent('ls:ext-promote', { detail: { sid: s.id, layer: L.layer } }));
                 _promoteStart(s, L, p);
             });
         }
@@ -625,6 +632,12 @@
             map.on('moveend', _extRefreshSoon);
         }
 
-        return { _extSpec: _extSpec, _extReplayLayers: _extReplayLayers, _extEnsureRegistry: _extEnsureRegistry, _extApplyOrDefer: _extApplyOrDefer, _extWireClicks: _extWireClicks };
+        // Open the same popup for a record found some other way (the explorer
+        // fetches the full record by id and calls this).
+        function _extShowRecord(lngLat, s, L, p) {
+            _extPopup({ features: [{ properties: p }], lngLat: lngLat }, s, L);
+        }
+
+        return { _extShowRecord: _extShowRecord, _extSpec: _extSpec, _extReplayLayers: _extReplayLayers, _extEnsureRegistry: _extEnsureRegistry, _extApplyOrDefer: _extApplyOrDefer, _extWireClicks: _extWireClicks };
     } };
 })();

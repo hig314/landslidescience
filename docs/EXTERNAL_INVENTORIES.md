@@ -120,6 +120,60 @@ Hig (2026-11-16): a categorical field on every mirrored record, default
   DGGS point for the same landslide carry different publisher ids (only 1,687
   of 19,128 deposit ids match a point id), so they are reviewed separately.
 
+### Explorer — the Inventory tab's "Showing" switch (2026-11-16)
+
+Hig chose this over a separate page or a table-plus-map: one select at the top
+of the Inventory tab (`#xex-ds`, rendered from the registry by
+`views._explore_sources`) swaps our filter list for the source's own. Mock-up
+approved first (a private claude.ai artifact made from real dev data).
+
+- **Data**: `api/external/<sid>/explore/` ships the source's primary layer
+  whole, columnar and dictionary-encoded, gzipped (Canada 365 kB, DGGS
+  579 kB), cached per worker and keyed on the mirror's `max(fetched_at)`, so a
+  refetch (another process) is noticed on the next request. Filters, counts
+  and colours run in the browser. Editors also get
+  `api/external/<sid>/<layer>/reviews/` (who is reviewed as what, uncached)
+  for the Review filter.
+- **Configuration is the source's `explore` block** in `SOURCES`: type field,
+  type → family table (`family_by: 'code'` reads DGGS's "RA: rock avalanche"
+  by its code), facet fields (a facet may be an SQL `expr`, e.g. Canada's
+  "cites a reference"), colour-by choices, presets (`fam`, `type` = only these
+  types, or a facet key), the ring / size / fade channel, and the map's home.
+- **Process families** (`external.FAMILIES`, colours in
+  `LSColors.EXT_FAMILIES`) are one colour per family across all outside
+  sources, clear of our class colours. Hig's grouping, 2026-11-16: debris
+  avalanche goes with rock avalanche (so Canada's family holds 340 + 2,528;
+  the "Rock avalanches" preset is the 340), slope deformation is its own
+  family. Second channel: Canada ring = InSAR flag, size = their size class;
+  DGGS ring = field verified, fade = `conf_exist`. Hig expects to tweak these.
+- **Field filters use the three-way switch** of the Landslide features filter
+  (✓ only these · no preference ✗ exclude; Hig: reuse semantically similar
+  forms). One value per record, so several ✓ mean any of them. The switch's
+  CSS is shared through the `.ft-list` class (was `#ft-filter`-scoped). In
+  `xf`, `<facet>.` lists ✓ values and `<facet>-x.` lists ✗ values.
+- **Spelling fold** (Hig: merge, reversible, on the methods page):
+  `EXPLORE_FOLD_SPELLING` folds outer spaces and case for the filters only;
+  the payload carries `variants` so each merged value is marked `*` with its
+  spellings. Mirror and popups untouched. Off = every spelling its own value.
+- **Map**: layer `xex-pts` under our `points`, on both panes (landslide data
+  is the left/right-parity case; `replay()` runs where map.js rebuilds the
+  landslide layers on either map). Our own records stay as context unless
+  *Show our own records too* is unticked, which sets visibility on the
+  `_landslideFilterLayers` ids (nothing else toggles their visibility).
+- **Click** fetches the full record (`.../record/<ext_id>/`, which now also
+  returns the review for editors and the point) and opens the overlay popup
+  (`LSExternal._extShowRecord`), so Review and Promote are the same code.
+  **Promote** fires `ls:ext-promote`; the explorer switches the tab back to
+  our records before the outline is drawn. A saved review fires
+  `ls:ext-review`, and the explorer reloads its review list.
+- **URL**: extras `xs` (source), `xf` (filters), `xc` (colour-by), grammar in
+  `ext_explore.js` (`encodeState`), written to the address bar and the
+  restored view, never to a record's default view. Per-source state is also
+  kept in `localStorage['ls_xex']`, so switching away and back keeps a focus.
+- **Dev trap met while testing**: the browser kept a stale `ls_colors.js`
+  (dev serves unhashed static URLs), so `EXT_FAMILIES` was missing and the
+  module silently returned its no-op. A hard reload fixes it.
+
 ### Refetching, and what a new source costs
 
 ```bash

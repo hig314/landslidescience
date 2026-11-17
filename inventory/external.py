@@ -96,6 +96,46 @@ SOURCES = {
         'name_field': 'name',
         'primary_layer': 'points',
         # See PROMOTION RULES below.
+        # The explorer (switching the Inventory tab to this source); see EXPLORE.
+        'explore': {
+            'layer': 'points',
+            'name_fields': ['name', 'name2'],
+            'type_field': 'mvmt_type', 'type_label': 'Movement type',
+            # Their movement codes ("RA: rock avalanche") by the code before ':'.
+            'family_by': 'code',
+            'families': {
+                'RA': 'RA', 'RS-T': 'RSL', 'RS-R': 'RSL', 'RF': 'FALL', 'DF': 'FALL',
+                'DFL': 'FLOW', 'F': 'FLOW',
+                'ES-T': 'SOIL', 'ES-R': 'SOIL', 'DS-T': 'SOIL', 'DS-R': 'SOIL',
+                'EFL': 'SOIL', 'LAT': 'SOIL', 'LIQ': 'SOIL',
+                'SOL': 'PF', 'ALD': 'PF', 'RTS': 'PF', 'FDL': 'PF', 'GEL': 'PF',
+                'S': 'OTH', 'O': 'OTH', 'C': 'OTH',
+            },
+            'ring': {'field': 'fld_verify', 'on': 'yes', 'label': 'Ring: field verified'},
+            'fade': {'field': 'conf_exist', 'alpha': {'certain': 0.95, 'probable': 0.6, 'questionable': 0.3},
+                     'label': 'Fainter: their confidence that it exists is probable or questionable'},
+            'facets': [
+                {'key': 'cat', 'field': 'mvmt_categ', 'label': 'Movement category (theirs)'},
+                {'key': 'exist', 'field': 'conf_exist', 'label': 'Confidence it exists',
+                 'order': ['certain', 'probable', 'questionable']},
+                {'key': 'ident', 'field': 'conf_ident', 'label': 'Confidence in type',
+                 'order': ['certain', 'probable', 'questionable']},
+                {'key': 'age', 'field': 'age_range', 'label': 'Age range'},
+                {'key': 'mat', 'field': 'material', 'label': 'Material'},
+                {'key': 'depth', 'field': 'depth_type', 'label': 'Depth'},
+                {'key': 'fld', 'field': 'fld_verify', 'label': 'Field verified'},
+            ],
+            'colour_by': [['fam', 'Process family'], ['cat', 'Movement category (their scheme)'],
+                          ['exist', 'Confidence it exists'], ['age', 'Age range'], ['mat', 'Material']],
+            'presets': [
+                {'label': 'Everything', 'set': {}},
+                {'label': 'Rock avalanches', 'set': {'fam': ['RA']}},
+                {'label': 'Rock avalanches and rock slides, certain',
+                 'set': {'fam': ['RA', 'RSL'], 'exist': ['certain']}},
+                {'label': 'Field verified', 'set': {'fld': ['yes']}},
+            ],
+            'home': [-150, 61.5, 4.3],
+        },
         'promote': {
             'ongoing_work': ('Noted in the Alaska Landslide Inventory '
                              '(Alaska DGGS Digital Data Series 23, Nicolazzo and '
@@ -128,6 +168,58 @@ SOURCES = {
         'id_field': 'LS_ID',
         'name_field': 'Name',
         'primary_layer': 'points',
+        'explore': {
+            'layer': 'points',
+            'name_fields': ['name'],
+            'type_field': 'type', 'type_label': 'Type',
+            'family_by': 'value',
+            'families': {
+                'Rock avalanche': 'RA', 'Debris avalanche': 'RA',
+                'Rock slope deformation': 'SD', 'Mountain slope deformation': 'SD',
+                'Rock slide undifferentiated': 'RSL', 'Rock rotational slide': 'RSL',
+                'Rock translational slide': 'RSL', 'Rock irregular slide': 'RSL',
+                'Rock spread': 'RSL', 'Rock complex': 'RSL',
+                'Rock fall': 'FALL', 'Earth fall': 'FALL', 'Debris fall': 'FALL',
+                'Rock topple': 'FALL', 'Ice fall': 'FALL',
+                'Debris flow': 'FLOW', 'Debris flood': 'FLOW', 'Flood': 'FLOW',
+                'GLOF': 'FLOW', 'Mud flow': 'FLOW',
+                'Earth slide': 'SOIL', 'Debris slide': 'SOIL', 'Flowslide': 'SOIL',
+                'Earth flow': 'SOIL', 'Earth spread': 'SOIL',
+                'Retrogressive thaw slump': 'PF', 'Active layer detachment': 'PF',
+                'Deep-seated permafrost landslide': 'PF',
+            },
+            'ring': {'field': 'deformation_insar_data', 'on': 'yes',
+                     'label': 'Ring: deformation seen in InSAR (their flag; no rate given)'},
+            'size': {'field': 'size_class', 'scale': {'giant': 1.8, 'large': 1.4},
+                     'label': 'Larger dot: their size class is Large or Giant'},
+            'facets': [
+                {'key': 'insar', 'field': 'deformation_insar_data', 'label': 'Deformation in InSAR'},
+                {'key': 'size', 'field': 'size_class', 'label': 'Size class',
+                 'order': ['giant', 'large', 'medium', 'small']},
+                {'key': 'mat', 'field': 'material', 'label': 'Material'},
+                {'key': 'conf', 'field': 'location_confidence', 'label': 'Location confidence',
+                 'order': ['high', 'moderate', 'low']},
+                {'key': 'ref', 'expr': "CASE WHEN nullif(btrim(reference), '') IS NULL THEN 'no' ELSE 'yes' END",
+                 'label': 'Cites a reference'},
+                {'key': 'dam', 'field': 'landslide_dammed_lake', 'label': 'Landslide-dammed lake'},
+                {'key': 'ploc', 'field': 'point_location', 'label': 'Point placed on'},
+                {'key': 'trig', 'field': 'trigger', 'label': 'Trigger'},
+                {'key': 'ver', 'field': 'modified_in_version', 'label': 'Last modified in version',
+                 'sort': 'num'},
+            ],
+            'colour_by': [['fam', 'Process family'], ['conf', 'Location confidence'],
+                          ['ver', 'Version last modified'], ['mat', 'Material'], ['ref', 'Cites a reference']],
+            'presets': [
+                {'label': 'Everything', 'set': {}},
+                # `type` = only these of their types (within their families).
+                {'label': 'Rock avalanches', 'set': {'type': ['Rock avalanche']}},
+                {'label': 'Rock and debris avalanches', 'set': {'fam': ['RA']}},
+                {'label': 'Slope deformation and rock slides seen in InSAR',
+                 'set': {'fam': ['SD', 'RSL'], 'insar': ['yes']}},
+                {'label': 'Large and giant', 'set': {'size': ['large', 'giant']}},
+            ],
+            'home': [-131, 57.5, 4],
+        },
         'promote': {
             'ongoing_work': ('Noted in the Preliminary Canadian Landslide Database '
                              'v14.0 (Brideau and others, 2026), '
@@ -486,20 +578,27 @@ def api_external_record(request, sid, layer, ext_id):
                 continue
             cols.append(col)
             labels[col] = comment or col
-        cur.execute(f'SELECT {", ".join(cols)} FROM {t} WHERE ext_id = %s LIMIT 1',
-                    (str(ext_id),))
+        cur.execute(f'SELECT {", ".join(cols)}, ST_X(geom), ST_Y(geom) FROM {t} '
+                    f'WHERE ext_id = %s LIMIT 1', (str(ext_id),))
         row = cur.fetchone()
+        # Editors: the record's review too, so the explorer's popup opens with
+        # the same Review box the overlay popup has.
+        review = (_reviews_for(cur, sid, layer, [str(ext_id)]).get(str(ext_id), {})
+                  if row and is_inventory_editor(request.user) else {})
         conn.rollback()
     finally:
         _put_conn(conn)
     if not row:
         return JsonResponse({'error': 'no such record'}, status=404)
     props = {}
-    for c, v in zip(cols, row):
+    for c, v in zip(cols, row[:len(cols)]):
         if v is None or v == '':
             continue
         props[c] = v.isoformat() if hasattr(v, 'isoformat') else v
+    props.update(review)
+    lonlat = [row[-2], row[-1]] if row[-2] is not None else None
     return JsonResponse({
+        'lonlat': lonlat,
         'source': {'id': sid, 'title': s['title'], 'short': s['short'],
                    'citation': s['citation'], 'url': s['url'],
                    'licence': s['licence'], 'colour': s['colour']},
@@ -750,3 +849,225 @@ def api_external_review(request, sid, layer, ext_id):
     finally:
         _put_conn(conn)
     return JsonResponse({'ok': True, 'ext_id': eid, 'review': rev})
+
+
+# ---------------------------------------------------------------------------
+# EXPLORE -- switching the map's Inventory tab to one of these sources
+#
+# The whole primary layer ships to the browser once (columnar, dictionary-
+# encoded, gzipped -- the same trade as /inventory/table/), so every filter,
+# count and colour change is local and instant. Each source's `explore` block
+# in SOURCES says how: its type field, how its types fall into the shared
+# PROCESS FAMILIES below, the fields offered as filters, a second visual
+# channel (ring / size / fade), presets, and where the map flies to.
+#
+# PROCESS FAMILIES are ours, not theirs: a coarse grouping so one colour means
+# one kind of process across every outside inventory (a red dot is a rock or
+# debris avalanche whoever mapped it). It is a reading aid for the map, never
+# written onto their records or ours; their own type is one click away. The
+# colours live in ls_colors.js (EXT_FAMILIES), the labels here.
+#
+# SPELLING FOLD. Publishers' categorical values come in variants that differ
+# only in outer spaces or capitals ("High", "High ", " High"; "Small",
+# "small"). With `fold_spelling` on (EXPLORE_FOLD_SPELLING, default True; Hig
+# 2026-11-16) such values are one filter value, labelled with the commonest
+# spelling, and the payload lists the other spellings so the sidebar can say
+# so. This is display only: the mirror table and the record popup keep their
+# text exactly. Set EXPLORE_FOLD_SPELLING = False to see every spelling as its
+# own value. Recorded on /inventory/methods/.
+# ---------------------------------------------------------------------------
+EXPLORE_FOLD_SPELLING = True
+
+FAMILIES = [
+    ('RA',   'Rock or debris avalanche'),
+    ('SD',   'Rock / mountain slope deformation'),
+    ('RSL',  'Rock slide'),
+    ('FALL', 'Fall and topple'),
+    ('FLOW', 'Debris flow and flood'),
+    ('SOIL', 'Earth and debris slide, earth flow, spread'),
+    ('PF',   'Permafrost and periglacial'),
+    ('OTH',  'Undifferentiated or other'),
+]
+_FAM_INDEX = {k: i for i, (k, _l) in enumerate(FAMILIES)}
+
+
+def _fold(v):
+    return str(v).strip().lower()
+
+
+def family_of(sid, type_value):
+    """Process-family key for one of this source's type values."""
+    ex = SOURCES[sid].get('explore') or {}
+    if type_value is None or str(type_value).strip() == '':
+        return 'OTH'
+    v = str(type_value).strip()
+    fams = ex.get('families', {})
+    if ex.get('family_by') == 'code':
+        return fams.get(v.split(':', 1)[0].strip(), 'OTH')
+    # Matched without regard to outer spaces or case, as the spelling fold is.
+    folded = {_fold(k): f for k, f in fams.items()}
+    return folded.get(_fold(v), 'OTH')
+
+
+def _encode_cat(raw, fold):
+    """Dictionary-encode one categorical column. Returns (dict, codes,
+    variants): `dict` the value labels, `codes` an index per row (-1 = blank),
+    `variants` {label: [other spellings]} where the fold merged any."""
+    groups, order = {}, []
+    for v in raw:
+        if v is None or str(v).strip() == '':
+            continue
+        k = _fold(v) if fold else str(v)
+        if k not in groups:
+            groups[k] = {}
+            order.append(k)
+        sv = str(v)
+        groups[k][sv] = groups[k].get(sv, 0) + 1
+    labels, variants, index = [], {}, {}
+    for k in order:
+        spell = groups[k]
+        best = max(spell, key=lambda x: (spell[x], x))
+        label = best.strip() if fold else best
+        others = sorted(x for x in spell if x != best)
+        index[k] = len(labels)
+        labels.append(label)
+        if others:
+            variants[label] = others
+    codes = []
+    for v in raw:
+        if v is None or str(v).strip() == '':
+            codes.append(-1)
+        else:
+            codes.append(index[_fold(v) if fold else str(v)])
+    return labels, codes, variants
+
+
+def _explore_payload(cur, sid):
+    s = SOURCES[sid]
+    ex = s['explore']
+    t = table_name(sid, ex['layer'])
+    fold = EXPLORE_FOLD_SPELLING and ex.get('fold_spelling', True)
+    cur.execute("""SELECT column_name FROM information_schema.columns
+                    WHERE table_name = %s""", (t,))
+    have = {r[0] for r in cur.fetchall()}
+    names = [c for c in ex.get('name_fields', []) if c in have]
+    name_sql = f"coalesce({', '.join(names)})" if names else 'NULL'
+    facets = [f for f in ex['facets'] if f.get('expr') or f.get('field') in have]
+    sel = [f'{f["expr"]}' if f.get('expr') else f['field'] for f in facets]
+    type_field = ex['type_field'] if ex['type_field'] in have else 'NULL'
+    cur.execute(f"""
+        SELECT ext_id, {name_sql}, round(ST_X(geom)::numeric, 5), round(ST_Y(geom)::numeric, 5),
+               {type_field}{''.join(', ' + x for x in sel)}
+          FROM {t} WHERE geom IS NOT NULL ORDER BY id
+    """)
+    rows = cur.fetchall()
+    n = len(rows)
+    out = {
+        'source': sid, 'layer': ex['layer'], 'n': n, 'fold_spelling': bool(fold),
+        'title': s['title'], 'short': s['short'], 'citation': s['citation'], 'url': s['url'],
+        'type_label': ex.get('type_label', 'Type'),
+        'families': [{'k': k, 'label': l} for k, l in FAMILIES],
+        'ring': ex.get('ring'), 'size': ex.get('size'), 'fade': ex.get('fade'),
+        'colour_by': ex.get('colour_by', [['fam', 'Process family']]),
+        'presets': ex.get('presets', []), 'home': ex.get('home'),
+        'facets': [], 'cols': {}, 'dicts': {}, 'variants': {},
+    }
+    out['cols']['ext_id'] = [r[0] for r in rows]
+    out['cols']['name'] = [r[1] or '' for r in rows]
+    out['cols']['lon'] = [float(r[2]) for r in rows]
+    out['cols']['lat'] = [float(r[3]) for r in rows]
+    tl, tc, tv = _encode_cat([r[4] for r in rows], fold)
+    out['dicts']['type'] = tl
+    out['cols']['type'] = tc
+    out['variants']['type'] = tv
+    out['type_family'] = [_FAM_INDEX[family_of(sid, v)] for v in tl]
+    for j, f in enumerate(facets):
+        lab, codes, var = _encode_cat([r[5 + j] for r in rows], fold)
+        key = f['key']
+        out['dicts'][key], out['cols'][key], out['variants'][key] = lab, codes, var
+        spec = {'key': key, 'label': f['label']}
+        if f.get('order'):
+            spec['order'] = f['order']
+        if f.get('sort'):
+            spec['sort'] = f['sort']
+        out['facets'].append(spec)
+    # The second visual channel reads facet columns by key, so point each at
+    # the facet that carries its field.
+    by_field = {f.get('field'): f['key'] for f in facets if f.get('field')}
+    for ch in ('ring', 'size', 'fade'):
+        if out[ch]:
+            out[ch] = dict(out[ch], key=by_field.get(out[ch]['field']))
+    return out
+
+
+@require_http_methods(['GET'])
+def api_external_explore(request, sid):
+    """One source's primary layer, whole, for the Inventory-tab explorer.
+    Public, like the mirror itself. Cached per process and keyed on the
+    mirror's fetch time, so a refetch (a separate manage.py process, which
+    cannot clear our cache) is picked up on the next request."""
+    import gzip
+    from . import views as _v
+    s = SOURCES.get(sid)
+    if not s or not s.get('explore'):
+        return JsonResponse({'error': 'unknown source'}, status=404)
+    t = table_name(sid, s['explore']['layer'])
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT to_regclass(%s)", (t,))
+        if not cur.fetchone()[0]:
+            conn.rollback()
+            return JsonResponse({'error': 'not mirrored here'}, status=404)
+        cur.execute(f'SELECT max(fetched_at) FROM {t}')
+        stamp = str(cur.fetchone()[0])
+        key = f'ext_explore:{sid}'
+        entry = _v._cache.get(key)
+        if not entry or entry.get('stamp') != stamp or entry.get('fold') != EXPLORE_FOLD_SPELLING:
+            body = json.dumps(_explore_payload(cur, sid), separators=(',', ':'),
+                              allow_nan=False).encode('utf-8')
+            entry = {'stamp': stamp, 'fold': EXPLORE_FOLD_SPELLING,
+                     'raw': body, 'gz': gzip.compress(body, 6)}
+            _v._cache[key] = entry
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    from django.http import HttpResponse
+    if 'gzip' in request.META.get('HTTP_ACCEPT_ENCODING', ''):
+        resp = HttpResponse(entry['gz'], content_type='application/json')
+        resp['Content-Encoding'] = 'gzip'
+    else:
+        resp = HttpResponse(entry['raw'], content_type='application/json')
+    resp['Cache-Control'] = 'no-cache'
+    resp['Vary'] = 'Accept-Encoding'
+    return resp
+
+
+@inventory_editor_required
+@require_http_methods(['GET'])
+def api_external_reviews(request, sid, layer):
+    """Every review and promotion on one layer, for the explorer's Review
+    filter: {categories, reviews: {ext_id: category_id}, promoted: {ext_id:
+    [[landslide id, name], ...]}}. Small (one row per reviewed record), so it
+    is not cached and a review saved a moment ago is always in it."""
+    if sid not in SOURCES or layer not in SOURCES[sid]['fetch']['layers']:
+        return JsonResponse({'error': 'unknown source or layer'}, status=404)
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cats, revs = [], {}
+        if _review_tables(cur):
+            cur.execute('SELECT id, label FROM ext_review_categories ORDER BY lower(label)')
+            cats = [{'id': i, 'label': l} for i, l in cur.fetchall()]
+            cur.execute("""SELECT ext_id, category_id FROM ext_reviews
+                            WHERE source = %s AND layer = %s""", (sid, layer))
+            revs = {e: c for e, c in cur.fetchall()}
+        cur.execute("""SELECT external_id, id, unique_name FROM landslides
+                        WHERE external_source = %s ORDER BY id""", (sid,))
+        prom = {}
+        for e, i, nm in cur.fetchall():
+            prom.setdefault(e, []).append([i, nm])
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    return JsonResponse({'categories': cats, 'reviews': revs, 'promoted': prom})

@@ -679,7 +679,16 @@ def home(request):
         # The three-way feature filter mirrors the edit form's picker: every
         # value in the vocabulary, grouped by which type it applies to.
         "feature_groups":     _feature_filter_groups(),
+        # The Inventory tab's "Showing" switch: our records, or one of the
+        # mirrored outside inventories (external.py `explore`; ext_explore.js).
+        "explore_sources":    _explore_sources(),
     })
+
+
+def _explore_sources():
+    from . import external
+    return [{'id': sid, 'label': f"{s['short']}: {s['title']}"}
+            for sid, s in external.SOURCES.items() if s.get('explore')]
 
 
 def _feature_filter_groups():
