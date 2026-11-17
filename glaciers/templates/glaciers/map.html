@@ -1,80 +1,245 @@
 {% extends "inventory/base.html" %}
 {% load static %}
 {% block robots %}<meta name="robots" content="noindex, nofollow">{% endblock %}
-{% block title %}Glacier Dynamics — Alaska{% endblock %}
-{% block page_title %}Glacier dynamics (experimental){% endblock %}
+{% block title %}Glaciers — Alaska{% endblock %}
+{% block page_title %}Glaciers (experimental){% endblock %}
 
 {% block extra_styles %}
 <link href="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.css" rel="stylesheet">
 <style>
   html, body { height: 100%; margin: 0; }
-  #gl-wrap { position: relative; height: calc(100vh - 52px); }
+  /* The site header is absolutely positioned, 44 px tall. */
+  #gl-wrap { position: absolute; top: 44px; left: 0; right: 0; bottom: 0; display: flex; }
+  #gl-side {
+    width: 320px; flex: none; display: flex; flex-direction: column;
+    background: #fff; border-right: 1px solid #d8d2cc; font-size: 12px; min-height: 0;
+  }
+  #gl-tabs { display: flex; border-bottom: 1px solid #d8d2cc; flex: none; }
+  #gl-tabs button {
+    flex: 1; border: 0; background: #f4f1ee; padding: 8px 4px; font-size: 12px;
+    cursor: pointer; color: #6b5d55; border-bottom: 2px solid transparent;
+  }
+  #gl-tabs button.active { background: #fff; color: #5D4037; font-weight: 600; border-bottom-color: #5D4037; }
+  .gl-pane { flex: 1; overflow-y: auto; padding: 10px 12px; min-height: 0; }
+  .gl-pane h3 { font-size: 12px; color: #5D4037; margin: 12px 0 5px; text-transform: uppercase; letter-spacing: .04em; }
+  .gl-pane h3:first-child { margin-top: 0; }
+  .gl-pane select { width: 100%; font-size: 12px; padding: 3px; margin-bottom: 8px; }
+  #gl-mapwrap { position: relative; flex: 1; min-width: 0; }
   #gl-map { position: absolute; inset: 0; }
   /* width/height 100% is load-bearing: without explicit CSS size, an
      absolutely-positioned canvas displays at its BITMAP size (box × dpr) —
      on retina that scales every drawn position 2× from the corner. */
   #tracer-canvas { position: absolute; inset: 0; width: 100%; height: 100%;
                    pointer-events: none; z-index: 5; }
-  #gl-panel {
-    position: absolute; top: 10px; left: 10px; z-index: 10; width: 240px;
-    background: rgba(255,255,255,0.95); border: 1px solid #d8d2cc; border-radius: 5px;
-    padding: 10px 12px; font-size: 12px; box-shadow: 0 1px 6px rgba(0,0,0,0.18);
-    max-height: calc(100% - 90px); overflow-y: auto;
-  }
-  #gl-panel h3 { font-size: 13px; color: #5D4037; margin: 0 0 6px; }
-  #gl-panel select { width: 100%; font-size: 12px; padding: 3px; margin-bottom: 8px; }
-  #gl-timebar {
+  .gl-timebar {
     position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
     z-index: 10; width: min(1100px, 94%); background: rgba(255,255,255,0.95);
     border: 1px solid #d8d2cc; border-radius: 5px; padding: 8px 14px;
     display: flex; align-items: center; gap: 10px; font-size: 12px;
     box-shadow: 0 1px 6px rgba(0,0,0,0.18);
   }
-  #gl-timebar input[type=range] { flex: 1; }
+  .gl-timebar input[type=range] { flex: 1; }
   /* Ghost marker: the COMPUTED time crawling behind a held/lagging thumb —
      visible during the drag itself, where the thumb can't show the lag. */
   #gl-lagmark { position: absolute; top: 50%; width: 3px; height: 16px;
                 background: #c9971c; transform: translate(-50%, -50%);
                 border-radius: 1.5px; pointer-events: none; display: none;
                 box-shadow: 0 0 3px rgba(201,151,28,0.8); }
-  #gl-play { border: 1px solid #bbb; background: #f4f4f4; border-radius: 3px;
+  #gl-play, #rt-play { border: 1px solid #bbb; background: #f4f4f4; border-radius: 3px;
              font-size: 14px; width: 30px; height: 26px; cursor: pointer; }
   #gl-date { min-width: 84px; font-variant-numeric: tabular-nums; font-weight: 600; color: #444; }
+  #rt-year { min-width: 44px; font-variant-numeric: tabular-nums; font-weight: 700; color: #333; font-size: 15px; }
+  #rt-track { position: relative; flex: 1; display: flex; align-items: center; }
+  #rt-ticks { position: absolute; left: 8px; right: 8px; top: -5px; height: 6px; pointer-events: none; }
+  #rt-ticks i { position: absolute; width: 2px; height: 6px; margin-left: -1px;
+                box-shadow: 0 0 0 .5px rgba(0,0,0,.45); }
+  .rt-end { color: #888; font-variant-numeric: tabular-nums; }
   .gl-ov-row { margin: 3px 0; }
   .gl-ov-row label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
   .gl-ov-row input[type=range] { width: 100%; height: 12px; }
-  .gl-sub { font-size: 10px; color: #999; }
+  .gl-sub, .rt-sub { font-size: 10.5px; color: #8a8580; }
+  /* Retreat tab */
+  #rt-search { width: 100%; box-sizing: border-box; padding: 5px 7px; font-size: 12px;
+               border: 1px solid #c9c2bb; border-radius: 3px; }
+  .rt-result { display: flex; justify-content: space-between; gap: 8px; width: 100%; text-align: left;
+               border: 0; border-bottom: 1px solid #eee; background: #fff; padding: 5px 4px;
+               font-size: 12px; cursor: pointer; }
+  .rt-result:hover { background: #f4f1ee; }
+  .rt-result small, .rt-src small, .rt-grp summary small { color: #8a8580; white-space: nowrap; }
+  .rt-none { color: #8a8580; padding: 6px 0; line-height: 1.4; }
+  #rt-card { margin-top: 8px; }
+  .rt-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
+  .rt-card-head b { font-size: 14px; color: #3e2f28; }
+  .rt-card-head button { border: 1px solid #ccc; background: #f7f7f7; border-radius: 3px;
+                         width: 22px; height: 22px; cursor: pointer; margin-left: 3px; padding: 0; }
+  .rt-ids { font-size: 10.5px; color: #8a8580; margin: 3px 0 6px; word-break: break-all; }
+  .rt-grp { border-top: 1px solid #eee; padding: 4px 0; }
+  .rt-grp summary { cursor: pointer; font-weight: 600; color: #4a3a32; }
+  .rt-rows { max-height: 210px; overflow-y: auto; margin-top: 3px; }
+  .rt-row { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; border: 0;
+            background: none; padding: 2px 2px; font-size: 11.5px; cursor: pointer;
+            font-variant-numeric: tabular-nums; }
+  .rt-row:hover { background: #f4f1ee; }
+  .rt-row i, .rt-subopts i { width: 10px; height: 10px; border-radius: 2px; flex: none;
+                             box-shadow: 0 0 0 .5px rgba(0,0,0,.4); display: inline-block; }
+  .rt-row small { margin-left: auto; color: #8a8580; }
+  .rt-row.cur { font-weight: 700; background: #eef6fb; }
+  .rt-row.later { opacity: .38; }
+  .rt-src { border-top: 1px solid #eee; padding: 4px 0; }
+  .rt-src > label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .rt-src > label small { margin-left: auto; }
+  .rt-src details { margin-left: 20px; }
+  .rt-src details summary { cursor: pointer; color: #8a8580; font-size: 10.5px; }
+  .rt-src details p, .rt-cite { font-size: 10.5px; color: #6b635d; margin: 3px 0; line-height: 1.4; }
+  .rt-subopts { margin: 2px 0 2px 20px; }
+  .rt-subopts label { display: flex; align-items: center; gap: 5px; font-size: 11px; cursor: pointer; }
+  .rt-ramp { height: 10px; border-radius: 2px; border: 1px solid rgba(0,0,0,.25); }
+  .rt-ramp-t { position: relative; height: 13px; font-size: 9.5px; color: #777; }
+  .rt-ramp-t span { position: absolute; white-space: nowrap; }
+  .rt-pop { font-size: 12px; line-height: 1.4; }
+  .rt-props { border-collapse: collapse; font-size: 11px; margin: 2px 0; }
+  .rt-props th { text-align: left; font-weight: 400; color: #8a8580; padding: 0 8px 0 0; vertical-align: top; }
+  .rt-props td { word-break: break-word; }
+  /* Flow network: the distance plot and the editing panel */
+  #nw-chart { position: absolute; left: 50%; bottom: 74px; transform: translateX(-50%); z-index: 9;
+              background: rgba(255,255,255,0.97); border: 1px solid #d8d2cc; border-radius: 5px;
+              padding: 6px 10px 4px; box-shadow: 0 1px 6px rgba(0,0,0,0.18); font-size: 11.5px; }
+  .nw-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 2px; }
+  .nw-key { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; color: #555; }
+  .nw-key i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .nw-tools { margin-left: auto; display: inline-flex; gap: 4px; align-items: center; }
+  .nw-tools select, .nw-tools button { font-size: 11px; }
+  .nw-pt { cursor: pointer; }
+  .nw-pt:hover { stroke: #000; stroke-width: 1.5; }
+  .nw-tip { min-height: 15px; color: #333; font-variant-numeric: tabular-nums; }
+  .nw-foot { color: #8a8580; font-size: 10px; max-width: 880px; }
+  .nw-card { margin: 4px 0 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; color: #555; }
+  .nw-card button, #nw-panel button { font-size: 11px; border: 1px solid #c9c2bb; background: #f7f5f3;
+                    border-radius: 3px; padding: 2px 6px; cursor: pointer; }
+  #nw-panel { border: 1px solid #e0b84a; background: #fffbea; border-radius: 4px; padding: 7px 8px; margin: 6px 0; }
+  #nw-panel label { display: block; font-size: 10.5px; color: #6b635d; margin-top: 4px; }
+  #nw-panel input[type=text], #nw-panel textarea, #nw-panel select { width: 100%; box-sizing: border-box; font-size: 11.5px; padding: 2px 4px; }
+  #nw-panel textarea { height: 44px; resize: vertical; }
+  #nw-msg { font-size: 10.5px; min-height: 14px; margin-top: 4px; }
+  @media (max-width: 760px) { #gl-side { width: 250px; } }
 </style>
 {% endblock %}
 
 {% block body %}
 <div id="gl-wrap">
-  <div id="gl-map"></div>
-  <canvas id="tracer-canvas"></canvas>
-  <div id="gl-panel">
-    <h3>Glacier dynamics</h3>
-    <select id="gl-site"></select>
-    <div id="gl-basemap-row"></div>
-    <div id="gl-overlays"></div>
-    <div id="gl-tracer-controls"></div>
-{% if experimental %}    <div style="margin-top:8px; font-size:11px;">
-      <a href="/glaciers/pairs/">→ Raw image-pair measurements</a>
+  <div id="gl-side">
+    <div id="gl-tabs">
+      <button type="button" id="gl-tab-retreat" title="Glacier extents through time">Retreat</button>
+      <button type="button" id="gl-tab-flow" title="Flow tracers from ITS_LIVE velocity">Flow</button>
+      <button type="button" id="gl-tab-layers" title="Basemap and raster overlays">Layers</button>
     </div>
-{% endif %}    <div class="gl-sub" style="margin-top:8px;">
-      Tracers: NASA MEaSUREs ITS_LIVE annual velocity, with the product's
-      climatological seasonal sinusoid superposed over the years it was
-      fitted (2014–2024); earlier years show annual means only.
-      Experimental Lagrangian visualization — particle paths integrate the
-      time-varying velocity field and inherit its artifacts.
+
+    <div class="gl-pane" id="gl-pane-retreat">
+      <input type="search" id="rt-search" placeholder="Find a glacier by name…" autocomplete="off">
+      <div id="rt-results"></div>
+      <div id="rt-card"></div>
+      <h3>Flow network</h3>
+      <div class="rt-src"><label><input type="checkbox" id="nw-ref" checked><span>RGI centrelines (reference)</span>
+        <small>from zoom 8</small></label>
+        <details><summary>about</summary><p>Geometric centrelines of each glacier's main branch and major
+        tributaries, RGI 7.0 Consortium (2023), computed with OGGM (Maussion and others 2019) by the
+        method of Kienholz and others (2014).
+        <a target="_blank" rel="noopener" href="https://doi.org/10.5067/F6JMOVY5NAVZ">doi:10.5067/F6JMOVY5NAVZ</a>.
+        They stop at each glacier's outline and at its present terminus.</p>
+        <p>The brighter blue lines are the network being built here: RGI lines taken in, joined
+        across glaciers and drawn on down-valley past today's ice. A dot marks the downstream end
+        of each (solid = an outlet, ring = joins another line). <b>Click a network line</b> to
+        plot ice-face positions against distance along it.</p></details></div>
+{% if is_inventory_editor %}
+      <div id="nw-panel" style="display:none">
+        <b>Editing the network</b>
+        <div style="margin-top:4px"><button type="button" id="nw-newLine" title="Draw one flow line, down-flow: start up-glacier, end down-valley. End it on another flow line to make it a feeder.">＋ Flow line</button>
+          <button type="button" id="nw-newFace" title="Draw one ice-face line. Any length of the front; it does not have to reach both shores.">＋ Ice face</button></div>
+        <div id="nw-none" class="rt-sub" style="margin-top:4px">Click a line to select it. Then: drag a
+          vertex to move it; drag a midpoint to add one; <b>click a vertex and press Delete</b> (or
+          right-click it) to remove it, and keep pressing to remove the next; Ctrl/⌘-Z undoes.
+          Nothing is drawn until you press a ＋ button. <b>Joining:</b> drag the end of a flow line
+          onto another and it snaps; sharing that point is the join. End on the middle of a line to
+          make a feeder; end on another line's start and the two become one line.</div>
+        <div id="nw-selBox" style="display:none">
+          <div id="nw-selTitle" style="font-weight:600; margin-top:5px"></div>
+          <label>Kind <select id="nw-kindSel"><option value="flowline">Flow line</option><option value="face">Ice face</option></select></label>
+          <div id="nw-lineRows">
+            <label>Name <input type="text" id="nw-name" placeholder="e.g. Taan Fiord"></label>
+            <div style="margin-top:4px"><button type="button" id="nw-reverse" title="Lines run down-flow: the dot marks the downstream end">Reverse direction</button>
+              <button type="button" id="nw-plot">Plot faces along it</button></div>
+          </div>
+          <div style="margin-top:4px"><button type="button" id="nw-extend" title="Draw onward from this line's end; what you draw is added to this line, not saved as a new one">Extend from its end</button></div>
+          <div class="rt-sub" style="margin-top:3px">Click a vertex, then Delete removes it. The
+            <b>+</b> at each end of the line extends it from that end.</div>
+          <div id="nw-faceRows">
+            <label>Date <input type="text" id="nw-date" placeholder="1904 · 1904-08 · 1904-08-15 · 1894 to 1904"></label>
+            <label>Read from <select id="nw-basis"><option value="">(not said)</option><option>image</option><option>map</option>
+              <option>chart</option><option>photograph</option><option>moraine</option><option>account</option><option>survey</option></select></label>
+            <label>Source <input type="text" id="nw-srcNote" placeholder="e.g. Tarr &amp; Martin 1914, plate 12"></label>
+          </div>
+          <label>Notes <textarea id="nw-notes"></textarea></label>
+          <div style="margin-top:4px"><button type="button" id="nw-del">Delete whole line</button></div>
+        </div>
+        <label style="margin-top:6px">Import face lines (GeoJSON lines with a <code>date</code> property)
+          <input type="file" id="nw-file" accept=".geojson,.json,application/geo+json,application/json"></label>
+        <div id="nw-msg"></div>
+        <div style="text-align:right"><button type="button" id="nw-done">Done</button></div>
+      </div>
+      <div class="rt-sub">Editors: the ✎ button on the map opens the network for editing.</div>
+{% endif %}
+      <h3>Extent sources</h3>
+      <div id="rt-sources"><div class="rt-none">Loading…</div></div>
+      <h3>Legend</h3>
+      <div id="rt-legend"></div>
+    </div>
+
+    <div class="gl-pane" id="gl-pane-flow" style="display:none">
+      <h3>Site</h3>
+      <select id="gl-site"></select>
+      <div id="gl-tracer-controls"><div class="rt-none">Loading the flow engine…</div></div>
+{% if experimental %}      <div style="margin-top:8px; font-size:11px;">
+        <a href="/glaciers/pairs/">→ Raw image-pair measurements</a>
+      </div>
+{% endif %}      <div class="gl-sub" style="margin-top:8px;">
+        Tracers: NASA MEaSUREs ITS_LIVE annual velocity, with the product's
+        climatological seasonal sinusoid superposed over the years it was
+        fitted (2014–2024); earlier years show annual means only.
+        Experimental Lagrangian visualization — particle paths integrate the
+        time-varying velocity field and inherit its artifacts.
+      </div>
+    </div>
+
+    <div class="gl-pane" id="gl-pane-layers" style="display:none">
+      <h3>Basemap</h3>
+      <div id="gl-basemap-row"></div>
+      <h3>Overlays</h3>
+      <div id="gl-overlays"></div>
     </div>
   </div>
-  <div id="gl-timebar">
-    <button id="gl-play" title="Play / pause">▶</button>
-    <div id="gl-track" style="position:relative; flex:1; display:flex; align-items:center;">
-      <input type="range" id="gl-time" min="0" max="1" step="0.002" value="0" style="width:100%;">
-      <div id="gl-lagmark" title="Computed time (catching up)"></div>
+
+  <div id="gl-mapwrap">
+    <div id="gl-map"></div>
+    <canvas id="tracer-canvas"></canvas>
+    <div id="nw-chart" style="display:none"></div>
+    <div class="gl-timebar" id="rt-bar">
+      <button id="rt-play" title="Play / pause">▶</button>
+      <span class="rt-end" id="rt-lo"></span>
+      <div id="rt-track">
+        <div id="rt-ticks"></div>
+        <input type="range" id="rt-time" min="1900" max="2025" step="1" value="2025" style="width:100%;">
+      </div>
+      <span class="rt-end" id="rt-hi"></span>
+      <span id="rt-year"></span>
     </div>
-    <span id="gl-date"></span>
+    <div class="gl-timebar" id="gl-timebar" style="display:none">
+      <button id="gl-play" title="Play / pause">▶</button>
+      <div id="gl-track" style="position:relative; flex:1; display:flex; align-items:center;">
+        <input type="range" id="gl-time" min="0" max="1" step="0.002" value="0" style="width:100%;">
+        <div id="gl-lagmark" title="Computed time (catching up)"></div>
+      </div>
+      <span id="gl-date"></span>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -84,14 +249,26 @@
   window.GL_CONFIG = {
     catalog: {{ catalog_json|safe }},
     dataBase: '/glaciers/data/',
-    experimental: {{ experimental|yesno:"true,false" }}
+    tracersJs: "{% static 'glaciers/js/gl_tracers.js' %}?v={{ static_v }}",
+    experimental: {{ experimental|yesno:"true,false" }},
+    editor: {{ is_inventory_editor|yesno:"true,false" }},
+    csrf: '{{ csrf_token }}'
   };
 </script>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
-<script src="{% static 'inventory/js/basemaps.js' %}"></script>
+<script src="{% static 'inventory/js/basemaps.js' %}?v={{ static_v }}"></script>
 <script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
-<script src="{% static 'inventory/js/ls_overlays.js' %}"></script>
-<script src="{% static 'inventory/js/ls_proj.js' %}"></script>
-<script src="{% static 'inventory/js/ls_hash.js' %}"></script>
-<script src="{% static 'glaciers/js/glaciers.js' %}"></script>
+<script src="{% static 'inventory/js/ls_overlays.js' %}?v={{ static_v }}"></script>
+<script src="{% static 'inventory/js/ls_proj.js' %}?v={{ static_v }}"></script>
+<script src="{% static 'inventory/js/ls_hash.js' %}?v={{ static_v }}"></script>
+<script src="{% static 'inventory/js/ls_colors.js' %}?v={{ static_v }}"></script>
+<script src="{% static 'inventory/js/ls_tools.js' %}?v={{ static_v }}"></script>
+{% if is_inventory_editor %}
+<script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
+<script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>
+{% endif %}
+<script src="{% static 'inventory/js/scarps.js' %}?v={{ static_v }}"></script>
+<script src="{% static 'glaciers/js/gl_retreat.js' %}?v={{ static_v }}"></script>
+<script src="{% static 'glaciers/js/gl_network.js' %}?v={{ static_v }}"></script>
+<script src="{% static 'glaciers/js/glaciers.js' %}?v={{ static_v }}"></script>
 {% endblock %}

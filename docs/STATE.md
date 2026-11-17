@@ -88,6 +88,37 @@ In no particular order.
   sheets, publish/branch, the `lidar_scene.js` extraction, a shading worker
   pool; on prod, profiles / shared QMS bases / `hc=1` / JPEG export and the
   first *Submit* of a saved comparison are still untried, see the checklist).
+- **`/glaciers/` generalised; retreat histories, phases 0–2 — built in dev
+  2026-11-16, tried by Hig in dev, committed and pushed 2026-11-17, NOT
+  deployed (prod needs the data steps below first).** Plan and
+  decisions: `GLACIERS_PLAN.md`; plumbing: docs/GLACIERS.md. The page is now
+  a glacier browser (Retreat / Flow / Layers tabs); the tracer engine moved
+  to `gl_tracers.js` and loads on first use. Dev PostGIS holds RGI 7.0
+  (27,509 glaciers) and four mirrored extent sources (79,372 rows, about
+  1 GB). To ship: push; on prod `migrate_glaciers`, `fetch_glacier_source
+  rgi7`, then `--all` (rsync `data/glaciers/sources/` first; the GLIMS fetch
+  takes about 15 minutes and reads glims.org from the droplet); push
+  `glac_cover_mask.pmtiles` and `glac_debris_mask.pmtiles` to R2 overlays.
+  Also on prod for the network: `fetch_glacier_source centerlines` (needs
+  `rgi7_centerlines.geojsonl` in the rsync). **Same day, Hig refocused**
+  (plan §0): calving-face position, then surface elevation, along a
+  river-like flow network; area is low priority. Built in dev: the network
+  editor, adopt / draft / import, and the distance-time plot. Dev holds the
+  four Icy Bay glaciers adopted (80 lines) plus four drafted former-bed lines
+  (ids 12, 25, 38, 84); Icy Bay / Taan Fiord is Hig's first exploration, to
+  be extended by hand to the historic faces. After Hig's first try: joins
+  are shared coordinates with snapping, end-to-end lines fuse, drawing is
+  explicit (＋ buttons), Delete removes the active vertex (shared scarps.js,
+  so `/lidar/` and the inventory pencil gain it), drafts are binned and
+  smoothed. Dev now: 81 flow lines, outlets = Guyot 11, Tyndall 24, Tsaa 37,
+  Yahtse 83 (Hig's edited draft, fused), and stray manual line 85 (Hig's,
+  left alone). Not built: the control to pin a
+  face, joining across glaciers by ITS_LIVE, elevation as the y axis.
+  Still `noindex`. Superseded next step: phase 3 (length and area series; G10040 carries an
+  RGI 6 id and a per-year area) and phase 4, the consensus layer admins
+  improve (Hig's D1). Loose: only 661 glaciers are named; 82 Glacier Bay
+  lines and 5,202 GLIMS outlines match no glacier; `cascade` and
+  `moraine_apron` NSIDC-0634 files want a look.
 - **Terrain comparison: landslides + baked overlays** (tested by Hig in dev,
   deployed 2026-11-16): `ls=1` / `ov=` on `/lidar/compare/`, `/inventory/`
   links in the paste box; the shared overlay rows and landslide layers moved

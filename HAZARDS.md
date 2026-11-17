@@ -220,6 +220,39 @@ CLAUDE.md §/glaciers:
   passed 89% of noise). Gate on *replication* (split-half agreement)
   instead.
 
+## Glacier extents (2026-11-16)
+
+- **A GLIMS id does not identify a glacier.** RGI 7.0 gives one GLIMS id to as
+  many as eight separate glaciers (135 ids shared in region 01); a first load
+  keyed on it stopped on a duplicate. `glaciers` is keyed by RGI 7.0 id; a
+  GLIMS outline is matched by id only where the id names exactly one row.
+- **GLIMS outlines have no primary key over WFS**, so `startIndex` paging has
+  no stable order and the feature id changes per session. Fetch by bbox cell,
+  dedupe by content, check the total against the server's.
+- **GDAL's vector-tile writer cannot be trusted on icefield polygons.**
+  `ogr2ogr -f PMTiles` on NSIDC G10040 (one polygon per icefield, thousands
+  of holes) filled whole tiles solid and dropped neighbours, with no error.
+  The ice cover is raster bit masks instead (`build_cover_mask.py`).
+- **The ice-cover tiles are data, not pictures.** Bit masks in RGB: any
+  resampling but nearest, any alpha but 0 or 255, or a lossy format corrupts
+  the epochs with nothing to show for it. The epoch order lives in the
+  builder and in `gl_retreat.js`; `check_invariants` compares them.
+- **`el.style.display = ''` restores the stylesheet's value, not "shown".**
+  The tracer canvas was given `display: none` in CSS and the engine's show
+  left it hidden: tracers ran and drew nothing.
+- **A correlated subquery in `UPDATE … FROM (subquery)` can run per target
+  row.** Matching 50 terminus files to glaciers ran 10,334 nearest-polygon
+  searches (over ten minutes, cancelled) until the per-file result was a
+  `MATERIALIZED` CTE (seconds).
+- **`cur.execute(sql, ())` still treats `%` as a format character.** A
+  literal `%` in SQL (an `ILIKE '%x%'`) with an empty params tuple raises
+  `IndexError`; pass no params at all, or write `%%`.
+
+- **The browser caches static JS in dev.** After collectstatic + restart a
+  normal reload ran the OLD `scarps.js` against a new `gl_network.js`
+  ("drawArmed is not a function"). Hard-reload, or fetch the file with
+  `cache: 'reload'`, before believing a failure or a pass.
+
 ## Raster sources and bakes (permafrost, 2026-10-09)
 
 - **A raster's declared nodata is not its only hole.** Obu's MAGT and

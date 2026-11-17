@@ -236,7 +236,47 @@
     '#e6550d', '#31a354'];
   var EXT_BLANK = '#c9c5bd';
 
+  // ---- glacier extents: colour by YEAR of the observation ----------------
+  // /glaciers/ draws every dated outline and terminus line with one ramp, so
+  // a retreat reads as a colour sequence whichever source a line came from.
+  // Dark = old, bright = recent (most of the map is ice and dark water, and
+  // the newest position is the one the eye should find first). The stops are
+  // not evenly spaced: nearly all observations are after 1945, and a linear
+  // ramp from 1700 would spend its range on a handful of Little Ice Age lines.
+  var GLACIER_YEAR_STOPS = [
+    [1700, '#3b0f70'], [1850, '#641a80'], [1900, '#8c2981'], [1945, '#b73779'],
+    [1965, '#de4968'], [1980, '#f66e5b'], [1990, '#fe9f6d'], [2000, '#fece91'],
+    [2010, '#f6f1a9'], [2025, '#ffffff']
+  ];
+  // MapLibre paint expression on a numeric year property; no year -> grey.
+  function glacierYearColor(prop) {
+    var e = ['interpolate', ['linear'], ['to-number', ['get', prop], 0]];
+    GLACIER_YEAR_STOPS.forEach(function (st) { e.push(st[0], st[1]); });
+    return ['case', ['==', ['typeof', ['get', prop]], 'number'], e, '#9e9e9e'];
+  }
+  // The same ramp for one value, in JS (list swatches, chart points).
+  function glacierYearCss(y) {
+    var S = GLACIER_YEAR_STOPS;
+    if (y == null || isNaN(y)) return '#9e9e9e';
+    if (y <= S[0][0]) return S[0][1];
+    for (var i = 1; i < S.length; i++) {
+      if (y <= S[i][0]) {
+        var t = (y - S[i - 1][0]) / (S[i][0] - S[i - 1][0]);
+        var a = S[i - 1][1], b = S[i][1], out = '#';
+        for (var k = 1; k < 7; k += 2) {
+          var va = parseInt(a.substr(k, 2), 16), vb = parseInt(b.substr(k, 2), 16);
+          out += ('0' + Math.round(va + t * (vb - va)).toString(16)).slice(-2);
+        }
+        return out;
+      }
+    }
+    return S[S.length - 1][1];
+  }
+
   window.LSColors = {
+    GLACIER_YEAR_STOPS: GLACIER_YEAR_STOPS,
+    glacierYearColor: glacierYearColor,
+    glacierYearCss: glacierYearCss,
     EXT_FAMILIES: EXT_FAMILIES,
     EXT_CATEGORICAL: EXT_CATEGORICAL,
     EXT_BLANK: EXT_BLANK,

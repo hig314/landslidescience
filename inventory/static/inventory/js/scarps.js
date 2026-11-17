@@ -10,6 +10,11 @@
  * angle, slope, 3D) and the inventory map's pencil (scarps). The name of the
  * module, the global and the API paths stay "scarps".
  *
+ * Since 2026-11-16 also the line editor of /glaciers/ (flow lines and ice
+ * faces, api = '/glaciers/lines/'), which runs the session in EXPLICIT mode
+ * (see explicitDraw). On every host: click a vertex to make it the active
+ * one, and Delete / Backspace removes it.
+ *
  * The scarp-only history follows.
  *
  * WHY THIS EXISTS
@@ -73,6 +78,57 @@ window.LSScarps = (function () {
   // headroom rather than a constraint — but rounding here keeps an untouched
   // line comparing equal after a round trip.
   var COORD_PRECISION = 9;
+  // EXPLICIT DRAWING (2026-11-16, for /glaciers/). By default a session draws
+  // on any open-ground click, which suits tracing many lines in a row (the
+  // /lidar/ and inventory hosts). Where a session is mostly EDITING, that
+  // turns every missed click into the start of a new line: a click a few
+  // pixels off a handle, then another, then one near the last, and a stray
+  // line has been saved. A host that passes startDraw({explicit: true}) gets
+  // a session that only selects and edits until it calls armDraw(true), which
+  // lets ONE line be drawn (and lets it start on top of an existing line,
+  // which is how a feeder or an extension begins).
+  var explicitDraw = false, armed = true;
+  var extendId = null;            // the drawn line is appended to this trace instead of saved as new
+  var extendAt = 'end';           // which end of it: 'end' (append) or 'start' (prepend)
+  // The vertex last clicked on the selected trace: Delete / Backspace removes
+  // it, and the next one takes its place, so a run of vertices goes with
+  // repeated presses. Right-click still removes one directly.
+  var activeVtx = null;           // {id, p, i}
+  // SNAPPING (startDraw({snapKinds: [...]}), for /glaciers/ flow lines). The
+  // END of a line of one of these kinds, dragged or drawn to within SNAP_PX
+  // of another such line, takes that line's coordinates exactly: a vertex if
+  // one is near, else the nearest point on a segment. Two lines that share a
+  // coordinate are joined; that is the host's whole notion of topology, so
+  // it has to be exact and it has to be visible while the hand is on it.
+  var snapKinds = null, SNAP_PX = 12;
+  function snapsKind(k) { return !!snapKinds && snapKinds.indexOf(k) >= 0; }
+  function snapLL(ll, selfId) {
+    var out = [ll.lng, ll.lat];
+    if (!snapKinds) return out;
+    var p = map.project(ll), bestV = null, bestS = null;
+    features.features.forEach(function (f) {
+      if (f.properties.id === selfId || !snapsKind(f.properties.kind)) return;
+      partsOf(f.geometry).forEach(function (part) {
+        var prev = null;
+        part.forEach(function (c) {
+          var q = map.project(c);
+          var d = Math.hypot(q.x - p.x, q.y - p.y);
+          if (d <= SNAP_PX && (!bestV || d < bestV.d)) bestV = { d: d, c: c };
+          if (prev) {
+            var dx = q.x - prev.x, dy = q.y - prev.y, L2 = dx * dx + dy * dy;
+            var t = L2 ? Math.max(0, Math.min(1, ((p.x - prev.x) * dx + (p.y - prev.y) * dy) / L2)) : 0;
+            var sx = prev.x + t * dx, sy = prev.y + t * dy;
+            var ds = Math.hypot(sx - p.x, sy - p.y);
+            if (ds <= SNAP_PX && (!bestS || ds < bestS.d)) bestS = { d: ds, x: sx, y: sy };
+          }
+          prev = q;
+        });
+      });
+    });
+    if (bestV) return bestV.c.slice(0, 2);
+    if (bestS) { var u = map.unproject([bestS.x, bestS.y]); return [u.lng, u.lat]; }
+    return out;
+  }
 
   function round(g) {
     return JSON.parse(JSON.stringify(g, function (k, v) {
@@ -140,8 +196,10 @@ window.LSScarps = (function () {
       paint: { 'circle-radius': 3.5, 'circle-color': '#fff', 'circle-opacity': 0.85,
                'circle-stroke-color': '#555', 'circle-stroke-width': 1 } });
     map.addLayer({ id: VTX, type: 'circle', source: EDIT_SRC, filter: ['==', ['get', 'role'], 'v'],
-      paint: { 'circle-radius': 5, 'circle-color': '#fff',
-               'circle-stroke-color': '#e65100', 'circle-stroke-width': 2 } });
+      paint: { 'circle-radius': ['case', ['==', ['get', 'a'], true], 6.5, 5],
+               'circle-color': ['case', ['==', ['get', 'a'], true], '#e65100', '#fff'],
+               'circle-stroke-color': ['case', ['==', ['get', 'a'], true], '#fff', '#e65100'],
+               'circle-stroke-width': 2 } });
     if (wired) return;
     wired = true;
     // Hand back OUR feature (full notes, not the map's flattened copy) and
@@ -219,18 +277,24 @@ window.LSScarps = (function () {
     if (map.getLayer(SEL)) {
       map.setFilter(SEL, ['==', ['get', 'id'], selectedId == null ? -1 : selectedId]);
     }
+    syncPlus();
     onChange();
   }
 
   function load() {
+    var at = editSeq;
     return req(api + 'api/scarps/').then(function (fc) {
+      // A list fetched before the latest local edit, or while a save or a
+      // drag is still under way, would draw old geometry over new. Drop it:
+      // the save that follows asks again if the host wants a reload.
+      if (at !== editSeq || savesInFlight() || (gesture && gesture.type === 'drag')) return features;
       if (fc.kinds && fc.kinds.length) kinds = fc.kinds;
       if (fc.groups) groups = fc.groups;
       features = fc; ensureLayers(); redraw(); return fc;
     });
   }
 
-  function select(id) { selectedId = id; redraw(); }
+  function select(id) { if (id !== selectedId) activeVtx = null; selectedId = id; redraw(); }
   function selected() {
     if (selectedId == null) return null;
     return features.features.filter(function (f) {
@@ -253,6 +317,15 @@ window.LSScarps = (function () {
   // own finish (Enter, double-click, a click back on the last vertex) and
   // the editor's secondary click (finishSecondary).
   function saveNew(geom) {
+    // One line per arming; and never switch Terra Draw's mode from inside
+    // its own finish event (see the note where finish is handled).
+    if (explicitDraw) setTimeout(function () { armDraw(false); }, 0);
+    if (extendId != null) { var xid = extendId; extendId = null; return appendTo(xid, geom); }
+    if (snapsKind(drawKind) && geom.coordinates.length >= 2) {
+      var gc = geom.coordinates, n = gc.length - 1;
+      gc[0] = snapLL({ lng: gc[0][0], lat: gc[0][1] }, null);
+      gc[n] = snapLL({ lng: gc[n][0], lat: gc[n][1] }, null);
+    }
     var ctx = null;
     try { ctx = drawContext ? drawContext() : null; } catch (e) { ctx = null; }
     var k = drawKind, g = drawGroup;
@@ -261,10 +334,13 @@ window.LSScarps = (function () {
     return req(api + 'api/scarps/create/', { method: 'POST',
         body: { geometry: geom, notes: '', kind: k, traced_on: ctx, group_id: g } })
       .then(function (res) {
-        upsert(res.scarps); selectedId = res.id;
+        // `select`: the row the new line now is (a host may have fused it
+        // into another); `reload`: other rows changed with it.
+        upsert(res.scarps); selectedId = res.select != null ? res.select : res.id;
         if (g != null) bumpGroupCounts();
         redraw();
         flash(kindInfo(k).label + ' saved — add a note.');
+        if (res.reload) return load();
       })
       .catch(function (e) { flash('Could not save: ' + e.message, true); });
   }
@@ -276,6 +352,9 @@ window.LSScarps = (function () {
     if (opts.kind) drawKind = opts.kind;
     if (opts.context) drawContext = opts.context;
     if ('group' in opts) drawGroup = opts.group;
+    explicitDraw = !!opts.explicit;
+    snapKinds = opts.snapKinds || null;
+    armed = !explicitDraw; extendId = null; activeVtx = null;
     stopDraw();
     td = new TD.TerraDraw({
       adapter: new ADAPT.TerraDrawMapLibreGLAdapter({ map: map }),
@@ -284,7 +363,7 @@ window.LSScarps = (function () {
       // instantiated modes, and a mode that is not registered makes its
       // features invalid rather than merely unselectable.
       modes: [
-        new TD.TerraDrawLineStringMode({
+        (lineMode = new TD.TerraDrawLineStringMode({
           // pointerDistance defaults to 40 px, and in line mode that means a
           // click within 40 px of the previous vertex FINISHES the line. At
           // normal tracing spacing almost every click lands inside that, so
@@ -294,12 +373,14 @@ window.LSScarps = (function () {
           // 8 px means only a deliberate click back on the last point ends it.
           pointerDistance: 8,
           keyEvents: { finish: 'Enter', cancel: 'Escape' }
-        }),
+        })),
         new TD.TerraDrawSelectMode()
       ]
     });
     td.start();
-    td.setMode('linestring');
+    // 'select' with no flags is Terra Draw doing nothing: the idle state of
+    // an explicit session.
+    td.setMode(armed ? 'linestring' : 'select');
     mode = 'draw';
     // Double-click finishes a line; without this it also zooms the map, which
     // throws the view off the feature you just traced.
@@ -325,7 +406,9 @@ window.LSScarps = (function () {
     detachEditor();
     if (td) { try { td.stop(); } catch (e) {} td = null; }
     if (map && map.doubleClickZoom) map.doubleClickZoom.enable();
-    mode = null;
+    mode = null; lineMode = null;
+    if (map) setCursor('');
+    clearPlus();
     if (map && map.getSource(EDIT_SRC)) map.getSource(EDIT_SRC).setData(handlesFC());
     onChange();
   }
@@ -345,7 +428,8 @@ window.LSScarps = (function () {
   var finished = {};             // Terra Draw ids already finished (removed a tick later)
   var gesture = null;            // {type: 'drag'|'pick', ...}
   var undoStack = [];            // [{id, geometry}] before each edit, newest last
-  var UNDO_MAX = 50, HANDLE_PX = 7;
+  var UNDO_MAX = 50, HANDLE_PX = 7, GRAB_PX = 14;
+  var lineMode = null;           // the Terra Draw line mode (seeded when extending)
 
   function partsOf(g) {
     return g.type === 'MultiLineString' ? g.coordinates : [g.coordinates];
@@ -354,9 +438,11 @@ window.LSScarps = (function () {
     var out = { type: 'FeatureCollection', features: [] };
     var f = mode === 'draw' ? selected() : null;
     if (!f) return out;
+    var av = (activeVtx && activeVtx.id === f.properties.id) ? activeVtx : null;
     partsOf(f.geometry).forEach(function (part, p) {
       part.forEach(function (c, i) {
-        out.features.push({ type: 'Feature', properties: { role: 'v', p: p, i: i },
+        out.features.push({ type: 'Feature',
+                            properties: { role: 'v', p: p, i: i, a: !!(av && av.p === p && av.i === i) },
                             geometry: { type: 'Point', coordinates: c } });
         if (i > 0) {
           var a = part[i - 1];
@@ -379,11 +465,31 @@ window.LSScarps = (function () {
     var r = map.getCanvas().getBoundingClientRect();
     return [e.clientX - r.left, e.clientY - r.top];
   }
+  // The handle of the selected trace nearest the pointer, within GRAB_PX.
+  // Worked out from the geometry, not queryRenderedFeatures: a rendered query
+  // returns nothing for a moment after every setData (each redraw), which
+  // made the hover cursor flicker and a grab miss (Hig, 2026-11-17). The
+  // radius is generous; where handles crowd, the nearest wins, a vertex
+  // counting as a little nearer than a midpoint.
   function handleAt(pt) {
-    var box = [[pt[0] - HANDLE_PX, pt[1] - HANDLE_PX], [pt[0] + HANDLE_PX, pt[1] + HANDLE_PX]];
-    var hits = map.getLayer(VTX) ? map.queryRenderedFeatures(box, { layers: [VTX, MID] }) : [];
-    // A vertex wins over a midpoint under the same cursor.
-    return hits.filter(function (h) { return h.properties.role === 'v'; })[0] || hits[0] || null;
+    var f = selected();
+    if (!f) return null;
+    var best = null, bestD = GRAB_PX;
+    function test(c, role, p, i) {
+      var q = map.project(c);
+      var d = Math.hypot(q.x - pt[0], q.y - pt[1]) * (role === 'v' ? 0.7 : 1);
+      if (d <= bestD) {
+        bestD = d;
+        best = { properties: { role: role, p: p, i: i }, geometry: { type: 'Point', coordinates: c } };
+      }
+    }
+    partsOf(f.geometry).forEach(function (part, p) {
+      part.forEach(function (c, i) {
+        test(c, 'v', p, i);
+        if (i > 0) { var a = part[i - 1]; test([(a[0] + c[0]) / 2, (a[1] + c[1]) / 2], 'm', p, i); }
+      });
+    });
+    return best;
   }
   function traceAt(pt) {
     if (!map.getLayer(HIT)) return null;
@@ -396,9 +502,25 @@ window.LSScarps = (function () {
   function capture(e) {
     try { map.getContainer().setPointerCapture(e.pointerId); } catch (err) {}
   }
+  // Terra Draw writes the canvas's inline cursor on every pointer move, so a
+  // cursor set the ordinary way (LSTools, inline style) is overwritten a
+  // moment later and flickers. The session's hover cues therefore go through
+  // a stylesheet rule with !important, keyed on an attribute of the map
+  // container; with no cue the attribute is dropped and the cursor is
+  // whatever the host and Terra Draw make it.
+  var cursorCss = false;
   function setCursor(c) {
-    if (window.LSTools) LSTools.cursor.set('tool', c);
-    else map.getCanvas().style.cursor = c;
+    var el = map.getContainer();
+    if (!cursorCss) {
+      cursorCss = true;
+      var st = document.createElement('style');
+      st.textContent = ['move', 'pointer', 'crosshair'].map(function (k) {
+        return '[data-ls-edit-cursor="' + k + '"] canvas{cursor:' + k + ' !important}';
+      }).join('');
+      document.head.appendChild(st);
+    }
+    if (c) el.setAttribute('data-ls-edit-cursor', c);
+    else el.removeAttribute('data-ls-edit-cursor');
   }
   function cloneGeom(g) { return JSON.parse(JSON.stringify(g)); }
   function setGeom(f, parts) {
@@ -408,16 +530,159 @@ window.LSScarps = (function () {
     undoStack.push({ id: f.properties.id, geometry: before });
     if (undoStack.length > UNDO_MAX) undoStack.shift();
   }
+  // SAVES ARE SERIALISED PER TRACE, LATEST WINS (2026-11-16). Every edit used
+  // to POST at once and apply whatever came back. Deleting a run of vertices
+  // quickly then showed them vanish and return: the answer to the first
+  // delete (the line minus ONE vertex) arrived after three more had been
+  // removed locally and was drawn over them, and the reload a host may ask
+  // for did the same again. Now one request per trace is in flight at a
+  // time; an edit made meanwhile is sent when it returns, and an answer that
+  // is already out of date is never drawn.
+  var saving = {};               // id -> {seq, inflight, promise}
+  var editSeq = 0;               // bumped on every local geometry edit
+  function savesInFlight() {
+    return Object.keys(saving).some(function (k) { return saving[k].inflight; });
+  }
   function saveGeom(f, before) {
     var id = f.properties.id;
-    return req(api + 'api/scarps/' + id + '/', { method: 'POST', body: { geometry: round(f.geometry) } })
-      .then(function (res) { upsert(res.scarps); redraw(); flash('Trace updated.'); })
-      .catch(function (err) {
-        var cur = byId(id);
-        if (cur && before) { cur.geometry = before; redraw(); }
-        flash('Could not save the edit: ' + err.message, true);
-      });
+    var st = saving[id] || (saving[id] = { seq: 0, inflight: false, promise: null });
+    st.seq++; editSeq++;
+    if (st.inflight) return st.promise;      // picked up when the request in flight returns
+    function send() {
+      var cur = byId(id), mine = st.seq;
+      if (!cur) { st.inflight = false; return Promise.resolve(); }
+      st.inflight = true;
+      return req(api + 'api/scarps/' + id + '/', { method: 'POST', body: { geometry: round(cur.geometry) } })
+        .then(function (res) {
+          if (st.seq !== mine) return send();          // edited again meanwhile: this answer is stale
+          st.inflight = false;
+          upsert(res.scarps);
+          if (res.select != null && res.select !== id) {      // fused into another row
+            features.features = features.features.filter(function (x) { return x.properties.id !== id; });
+            if (selectedId === id) selectedId = res.select;
+            activeVtx = null;
+          }
+          redraw(); flash('Trace updated.');
+          if (res.reload) return load();
+        })
+        .catch(function (err) {
+          st.inflight = false;
+          // Several edits may be riding on this request, so there is no
+          // single "before" to put back: show what the server holds.
+          flash('Could not save the edit: ' + err.message, true);
+          return load();
+        });
+    }
+    return (st.promise = send());
   }
+  // Remove vertex i of part p. False (with a message) if the part would be
+  // left with fewer than two.
+  function removeVertex(f, p, i) {
+    var parts = partsOf(f.geometry).map(function (part) { return part.slice(); });
+    if (!parts[p] || parts[p].length <= 2) {
+      flash('A line needs two vertices — delete the whole line instead.', true);
+      return false;
+    }
+    var before = cloneGeom(f.geometry);
+    parts[p].splice(i, 1);
+    setGeom(f, parts); pushUndo(f, before); redraw(); saveGeom(f, before);
+    return true;
+  }
+  // Explicit sessions: allow (or stop allowing) one new line to be drawn.
+  function armDraw(on) {
+    armed = !!on || !explicitDraw;
+    if (!on) extendId = null;
+    if (td && mode === 'draw') {
+      try { td.setMode(armed ? 'linestring' : 'select'); } catch (e) {}
+    }
+    if (armed && extendId == null && selectedId != null) select(null);
+    else { syncPlus(); onChange(); }
+  }
+  // Draw on from the END of the selected trace: the next line drawn is
+  // appended to it instead of being saved as a new trace.
+  function extendSelected(at) {
+    var f = selected();
+    if (!f) return false;
+    extendId = f.properties.id;
+    extendAt = at === 'start' ? 'start' : 'end';
+    armDraw(true);
+    // Start Terra Draw's line ON the old end, so the rubber band runs from
+    // it to the pointer at once, as in QGIS. (Without this nothing showed
+    // until the first click, and the join to the old end only on finishing:
+    // it read as the "+" not working.) If the seed fails the old behaviour
+    // remains: the first click starts the line.
+    try {
+      var parts = partsOf(f.geometry);
+      var c = extendAt === 'start' ? parts[0][0] : parts[parts.length - 1][parts[parts.length - 1].length - 1];
+      var q = map.project(c);
+      lineMode.onClick({ lng: c[0], lat: c[1], containerX: q.x, containerY: q.y,
+                         button: 'left', heldKeys: [], isContextMenu: false });
+    } catch (err) {}
+    syncPlus();
+    flash('Extending from the ' + (extendAt === 'start' ? 'start' : 'end') +
+          ' of the line: click onward from it; right-click or Enter finishes, Esc cancels.');
+    return true;
+  }
+  // The "+" at each end of the selected trace (as in QGIS): click it to draw
+  // on from that end. HTML markers, not a map layer: the raster basemap
+  // styles carry no glyphs, so a text symbol would not draw; and a marker's
+  // click never reaches the canvas listeners below.
+  var plusMarkers = [], plusKey = '';
+  function clearPlus() {
+    plusMarkers.forEach(function (m) { try { m.remove(); } catch (e) {} });
+    plusMarkers = []; plusKey = '';
+  }
+  function syncPlus() {
+    var f = mode === 'draw' ? selected() : null;
+    var show = f && !lineInProgress() && extendId == null && !(explicitDraw && armed) &&
+               !(gesture && gesture.type === 'drag') && typeof maplibregl !== 'undefined';
+    if (!show) { if (plusMarkers.length) clearPlus(); return; }
+    var parts = partsOf(f.geometry), first = parts[0], last = parts[parts.length - 1];
+    var ends = [['start', first[0], first[1]], ['end', last[last.length - 1], last[last.length - 2]]];
+    var key = f.properties.id + '|' + JSON.stringify(ends) + '|' + map.getZoom().toFixed(2);
+    if (key === plusKey) return;
+    clearPlus(); plusKey = key;
+    ends.forEach(function (e) {
+      if (!e[1] || !e[2]) return;
+      // 22 px beyond the end, along the line's own direction there
+      var a = map.project(e[1]), b = map.project(e[2]);
+      var dx = a.x - b.x, dy = a.y - b.y, L = Math.hypot(dx, dy) || 1;
+      var el = document.createElement('div');
+      el.textContent = '+';
+      el.title = 'Extend the line from this end';
+      el.style.cssText = 'width:22px;height:22px;text-align:center;border-radius:50%;box-sizing:border-box;' +
+        'background:#fff;border:2px solid #e65100;color:#e65100;font:700 17px/18px sans-serif;' +
+        'cursor:pointer;box-shadow:0 0 3px rgba(0,0,0,.5);user-select:none;';
+      el.addEventListener('pointerdown', function (ev) { ev.stopPropagation(); });
+      el.addEventListener('click', function (ev) { ev.stopPropagation(); extendSelected(e[0]); });
+      plusMarkers.push(new maplibregl.Marker({ element: el, offset: [dx / L * 22, dy / L * 22] })
+        .setLngLat(e[1]).addTo(map));
+    });
+  }
+  function appendTo(id, geom) {
+    var f = byId(id);
+    if (!f) { flash('That line no longer exists.', true); return Promise.resolve(); }
+    var parts = partsOf(f.geometry).map(function (part) { return part.slice(); });
+    var atStart = extendAt === 'start';
+    var last = atStart ? parts[0] : parts[parts.length - 1], add = geom.coordinates.slice();
+    var old = atStart ? last[0] : last[last.length - 1];
+    // A first click made on the old end is the old end, not a new vertex.
+    var a = map.project(old), b = map.project(add[0]);
+    if (Math.abs(a.x - b.x) <= HANDLE_PX + 3 && Math.abs(a.y - b.y) <= HANDLE_PX + 3) add.shift();
+    if (!add.length) return Promise.resolve();
+    if (!atStart && snapsKind(f.properties.kind)) {
+      var e = add[add.length - 1];
+      add[add.length - 1] = snapLL({ lng: e[0], lat: e[1] }, id);
+    }
+    var before = cloneGeom(f.geometry);
+    // Drawn outward from the start, so reversed it runs INTO the old start
+    // and the line keeps its direction.
+    if (atStart) parts[0] = add.reverse().concat(last);
+    else parts[parts.length - 1] = last.concat(add);
+    setGeom(f, parts); pushUndo(f, before); selectedId = id; redraw();
+    return saveGeom(f, before);
+  }
+
   // A secondary click: the right button, or Ctrl-click on a Mac (which some
   // browsers report as button 0 with ctrlKey, then a contextmenu).
   var IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
@@ -438,6 +703,12 @@ window.LSScarps = (function () {
       if (sec) { take(e); gesture = { type: 'rclick' }; finishSecondary(e); }
       return;
     }
+    // Armed in an explicit session: this click starts the one line, wherever
+    // it lands -- on open ground, on another line, on a handle.
+    if (explicitDraw && armed && !sec) {
+      if (selectedId != null && extendId == null) select(null);
+      return;
+    }
     var pt = canvasPoint(e), f = selected();
     var h = f ? handleAt(pt) : null;
     if (h) {
@@ -446,15 +717,14 @@ window.LSScarps = (function () {
       var before = cloneGeom(f.geometry), p = h.properties.p, i = h.properties.i;
       if (sec && h.properties.role !== 'v') { gesture = { type: 'rclick' }; return; }
       if (sec) {
-        if (parts[p].length <= 2) { flash('A line needs two vertices — use Delete for the whole trace.', true); return; }
-        parts[p].splice(i, 1);
-        setGeom(f, parts); pushUndo(f, before); redraw(); saveGeom(f, before);
+        gesture = { type: 'rclick' };
+        if (removeVertex(f, p, i)) activeVtx = null;
         return;
       }
       if (h.properties.role === 'm') parts[p].splice(i, 0, h.geometry.coordinates.slice());
       setGeom(f, parts); redraw();
       gesture = { type: 'drag', f: f, p: p, i: i, before: before, moved: h.properties.role === 'm',
-                  x: e.clientX, y: e.clientY };
+                  role: h.properties.role, x: e.clientX, y: e.clientY };
       capture(e);
       return;
     }
@@ -480,10 +750,12 @@ window.LSScarps = (function () {
   function onMove(e) {
     if (!gesture) {
       // Hover cue: a handle or another trace is editable, open ground draws.
-      if (mode !== 'draw' || lineInProgress()) return;
+      if (mode !== 'draw') return;
+      if (lineInProgress()) { setCursor('crosshair'); return; }
       var pt = canvasPoint(e), f = selected();
       var over = (f && handleAt(pt)) ? 'move' : (traceAt(pt) != null ? 'pointer' : '');
-      setCursor(over || 'crosshair');
+      if (explicitDraw && armed) over = '';       // the next click draws, whatever is under it
+      setCursor(over || ((explicitDraw && !armed) ? '' : 'crosshair'));
       return;
     }
     take(e);
@@ -491,7 +763,9 @@ window.LSScarps = (function () {
     if (Math.abs(e.clientX - gesture.x) + Math.abs(e.clientY - gesture.y) > 2) gesture.moved = true;
     var ll = map.unproject(canvasPoint(e));
     var parts = partsOf(gesture.f.geometry).map(function (part) { return part.slice(); });
-    parts[gesture.p][gesture.i] = [ll.lng, ll.lat];
+    var atEnd = gesture.i === 0 || gesture.i === parts[gesture.p].length - 1;
+    parts[gesture.p][gesture.i] = (atEnd && snapsKind(gesture.f.properties.kind))
+      ? snapLL(ll, gesture.f.properties.id) : [ll.lng, ll.lat];
     setGeom(gesture.f, parts);
     redraw();
   }
@@ -501,7 +775,9 @@ window.LSScarps = (function () {
     var g = gesture; gesture = null;
     if (g.type === 'pick') { select(g.id); return; }
     if (g.type === 'rclick') return;
-    if (g.moved) { pushUndo(g.f, g.before); saveGeom(g.f, g.before); }
+    // Either way this vertex is now the active one (Delete removes it).
+    activeVtx = { id: g.f.properties.id, p: g.p, i: g.i };
+    if (g.moved) { pushUndo(g.f, g.before); redraw(); saveGeom(g.f, g.before); }
     else { g.f.geometry = g.before; redraw(); }
   }
   // Capture lost without a pointerup (the window lost focus, a touch was
@@ -549,7 +825,12 @@ window.LSScarps = (function () {
     if (mode !== 'draw') return;
     var t = e.target, tag = t && t.tagName ? t.tagName.toLowerCase() : '';
     if (tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable)) return;
-    if (lineInProgress()) return;               // Terra Draw's Enter / Escape
+    if (lineInProgress()) {                     // Terra Draw's Enter / Escape
+      // Esc drops the line; an extension is over with it (otherwise the next
+      // line drawn would still be appended to the old one).
+      if (e.key === 'Escape' && explicitDraw) setTimeout(function () { armDraw(false); }, 0);
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
       e.preventDefault();
       var u = undoStack.pop();
@@ -557,8 +838,22 @@ window.LSScarps = (function () {
       var f = byId(u.id);
       if (!f) { flash('That trace no longer exists.', true); return; }
       var before = cloneGeom(f.geometry);
+      activeVtx = null;
       f.geometry = u.geometry; selectedId = u.id; redraw();
       saveGeom(f, before);
+    } else if ((e.key === 'Delete' || e.key === 'Backspace') && activeVtx) {
+      var af = byId(activeVtx.id);
+      if (!af || af.properties.id !== selectedId) { activeVtx = null; return; }
+      e.preventDefault();
+      var av = activeVtx;
+      if (removeVertex(af, av.p, av.i)) {
+        // the next vertex slides into this index; stay on it (or on the new last)
+        var n = partsOf(af.geometry)[av.p].length;
+        activeVtx = { id: av.id, p: av.p, i: Math.min(av.i, n - 1) };
+        redraw();
+      }
+    } else if (e.key === 'Escape' && explicitDraw && armed) {
+      armDraw(false);
     } else if (e.key === 'Escape' && selectedId != null) {
       select(null);
     }
@@ -601,7 +896,9 @@ window.LSScarps = (function () {
       .then(function (res) {
         upsert(res.scarps);
         if ('group_id' in fields) bumpGroupCounts();
-        redraw(); return res;
+        redraw();
+        if (res.reload) return load().then(function () { return res; });
+        return res;
       });
   }
   // Group counts live on the group records; recount from the features we
@@ -714,6 +1011,12 @@ window.LSScarps = (function () {
       applyStyle();
     },
     isDrawing: function () { return mode === 'draw'; },
+    // Explicit sessions (startDraw({explicit: true})): draw one line / stop.
+    armDraw: armDraw,
+    drawArmed: function () { return mode === 'draw' && armed; },
+    extending: function () { return extendId; },
+    extendSelected: extendSelected,
+    activeVertex: function () { return activeVtx; },
     lineInProgress: lineInProgress,
     all: function () { return features; }
   };

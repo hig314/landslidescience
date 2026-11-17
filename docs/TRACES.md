@@ -45,6 +45,9 @@ line in progress a click decides its own meaning: **on a trace it selects it**
 (vertex + midpoint handles appear), **on open ground it deselects and starts a
 new line**. Drag a vertex to move it, drag a midpoint to insert one, right-click
 a vertex to delete it, Ctrl/⌘-Z undoes (per session, 50 deep), Esc deselects;
+**since 2026-11-16 a clicked vertex is the active one (drawn filled) and
+Delete / Backspace removes it, then the next, so a run goes with repeated
+presses** (Hig: node deletion was missing in practice);
 every change POSTs the geometry on release and reverts on failure. Mechanism:
 Terra Draw listens for pointer events on the map **canvas** and takes a
 non-drag pointerup as a click, so the editor's listeners sit on the map
@@ -159,3 +162,24 @@ Nick Riordan's 2018 KBSP lakes (574 soundings, public).
 - One map source/layer (`faults` / `faults-line`), features tagged `_src` ∈ `qff` (magenta) / `adem2021` (orange) / `nshm2023` (blue); the popup switches schema on `_src`. Same in `_polygon_map.html`.
 - **`DEPRECATED=true` pieces are hidden by the layer filter, not deleted** (Hig, 2026-09-20): the four DGGS seismic-zone ovals (Minto Flats, Fairbanks, Salcha, Rampart), and every stretch where a coarser line duplicates a finer one from *another* source — the rule is "same structure (names share a word) within 2.5 km, vertex spacing ≤ 0.65× mine ⇒ I am the generalisation here". Castle Mountain and Totschunda lose their NSHM model lines where DGGS is detailed; the Denali fault NW of Haines loses its DGGS inferred lines where NSHM is finer. Lines are split at the boundary, so the un-duplicated remainder stays live. The 2021 traces are never deprecated. `--report` prints every deprecated piece with what covers it; `DEPRECATED_WHY` / `DEPRECATED_BY` say so in the file.
 - Not deprecated on purpose: same-source neighbours (two DGGS strands), and pairs whose names share nothing (Queen Charlotte vs. Fairweather, Cape Cleare vs. Patton Bay) — both draw.
+
+**Options added for `/glaciers/` (2026-11-16), off by default so `/lidar/` and
+the inventory pencil are unchanged.** `startDraw({explicit: true})`: the
+session only selects and edits until `armDraw(true)`, which lets one line be
+drawn, anywhere, including on top of an existing line; without it every
+missed click in an editing session started a line, and three stray clicks
+saved one. `extendSelected()`: the next line drawn is appended to the
+selected trace's end. `startDraw({snapKinds: [...]})`: the END of a line of
+those kinds, dragged or drawn within 12 px of another such line, takes that
+line's coordinates exactly (a vertex if one is near, else the nearest point
+on a segment). A host's save response may carry `reload` (other rows changed:
+refetch) and `select` (the row this one became). **Extending** (all hosts): the selected trace
+shows a **+** beyond each end (HTML markers; the raster styles have no glyphs
+for a text symbol); clicking one appends, or at the start prepends, the next
+line drawn. **Saves are serialised per trace, latest wins**: one request in
+flight, later edits sent when it returns, a stale answer never drawn, and a
+list fetched before the newest edit dropped. Before that, deleting vertices
+quickly made them vanish and reappear. The polygon editors
+(`revise.js`, `terra_draw.js`) are Terra Draw's own select mode, which
+declares right-click vertex removal but has no Delete-key equivalent; that
+is a separate change, not made.

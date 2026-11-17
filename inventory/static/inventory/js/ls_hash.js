@@ -32,7 +32,9 @@
  *                              as strings: inventory sc / filters / tab / an /
  *                              id / ids / pp (permafrost patch) / xs,xf,xc (outside-
  *                              inventory explorer, grammar in ext_explore.js) / pr,pw,pve (elevation profile:
- *                              line, window, aspect lock), glaciers site / t.
+ *                              line, window, aspect lock), glaciers tab / site / t
+ *                              (flow) / g / yr / src / gc (retreat; see gl_retreat.js) /
+ *                              np (network plot; gl_network.js).
  *
  * LIST PARAMS (ov, li, ext, im, ref): PRESENT fully describes the set —
  * anything unlisted is off, and present-but-empty means "none". ABSENT means

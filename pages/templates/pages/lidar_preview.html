@@ -327,7 +327,7 @@ vanish depending on which way you light them.
   <div class="hint"><b>Open ground:</b> click along the feature; <b>Enter</b>
     or double-click finishes, <b>Esc</b> drops the line in progress.
     <b>An existing line:</b> click it to edit &mdash; drag a vertex to move
-    it, drag a small midpoint to add one, right-click (Ctrl-click) a vertex to delete it,
+    it, drag a small midpoint to add one, click a vertex and press Delete (or right-click / Ctrl-click it) to remove it,
     <b>Ctrl/&#8984;-Z</b> undoes. Everything saves as you go, with the surveys
     on screen recorded as what a new line was read from. Tracing is easiest
     looking straight down (Nadir).</div>
@@ -2087,7 +2087,9 @@ vanish depending on which way you light them.
           div.innerHTML =
             '<label><input type="radio" name="ds" value="' + p.id + '"> ' +
             '<b>' + p.title + '</b></label>' +
-            '<div class="meta">' + (p.year || 'year n/a') + ' · ' +
+            '<div class="meta">' +
+            (p.published ? 'published ' + esc(String(p.published).slice(0, 16).replace('T', ' ')) + ' · ' : '') +
+            (p.year || 'year n/a') + ' · ' +
             p.native_res_m + ' m · ' + p.coverage_km2 + ' km² · ' +
             p.horizontal_crs +
             (p.vertical_datum ? ' + ' + p.vertical_datum : '') + '<br>' +

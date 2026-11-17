@@ -29,7 +29,7 @@ anything under `tools/lidar/`.
 | Mirrored third-party inventories, promotion | [docs/EXTERNAL_INVENTORIES.md](docs/EXTERNAL_INVENTORIES.md) |
 | Explorer `/inventory/table/` | [docs/EXPLORER.md](docs/EXPLORER.md) |
 | `/files/`, photo drops `/drops/`, field photos | [docs/FILES_DROPS_PHOTOS.md](docs/FILES_DROPS_PHOTOS.md) |
-| `/glaciers/` | [docs/GLACIERS.md](docs/GLACIERS.md) |
+| `/glaciers/` | [docs/GLACIERS.md](docs/GLACIERS.md); generalisation + retreat histories plan in [GLACIERS_PLAN.md](GLACIERS_PLAN.md) |
 | Groups, permissions, the two sign-in doors, sessions | [docs/ACCOUNTS.md](docs/ACCOUNTS.md) |
 | Refresh dev from prod, robots/indexing, Umami analytics, Tethys relationship | [docs/OPERATIONS.md](docs/OPERATIONS.md) |
 | Collaborator write-only data staging | [DATA_DROP.md](DATA_DROP.md) |

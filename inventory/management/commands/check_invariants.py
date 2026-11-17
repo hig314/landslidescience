@@ -19,10 +19,16 @@ CODE checks (exit status 1 if any fails):
      read (or landslide_type); rule inputs it does not mark are listed.
   4. draw_ui.js _PIN_LABELS and home.html's #pin-field options name the same fields.
   5. Every ramp file in views._RAMP_SPECS exists.
+  6. /glaciers/: every extent source in glaciers.sources.SOURCES has a reader
+     and a known matching rule, and the ice-cover epochs the page decodes
+     (gl_retreat.js) are the epochs the tile builder packs, in the same order.
+     A mismatch there shows the wrong year's ice with nothing to say so. Also
+     that the network editing panel offers the line kinds and face bases the
+     server accepts.
 
 DATA checks (reported; exit status 1 only with --strict):
-  6. Public records whose class the map does not list (they are hidden).
-  7. Records where the SQL year_num and derived._resolve_event_era disagree.
+  7. Public records whose class the map does not list (they are hidden).
+  8. Records where the SQL year_num and derived._resolve_event_era disagree.
 
 Adding a check: a function returning (failures, notes), registered in handle().
 """
@@ -157,6 +163,50 @@ def check_ramp_files():
             if s.get('file') and not (tools / s['file']).exists()], []
 
 
+def check_glacier_sources():
+    from glaciers import sources as gs
+    fails = []
+    for sid, s in gs.SOURCES.items():
+        if sid not in gs._READERS:
+            fails.append(f'glaciers source {sid!r} has no reader in sources._READERS')
+        if s.get('link') not in ('id_then_overlap', 'overlap', 'nearest', 'group_nearest'):
+            fails.append(f'glaciers source {sid!r}: unknown matching rule {s.get("link")!r}')
+        if s.get('geom') not in ('polygon', 'line'):
+            fails.append(f'glaciers source {sid!r}: geom must be polygon or line')
+        if not s.get('doi'):
+            fails.append(f'glaciers source {sid!r} has no DOI to cite')
+    for sid in gs._READERS:
+        if sid not in gs.SOURCES:
+            fails.append(f'sources._READERS has {sid!r}, which is not a source')
+    # The bit order of the ice-cover mask: builder and page must agree.
+    base = Path(settings.BASE_DIR)
+    js = (base / 'glaciers/static/glaciers/js/gl_retreat.js').read_text(encoding='utf-8')
+    py = (base / 'tools/glaciers/build_cover_mask.py').read_text(encoding='utf-8')
+    mj = re.search(r'for \(var cy = (\d+); cy <= (\d+); cy \+= (\d+)\) COVER_YEARS\.push', js)
+    mp = re.search(r'YEARS = list\(range\((\d+), (\d+), (\d+)\)\)', py)
+    if not mj or not mp:
+        fails.append('could not read the ice-cover epoch list from gl_retreat.js or build_cover_mask.py')
+    else:
+        a = list(range(int(mj.group(1)), int(mj.group(2)) + 1, int(mj.group(3))))
+        b = list(range(int(mp.group(1)), int(mp.group(2)), int(mp.group(3))))
+        if a != b:
+            fails.append(f'ice-cover epochs differ: page {a[0]}..{a[-1]} ({len(a)}), builder {b[0]}..{b[-1]} ({len(b)})')
+        if len(b) > 18:
+            fails.append('ice-cover mask holds 18 epochs (R, G and two bits of B); the builder lists more')
+    # The network editor's panel offers kinds and bases as fixed <option>s.
+    from glaciers import network as gn
+    html = (base / 'glaciers/templates/glaciers/map.html').read_text(encoding='utf-8')
+    m = re.search(r'<select id="nw-kindSel">(.*?)</select>', html, re.S)
+    offered = set(re.findall(r'value="([a-z]+)"', m.group(1))) if m else set()
+    if offered != gn._KIND_IDS:
+        fails.append(f'network line kinds: the panel offers {sorted(offered)}, network.LINE_KINDS has {sorted(gn._KIND_IDS)}')
+    m = re.search(r'<select id="nw-basis">(.*?)</select>', html, re.S)
+    offered = set(re.findall(r'<option>([a-z]+)</option>', m.group(1))) if m else set()
+    if offered != set(gn.BASES) - {''}:
+        fails.append(f'face "read from" values: the panel offers {sorted(offered)}, network.BASES has {sorted(set(gn.BASES) - {""})}')
+    return fails, []
+
+
 def data_hidden_records(cur):
     order = _class_order() or []
     cur.execute(f"""SELECT l.id, l.unique_name, l.landslide_class FROM landslides l
@@ -198,7 +248,8 @@ class Command(BaseCommand):
                           ('year_num copies', check_year_num),
                           ('display-required fields', check_display_required),
                           ('pinned-label fields', check_pin_labels),
-                          ('ramp files', check_ramp_files)):
+                          ('ramp files', check_ramp_files),
+                          ('glacier extent sources', check_glacier_sources)):
             fails, notes = fn()
             w(f'{"FAIL" if fails else "ok  "}  {title}')
             for f in fails:
