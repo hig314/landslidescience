@@ -30,7 +30,7 @@ W = Path("/Volumes/Nunatak/lidar_build/composite"); WATER = Path("/Users/Hig/Cla
 EDITS = W / "review_1114" / "solve_edits.geojson"       # a reviewer's typing of evidence: polygons, kind "not_bed" (optionally only cells deeper_than_m)
 COMP = ("ocm2023", "ncei2010", "cudem2022", "crm")
 DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hig's low-tide mapping
-P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0,
+P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=30.0, low_bound_tol_m=0.5,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24, amg=1,
          snd_mode=0, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
@@ -936,6 +936,23 @@ def main(argv=None, ret=False):
     # reported so that it is seen if it ever does real work.
     over = np.isfinite(ub) & ~fixed & (z > ub)
     if over.any(): log(f"  guard: {int(over.sum())} cells still above a bound after the fit (p50 {np.median((z - ub)[over]):.2f} m, max {(z - ub)[over].max():.2f} m) put on it; the worst at x {(T * (np.unravel_index(np.argmax(np.where(over, z - ub, -1)), z.shape)[1] + .5, 0))[0]:.0f} y {(T * (0, np.unravel_index(np.argmax(np.where(over, z - ub, -1)), z.shape)[0] + .5))[1]:.0f}; {int((over & (z - ub > 1.0)).sum())} by more than 1 m"); z = np.where(over, ub, z)
+    # NO DEEPER THAN THE EVIDENCE ABOUT (2026-11-16, Hig's review of s2, the mouth of Jakolof Bay 59.47059,-151.53155: "a hole"): a pool
+    # 20 m across, ringed by lidar ground at +1..+3 m, the 2023 lidar's water at -2.6 inside, the multibeam -2.5 1.4 m away and the
+    # compilations -4..-5, solved to -9.2 -- the curvature term's overshoot inside a ring of steep fixed walls (Portage's fill did the same).
+    # A free cell stands no deeper than low_bound_tol_m under the lowest evidence within low_bound_m of it: a fixed or measured cell or a
+    # sounding -- NOT the prior, which was the culprit there (the depth profile learned from Jakolof's steep channel, 5 m down at 12 m
+    # from shore, asked -9.6 m in the pool).  Not in the casts-as-data deep pass, where the casts are the evidence.
+    if not (p["snd_mode"] and p["snd_scope"]) and p["low_bound_m"] > 0:
+        ev_ = np.full(z.shape, np.inf, np.float32)
+        ev_ = np.where(fixed, zfix, ev_); mj_ = meas & np.isfinite(jz); ev_ = np.where(mj_, np.minimum(ev_, jz), ev_)
+        sw_ = w > 0; ev_ = np.where(sw_, np.minimum(ev_, b / np.maximum(w, 1e-30)), ev_)
+        k_ = int(round(p["low_bound_m"] / res)) * 2 + 1
+        lb_ = ndimage.minimum_filter(np.where(np.isfinite(ev_), ev_, np.inf).astype(np.float32), k_) - p["low_bound_tol_m"]
+        under_ = ~fixed & np.isfinite(lb_) & (z < lb_)
+        if under_.any():
+            log(f"  low bound: {int(under_.sum())} free cells stood deeper than {p['low_bound_tol_m']:g} m under the lowest evidence within {p['low_bound_m']:g} m (p50 {np.median((lb_ - z)[under_]):.2f} m, max {(lb_ - z)[under_].max():.2f} m), put on it")
+            z = np.where(under_, lb_, z)
+        del ev_, lb_, under_, mj_, sw_
     sec = time.time() - t1
     if AMG["calls"]: log(f"  solver: multigrid-preconditioned CG, {AMG['calls']} solves, {AMG['its']} iterations, {AMG['builds']} hierarchies built, {AMG['sec']:.0f} s in it ({AMG['cpu']:.0f} s of CPU)")
     # --- report ----------------------------------------------------------------------------------------------------------------

@@ -665,6 +665,29 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         sl_ = np.where(np.isfinite(slo_), slo_, sln_); del slo_, sln_
         steep_ = np.zeros((H, W), bool); steep_[r0_:r1_, c0_:c1_] = ~(sl_ <= float(cp_.get("change_slope_max", 0.6))); del sl_
         n_all_ = int(both_.sum()); both_ &= ~steep_; del steep_
+        # ...and NOT THE NEWER SURVEY'S SEA SURFACE (2026-11-16, Hig's review of s2, the mouth of Jakolof Bay 59.46848,-151.53619: "a sloped
+        # surface with a sharp dropoff in the shoreward direction").  KBay 2023 flew there at a water level of -2.9 m; "ground" returns
+        # far from its classified water (beyond the per-cell and surf_near_m rules) stood at that level over the multibeam at -8 to -12,
+        # a flat and so "gentle", "coherent" change of +6 m, and the multibeam was lifted to +3 m out to 90 m.  A newer cell within
+        # over_water_tol_m of the level of the survey's nearest own water return (within change_surface_near_m), over an older bed
+        # deeper by change_min_m and more, is the water's surface, not a change of the bed.
+        wl_ = None
+        o_ = obs.get(nw_) or {}
+        if o_.get("z_w") is not None and o_.get("n_w") is not None:
+            hw_ = np.isfinite(o_["z_w"]) & (o_["n_w"] > 0)
+            if hw_.any():
+                dw_, (wy_, wx_) = ndimage.distance_transform_edt(~hw_, sampling=res, return_indices=True)
+                wl_ = np.where(dw_ <= float(cp_.get("change_surface_near_m", 500.0)), o_["z_w"][wy_, wx_], np.nan).astype(np.float32)
+                del dw_, wy_, wx_
+            del hw_
+        # (OFF by default, change_surface_cells: at the Woz front it took 33,254 cells of the real bar, which stands at the water's edge, and
+        # cut the change from 70.5 to 40.9 ha; the flat-sheet test below is what catches a sea surface.  wl_ still caps the graded change.)
+        if wl_ is not None and cp_.get("change_surface_cells", False):
+            sf_ = both_ & np.isfinite(wl_) & (np.abs(Z[nw_] - wl_) <= cfg["over_water_tol_m"]) & (Z[od_] < Z[nw_] - float(cp_.get("change_min_m", 0.5)))
+            if sf_.any():
+                log(f"  change {nw_} - {od_}: {int(sf_.sum())} cells of {nw_} at its own water level over a deeper {od_} are its sea surface, no change")
+                rep.setdefault("change_surface_cells", {})[f"{nw_}-{od_}"] = int(sf_.sum())
+            both_ &= ~sf_; del sf_
         if both_.sum() < int(cp_.get("min_cells", 50)):
             rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=n_all_, gentle=int(both_.sum()), applied=False, note="too few cells on gentle ground")
             log(f"  change {nw_} - {od_} inside {nw_}'s zones: {n_all_} cells measured, {int(both_.sum())} on ground gentler than {float(cp_.get('change_slope_max', 0.6)):g}: none applied")
@@ -691,6 +714,19 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         if np_:
             okp_[1:] &= np.abs(med_) <= float(cp_.get("change_max_m", 12.0))
             del mf_, nmad_
+        # ...and NOT A SHEET OF WATER (2026-11-16, Hig's review of s2, the mouth of Jakolof Bay): three patches 200 m apart, each dead level
+        # at +0.08 +- 0.05 m over the multibeam at -5 to -8 -- the sea at another day's stand (KBay 2023 flew it at -2.9 too), a "change" of
+        # +6.6 m that lifted 11.5 ha of the multibeam 5-6 m.  A patch whose newer surface spans less than change_flat_m (p10-p90) while
+        # the older one under it spans change_flat_old_m or more is a water surface: no change.  (A bar or a delta front has relief.)
+        if np_ and okp_[1:].any():
+            ix_ = np.nonzero(okp_[1:])[0] + 1
+            sp_n = ndimage.labeled_comprehension(Z[nw_], lp_, ix_, lambda v: float(np.percentile(v, 90) - np.percentile(v, 10)), np.float64, np.nan)
+            sp_o = ndimage.labeled_comprehension(Z[od_], lp_, ix_, lambda v: float(np.percentile(v, 90) - np.percentile(v, 10)), np.float64, np.nan)
+            flat_ = (np.asarray(sp_n) < float(cp_.get("change_flat_m", 0.15))) & (np.asarray(sp_o) >= float(cp_.get("change_flat_old_m", 0.5)))
+            if flat_.any():
+                okp_[ix_[flat_]] = False
+                log(f"  change {nw_} - {od_}: {int(flat_.sum())} patches level within {float(cp_.get('change_flat_m', 0.15)):g} m over a varied {od_} are a water surface, no change")
+            del ix_, sp_n, sp_o, flat_
         real_ = okp_[lp_] & both_; del lp_, cnt_, med_
         if not real_.any():
             rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=int(both_.sum()), applied=False, note="no coherent patch with a median change >= change_min_m")
@@ -710,6 +746,18 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
         ds_ *= np.clip((np.abs(ds_) - 0.5 * cm_) / (0.5 * cm_), 0.0, 1.0)
         tap_ = np.clip(1.0 - dist_ / tm_, 0.0, 1.0); tap_ = tap_ * tap_ * (3.0 - 2.0 * tap_)
         F_ = np.where(both_, d_, ds_ * tap_).astype(np.float32)          # in the overlap the measured change itself (old = new there)
+        # ...and NEVER ABOVE THE WATER THE NEWER SURVEY SAW (2026-11-16, the same review): beyond the overlap the newer survey has no
+        # ground, so at its flight the bed there lay under its water (or out of its sight); a raised older bed stops change_below_level_m
+        # under the level of the newer survey's nearest water return (never below where it already was).
+        if wl_ is not None:
+            cap_ = ~both_ & (F_ > 0) & np.isfinite(wl_) & np.isfinite(Z[od_])
+            lim_ = np.maximum(Z[od_], wl_ - float(cp_.get("change_below_level_m", 0.1)))
+            cut_ = cap_ & (Z[od_] + F_ > lim_)
+            if cut_.any():
+                F_ = np.where(cut_, lim_ - Z[od_], F_).astype(np.float32)
+                log(f"  change {nw_} - {od_}: {float(cut_.sum()) * res * res / 1e4:.2f} ha of the graded change capped under {nw_}'s water level")
+                rep.setdefault("change_capped_ha", {})[f"{nw_}-{od_}"] = round(float(cut_.sum()) * res * res / 1e4, 2)
+            del cap_, lim_, cut_
         hit_ = np.isfinite(Z[od_]) & (F_ != 0)
         Z[od_] = np.where(hit_, Z[od_] + F_, Z[od_]).astype(np.float32)
         rep["change_pairs"][f"{nw_}-{od_}"] = dict(cells=n_all_, gentle_coherent=int(both_.sum()), change_p10_50_90=np.round(np.percentile(d_[both_], [10, 50, 90]), 2).tolist(),
@@ -1625,8 +1673,16 @@ def layer(recipe_path, win=None, out=None, res=None, log=print, tag=""):
     # 10th percentile), the foot itself at or above the water seen about (within 1 m), off every mapped rock and island
     # (rock_near_m), is a thing afloat or on piles: water at the local level, its bed the fill's from the floor about.
     # A rock or an islet rises out of its own flanks (a bed within reach of its foot); a boat stands on the water.
+    # ...and the same for a deck SOUNDED AS BED (2026-11-16, Hig's review of s2, Seldovia's small-boat harbour: "clear out the dock
+    # topography"): the OCM 2023 and Seldovia 2019 green lidars put "bed" on the floats at +0.2 m (p50) over a floor at -4 to -6, with the
+    # water at -0.07 beside them, and the solve held them (bumps of 3-5 m).  A bed cell at or above the local water level less
+    # object_bed_level_m is no bed under water; it joins the pieces tested here, and the ring is the deeper bed about them.
+    # ...and a SUBMERGED rock protects nothing that stands well above it (2026-11-16, the mouth of Jakolof Bay 59.46861,-151.53422: a
+    # boat, 16 m2 at +0.0..+0.6 m over the multibeam at -10.9, 40 m from a charted "Sub" rock at -1.38, was kept as ground and the solve
+    # held it): a mapped rock with a charted height (z_chart) protects a piece only if the piece's foot is within rock_top_m of it.
     if float(cfg.get("object_max_m2", 0) or 0) > 0 and g.any():
-        bedc_ = g & (CJ == CLS["bed"]); gl_ = g & (CJ != CLS["bed"])
+        hb_ = g & (CJ == CLS["bed"]) & np.isfinite(lev) & (Z >= np.nan_to_num(lev, nan=1e9) - float(cfg.get("object_bed_level_m", 0.5)))
+        bedc_ = g & (CJ == CLS["bed"]) & ~hb_; gl_ = (g & (CJ != CLS["bed"])) | hb_
         rr_ = max(int(round(float(cfg.get("object_ring_m", 6.0)) / res)), 1)
         lO_, nO_ = ndimage.label(gl_, structure=np.ones((3, 3), bool))
         if nO_ and bedc_.any():
@@ -1635,14 +1691,16 @@ def layer(recipe_path, win=None, out=None, res=None, log=print, tag=""):
             nearb_ = ndimage.binary_dilation(bedc_, iterations=rr_)
             cand_ = (cO_[1:] * res * res <= float(cfg["object_max_m2"])) & (np.asarray(ndimage.maximum(nearb_, lO_, idx_)) > 0)
             del nearb_
-            prot_ = np.zeros(Z.shape, bool)
+            prot_ = np.zeros(Z.shape, bool); ptop_ = np.full(Z.shape, np.inf, np.float32)   # the charted top of the protecting rock (inf: none charted)
             rp_ = cfg.get("rocks", str(Path(__file__).resolve().parent.parent / "water" / "rocks.geojson"))
             if rp_ and os.path.exists(rp_):
                 for f_ in json.load(open(rp_))["features"]:
                     if (f_["properties"].get("type") or "") == "Deep":
                         continue
                     x_, y_ = f_["geometry"]["coordinates"][:2]; c_ = int((x_ - win[0]) // res); r_ = int((win[3] - y_) // res)
-                    if 0 <= r_ < Z.shape[0] and 0 <= c_ < Z.shape[1]: prot_[r_, c_] = True
+                    if 0 <= r_ < Z.shape[0] and 0 <= c_ < Z.shape[1]:
+                        prot_[r_, c_] = True; zc_ = f_["properties"].get("z_chart")
+                        ptop_[r_, c_] = float(zc_) if zc_ is not None and (f_["properties"].get("type") or "") == "Sub" else np.inf
             ip_ = Path(cfg.get("low_water", str(Path(__file__).resolve().parent.parent / "water" / "tide_low_water.geojson"))).parent / "tide_islands.geojson"
             if ip_.exists():
                 from rasterio.features import rasterize
@@ -1650,7 +1708,8 @@ def layer(recipe_path, win=None, out=None, res=None, log=print, tag=""):
                 prot_ |= rasterize([(f_["geometry"], 1) for f_ in json.load(open(ip_))["features"]], out_shape=Z.shape,
                                    transform=_fo(win[0], win[3], res, res), fill=0, dtype="uint8").astype(bool)
             if prot_.any():
-                prot_ = ndimage.distance_transform_edt(~prot_, sampling=res) <= float(cfg.get("rock_near_m", 40.0))
+                dp_, (py_, px_) = ndimage.distance_transform_edt(~prot_, sampling=res, return_indices=True)
+                ptop_ = ptop_[py_, px_]; prot_ = dp_ <= float(cfg.get("rock_near_m", 40.0)); del dp_, py_, px_
             obj_ = np.zeros(Z.shape, bool); nobj_ = 0
             sl_ = ndimage.find_objects(lO_); H_, W_ = Z.shape
             dz_ = float(cfg.get("object_dz_m", 2.0)); fr_ = float(cfg.get("object_ring_frac", 0.6))
@@ -1659,12 +1718,13 @@ def layer(recipe_path, win=None, out=None, res=None, log=print, tag=""):
                 if s_ is None: continue
                 r0, r1 = max(s_[0].start - rr_, 0), min(s_[0].stop + rr_, H_); c0, c1 = max(s_[1].start - rr_, 0), min(s_[1].stop + rr_, W_)
                 P_ = lO_[r0:r1, c0:c1] == i_ + 1
-                if (P_ & prot_[r0:r1, c0:c1]).any(): continue
                 R_ = ndimage.binary_dilation(P_, iterations=rr_) & ~P_
                 zb_ = Z[r0:r1, c0:c1][R_ & bedc_[r0:r1, c0:c1]]
                 ng_ = int((R_ & gl_[r0:r1, c0:c1]).sum())
                 if zb_.size == 0 or zb_.size < fr_ * (zb_.size + ng_): continue
                 zp_ = Z[r0:r1, c0:c1][P_]; foot_ = float(np.percentile(zp_, 10))
+                pp_ = P_ & prot_[r0:r1, c0:c1]
+                if pp_.any() and foot_ <= float(np.min(ptop_[r0:r1, c0:c1][pp_])) + float(cfg.get("rock_top_m", 1.0)): continue
                 if float(np.percentile(zb_, 90)) > foot_ - dz_: continue
                 if foot_ < float(np.median(lev[r0:r1, c0:c1][P_])) - 1.0: continue
                 obj_[r0:r1, c0:c1] |= P_; nobj_ += 1
