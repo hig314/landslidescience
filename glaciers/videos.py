@@ -39,7 +39,7 @@ import urllib.request
 from pathlib import Path
 
 from django.conf import settings
-from django.http import FileResponse, HttpResponseNotFound, JsonResponse
+from django.http import FileResponse, HttpResponse, HttpResponseNotFound, JsonResponse, StreamingHttpResponse
 from django.views.decorators.http import require_http_methods, require_safe
 
 from inventory import planet
@@ -495,13 +495,52 @@ def api_video_save(request):
     return JsonResponse({'ok': True, 'id': vid, 'segments': len(keep)})
 
 
+_RANGE = re.compile(r'^bytes=(\d*)-(\d*)$')
+
+
+def _part(f, start, length, block=1 << 16):
+    f.seek(start)
+    try:
+        while length > 0:
+            chunk = f.read(min(block, length))
+            if not chunk:
+                break
+            length -= len(chunk)
+            yield chunk
+    finally:
+        f.close()
+
+
 @require_safe
 def serve_video(request, name):
+    """An uploaded video, with single byte ranges: a player asks for the
+    file in pieces, and Safari will not play an mp4 from a server that
+    cannot give them. Without this a 60 MB animation was sent whole before
+    the first frame."""
     if not _FILE_RE.match(name or ''):
         return HttpResponseNotFound()
     path = VIDEO_DIR / name
     if not path.is_file():
         return HttpResponseNotFound()
-    resp = FileResponse(path.open('rb'), content_type=_TYPES[name.rsplit('.', 1)[-1]])
+    size = path.stat().st_size
+    ctype = _TYPES[name.rsplit('.', 1)[-1]]
+    m = _RANGE.match(request.headers.get('Range', '').strip())
+    if m and (m.group(1) or m.group(2)) and size:
+        if m.group(1):
+            start = int(m.group(1))
+            end = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+        else:                                   # bytes=-N: the last N bytes
+            start, end = max(size - int(m.group(2)), 0), size - 1
+        if start > end or start >= size:
+            resp = HttpResponse(status=416)
+            resp['Content-Range'] = 'bytes */%d' % size
+            return resp
+        resp = StreamingHttpResponse(_part(path.open('rb'), start, end - start + 1), status=206, content_type=ctype)
+        resp['Content-Range'] = 'bytes %d-%d/%d' % (start, end, size)
+        resp['Content-Length'] = str(end - start + 1)
+    else:
+        resp = FileResponse(path.open('rb'), content_type=ctype)
+        resp['Content-Length'] = str(size)
+    resp['Accept-Ranges'] = 'bytes'
     resp['Cache-Control'] = 'public, max-age=31536000, immutable'
     return resp
