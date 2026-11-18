@@ -20,3 +20,6 @@ pillow-heif>=0.16,<2
 # Photo drops (drops/r2.py): presigned uploads/downloads against Cloudflare
 # R2's S3 API. Imported lazily, so a broken wheel breaks only /drops/.
 boto3>=1.36,<2
+# Reads typed dates in many formats (landslidescience/dates.py). Already
+# present as a dependency of boto3; named here because we import it.
+python-dateutil>=2.9,<3

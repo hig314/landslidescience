@@ -264,6 +264,40 @@
     return t;
   }
 
+  // One basemap card for a Reference-maps panel (thumbnail + label), shared
+  // by /inventory/ and /glaciers/. opts: active (bool), thumbUrl (or null for
+  // the placeholder), onPick(bm). The inventory adds its QMS / sharing
+  // buttons to the card this returns.
+  function buildCard(bm, opts) {
+    opts = opts || {};
+    var card = document.createElement('div');
+    card.className = 'refmap-option' + (opts.active ? ' active' : '');
+    card.dataset.id = bm.id;
+    var tipLines = [bm.label];
+    if (bm.category === 'Shared') tipLines.push('Shared with: ' + (bm.public ? 'everyone' : 'data admins'));
+    if (bm.coverage) tipLines.push('Coverage: ' + bm.coverage);
+    if (bm.attr)     tipLines.push(bm.attr);
+    card.title = tipLines.join('\n');
+    function placeholder() {
+      var ph = document.createElement('div');
+      ph.className = 'refmap-thumb-placeholder'; ph.textContent = bm.label;
+      return ph;
+    }
+    if (opts.thumbUrl) {
+      var img = document.createElement('img');
+      img.className = 'refmap-thumb'; img.alt = ''; img.loading = 'lazy'; img.src = opts.thumbUrl;
+      img.onerror = function () { img.replaceWith(placeholder()); };
+      card.appendChild(img);
+    } else {
+      card.appendChild(placeholder());
+    }
+    var lbl = document.createElement('div');
+    lbl.className = 'refmap-label'; lbl.textContent = bm.label;
+    card.appendChild(lbl);
+    if (opts.onPick) card.addEventListener('click', function () { opts.onPick(bm); });
+    return card;
+  }
+
   // The one way to turn a basemap descriptor into a map style: some
   // basemaps (e.g. Blank White) carry a prebuilt `style` object instead of
   // raster-tile params — callers that forget the distinction break on them.
@@ -280,5 +314,6 @@
     buildRasterStyle: buildRasterStyle,
     styleFor: styleFor,
     thumbnailUrl: thumbnailUrl,
+    buildCard: buildCard,
   };
 })();

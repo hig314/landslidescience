@@ -88,6 +88,22 @@ In no particular order.
   sheets, publish/branch, the `lidar_scene.js` extraction, a shading worker
   pool; on prod, profiles / shared QMS bases / `hc=1` / JPEG export and the
   first *Submit* of a saved comparison are still untried, see the checklist).
+- **`/glaciers/`, later on 2026-11-17 — in dev, UNCOMMITTED, tried only in
+  part by Hig.** Shared date reader (`landslidescience/dates.py`,
+  python-dateutil now named in requirements); editing panel in two states;
+  Source pull-down with "＋ New source…" and a default from the viewed map;
+  path clipped at the join; along-line positions metric (3338); videos on
+  segments (Planet + uploaded Sentinel-1). Details: the dated sections at
+  the end of docs/GLACIERS.md. **Dev data changed by hand-run helpers:**
+  line 37 split at the Guyot join into Tsaa + line 98 "Icy Bay" (backup in
+  `data/glaciers_backups/`); glaciers 01-13325, Moraine/Apron and Grotto
+  adopted and linked to Guyot / Tsaa by one straight guess each. **To ship
+  as well as the steps below:** `migrate_glaciers` (video tables); run
+  `network.rebuild` once on prod so stored `join_frac` / `end_chain_m` are
+  metric; copy `data/glacier_videos/` with any video rows. Not tried: a real
+  Sentinel-1 file (only a 64-byte stand-in), a large upload through prod's
+  proxy and gunicorn's 30 s window, a brand-new Planet story being archived
+  from this page (the test used one already archived).
 - **`/glaciers/` generalised; retreat histories, phases 0–2 — built in dev
   2026-11-16, tried by Hig in dev, committed and pushed 2026-11-17, NOT
   deployed (prod needs the data steps below first).** Plan and
@@ -114,6 +130,12 @@ In no particular order.
   Yahtse 83 (Hig's edited draft, fused), and stray manual line 85 (Hig's,
   left alone). Not built: the control to pin a
   face, joining across glaciers by ITS_LIVE, elevation as the y axis.
+  **2026-11-17, in dev, uncommitted:** Reference maps tab (basemap cards,
+  lidar, uploads / Sentinel via the inventory's modules) and the
+  face-tracing block (docs/GLACIERS.md, last section). Not checked by
+  hand: an uploaded or Sentinel image switched on in `/glaciers/`, a
+  basemap switch with lidar on, `/inventory/` after the shared basemap
+  card and `floorLayer` edits.
   Still `noindex`. Superseded next step: phase 3 (length and area series; G10040 carries an
   RGI 6 id and a per-year area) and phase 4, the consensus layer admins
   improve (Hig's D1). Loose: only 661 glaciers are named; 82 Glacier Bay

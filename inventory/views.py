@@ -3242,7 +3242,13 @@ def _parse_human_date(s):
             return _dt.datetime.strptime(s, fmt).date()
         except ValueError:
             continue
-    raise ValueError(f'Unrecognized date "{s}" — try 14-Sep-2010.')
+    # Anything else people write (September 14, 2010; 14Sep2010): the
+    # site-wide reader, which must come back with a single day.
+    from landslidescience.dates import parse_day
+    try:
+        return parse_day(s)
+    except ValueError:
+        raise ValueError(f'Unrecognized date "{s}" — try 14-Sep-2010.')
 
 
 def _coerce_field_value(udt, value):

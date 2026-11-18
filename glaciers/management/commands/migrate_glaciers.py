@@ -9,7 +9,7 @@ databases. The tables and why they are shaped as they are: glaciers/sources.py.
 """
 from django.core.management.base import BaseCommand
 
-from glaciers import network, sources
+from glaciers import network, sources, videos
 
 
 class Command(BaseCommand):
@@ -22,6 +22,7 @@ class Command(BaseCommand):
         if o['dry_run']:
             self.stdout.write(sources.SCHEMA_SQL)
             self.stdout.write(network.SCHEMA_SQL)
+            self.stdout.write(videos.SCHEMA_SQL)
             return
         from inventory.views import _get_conn, _put_conn
         conn = _get_conn()
@@ -29,6 +30,7 @@ class Command(BaseCommand):
             with conn.cursor() as cur:
                 cur.execute(sources.SCHEMA_SQL)
                 cur.execute(network.SCHEMA_SQL)
+                cur.execute(videos.SCHEMA_SQL)
             conn.commit()
         except Exception:
             conn.rollback()

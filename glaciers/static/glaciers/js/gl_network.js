@@ -70,9 +70,11 @@ window.GLNetwork = (function () {
         if (!map.getSource('gn-nodes')) {
             map.addSource('gn-nodes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
             map.addLayer({ id: 'gn-nodes', type: 'circle', source: 'gn-nodes',
-                           paint: { 'circle-radius': ['case', ['get', 'outlet'], 5.5, 3],
-                                    'circle-color': ['case', ['get', 'outlet'], '#00b0ff', '#ffffff'],
-                                    'circle-stroke-color': ['case', ['get', 'outlet'], '#ffffff', '#00b0ff'],
+                           // outlet = solid blue; join = white ring; fork (where a
+                           // distributary leaves its parent) = orange
+                           paint: { 'circle-radius': ['case', ['get', 'outlet'], 5.5, ['get', 'fork'], 4.5, 3],
+                                    'circle-color': ['case', ['get', 'outlet'], '#00b0ff', ['get', 'fork'], '#ff9800', '#ffffff'],
+                                    'circle-stroke-color': ['case', ['get', 'outlet'], '#ffffff', ['get', 'fork'], '#ffffff', '#00b0ff'],
                                     'circle-stroke-width': 1.5 } });
         }
         if (!map.getLayer('gn-hi') && map.getSource('gx')) {
@@ -173,7 +175,8 @@ window.GLNetwork = (function () {
             var a = Math.max(d0, DK(r.end_m + r.length_m)), b = Math.min(d1, DK(r.end_m));
             if (b <= a) return;                      // this reach is off the axis
             var fill = r.origin === 'rgi7' ? '#e3f2fd' : '#fff8e1', op = i % 2 ? 0.55 : 0.9;
-            var nm = esc((r.name || ('line ' + r.id)).slice(0, 40));
+            // a line the path joins part-way down is on it only below the join
+            var nm = esc((r.name || ('line ' + r.id)).slice(0, 40) + (r.to_frac < 1 ? ', above the fork' : (r.from_frac > 0 ? ', below the join' : '')));
             if (tx) {
                 s += '<rect x="' + m.l + '" y="' + PY(b, t0) + '" width="' + pw + '" height="' + (PY(a, t0) - PY(b, t0)) +
                     '" fill="' + fill + '" opacity="' + op + '"/>' +
@@ -209,6 +212,29 @@ window.GLNetwork = (function () {
             s += '<text transform="rotate(-90 11 ' + (m.t + ph / 2) + ')" x="11" y="' + (m.t + ph / 2) +
                 '" font-size="10.5" text-anchor="middle" fill="#444">' + dlab + '</text>';
         }
+        // Videos linked to segments of this path: a box over the stretch of
+        // line and the years each one shows; with no dates, a bar at the
+        // edge of the distance axis.
+        (P.videos || []).forEach(function (v) {
+            v.spans.forEach(function (sp) {
+                var a = Math.max(d0, DK(sp.b_m)), b = Math.min(d1, DK(sp.a_m));
+                if (b <= a) return;
+                var ta = v.t0 != null ? Math.max(t0, v.t0) : null, tb = v.t1 != null ? Math.min(t1, v.t1) : null;
+                var x, y, w, h;
+                if (ta != null && tb != null && tb > ta) {
+                    x = Math.min(PX(a, ta), PX(b, tb)); w = Math.abs(PX(b, tb) - PX(a, ta));
+                    y = Math.min(PY(a, ta), PY(b, tb)); h = Math.abs(PY(b, tb) - PY(a, ta));
+                } else if (tx) {
+                    x = W - m.r - 7; w = 7; y = Math.min(PY(a, t0), PY(b, t0)); h = Math.abs(PY(b, t0) - PY(a, t0));
+                } else {
+                    y = m.t; h = 7; x = Math.min(PX(a, t0), PX(b, t0)); w = Math.abs(PX(b, t0) - PX(a, t0));
+                }
+                s += '<rect class="nw-vid" data-v="' + v.id + '" data-m="' + sp.mid.join(',') + '" x="' + x + '" y="' + y +
+                    '" width="' + Math.max(w, 2) + '" height="' + Math.max(h, 2) + '" fill="' + v.color + '" fill-opacity="0.13" stroke="' +
+                    v.color + '" stroke-width="1.2"><title>' + esc((v.caption || v.kind_label) + (v.date ? ' · ' + v.date : '') + ' (click to play)') +
+                    '</title></rect>';
+            });
+        });
         F.forEach(function (f, i) {
             var d = DK(f[S.method]), col = SRC_COLOR[f.source] || '#555';
             if (f.t1 != null && f.t1 - f.t0 > 0.02) {          // the date bracket, as a whisker along the time axis
@@ -235,7 +261,13 @@ window.GLNetwork = (function () {
             '<option value="x_m">width-averaged position</option><option value="cross_m">centreline crossing</option></select>' +
             '<button type="button" id="nw-csv" title="Download this series">CSV</button>' +
             '<button type="button" id="nw-close" title="Close the plot">×</button></span></div>';
-        c.innerHTML = head + s + '<div class="nw-tip" id="nw-tip"></div>' +
+        var vids = (P.videos || []).length ? '<div class="nw-vids"><span class="rt-sub">Videos on this path:</span>' +
+            P.videos.map(function (v) {
+                return '<button type="button" data-v="' + v.id + '" data-m="' + v.spans[0].mid.join(',') + '" style="border-color:' + v.color +
+                    '; color:' + v.color + '" title="' + esc(v.kind_label) + '">▶ ' + esc((v.caption || v.kind_label).slice(0, 34)) +
+                    (v.date ? ' · ' + esc(v.date) : '') + '</button>';
+            }).join('') + '</div>' : '';
+        c.innerHTML = head + s + vids + '<div class="nw-tip" id="nw-tip"></div>' +
             '<div class="nw-foot">Filled = the face crosses the line; ring = it stops short and is projected onto it; ' +
             'diamond = pinned by hand. Click a point to set the year bar.</div>';
         $('nw-axes').value = S.axes;
@@ -256,6 +288,12 @@ window.GLNetwork = (function () {
             var a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }));
             a.download = 'ice_faces_line_' + P.line_id + '.csv'; a.click();
+        });
+        Array.prototype.forEach.call(c.querySelectorAll('[data-v]'), function (b) {
+            b.addEventListener('click', function () {
+                var mm = b.getAttribute('data-m').split(',');
+                if (window.GLVideos) window.GLVideos.open(+b.getAttribute('data-v'), { lng: +mm[0], lat: +mm[1] });
+            });
         });
         var tip = $('nw-tip');
         Array.prototype.forEach.call(c.querySelectorAll('.nw-pt'), function (p) {
@@ -289,10 +327,15 @@ window.GLNetwork = (function () {
     function syncPanel() {
         if (!el.panel) return;
         el.panel.style.display = S.editing ? '' : 'none';
+        Array.prototype.forEach.call(document.querySelectorAll('.nw-openRow'), function (r) {
+            r.style.display = S.editing ? 'none' : '';
+        });
         if (!S.editing) return;
         var f = sel(), p = f && f.properties;
         el.selBox.style.display = f ? '' : 'none';
-        el.none.style.display = f ? 'none' : '';
+        // One state at a time: a selected line shows its fields, none shows
+        // the tools for drawing a new one.
+        if (el.create) el.create.style.display = f ? 'none' : '';
         var drawing = window.LSScarps.drawArmed();
         el.newLine.disabled = el.newFace.disabled = drawing;
         if (!f) return;
@@ -335,6 +378,8 @@ window.GLNetwork = (function () {
             console.error('edit start failed:', e); stopEdit(); say('Could not start: ' + e.message, true); return;
         }
         say('Click a line to edit it. Use the buttons above to draw a new one.');
+        if (S.fillFrom) S.fillFrom();
+        if (S.autoSrc) S.autoSrc();
         syncPanel();
     }
     function stopEdit() {
@@ -346,8 +391,9 @@ window.GLNetwork = (function () {
         syncPanel();
     }
     function wireEditor() {
-        ['panel', 'msg', 'selBox', 'none', 'selTitle', 'faceRows', 'lineRows', 'name', 'date', 'basis',
-         'srcNote', 'notes', 'kindSel', 'newLine', 'newFace', 'extend', 'reverse', 'del', 'done', 'file', 'plot']
+        ['panel', 'msg', 'selBox', 'none', 'create', 'selTitle', 'faceRows', 'lineRows', 'name', 'date', 'basis',
+         'srcNote', 'notes', 'kindSel', 'newLine', 'newFace', 'extend', 'reverse', 'del', 'done', 'file', 'plot',
+         'fFrom', 'fDate', 'fBasis', 'fSrc', 'fKeep']
             .forEach(function (k) { el[k] = $('nw-' + k); });
         window.LSTools.mode({
             id: 'glnet', order: 30, label: '✎',
@@ -357,6 +403,9 @@ window.GLNetwork = (function () {
             // Escape is Terra Draw's (it drops the line in progress).
             cancel: function () {}
         });
+        Array.prototype.forEach.call(document.querySelectorAll('.nw-open'), function (b) {
+            b.addEventListener('click', startEdit);
+        });
         function arm(kind) {
             window.LSScarps.setDrawKind(kind);
             window.LSScarps.armDraw(true);
@@ -364,7 +413,113 @@ window.GLNetwork = (function () {
                 ': click along it; right-click or Enter ends it; Esc cancels.');
         }
         el.newLine.addEventListener('click', function () { arm('flowline'); });
-        el.newFace.addEventListener('click', function () { arm('face'); });
+        el.newFace.addEventListener('click', function () {
+            autoSrc();
+            arm('face');
+            var d = el.fDate.value.trim();
+            say('Tracing one ice face' + (d ? ' dated ' + d : ' with NO DATE (it will not plot until it has one)') +
+                ': click along the front; right-click or Enter ends it; Esc cancels.', !d);
+        });
+        // Source: one pull-down, the same "＋ New …" pattern as trace groups.
+        // It lists what is switched on to trace from (choosing one also fills
+        // the date and basis), then every source already used on a face, then
+        // "＋ New source…", which opens a text box. el.fSrc holds the value
+        // that is saved.
+        var MAP_BASIS = { 'usgs-hist': 'map', 'usgs-topo': 'map', 'esri-topo': 'map', 'streets': 'map', 'noaa-chart': 'chart' };
+        var NEWSRC = '__new__', srcBox = $('nw-fSrcNew');
+        S.srcAdded = []; S.srcBasis = {};
+        function srcOf(it) { return it.title + (it.note ? ' — ' + it.note : ''); }
+        function basisOf(it) { return it.kind === 'survey' ? 'survey' : (it.kind === 'basemap' ? (MAP_BASIS[it.id] || 'image') : 'image'); }
+        function opt(v, label) { return '<option value="' + v + '">' + esc(label) + '</option>'; }
+        function fillFrom() {
+            var items = GL.imagery ? GL.imagery() : [], cur = el.fSrc.value.trim();
+            var typing = srcBox.style.display !== 'none';
+            var seen = {}, used = [];
+            items.forEach(function (it) { seen[srcOf(it)] = 1; });
+            var all = S.srcAdded.slice();
+            try {
+                window.LSScarps.all().features.forEach(function (f) {
+                    if (f.properties.kind === 'face' && f.properties.source_note) {
+                        all.push(f.properties.source_note);
+                        // what that source was read as, to offer with it
+                        if (f.properties.basis) S.srcBasis[f.properties.source_note] = f.properties.basis;
+                    }
+                });
+            } catch (e) { /* the network has not loaded yet */ }
+            all.forEach(function (t) { if (!seen[t]) { seen[t] = 1; used.push(t); } });
+            used.sort(function (x, y) { return x.localeCompare(y); });
+            S.fromItems = items; S.usedSrc = used;
+            el.fFrom.innerHTML = opt('', '(not said)') +
+                (items.length ? '<optgroup label="On the map now">' + items.map(function (it, i) {
+                    return opt('m' + i, it.title + (it.date ? ' · ' + it.date : '')); }).join('') + '</optgroup>' : '') +
+                (used.length ? '<optgroup label="Used on other faces">' + used.map(function (t, i) {
+                    return opt('u' + i, t.length > 70 ? t.slice(0, 68) + '…' : t); }).join('') + '</optgroup>' : '') +
+                opt(NEWSRC, '＋ New source…');
+            var v = '';
+            if (typing) v = NEWSRC;
+            else if (cur) {
+                items.forEach(function (it, i) { if (!v && srcOf(it) === cur) v = 'm' + i; });
+                if (!v && used.indexOf(cur) >= 0) v = 'u' + used.indexOf(cur);
+            }
+            el.fFrom.value = v;
+        }
+        // Until the editor chooses or types a source, it follows what is
+        // being looked at: the topmost thing on the map (a dated image, a
+        // lidar survey, else the basemap). Choosing or typing anything ends
+        // that, e.g. a face read from a paper while a basemap is up.
+        S.srcAuto = true;
+        function autoSrc() {
+            if (!S.srcAuto || srcBox.style.display !== 'none') return;
+            var it = (GL.imagery ? GL.imagery() : [])[0];
+            if (!it) return;
+            var was = S.autoItem;
+            el.fSrc.value = srcOf(it);
+            el.fBasis.value = basisOf(it);
+            // the date follows too, unless one has been typed
+            if (!el.fDate.value.trim() || (was && el.fDate.value === (was.date || ''))) el.fDate.value = it.date || '';
+            S.autoItem = it;
+            fillFrom();
+        }
+        S.autoSrc = autoSrc;
+        el.fBasis.addEventListener('change', function () { S.srcAuto = false; });
+        el.fFrom.addEventListener('mousedown', fillFrom);
+        el.fFrom.addEventListener('focus', fillFrom);
+        el.fFrom.addEventListener('change', function () {
+            var v = el.fFrom.value;
+            S.srcAuto = false;
+            if (v === NEWSRC) {
+                srcBox.style.display = ''; el.fSrc.value = ''; el.fSrc.focus(); return;
+            }
+            srcBox.style.display = 'none';
+            if (v === '') { el.fSrc.value = ''; return; }
+            if (v.charAt(0) === 'u') {
+                el.fSrc.value = S.usedSrc[+v.slice(1)] || '';
+                if (S.srcBasis[el.fSrc.value]) el.fBasis.value = S.srcBasis[el.fSrc.value];
+                return;
+            }
+            var it = S.fromItems[+v.slice(1)];
+            if (!it) return;
+            el.fDate.value = it.date || '';
+            el.fBasis.value = basisOf(it);
+            el.fSrc.value = srcOf(it);
+            if (!it.date) say('That layer carries no date: type the date of what you are tracing.', true);
+        });
+        // The typed source joins the list and becomes the choice.
+        function commitSrc() {
+            if (srcBox.style.display === 'none') return;
+            var t = el.fSrc.value.trim().slice(0, 300);
+            el.fSrc.value = t;
+            srcBox.style.display = 'none';
+            if (t && S.srcAdded.indexOf(t) < 0) S.srcAdded.push(t);
+            fillFrom();
+        }
+        el.fSrc.addEventListener('change', commitSrc);
+        el.fSrc.addEventListener('blur', commitSrc);
+        el.fSrc.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); commitSrc(); }
+            e.stopPropagation();
+        });
+        S.fillFrom = fillFrom;
         el.extend.addEventListener('click', function () {
             if (window.LSScarps.extendSelected()) {
                 say('Extending: click onward from the end of the line (the dot); right-click or Enter ends it.');
@@ -454,7 +609,11 @@ window.GLNetwork = (function () {
         GL.addHashExtras(function () {
             return { np: S.pathId != null ? String(S.pathId) : (S.ready ? null : np0) };
         }, ['np']);
-        GL.onTab(function () { if (S.editing && GL.tab() === 'flow') stopEdit(); applyVis(); });
+        GL.onTab(function () {
+            if (S.editing && GL.tab() === 'flow') stopEdit();
+            if (S.editing && S.autoSrc) S.autoSrc();     // back from Reference maps: the basemap may have changed
+            applyVis();
+        });
         (GL.layerHooks = GL.layerHooks || []).push(addLayers);
         (GL.cardHooks = GL.cardHooks || []).push(cardHook);
         cardHook.rerender = function () { if (window.GLRetreat && window.GLRetreat.rerenderCard) window.GLRetreat.rerenderCard(); };
@@ -485,7 +644,33 @@ window.GLNetwork = (function () {
                     (p.notes ? '<div class="rt-sub">' + esc(p.notes) + '</div>' : '') +
                     '<div class="rt-sub">traced by ' + esc(p.traced_by) + '</div></div>').addTo(map));
             },
-            flash: function (msg, bad) { say(msg, bad); afterChange(); }
+            flash: function (msg, bad) { say(msg, bad); afterChange(); },
+            // A face traced with the tracing block is saved with its date,
+            // basis and source in the same request.
+            drawFields: function (kind) {
+                if (kind !== 'face' || !el.fDate) return null;
+                return { date: el.fDate.value.trim(), basis: el.fBasis.value, source_note: el.fSrc.value.trim() };
+            },
+            // Say where the new face landed (the same rule the plot uses),
+            // and stay armed for the next one if asked.
+            onCreated: function (res, kind) {
+                if (kind !== 'face') return;
+                var pl = res.placement, d = el.fDate.value.trim(), bad = false, msg = 'Face #' + res.id + ' saved';
+                if (res.warning) { msg += ', ' + res.warning; bad = true; }
+                else if (!d) { msg += ' with no date (it will not plot until it has one)'; bad = true; }
+                else msg += ', dated ' + d;
+                var nm = pl && (pl.name || ('flow line #' + pl.line_id));
+                if (!pl) { msg += '. No flow line is near it, so it is on no plot: draw or extend a flow line through it.'; bad = true; }
+                else if (pl.how === 'crossing') msg += '. It crosses ' + nm + ', ' + pl.km_from_head.toFixed(2) + ' km from the head of that line.';
+                else if (pl.how === 'projected') msg += '. It stops ' + pl.dist_m + ' m short of ' + nm + ' and is projected onto it, ' + pl.km_from_head.toFixed(2) + ' km from its head.';
+                else { msg += '. The nearest flow line (' + nm + ') is ' + (pl.dist_m / 1000).toFixed(1) + ' km away or the face lies beyond its end, so it is on no plot: extend the flow line through it.'; bad = true; }
+                var again = el.fKeep && el.fKeep.checked && S.editing;
+                say(msg + (again ? ' Ready for the next face (Esc stops).' : ''), bad);
+                if (again) {
+                    window.LSScarps.setDrawKind('face');
+                    window.LSScarps.armDraw(true);
+                }
+            }
         }).then(function () {
             S.ready = true;
             if (map.getSource('gx')) addLayers();
@@ -502,5 +687,7 @@ window.GLNetwork = (function () {
         if (CFG.editor && $('nw-panel')) wireEditor();
     }
 
-    return { init: init, showPath: showPath };
+    return { init: init, showPath: showPath,
+             // redraw the open plot (a video was linked or changed)
+             refresh: function () { if (S.pathId != null) showPath(S.pathId); } };
 })();

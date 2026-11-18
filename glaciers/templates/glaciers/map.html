@@ -116,7 +116,25 @@
   .nw-card { margin: 4px 0 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; color: #555; }
   .nw-card button, #nw-panel button { font-size: 11px; border: 1px solid #c9c2bb; background: #f7f5f3;
                     border-radius: 3px; padding: 2px 6px; cursor: pointer; }
-  #nw-panel { border: 1px solid #e0b84a; background: #fffbea; border-radius: 4px; padding: 7px 8px; margin: 6px 0; }
+  #nw-panel { border: 1px solid #e0b84a; background: #fffbea; border-radius: 4px; padding: 7px 8px; margin: 6px 8px;
+              flex: none; max-height: 55%; overflow-y: auto; }
+  #nv-panel { border: 1px solid #8e24aa; background: #fbf3fd; border-radius: 4px; padding: 7px 8px; margin: 6px 8px;
+              flex: none; max-height: 60%; overflow-y: auto; font-size: 11.5px; }
+  #nv-panel label { display: block; font-size: 10.5px; color: #6b635d; margin-top: 4px; }
+  #nv-panel input[type=text], #nv-panel select { width: 100%; box-sizing: border-box; font-size: 11.5px; padding: 2px 4px; }
+  #nv-panel button { font-size: 11px; border: 1px solid #c9c2bb; background: #f7f5f3; border-radius: 3px; padding: 2px 6px; cursor: pointer; }
+  .gv-seg { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 1px 0; }
+  .gv-pop video, .gv-pop img { width: 100%; max-height: 60vh; margin: 4px 0; background: #000; display: block; }
+  .gv-pop { min-width: 300px; }
+  .gv-tabs { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 4px; }
+  .gv-tabs button { font-size: 10.5px; border: 1px solid #c9c2bb; background: #f7f5f3; border-radius: 3px; cursor: pointer; }
+  .gv-tabs button.on { background: #5D4037; color: #fff; }
+  .nw-vids { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
+  .nw-vids button { font-size: 10.5px; border: 1px solid; background: #fff; border-radius: 9px; padding: 0 7px; cursor: pointer; }
+  .nw-vid { cursor: pointer; }
+  .nw-vid:hover { fill-opacity: 0.3; }
+  .nw-openRow { margin: 0 0 8px; }
+  .nw-openRow button { font-size: 11.5px; border: 1px solid #e0b84a; background: #fffbea; border-radius: 3px; padding: 3px 8px; cursor: pointer; }
   #nw-panel label { display: block; font-size: 10.5px; color: #6b635d; margin-top: 4px; }
   #nw-panel input[type=text], #nw-panel textarea, #nw-panel select { width: 100%; box-sizing: border-box; font-size: 11.5px; padding: 2px 4px; }
   #nw-panel textarea { height: 44px; resize: vertical; }
@@ -131,8 +149,85 @@
     <div id="gl-tabs">
       <button type="button" id="gl-tab-retreat" title="Glacier extents through time">Retreat</button>
       <button type="button" id="gl-tab-flow" title="Flow tracers from ITS_LIVE velocity">Flow</button>
-      <button type="button" id="gl-tab-layers" title="Basemap and raster overlays">Layers</button>
+      <button type="button" id="gl-tab-layers" title="Basemaps, lidar and uploaded imagery to trace on, and raster overlays">Reference maps</button>
     </div>
+
+{% if is_inventory_editor %}
+      <div id="nv-panel" style="display:none">
+        <b id="nv-title">Link a video to the network</b>
+        <label id="nv-kindRow">Kind <select id="nv-kind"></select></label>
+        <label id="nv-urlRow" title="The story's address on planet.com. A timelapse is copied here and played from this site; a before/after comparison can only be linked.">Planet story link
+          <input type="text" id="nv-url" placeholder="https://www.planet.com/stories/…"></label>
+        <label id="nv-fileRow" title="The animation file. It is stored once, however many segments it is linked to.">Video file (.mp4, .webm or .gif, up to 150 MB)
+          <input type="file" id="nv-file" accept=".mp4,.webm,.gif,video/mp4,video/webm,image/gif">
+          <span style="display:block; margin-top:3px" title="The file is copied here once, in the background. In Drive, set sharing to &quot;Anyone with the link&quot;.">or its Google Drive share link</span>
+          <input type="text" id="nv-drive" placeholder="https://drive.google.com/file/d/…/view"></label>
+        <label>Caption <input type="text" id="nv-cap" placeholder="e.g. Taan Fiord head, landslide and retreat"></label>
+        <label title="The span the video covers; it is drawn on the distance plot">Years shown
+          <input type="text" id="nv-date" placeholder="2016 to 2024 · Jun 2019 to Sep 2023"></label>
+        <div style="margin-top:6px"><b>Segments it shows</b> <span class="rt-sub">(click flow lines on the map)</span></div>
+        <div id="nv-segs"></div>
+        <div id="nv-msg" style="margin-top:4px"></div>
+        <div style="margin-top:5px; display:flex; gap:5px; flex-wrap:wrap">
+          <button type="button" id="nv-save">Save</button>
+          <button type="button" id="nv-cancel">Cancel</button>
+          <button type="button" id="nv-del" style="margin-left:auto">Delete video</button>
+        </div>
+      </div>
+      <div id="nw-panel" style="display:none">
+        <div id="nw-create">
+        <b>New line</b> <span class="rt-sub">(or click a line to edit it)</span>
+        <div style="margin-top:4px"><button type="button" id="nw-newLine" title="Draw one flow line, down-flow: start up-glacier, end down-valley. End it on another flow line to make it a feeder.">＋ Flow line</button>
+        </div>
+        <div id="nw-faceTool" style="margin-top:7px; padding-top:6px; border-top:1px solid #e0d6b8">
+          <b>Trace an ice face</b>
+          <label title="What this face is read from. Layers that are on the map now are listed first, and choosing one also fills the date and Read from. Sources already used on other faces follow. ＋ New source… opens a box to type one.">Source
+            <select id="nw-fFrom"></select></label>
+          <div id="nw-fSrcNew" style="display:none"><input type="text" id="nw-fSrc" placeholder="New source, e.g. Tarr &amp; Martin 1914, plate 12; Enter adds it" style="margin-top:3px"></div>
+          <label title="A day, a month, a year, or a span when only a bracket is known">Date
+            <input type="text" id="nw-fDate" placeholder="18 Aug 1904 · Aug 1904 · 1904 · 1894 to 1904"></label>
+          <label>Read from <select id="nw-fBasis"><option value="">(not said)</option><option>image</option><option>map</option>
+            <option>chart</option><option>photograph</option><option>moraine</option><option>account</option><option>survey</option></select></label>
+          <div style="margin-top:4px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <button type="button" id="nw-newFace" title="Draw one ice-face line along the front: click along it, right-click or Enter ends it. Any length of the front; it does not have to reach both shores. It is saved with the date and source above.">＋ Trace face</button>
+            <label style="display:inline-flex; gap:4px; align-items:center; margin:0" title="After a face is saved, stay ready to trace the next one with the same date and source (several fronts on one image)"><input type="checkbox" id="nw-fKeep"> keep tracing</label>
+          </div>
+        </div>
+        <div id="nw-none" class="rt-sub" style="margin-top:6px">Nothing is drawn until you press a
+          ＋ button. <b>Joining:</b> end a flow line on the middle of another to make a feeder; end
+          it on another line's start and the two become one line. <b>Forking:</b> START a line on
+          another (draw it from there, or drag its first vertex onto it) to make a distributary,
+          marked with an orange dot; its plot runs from the parent's head through the fork.</div>
+        <label style="margin-top:6px">Import face lines (GeoJSON lines with a <code>date</code> property)
+          <input type="file" id="nw-file" accept=".geojson,.json,application/geo+json,application/json"></label>
+        </div>
+        <div id="nw-selBox" style="display:none">
+          <div class="rt-sub">Editing this line. Click off it to go back to drawing new ones.</div>
+          <div id="nw-selTitle" style="font-weight:600; margin-top:3px"></div>
+          <label>Kind <select id="nw-kindSel"><option value="flowline">Flow line</option><option value="face">Ice face</option></select></label>
+          <div id="nw-lineRows">
+            <label>Name <input type="text" id="nw-name" placeholder="e.g. Taan Fiord"></label>
+            <div style="margin-top:4px"><button type="button" id="nw-reverse" title="Lines run down-flow: the dot marks the downstream end">Reverse direction</button>
+              <button type="button" id="nw-plot">Plot faces along it</button></div>
+          </div>
+          <div style="margin-top:4px"><button type="button" id="nw-extend" title="Draw onward from this line's end; what you draw is added to this line, not saved as a new one">Extend from its end</button></div>
+          <div class="rt-sub" style="margin-top:3px">Drag a vertex to move it, a midpoint to add
+            one. Click a vertex, then Delete (or right-click it) removes it; Ctrl/⌘-Z undoes. The
+            <b>+</b> at each end extends the line from that end; drag a flow line's end onto
+            another flow line and it snaps to join.</div>
+          <div id="nw-faceRows">
+            <label>Date <input type="text" id="nw-date" placeholder="18 Aug 1904 · Aug 1904 · 1904 · 1894 to 1904"></label>
+            <label>Read from <select id="nw-basis"><option value="">(not said)</option><option>image</option><option>map</option>
+              <option>chart</option><option>photograph</option><option>moraine</option><option>account</option><option>survey</option></select></label>
+            <label>Source <input type="text" id="nw-srcNote" placeholder="e.g. Tarr &amp; Martin 1914, plate 12"></label>
+          </div>
+          <label>Notes <textarea id="nw-notes"></textarea></label>
+          <div style="margin-top:4px"><button type="button" id="nw-del">Delete whole line</button></div>
+        </div>
+        <div id="nw-msg"></div>
+        <div style="text-align:right"><button type="button" id="nw-done">Done</button></div>
+      </div>
+{% endif %}
 
     <div class="gl-pane" id="gl-pane-retreat">
       <input type="search" id="rt-search" placeholder="Find a glacier by name…" autocomplete="off">
@@ -148,45 +243,12 @@
         They stop at each glacier's outline and at its present terminus.</p>
         <p>The brighter blue lines are the network being built here: RGI lines taken in, joined
         across glaciers and drawn on down-valley past today's ice. A dot marks the downstream end
-        of each (solid = an outlet, ring = joins another line). <b>Click a network line</b> to
+        of each (solid = an outlet, ring = joins another line); an orange dot marks a fork, where a
+        distributary leaves its parent for a second front. <b>Click a network line</b> to
         plot ice-face positions against distance along it.</p></details></div>
 {% if is_inventory_editor %}
-      <div id="nw-panel" style="display:none">
-        <b>Editing the network</b>
-        <div style="margin-top:4px"><button type="button" id="nw-newLine" title="Draw one flow line, down-flow: start up-glacier, end down-valley. End it on another flow line to make it a feeder.">＋ Flow line</button>
-          <button type="button" id="nw-newFace" title="Draw one ice-face line. Any length of the front; it does not have to reach both shores.">＋ Ice face</button></div>
-        <div id="nw-none" class="rt-sub" style="margin-top:4px">Click a line to select it. Then: drag a
-          vertex to move it; drag a midpoint to add one; <b>click a vertex and press Delete</b> (or
-          right-click it) to remove it, and keep pressing to remove the next; Ctrl/⌘-Z undoes.
-          Nothing is drawn until you press a ＋ button. <b>Joining:</b> drag the end of a flow line
-          onto another and it snaps; sharing that point is the join. End on the middle of a line to
-          make a feeder; end on another line's start and the two become one line.</div>
-        <div id="nw-selBox" style="display:none">
-          <div id="nw-selTitle" style="font-weight:600; margin-top:5px"></div>
-          <label>Kind <select id="nw-kindSel"><option value="flowline">Flow line</option><option value="face">Ice face</option></select></label>
-          <div id="nw-lineRows">
-            <label>Name <input type="text" id="nw-name" placeholder="e.g. Taan Fiord"></label>
-            <div style="margin-top:4px"><button type="button" id="nw-reverse" title="Lines run down-flow: the dot marks the downstream end">Reverse direction</button>
-              <button type="button" id="nw-plot">Plot faces along it</button></div>
-          </div>
-          <div style="margin-top:4px"><button type="button" id="nw-extend" title="Draw onward from this line's end; what you draw is added to this line, not saved as a new one">Extend from its end</button></div>
-          <div class="rt-sub" style="margin-top:3px">Click a vertex, then Delete removes it. The
-            <b>+</b> at each end of the line extends it from that end.</div>
-          <div id="nw-faceRows">
-            <label>Date <input type="text" id="nw-date" placeholder="1904 · 1904-08 · 1904-08-15 · 1894 to 1904"></label>
-            <label>Read from <select id="nw-basis"><option value="">(not said)</option><option>image</option><option>map</option>
-              <option>chart</option><option>photograph</option><option>moraine</option><option>account</option><option>survey</option></select></label>
-            <label>Source <input type="text" id="nw-srcNote" placeholder="e.g. Tarr &amp; Martin 1914, plate 12"></label>
-          </div>
-          <label>Notes <textarea id="nw-notes"></textarea></label>
-          <div style="margin-top:4px"><button type="button" id="nw-del">Delete whole line</button></div>
-        </div>
-        <label style="margin-top:6px">Import face lines (GeoJSON lines with a <code>date</code> property)
-          <input type="file" id="nw-file" accept=".geojson,.json,application/geo+json,application/json"></label>
-        <div id="nw-msg"></div>
-        <div style="text-align:right"><button type="button" id="nw-done">Done</button></div>
-      </div>
-      <div class="rt-sub">Editors: the ✎ button on the map opens the network for editing.</div>
+      <div class="nw-openRow"><button type="button" class="nw-open" title="Open the flow network for editing: draw and join flow lines, trace dated ice faces. The same as the ✎ button on the map.">✎ Edit the network / trace ice faces</button>
+        <button type="button" class="nv-open" title="Attach a Planet timelapse or a Sentinel-1 animation to the segments of the network it shows">▶ Link a video</button></div>
 {% endif %}
       <h3>Extent sources</h3>
       <div id="rt-sources"><div class="rt-none">Loading…</div></div>
@@ -211,10 +273,16 @@
     </div>
 
     <div class="gl-pane" id="gl-pane-layers" style="display:none">
-      <h3>Basemap</h3>
-      <div id="gl-basemap-row"></div>
-      <h3>Overlays</h3>
-      <div id="gl-overlays"></div>
+{% if is_inventory_editor %}
+      <div class="nw-openRow"><button type="button" class="nw-open" title="Open the editing panel to trace a dated ice face over what is switched on here">✎ Trace ice faces on these maps</button></div>
+{% endif %}
+      {# Mirrors the inventory's Reference maps tab: basemap cards by #}
+      {# category, then the glacier overlays, then lidar and (editors) #}
+      {# uploaded / Sentinel imagery. Built by glaciers.js. #}
+      <div id="gl-refmaps"></div>
+      <div class="refmaps-category">Overlays</div>
+      <div id="gl-overlays" style="padding:0 14px"></div>
+      <div id="gl-rasters" style="padding:0 14px 12px"></div>
     </div>
   </div>
 
@@ -252,12 +320,33 @@
     tracersJs: "{% static 'glaciers/js/gl_tracers.js' %}?v={{ static_v }}",
     experimental: {{ experimental|yesno:"true,false" }},
     editor: {{ is_inventory_editor|yesno:"true,false" }},
-    csrf: '{{ csrf_token }}'
+    csrf: '{{ csrf_token }}',
+    staticBase: "{% static '' %}",
+    basemapThumbs: {
+      'streets':      '{% static "inventory/img/basemap-thumbs/streets.png" %}',
+      'esri-img':     '{% static "inventory/img/basemap-thumbs/esri-img.png" %}',
+      's2-cloudless': '{% static "inventory/img/basemap-thumbs/s2-cloudless.jpg" %}',
+      'esri-topo':    '{% static "inventory/img/basemap-thumbs/esri-topo.png" %}',
+      'usgs-topo':    '{% static "inventory/img/basemap-thumbs/usgs-topo.png" %}',
+      'noaa-chart':   '{% static "inventory/img/basemap-thumbs/noaa-chart.jpg" %}',
+      'usgs-img':     '{% static "inventory/img/basemap-thumbs/usgs-img.png" %}',
+      'nrcs-ahap':    '{% static "inventory/img/basemap-thumbs/nrcs-ahap.png" %}',
+      'usgs-hist':    '{% static "inventory/img/basemap-thumbs/usgs-hist.png" %}',
+      'bc-ortho':     '{% static "inventory/img/basemap-thumbs/bc-ortho.jpg" %}'
+    }
   };
+  // What the shared lidar / imagery modules read (as on /inventory/).
+  window._isInventoryEditor = {{ is_inventory_editor|yesno:"true,false" }};
+  window._canViewRestricted = {{ can_view_restricted|yesno:"true,false" }};
+  window.CSRF_TOKEN = '{{ csrf_token }}';
 </script>
 <script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
 <script src="{% static 'inventory/js/basemaps.js' %}?v={{ static_v }}"></script>
 <script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
+<script src="{% static 'inventory/js/vendor/maplibre-gl-demshade.iife.js' %}?v={{ static_v }}"></script>
+<script src="{% static 'inventory/js/dem_shade_bridge.js' %}?v={{ static_v }}"></script>
+<script src="{% static 'inventory/js/trace_rasters.js' %}?v={{ static_v }}"></script>
+<script src="{% static 'inventory/js/lidar_ui.js' %}?v={{ static_v }}"></script>
 <script src="{% static 'inventory/js/ls_overlays.js' %}?v={{ static_v }}"></script>
 <script src="{% static 'inventory/js/ls_proj.js' %}?v={{ static_v }}"></script>
 <script src="{% static 'inventory/js/ls_hash.js' %}?v={{ static_v }}"></script>
@@ -270,5 +359,6 @@
 <script src="{% static 'inventory/js/scarps.js' %}?v={{ static_v }}"></script>
 <script src="{% static 'glaciers/js/gl_retreat.js' %}?v={{ static_v }}"></script>
 <script src="{% static 'glaciers/js/gl_network.js' %}?v={{ static_v }}"></script>
+<script src="{% static 'glaciers/js/gl_videos.js' %}?v={{ static_v }}"></script>
 <script src="{% static 'glaciers/js/glaciers.js' %}?v={{ static_v }}"></script>
 {% endblock %}

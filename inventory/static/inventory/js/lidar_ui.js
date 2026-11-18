@@ -4,6 +4,7 @@
  * window.LSLidarUI.init(ctx) once, at the point in its start-up where this code
  * used to sit, and passes in the few things it needs from the map page:
  *   SUSC_LAYERS, _pendingLi, writeHashState, map, _isMapReady, _swipe, _wiperPanelRefresh, RASTER_UI_ZOOM, _traceRows, _buildTraceUI.
+ * Optional: floorLayer(map) -> the layer id rasters are inserted beneath (another host page; see glaciers.js).
  * It returns what map.js still uses: _lidarCat, _lidarActive, _lidarActiveR, LIDAR_PRESETS, _lidarFetch, _bboxInView, _lidarReplayLayers, _liSpec, _liApplyHashSpec, _footprintsSet, _buildRasterUI, _rasterPanelRefresh, _buildRasterUIRight.
  *
  * _pendingLi is the li= spec from the page's first URL hash, passed once by value;
@@ -138,6 +139,9 @@
         // insertion chain the trace overlays use, so a traced polygon always draws
         // on top of the image it came from.
         function _rasterBeforeId(m) {
+            // A host other than the inventory map (/glaciers/) names its own
+            // lowest data layer.
+            if (ctx.floorLayer) return ctx.floorLayer(m);
             var beforeId;
             ['pending-poly-fill']
                 .concat(SUSC_LAYERS.map(function (s) { return 'susc-' + s.key + '-layer'; }))

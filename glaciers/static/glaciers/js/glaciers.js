@@ -6,7 +6,8 @@
  * (RGI 7.0, glaciers/sources.py) with one tab per topic, and the code is
  * split to match:
  *
- *   glaciers.js    this file. Map, basemap, the shared raster overlays
+ *   glaciers.js    this file. Map, basemap cards, lidar + imagery (the
+ *                  inventory's modules), the shared raster overlays
  *                  (ls_overlays.js) and IceBridge points, tabs, hash, and
  *                  the small API (window.GL) the topic modules use.
  *   gl_retreat.js  Retreat tab: glacier search and selection, the mirrored
@@ -220,26 +221,138 @@
     // ---------------------------------------------------------------------
     // Layers tab: basemap select, overlay rows
     // ---------------------------------------------------------------------
-    var bmRow = document.getElementById('gl-basemap-row');
-    var bmSel = document.createElement('select');
-    basemaps.forEach(function (bm) {
-        var o = document.createElement('option');
-        o.value = bm.id; o.textContent = bm.label;
-        if (bm.id === DEFAULT_BASEMAP) o.selected = true;
-        bmSel.appendChild(o);
-    });
-    bmSel.value = _currentBasemap;
-    bmSel.addEventListener('change', function () {
-        var bm = findBasemap(bmSel.value);
-        if (!bm) return;
+    // Basemap cards by category, as on the inventory's Reference maps tab
+    // (the card itself is shared: LSBasemaps.buildCard). The admin-shared
+    // QuickMapServices layers arrive from the inventory's public endpoint.
+    var CATEGORY_ORDER = ['Imagery', 'Topo', 'Historical', 'Other', 'Shared'];
+    var refWrap = document.getElementById('gl-refmaps');
+    function setBasemap(id) {
+        var bm = findBasemap(id);
+        if (!bm || bm.id === _currentBasemap) return;
         _currentBasemap = bm.id;
         // styleFor, not buildRasterStyle: style-carrying basemaps (Blank
         // White) need their prebuilt style; diff:false forces the swap.
+        // Overlays, lidar and imagery are put back on style.load.
         map.setStyle(window.LSBasemaps.styleFor(bm), { diff: false });
-        // overlays re-added on style.load
+        buildBasemapCards();
         writeHash();
-    });
-    bmRow.appendChild(bmSel);
+    }
+    function buildBasemapCards() {
+        if (!refWrap) return;
+        refWrap.innerHTML = '';
+        CATEGORY_ORDER.forEach(function (cat) {
+            var inCat = basemaps.filter(function (bm) { return bm.category === cat; });
+            if (!inCat.length) return;
+            var hdr = document.createElement('div');
+            hdr.className = 'refmaps-category'; hdr.textContent = cat;
+            refWrap.appendChild(hdr);
+            var grid = document.createElement('div');
+            grid.className = 'refmaps-grid';
+            inCat.forEach(function (bm) {
+                grid.appendChild(window.LSBasemaps.buildCard(bm, {
+                    active: bm.id === _currentBasemap,
+                    thumbUrl: window.LSBasemaps.thumbnailUrl(bm, { basemapThumbs: CFG.basemapThumbs, staticBase: CFG.staticBase }),
+                    onPick: function () { setBasemap(bm.id); }
+                }));
+            });
+            refWrap.appendChild(grid);
+        });
+    }
+    buildBasemapCards();
+    // A base= naming a shared layer cannot resolve until this list is in.
+    var _pendingBase = (_hash.base && !findBasemap(_hash.base)) ? _hash.base : null;
+    fetch('/inventory/api/qms/promoted/').then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+            if (!d || !d.layers || !d.layers.length) return;
+            d.layers.forEach(function (l) { if (!findBasemap(l.id)) basemaps.push(l); });
+            buildBasemapCards();
+            if (_pendingBase && findBasemap(_pendingBase)) { var pb = _pendingBase; _pendingBase = null; setBasemap(pb); }
+        }).catch(function () {});
+
+    // ---------------------------------------------------------------------
+    // Lidar surveys and (editors) uploaded / Sentinel imagery to trace on:
+    // the inventory's own modules, mounted here with this page's map. They
+    // keep their URL params (li=, im=) and their APIs under /inventory/.
+    // ---------------------------------------------------------------------
+    var BASE_LAYER_IDS = { basemap: 1, labels: 1, background: 1 };
+    // The lowest layer that is ours: rasters to trace on go beneath it, so
+    // glacier outlines, faces and flow lines always draw over the image.
+    function floorLayer(m) {
+        var ids = (m.getLayersOrder ? m.getLayersOrder() : []);
+        for (var i = 0; i < ids.length; i++) {
+            if (!BASE_LAYER_IDS[ids[i]] && !/^(lidar-|trace-|fp-)/.test(ids[i])) return ids[i];
+        }
+        return undefined;
+    }
+    var _mapReady = false;
+    map.once('load', function () { _mapReady = true; });
+    var RASTER_UI_ZOOM = 10;
+    var _lidar = null, _trace = null;
+    function traceReseat() {
+        if (!_trace) return;
+        var floor = floorLayer(map);
+        if (!floor) return;
+        Object.keys(_trace._traceActive).forEach(function (id) {
+            if (map.getLayer('trace-' + id)) { try { map.moveLayer('trace-' + id, floor); } catch (e) {} }
+        });
+    }
+    try {
+        if (window.LSTraceRasters && window.LSLidarUI) {
+            _trace = window.LSTraceRasters.init({
+                API_BASE: '/inventory/', SUSC_LAYERS: [],
+                _pendingIm: (_hash.im && Object.keys(_hash.im).length) ? _hash.im : null,
+                map: map, RASTER_UI_ZOOM: RASTER_UI_ZOOM, _traceReseat: traceReseat,
+                _bboxInView: function () { return _lidar._bboxInView.apply(this, arguments); },
+                _footprintsSet: function () { return _lidar._footprintsSet.apply(this, arguments); },
+                _getLastDetail: null, floorLayer: floorLayer
+            });
+            _lidar = window.LSLidarUI.init({
+                SUSC_LAYERS: [], _pendingLi: _hash.li || null,
+                writeHashState: function () { writeHash(); },
+                map: map, _isMapReady: function () { return _mapReady; },
+                _swipe: { on: false, map: null }, _wiperPanelRefresh: function () {},
+                RASTER_UI_ZOOM: RASTER_UI_ZOOM,
+                _traceRows: _trace._traceRows, _buildTraceUI: _trace._buildTraceUI,
+                floorLayer: floorLayer
+            });
+            var rw = document.getElementById('gl-rasters');
+            if (rw) rw.appendChild(_lidar._buildRasterUI());
+            _lidar._lidarFetch();
+            _trace._traceLoadAtStart();
+            map.on('moveend', function () { _lidar._rasterPanelRefresh(); });
+            map.on('style.load', function () {
+                if (!_mapReady) return;
+                _trace._traceReplayLayers(); _lidar._lidarReplayLayers();
+            });
+            map.once('load', function () { _trace._traceReplayLayers(); _lidar._lidarReplayLayers(); });
+        }
+    } catch (e) { console.error('lidar / imagery section failed to start:', e); _lidar = _trace = null; }
+
+    // What is on the map to trace from, for a face's date and source: the
+    // imagery overlays that are switched on (newest listed first), the lidar
+    // surveys, then the basemap.
+    function imagery() {
+        var out = [];
+        if (_trace) {
+            Object.keys(_trace._traceActive).forEach(function (id) {
+                var r = _trace._traceRow(+id);
+                if (r && _trace._traceActive[id] > 0) {
+                    out.push({ kind: 'image', title: r.title, date: r.image_date || '', note: r.source_note || '' });
+                }
+            });
+        }
+        if (_lidar && _lidar._lidarCat()) {
+            _lidar._lidarCat().features.forEach(function (f) {
+                var st = _lidar._lidarActive[f.properties.id];
+                if (st) out.push({ kind: st.preset === 'ortho' ? 'image' : 'survey', title: f.properties.title,
+                                   date: f.properties.year ? String(f.properties.year) : '', note: '' });
+            });
+        }
+        var bm = findBasemap(_currentBasemap);
+        out.push({ kind: 'basemap', id: _currentBasemap, title: bm ? bm.label : _currentBasemap,
+                   date: { 'nrcs-ahap': '1978 to 1986', 'bc-ortho': '1995 to 2004' }[_currentBasemap] || '', note: '' });
+        return out;
+    }
 
     var ovWrap = document.getElementById('gl-overlays');
     OVERLAYS.forEach(function (ov) {
@@ -367,6 +480,7 @@
     var _extraProviders = [];
     var _carried = {};
     Object.keys(_hash.extras || {}).forEach(function (k) { _carried[k] = _hash.extras[k]; });
+    function liKeys(o) { return (o && Object.keys(o).length) ? o : null; }
     function writeHash() {
         if (!window.LSHash || !map) return;
         var c = map.getCenter();
@@ -393,6 +507,8 @@
             zoom: map.getZoom(), lat: c.lat, lon: c.lng,
             base: _currentBasemap !== DEFAULT_BASEMAP ? _currentBasemap : null,
             ov: Object.keys(ov).length ? ov : null,
+            li: liKeys(_lidar ? _lidar._liSpec() : (_hash.li || null)),
+            im: liKeys(_trace ? _trace._imSpec() : (_hash.im || null)),
             extras: extras
         });
         if (location.hash !== h) history.replaceState(null, '', h);
@@ -465,6 +581,7 @@
         },
         tab: function () { return _tab; },
         basemap: function () { return _currentBasemap; },
+        imagery: imagery,
         onTab: function (fn) { _tabListeners.push(fn); },
         showTab: showTab
     };
@@ -474,5 +591,7 @@
     catch (e) { console.error('retreat module failed to start:', e); }
     try { if (window.GLNetwork) window.GLNetwork.init(GL); }
     catch (e) { console.error('network module failed to start:', e); }
+    try { if (window.GLVideos) window.GLVideos.init(GL); }
+    catch (e) { console.error('videos module failed to start:', e); }
     showTab(_tab, false);
 })();

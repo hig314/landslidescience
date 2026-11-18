@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import network, views
+from . import network, videos, views
 
 app_name = 'glaciers'
 
@@ -27,5 +27,10 @@ urlpatterns = [
     path('lines/api/import/', network.api_import_faces, name='line_import'),
     path('lines/api/nodes/', network.api_nodes, name='line_nodes'),
     re_path(r'^lines/api/path/(?P<line_id>\d+)/$', network.api_path, name='line_path'),
+    # Timelapse videos attached to segments of the network (glaciers/videos.py).
+    path('lines/api/videos/', videos.api_videos, name='videos'),
+    path('lines/api/videos/save/', videos.api_video_save, name='video_save'),
+    path('lines/api/segment/', videos.api_segment, name='segment'),
+    re_path(r'^video/(?P<name>[a-f0-9]{16}\.(?:mp4|webm|gif))$', videos.serve_video, name='video'),
     re_path(r'^g/(?P<gid>RGI2000-v7\.0-G-\d\d-\d{5})/$', views.glacier_redirect, name='glacier'),
 ]

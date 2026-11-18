@@ -4,6 +4,7 @@
  * window.LSTraceRasters.init(ctx) once, at the point in its start-up where this code
  * used to sit, and passes in the few things it needs from the map page:
  *   API_BASE, SUSC_LAYERS, _pendingIm, map, RASTER_UI_ZOOM, _traceReseat, _bboxInView, _footprintsSet, _getLastDetail.
+ * Optional: floorLayer(map) -> the layer id an image is inserted beneath (another host page; see glaciers.js).
  * It returns what map.js still uses: _traceActive, _traceRows, _traceLoadAtStart, _traceRow, _traceAddLayer, _traceReplayLayers, _imSpec, _imApplyHashSpec, _traceZoomTo, _traceThumbUrl, _traceUpdateSummary, _renderTraceRows, _buildTraceUI.
  *
  * _pendingIm is the im= spec from the page's first URL hash, passed once by value;
@@ -77,7 +78,8 @@
                 // the image it was traced from), then susc, faults, and every
                 // landslide layer above.
                 var beforeId;
-                ['pending-poly-fill']
+                if (ctx.floorLayer) beforeId = ctx.floorLayer(map);
+                else ['pending-poly-fill']
                     .concat(SUSC_LAYERS.map(function (s) { return 'susc-' + s.key + '-layer'; }))
                     .concat(['faults-line', 'points'])
                     .some(function (cand) {
@@ -441,6 +443,7 @@
                             un.addEventListener('click', function () { saveLink(null); });
                             link.appendChild(a); link.appendChild(un);
                         } else {
+                            if (!_getLastDetail) return;      // a host with no landslide records (/glaciers/)
                             var lb = document.createElement('button');
                             lb.type = 'button'; lb.textContent = '⚲ link';
                             lb.title = 'Record which landslide this image was traced into '

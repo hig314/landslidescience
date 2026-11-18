@@ -258,3 +258,155 @@ behind that same gate rather than inventing a second switch.
   tab — eventual input to Bayesian failure-likelihood analysis surfaced in
   the landslides app. Keep sidebar/tab chrome and per-glacier identity
   (RGI ids) in mind when refactoring.
+
+## Reference maps tab and tracing faces (2026-11-17)
+
+- **The Layers tab is now "Reference maps"** (tab key still `layers`, the
+  URL grammar is additive). It mirrors the inventory's tab with a subset:
+  basemap cards by category (the card is shared, `LSBasemaps.buildCard`,
+  and the inventory's `_buildBasemapCard` now calls it), the admin-shared
+  QuickMapServices layers from `/inventory/api/qms/promoted/`, the glacier
+  overlays as before, then lidar and (editors) uploaded GeoTIFFs and
+  Sentinel-2 fetches. No wiper, no susceptibility / InSAR rows.
+- **Lidar and imagery are the inventory's own modules** (`lidar_ui.js`,
+  `trace_rasters.js`), mounted by `glaciers.js` with this page's map and
+  stub context (no wiper, no susceptibility layers, no landslide link).
+  Their APIs stay under `/inventory/`, their URL params are the same
+  (`li=`, `im=`), and the template sets the three globals they read
+  (`_isInventoryEditor`, `_canViewRestricted`, `CSRF_TOKEN`). The one hook
+  added to both is `ctx.floorLayer(map)`: the layer id rasters go beneath.
+  Here that is the first layer that is neither basemap nor raster, so
+  outlines, faces and flow lines always draw over the image.
+- **Tracing a face** (editing panel, "Trace an ice face"): date, read-from
+  and source are set BEFORE drawing and saved with the line in the create
+  request (`drawFields` in `scarps.js`; `api_line_create` takes `date`,
+  `basis`, `source_note` for faces). "From the map" fills them from what is
+  switched on (`GL.imagery()`: imagery overlays with their `image_date`,
+  lidar surveys with their year, then the basemap; AHAP and BC orthophoto
+  carry a bracket, the rest no date). A date the server cannot read does
+  not cost the line: the face is saved undated with a warning. The reply
+  carries `placement` (`network._placement`, the plot's own rule: crossing,
+  else projected within `NEAR_M`), and the panel says which line the face
+  landed on and how far from its head, or that it is on no plot. "keep
+  tracing" re-arms after each save (`onCreated`).
+
+## Typed dates (2026-11-17)
+
+Face dates are read by `landslidescience/dates.py` (`parse_span`), the one
+place on the site for reading a date a person typed; `span_text` writes them
+back ("18 Aug 2003", "Aug 2003", "2003", "1894 to 1904"), and every text it
+writes reads back to the same pair of days. python-dateutil does the free-form
+reading; the module's docstring says how precision is kept (read twice against
+two defaults) and what is refused on purpose (two-digit years, all-number
+dates other than ISO). The inventory's single-field date save
+(`views._parse_human_date`) falls back to `parse_day` after its own formats.
+
+## Editing panel states and the Source pull-down (2026-11-17)
+
+The editing panel (`#nw-panel`) sits above the tab panes, so it stays up on
+Retreat and Reference maps, and shows one state at a time: `#nw-create` (new
+flow line, trace a face, import) with nothing selected, `#nw-selBox` with a
+line selected. Editors open it from the ✎ map button or the `.nw-open`
+buttons in either tab.
+
+A new face's Source is one pull-down (`nw-fFrom`), the trace-groups pattern:
+layers on the map now (`GL.imagery()`; choosing one also fills date and
+basis), every `source_note` already on a face, then "＋ New source…", which
+opens a text box (`nw-fSrc`, which always holds the value that is saved). A
+typed source joins the list for the session and, once a face is saved with
+it, for good. There is no sources table: the list is the distinct notes.
+
+## Along-line positions are metric; split, adopt, extend (2026-11-17)
+
+Every position along a flow line (`join_frac`, a face's place on a reach, the
+clipped path geometry) is a fraction of length taken in `METRIC_SRID` (3338,
+Alaska Albers), not in degrees; see the comment above `_REBUILD_SQL` in
+`network.py`. Lengths stay geodesic. `rebuild()` must be run once per
+environment after this code lands, or stored `join_frac` / `end_chain_m` keep
+the old skewed values.
+
+A path is the clicked line plus only the part of each downstream line below
+the join: `reaches[].length_m` is that part, `full_m` the whole line, and the
+returned geometry is clipped the same way.
+
+Server-side helpers with no button yet: `split_line` (cut a trunk at a
+confluence vertex and name the lower part, as "Icy Bay" below the Guyot
+join), `adopt` (the body of `api_adopt`), `extend_to` (one straight link from
+a line's end to a trunk, meeting it slightly down-flow; a first guess to
+correct by hand).
+
+## Videos on the network (2026-11-17)
+
+`glaciers/videos.py` + `gl_videos.js`; the module docstring is the design
+note. A video is linked to one or more SEGMENTS (a flow line between two
+junctions), stored as anchor points and resolved to segments at read time, so
+links survive lines being split or redrawn. Kinds (`videos.KINDS`): `planet`
+(a story slug; the mp4 is archived and served by `inventory/planet.py` at
+`/inventory/planet/<slug>.mp4`, one copy shared with landslide records; a
+comparison story is linked out) and `s1` (an uploaded .mp4/.webm/.gif under
+`data/glacier_videos/`, served at `/glaciers/video/<name>`, 150 MB cap). A
+new uploaded kind is one more row in `KINDS`.
+
+Endpoints under `/glaciers/lines/api/`: `videos/` (public list + map
+layers), `segment/?lon=&lat=` (the segment under a point, for the picker),
+`videos/save/` (editors; multipart; create, change, delete). `api_path`
+returns `videos` with the stretches of the path each covers; the plot draws
+them as boxes (distance by years) and lists them under the chart.
+
+The map marker's click is an LSTools `reference` entry at priority 50, above
+the network's own (40), so it plays the video instead of plotting the path.
+The picker is its own hold (`glvideo`) with an `action` entry, so it cannot
+overlap a line-editing session.
+
+Tables `glacier_videos`, `glacier_video_anchors` are created by
+`migrate_glaciers` (once per environment). `data/glacier_videos/` is data: it
+is not in git or the image and must be copied to prod with the rows.
+
+Also 2026-11-17: a new face's Source and Read from default to the topmost
+thing on the map (`autoSrc` in `gl_network.js`) until the editor chooses or
+types one; a reused source brings the Read from it was last saved with.
+
+**Which line a face lands on (2026-11-17, evening).** A face that crosses a
+flow line is placed where it crosses. A face that crosses none is projected
+onto ONE line: a line of the glacier it was published for if one is within
+`NEAR_M`, else the nearest (`proj_id` in `_FACES_SQL`). Before this every
+face within `NEAR_M` of a line was projected onto it, so side-by-side
+glaciers plotted each other's faces (Tsaa's plot carried 318 of Grotto's).
+
+## Distributaries (2026-11-17, evening)
+
+A flow line that STARTS on another line is a distributary: ice leaving a
+trunk for a second front (Moraine/Apron off Grotto). Like a join it is
+nothing but a shared coordinate; `rebuild()` derives `up_id` / `up_frac`
+from it as it derives `down_id` / `join_frac` from where a line ends.
+
+- **What counts.** A start anywhere on another line except that line's own
+  start. At the other line's END it is a fork only when a second line starts
+  there too (a trunk splitting); a single line starting where others end is
+  a confluence carried on under a new name (Icy Bay) and gets no up-link.
+- **normalize()** makes a start that lands on a line a shared vertex (step
+  1b), and fuses end-to-start only when one line ends there and one starts.
+- **Network.** `network_id` is now the connected set over joins AND forks,
+  named for the outlet most lines drain to, so a distributary with its own
+  outlet stays in its parent's network.
+- **Path and plot.** `api_path` for a distributary starts at the PARENT's
+  head: the parent down to the fork (`to_frac` < 1, labelled "above the
+  fork"), then the line, then whatever it flows into. A reach is now the
+  stretch `from_frac`..`to_frac` of its line, `end_m` the distance from the
+  outlet at `to_frac`. The parent's own path is unchanged (it follows its
+  own line).
+- **Segments** (videos) are cut at forks as well as joins.
+- **Map.** `api_nodes` adds an orange dot where each distributary leaves.
+
+The editor needed nothing: it already snaps a dragged or drawn FIRST vertex
+onto other flow lines, as it does the last.
+
+**Edit cost (2026-11-17, late).** `normalize()` and `rebuild()` run on every
+geometry edit. They used to compare every line end with every vertex of every
+line (3 s an edit at 89 lines). Now `normalize()` looks only at lines whose
+bounding box holds the point and `rebuild()` finds candidates through the
+GIST index (`c.geom && ST_Expand(point, 0.001)`): 0.35 s, identical results.
+What still grows with the network: `normalize()` loads every flow line's
+coordinates, and the editor downloads every line as one GeoJSON
+(`lines/api/scarps/`, 2.5 KB a line). Fine for hundreds of lines; adopting
+all 41,293 RGI centrelines at once is not what this design is for.

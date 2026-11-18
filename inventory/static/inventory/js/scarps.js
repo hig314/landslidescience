@@ -51,6 +51,8 @@ window.LSScarps = (function () {
   var map = null, td = null, api = '/inventory/', csrf = null;
   var mode = null;               // null | 'draw' | 'select'
   var onChange = null, flash = null, onPick = null;
+  var drawFields = null;         // host: function (kind) -> extra fields POSTed with a new line
+  var onCreated = null;          // host: function (response, kind), after a new line is saved
   var features = { type: 'FeatureCollection', features: [] };
   var selectedId = null;
 
@@ -331,8 +333,12 @@ window.LSScarps = (function () {
     var k = drawKind, g = drawGroup;
     // A kind filtered off would save a line the tracer then cannot see.
     if (hiddenKinds[k]) { delete hiddenKinds[k]; }
-    return req(api + 'api/scarps/create/', { method: 'POST',
-        body: { geometry: geom, notes: '', kind: k, traced_on: ctx, group_id: g } })
+    var body = { geometry: geom, notes: '', kind: k, traced_on: ctx, group_id: g };
+    try {
+      var extra = drawFields ? drawFields(k) : null;
+      if (extra) Object.keys(extra).forEach(function (key) { body[key] = extra[key]; });
+    } catch (e) {}
+    return req(api + 'api/scarps/create/', { method: 'POST', body: body })
       .then(function (res) {
         // `select`: the row the new line now is (a host may have fused it
         // into another); `reload`: other rows changed with it.
@@ -340,7 +346,9 @@ window.LSScarps = (function () {
         if (g != null) bumpGroupCounts();
         redraw();
         flash(kindInfo(k).label + ' saved — add a note.');
-        if (res.reload) return load();
+        var done = function () { if (onCreated) { try { onCreated(res, k); } catch (e) {} } };
+        if (res.reload) return load().then(done);
+        done();
       })
       .catch(function (e) { flash('Could not save: ' + e.message, true); });
   }
@@ -372,7 +380,21 @@ window.LSScarps = (function () {
           // already carries a comment about (premature close, dropped points).
           // 8 px means only a deliberate click back on the last point ends it.
           pointerDistance: 8,
-          keyEvents: { finish: 'Enter', cancel: 'Escape' }
+          keyEvents: { finish: 'Enter', cancel: 'Escape' },
+          // Snap WHILE drawing, not only when the line is saved: the point
+          // under the cursor jumps onto a line of a snapping kind and Terra
+          // Draw marks it, so a join or a fork is seen before the click.
+          // Returning undefined leaves the cursor where it is.
+          snapping: {
+            toCustom: function (ev) {
+              if (!snapsKind(drawKind)) return undefined;
+              var c = snapLL({ lng: ev.lng, lat: ev.lat }, extendId);
+              if (c[0] === ev.lng && c[1] === ev.lat) return undefined;
+              return [+c[0].toFixed(COORD_PRECISION), +c[1].toFixed(COORD_PRECISION)];
+            }
+          },
+          styles: { snappingPointColor: '#ffeb3b', snappingPointWidth: 7,
+                    snappingPointOutlineColor: '#000000', snappingPointOutlineWidth: 2 }
         })),
         new TD.TerraDrawSelectMode()
       ]
@@ -968,6 +990,8 @@ window.LSScarps = (function () {
     onChange = opts.onChange || function () {};
     flash = opts.flash || function () {};
     onPick = opts.onPick || null;
+    drawFields = opts.drawFields || null;
+    onCreated = opts.onCreated || null;
     map.on('style.load', function () { ensureLayers(); redraw(); });
     return load();
   }

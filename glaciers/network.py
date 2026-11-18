@@ -118,63 +118,76 @@ CREATE TABLE IF NOT EXISTS glacier_lines (
 );
 CREATE INDEX IF NOT EXISTS glacier_lines_geom_idx ON glacier_lines USING GIST (geom);
 CREATE INDEX IF NOT EXISTS glacier_lines_kind_idx ON glacier_lines (kind);
+-- A DISTRIBUTARY is a flow line that STARTS on another line: ice leaving a
+-- trunk for a second front. Derived by rebuild(), like down_id.
+ALTER TABLE glacier_lines ADD COLUMN IF NOT EXISTS up_id integer;
+ALTER TABLE glacier_lines ADD COLUMN IF NOT EXISTS up_frac double precision;
 """
 
 
 # ---------------------------------------------------------------------------
-# Dates: a face is known to a day, a month, a year, or a span of years.
+# Dates: a face is known to a day, a month, a year, or a span of years. Read
+# and written by the site-wide module, so "18 Aug 2003" works here as anywhere.
 # ---------------------------------------------------------------------------
-_D = re.compile(r'^(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?$')
-
-
-def _one(text, end):
-    m = _D.match(text.strip())
-    if not m:
-        raise ValueError('dates look like 1904, 1904-08 or 1904-08-15')
-    y, mo, d = int(m.group(1)), m.group(2), m.group(3)
-    if mo is None:
-        return datetime.date(y, 12, 31) if end else datetime.date(y, 1, 1)
-    mo = int(mo)
-    if d is None:
-        if not end:
-            return datetime.date(y, mo, 1)
-        nxt = datetime.date(y + (mo == 12), mo % 12 + 1, 1)
-        return nxt - datetime.timedelta(days=1)
-    return datetime.date(y, mo, int(d))
-
-
-def parse_date(text):
-    """'1904' | '1904-08' | '1904-08-15' | '1894 to 1904' -> (date_min, date_max).
-    Empty -> (None, None)."""
-    text = (text or '').strip()
-    if not text:
-        return None, None
-    parts = re.split(r'\s*(?:/|\.\.|–|—|\bto\b)\s*', text)
-    if len(parts) > 2:
-        raise ValueError('a date bracket is one date or two')
-    a = _one(parts[0], False)
-    b = _one(parts[-1], True)
-    if b < a:
-        raise ValueError('the bracket ends before it starts')
-    return a, b
+from landslidescience.dates import parse_span as parse_date, span_text as _date_text  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
 # Topology and chainage
 # ---------------------------------------------------------------------------
+# Positions ALONG a line (join_frac, pin_frac, where a face sits) are
+# fractions of its length measured in METRIC_SRID, not in degrees: at 60°N a
+# degree of longitude is half a degree of latitude, so a fraction taken in
+# lon/lat is skewed on any line that changes direction (the Taan junction sat
+# 1.4 km out of place until 2026-11-17). Lengths themselves are geodesic
+# (::geography); the projection only supplies the fraction, so its small
+# scale error cancels. Alaska Albers; good enough for Yukon and BC too.
+METRIC_SRID = 3338
+
 _REBUILD_SQL = """
-WITH f AS (SELECT id, ST_GeometryN(geom, 1) AS line,
-                  ST_EndPoint(ST_GeometryN(geom, 1)) AS e
+-- Candidates come from the table through its spatial index (a small box
+-- round the point), not from every pair of lines.
+WITH f AS (SELECT id, geom, ST_GeometryN(geom, 1) AS line,
+                  ST_Transform(ST_GeometryN(geom, 1), 3338) AS lm,
+                  ST_EndPoint(ST_GeometryN(geom, 1)) AS e,
+                  ST_Transform(ST_EndPoint(ST_GeometryN(geom, 1)), 3338) AS em,
+                  ST_StartPoint(ST_GeometryN(geom, 1)) AS s,
+                  ST_Transform(ST_StartPoint(ST_GeometryN(geom, 1)), 3338) AS sm
            FROM glacier_lines WHERE kind = 'flowline')
-SELECT a.id, b.id, b.frac, ST_Length(a.line::geography)
+SELECT a.id, b.id, b.frac, ST_Length(a.line::geography), u.id, u.frac
 FROM f a LEFT JOIN LATERAL (
-    SELECT c.id, ST_LineLocatePoint(c.line, a.e) AS frac
-    FROM f c
-    WHERE c.id <> a.id AND ST_DWithin(c.line::geography, a.e::geography, %s)
+    SELECT c.id, ST_LineLocatePoint(ST_Transform(ST_GeometryN(c.geom, 1), 3338), a.em) AS frac
+    FROM glacier_lines c
+    WHERE c.kind = 'flowline' AND c.id <> a.id AND c.geom && ST_Expand(a.e, 0.001)
+      AND ST_DWithin(ST_GeometryN(c.geom, 1)::geography, a.e::geography, %s)
     -- Two feeders that end at the same spot on a trunk are each within reach
     -- of the other's END; the trunk is the one they are not at the end of.
-    ORDER BY (ST_LineLocatePoint(c.line, a.e) > 0.985), ST_Distance(c.line::geography, a.e::geography)
+    -- And where a distributary leaves the trunk at that same spot, the
+    -- feeder joins the trunk (the line it meets mid-course), not the
+    -- distributary's first vertex.
+    ORDER BY (ST_LineLocatePoint(ST_Transform(ST_GeometryN(c.geom, 1), 3338), a.em) > 0.985),
+             (ST_LineLocatePoint(ST_Transform(ST_GeometryN(c.geom, 1), 3338), a.em) < 0.0005
+              AND ST_Distance(ST_StartPoint(ST_GeometryN(c.geom, 1))::geography, a.e::geography) <= 2.0),
+             ST_Distance(ST_GeometryN(c.geom, 1)::geography, a.e::geography)
     LIMIT 1) b ON true
+LEFT JOIN LATERAL (
+    -- A distributary: this line STARTS on line c. Anywhere on c but its own
+    -- start (two lines sharing a head are not parent and child); at c's very
+    -- end it is a trunk that ends by splitting.
+    SELECT c.id, ST_LineLocatePoint(ST_Transform(ST_GeometryN(c.geom, 1), 3338), a.sm) AS frac
+    FROM glacier_lines c
+    WHERE c.kind = 'flowline' AND c.id <> a.id AND c.geom && ST_Expand(a.s, 0.001)
+      AND ST_DWithin(ST_GeometryN(c.geom, 1)::geography, a.s::geography, %s)
+      AND ST_Distance(ST_StartPoint(ST_GeometryN(c.geom, 1))::geography, a.s::geography) > %s
+      -- Starting at c's END is a fork only if a second line starts there
+      -- too. One line starting where others end is a confluence carried on
+      -- under a new name (Icy Bay below Tsaa and Guyot), not a distributary.
+      AND (ST_Distance(ST_EndPoint(ST_GeometryN(c.geom, 1))::geography, a.s::geography) > %s
+           OR EXISTS (SELECT 1 FROM glacier_lines d
+                      WHERE d.kind = 'flowline' AND d.id NOT IN (a.id, c.id) AND d.geom && ST_Expand(a.s, 0.001)
+                        AND ST_Distance(ST_StartPoint(ST_GeometryN(d.geom, 1))::geography, a.s::geography) <= %s))
+    ORDER BY ST_Distance(ST_GeometryN(c.geom, 1)::geography, a.s::geography)
+    LIMIT 1) u ON true
 """
 
 
@@ -244,14 +257,25 @@ def normalize(cur, tol_m=JOIN_TOL_M, only=None):
         if len(c) >= 2 and len(c) != len(r['c']):
             r['c'] = c; dirty.add(i)
 
+    # Only a line whose bounding box holds the point can be within reach of
+    # it. Without this every edit measured every end against every vertex of
+    # every line (3 s an edit at 90 lines, minutes at a thousand).
+    pad = max(tol_m, 1.0) / 30000.0          # degrees; generous at any latitude here
+
+    def box(i):
+        xs = [p[0] for p in L[i]['c']]; ys = [p[1] for p in L[i]['c']]
+        return (min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
+    BOX = {i: box(i) for i in L}
+
+    def near(pt, a):
+        return [b for b, (x0, y0, x1, y1) in BOX.items() if b != a and x0 <= pt[0] <= x1 and y0 <= pt[1] <= y1]
+
     # 1. branches: an end that lands on another line becomes a shared vertex
     for a in sorted(L):
         if not movable(a):
             continue
         end, best = L[a]['c'][-1], None
-        for b in L:
-            if b == a:
-                continue
+        for b in near(end, a):
             n = _nearest_on(L[b]['c'], end)
             # at b's END is not a join (two feeders arriving at one spot)
             at_end = n[1] == len(L[b]['c']) - 2 and n[2] > 0.999
@@ -265,25 +289,54 @@ def normalize(cur, tol_m=JOIN_TOL_M, only=None):
         if ins:
             cb.insert(i + 1, q); dirty.add(b)
         if L[a]['c'][-1] != q:
-            L[a]['c'][-1] = list(q); dirty.add(a)
-    # 2. end to end: a's last vertex is b's first, and a is the only line that ends there
+            L[a]['c'][-1] = list(q); dirty.add(a); BOX[a] = box(a)
+    # 1b. forks: a START that lands on another line becomes a shared vertex
+    # too (a distributary leaving a trunk). Not at that line's own start.
+    for a in sorted(L):
+        if not movable(a):
+            continue
+        start, best = L[a]['c'][0], None
+        for b in near(start, a):
+            n = _nearest_on(L[b]['c'], start)
+            at_start = n[1] == 0 and n[2] < 0.001
+            if n[0] <= tol_m and not at_start and (best is None or n[0] < best[1][0]):
+                best = (b, n)
+        if not best:
+            continue
+        b, (d, i, t, q) = best
+        cb = L[b]['c']
+        q, ins = _pick(cb, i, q)
+        if ins:
+            cb.insert(i + 1, q); dirty.add(b)
+        if L[a]['c'][0] != q:
+            L[a]['c'][0] = list(q); dirty.add(a); BOX[a] = box(a)
+    # 2. end to end: a's last vertex is b's first, a is the only line that
+    # ends there and b the only one that starts there (two starting there is
+    # a trunk splitting into distributaries, which stay separate lines)
     while True:
         pair = None
+        starts, ends = {}, {}
+        for i in sorted(L):
+            starts.setdefault(tuple(L[i]['c'][0]), []).append(i)
+            ends.setdefault(tuple(L[i]['c'][-1]), []).append(i)
         for a in sorted(L):
-            for b in sorted(L):
-                if a == b or L[a]['c'][-1] != L[b]['c'][0]:
-                    continue
-                others = [x for x in L if x not in (a, b) and L[x]['c'][-1] == L[b]['c'][0]]
-                if not others and (movable(a) or movable(b)):
-                    pair = (a, b)
-                    break
-            if pair:
+            k = tuple(L[a]['c'][-1])
+            if len(ends[k]) != 1 or len(starts.get(k, [])) != 1:
+                continue
+            b = starts[k][0]
+            # not through a third line: a feeder arriving where a
+            # distributary leaves the same trunk is a join and a fork
+            if any(list(k) in L[x]['c'] for x in near(k, a) if x != b):
+                continue
+            if b != a and (movable(a) or movable(b)):
+                pair = (a, b)
                 break
         if not pair:
             break
         a, b = pair
         A, B = L[a], L.pop(b)
         A['c'] = A['c'] + B['c'][1:]
+        BOX.pop(b, None); BOX[a] = box(a)
         A['name'] = A['name'] or B['name']
         A['notes'] = '\n'.join(x for x in (A['notes'], B['notes']) if x)
         A['origin'] = A['origin'] if A['origin'] == B['origin'] else 'mixed'
@@ -306,6 +359,62 @@ def normalize(cur, tol_m=JOIN_TOL_M, only=None):
         if i in L:
             _write(cur, i, L[i]['c'])
     return {'fused': fused, 'changed': bool(dirty or fused)}
+
+
+def split_line(cur, lid, at, name, who, notes=''):
+    """Cut flow line `lid` in two at its vertex `at` ([lon, lat], exactly as
+    stored): `lid` keeps the upper course and its name, and a new line `name`
+    carries the lower course from that vertex to the old end. Returns the new
+    line's id. Meant for a point where ANOTHER line also ends (a confluence):
+    normalize() fuses two lines that meet end to end with nothing else
+    arriving, so a split anywhere else is undone at the next edit.
+    The caller runs rebuild() and commits."""
+    cur.execute("""SELECT ST_AsGeoJSON(ST_GeometryN(geom, 1), 7) FROM glacier_lines
+                   WHERE id = %s AND kind = 'flowline'""", (lid,))
+    row = cur.fetchone()
+    if not row:
+        raise ValueError('no flow line %s' % lid)
+    c = json.loads(row[0])['coordinates']
+    ks = [k for k, p in enumerate(c) if p == list(at)]
+    if len(ks) != 1 or ks[0] in (0, len(c) - 1):
+        raise ValueError('the split point must be one interior vertex of the line')
+    cur.execute('SELECT count(*) FROM glacier_lines WHERE pin_line_id = %s', (lid,))
+    if cur.fetchone()[0]:
+        raise RuntimeError('line %d has faces pinned to it; re-measure the pins before splitting' % lid)
+    k = ks[0]
+    new = _insert(cur, {'type': 'LineString', 'coordinates': c[k:]}, 'flowline', who,
+                  name=name, origin='manual', notes=notes[:_MAX_NOTES])
+    _write(cur, lid, c[:k + 1])
+    cur.execute('UPDATE glacier_lines SET updated_at = now() WHERE id = %s', (lid,))
+    return new
+
+
+def extend_to(cur, lid, target_id):
+    """Carry flow line `lid` on from its end to flow line `target_id`, as one
+    straight link that meets the target a little DOWN-flow of the nearest
+    point (by the width of the gap, so it merges at about 45 degrees rather
+    than square on). A first guess to be corrected by hand, for a glacier
+    whose published centreline stops at its own terminus but which fed a
+    trunk when the ice was thicker. Returns the gap in metres. The caller
+    runs normalize() and rebuild() and commits."""
+    cur.execute("""
+        WITH a AS (SELECT ST_Transform(ST_EndPoint(ST_GeometryN(geom, 1)), 3338) e FROM glacier_lines WHERE id = %s),
+             b AS (SELECT ST_Transform(ST_GeometryN(geom, 1), 3338) lm FROM glacier_lines WHERE id = %s)
+        SELECT ST_Distance(a.e, b.lm), ST_LineLocatePoint(b.lm, a.e), ST_Length(b.lm) FROM a, b""",
+                (lid, target_id))
+    gap, frac, length = cur.fetchone()
+    f = min(frac + gap / length, 0.98)
+    cur.execute("""SELECT ST_X(p), ST_Y(p) FROM (SELECT ST_Transform(ST_LineInterpolatePoint(
+                       ST_Transform(ST_GeometryN(geom, 1), 3338), %s), 4326) p
+                   FROM glacier_lines WHERE id = %s) q""", (f, target_id))
+    q = [round(v, 7) for v in cur.fetchone()]
+    cur.execute('SELECT ST_AsGeoJSON(ST_GeometryN(geom, 1), 7) FROM glacier_lines WHERE id = %s', (lid,))
+    c = json.loads(cur.fetchone()[0])['coordinates']
+    _write(cur, lid, c + [q])
+    cur.execute("""UPDATE glacier_lines SET origin = CASE WHEN origin = 'rgi7' THEN 'mixed' ELSE origin END,
+                          notes = trim(notes || E'\n' || %s), updated_at = now() WHERE id = %s""",
+                ('Beyond the RGI terminus: one straight link to line %d, a first guess to correct by hand.' % target_id, lid))
+    return gap
 
 
 def join_rgi(cur, gid):
@@ -338,10 +447,22 @@ def join_rgi(cur, gid):
 
 
 def rebuild(cur):
-    """Recompute down_id / join_frac / end_chain_m / network_id / length_m for
-    every flow line."""
-    cur.execute(_REBUILD_SQL, (JOIN_TOL_M,))
-    rows = {r[0]: {'down': r[1], 'frac': r[2], 'len': r[3] or 0.0} for r in cur.fetchall()}
+    """Recompute down_id / join_frac / up_id / up_frac / end_chain_m /
+    network_id / length_m for every flow line."""
+    cur.execute(_REBUILD_SQL, (JOIN_TOL_M,) * 5)
+    rows = {r[0]: {'down': r[1], 'frac': r[2], 'len': r[3] or 0.0, 'up': r[4], 'ufrac': r[5]}
+            for r in cur.fetchall()}
+    # A line cannot leave the line it flows into at the very point it joins
+    # it (a tributary whose two ends both touch one trunk at one spot is a
+    # drawing slip, not a loop); and up-links must not form a cycle.
+    for i in sorted(rows):
+        seen, j = {i}, rows[i]['up']
+        while j is not None:
+            if j in seen:
+                rows[i]['up'], rows[i]['ufrac'] = None, None
+                break
+            seen.add(j)
+            j = rows[j]['up']
     # A loop (two lines each ending on the other) has no outlet; break it at
     # the higher id so the result is at least a tree.
     for i in sorted(rows):
@@ -364,11 +485,29 @@ def rebuild(cur):
             c, net = chain(r['down'])
             memo[i] = (c + (1.0 - r['frac']) * rows[r['down']]['len'], net)
         return memo[i]
+    # One network = everything connected by a join OR a fork, so a
+    # distributary with its own outlet stays in its parent's network. Named
+    # for the outlet most lines drain to (the lowest id on a tie).
+    root = {i: i for i in rows}
+
+    def find(i):
+        while root[i] != i:
+            root[i] = root[root[i]]
+            i = root[i]
+        return i
     for i, r in rows.items():
-        c, net = chain(i)
-        cur.execute('UPDATE glacier_lines SET down_id=%s, join_frac=%s, end_chain_m=%s, '
+        for j in (r['down'], r['up']):
+            if j is not None:
+                root[find(i)] = find(j)
+    votes = {}
+    for i in rows:
+        votes.setdefault(find(i), {}).setdefault(chain(i)[1], 0)
+        votes[find(i)][chain(i)[1]] += 1
+    name = {k: sorted(v.items(), key=lambda x: (-x[1], x[0]))[0][0] for k, v in votes.items()}
+    for i, r in rows.items():
+        cur.execute('UPDATE glacier_lines SET down_id=%s, join_frac=%s, up_id=%s, up_frac=%s, end_chain_m=%s, '
                     'network_id=%s, length_m=%s WHERE id=%s',
-                    (r['down'], r['frac'], c, net, r['len'], i))
+                    (r['down'], r['frac'], r['up'], r['ufrac'], chain(i)[0], name[find(i)], r['len'], i))
 
 
 def _bump():
@@ -382,34 +521,22 @@ def _bump():
 _SELECT = """
     SELECT id, ST_AsGeoJSON(geom, 6), kind, name, notes, traced_by, traced_on, created_at,
            updated_at, ST_Length(geom::geography), origin, glacier_id, is_main, down_id,
-           end_chain_m, network_id, date_min, date_max, basis, source_note, pin_line_id, pin_frac
+           end_chain_m, network_id, date_min, date_max, basis, source_note, pin_line_id, pin_frac, up_id
       FROM glacier_lines
 """
-
-
-def _date_text(a, b):
-    if not a:
-        return ''
-    if a == b:
-        return a.isoformat()
-    if a.year == b.year and a.month == 1 and a.day == 1 and b.month == 12 and b.day == 31:
-        return str(a.year)
-    if a.month == 1 and a.day == 1 and b.month == 12 and b.day == 31:
-        return '%d to %d' % (a.year, b.year)
-    return '%s to %s' % (a.isoformat(), b.isoformat())
 
 
 def _fc(rows):
     feats = []
     for (i, g, kind, name, notes, by, on, c, u, L, origin, gid, main, down, chain, net,
-         d0, d1, basis, src, pin, pinf) in rows:
+         d0, d1, basis, src, pin, pinf, up) in rows:
         feats.append({'type': 'Feature', 'geometry': json.loads(g), 'properties': {
             'id': i, 'kind': kind, 'name': name, 'notes': notes or '', 'traced_by': by or '',
             'traced_on': on, 'group_id': None, 'group': None,
             'created_at': c.isoformat() if c else None,
             'updated_at': u.isoformat() if u else None,
             'length_m': round(L, 1) if L is not None else None,
-            'origin': origin, 'glacier_id': gid, 'is_main': main, 'down_id': down,
+            'origin': origin, 'glacier_id': gid, 'is_main': main, 'down_id': down, 'up_id': up,
             'end_chain_m': chain, 'network_id': net,
             'date_min': d0.isoformat() if d0 else None, 'date_max': d1.isoformat() if d1 else None,
             'date': _date_text(d0, d1), 'y0': d0.year if d0 else None,
@@ -459,6 +586,32 @@ def _insert(cur, geom, kind, who, **f):
     return cur.fetchone()[0]
 
 
+def _placement(cur, face_id):
+    """Where a face lands on the network, by the rule api_path plots with:
+    the flow line it crosses, else the nearest one within NEAR_M. None if no
+    flow line is anywhere near. `km_from_head` is along that one line."""
+    cur.execute("""
+        SELECT f.id, f.name, ST_Intersects(l.geom, fl.line) AS crosses,
+               (SELECT avg(ST_LineLocatePoint(fl.lm, d.geom)) FROM ST_DumpPoints(ST_Transform(l.geom, 3338)) d),
+               ST_LineLocatePoint(fl.lm, ST_ClosestPoint(ST_Transform(l.geom, 3338), fl.lm)),
+               ST_Distance(l.geom::geography, fl.line::geography) AS dist, f.length_m,
+               (SELECT g.name FROM glaciers g WHERE g.id = f.glacier_id)
+          FROM glacier_lines l
+          JOIN glacier_lines f ON f.kind = 'flowline' AND ST_DWithin(l.geom, f.geom, 0.1)
+          CROSS JOIN LATERAL (SELECT ST_GeometryN(f.geom, 1) AS line,
+                                     ST_Transform(ST_GeometryN(f.geom, 1), 3338) AS lm) fl
+         WHERE l.id = %s
+         ORDER BY crosses DESC, dist LIMIT 1""", (face_id,))
+    r = cur.fetchone()
+    if not r:
+        return None
+    fid, name, crosses, fmean, fnear, dist, length, gname = r
+    how = 'crossing' if crosses else ('projected' if dist <= NEAR_M and 0.001 < fnear < 0.999 else 'off')
+    return {'line_id': fid, 'name': name or gname or '', 'how': how, 'dist_m': round(dist),
+            'near_m': NEAR_M,
+            'km_from_head': round((fmean or 0) * (length or 0) / 1000.0, 2)}
+
+
 @inventory_editor_required
 @require_http_methods(['POST'])
 def api_line_create(request):
@@ -472,10 +625,24 @@ def api_line_create(request):
     conn = _get_conn()
     try:
         cur = conn.cursor()
+        # A face traced with the tracing panel arrives with its date, what it
+        # was read from and its source. A date that cannot be read must not
+        # cost the traced line: the face is saved undated and says so.
+        extra, warn = {}, ''
+        if kind == 'face':
+            if body.get('basis') in BASES:
+                extra['basis'] = body['basis']
+            if body.get('source_note'):
+                extra['source_note'] = str(body['source_note'])[:300]
+            if body.get('date'):
+                try:
+                    extra['date_min'], extra['date_max'] = parse_date(body.get('date'))
+                except ValueError as e:
+                    warn = 'saved without a date (%s)' % e
         try:
             new_id = _insert(cur, body['geometry'], kind, request.user.get_username(),
                              notes=(body.get('notes') or '')[:_MAX_NOTES],
-                             traced_on=json.dumps(on) if isinstance(on, dict) else None)
+                             traced_on=json.dumps(on) if isinstance(on, dict) else None, **extra)
         except ValueError as e:
             conn.rollback()
             return JsonResponse({'error': str(e)}, status=400)
@@ -485,6 +652,7 @@ def api_line_create(request):
             rebuild(cur)
         cur.execute(_SELECT + ' WHERE id = %s', (keep,))
         fc = _fc(cur.fetchall())
+        placement = _placement(cur, keep) if kind == 'face' else None
         conn.commit()
     except Exception:
         conn.rollback()
@@ -495,7 +663,8 @@ def api_line_create(request):
     # `reload`: other rows changed too (a vertex inserted in a trunk, a line
     # fused away, every chainage); `select`: the row this one now is.
     return JsonResponse({'ok': True, 'id': keep, 'select': keep, 'scarps': fc,
-                         'reload': kind == 'flowline'})
+                         'reload': kind == 'flowline', 'placement': placement,
+                         'warning': warn})
 
 
 @inventory_editor_required
@@ -578,6 +747,21 @@ def api_line_update(request, line_id):
 # ---------------------------------------------------------------------------
 # Getting lines in without drawing each one
 # ---------------------------------------------------------------------------
+def adopt(cur, gid, name, who):
+    """Copy one glacier's RGI centrelines into the network and tidy the
+    joins. Returns how many lines. The caller commits."""
+    cur.execute("""
+        INSERT INTO glacier_lines (kind, geom, name, traced_by, origin, glacier_id, segment_id, is_main)
+        SELECT 'flowline', ST_Multi(c.geom),
+               CASE WHEN c.is_main THEN %s ELSE '' END, %s, 'rgi7', c.glacier_id, c.segment_id, c.is_main
+        FROM glacier_centerlines c WHERE c.glacier_id = %s""", (name, who, gid))
+    n = cur.rowcount
+    join_rgi(cur, gid)
+    normalize(cur)
+    rebuild(cur)
+    return n
+
+
 @inventory_editor_required
 @require_http_methods(['POST'])
 def api_adopt(request):
@@ -597,16 +781,7 @@ def api_adopt(request):
         if cur.fetchone()[0]:
             conn.rollback()
             return JsonResponse({'ok': True, 'adopted': 0, 'note': 'already in the network'})
-        cur.execute("""
-            INSERT INTO glacier_lines (kind, geom, name, traced_by, origin, glacier_id, segment_id, is_main)
-            SELECT 'flowline', ST_Multi(c.geom),
-                   CASE WHEN c.is_main THEN %s ELSE '' END, %s, 'rgi7', c.glacier_id, c.segment_id, c.is_main
-            FROM glacier_centerlines c WHERE c.glacier_id = %s""",
-                    (g[0] or gid, request.user.get_username(), gid))
-        n = cur.rowcount
-        join_rgi(cur, gid)
-        normalize(cur)
-        rebuild(cur)
+        n = adopt(cur, gid, g[0] or gid, request.user.get_username())
         conn.commit()
     except Exception:
         conn.rollback()
@@ -758,30 +933,50 @@ def api_nodes(request):
                               ST_Y(ST_EndPoint(ST_GeometryN(geom,1)))
                        FROM glacier_lines WHERE kind = 'flowline'""")
         rows = cur.fetchall()
+        cur.execute("""SELECT id, ST_X(ST_StartPoint(ST_GeometryN(geom,1))), ST_Y(ST_StartPoint(ST_GeometryN(geom,1)))
+                       FROM glacier_lines WHERE kind = 'flowline' AND up_id IS NOT NULL""")
+        forks = cur.fetchall()
         conn.rollback()
     finally:
         _put_conn(conn)
     return JsonResponse({'type': 'FeatureCollection', 'features': [
         {'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': [x, y]},
-         'properties': {'id': i, 'outlet': d is None}} for i, d, x, y in rows]})
+         'properties': {'id': i, 'outlet': d is None, 'fork': False}} for i, d, x, y in rows] + [
+        # where a distributary leaves its parent
+        {'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': [x, y]},
+         'properties': {'id': i, 'outlet': False, 'fork': True}} for i, x, y in forks]})
 
 
 _FACES_SQL = """
-WITH r AS (SELECT ST_GeometryN(geom, 1) AS line FROM glacier_lines WHERE id = %(rid)s),
+WITH r AS (SELECT ST_GeometryN(geom, 1) AS line, ST_Transform(ST_GeometryN(geom, 1), 3338) AS lm
+             FROM glacier_lines WHERE id = %(rid)s),
 c AS (
-  SELECT 'o' || o.id AS fid, o.source, o.date_min, o.date_max, o.label, o.geom
+  SELECT 'o' || o.id AS fid, o.source, o.date_min, o.date_max, o.label, o.geom, o.glacier_id AS gid
     FROM glacier_obs o, r
    WHERE o.kind = 'terminus' AND ST_DWithin(o.geom, r.line, 0.03)
   UNION ALL
   SELECT 'l' || l.id, 'ours', l.date_min, l.date_max,
-         CASE WHEN l.source_note <> '' THEN l.source_note ELSE l.notes END, l.geom
+         CASE WHEN l.source_note <> '' THEN l.source_note ELSE l.notes END, l.geom, NULL::text
     FROM glacier_lines l, r
    WHERE l.kind = 'face' AND l.pin_line_id IS NULL AND ST_DWithin(l.geom, r.line, 0.03))
 SELECT c.fid, c.source, c.date_min, c.date_max, c.label,
        ST_Intersects(c.geom, r.line),
-       (SELECT avg(ST_LineLocatePoint(r.line, d.geom)) FROM ST_DumpPoints(c.geom) d),
-       ST_LineLocatePoint(r.line, ST_ClosestPoint(c.geom, r.line)),
-       ST_Distance(c.geom::geography, r.line::geography)
+       (SELECT avg(ST_LineLocatePoint(r.lm, d.geom)) FROM ST_DumpPoints(ST_Transform(c.geom, 3338)) d),
+       ST_LineLocatePoint(r.lm, ST_ClosestPoint(ST_Transform(c.geom, 3338), r.lm)),
+       ST_Distance(c.geom::geography, r.line::geography),
+       -- Which ONE line a face that crosses nothing is projected onto: a
+       -- line of the glacier the face was published for if one is in reach,
+       -- else the nearest. NULL when the face crosses some flow line: it
+       -- belongs where it crosses and is projected nowhere. Without this,
+       -- every face within NEAR_M of a line landed on it, so two glaciers
+       -- side by side (Grotto and Moraine/Apron) each plotted the other's.
+       CASE WHEN EXISTS (SELECT 1 FROM glacier_lines f WHERE f.kind = 'flowline' AND ST_Intersects(c.geom, f.geom))
+            THEN NULL
+            ELSE (SELECT f.id FROM glacier_lines f
+                   WHERE f.kind = 'flowline' AND ST_DWithin(c.geom, f.geom, 0.03)
+                     AND ST_Distance(c.geom::geography, f.geom::geography) <= %(near)s
+                   ORDER BY (c.gid IS NOT NULL AND f.glacier_id = c.gid) DESC,
+                            ST_Distance(c.geom::geography, f.geom::geography) LIMIT 1) END
 FROM c, r
 """
 
@@ -795,14 +990,16 @@ def api_path(request, line_id):
     vertices' positions along that reach (`x_m`): a width-averaged position,
     which Lea and others (2014) found far steadier than the bare centreline
     crossing on an irregular front. The crossing itself is returned too
-    (`cross_m`). A face that stops short of the line but lies within NEAR_M
-    of it is placed the same way and marked `projected`; a pinned face sits
+    (`cross_m`). A face that crosses NO flow line is placed the same way on
+    one line only and marked `projected` (a line of the glacier it was
+    published for if one is within NEAR_M, else the nearest); a pinned face sits
     where it was pinned.
     """
     conn = _get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("""SELECT id, name, origin, glacier_id, down_id, join_frac, end_chain_m, length_m
+        cur.execute("""SELECT id, name, origin, glacier_id, down_id, join_frac, end_chain_m, length_m,
+                              up_id, up_frac
                        FROM glacier_lines WHERE kind = 'flowline'""")
         L = {r[0]: r for r in cur.fetchall()}
         lid = int(line_id)
@@ -814,29 +1011,52 @@ def api_path(request, line_id):
             seen.add(i)
             r = L[i]
             path.append({'id': r[0], 'name': r[1], 'origin': r[2], 'glacier_id': r[3],
-                         'length_m': r[7] or 0.0, 'end_m': r[6] or 0.0, 'from_frac': lo})
+                         # length_m is the part ON the path: a line the path
+                         # joins part-way down counts only from the join to
+                         # its end (full_m is the whole line)
+                         'length_m': (1.0 - lo) * (r[7] or 0.0), 'full_m': r[7] or 0.0,
+                         'end_m': r[6] or 0.0, 'from_frac': lo, 'to_frac': 1.0})
             lo = r[5] or 0.0
             i = r[4]
+        # A distributary's history runs back up its parent: above the fork the
+        # two fronts were one. So the path starts at the parent's head, takes
+        # the parent as far as the fork (to_frac), then the clicked line.
+        # end_m of such a reach is the distance from the outlet AT the fork.
+        r, top, seen_up = L[lid], (L[lid][6] or 0.0) + (L[lid][7] or 0.0), {lid}
+        while r[8] is not None and r[8] not in seen_up and r[9] is not None:
+            par, f = L[r[8]], r[9]
+            seen_up.add(par[0])
+            if par[0] not in seen:      # a braid that rejoins its parent: the parent is already below
+                path.insert(0, {'id': par[0], 'name': par[1], 'origin': par[2], 'glacier_id': par[3],
+                                'length_m': f * (par[7] or 0.0), 'full_m': par[7] or 0.0,
+                                'end_m': top, 'from_frac': 0.0, 'to_frac': f})
+                top += f * (par[7] or 0.0)
+            else:
+                break
+            r = par
         best = {}
         for reach in path:
-            cur.execute(_FACES_SQL, {'rid': reach['id']})
-            for fid, src, d0, d1, label, crosses, fmean, fnear, dist in cur.fetchall():
+            cur.execute(_FACES_SQL, {'rid': reach['id'], 'near': NEAR_M})
+            for fid, src, d0, d1, label, crosses, fmean, fnear, dist, proj_id in cur.fetchall():
                 if fmean is None:
                     continue
                 # only the part of a reach at or below where the path joins it
                 if max(fmean, fnear) < reach['from_frac'] - 1e-6:
                     continue
+                # nor the part of a parent below where the distributary left it
+                if min(fmean, fnear) > reach['to_frac'] + 1e-6:
+                    continue
                 if crosses:
                     how = 'crossing'
-                elif dist <= NEAR_M and 0.001 < fnear < 0.999:
+                elif proj_id == reach['id'] and dist <= NEAR_M and 0.001 < fnear < 0.999:
                     how = 'projected'
                 else:
                     continue
                 rank = (0 if crosses else 1, dist)
                 if fid in best and best[fid][0] <= rank:
                     continue
-                x = reach['end_m'] + (1.0 - fmean) * reach['length_m']
-                xc = reach['end_m'] + (1.0 - fnear) * reach['length_m']
+                x = reach['end_m'] + (reach['to_frac'] - fmean) * reach['full_m']
+                xc = reach['end_m'] + (reach['to_frac'] - fnear) * reach['full_m']
                 best[fid] = (rank, {
                     'id': fid, 'source': src, 'how': how, 'reach': reach['id'],
                     'date_min': d0.isoformat() if d0 else None,
@@ -848,17 +1068,27 @@ def api_path(request, line_id):
                        FROM glacier_lines WHERE kind = 'face' AND pin_line_id = ANY(%s)""", (ids,))
         for fid, d0, d1, src, notes, pl, pf in cur.fetchall():
             reach = [p for p in path if p['id'] == pl][0]
-            if pf is None or pf < reach['from_frac'] - 1e-6:
+            if pf is None or pf < reach['from_frac'] - 1e-6 or pf > reach['to_frac'] + 1e-6:
                 continue
-            x = reach['end_m'] + (1.0 - pf) * reach['length_m']
+            x = reach['end_m'] + (reach['to_frac'] - pf) * reach['full_m']
             best['l%d' % fid] = ((0, 0), {
                 'id': 'l%d' % fid, 'source': 'ours', 'how': 'pinned', 'reach': pl,
                 'date_min': d0.isoformat() if d0 else None, 'date_max': d1.isoformat() if d1 else None,
                 't0': _dec(d0), 't1': _dec(d1, True), 'x_m': round(x, 1), 'cross_m': round(x, 1),
                 'label': src or notes or ''})
-        cur.execute("""SELECT ST_AsGeoJSON(ST_Collect(ST_GeometryN(geom,1) ORDER BY end_chain_m DESC), 6)
-                       FROM glacier_lines WHERE id = ANY(%s)""", (ids,))
+        # only the part of each line that is on the path: from where the
+        # path joins it down to its end, not the line's own upper course
+        cur.execute("""SELECT ST_AsGeoJSON(ST_Collect(
+                              ST_Transform(ST_LineSubstring(ST_Transform(ST_GeometryN(l.geom, 1), 3338),
+                                                            LEAST(p.lo, p.hi - 0.000001), p.hi), 4326)
+                              ORDER BY p.i), 6)
+                       FROM glacier_lines l
+                       JOIN unnest(%s::int[], %s::float8[], %s::float8[]) WITH ORDINALITY AS p(id, lo, hi, i)
+                         ON p.id = l.id""",
+                    (ids, [p['from_frac'] for p in path], [p['to_frac'] for p in path]))
         geom = cur.fetchone()[0]
+        from . import videos            # lazy: videos imports this module's siblings
+        vids = videos.on_path(cur, path)
         conn.rollback()
     finally:
         _put_conn(conn)
@@ -868,6 +1098,7 @@ def api_path(request, line_id):
         'total_m': round(top['end_m'] + top['length_m'], 1),
         'geometry': json.loads(geom) if geom else None,
         'faces': sorted((v[1] for v in best.values()), key=lambda f: (f['t0'] or 0, f['x_m'])),
+        'videos': vids,
     })
 
 

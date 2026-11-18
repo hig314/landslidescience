@@ -1856,33 +1856,12 @@
     // ---------------------------------------------------------------------------
     // One basemap card (thumbnail + label; QMS cards get a remove ×).
     function _buildBasemapCard(bm) {
-        var card = document.createElement('div');
-        card.className = 'refmap-option' + (bm.id === _currentBasemap ? ' active' : '');
-        card.dataset.id = bm.id;
-        var tipLines = [bm.label];
-        if (bm.category === 'Shared') tipLines.push('Shared with: ' + (bm.public ? 'everyone' : 'data admins'));
-        if (bm.coverage) tipLines.push('Coverage: ' + bm.coverage);
-        if (bm.attr)     tipLines.push(bm.attr);
-        card.title = tipLines.join('\n');
-        var thumbUrl = basemapThumbnailUrl(bm);
-        if (thumbUrl) {
-            var img = document.createElement('img');
-            img.className = 'refmap-thumb'; img.alt = ''; img.loading = 'lazy'; img.src = thumbUrl;
-            img.onerror = function () {
-                var ph = document.createElement('div');
-                ph.className = 'refmap-thumb-placeholder'; ph.textContent = bm.label;
-                img.replaceWith(ph);
-            };
-            card.appendChild(img);
-        } else {
-            var ph = document.createElement('div');
-            ph.className = 'refmap-thumb-placeholder'; ph.textContent = bm.label;
-            card.appendChild(ph);
-        }
-        var lbl = document.createElement('div');
-        lbl.className = 'refmap-label'; lbl.textContent = bm.label;
-        card.appendChild(lbl);
-        card.addEventListener('click', function () { setBasemap(bm.id); });
+        // The plain card is shared with /glaciers/ (basemaps.js).
+        var card = LSBasemaps.buildCard(bm, {
+            active: bm.id === _currentBasemap,
+            thumbUrl: basemapThumbnailUrl(bm),
+            onPick: function () { setBasemap(bm.id); }
+        });
         var isSharedEditable = bm.category === 'Shared' && window._isInventoryEditor;
         if (bm._qms || isSharedEditable) {
             card.style.position = 'relative';
