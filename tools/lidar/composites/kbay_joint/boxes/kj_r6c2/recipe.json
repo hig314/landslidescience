@@ -242,7 +242,8 @@
    "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_edited.csv",
    "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1977_1984_edited.csv",
    "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1915_1931_edited.csv",
-   "/Volumes/Nunatak/lidar_build/obs/soundings/crm_far_20261104.csv"
+   "/Volumes/Nunatak/lidar_build/obs/soundings/crm_far_20261104.csv",
+   "/Volumes/Nunatak/lidar_build/obs/soundings/hand_placed_20261117.csv"
   ],
   "notes": "low_tide_m = MLLW in NAVD88 (-1.38 m). tidal_lens (default): marine domains take the observed water surface as the bed; measured beds (multibeam, green-lidar returns, the soundings export: Riordan 2018 KBSP lakes, Grewingk, Petrof and Gore 2022 (levels from 3DEP)) condition it. Since 2026-10-31 the points also carry the NOS hydrographic surveys' digital soundings (topobathy/nos_soundings_csv.py: MLLW -1.38; 1977-84 echo sounder sigma 0.8 m on flats, growing with the bed slope; 1915-31 lead line 2 m, to the 10 m cap on slopes and lone lines) and CRM's 500 m cell centres below low tide away from 3DEP land at sigma 10 (the compilation as the shape between soundings, never an observation); the water stage finds the sea from these points when no survey saw one.",
   "ice_face": "free",
@@ -280,7 +281,8 @@
    "/Volumes/Nunatak/lidar_build/obs/soundings/soundings_edited.csv",
    "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1977_1984_edited.csv",
    "/Volumes/Nunatak/lidar_build/obs/soundings/nos_1915_1931_edited.csv",
-   "/Volumes/Nunatak/lidar_build/obs/soundings/crm_far_20261104.csv"
+   "/Volumes/Nunatak/lidar_build/obs/soundings/crm_far_20261104.csv",
+   "/Volumes/Nunatak/lidar_build/obs/soundings/hand_placed_20261117.csv"
   ],
   "notes": "BAY_SOURCES.md 2026-10-29. Lidar from the shared units cache (joint_pilot.py units --recipe), grids as observations. sheet_points (2026-10-31): the fill's points as the sparse measured bed under a lidar's flat sheet (joint.py's sheet rule), evidence only -- they are not cells of the layer.",
   "vintage": [

@@ -1131,6 +1131,19 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
                     bad_o = ~tide_ & (cnt(at_) >= smc)
                     del dw0, iy0, ix0, at_
                 del hw0
+            # ...and AT ANOTHER SURVEY'S WATER (2026-11-17, Hig, the Homer water-supply reservoir 59.67808,-151.54771: "bad points
+            # interpreted as land"): Homer 2019 classed the whole reservoir 'ground', a sheet at 282.52 m with no water returns of its
+            # own, so the test above never ran; KBay 2023 saw the same water at 282.515.  The same test against every survey's water
+            # returns (zwmin): a sheet above the tide's reach at the level of water any survey saw beside it is that water's surface.
+            if cfg.get("own_sheet_any_water", True) and np.isfinite(zwmin).any() and (~tide_[1:]).any():
+                hwA = np.isfinite(zwmin)
+                dwA, (iyA, ixA) = ndimage.distance_transform_edt(~hwA, sampling=res, return_indices=True)
+                ownA = flat_ & (np.abs(Z[n] - zwmin[iyA, ixA]) <= float(cfg.get("own_sheet_tol_m", 0.15)))
+                bad_A = ~tide_ & (cnt(ownA & (dwA <= 2.0 * res)) >= smc); bad_A[0] = False
+                if bad_A.any():
+                    own_ = ownA if own_ is None else (own_ | ownA)
+                    bad_o = bad_o | bad_A
+                del hwA, dwA, iyA, ixA, ownA, bad_A
             bad_ = bad_w | bad_b; bad_[0] = False; bad_o[0] = False
             st_ = bad_[lab_]
             # ...OF SUCH A SHEET, ONLY THE CELLS AT THE LEVEL OF ITS PART OVER THE WATER / BED (2026-11-09, Hig's review: the Woz delta,
