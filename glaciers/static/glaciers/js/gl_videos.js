@@ -86,11 +86,31 @@ window.GLVideos = (function () {
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
         }).then(function (d) {
+            var was = {};
+            Object.keys(byId).forEach(function (k) { was[k] = byId[k].state; });
             D = d; byId = {};
             d.videos.forEach(function (v) { byId[v.id] = v; });
             redraw();
+            // A video that was still being copied here has arrived (or
+            // failed): show it in the popup that was waiting for it.
+            if (shown && byId[shown.id] && was[shown.id] === 'archiving' && byId[shown.id].state !== 'archiving') {
+                open(shown.ids, shown.lngLat, shown.id);
+            }
+            watch();
             return d;
         }).catch(function (e) { console.error('videos failed to load:', e); });
+    }
+
+    // While any video is still being copied here (a Planet story being
+    // archived, a Drive link being fetched), ask again every few seconds, so
+    // it becomes playable without a reload. Gives up after ten minutes.
+    var shown = null, watchT = null, watchUntil = 0;
+    function watch() {
+        var pending = D.videos.some(function (v) { return v.state === 'archiving'; });
+        if (!pending) { watchUntil = 0; return; }
+        if (!watchUntil) watchUntil = Date.now() + 600000;
+        if (watchT || Date.now() > watchUntil) return;
+        watchT = setTimeout(function () { watchT = null; load(); }, 4000);
     }
 
     // ------------------------------------------------------------------
@@ -109,7 +129,7 @@ window.GLVideos = (function () {
             h += '<div class="rt-sub" style="color:#b71c1c">The video could not be copied here: ' + esc(v.error) +
                 ' Delete this entry and link it again.</div>';
         } else {
-            h += '<div class="rt-sub">The video is being copied here; reload in a minute.</div>';
+            h += '<div class="rt-sub">The video is being copied here; it will appear in this box when it is ready.</div>';
         }
         if (v.link) h += '<div><a href="' + esc(v.link) + '" target="_blank" rel="noopener">Open on planet.com</a></div>';
         h += '<div class="rt-sub">Shows: ' + v.segments.map(function (s) {
@@ -118,11 +138,12 @@ window.GLVideos = (function () {
         if (CFG.editor) h += '<div><button type="button" class="gv-edit" data-v="' + v.id + '">Edit segments or details</button></div>';
         return h + '</div>';
     }
-    function open(ids, lngLat) {
+    function open(ids, lngLat, first) {
         ids = [].concat(ids).filter(function (i) { return byId[i]; });
         if (!ids.length) return;
         var box = document.createElement('div');
         function show(id) {
+            if (shown) shown.id = id;
             var tabs = ids.length > 1 ? '<div class="gv-tabs">' + ids.map(function (i) {
                 return '<button type="button" data-t="' + i + '"' + (i === id ? ' class="on"' : '') + '>' +
                     esc((byId[i].caption || byId[i].kind_label).slice(0, 28)) + '</button>';
@@ -134,9 +155,12 @@ window.GLVideos = (function () {
             var ed = box.querySelector('.gv-edit');
             if (ed) ed.addEventListener('click', function () { window.LSTools.popup.close(); start(id); });
         }
-        show(ids[0]);
         if (!lngLat) { var m = byId[ids[0]].segments[0].mid; lngLat = { lng: m[0], lat: m[1] }; }
-        window.LSTools.popup.show(new maplibregl.Popup({ maxWidth: '440px' }).setLngLat(lngLat).setDOMContent(box).addTo(map));
+        var me = shown = { ids: ids, lngLat: lngLat, id: null };
+        show(first != null && ids.indexOf(first) >= 0 ? first : ids[0]);
+        var pop = new maplibregl.Popup({ maxWidth: '440px' }).setLngLat(lngLat).setDOMContent(box).addTo(map);
+        pop.on('close', function () { if (shown === me) shown = null; });
+        window.LSTools.popup.show(pop);
     }
 
     // ------------------------------------------------------------------
