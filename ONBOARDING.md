@@ -8,9 +8,10 @@ file is the guided tour. Three documents matter, in this order:
 2. **[HAZARDS.md](HAZARDS.md)** — the footguns. Every entry was earned by a
    real incident. Read it before editing; re-read the relevant section before
    touching deploy, the database, or map.js.
-3. **[CLAUDE.md](CLAUDE.md)** — the deep reference: per-feature design notes,
-   workflows, schemas, and the reasoning behind them. Long, but it is the
-   record of *why* things are the way they are. Search it before redesigning
+3. **[CLAUDE.md](CLAUDE.md)** and the per-feature files it indexes in
+   **`docs/`** — the deep reference: design notes, workflows, schemas, and
+   the reasoning behind them. Long, but it is the
+   record of *why* things are the way they are. Search `docs/` before redesigning
    anything. Its first section, **State of play**, is the only dated snapshot
    in the file: what shipped recently, what is still open, and which known
    bugs are deliberate. Start there when picking the project back up.
@@ -56,7 +57,8 @@ Details in CLAUDE.md §Development workflow.
 | `drops/` | Photo drops: a link a collaborator uses to upload a folder of photos. Bytes go browser → private Cloudflare R2 directly (presigned URLs); the droplet only keeps the `Drop`/`DropFile` rows and makes thumbnails. If a drop's count looks low, **Check storage** on `/drops/` (or `manage.py drops_reconcile`) re-derives the rows from the bucket. `tools/drops/r2_pull.sh` mirrors a drop to `/Volumes/Nunatak/landslidescience/drops/<slug>/`; processing output goes to a sibling folder, never into the mirror. |
 | `tools/` | Offline data pipeline. `*color*.txt` files are the gdaldem color ramps — also parsed at runtime by `api_ramps` for export legends, so they are load-bearing in two places. |
 | `data/` | **Gitignored, volume-mounted, environment-specific.** Tiles, media, snapshots, tracer bundles. Never in the image; ships by rsync. |
-| `CLAUDE.md` | Deep reference (auto-loaded by Claude Code). |
+| `CLAUDE.md` | Rules, URL map and the index of `docs/` (auto-loaded by Claude Code). |
+| `docs/*.md` | Deep per-feature reference, read on demand; `docs/STATE.md` is the dated state of play. |
 | `DATA_DROP.md` | How collaborators ship data products to prod (write-only staging → promote → dev test → deploy). |
 | `HAZARDS.md` | Footgun list. |
 

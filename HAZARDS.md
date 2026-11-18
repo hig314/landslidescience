@@ -1,7 +1,7 @@
 # HAZARDS.md — footguns, each earned by a real incident
 
 Read before editing. Entries state the hazard, the incident that earned it,
-and the correct move. Deep background lives in [CLAUDE.md](CLAUDE.md);
+and the correct move. Deep background lives in `docs/` (indexed in [CLAUDE.md](CLAUDE.md));
 orientation in [ONBOARDING.md](ONBOARDING.md).
 
 ## Deployment & environments
@@ -46,7 +46,8 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
   guessable R2 URL; the droplet's gate does not cover the bucket. That is how
   `hoonah_2015` (COG + both pyramids) sat on public R2 while the audit called
   it "gated, served from the droplet". `/lidar/audit/` now reports **GATED BUT
-  ON PUBLIC R2** instead. Removing such bytes is a manual `rclone delete`.
+  ON PUBLIC R2** instead (hoonah went public on 2026-11-05). Removing such bytes
+  is a manual `rclone delete`.
 - **Large uploads never go through the droplet** — it has ~7 GB of disk and
   shares 4 GB of RAM. The pattern is `drops/`: presign URLs to a private R2
   bucket, let the browser PUT, record after a server-side HEAD. Reuse
@@ -151,6 +152,20 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
   (`addFeatures` returns `valid:false` without throwing). Stored geometry is
   15 dp — round to 9 dp on the way in (`round9`), or polygons "load" empty.
 
+- **Pages with several MapLibre maps** (`/lidar/compare/`), two traps found
+  2026-11-12:
+  - **`jumpTo()` stops a gesture in progress on that map** (`Map._stop` →
+    handler reset). Linking maps by `jumpTo` on every `move` must never touch
+    the map being dragged, or a slow drag dies after one frame. Correct it at
+    gesture end, or change its camera through `_getTransformForUpdate` /
+    `_applyUpdatedTransform`, which does not stop the gesture.
+  - **A mouse drag ends only on a mouseup aimed at its own map.** Released
+    over a neighbouring map (or any other element), the first map stays
+    mid-drag. Forward stray mouseups to any map with
+    `handlers._eventsInProgress`. The handler reset also re-enables text
+    selection page-wide (`DOM.enableDrag`), so such pages set
+    `user-select: none`.
+
 ## Maps, projections, and the globe
 
 - **The map runs MapLibre's globe projection.** Consequences, all hit in
@@ -174,6 +189,13 @@ orientation in [ONBOARDING.md](ONBOARDING.md).
   identical z10 tiles). MapLibre picks tile z from `zoom +
   log2(512/tileSize)`, so the export clone divides each raster source's
   declared `tileSize` (see `deepenRasters()` in `ls_export.js`).
+- **In 3D, draped layers are capped at 2 device px per screen px whatever
+  the pixel ratio.** MapLibre renders every draped layer (rasters, lines,
+  image sources) into per-terrain-tile textures of `tileSize ×
+  terrain.qualityFactor`, and `qualityFactor` is 2 (5.24). A 4× export with
+  terrain on was 2× detail upscaled. `/lidar/compare/`'s export raises it per
+  pane by rebuilding `painter.renderToTexture` (`setRttQuality`), one pane
+  at a time: at 4× each terrain-tile texture is ~16 MB.
 - **Self-hosted science rasters have baked zoom ceilings** (susceptibility/
   ITS_LIVE/Hugonnet z10, OPERA z12). Past those they upscale, no matter
   what. Deeper detail requires re-baking pyramids, not client tricks.
@@ -197,6 +219,39 @@ CLAUDE.md §/glaciers:
 - **Formal standard errors lie under correlated residuals** (a 2σ gate
   passed 89% of noise). Gate on *replication* (split-half agreement)
   instead.
+
+## Glacier extents (2026-11-16)
+
+- **A GLIMS id does not identify a glacier.** RGI 7.0 gives one GLIMS id to as
+  many as eight separate glaciers (135 ids shared in region 01); a first load
+  keyed on it stopped on a duplicate. `glaciers` is keyed by RGI 7.0 id; a
+  GLIMS outline is matched by id only where the id names exactly one row.
+- **GLIMS outlines have no primary key over WFS**, so `startIndex` paging has
+  no stable order and the feature id changes per session. Fetch by bbox cell,
+  dedupe by content, check the total against the server's.
+- **GDAL's vector-tile writer cannot be trusted on icefield polygons.**
+  `ogr2ogr -f PMTiles` on NSIDC G10040 (one polygon per icefield, thousands
+  of holes) filled whole tiles solid and dropped neighbours, with no error.
+  The ice cover is raster bit masks instead (`build_cover_mask.py`).
+- **The ice-cover tiles are data, not pictures.** Bit masks in RGB: any
+  resampling but nearest, any alpha but 0 or 255, or a lossy format corrupts
+  the epochs with nothing to show for it. The epoch order lives in the
+  builder and in `gl_retreat.js`; `check_invariants` compares them.
+- **`el.style.display = ''` restores the stylesheet's value, not "shown".**
+  The tracer canvas was given `display: none` in CSS and the engine's show
+  left it hidden: tracers ran and drew nothing.
+- **A correlated subquery in `UPDATE … FROM (subquery)` can run per target
+  row.** Matching 50 terminus files to glaciers ran 10,334 nearest-polygon
+  searches (over ten minutes, cancelled) until the per-file result was a
+  `MATERIALIZED` CTE (seconds).
+- **`cur.execute(sql, ())` still treats `%` as a format character.** A
+  literal `%` in SQL (an `ILIKE '%x%'`) with an empty params tuple raises
+  `IndexError`; pass no params at all, or write `%%`.
+
+- **The browser caches static JS in dev.** After collectstatic + restart a
+  normal reload ran the OLD `scarps.js` against a new `gl_network.js`
+  ("drawArmed is not a function"). Hard-reload, or fetch the file with
+  `cache: 'reload'`, before believing a failure or a pass.
 
 ## Raster sources and bakes (permafrost, 2026-10-09)
 
@@ -230,6 +285,14 @@ CLAUDE.md §/glaciers:
 - **Gruber's `.hdr` cellsize is truncated** (0.008333 for 1/120°); trust
   the stated 43200×18000 grid and pin `-a_ullr -180 90 180 -60` instead
   or the raster drifts 1 km per 10° of longitude.
+- **Stored aspect is on grid north, not true north** (found 2026-11-10). The
+  60 m aspect grid and the cube's `aspect` were computed in EPSG:3338, whose
+  north leans from true by 0.8627 x (lon + 154) degrees: +18 at 175 W, -21 at
+  130 W. Checked two ways: the 60 m aspect matches the 1 km lattice's grid
+  downhill azimuth everywhere, and the formula matches rasterio. The stereonet
+  rotates to true north; the x-y panel's aspect axis and the aspect overlay do
+  not, while the map paint (`ls_sample.js`, from Web Mercator tiles) is true
+  north already, so that panel's paint and plot disagree by up to ~20 degrees.
 - **Aspect sign.** `gdaldem aspect` is the DOWNSLOPE azimuth clockwise from
   north: a north-facing slope is 0, and northness `cos(aspect)·sin(slope)`
   is +1 there. The browser-derived northness in the old permafrost panel
