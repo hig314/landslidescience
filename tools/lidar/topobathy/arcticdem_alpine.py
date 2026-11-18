@@ -47,6 +47,10 @@ def main():
     ap.add_argument("--min-elev", type=float, default=300.0); ap.add_argument("--min-slope", type=float, default=20.0)
     ap.add_argument("--bias", type=float, default=1.4); ap.add_argument("--above-m", type=float, default=1.0)
     ap.add_argument("--slope-m", type=float, default=10.0); ap.add_argument("--feather-m", type=float, default=30.0)
+    ap.add_argument("--blob-min-m", type=float, default=10.0); ap.add_argument("--blob-max-m", type=float, default=150.0)
+    ap.add_argument("--blob-med-m", type=float, default=1e9); ap.add_argument("--blob-pad-m", type=float, default=10.0)
+    ap.add_argument("--shape-dk-max", type=float, default=2.5e-3, help="patch mean of curv(A) - curv(3DEP) at 80 m above which, with 3DEP not convex, a patch is a blunder (1/m; 0 = off)")
+    ap.add_argument("--shape-kt-min", type=float, default=2.0e-3, help="...where the patch mean curv(3DEP) at 40 m is under this (3DEP a planar or concave slope)")
     ap.add_argument("--only", help="x0,y0,x1,y1 (a test window)")
     ap.add_argument("--exclude", help="polygons (GeoJSON in the raster's CRS) cut out of the region: the glacier outline")
     ap.add_argument("--exclude-buffer-m", type=float, default=100.0)
@@ -67,7 +71,7 @@ def main():
         from shapely.geometry import shape
         EX = [shape(f["geometry"]).buffer(a.exclude_buffer_m) for f in json.load(open(a.exclude))["features"]]
     from rasterio import features as _feat
-    halo = int(4 * a.feather_m / res) + int(2 * a.slope_m / res) + 4; step = 4096; n = dict(region=0, taken=0); t0 = time.time()
+    halo = int(4 * a.feather_m / res) + int(2 * a.slope_m / res) + 4 + (int(3 * 80.0 / res) if a.shape_dk_max > 0 else 0); step = 4096; n = dict(region=0, taken=0); t0 = time.time()
     with rasterio.open(a.out + ".part.tif", "w", **prof) as O:
         for r0 in range(r_lo, r_hi, step):
             h = min(step, r_hi - r0)
@@ -85,6 +89,33 @@ def main():
                     reg &= ~_feat.rasterize([(g, 1) for g in EX], out_shape=reg.shape, transform=wt_).astype(bool)
                 wgt = ndimage.gaussian_filter(reg.astype(np.float32), a.feather_m / res / 2.0)
                 gate_rej = av & tv & (z - t >= a.above_m)
+                # A BLUNDER IS DROPPED WHOLE (2026-11-17, Hig's review of s2, 59.16997,-151.58575: "classic bad SfM from a cloud"): a mound
+                # 108 m (median) and up to 326 m over 3DEP on 6.6 ha.  The summits 3DEP's radar misses read 14-16 m over it (median) and 41 m at
+                # most (59.20482,-151.63699; 59.19877,-151.63639; 59.17561,-151.64823), so a connected patch of A - 3DEP > blob_min_m whose
+                # maximum exceeds blob_max_m or whose median exceeds blob_med_m is a stereo blunder: none of it is taken (3DEP stands there).
+                # ...REVISED the same day against lidar (review_1114/adem_shape/: 21 km2 of lidar ground on the alpine region of r4c1-r6c4): max > 80
+                # also took 6.6 ha of REAL summits in r5c4 / r6c4 (3DEP 10-26 m low, ArcticDEM within 2 m of the lidar, patch max 87-90 m), and the
+                # blunder's connected patch at 10 m has a median of only 18 m.  So max > 150 m (blob_max_m; the blunder 326-380), the median test off,
+                # and a SHAPE cue (Hig: "a dramatic conical peak whereas the 3DEP shows the sloping side of a hill"): the patch is far more convex
+                # in ArcticDEM than in 3DEP at 80 m (mean dk80 > shape_dk_max; the blunder +3.2e-3, real summits +0.3..+1.7e-3) while 3DEP there is
+                # no ridge (mean curv at 40 m < shape_kt_min; the blunder +0.85e-3, real summits +2.6..+9e-3).  On the lidar ground the combined rule
+                # flags nothing (and the curvature cue alone, cell by cell, LOSES: where ArcticDEM is more convex it is usually right).
+                bl_ = av & tv & (z - t > a.blob_min_m)
+                if bl_.any():
+                    lb_, nb_ = ndimage.label(bl_, structure=np.ones((3, 3), bool))
+                    ix_ = np.arange(1, nb_ + 1); dd_ = np.where(bl_, z - t, 0.0)
+                    mx_ = np.asarray(ndimage.maximum(dd_, lb_, ix_)); md_ = np.asarray(ndimage.median(dd_, lb_, ix_))
+                    badp_ = np.zeros(nb_ + 1, bool); badp_[1:] = (mx_ > a.blob_max_m) | (md_ > a.blob_med_m)
+                    if a.shape_dk_max > 0:
+                        cv_ = lambda q, sg: -ndimage.laplace(ndimage.gaussian_filter(q, sg / res)) / res ** 2
+                        af_ = np.where(av, z, np.where(tv, t, 0.0)).astype(np.float32); tf_ = np.where(tv, t, 0.0).astype(np.float32)
+                        dk_ = np.asarray(ndimage.mean(cv_(af_, 80.0) - cv_(tf_, 80.0), lb_, ix_)); kt_ = np.asarray(ndimage.mean(cv_(tf_, 40.0), lb_, ix_))
+                        shp_ = (dk_ > a.shape_dk_max) & (kt_ < a.shape_kt_min); badp_[1:] |= shp_
+                        n["shape_patches"] = n.get("shape_patches", 0) + int(shp_.sum()); del af_, tf_, dk_, kt_
+                    blun_ = ndimage.binary_dilation(badp_[lb_], iterations=int(round(a.blob_pad_m / res)))
+                    gate_rej &= ~blun_
+                    n["blunder"] = n.get("blunder", 0) + int(blun_[halo:halo + h, halo:halo + w].sum()); n["blunder_patches"] = n.get("blunder_patches", 0) + int(badp_.sum())
+                    del lb_, dd_, blun_
                 val = t + wgt * (np.maximum(z - a.bias, t) - t)
                 keep = gate_rej & (wgt >= 0.02)
                 out = np.where(keep, val, -9999.0).astype(np.float32)[halo:halo + h, halo:halo + w]
