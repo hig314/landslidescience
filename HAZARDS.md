@@ -344,3 +344,9 @@ CLAUDE.md §/glaciers:
 - **When a fix has siblings, fix the siblings.** The viewport-count bug
   existed in three hand-copied variants; fixing one left two. Grep for the
   pattern you just fixed.
+
+- **`{% static '' %}` works in dev and is a 500 in production.** Production
+  uses the manifest static storage, which has no entry for an empty path
+  (`Missing staticfiles manifest entry for ''`). For the static URL prefix
+  use `{% get_static_prefix %}`. This took `/glaciers/` down for a few
+  minutes at the 2026-11-18 deploy; dev had rendered it for two days.

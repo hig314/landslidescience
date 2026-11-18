@@ -321,7 +321,7 @@
     experimental: {{ experimental|yesno:"true,false" }},
     editor: {{ is_inventory_editor|yesno:"true,false" }},
     csrf: '{{ csrf_token }}',
-    staticBase: "{% static '' %}",
+    staticBase: "{% get_static_prefix %}",
     basemapThumbs: {
       'streets':      '{% static "inventory/img/basemap-thumbs/streets.png" %}',
       'esri-img':     '{% static "inventory/img/basemap-thumbs/esri-img.png" %}',
