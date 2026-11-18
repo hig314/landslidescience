@@ -1135,11 +1135,28 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             # interpreted as land"): Homer 2019 classed the whole reservoir 'ground', a sheet at 282.52 m with no water returns of its
             # own, so the test above never ran; KBay 2023 saw the same water at 282.515.  The same test against every survey's water
             # returns (zwmin): a sheet above the tide's reach at the level of water any survey saw beside it is that water's surface.
-            if cfg.get("own_sheet_any_water", True) and np.isfinite(zwmin).any() and (~tide_[1:]).any():
+            # OFF by default since 2026-11-18 (Hig's review of r6c2 under cm21: "those flat areas are all land"): 41 ha of level ground round
+            # Homer went to water, and tightened to sheets UNDER the other survey's water (below) the Beluga Slough crop still lost 14 ha --
+            # a topobathy lidar's water class on a wet marsh at a high tide lies ON the ground another survey mapped.  The reservoir itself
+            # needs no such rule: Hig's three hand-placed depths under its sheet take it by the sparse-bed rule above (crop c17_res0: 13.74 ha
+            # of water with this off, 13.85 with it on).  A lake a survey classed ground is a reviewer's estimate or edit, not a rule.
+            if cfg.get("own_sheet_any_water", False) and np.isfinite(zwmin).any() and (~tide_[1:]).any():
                 hwA = np.isfinite(zwmin)
                 dwA, (iyA, ixA) = ndimage.distance_transform_edt(~hwA, sampling=res, return_indices=True)
                 ownA = flat_ & (np.abs(Z[n] - zwmin[iyA, ixA]) <= float(cfg.get("own_sheet_tol_m", 0.15)))
                 bad_A = ~tide_ & (cnt(ownA & (dwA <= 2.0 * res)) >= smc); bad_A[0] = False
+                # ...a sheet UNDER that water, not one beside it (Hig 2026-11-18, r6c2 under cm21: "those flat areas are all land" -- 41 ha of
+                # level ground round Homer, 4.4 to 53 m, went to water: a marsh flat or a pad at the level of a slough, a pond or a high
+                # tide another survey saw NEXT to it has cells within two cells of that water too).  The reservoir's sheet lies where the
+                # other survey saw the water; a flat beside a pond does not.  Of the sheet's cells at the water's level, any_water_frac must
+                # stand within any_water_near_m of one of those water returns.
+                nearA = cnt(ownA & (dwA <= float(cfg.get("any_water_near_m", 10.0)))); allA = cnt(ownA)
+                side_ = bad_A & (nearA < float(cfg.get("any_water_frac", 0.5)) * np.maximum(allA, 1))
+                if side_.any():
+                    log(f"  {n:14s} sheets at another survey's water level but beside it, not under it: {int(side_.sum())} ({float(allA[side_].sum()) * res * res / 1e4:.2f} ha at the level) stay ground")
+                    rep.setdefault("any_water_beside_ha", {})[n] = round(float(allA[side_].sum()) * res * res / 1e4, 2)
+                    bad_A &= ~side_
+                del nearA, allA, side_
                 if bad_A.any():
                     own_ = ownA if own_ is None else (own_ | ownA)
                     bad_o = bad_o | bad_A

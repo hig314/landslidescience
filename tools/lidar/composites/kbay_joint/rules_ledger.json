@@ -392,6 +392,20 @@
    "live": "2026-11-13 12:15:40",
    "commit": "720d30f",
    "what": "composite: post-processing never extends a layer onto a class the class-now rules out; coverage guard restores the rules' winner first"
+  },
+  {
+   "id": "anywater_off",
+   "stage": "joint",
+   "live": "2026-11-18 12:39:51",
+   "commit": null,
+   "what": "joint: own_sheet_any_water off by default (41 ha of level ground round Homer went to water under cm21; the reservoir is held by Hig's hand-placed depths through the sparse-bed rule). Boxes run under cm21 with it on: r5c2 r4c1 r2c2 r4c5 r6c2"
+  },
+  {
+   "id": "solve_1118",
+   "stage": "solve",
+   "live": "2026-11-18 12:39:51",
+   "commit": null,
+   "what": "solve (s3): closed island lines of tide_lines.geojson are prior land; no low bound in still water (the 30 m shelf inside Beluga's and the reservoir's shore); AMG coarse solver falls back to splu (r7c4's failed tile); closed basins with no datum raised in the plain solve; a deep modelled patch with no datum is no prior; the low bound smoothed on its high side"
   }
  ]
 }

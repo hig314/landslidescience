@@ -33,7 +33,7 @@ DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hi
 P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=30.0, low_bound_tol_m=0.5,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24, amg=1,
-         snd_mode=0, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
+         snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
 
 
 GRID = dict(res=0.0)      # > 0: every raster is read onto this resolution (the box driver's coarse deep-sea pass, --set grid_m=16)
@@ -129,6 +129,12 @@ def pcg(x, free, wt, rhs, lt, lb, iters, ex=None, ey=None, beta=None, op=None, t
         def build():
             yy_, xx_ = np.divmod(fi, x.shape[1])
             tb_ = time.time(); op["ml"] = _AMG.smoothed_aggregation_solver(A, B=np.column_stack([np.ones(fi.size), xx_ - xx_.mean(), yy_ - yy_.mean()]), max_coarse=500, smooth=("energy", {"degree": 1})); AMG["builds"] += 1; AMG["tb"] = time.time() - tb_
+            # the coarsest level's solver is a pseudo-inverse found by SVD on first use, and LAPACK's SVD now and then does not converge on it
+            # (kj_r7c4 tile r3000 c5000, 2026-11-16: "LinAlgError: SVD did not converge", every matrix finite; the tile fell back to the
+            # product and stood in the mosaic as a 2 km square on the Fox River flats, Hig 2026-11-18).  Tried here; a sparse LU instead.
+            try: op["ml"].coarse_solver(op["ml"].levels[-1].A, np.zeros(op["ml"].levels[-1].A.shape[0]))
+            except Exception:
+                op["ml"] = _AMG.smoothed_aggregation_solver(A, B=np.column_stack([np.ones(fi.size), xx_ - xx_.mean(), yy_ - yy_.mean()]), max_coarse=500, smooth=("energy", {"degree": 1}), coarse_solver="splu"); AMG["splu"] = AMG.get("splu", 0) + 1
         # ...rebuilt when the set of HELD cells has changed (a bound's or a basin's penalty, a cast's weight: a diagonal 100 or more where the
         # hierarchy knew none, or the reverse) -- a stale one costs ~90 iterations where a fresh one costs 20-40 and 5-10 s of set-up.
         hv_ = wf_ >= AMG["heavy"]                                               # (a few cells joining or leaving do not stale it: over drift x n do)
@@ -444,14 +450,32 @@ def main(argv=None, ret=False):
                     c_, r_ = ~T * (row["x"], row["y"]); hit[Ls_[int(r_), int(c_)]] = True
         hit[0] = False; lake_solve = hit[Ls_]
     lake_keep = still & ~lake_solve & np.isfinite(cur) & (cur < lev) & ~bergm
-    land3 = np.isin(si, (0, 1)) & np.isfinite(cur) & ~has & inwin & ~still & ~objm                    # (an object the product still shows from another layer is no prior land either)
+    # A TRACED ISLAND IS LAND (Hig 2026-11-18, 59.26678,-150.88559: a 3 ha island on the outer coast, his closed high-tide line round it, no
+    # lidar; the chain held 3DEP's hill at +31 m as modelled ground, labelled water like the sea about it, and the solve -- for which a
+    # modelled cell labelled water is no evidence -- bridged it flat at +0.7 m).  Inside a closed island line of water/tide_lines.geojson the
+    # product's modelled ground standing at or above the line's level is prior land like a fallback DTM's, and fixed where it is above the tide.
+    isl_lv = np.full(jz.shape, np.nan)
+    try:
+        from shapely.geometry import Polygon as _Pg, box as _sbx
+        wbx_ = _sbx(*win); sh_ = []
+        for g_, pr_ in _feats("tide_lines.geojson"):
+            if pr_.get("side") == "island" and pr_.get("closed") and g_.geom_type == "LineString" and len(g_.coords) >= 4 and g_.intersects(wbx_):
+                pg_ = _Pg(g_.coords); pg_ = pg_ if pg_.is_valid else pg_.buffer(0)
+                if not pg_.is_empty: sh_.append((pg_, float(pr_["level_m"])))
+        if sh_:
+            sh_.sort(key=lambda t_: t_[1])                                                              # where two overlap, the higher line's level
+            isl_lv = np.pad(features.rasterize(sh_, out_shape=(H0, W0), transform=T, fill=np.nan, dtype="float32").astype(np.float64), pad, constant_values=np.nan)
+    except Exception as e: log(f"  (island lines not read: {e})")
+    isl_land = np.isfinite(isl_lv) & (si == 3) & np.isfinite(cur) & (cur >= isl_lv - 0.3) & ~has & inwin & ~still & ~objm
+    if isl_land.any(): log(f"  traced islands: {int(isl_land.sum())} modelled cells at or above their line are prior land ({int((isl_land & (cur > p['tide_max_m'] + 1.0)).sum())} above the tide, fixed)")
+    land3 = ((np.isin(si, (0, 1)) & np.isfinite(cur) & ~has & inwin & ~still & ~objm) | isl_land)                    # (an object the product still shows from another layer is no prior land either)
     fix_meas = conf & (din > p["fix_edge_m"]) & ~ice
     # GROUND ABOVE THE TIDE'S REACH IS OUT OF SCOPE: as the product has it.  That holds for what the product MODELLED there too (a hole in the
     # land it bridged from a ground prior, the icefield's gaps: 2026-11-15, 97,000 cells at 1,200 m re-bridged 30 m off), unless the cell is
     # water to the stages or to a lidar, or stands within scope_dry_m of the margin (a bank, a bluff toe: solved with it, so no seam at the tide's reach).
     wetc = np.isin(lab, (2, 3)) | np.isfinite(wz); margin = (np.isfinite(cur) & (cur <= p["tide_max_m"] + 1.0)) | wetc | still
     dryfill = (si == 3) & ~wetc & (ndimage.distance_transform_edt(~margin) * res > p["scope_dry_m"])
-    high = ((si != 3) | dryfill) & np.isfinite(cur) & (cur > p["tide_max_m"] + 1.0) & inwin & ~still
+    high = ((si != 3) | dryfill | isl_land) & np.isfinite(cur) & (cur > p["tide_max_m"] + 1.0) & inwin & ~still
     # SCOPE: the water margin.  The modelled sea deeper than scope_deep_m is as the product has it (its basin spline between soundings).
     # ...of the open sea: in a one-level body the product is a flat sheet with a cone at each sounding (Gore Lake, Hig 2026-11-15: "a nearly
     # flat bottom with circular basins around the soundings"), no shape to keep.
@@ -561,6 +585,7 @@ def main(argv=None, ret=False):
         badl = lowb & s3 & (cur > p["low_level_m"] + p["low_tol_m"]); n_lowl = int(badl.sum())
         w[badl] -= 1 / p["prior3dep_sigma_m"] ** 2; b[badl] -= cur[badl] / p["prior3dep_sigma_m"] ** 2; w = np.maximum(w, 0.0); b[w == 0] = 0.0
         log(f"  low-tide water: used on {lowb[inwin].mean():.1%} of the window ({1 - lowb.sum() / max(n_st, 1):.0%} of it set aside as stale: confident ground stands above it); {n_low} measured cells (thin, at an edge, or of a doubted survey) above {p['low_level_m'] + p['low_tol_m']:g} m there dropped as evidence, and {n_lowl} cells of prior land")
+    lowb &= ~np.isfinite(isl_lv)                                                                # (a traced island is not the low-tide water)
     ub = np.where(fixed, np.nan, env - p["bound_gap_m"])
     ub = np.where(lowb & ~fixed, np.fmin(ub, p["low_level_m"]), ub)
     # a thin or edge "ground" cell AT OR ABOVE the water the lidar saw in that same cell is the water (or something on it), not bed:
@@ -573,6 +598,7 @@ def main(argv=None, ret=False):
     # its bed below that level whether a lidar saw the water or a map did (2026-11-15: the outer coast's lagoons, known only from 3DEP's lake
     # polygons, were bridged over at the level of the ground around them).  The product holds them under the same sheet.
     ub = np.where(pond & ~fixed, np.fmin(ub, lev - p["still_gap_m"]), ub)
+    ub = np.where(isl_land, np.nan, ub)                                                         # (no water's level bounds a traced island's ground)
     if pond.any(): log(f"  one-level water within the tide's reach (lagoons, ponds): {pond[inwin].mean():.1%} of the window bounded by its level")
     # SLOPED WATER HAS GROUND JUST BENEATH IT (Hig 2026-11-14, the Woz delta): where a lidar saw water running downhill and nothing measured
     # its bed, the bed is sloped_depth_m under that water -- data (sigma sloped_sigma_m), not a prior the fit may wander from.
@@ -647,6 +673,20 @@ def main(argv=None, ret=False):
     z0 = np.where(comp_only, np.where(np.isfinite(ub), np.minimum(jz - caud, ub), jz - caud), z0)
     # the deep basin between soundings, and a lake's bed, keep the present model as their SHAPE (a prior, not a fixed surface)
     deep = (si == 3) & np.isfinite(cur) & ~comp_only & ~editp & ~pond & (((cur < p["deep_prior_m"]) & ~still) | (still & (cur < lev - 0.5)))
+    # ...A DEEP PATCH WITH A DATUM (Hig 2026-11-18, the Fox River flats, 59.78820,-151.01189: a "closed basin" 8 m under a pool the 2008 lidar
+    # saw at +1.3 m).  The product's bed below deep_prior_m is taken as the deep sea's model because that model passes through its soundings;
+    # a patch of it that holds or touches none -- no cast, no measured bed that deep, no compilation, not the window's edge -- is the fill's
+    # own digging, and is no prior: its cells take the profile under the water seen, or the fit of what is round them.
+    if p["deep_datum"] and deep.any():
+        Ld_, nd_ = ndimage.label(deep & ~still, structure=np.ones((3, 3), bool))
+        dat_ = (ws > 0) | (fixed & (zfix < p["deep_prior_m"])) | comp_only | ~inwin; dat_[0] = dat_[H0 - 1] = True; dat_[:, 0] = dat_[:, W0 - 1] = True
+        dat_ = ndimage.binary_dilation(dat_, iterations=int(round(30.0 / res)))
+        okd_ = np.zeros(nd_ + 1, bool); okd_[np.unique(Ld_[dat_ & (Ld_ > 0)])] = True; okd_[0] = True
+        nod_ = (Ld_ > 0) & ~okd_[Ld_]
+        if nod_.any():
+            log(f"  deep modelled bed with no datum in or beside it: {float(nod_.sum()) * res * res / 1e4:.2f} ha (to {float(np.nanmin(cur[nod_])):.1f} m) is no prior")
+            deep &= ~nod_
+        del Ld_, dat_, okd_, nod_
     z0 = np.where(deep, cur, z0)
     # A RIVER ABOVE THE TIDE has its bed just under its water, seen or not (Hig 2026-11-16, the Woz at 59.53618,-151.35209: "very thin water
     # over nearly-emergent sand bars ... simply modeling a smooth ground surface just under this water would be good -- it's an error to have
@@ -948,11 +988,37 @@ def main(argv=None, ret=False):
         sw_ = w > 0; ev_ = np.where(sw_, np.minimum(ev_, b / np.maximum(w, 1e-30)), ev_)
         k_ = int(round(p["low_bound_m"] / res)) * 2 + 1
         lb_ = ndimage.minimum_filter(np.where(np.isfinite(ev_), ev_, np.inf).astype(np.float32), k_) - p["low_bound_tol_m"]
+        # the bound is the minimum over a SQUARE, and cells put on it stood as 60 m square blocks with one-cell scarps between them (Hig
+        # 2026-11-18, the Fox River flats: "sharp-edged" squares; 10.6 km of new scarps in one tile).  Smoothed on its high side only:
+        # never above the evidence's own bound, a ramp where it stepped.
+        fl_ = np.isfinite(lb_); sgl_ = max(k_ / 6.0, 1.0)
+        if fl_.any():
+            dn_ = ndimage.gaussian_filter(fl_.astype(np.float32), sgl_); lbs_ = ndimage.gaussian_filter(np.where(fl_, lb_, 0.0).astype(np.float32), sgl_) / np.maximum(dn_, 1e-6)
+            lb_ = np.where(fl_ & (dn_ > 0.3), np.minimum(lb_, lbs_), lb_); del dn_, lbs_
+        del fl_
         under_ = ~fixed & np.isfinite(lb_) & (z < lb_)
+        # ...and not in still water above the tide (Hig 2026-11-18, Beluga Lake and the Homer reservoir: "sharp stitch margins rather than a
+        # natural-looking shoreline"): the evidence within 30 m of a lake's shore is the shore itself, held at the lake's level, so every bed
+        # cell of that ring was put 0.6 m under the water -- a flat shelf 30 m wide ending in a step down to the sounded bed (up to 3 m).  A
+        # lake's bed is bounded by its level and shaped by its profile and casts; the pool this guard is for is the sea's.
+        under_ &= ~still
         if under_.any():
             log(f"  low bound: {int(under_.sum())} free cells stood deeper than {p['low_bound_tol_m']:g} m under the lowest evidence within {p['low_bound_m']:g} m (p50 {np.median((lb_ - z)[under_]):.2f} m, max {(lb_ - z)[under_].max():.2f} m), put on it")
             z = np.where(under_, lb_, z)
         del ev_, lb_, under_, mj_, sw_
+    # A CLOSED BASIN WITH NO DATUM IN IT IS RAISED TO ITS PASS in the plain solve too (Hig 2026-11-18, the Fox River flats, 59.78820,-151.01189
+    # and 59.78656,-150.96348: "closed basins ... fixable with our current rules").  The casts-as-data fits have had the rule since 2026-11-15;
+    # the plain one kept the product's fill as its prior, and on the flats that was a bed 6-8 m under a pool the 2008 lidar saw at +1.3 m, with
+    # nothing measured in it.  A basin drains to a datum: a fixed or measured cell, a sounding, a compilation's cell, the window's edge.
+    if not p["snd_mode"] and p["pit_post"] and np.isfinite(z[inwin]).all():
+        from skimage.morphology import reconstruction as _rec
+        ed_ = np.zeros(jz.shape, bool); ed_[0] = ed_[-1] = True; ed_[:, 0] = ed_[:, -1] = True
+        sd_ = fixed | (w > 0) | (ws > 0) | ed_ | (ptype == 2) | ~inwin; q_ = np.where(np.isfinite(z), z, 0.0)
+        F_ = _rec(np.where(sd_, q_, q_.max() + 1.0), q_, method="erosion"); pit_ = ~sd_ & (F_ - q_ > p["pit_tol_m"])
+        if pit_.any():
+            log(f"  closed basins with no datum in them: {float(pit_.sum()) * res * res / 1e4:.2f} ha below their pass by up to {float((F_ - q_)[pit_].max()):.2f} m; raised to {p['pit_tol_m']:g} m under it")
+            z = np.where(pit_, F_ - p["pit_tol_m"], z)
+        del ed_, sd_, q_, F_, pit_
     sec = time.time() - t1
     if AMG["calls"]: log(f"  solver: multigrid-preconditioned CG, {AMG['calls']} solves, {AMG['its']} iterations, {AMG['builds']} hierarchies built, {AMG['sec']:.0f} s in it ({AMG['cpu']:.0f} s of CPU)")
     # --- report ----------------------------------------------------------------------------------------------------------------

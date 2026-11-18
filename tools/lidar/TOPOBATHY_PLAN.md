@@ -1,5 +1,35 @@
 # Topobathy compositing: tools and interface
 
+## Resume here (2026-11-18, 12:45) — FULL RERUN run_1118: every box, chain cm22 -> solve s3, on one code
+
+**Running:** `$W/run_1118.sh` under caffeinate (log `$W/run_1118.log`, per-box change report `$W/run_1118_diff.txt`), resumable; order:
+Hig's issue boxes r6c2 r6c4 r7c4 r3c5 r4c5 r3c3 r4c0 -> publish `kbay_joint_s3` (`$W/publish_s3.sh`; mosaic on
+/Volumes/Powder/lidar_build/kbay_joint_s3, tags s3,s2,s1,cm19,cm18) -> rows 7..0, a publish every 8 boxes.  **Don't edit joint.py /
+solve.py / fill.py in the repo while it runs** (test edits in /Volumes/Nunatak/lidar_build/lidar_dev).  The edits of today (solve.py, joint.py,
+rules_ledger.json) were committed at 13:45 with the run already going on them; pre-edit copies `$W/*_before_1118.py`.
+**Disk:** Nunatak 85 GB free after Hig's go-ahead to remove the old mosaic folders (run2 cm17 fix2h_blend cm16 cm5 s1; per-box archives,
+dev-viewer copies and the cm18 mosaic kept); the run needs ~55 and stops itself under 20 GB with a log line.
+**Hig's review of s2 (2026-11-18) and what was found** (window solves in `$W/review_1118/solve`, tools at.py cmp.py lab.py there):
+- Homer flats as water (41 ha, r6c2 cm21): the any-water lake-sheet rule of 1fd33b7.  Tightened (sheet under, not beside, the other
+  survey's water) it still took 14 ha of crop c18_flat; **off by default now** -- the reservoir stays water by Hig's hand-placed depths
+  (crop c17_res0).  Hig asked about lidar INTENSITY: only part of KBay 2023 has a raster (obs/kbay_2023_intensity), none for the Homer
+  surveys, joint uses none -- untested, open.
+- Beluga / reservoir "stitch margins": not ArcticDEM -- the solve's low bound put a 30 m ring inside the shore 0.6 m under the lake
+  (evidence within 30 m = the shore held at the level).  `under_ &= ~still`.  bel_fin vs a plain window: 183 cells differ.
+- Fox flats square = r7c4 tile r3000 c5000 FAILED (pyamg coarse pinv: SVD did not converge) and kept the product: splu fallback.
+- Fox flats closed basins: product bed < -6 m is the "deep" prior even with no datum: `deep_datum` (a deep patch with no cast, measured
+  bed, compilation or window edge in/beside it is no prior) + `pit_post` (closed basins raised in the plain solve) + the low bound
+  smoothed on its high side (60 m square blocks; scarps 3.95 -> 0.60 km in the window).
+- Outer-coast island planed at the tide (59.26678,-150.88559, r3c5): Hig's closed high-tide island line IS in tide_lines.geojson; the
+  solve read islands only from tide_islands.geojson (7 polygons).  Closed island lines (1,719) are prior land now; fixed above the tide.
+- Grewingk lump 59.60276,-151.07896 (r6c4, s1): current code gives -12.6/-15.6 there (casts -17/-19); the knob 100 m SW (+21 m) is REAL
+  (Berg casts +7..+21).  West-edge line (r4c0) and Picnic Harbor's cast misfit (r3c3): s1 boxes had no casts-as-data deep pass; rerun.
+- **NOT fixed:** Petrof Beach 59.36015,-150.82741 -- 3DEP stands 14-16 m at Hig's high line, then a flat 3.7 m plate 70 m wide, then a
+  -1.5 m plate (high_line stage; stair-steps = 3DEP's edge).  A design question for Hig.  Picnic: H05187 (1915-31) casts sit on land by
+  up to 30 m of height -- a position shift for that survey is not made.
+- A mound in a sounded lake is checked against the casts before it is called an artifact (spot2.py / casts.py were scratchpad tools).
+**Load:** three window solves at once drove the load average over 300 (BLAS/AMG threads): run window solves ONE at a time.
+
 ## Resume here (2026-11-12, 10:00) — full run on one code: run_1110b (A B C) then run_1112d (D)
 
 **Running:** `$W/run_1110b.sh` (groups A -> publish, B -> publish, C -> publish) and `$W/run_1112d.sh`, which waits for
