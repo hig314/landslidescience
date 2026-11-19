@@ -64,6 +64,14 @@ QUANTITIES = {
     'north':  dict(overlay='sp-north', label='Northness', units='', range=(-1, 1), bins=40, res='60 m',
                    src=B / 'out/northness60_land.tif', note='cos(aspect)·sin(slope)'),
     # ---- Climate / subsurface: the three permafrost products and our downscale --
+    # Daymet V4 R1, 1991-2020 means of its annual summaries (tools/climate/):
+    # Lambert conformal conic, so the builder warps it (nearest) onto the lattice.
+    'daymet_prcp':  dict(overlay='cl-daymet-prcp', label='Precipitation (Daymet)', units='mm/yr', range=(0, 3000), bins=60,
+                         res='1 km', src=DATA / 'climate_src/daymet/prcp_mean.tif',
+                         note='mean annual total 1991–2020; the axis stops at 3000 mm, wetter ground falls in the last bin'),
+    'daymet_tmean': dict(overlay='cl-daymet-tmean', label='Air temperature (Daymet)', units='°C', range=(-24, 8), bins=64,
+                         res='1 km', src=DATA / 'climate_src/daymet/tmean.tif',
+                         note='mean annual 1991–2020, mean of daily maximum and minimum'),
     'maat':   dict(overlay='pf-gruber-maat', label='MAAT (Gruber 2012)', units='°C', range=(-24, 8), bins=64, res='1 km',
                    src=B / 'src/gruber_maat_3338_1km.tif'),
     'maat60': dict(overlay='pf-gruber-maat60', label='MAAT, downscaled', units='°C', range=(-24, 8), bins=64, res='60 m',

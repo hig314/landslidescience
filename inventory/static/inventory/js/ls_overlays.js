@@ -107,6 +107,7 @@
     var PF_ATTR = 'Permafrost: Gruber 2012 (UZH); Obu et al. 2019 (CC-BY 3.0); Pastick et al. 2015 (USGS); ' +
                   'downscaled layers © landslidescience.org on Mapterhorn / USGS 3DEP terrain';
     var SP_ATTR = 'Terrain: USGS 3DEP via Mapterhorn';
+    var DAYMET_ATTR = 'Climate: Daymet V4 R1 (Thornton et al. 2022, ORNL DAAC), 1991–2020 means';
     var GLAC_ATTR = 'Glacier area 2020: Roberts-Pierel, Kirchner, Kilbride & Kennedy (2022), NSIDC G10040, doi:10.7265/8esq-w553';
     var COHERENCE_ATTR = 'Sentinel-1 coherence: Kellndorfer et al. 2022 ' +
                          '(doi:10.1038/s41597-022-01189-6, CC BY 4.0)';
@@ -193,6 +194,13 @@
                   'Landsat-derived outlines, 30 m · NSIDC G10040 (1985–2020 series, 2020 epoch)', 0.9, GLAC_ATTR),
             // Permafrost (2026-10-09): three published products and our
             // terrain downscale of the two 1 km ones.
+            // Daymet V4 R1 (2026-11-19, tools/climate/): station-interpolated
+            // daily weather on a 1 km grid, here as 1991-2020 means of its
+            // annual summaries. The temperature row shares the MAAT ramp.
+            pfRow('cl-daymet-prcp', 'cl_daymet_prcp', 9, 'Mean annual precipitation — Daymet',
+                  'mm per year, 1 km · 1991–2020 · interpolated from stations, weakest in high ungauged terrain', 0.8, DAYMET_ATTR),
+            pfRow('cl-daymet-tmean', 'cl_daymet_tmean', 9, 'Mean annual air temperature — Daymet',
+                  '°C, 1 km · 1991–2020 · mean of daily maximum and minimum', 0.8, DAYMET_ATTR),
             pfRow('pf-gruber-maat', 'pf_gruber_maat', 9, 'Mean annual air temperature — Gruber 2012',
                   '°C, 1 km · the MAAT climatology Gruber derived PZI from', 0.8),
             pfRow('pf-gruber-maat60', 'pf_gruber_maat60', 11, 'Mean annual air temperature — terrain-downscaled',
@@ -234,7 +242,7 @@
     // empty), so this lists every id either page may have.
     var CATS = [
         { key: 'clim',  label: 'Climate',
-          ids: ['pf-gruber-maat', 'pf-gruber-maat60', 'pf-obu-magt', 'pf-obu-magt60'] },
+          ids: ['cl-daymet-prcp', 'cl-daymet-tmean', 'pf-gruber-maat', 'pf-gruber-maat60', 'pf-obu-magt', 'pf-obu-magt60'] },
         // Surface (2026-11-01, Hig): one group, two levels. Statistics are
         // values a pixel carries (an axis can be one); visualizations are
         // pictures of the DEM. The keys 'sp' / 'relief' are only fold-state

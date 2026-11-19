@@ -1,0 +1,15 @@
+# Mean annual precipitation, mm (Daymet V4 R1, 1991-2020). Steps are roughly logarithmic:
+# Alaska runs from under 200 mm on the Arctic coastal plain to several metres on the Gulf coast.
+nv 0 0 0 0
+-9999 0 0 0 0
+0 255 255 229 230
+150 255 247 188 235
+250 237 248 177 240
+400 199 233 180 245
+600 127 205 187 250
+1000 65 182 196 255
+1500 29 145 192 255
+2500 34 94 168 255
+4000 37 52 148 255
+6000 84 39 143 255
+9000 63 0 125 255

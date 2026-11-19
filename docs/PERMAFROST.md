@@ -17,6 +17,18 @@ category. Built and **deployed 2026-10-09** (archives on R2, grids on the
 droplet). Methods §1
 *Permafrost overlays* is the reader-facing account; this is the plumbing.
 
+- **Daymet precipitation and temperature** (2026-11-19, `tools/climate/`):
+  `cl-daymet-prcp` and `cl-daymet-tmean` in Climate, 1 km, z9, the 1991-2020
+  mean of Daymet V4 R1's annual summaries (ORNL DAAC 2130). `daymet_fetch.py`
+  reads only the Alaska window of each North America GeoTIFF over `/vsicurl`
+  with the Earthdata login in `~/.netrc` (the old ORNL THREDDS server is
+  gone; granule URLs come from CMR), `daymet_normals.py` averages them (a
+  cell needs all thirty years), `bake_overlay.py` bakes them. Sources on
+  Nunatak `climate_src/daymet/`; the two normals are copied to
+  `data/climate_src/daymet/` for the cube. Both are analysis axes
+  (`daymet_prcp`, linear to 3000 mm with the rest in the last bin, and
+  `daymet_tmean`). The temperature row uses the MAAT ramp. Not built: a
+  wet-day percentile (needs the 3.7 GB-a-year daily files).
 - **Three quantities, three hues, never one ramp.** PZI is a fraction of
   the cell expected to hold permafrost, Obu's probability is the ensemble
   share with MAGT < 0 °C, Pastick's is the probability of permafrost in the

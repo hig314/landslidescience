@@ -542,10 +542,12 @@
   two sides of the map's wiper: set up a wiper with two overlays and they
   become x (left) and y (right); pick axes in the panel and the wiper is
   made to show them, so the map always shows what the plot is crossing.
-  Twenty-four quantities can be axes today: elevation, slope, aspect and
+  Twenty-six quantities can be axes today: elevation, slope, aspect and
   northness from the 60&nbsp;m terrain; slope at the five other fixed
   scales of the slope overlays (local, 200&nbsp;m, 500&nbsp;m, 1&nbsp;km and
-  2&nbsp;km); the Gruber, Obu and Pastick
+  2&nbsp;km); Daymet mean annual precipitation and air temperature (the
+  precipitation axis stops at 3000&nbsp;mm, wetter ground counts in its last
+  bin); the Gruber, Obu and Pastick
   permafrost products and our downscales; the four susceptibility models
   (USGS lw and n10, DGGS, and NASA's global map); summer radar coherence;
   and ITS_LIVE ice speed.
@@ -652,6 +654,26 @@
   et&nbsp;al. (2015), Roberts-Pierel et&nbsp;al. (2022); downscaled layers
   &copy; landslidescience.org, built on Mapterhorn / USGS 3DEP terrain. Build
   code is in <code>tools/permafrost/</code> of the site repository.
+</p>
+<p>
+  <strong>Precipitation and air temperature (Daymet).</strong> The Climate
+  group also carries two layers from
+  <a href="https://doi.org/10.3334/ORNLDAAC/2130" target="_blank" rel="noopener">Daymet
+  Version&nbsp;4&nbsp;R1</a> (Thornton et&nbsp;al. 2022, ORNL DAAC), a
+  1&nbsp;km grid of daily weather interpolated from station records: mean
+  annual precipitation and mean annual air temperature (the mean of the daily
+  maximum and minimum), each the average of Daymet's own annual summaries for
+  1991&ndash;2020, with a cell kept only where all thirty years have a
+  value. They are shown as published, with no downscaling of ours. Daymet
+  is an interpolation between stations with an elevation regression, and
+  Alaska's stations are few and low: in high, ungauged terrain, and
+  especially on the glaciated coastal ranges, its precipitation is the
+  least constrained number on this map, and published products disagree
+  there by large factors. Read it as the regional pattern (an order of
+  magnitude from the Arctic coastal plain to the Gulf coast), not as a
+  measurement at a point. Its temperature is a second, independent
+  climatology beside Gruber's, on the same colour scale. Build code is in
+  <code>tools/climate/</code>.
 </p>
 
 <h4>The slope-aspect stereonet</h4>

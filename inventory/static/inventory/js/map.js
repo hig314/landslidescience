@@ -964,6 +964,8 @@
         // against, since the Obu-derived 60 m layers are interpolated THROUGH
         // ice rather than masked. Rasterised fill + edge, baked like the rest.
         _BK.byId['glac-outline-2020'],
+        _BK.byId['cl-daymet-prcp'],
+        _BK.byId['cl-daymet-tmean'],
         _BK.byId['pf-gruber-maat'],
         _BK.byId['pf-gruber-maat60'],
         _BK.byId['pf-gruber-pzi'],
@@ -1093,10 +1095,10 @@
     // Required cohesion (tools/terrain/scoops/, exploratory): the row above is
     // kept out of the registry until that work resumes. Its archive
     // (sp_creq_phi20_200m.pmtiles) exists only on the dev machine, so on
-    // production the row would be an empty layer. CREQ_ACTIVE = true (with the
-    // archive under data/overlays/) brings it back; the category is skipped
-    // while its only id is absent.
-    var CREQ_ACTIVE = false;
+    // production the row would be an empty layer. It is on only where the
+    // archive is: the dev machine (with the archive under data/overlays/). The
+    // category is skipped while its only id is absent.
+    var CREQ_ACTIVE = /^(127\.0\.0\.1|localhost)$/.test(window.location.hostname);
     if (!CREQ_ACTIVE) {
         OVERLAYS = OVERLAYS.filter(function (ov) { return ov.id !== 'sp-creq-20-200'; });
     }
@@ -1237,6 +1239,8 @@
         'sp-slope-2k':    { key: 'slope_2k',    short: 'Slope — 2 km' },
         'sp-aspect': { key: 'aspect', fine: 'aspect60', short: 'Aspect' },
         'sp-north':  { key: 'north',  fine: 'north60',  short: 'Northness' },
+        'cl-daymet-prcp':   { key: 'daymet_prcp',  short: 'Precipitation — Daymet 1 km' },
+        'cl-daymet-tmean':  { key: 'daymet_tmean', short: 'Air temperature — Daymet 1 km' },
         'pf-gruber-maat':   { key: 'maat',   short: 'MAAT — Gruber 1 km' },
         'pf-gruber-maat60': { key: 'maat60', fine: 'maat60', short: 'MAAT — downscaled 60 m' },
         'pf-obu-magt':      { key: 'magt',   short: 'MAGT — Obu 1 km' },

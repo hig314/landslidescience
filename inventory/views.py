@@ -1386,6 +1386,8 @@ _RAMP_SPECS = {
     'sp-creq-20-200': {'file': 'terrain/scoops/color_creq.txt', 'label': 'Required cohesion, φ 20°, 10⁹–10¹⁰ m³', 'units': 'kPa · 200 m grid, γ 26 kN/m³', 'kind': 'classes',
                        'classes': [('1–25', 1), ('25–50', 25), ('50–100', 50), ('100–200', 100), ('200–400', 200), ('400–800', 400), ('800–1600', 800), ('over 1600', 1600)]},
     'glac-outline-2020': {'file': 'permafrost/glac_color_outline.txt', 'label': 'Glacier covered area, Alaska 2020', 'units': 'ice (fill) · outline · NSIDC G10040, Landsat, 30 m'},
+    'cl-daymet-prcp':  {'file': 'climate/cl_color_prcp.txt', 'label': 'Mean annual precipitation (Daymet V4 R1, 1991–2020)', 'units': 'mm per year · 1 km'},
+    'cl-daymet-tmean': {'file': 'permafrost/pf_color_maat.txt', 'label': 'Mean annual air temperature (Daymet V4 R1, 1991–2020)', 'units': '°C · 1 km'},
     'pf-gruber-maat':   {'file': 'permafrost/pf_color_maat.txt', 'label': 'Mean annual air temperature (Gruber 2012)', 'units': '°C · 1 km'},
     'pf-gruber-maat60': {'file': 'permafrost/pf_color_maat.txt', 'label': 'Mean annual air temperature, terrain-downscaled', 'units': '°C · 60 m'},
     'pf-gruber-pzi':   {'file': 'permafrost/pf_color_pzi.txt', 'label': 'Permafrost zonation index (Gruber 2012)', 'units': 'PZI, 0-1 · 1 km'},
