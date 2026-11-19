@@ -88,8 +88,23 @@ In no particular order.
   sheets, publish/branch, the `lidar_scene.js` extraction, a shading worker
   pool; on prod, profiles / shared QMS bases / `hc=1` / JPEG export and the
   first *Submit* of a saved comparison are still untried, see the checklist).
-- **`/glaciers/` — DEPLOYED 2026-11-18** (3ad1851, e65bb2b and the range
-  fix after it). Reference maps tab, face tracing, shared date reader,
+- **`/glaciers/` — DEPLOYED 2026-11-18, then SET ASIDE by Hig the same
+  day** (3ad1851, e65bb2b, 0a35193, 654a8bf; prod is at 654a8bf). Nothing
+  of this work is uncommitted or undeployed. **To resume, start here:**
+  (1) ask Hig whether prod or dev is the working copy of the network (they
+  have diverged since the copy; Claude suggested prod, Hig did not answer);
+  (2) the unbuilt list: pin-a-face control, consensus face series,
+  elevation as the plot axis, cross-glacier joins, split-line and
+  simplify-line buttons, loading network lines by map view, byte ranges
+  for Planet mp4s, a retry for a failed Drive fetch; (3) `GLACIERS_PLAN.md`
+  still describes the pre-network plan and wants rewriting round the
+  network, with two questions open for Hig: which DEMs to trust before
+  2000, and what "consensus" means for faces; (4) unlinked glaciers Hig was
+  told about and did not ask for: RGI 01-13322 beside Guyot, three small
+  ones by Tyndall; (5) the 60 Grotto-labelled faces that project onto
+  Moraine/Apron (Hig has since made it a distributary, line 113).
+  654a8bf: a video still being copied becomes playable without a reload
+  (tested in dev with a stand-in row, not with a real fetch on prod). Reference maps tab, face tracing, shared date reader,
   metric along-line positions, distributaries, one-line face projection,
   videos on segments (Planet, uploaded or Drive-linked Sentinel-1): the
   dated sections at the end of docs/GLACIERS.md. **How prod was loaded:**
