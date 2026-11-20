@@ -42,6 +42,7 @@ by curl, by API or not at all.
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-19 · Daymet precipitation + air temperature, overlays and analysis axes (76febe2); exploratory landform statistics, overlays only (6764ed9) · docs/PERMAFROST.md. Open: multi-size required-strength run stopped when Nunatak was unplugged, next steps atop tools/terrain/scoops/README.md
 - 2026-11-16 · Inventory-tab explorer for the outside inventories ("Showing" switch; families, ring/size/fade, presets, their fields, review filter, spelling fold) · docs/EXTERNAL_INVENTORIES.md
 - 2026-11-16 · Review of mirrored external records: shared categories (`+`), note, promoted read live; editors only; `migrate_external_review` per environment · docs/EXTERNAL_INVENTORIES.md
 - 2026-11-14 · map.js split, round 4: `draw_ui.js`, `lidar_ui.js`, `scarp_ui.js`, `revise_ui.js`, `charts.js`; map.js is 333 KB. Start-up and opening each tool checked in Chrome on dev and prod; Hig tested after the deploy ("looks good", 2026-11-15) (eeb5f31) · docs/MAP_UI.md
