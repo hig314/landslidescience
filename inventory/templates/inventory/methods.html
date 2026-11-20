@@ -656,6 +656,36 @@
   code is in <code>tools/permafrost/</code> of the site repository.
 </p>
 <p>
+  <strong>Landform statistics (exploratory).</strong> Three Surface layers
+  describe the shape of the ground and nothing else: no rock strength,
+  climate or process goes into them. All are measured on the Mapterhorn /
+  USGS 3DEP terrain at 10&nbsp;m, carried onto the neighbouring slopes, and
+  then smoothed with a 1&nbsp;km Gaussian, so they show a regional signature
+  and not individual landforms. <em>Ridge radius</em>: at each ridge crest a
+  smooth surface is fitted to the terrain inside a disc 500&nbsp;m across, and
+  the radius of the circular arc that matches its cross-section over the
+  crest is kept; a small radius is a sharp ridge, a large one a round ridge.
+  The value is carried down the slopes below each crest. It cannot read
+  above about 1,560&nbsp;m at this disc size, so lowlands sit at that
+  limit. <em>Ridge scale exponent n</em>: the base-2 logarithm of the ratio
+  of the radius from a 1&nbsp;km disc to the radius from the 500&nbsp;m disc at the
+  same crest. A round crest gives 0, straight flanks meeting at an edge give
+  1, and a crest that steepens toward its top gives more. In low relief it
+  rests on few crests and shows blocky patches. <em>Valley fall across the
+  floor F</em>: along streams draining at least 2&nbsp;km&sup2;, the
+  down-valley gradient (over about 1&nbsp;km of stream either way) times the
+  width of the valley floor, the width being measured across the valley out
+  to where the ground rises 10&nbsp;m within 50&nbsp;m on each side. It is the
+  height the valley falls in one floor-width: high where a floor is both
+  steep and wide. Reaches with a glacier on the floor, or with no wall
+  found within 3&nbsp;km, are left out, and the value is carried up the
+  slopes that drain to each reach. Known weaknesses: a tributary crossing a
+  larger valley's floor reads that floor's width; wide lowland floors read
+  high on width alone; and drainage area is counted only within about
+  5&nbsp;km of each 50&nbsp;km working block. These are first versions, shown
+  for inspection. Build code is in <code>tools/terrain/landform/</code>.
+</p>
+<p>
   <strong>Precipitation and air temperature (Daymet).</strong> The Climate
   group also carries two layers from
   <a href="https://doi.org/10.3334/ORNLDAAC/2130" target="_blank" rel="noopener">Daymet

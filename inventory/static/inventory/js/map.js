@@ -957,6 +957,20 @@
           label: 'Required cohesion — φ 20°, 10⁹–10¹⁰ m³',
           sub: 'kPa, γ 26 kN/m³, on a 200 m grid · a search of spherical surfaces, not a hazard estimate · clear = none needed',
           sourceDef: function () { return _pfSourceDef('sp_creq_phi20_200m', 10, SP_ATTR); }, defOpacity: 0.85 },
+        // Exploratory landform statistics (tools/terrain/landform/landform_state.py):
+        // form only, blurred at 1 km. Archives on R2 (lf_*.pmtiles).
+        { id: 'lf-ridge-r500', layerId: 'ov-lf-ridge-r500', sourceId: 'ov-lf-ridge-r500-src',
+          label: 'Ridge radius — 500 m disc',
+          sub: 'm · radius of the arc fitted across the crest, spread down the slopes, 1 km blur · red sharp, blue round · saturates near 1,560 m',
+          sourceDef: function () { return _pfSourceDef('lf_ridge_r500', 9, SP_ATTR); }, defOpacity: 0.8 },
+        { id: 'lf-ridge-n500', layerId: 'ov-lf-ridge-n500', sourceId: 'ov-lf-ridge-n500-src',
+          label: 'Ridge scale exponent n',
+          sub: 'log2(R at 1 km disc / R at 500 m disc) · 0 round crest, 1 straight flanks, more = cusped · 1 km blur',
+          sourceDef: function () { return _pfSourceDef('lf_ridge_n500', 9, SP_ATTR); }, defOpacity: 0.8 },
+        { id: 'lf-valley-f', layerId: 'ov-lf-valley-f', sourceId: 'ov-lf-valley-f-src',
+          label: 'Valley fall across the floor F',
+          sub: 'm · valley gradient × floor width, spread up the slopes, 1 km blur · glacier-floored and unwalled reaches left out',
+          sourceDef: function () { return _pfSourceDef('lf_valley_f', 9, SP_ATTR); }, defOpacity: 0.8 },
         _BK.byId['sp-aspect'],
         _BK.byId['sp-north'],
         // Glacier covered area 2020 (NSIDC G10040, Landsat-derived, RGI ids

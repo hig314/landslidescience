@@ -253,6 +253,8 @@
                     'sp-slope-1k', 'sp-slope-2k', 'sp-aspect', 'sp-north'] },
             { key: 'creq',   label: 'Required strength (exploratory)',
               ids: ['sp-creq-20-200'] },
+            { key: 'landform', label: 'Landform statistics (exploratory)',
+              ids: ['lf-ridge-r500', 'lf-ridge-n500', 'lf-valley-f'] },
             { key: 'relief', label: 'DEM visualizations',
               ids: ['relief-mt-hs', 'relief-mt-pre', 'relief-adem-hs', 'relief-adem-pre', 'sp-contours'] },
         ] },

@@ -29,6 +29,17 @@ droplet). Methods §1
   (`daymet_prcp`, linear to 3000 mm with the rest in the last bin, and
   `daymet_tmean`). The temperature row uses the MAAT ramp. Not built: a
   wet-day percentile (needs the 3.7 GB-a-year daily files).
+- **Landform statistics** (2026-11-19, `tools/terrain/landform/`, exploratory):
+  `lf-ridge-r500`, `lf-ridge-n500`, `lf-valley-f` under Surface → Landform
+  statistics, z9, archives `lf_*.pmtiles` on R2. `landform_state.py` runs
+  50 km blocks (5 km margin) at 10 m from Mapterhorn z12, resumable from
+  `done.txt`, and writes 40 m blurred GeoTIFFs per block plus the crest and
+  stream points; `--mosaic` builds the VRTs; the bake reads a 160 m average
+  of each. Output on Nunatak `terrain_build/landform/state/` (width and
+  gradient are mosaicked there too, not baked). Glacier outlines come from a
+  WKB export of dev PostGIS (`glaciers_3338.wkb`). **Not analysis axes**:
+  the hold on comparing form-only maps with landslide mapping covers them
+  until Hig says otherwise. Weak points are listed on the Methods page.
 - **Three quantities, three hues, never one ramp.** PZI is a fraction of
   the cell expected to hold permafrost, Obu's probability is the ensemble
   share with MAGT < 0 °C, Pastick's is the probability of permafrost in the

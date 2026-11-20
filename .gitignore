@@ -12,3 +12,4 @@ tools/terrain/scoops/_scoops_core.so
 CLAUDE.local.md
 tools/lidar/datasets.local.json
 node_modules/
+tools/terrain/landform/_flow_core.so
