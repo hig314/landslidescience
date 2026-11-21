@@ -191,7 +191,9 @@ def find_gap(fid, out, force=False):
     first at or after it, both read by seeking. Writes <id>_gap.json."""
     p = out / (fid + '_gap.json')
     if p.exists() and not force:
-        return json.loads(p.read_text())
+        done = json.loads(p.read_text())
+        if 'error' not in done:          # an error (often Drive refusing for a while) is tried again
+            return done
     sys.path.insert(0, str(Path(__file__).parent))
     import s1_labels as L
     T = L.load_templates()

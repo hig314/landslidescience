@@ -16,7 +16,8 @@ flow line Hig drew with the site's name, else an RGI or GLIMS glacier name
 else a GNIS glacier's point, else a GNIS lake, stream or summit (the nearest
 large glacier, flagged). The rest are left unplaced for Hig.
 
-Which video (`_choose`): videos without the S1B gap (a jump of a year or
+Which video (`_choose`), within one glacier and subject (the site name less
+any trailing number or date): videos without the S1B gap (a jump of a year or
 more between consecutive frames), then the latest last frame, then the fewest
 missing months. Where every video of a glacier has the gap, the latest is
 chosen and flagged.
@@ -42,6 +43,7 @@ from ... import network, videos
 SITES = Path(settings.BASE_DIR) / 'tools' / 'glaciers' / 's1_sites.json'
 GNIS = Path(settings.BASE_DIR) / 'data' / 'glaciers' / 'gnis' / 'Text' / 'DomesticNames_AK.txt'
 GAP_MONTHS = 12          # a jump this long between two frames is the S1B gap
+LIKELY_GAP_MISSING = 40  # with the gap not read, this many missing months is taken to be it
 FAR_KM = 30              # same-named glaciers further apart than this are different glaciers
 NEAR_GLACIER_KM = 20     # a GNIS lake or stream finds its glacier within this
 MIN_AREA_KM2 = 5         # ... among glaciers at least this big
@@ -80,6 +82,11 @@ def date_facts(probe, first, last, gap):
         g, at = months(gap['after']) - months(gap['before']) - 1, (gap['before'], gap['after'])
     elif gap and gap.get('note'):
         g = 0                         # ends before 2022, or starts after: no gap to have
+    elif span - probe['frames'] >= LIKELY_GAP_MISSING:
+        # not read by seeking yet: this many missing months can only be the
+        # outage (scattered skips run to a handful), so count it as the gap
+        g, at = span - probe['frames'], None
+        gap = dict(gap or {}, note='not read; %d months missing' % (span - probe['frames']))
     return {'first': first, 'last': last, 'span': span, 'missing': span - probe['frames'], 'gap': g, 'gap_at': at,
             'gap_note': (gap or {}).get('note') or (gap or {}).get('error')}
 
@@ -133,7 +140,11 @@ class Command(BaseCommand):
         for v in vids:
             pl = places[v['key']]
             v['place'] = pl
-            v['group'] = pl.get('glacier_id') or ('unplaced:' + v['key'])
+            # One pick per glacier AND subject: Portage, Portage_2 and Portage3
+            # compete; Malaspina_lake and Oily_Lake, both placed on the
+            # Malaspina complex, do not.
+            where = pl.get('glacier_id') or ('line:%d' % pl['line_id'] if pl.get('line_id') else 'unplaced')
+            v['group'] = where + '|' + norm(v['key'])
             v['existing'] = on_prod.get(v['id'])
         self._choose(vids)
         out = {'folder': listing['folder'], 'videos': sorted(vids, key=lambda v: (v['place'].get('name') or v['key'], v['name']))}
@@ -191,13 +202,22 @@ class Command(BaseCommand):
                        ORDER BY length_m DESC LIMIT 1""", (norm(lname),))
         r = cur.fetchone()
         if r and rule.get('line'):
-            return {'how': 'line', 'line_id': r[0], 'glacier_id': r[1], 'name': r[2], 'note': note}
-        name = rule.get('glacier')
-        if not name and not rule.get('gnis'):
-            base = rules['aliases'].get(key, key)
-            words = [w for w in re.split(r'[_-]', base) if w and w not in rules['qualifiers']]
-            name = ' '.join(words)
-        if name:
+            return {'how': 'your line', 'line_id': r[0], 'glacier_id': r[1], 'name': r[2], 'note': note}
+        if rule.get('glacier'):
+            names = [rule['glacier']]
+        elif rule.get('gnis'):
+            names = []
+        else:
+            # the full name first ("East Nunatak", "Lake George"), then with
+            # the qualifier words taken out ("Bering East" -> "Bering")
+            al = {k.lower(): v for k, v in rules['aliases'].items()}
+            quals = {w.lower() for w in rules['qualifiers']}
+            words = [al.get(w.lower(), w) for w in re.split(r'[_-]', al.get(key.lower(), key)) if w]
+            names = [' '.join(words)]
+            core = ' '.join(w for w in words if w.lower() not in quals)
+            if core and core != names[0]:
+                names.append(core)
+        for name in names:
             rows = self._by_name(cur, name)
             if rows:
                 rows.sort(key=lambda x: -(x[2] or 0))
@@ -209,12 +229,16 @@ class Command(BaseCommand):
                     how = 'name, ambiguous'
                     note = (note + '; ' if note else '') + 'also called %s: %s' % (
                         name, ', '.join('%s (%.0f km², %.2f, %.2f)' % (x[1], x[2] or 0, x[3], x[4]) for x in far[:4]))
-                return {'how': how, 'glacier_id': best[0], 'name': best[1], 'area_km2': best[2], 'note': note}
-            for cls, lon, lat in gnis.get((name + ' glacier').lower(), []):
-                if cls == 'Glacier':
-                    g = self._glacier_at(cur, lon, lat, within_km=3)
-                    if g:
-                        return dict(g, how='gnis glacier', note=note or 'GNIS: %s Glacier' % name)
+                return {'how': how, 'glacier_id': best[0], 'name': best[1] or name, 'area_km2': best[2], 'note': note}
+        for name in names:
+            for nm in (name.lower(), (name + ' glacier').lower()):
+                for cls, lon, lat in gnis.get(nm, []):
+                    if cls == 'Glacier':
+                        g = self._glacier_at(cur, lon, lat, within_km=3)
+                        if g:
+                            label = nm.title() if nm.endswith('glacier') else name
+                            return dict(g, name=g['name'] or label, how='gnis glacier',
+                                        note=note or 'GNIS: %s%s' % (label, ' (RGI calls it %s)' % g['name'] if g['name'] and norm(g['name']) != norm(label) else ''))
         feat = rule.get('gnis')
         if feat:
             for cls, lon, lat in gnis.get(feat.lower(), []):
