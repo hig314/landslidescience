@@ -353,13 +353,28 @@ class Command(BaseCommand):
     def do_import(self, manifest, decisions, dry):
         man = {v['id']: v for v in json.loads(manifest.read_text())['videos']}
         dec = json.loads(decisions.read_text())
+        # what is on THIS site now (a rerun after a failed download, or the
+        # manifest made on another environment): skip by Drive file id
+        conn = _get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT source_url, id FROM glacier_videos WHERE source_url IS NOT NULL")
+            here = {videos.drive_id(u): i for u, i in cur.fetchall() if videos.drive_id(u)}
+            conn.rollback()
+        finally:
+            _put_conn(conn)
+        for v in man.values():
+            v['existing'] = here.get(v['id'])
         todo = []
         for fid, d in dec.items():
-            if d.get('status') != 'approved':
-                continue
             v = man.get(fid)
             if not v:
                 raise CommandError('decision for a video not in the manifest: %s' % fid)
+            # approved, or given a glacier on the page and not rejected (Hig,
+            # 2026-11-20: "import what I've assigned / approved")
+            assigned = bool((v.get('fix_place') or {}).get('glacier_id'))
+            if d.get('status') == 'rejected' or not (d.get('status') == 'approved' or assigned):
+                continue
             if v.get('existing'):
                 self.stdout.write('already on the site (video %s): %s' % (v['existing'], v['name']))
                 continue
@@ -378,8 +393,15 @@ class Command(BaseCommand):
         self.stdout.write('%d to import, %.1f GB; %.1f GB free' % (len(todo), need / 1e9, free / 1e9))
         if need > free - 2e9:
             raise CommandError('not enough disk: keep 2 GB free after the import')
+        failed = []
         for v, gid in todo:
-            self._import_one(v, gid, dry)
+            try:
+                self._import_one(v, gid, dry)
+            except Exception as e:            # one bad download must not stop the rest
+                failed.append(v['name'])
+                self.stderr.write('FAILED %s: %s' % (v['name'], e))
+        self.stdout.write('%d %s, %d failed%s' % (len(todo) - len(failed), 'checked' if dry else 'imported', len(failed),
+                                                 (': ' + ', '.join(failed)) if failed else ''))
 
     def _anchor(self, cur, v, gid):
         """The point to anchor on: the downstream end of Hig's line, else of
@@ -397,9 +419,24 @@ class Command(BaseCommand):
             if not g:
                 raise CommandError('no such glacier %s' % gid)
             adopted = network.adopt(cur, gid, g[0], 's1 import')
-        cur.execute("""SELECT ST_X(p), ST_Y(p) FROM (SELECT ST_EndPoint(geom) p FROM glacier_centerlines
-                       WHERE glacier_id = %s ORDER BY is_main DESC, length_m DESC LIMIT 1) q""", (gid,))
-        return cur.fetchone(), adopted
+        cur.execute("""SELECT ST_EndPoint(geom) FROM glacier_centerlines
+                       WHERE glacier_id = %s ORDER BY is_main DESC, length_m DESC LIMIT 1""", (gid,))
+        r = cur.fetchone()
+        if not r:
+            return None, adopted
+        # Hig's own lines on a glacier may not pass the RGI terminus (redrawn,
+        # extended): put the anchor on the nearest of the glacier's network
+        # lines to it, and say how far that moved it.
+        cur.execute("""SELECT ST_X(c), ST_Y(c), ST_Distance(c::geography, %s::geography) FROM (
+                         SELECT ST_ClosestPoint(geom, %s) c FROM glacier_lines
+                         WHERE kind = 'flowline' AND glacier_id = %s
+                         ORDER BY geom <-> %s LIMIT 1) q""", (r[0], r[0], gid, r[0]))
+        c = cur.fetchone()
+        if not c:
+            return None, adopted
+        if c[2] > 50:
+            self.stdout.write('  %s: the RGI terminus is %.0f m from your lines; anchored on the nearest of them' % (v['name'], c[2]))
+        return (c[0], c[1]), adopted
 
     def _import_one(self, v, gid, dry):
         fetched = None
