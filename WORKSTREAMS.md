@@ -1,9 +1,10 @@
 # Work streams — how the sub-projects relate (2026-09-21)
 
-Two Claude sessions work on this repository in parallel, in separate git
-worktrees. This file says what each stream owns, how the pieces connect,
-and what to do at the boundaries. Read it before editing anything under
-`tools/lidar/`.
+Several Claude sessions work on this repository in parallel, in separate git
+worktrees (two at first; glaciers became the third on 2026-11-20). This file
+says what each stream owns, how the pieces connect, and what to do at the
+boundaries. Read it before editing anything under `tools/lidar/` or
+`glaciers/`.
 
 ## The pieces
 
@@ -35,6 +36,7 @@ pipeline like any other survey.
 |---|---|---|---|
 | **Inventory + lidar hosting/viewer** | `main` | `~/Claude_projects/landslidescience` | everything not listed on the right; `datasets.json`; `RESUME.md`; the dev server on :8001; `$LIDAR_BUILD/cog/`, pyramids, catalogue, R2 |
 | **Topobathy compositing** | `topobathy-compositing` | `~/Claude_projects/landslidescience-topobathy` | `tools/lidar/topobathy/`, `tools/lidar/composite.py`, `tools/lidar/grid_bathy.py`, `tools/lidar/mask_tool/`, `tools/lidar/composites/`, `tools/lidar/TOPOBATHY_PLAN.md`; mask-tool servers on :8765–8767; `$LIDAR_BUILD/composite/`, `$LIDAR_BUILD/obs/` |
+| **Glaciers** (2026-11-20) | `glaciers` | `~/Claude_projects/landslidescience-glaciers` | `glaciers/` (the app, its templates and `static/glaciers/js/`), `tools/glaciers/`, `tools/build_glacier_*.py`, `docs/GLACIERS.md`, `GLACIERS_PLAN.md`; the glacier tables in PostGIS; `data/glaciers/`, `data/glacier_videos/`; its own dev server on :8004 |
 
 Rules at the boundary:
 
@@ -59,7 +61,31 @@ Rules at the boundary:
 - **`build_lidar.py` helpers** (`retag_generic_nad83`,
   `apply_vertical_shift`, the COG profile) are imported by compositing,
   not copied. Hosting may change them; compositing adapts at merge.
-- **Servers and ports.** Dev Django on :8001 (hosting; :8000 is Tethys).
+- **Glaciers borrows the inventory's map modules; it does not own them.**
+  The `/glaciers/` pages load `basemaps.js`, `ls_hash.js`, `ls_proj.js`,
+  `ls_tools.js`, `ls_colors.js`, `ls_overlays.js`, `scarps.js`,
+  `trace_rasters.js`, `lidar_ui.js` and the shading code from
+  `inventory/static/inventory/js/`. Those, `landslidescience/` (settings,
+  root urls), the base templates and anything else outside the glaciers row
+  are `main`'s. A change glaciers needs there is written down for the main
+  session (here, or docs/GLACIERS.md), or made on `main` and merged into the
+  branch; never edited on the glaciers branch, where it would diverge
+  silently from what the inventory runs. The exception is `ls_overlays.js`'s
+  glacier overlay definitions, which both pages draw: change them on `main`.
+- **Glaciers dev server.** `docker-compose.glaciers.yml`, run from the
+  glaciers worktree (command in its header), serves that worktree's code on
+  :8004. It mounts the MAIN checkout's `data/` and uses the same dev
+  PostGIS, so there is one set of records, one SQLite and one sign-in.
+  Consequences: a Django (SQLite) migration added on either branch is
+  applied to the shared file as soon as that container starts, so new
+  models go in on `main` first; a `migrate_glaciers` schema change on the
+  branch changes the tables the main server's `/glaciers/` reads too; and
+  the worktree has no `data/` of its own (host tools that write under
+  `data/` must be pointed at the main checkout). R2's CORS list names
+  dev origins by port, so lidar layers read from R2 may not load on :8004
+  until that port is added in the Cloudflare dashboard.
+- **Servers and ports.** Dev Django on :8001 (hosting; :8000 is Tethys);
+  glaciers dev Django on :8004 (:8002 ad-hoc proxies, :8003 Umami).
   Mask tool on :8765–8767 (compositing; Flask, no Django, safe to leave
   running across a dev-server restart).
 - **Build volume.** Both streams write to `/Volumes/Nunatak/lidar_build`
@@ -80,10 +106,18 @@ publish or when hosting needs one of its pieces (e.g. the profile tool
 or the observation-package idea). Expected conflicts: `datasets.json`
 only. After a merge, `TOPOBATHY_PLAN.md` on `main` is the current one.
 
+Glaciers merges into `main` when a piece is ready for Hig to test for
+shipping; deploys happen from `main` only, by the main session's rules.
+Before starting glaciers work, merge `main` into the branch, so the shared
+modules it loads are current.
+
 ## Where each stream keeps its state
 
 - Hosting: `tools/lidar/RESUME.md` (state of play), `/lidar/audit/`
   (live seams check).
+- Glaciers: `docs/GLACIERS.md` (plumbing, dated sections newest last),
+  `GLACIERS_PLAN.md` (decisions), and the `/glaciers/` resume list in
+  `docs/STATE.md`, which the glaciers stream keeps current on its branch.
 - Compositing: `tools/lidar/TOPOBATHY_PLAN.md` — first section "State of
   play", then "Revision 2" (the three-axis model), then the paused
   interpolation section; dated sections at the end record what was

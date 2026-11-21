@@ -8,9 +8,10 @@ project, and an index of where the detail lives. The per-feature reference is
 in `docs/` and is read on demand. **Before editing a feature, read its
 `docs/` file** (table below) and **[HAZARDS.md](HAZARDS.md)** (the footgun
 list, every entry earned by a real incident). New to the repo:
-**[ONBOARDING.md](ONBOARDING.md)**. Two work streams run in parallel in
-separate worktrees: read **[WORKSTREAMS.md](WORKSTREAMS.md)** before touching
-anything under `tools/lidar/`.
+**[ONBOARDING.md](ONBOARDING.md)**. Three work streams run in parallel in
+separate worktrees (inventory + hosting on `main`, topobathy, glaciers): read
+**[WORKSTREAMS.md](WORKSTREAMS.md)** before touching anything under
+`tools/lidar/` or `glaciers/`.
 
 ## Where the detail lives
 

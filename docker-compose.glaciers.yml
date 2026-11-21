@@ -1,0 +1,48 @@
+# Dev server for the GLACIERS work stream, run from its own worktree
+# (~/Claude_projects/landslidescience-glaciers, branch `glaciers`; see WORKSTREAMS.md):
+#
+#   ln -s ../landslidescience/.env .env        # once; the worktree has no .env of its own
+#   docker compose -p landslidescience-glaciers -f docker-compose.yml -f docker-compose.glaciers.yml up -d --no-build web
+#   → http://127.0.0.1:8004/glaciers/
+#
+# It runs the MAIN stream's dev image (`landslidescience-web`, built by `docker compose
+# up` in the main checkout) with this worktree's source mounted over it, so there is
+# no second image to build. If this branch changes requirements.txt, drop `--no-build`
+# and the `image:` line below.
+#
+# Used INSTEAD of docker-compose.override.yml (which binds :8001, the main stream's
+# server), so both streams can be tested at once. Only `web` is started: Umami
+# belongs to the main stack.
+#
+# Code comes from this worktree; DATA DOES NOT. `data/` (SQLite, media, overlays,
+# glacier sources and videos) is the main checkout's, and PostGIS is the same dev
+# database, so the two servers show the same records and the same sign-in. Static
+# files are collected inside each container, so the two do not overwrite each other:
+#
+#   docker exec landslidescience-glaciers-web-1 python manage.py collectstatic --noinput
+#   docker restart landslidescience-glaciers-web-1
+services:
+  web:
+    image: landslidescience-web
+    pull_policy: never
+    ports:
+      - "127.0.0.1:8004:8000"
+    volumes:
+      - ${LS_MAIN_CHECKOUT:-../landslidescience}/data:/app/data
+      - ./pages:/app/pages
+      - ./inventory:/app/inventory
+      - ./files:/app/files
+      - ./glaciers:/app/glaciers
+      - ./drops:/app/drops
+      - ./landslidescience:/app/landslidescience
+      - ./manage.py:/app/manage.py
+      - ./tools:/app/tools
+    networks:
+      - default
+      - tethys_internal
+    command: python manage.py runserver 0.0.0.0:8000
+
+networks:
+  tethys_internal:
+    name: tethys-timescale-grafana_internal
+    external: true
