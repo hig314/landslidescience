@@ -30,7 +30,7 @@ W = Path("/Volumes/Nunatak/lidar_build/composite"); WATER = Path("/Users/Hig/Cla
 EDITS = W / "review_1114" / "solve_edits.geojson"       # a reviewer's typing of evidence: polygons, kind "not_bed" (optionally only cells deeper_than_m)
 COMP = ("ocm2023", "ncei2010", "cudem2022", "crm")
 DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hig's low-tide mapping
-P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=30.0, low_bound_tol_m=0.5,
+P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=0.0, snd_cast_beside_m=15.0, fix_grid_bed_edge=1, comp_near_bed_m=30.0, line_yield_m=15.0, line_yield_min_level_m=2.0, low_bound_tol_m=0.5,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24, amg=1,
          snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
@@ -469,7 +469,12 @@ def main(argv=None, ret=False):
     isl_land = np.isfinite(isl_lv) & (si == 3) & np.isfinite(cur) & (cur >= isl_lv - 0.3) & ~has & inwin & ~still & ~objm
     if isl_land.any(): log(f"  traced islands: {int(isl_land.sum())} modelled cells at or above their line are prior land ({int((isl_land & (cur > p['tide_max_m'] + 1.0)).sum())} above the tide, fixed)")
     land3 = ((np.isin(si, (0, 1)) & np.isfinite(cur) & ~has & inwin & ~still & ~objm) | isl_land)                    # (an object the product still shows from another layer is no prior land either)
-    fix_meas = conf & (din > p["fix_edge_m"]) & ~ice
+    # THE EDGE OF A SURVEY IS DOUBTED FOR A LIDAR'S SAKE (water returns and thin points at the fringe of a patch), NOT A GRIDDED BED'S: a
+    # multibeam run in stripes 10 m wide is edge everywhere, so the whole lattice was soft at up to 7 sigma, the free gaps between the
+    # stripes followed the compilation's level 2-5 m under them, and the stripes bent to the gaps (Hig 2026-11-20, Halibut Cove Lagoon
+    # 59.57183,-151.19578: "unrealistic peaks and basins" in the striped survey; 9 % of that window fixed, 15 % soft).  A confident gridded
+    # bed cell under water is fixed to its edge.
+    fix_meas = conf & ((din > p["fix_edge_m"]) | (((src & grid_b) != 0) & np.isin(lab, (2, 3)) & bool(p["fix_grid_bed_edge"]))) & ~ice
     # GROUND ABOVE THE TIDE'S REACH IS OUT OF SCOPE: as the product has it.  That holds for what the product MODELLED there too (a hole in the
     # land it bridged from a ground prior, the icefield's gaps: 2026-11-15, 97,000 cells at 1,200 m re-bridged 30 m off), unless the cell is
     # water to the stages or to a lidar, or stands within scope_dry_m of the margin (a bank, a bluff toe: solved with it, so no seam at the tide's reach).
@@ -497,13 +502,20 @@ def main(argv=None, ret=False):
     sg = np.maximum(np.where(np.isfinite(js), js, 1.0), 0.03) * (1.0 + p["edge_gain"] * np.exp(-din / p["edge_len_m"]))
     w[soft] = 1 / sg[soft] ** 2; b[soft] = jz[soft] / sg[soft] ** 2; lidar_soft = soft.copy()
     s3 = land3 & ~fixed; w[s3] += 1 / p["prior3dep_sigma_m"] ** 2; b[s3] += cur[s3] / p["prior3dep_sigma_m"] ** 2
-    rng = np.random.default_rng(1); held = []; ns = nb_ = n_stale = 0; snd = np.zeros(jz.shape, bool); ws = np.zeros(jz.shape); bs = np.zeros(jz.shape); mins = []; sl_ = []; dzp = R["fill"].get("points_dz_m") or {}; dzp = dzp if isinstance(dzp, dict) else {}
+    rng = np.random.default_rng(1); held = []; ns = nb_ = n_stale = n_beside = 0; snd = np.zeros(jz.shape, bool); ws = np.zeros(jz.shape); bs = np.zeros(jz.shape); mins = []; sl_ = []; dzp = R["fill"].get("points_dz_m") or {}; dzp = dzp if isinstance(dzp, dict) else {}
+    # A CAST BESIDE A MEASURED BED ADDS NOTHING AND CAN ONLY MISLEAD (2026-11-20, Halibut Cove Lagoon: NOS H09884's 1977-84 casts in the gaps of a
+    # striped multibeam -- 131 of 324 stand > 8 m above the swaths either side of them, on a steep-sided -60 m basin; as data in the 10-25 m
+    # gaps they left +-10 m bumps and pits between measured stripes).  A sea cast is placed to snd_cast_beside_m at best ("casts are moved,
+    # not rejected": its depth is right somewhere near); within that distance of a confidently measured bed the measurement is the bed, as
+    # it already is for a cast ON a measured cell.  Lake casts (sonar tracks, hand-placed) are not touched.
+    dbed_ = ndimage.distance_transform_edt(~(fix_meas & np.isin(lab, (2, 3)))) * res if (p["snd_cast_beside_m"] > 0 and (fix_meas & np.isin(lab, (2, 3))).any()) else None
     for path in R["fill"]["points"]:
         for row in _rows(path):
             px, py = row["x"], row["y"]
             if not (win[0] < px < win[2] and win[1] < py < win[3]): continue
             c, r = ~T * (px, py); r, c = int(r), int(c)
             if fixed[r, c]: continue
+            if dbed_ is not None and dbed_[r, c] <= max(p["snd_cast_beside_m"], res) and re.search(r"nos_|crm_", os.path.basename(path)): n_beside += 1; continue
             # a cast older than the survey of the moving zone it lies in (the joint's zone_day), or a sea cast in still water above the tide,
             # is no evidence of today's bed (fill.py _point_stale: the Woz delta's 1978 casts under 2023's built-up flat)
             if np.isfinite(zday[r, c]):
@@ -526,9 +538,31 @@ def main(argv=None, ret=False):
             if a.holdout and rng.random() < a.holdout: held.append((r, c, zz, s_)); continue
             ws[r, c] += 1 / s_ ** 2; bs[r, c] += zz / s_ ** 2; ns += 1; snd[r, c] = True
             if p["snd_mode"]: sl_.append((r, c, zz, s_, rp_, px, py, row.get("survey")))
-    nl = nlf = 0; linecells = np.zeros(jz.shape, bool)
+    nl = nlf = 0; linecells = np.zeros(jz.shape, bool); line_held = np.zeros(jz.shape, bool)
     from shapely.geometry import shape as shp, box as sbox
     wb_ = sbox(*win)
+    # A TRACED HIGH-TIDE LINE IS APPROXIMATELY A CONTOUR (Hig 2026-11-20, Petrof Beach 59.36015,-150.82710: "it should drop to that level.
+    # That will steepen cliffs relative to ArcticDEM and 3DEP in various cases - that's more likely to be correct"; forest there, which
+    # neither sees through).  3DEP stood 8.7 m ON the line (level 3.65) and was held fixed, so the line was "not honoured" and the beach
+    # ramped down from the cliff foot's height.  Unmeasured land (a fallback DTM, the product's own dry fill) within line_yield_m of a traced
+    # line at or above line_yield_min_level_m gives way: free, no prior weight, and the line's cells are data at its level.  A lidar's ground
+    # (fixed or soft, thin or not) and a lidar-derived grid's are not touched; ArcticDEM's is unmeasured here like 3DEP's.
+    if p["line_yield_m"] > 0:
+        gl_ = [(g, 1) for g, pr_ in _feats("tide_lines.geojson") if g.intersects(wb_) and float(pr_["level_m"]) >= p["line_yield_min_level_m"]]
+        if gl_:
+            lm_ = np.pad(features.rasterize(gl_, out_shape=(H0, W0), transform=T, all_touched=True).astype(bool), pad)
+            yl_ = (ndimage.distance_transform_edt(~lm_) * res <= p["line_yield_m"]) & (land3 | high | (meas & ~conf)) & ~conf & ~(has & ((src & lidar_b) != 0)) & ~ice & ~still & inwin   # 3DEP, the dry fill, ArcticDEM: not a lidar's ground, thin or not
+            if yl_.any():
+                log(f"  traced high-tide lines as contours: {int(yl_.sum())} cells of unmeasured land within {p['line_yield_m']:g} m of one give way ({int((yl_ & fixed).sum())} were fixed; they stood p50/p90 {np.percentile(cur[yl_ & np.isfinite(cur)], 50):.1f}/{np.percentile(cur[yl_ & np.isfinite(cur)], 90):.1f} m)")
+                fixed = fixed & ~yl_; fix_other = fix_other & ~yl_; w[yl_] = 0.0; b[yl_] = 0.0
+                # ...and ON the line the land that gave way stands AT its level, held (as soft data at line_sigma_m, 18 m of cliff 15 m away
+                # left the line's cells at 10.8 m: "it should drop to that level")
+                lvr_ = np.pad(features.rasterize(sorted(((g, float(pr_["level_m"])) for g, pr_ in _feats("tide_lines.geojson") if g.intersects(wb_) and float(pr_["level_m"]) >= p["line_yield_min_level_m"]), key=lambda t_: -t_[1]),
+                                                 out_shape=(H0, W0), transform=T, all_touched=True, fill=np.nan, dtype="float32").astype(np.float64), pad, constant_values=np.nan)
+                on_ = yl_ & np.isfinite(lvr_); fixed = fixed | on_; fix_other = fix_other | on_; zfix = np.where(on_, lvr_, zfix)
+                log(f"    {int(on_.sum())} of them on a line are held at its level")
+                line_held = on_; del lvr_
+            del lm_, yl_
     for g, pr_ in _feats("tide_lines.geojson"):
         if not g.intersects(wb_): continue
         lv = float(pr_["level_m"]); s_ = max(float(pr_.get("level_sigma_m") or 0.3), p["line_sigma_m"])
@@ -537,7 +571,7 @@ def main(argv=None, ret=False):
         w[mk] += 1 / s_ ** 2; b[mk] += lv / s_ ** 2
     if n_obj: log(f"  objects on the water (the layer stage's typing): {n_obj} cells are no ground")
     log(f"  fixed: measured {fix_meas[inwin].mean():.1%}, lakes/ice/high prior {fix_other[inwin].mean():.1%}; soft measured {soft[inwin].mean():.1%} (of them compilations excluded: {comp_only[inwin].mean():.1%} of the window are prior only)")
-    log(f"  soundings {ns} (+{len(held)} held out; {nb_} depth bounds; {n_stale} stale in a moving zone, not used); tide-line cells {nl} free, {nlf} on fixed cells (not honoured)")
+    log(f"  soundings {ns} (+{len(held)} held out; {nb_} depth bounds; {n_stale} stale in a moving zone, not used; {n_beside} sea casts within {p['snd_cast_beside_m']:g} m of a measured bed left to it); tide-line cells {nl} free, {nlf} on fixed cells (not honoured)")
     # --- the bound: the water a lidar saw ----------------------------------------------------------------------------------
     wf = np.isfinite(wz); env = np.full(jz.shape, np.nan); sloped = np.zeros(jz.shape, bool)
     if wf.any():
@@ -731,6 +765,14 @@ def main(argv=None, ret=False):
     dfx = ndimage.distance_transform_edt(~fxn) * res if fxn.any() else np.full(jz.shape, 1e4)
     mu *= np.where(comp_only, cdis, 1.0)                                                # a compilation that scatters about our measurements pulls less (the audit)
     mu *= np.where((ptype == 2) & (p["taper_comp"] == 0), 1.0, np.minimum(1.0, (dfx / np.where(deep, p["deep_near_m"], p["prior_near_m"])) ** 4))   # a compilation is NOT faded: in a narrow inlet it is all there is (Woz box: a -6.5 m inlet rose to -0.2)
+    # ...but it IS faded beside a measured BED: the Woz inlet's banks were land, and land says nothing of the bed between them; a fixed bed
+    # cell does.  In the 10-25 m gaps of a striped multibeam the compilation's level (corrected by -1.5 m at the median there) drew a groove
+    # between every pair of stripes (Halibut Cove Lagoon, 2026-11-20); within comp_near_bed_m of a fixed measured cell under water the gap
+    # is bridged by the measurements on its two sides, as for any other prior.
+    if p["comp_near_bed_m"] > 0:
+        fxb_ = fix_meas & np.isin(lab, (2, 3))
+        if fxb_.any(): mu *= np.where(ptype == 2, np.minimum(1.0, (ndimage.distance_transform_edt(~fxb_) * res / p["comp_near_bed_m"]) ** 4), 1.0)
+        del fxb_
     # --- the solve -----------------------------------------------------------------------------------------------------------
     # SOUNDINGS are sparse points with noise: fitted one by one they dimple the surface (Hig: "localized high curvature").  They adjust a
     # smooth surface at THEIR OWN SPACING instead:  (A) the fit WITHOUT them;  (B) their residuals to A, averaged by a kernel never
@@ -745,8 +787,11 @@ def main(argv=None, ret=False):
     # hinge_cells either side of the line
     beta = None
     sw_ = (still | pond) if (p["snd_mode"] and p["snd_hinge"]) else still
-    if sw_.any():
-        shore_ = ndimage.binary_dilation(sw_, iterations=int(p["hinge_cells"])) & ndimage.binary_dilation(~sw_ & ~ice, iterations=int(p["hinge_cells"]))
+    if sw_.any() or line_held.any():
+        shore_ = ndimage.binary_dilation(sw_, iterations=int(p["hinge_cells"])) & ndimage.binary_dilation(~sw_ & ~np.isin(lab, (2, 3)) & ~ice, iterations=int(p["hinge_cells"]))   # the shore, not the line between two water bodies
+        # ...and a cliff foot held at a traced high-tide line is a break of slope too: stiff across it, the cliff's fall carried on under the
+        # line and the beach stood at -0.4 m six metres seaward of a 3.65 m line (Petrof, 2026-11-20)
+        if line_held.any(): shore_ |= ndimage.binary_dilation(line_held, iterations=int(p["hinge_cells"]))
         if shore_.any(): beta = np.where(shore_, p["hinge_beta"], 1.0)
     ops = {}                                                                                              # the assembled operators, one per level, shared by both fits
     if p["snd_mode"]:
@@ -762,7 +807,10 @@ def main(argv=None, ret=False):
         # Without it the bank's height runs into the lake and the bound has to push a strip down all round the shore -- a contact problem
         # that took the fit dozens of rounds (Gore: 24 full-resolution rounds, the last still moving 2 cm) for what is known beforehand.
         if p["snd_shore"] and sw_.any():
-            ring_ = sw_ & ~fixed & np.isfinite(lev) & ndimage.binary_dilation(~sw_ & ~ice & inwin, structure=np.ones((3, 3), bool))
+            # ...its SHORE: the cells beside it that are not water.  Beside other water (a lagoon the body raster cuts into "tidal" and "sea"
+            # pieces, the sea outside a pond's mouth) the edge of the body is no shore and the bed does not meet the level there (Hig
+            # 2026-11-20, Halibut Cove Lagoon 59.57183,-151.19578: peaks at the level along every body line, over a -60 m bed).
+            ring_ = sw_ & ~fixed & np.isfinite(lev) & ndimage.binary_dilation(~sw_ & ~np.isin(lab, (2, 3)) & ~ice & inwin, structure=np.ones((3, 3), bool))
             # (held exactly, not by a penalty: a ring cell on a spring beside a 5 m bank stands 0.3 m over its level and flickers in and
             # out of the bound's active set, 0.2-0.3 m a round)
             fixed = fixed | ring_; zfix = np.where(ring_, lev - p["still_gap_m"], zfix); fix_other = fix_other | ring_
@@ -792,7 +840,9 @@ def main(argv=None, ret=False):
         # (isotonic), 0 at the edge; the fit leans on it at snd_prior_k x the local spacing, so a cast still rules its neighbourhood.
         zano = np.zeros(jz.shape); prof_ = np.zeros(jz.shape, bool)
         if p["snd_profile"] and sw_.any():
-            dsh = ndimage.distance_transform_edt(sw_ | ~inwin) * res; Lb_, nb_ = ndimage.label(sw_, structure=np.ones((3, 3), bool)); cb_ = {}
+            # (the shore = the nearest cell that is NOT WATER: a body's line against other water -- a lagoon cut into "tidal" and "sea" pieces --
+            # is no shore to shoal towards; 2026-11-20, Halibut Cove Lagoon)
+            dsh = ndimage.distance_transform_edt(sw_ | np.isin(lab, (2, 3)) | ~inwin) * res; Lb_, nb_ = ndimage.label(sw_, structure=np.ones((3, 3), bool)); cb_ = {}
             # WHERE THE LAND IS STEEP THE LAKE DEEPENS FASTER (Hig 2026-11-15: "some sense of extrapolating the land slope down under the lake ...
             # gently nudged": carried down outright, the slope overstates the depth and the casts come out as bumps in a basin they are typical
             # of).  The land's slope at the shore (height above the level over distance, in the band snd_slope_band_m wide, averaged along the
@@ -802,7 +852,7 @@ def main(argv=None, ret=False):
             # among 0, 0.25, 0.5 (a larger one only if it cuts their scatter about the profile by 5 %): never the full slope.
             fac_ = {}
             dl_, il_ = ndimage.distance_transform_edt(~sw_, return_indices=True); dl_ = dl_ * res; lvn_ = lev[il_[0], il_[1]]
-            band_ = ~sw_ & inwin & ~ice & np.isfinite(cur) & np.isfinite(lvn_) & (dl_ >= 6.0) & (dl_ <= p["snd_slope_band_m"])
+            band_ = ~sw_ & ~np.isin(lab, (2, 3)) & inwin & ~ice & np.isfinite(cur) & np.isfinite(lvn_) & (dl_ >= 6.0) & (dl_ <= p["snd_slope_band_m"])
             if band_.any():
                 sg_ = 15.0 / res; gb_ = ndimage.gaussian_filter(band_.astype(float), sg_)
                 S_ = np.clip(ndimage.gaussian_filter(np.where(band_, (cur - lvn_) / np.maximum(dl_, res), 0.0), sg_) / np.maximum(gb_, 1e-6), 0.02, 3.0); okS = (gb_ > 0.02) & ~sw_

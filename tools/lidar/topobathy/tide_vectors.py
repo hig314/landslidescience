@@ -481,6 +481,41 @@ def review(a):
     print(f"review: {len(lo)} low and {len(hi)} high lines added to {len(F)}: {rep}")
 
 
+RESCUE_OFF_M, RESCUE_FRAC, RESCUE_MAX_M = 100.0, 0.8, 700.0
+
+
+def rescue(a):
+    """A LONG STRAIGHT EDGE CAN BE A SHORE (Hig 2026-11-20, Petrof Beach 59.36015,-150.82710: three edges of 159-271 m drawn along a straight beach
+    were dropped by LONG_EDGE_M as closing edges, so the beach had no high line, the cap's 3.7 m plate ran to 3DEP's stair-stepped edge and the solve
+    built its terraces there).  A closing edge has the sea on both sides (or, cut inland, land on both); a shore has the sea on one side and land on
+    the other.  Tested on 3DEP's sea (SEA10) RESCUE_OFF_M either side of the edge (3DEP's shore stands 60-100 m seaward of the drawn line under
+    forest): a dropped HIGH edge under RESCUE_MAX_M with one side sea and the other land along RESCUE_FRAC of it joins tide_vector_lines.geojson
+    and tide_lines.geojson as a vector_high line at the nearest kept high line's level (rescued=true; a re-run replaces them).  build does not
+    do this yet: run rescue after build / merge / review."""
+    with rasterio.open(SEA10) as s:
+        A = s.read(1) == 2; T = s.transform
+    def sea(P):
+        c, r = ~T * (P[:, 0], P[:, 1]); return A[np.clip(r.astype(int), 0, A.shape[0] - 1), np.clip(c.astype(int), 0, A.shape[1] - 1)]
+    V = [f for f in json.load(open(HERE / "tide_vector_lines.geojson"))["features"] if not f["properties"].get("rescued")]
+    P_ = [(c, f["properties"]["level_m"], f["properties"].get("level_sigma_m", 0.3)) for f in V if f["properties"]["source"] == "vector_high" for c in np.array(f["geometry"]["coordinates"])[:, :2]]
+    t = cKDTree(np.array([c for c, _, _ in P_])); L = np.array([l for _, l, _ in P_]); Sg = np.array([g for _, _, g in P_]); R = []
+    for f in json.load(open(HERE / "tide_dropped_edges.geojson"))["features"]:
+        if f["properties"]["kind"] != "high": continue
+        E = np.array(f["geometry"]["coordinates"])[:, :2]; ln = float(np.hypot(*(E[1] - E[0])))
+        if ln > RESCUE_MAX_M: continue
+        n = max(int(ln / 10), 5); P = E[0] + ((np.arange(n) + 0.5) / n)[:, None] * (E[1] - E[0]); nr = np.array([-(E[1] - E[0])[1], (E[1] - E[0])[0]]) / ln
+        fr = float(np.mean(sea(P + RESCUE_OFF_M * nr) != sea(P - RESCUE_OFF_M * nr)))
+        if fr < RESCUE_FRAC: continue
+        ii = t.query(P)[1]; lv = float(np.median(L[ii])); sg = float(max(np.median(Sg[ii]), 0.3))
+        R.append(dict(type="Feature", properties=dict(level_m=round(lv, 2), label="high tide (Hig)", source="vector_high", level_sigma_m=round(sg, 2), channel_rise_m=0.0, closed=False, enclosed_m2=0,
+                                                       side="water", level_basis="nearest", rescued=True, one_side_frac=round(fr, 2)), geometry=dict(type="LineString", coordinates=np.round(E, 2).tolist())))
+        print(f"  rescued {ln:.0f} m at {E.mean(0).round(0).tolist()}: level {lv:.2f} m, sea on one side along {fr:.0%}", flush=True)
+    for fn in ("tide_vector_lines.geojson", "tide_lines.geojson"):
+        F = [f for f in json.load(open(HERE / fn))["features"] if not f["properties"].get("rescued")]
+        (HERE / fn).write_text(json.dumps(_fc(F + R)))
+    print(f"  {len(R)} dropped high edges are shores: {sum(shape(f['geometry']).length for f in R) / 1e3:.2f} km added to tide_vector_lines.geojson and tide_lines.geojson")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); sp = ap.add_subparsers(dest="cmd", required=True)
     sp.add_parser("build")
@@ -489,4 +524,5 @@ if __name__ == "__main__":
     c = sp.add_parser("clip"); c.add_argument("src"); c.add_argument("dst")
     rv = sp.add_parser("review"); rv.add_argument("gpkg", nargs="?", default=str(HERE / "tide_lines_hig_review.gpkg"))
     m = sp.add_parser("merge"); m.add_argument("revised"); m.add_argument("orig"); m.add_argument("--no-vectors", action="store_true"); m.add_argument("--keep-edit")
-    a = ap.parse_args(); dict(build=build, clip=clip, merge=merge, closures=closures, islands=islands, review=review)[a.cmd](a)
+    sp.add_parser("rescue")
+    a = ap.parse_args(); dict(build=build, clip=clip, merge=merge, closures=closures, islands=islands, review=review, rescue=rescue)[a.cmd](a)

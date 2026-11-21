@@ -57,12 +57,18 @@ def main():
         si_ = rasterio.open(d / "source_index.tif").read(1); lv_ = rasterio.open(d / "fill_water_level.tif").read(1)
         if lv_.shape != cur.shape: lv_ = np.kron(lv_, np.ones((cur.shape[0] // lv_.shape[0],) * 2, lv_.dtype))[:H, :Wd]
         lake_ = (lv_ > -9000) & (lv_ > S.P["tide_max_m"] + 1.0)
-        deepm = (si_ == 3) & (cur != nd) & (cur < S.P["scope_deep_m"]) & ~lake_ & okc; del si_, lv_, lake_
+        deepm = (si_ == 3) & (cur != nd) & (cur < S.P["scope_deep_m"]) & ~lake_ & okc
+        # ...BUT NOT IN THE GAPS OF A MEASURED BED (2026-11-20, Halibut Cove Lagoon): every cell the 16 m pass changed by > 3 m there lay within
+        # 8 m of a multibeam stripe -- a coarse answer laid into 10-25 m gaps between 2 m measurements, bumps and pits along every stripe, and
+        # the 2 m tiles then bent the stripes to them.  A deep modelled cell within two coarse cells of a layer's cell keeps the product; the
+        # tiles bridge such a gap from its two sides.
+        n0_ = int(deepm.sum()); deepm &= nd_.distance_transform_edt((si_ == 3) | (cur == nd)).astype(np.float32) * res > 2 * a.deep_grid; n_gap_ = n0_ - int(deepm.sum())
+        del si_, lv_, lake_
         cur = np.where(deepm, zfine, cur).astype(np.float32); del zfine
         dp = dict(prof); dp.update(dtype="float32", compress="ZSTD", tiled=True, BIGTIFF="IF_SAFER"); curfile = o / f"{a.box}_deep.tif"
         with rasterio.open(str(curfile) + ".part", "w", **dp) as ds: ds.write(cur, 1)
         os.replace(str(curfile) + ".part", curfile)
-        log(f"[{a.box}] deep pass at {a.deep_grid:g} m: {hc}x{wc} cells, {time.time() - t1:.0f} s; {int(deepm.sum())} deep modelled cells ({deepm.mean():.1%} of the box) take it" +
+        log(f"[{a.box}] deep pass at {a.deep_grid:g} m: {hc}x{wc} cells, {time.time() - t1:.0f} s; {int(deepm.sum())} deep modelled cells ({deepm.mean():.1%} of the box) take it ({n_gap_} more, within {2 * a.deep_grid:g} m of a layer's cell, keep the product)" +
             "".join("\n      " + l.strip() for l in Rd["log"] if any(q in l for q in ("fit - cast", "sparse soundings used", "closed basins", "solve:"))))
     zown = np.full(cur.shape, np.nan, np.float32)
     num = np.zeros(cur.shape, np.float32); den = np.zeros(cur.shape, np.float32); kind = np.full(cur.shape, 255, np.uint8); typ = np.zeros(cur.shape, np.uint8)
