@@ -1,6 +1,6 @@
 # State of play
 
-*Last revised 2026-11-16.* The one dated snapshot in the project notes: what
+*Last revised 2026-11-20.* The one dated snapshot in the project notes: what
 is waiting to be confirmed on production, what is open, and a short log of
 what shipped. **It rots**; correct or delete an entry rather than working
 around it. For lidar publishing state do not trust any number written down
@@ -10,6 +10,35 @@ How this file is kept: a feature's design lives in its `docs/` file, not
 here. When something ships it gets one line in the log and, if part of it has
 not been exercised on production, one line in the checklist. Log lines older
 than about two months can go; git has them.
+
+## Restart here (2026-11-20 22:00, power-cord trouble)
+
+Hig paused work while the Mac's power cord is unreliable (the Mac hibernated
+on a flat battery ~20:51–21:25 and a Nunatak write failed in it).
+
+- **Scoops3D reference pilots: paused, nothing running.** Done, failed and
+  the exact resume commands: `tools/terrain/scoops/README.md`, "Paused
+  2026-11-20". The standing no-comparison hold still applies.
+- **Topobathy full rerun `run_1118.sh`: left RUNNING** (Hig's choice). The
+  topobathy session relaunched it at 21:47 on AC, redoing kj_r7c4's solve;
+  its state and resume block are atop `tools/lidar/TOPOBATHY_PLAN.md`
+  (topobathy worktree) and in `$W/run_1118.log`. In `run_1118_diff.txt` the
+  2026-11-20 21:47 kj_r7c4 entry is marked INVALID (it read a stale product).
+  If the power fails again: the queue resumes per its header; check the box
+  in progress for a `solve.json` before trusting it.
+- **Pushed to GitHub at Hig's request but NOT deployed and not signed off:**
+  hand-placed sounding points on `/lidar/` (`soundings.py` point types +
+  create/update API, `sounding_points.js`, profile hooks, `lidar_preview.html`,
+  export kind `estimate`). The next prod deploy ships it: test it in dev
+  first, run `migrate_soundings` on prod right after (new `point_type` column
+  + `sounding_point_types` table), then copy dev's `hand_placed` survey to
+  prod (see the hand-placed soundings memory). `check_invariants` was not run
+  (Docker was down at commit time). Also committed: the Scoops work under
+  `tools/terrain/scoops*/` (code and README only, no outputs).
+- Still uncommitted on purpose: the `docker-compose.override.yml` Nunatak
+  pmtiles mount (local-only) and `logs/`.
+- Before relaunching any long run: `pmset -g batt` on AC, Nunatak mounted,
+  runs under `caffeinate -i -s`.
 
 ## To confirm on production
 

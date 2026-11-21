@@ -121,18 +121,31 @@ def _worker(k, nw, g_dem, shape, dx, xn, yn, a, shm, q, envbufs=None):
         arr[name] = np.frombuffer(buf, dtype=np.float32).reshape(sh)
     st = Stats()
     best = np.full(len(xs), -1e30, np.float32)
+    nz, nr = np.zeros(len(xs)), np.zeros(len(xs))
+    lib.scoops_nodepar_set(_dp(nz), _dp(nr))
     phis = np.array(a['phis'], float) if nphi else np.zeros(1)
     edges = np.array(a['edges'], float) if nbin > 0 else np.zeros(2)
     dbl = C.c_double
-    lib.scoops_search(_dp(xs), _dp(ys), C.c_long(len(xs)),
-                      dbl(a['zmin']), dbl(a['zmax']), dbl(a['dz']), dbl(a['dr']),
-                      dbl(a['vmin']), dbl(a['vmax']), dbl(a['tol']), a['minc'], dbl(a['gamma']),
-                      nphi, _dp(phis), nbin, _dp(edges),
-                      dbl(a['c']), dbl(a['phi_f']),
-                      _fp(arr.get('creq')), _fp(arr.get('creq_vol')), _fp(arr.get('creq_ord')),
-                      _fp(arr.get('fmin')), _fp(arr.get('fvol')), _fp(arr.get('fmin_ord')),
-                      dbl(a['mincellfrac']), dbl(a['zspan']), _fp(best), C.byref(st))
+    if a.get('climb') is not None:
+        cl = a['climb']
+        zs = np.array(np.frombuffer(cl['z'])[k::nw]); rs = np.array(np.frombuffer(cl['R'])[k::nw])
+        lib.scoops_climb(_dp(xs), _dp(ys), _dp(zs), _dp(rs), C.c_long(len(xs)),
+                           dbl(cl['hxy']), dbl(cl['hz']), dbl(cl['hr']), int(cl['nhalve']), int(cl['maxmoves']),
+                           dbl(a['vmin']), dbl(a['vmax']), a['minc'], dbl(a['gamma']),
+                           nphi, _dp(phis), nbin, _dp(edges),
+                           _fp(arr.get('creq')), _fp(arr.get('creq_vol')), dbl(a['mincellfrac']), _fp(best), C.byref(st))
+    else:
+      lib.scoops_search(_dp(xs), _dp(ys), C.c_long(len(xs)),
+                        dbl(a['zmin']), dbl(a['zmax']), dbl(a['dz']), dbl(a['dr']),
+                        dbl(a['vmin']), dbl(a['vmax']), dbl(a['tol']), a['minc'], dbl(a['gamma']),
+                        nphi, _dp(phis), nbin, _dp(edges),
+                        dbl(a['c']), dbl(a['phi_f']),
+                        _fp(arr.get('creq')), _fp(arr.get('creq_vol')), _fp(arr.get('creq_ord')),
+                        _fp(arr.get('fmin')), _fp(arr.get('fvol')), _fp(arr.get('fmin_ord')),
+                        dbl(a['mincellfrac']), dbl(a['zspan']), _fp(best), C.byref(st))
     np.frombuffer(a['node_best'], dtype=np.float32)[k::nw] = best
+    np.frombuffer(a['node_z'])[k::nw] = nz
+    np.frombuffer(a['node_R'])[k::nw] = nr
     res = {f[0]: getattr(st, f[0]) for f in Stats._fields_}
     if 'xf' in shm:
         res['iderr'] = lib.scoops_extras_iderr()
@@ -140,7 +153,8 @@ def _worker(k, nw, g_dem, shape, dx, xn, yn, a, shm, q, envbufs=None):
 
 
 def search(g, xn, yn, zmin, zmax, dz, dr, vmin, vmax, tol, gamma=26.0, minc=0, phis=(), edges=(),
-           c=-1.0, phi_f=0.0, workers=6, mincellfrac=0.0, ordinary=False, zspan=0.0, extras=False, final=None, env=None):
+           c=-1.0, phi_f=0.0, workers=6, mincellfrac=0.0, ordinary=False, zspan=0.0, extras=False, final=None, env=None,
+           climb=None):
     """Run a box search. xn, yn: flat arrays of lattice node positions (metres).
 
     phis + edges: solve for required cohesion, arrays [phi, bin, ny, nx] in kPa
@@ -151,6 +165,8 @@ def search(g, xn, yn, zmin, zmax, dz, dr, vmin, vmax, tol, gamma=26.0, minc=0, p
     extras: also `xf`, [len(XF_NAMES), ny, nx] for phis[0] and the first class.
     final: with extras, the finished creq [ny, nx] of this same search: a second pass
         that fills only h_win and hmax_win (see scoops_core.c).
+    climb: dict(z, R, hxy, hz, hr, nhalve, maxmoves): no lattice; instead hill-climb from the
+        seed surfaces (xn, yn, z, R), usually an earlier run's node_z / node_R (scoops_climb).
     env: dict(x0, y0, size, nt): the strength envelope of the first class, by tiles of
         `size` m from (x0, y0) (see scoops_core.c); returned as out['env'].
     Returns dict of arrays, plus 'stats'. Cells no surface reached: 0 for creq
@@ -182,6 +198,11 @@ def search(g, xn, yn, zmin, zmax, dz, dr, vmin, vmax, tol, gamma=26.0, minc=0, p
         fields['fvol'] = (shape, 0.0)
         fields['fmin_ord'] = (shape, np.inf)
     a['node_best'] = mp.RawArray('f', len(xn))
+    a['node_z'], a['node_R'] = mp.RawArray('d', len(xn)), mp.RawArray('d', len(xn))
+    if climb is not None:
+        cz, cr = mp.RawArray('d', len(xn)), mp.RawArray('d', len(xn))
+        np.frombuffer(cz)[:] = np.asarray(climb['z'], float); np.frombuffer(cr)[:] = np.asarray(climb['R'], float)
+        a['climb'] = dict(climb, z=cz, R=cr)
     ctx = mp.get_context('fork')
     q = ctx.Queue()
     procs, stores = [], []
@@ -241,6 +262,7 @@ def search(g, xn, yn, zmin, zmax, dz, dr, vmin, vmax, tol, gamma=26.0, minc=0, p
                           tile_top=np.take_along_axis(top, win, axis=0)[0],
                           cell_ratio=np.max([np.frombuffer(b['cell_ratio'], dtype=np.float32) for b in envbufs], axis=0).reshape(shape))
     out['node_best'] = np.frombuffer(a['node_best'], dtype=np.float32).copy()
+    out['node_z'] = np.frombuffer(a['node_z']).copy(); out['node_R'] = np.frombuffer(a['node_R']).copy()
     out['stats'] = {k: sum(s[k] for s in stats) for k in stats[0] if k != 'iderr'}
     if 'iderr' in stats[0]:
         out['stats']['iderr'] = max(s['iderr'] for s in stats)
