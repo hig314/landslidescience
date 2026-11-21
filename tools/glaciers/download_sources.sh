@@ -1,7 +1,7 @@
 #!/bin/bash
 # Download the file-based glacier-extent sources to the workstation's source
 # archive. Run on the host (not in the container). Re-running skips files that
-# are already there. See GLACIERS_PLAN.md §3 for what each source is.
+# are already there. See GLACIERS_PLAN.md §6 for what each source is.
 #
 #   tools/glaciers/download_sources.sh [small|g10040|nsidc0634|all]
 #

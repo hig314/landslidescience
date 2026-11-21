@@ -1,386 +1,236 @@
-# /glaciers/ — from a flow viewer to a glacier-dynamics workbench
+# /glaciers/ — calving-face histories on a flow network
 
-Plan written 2026-11-16. Reference for what exists: [docs/GLACIERS.md](docs/GLACIERS.md).
-First topic: **retreat histories** — import published multi-epoch extents,
-then refine them.
+Rewritten 2026-11-20 around the flow network. The first version (2026-11-16)
+planned per-glacier area and outline histories. Hig refocused the same day,
+and that plan is in git history (`git log -- GLACIERS_PLAN.md`). How the
+built pieces work is in [docs/GLACIERS.md](docs/GLACIERS.md); this file holds
+the aim, the decisions, and what comes next.
 
-**Status (2026-11-16): phases 0–2 built in dev, not yet tested by Hig, not
-pushed.** Decisions D1–D5 are answered (§7). Two things the data changed
-after this was written are marked *[changed]* below.
+## 1. The aim
 
-## 0. Refocus, 2026-11-16 (Hig) — read this before §2–§6
+**Two quantities, measured along a network of flow lines.** Calving-face
+position comes first. Glacier surface elevation is second. Both matter for
+landslides: a face retreating past a slope removes its buttress, and a
+surface thinning against a valley wall unloads it. **Area is not the
+target.** It is well studied already, and the margin is ambiguous at the
+detail slope stability needs (debris-covered ice, ice-cored moraine).
 
-**Area is not the target.** It is well-trodden, and for slope stability the
-glacier margin matters at a detail where debris-covered ice and ice-cored
-moraine make it ambiguous. Two properties are well-defined and matter for
-landslides: **calving-face position** (first target) and **glacier surface
-elevation** (second). Two consequences Hig stated:
+- **The network works like a river network.** Flow lines with feeders run
+  from the heads down through today's ice and on past the present face, down
+  the fjord or lake to the outer limit. A reach is the line between two
+  junctions, and it is a unit of analysis in its own right: slopes along one
+  reach may respond together to one thinning signal.
+- **A face is a dated line along the ice front.** It can be partial, and no
+  polygon is asked for. Its position is a distance along the path.
+- **The main view plots time against distance along a chosen path** (one
+  line followed down to its outlet), with points by source. The map beside it
+  shows the faces coloured by year.
+- **Face ages increase steadily up-bay**, whatever the glacier was called at
+  each date. That gets round the Glacier Bay problem, where one ice mass split
+  into many named glaciers.
+- **The link to landslides**: project a slope onto the network to read when
+  the face passed it, and the ice surface beside it through time.
 
-- **Plot the face retreating along a path** (a bay or lake centreline). Face
-  ages increase monotonically up-bay whatever the glacier is called at each
-  date, which dissolves the Glacier Bay one-ice-mass-into-many problem.
-- **The format must accept a line marking the ice face**, never asking for a
-  complete polygon.
+## 2. Where it stands (2026-11-20)
 
-Proposed changes (not built; open questions at the end):
+**Prod is the working copy** (Hig, 2026-11-20). Hig has been building
+networks there since the 2026-11-18 deploy: 352 flow lines and 9 faces on
+2026-11-20, up from 89 and 8. Dev still holds the copy from that night, so
+**refresh dev's glacier tables from prod before testing glacier work in dev**
+(the reverse of the COPY the deploy used: docs/STATE.md).
 
-1. **The organising unit becomes the retreat path, not the glacier.**
-   `retreat_paths`: a named line from the outer limit up-bay to (and on up)
-   the present glacier. One path per present-day terminus, each running the
-   whole way out, so branches share a trunk (Muir Inlet and the West Arm both
-   start at the mouth of Glacier Bay) and a face that crosses the trunk
-   counts for every path through it. RGI glaciers stay as reference identity
-   (which glacier heads a path), no longer the key the history hangs on.
-2. **The observation is a dated face line.** `kind = face`: any line along
-   the ice front, partial allowed; date bracket; basis (image, map, chart,
-   photograph, moraine, account); water (marine / lake); source. Import
-   takes line GeoJSON / shapefile / KML with a date field, and the trace
-   tool draws them. NSIDC-0634, USGS Glacier Bay and NPS Kenai Fjords are
-   already this shape.
-3. **Position = where the face meets the path**, as distance along it; a
-   line that stops short of the path is projected and flagged as such.
-   Polygon sources contribute only that one number (outline ∩ path), marked
-   as read from an outline, not a face line. NSIDC-0634 ships its own length
-   series, an independent check on our distances.
-4. **The main view is a time–distance chart per path**, points by source,
-   beside the map of faces coloured by year.
-5. **The consensus layer (D1) becomes a consensus face history per path**:
-   the merged time–distance series. A younger face down-bay of an older one
-   is either an advance (Hubbard, Taku, Johns Hopkins) or an error, so those
-   are flagged for an admin, not forced monotonic.
-6. **Demoted**: per-glacier area series (old phase 3) dropped; GLIMS outlines
-   and the ice-cover layer stay as context for tracing and default to off.
-7. **The link to landslides**: project a slope onto the path to read when the
-   face passed it, and how long ago.
-8. **Surface elevation later, on the same path**: ice-surface profiles along
-   it by date (map-era contours, IfSAR, ArcticDEM, lidar) and trimline traces
-   for the oldest surface, giving the height of ice lost against a wall. So a
-   path is drawn up the glacier, not stopped at today's face.
+Built and deployed (plumbing in docs/GLACIERS.md):
 
-Open: paths as independent lines with shared trunks (proposed) or one
-branching tree; whether lake-terminating faces are in the first pass; who
-draws the first paths and for which bays.
+- **Identity and context.** RGI 7.0 region 01 (27,509 glaciers) is the
+  identity table. GLIMS, NSIDC-0634, USGS Glacier Bay and USGS benchmark are
+  mirrored in `glacier_obs` (79,372 rows). The G10040 ice cover for 18 epochs
+  is one bit-mask raster.
+- **The network.** RGI 7.0 centrelines are the reference. The edited lines
+  are in `glacier_lines`. A join is a shared coordinate; touching ends fuse;
+  a line that starts on another is a distributary. The network gets lines by
+  adopting RGI centrelines, drafting the former bed, drawing, or importing.
+- **Faces.** They can be traced on any reference map (lidar, AHAP, uploads,
+  Sentinel) with date, basis and source set first, or imported as GeoJSON.
+  Typed dates are read by `landslidescience/dates.py`. Position is
+  width-averaged (the mean of the face's vertices along the reach, after Lea
+  and others 2014). A face that misses every line is projected onto one line
+  within 1.5 km.
+- **The plot.** Time runs across. Distance runs up, measured down-flow from
+  the line's head. A distributary's path runs up its parent to the head.
+  Videos (Planet stories, uploaded Sentinel-1) sit on segments and show as
+  boxes on the plot.
+- **Check against a publisher.** At Icy Bay, McNabb & Hock's own length plus
+  our distance stays nearly constant. The NMAD is 0.04 to 0.38 km, depending
+  on the glacier.
 
-### 0.1 The network (Hig, 2026-11-16, superseding item 1 above)
+### 2.1 What the plot reads, and the Portage gap
 
-**A flow network like a river network, with feeders**, not independent
-paths: lines continue up-glacier (future ice faces land on them), and a
-reach is a unit of analysis in its own right, because slopes along one reach
-may respond together to a shared thinning signal.
+Hig found this on prod on 2026-11-20: Portage shows many fronts on the map
+but one point on the plot. **This is not an association problem.** The plot
+reads only line faces: faces we traced, plus terminus lines from the mirrored
+sources (NSIDC-0634, USGS Glacier Bay). Portage is in neither source. Its
+fronts on the map are 17 GLIMS outlines, 1951 to 2019 (Wisconsin-Milwaukee,
+Oslo, Zurich, Colorado, USFS), and the plot never reads outlines. The one
+point is Hig's 1850 face (line 378). The first plan meant outlines to
+contribute one number each (outline ∩ path, §3.1). It was never built, and
+Portage is the first glacier with no terminus-line source to show the gap.
 
-- **Reaches and nodes.** A reach is the line between two junctions (or a
-  head, or the outer limit). Each has a downstream reach, an order, a length,
-  and a chainage origin at the network's outlet, so any point is
-  (network, distance from outlet).
-- **What hangs on a reach or a chainage**: face positions through time; ice
-  surface elevation profiles by date; later a mean or peak ice speed and bed
-  geometry statistics. Landslides attach by projecting onto the nearest reach.
-- **Pinned faces.** For a front too wide or complex for a line crossing to
-  mean anything (Bering, Malaspina), an observation can carry a hand-set
-  chainage on a named reach instead of a computed one. Computed positions
-  should not be the bare centreline crossing either: Lea and others (2014)
-  found it the worst of the usual methods and the width-averaged
-  "extrapolated centre-line" the best.
-- **Plots.** Distance along the network on x; y is time (face retreat) or
-  elevation (surface profiles, bed, trimlines), with the choice of trunk or
-  feeder as the path plotted.
+## 3. Next work, in recommended order
 
-**Canonical centrelines: found for the ice, not beyond it** (web check
-2026-11-16).
+1. **Outline crossings on the plot** (the Portage fix). For each outline
+   linked to a glacier whose line is on the path, plot one position: the
+   furthest-down-flow point where the path leaves the polygon. Mark it `how =
+   outline` with its own symbol, so it is never mistaken for a traced face.
+   Rules to settle while building:
+   - only outlines of glaciers on the path (by `glacier_id`), never a
+     neighbour's;
+   - skip an outline whose exit lies on a divide or the head rather than the
+     front. The test: the exit is in the lower part of the line, or near the
+     RGI terminus;
+   - plot every submission, not one per date. Two submissions of the same
+     date that disagree are themselves information;
+   - debris-covered fronts (the GLIMS `debris` rows) are not faces. Leave
+     them out at first.
+   G10040 could later add one point per even year 1986–2020, read from the
+   bit mask along the path. That needs the raster read on the server, and
+   the container has no GDAL, so it is a second step.
+2. **Load network lines by map view.** At 352 lines the editor's list
+   download (`lines/api/scarps/`) is 816 KB on every page load, and it grows
+   about 2.5 KB a line. Fetch lines for the view, or by network, before the
+   network doubles again.
+3. **Pin a face.** The schema and the maths are in (`pin_line_id`,
+   `pin_frac`); the control to set a pin is not. This is for fronts too wide
+   for a crossing to mean anything (Bering, Malaspina).
+4. **Present-terminus marker.** Fusing an RGI line with a drawn extension
+   lost the record of where the RGI part ended, so the plot cannot shade
+   "glacier today" against "drawn beyond". Store the point when a line is
+   adopted (or take it from the RGI outline) and draw it on the plot.
+5. **Split-line and simplify-line buttons.** `split_line` exists on the
+   server. Simplify is new; it is for drawn or drafted lines with too many
+   vertices.
+6. **Joins across glaciers.** Join a tributary glacier's network to its
+   trunk by following ITS_LIVE flow from the tributary's terminus. This also
+   checks adopted lines where RGI's geometry is weakest (wide lobes,
+   icefields). The annual 240 m fields are on disk (`data/glaciers/region/`).
+7. **Consensus face series** (D1). This waits on Q2.
+8. **Surface elevation on the y axis.** Ice-surface profiles along a path by
+   date, and trimline traces for the oldest surface. This waits on Q1.
+9. **The landslide link.** For a slope in the inventory, the nearest reach,
+   when the face passed, and how long it has been ice-free. This is the
+   debuttressing input the inventory wants.
+10. **Loose ends.** Byte ranges for Planet mp4s (`/inventory/planet/`,
+    `main`'s file). A retry for a failed Drive fetch. A video upload larger
+    than gunicorn's 30 s allows has never been tried on prod.
+11. **Publish.** `/glaciers/methods/`, citations per source on the page,
+    lift `noindex` and the robots block.
 
-- **Backbone: the RGI 7.0 centrelines product** (the Kienholz and others
-  2014 method as implemented in OGGM, CC BY 4.0, keyed to the RGI 7 ids we
-  already use). Main branch and major tributaries with `outflow_id`, an
-  order and `is_main`. Region 01 is a 30 MB zip, downloadable without login
-  from a Bremen mirror; the NSIDC copy needs Earthdata. OGGM's 2025 re-run
-  for RGI 7 (22 MB, inspected): 39,614 segments for 27,509 glaciers, 77% of
-  glaciers a single line; Columbia 20 segments, Hubbard 49, Mendenhall 7.
-  Smoothed lines and widths along them come with it.
-- **Its limits, which are our work**: (1) networks stop at each glacier's
-  own outline, so a tributary that RGI counts as a separate glacier is not
-  joined to its trunk; (2) nothing continues past the present terminus, and
-  OGGM's downstream routine skips tidewater glaciers outright; (3) one
-  terminus per glacier, and the method's authors name piedmont lobes as a
-  failure case; (4) the "Strahler" field is a depth count, not true
-  Strahler order.
-- **Not usable**: Kienholz's hand-corrected Alaska lines were never
-  published; Zhang and others (2022) is RGI 6 and declared unsuitable for
-  tidewater glaciers; no fjord-centreline dataset for Alaska was found; no
-  published velocity-derived flowlines for Alaska.
+## 4. Questions for Hig
 
-**So: adopt, join, extend.** Adopt the RGI 7 lines; join networks across
-glacier boundaries where a tributary glacier flows into a trunk (following
-ITS_LIVE flow from the tributary's terminus to the trunk line is the natural
-test); extend each outlet down-valley. For the extension Hig's suggestion
-fits: where ice is gone there is no velocity, so the path is a simplified
-valley geometry (centre of the fjord or lake polygon, or the valley floor of
-the DEM), hand-corrected. ITS_LIVE flow paths are also the check on the
-adopted lines where the geometric method is weakest (wide lobes, icefields).
-The annual 240 m ITS_LIVE fields for all Alaska are already on disk
-(`data/glaciers/region/`).
+- **Q1. Which DEMs to trust before 2000?** They set the oldest surface
+  profiles. The candidates have not been checked for accuracy along a glacier
+  path:
+  - NED and the 1950s USGS topographic maps it was made from;
+  - AHAP photogrammetry (1978–86 photos; no statewide DEM is known);
+  - SPOT or ASTER for the late 1990s.
+  
+  From 2000 on there are Hugonnet dh/dt, IfSAR (2010s), ArcticDEM (2008 on)
+  and our lidar.
+- **Q2. What does "consensus" mean for faces?** Three options:
+  - (a) one chosen point per date, where the best source wins;
+  - (b) a fitted, smoothed series;
+  - (c) every point kept, with outliers and advances flagged for an admin to
+    accept or reject.
+  
+  Recommended: **(c)**. A face down-bay of an older one is either an advance
+  (Hubbard, Taku, Johns Hopkins) or an error, and only a person can tell
+  which. (a) and (b) can be computed from (c) later; going back from them is
+  not possible.
+- **Q3. Outlines on the plot: on or off by default?** They will far outnumber
+  traced faces wherever GLIMS is dense. Recommended: on, in a lighter symbol,
+  with a source switch.
 
-### 0.2 Built (dev, 2026-11-16) and first site
+Answered since the first plan: lake-terminating faces are in the first pass
+(Portage); Hig draws the first networks himself, by hand where ITS_LIVE
+stops (about 2000).
 
-Hig: ITS_LIVE reaches back only to about 2000, so lines past the present ice
-are extended **by hand**, which is fine given a good editing tool. First
-exploration: **Icy Bay / Taan Fiord**, from historic documentation to modern
-observations. Built: reference centrelines, the editable network with derived
-junctions, the trace editor mounted on it, adopt / draft / import, face lines
-as their own kind, and the distance-time plot (docs/GLACIERS.md). Next for
-Icy Bay: correct the four drafted lines, draw the common trunk out to the
-bay mouth, enter the pre-1948 faces, and join the arms to the trunk.
+## 5. Decisions (Hig, 2026-11-16, still in force)
 
-## 1. Where /glaciers/ is today
-
-- One page, one purpose: `glaciers.js` (1,771 lines) is the Lagrangian tracer
-  engine over ITS_LIVE plus a small floating panel (site picker, basemap,
-  four raster overlays, IceBridge bed/thickness points). `pairs.js` and the
-  fitted-pair overlays sit behind `experimental_enabled()`.
-- No database table, no per-glacier identity, no sidebar or tabs, no click
-  target, no editing, no methods page. `noindex`, and `robots.txt` disallows it.
-- A "site" is a tracer bundle on disk (Columbia, Grand Plateau, a regional
-  tile set). Nothing else knows what a glacier is.
-- Shared with the inventory already: `basemaps.js`, `ls_overlays.js`,
-  `ls_hash.js`, `ls_proj.js`. Planned but not done: the shared overlay
-  framework and the wiper.
-- Glacier-extent data on hand: one epoch. The inventory's "Glacier covered
-  area 2020" overlay is the 2020 file of NSIDC G10040; the product has 18.
-
-## 2. What it becomes
-
-The inventory is: a table of things with identity, a map that filters and
-selects them, a record view, editors who refine, a methods page, an export.
-/glaciers/ gets the same skeleton with a glacier as the thing:
-
-| Inventory | Glaciers |
-|---|---|
-| `landslides` row | `glaciers` row, keyed by RGI 7.0 id *[changed: not the GLIMS id, see §4]* |
-| polygons with roles | **extent observations**: dated outlines and terminus lines |
-| date bracket on an event | date bracket on every observation |
-| external inventories, mirrored verbatim | published extent datasets, mirrored verbatim |
-| promote one record | a consensus layer, merged from the sources, that admins improve (decision D1) |
-| pending queue, review form | same, per observation |
-| `/inventory/<slug>/` | `/glaciers/g/<glacier id>/` |
-| `/inventory/methods/`, export | `/glaciers/methods/`, per-glacier GeoJSON |
-
-**Topics are tabs on one glacier identity.** Retreat history is the first;
-flow (the tracers) becomes the second, loaded only when its tab is opened;
-thickness/bed (IceBridge), thinning (Hugonnet) and ice-marginal lakes follow
-as their data are attached to the same ids. The pair stack stays where it is,
-behind the experimental gate.
-
-**The time bar is the shared control.** It exists for the tracers; the retreat
-tab drives it over a longer range (1700 to now) and it selects which epoch is
-drawn. One time control, two consumers.
-
-## 3. Data sources (checked on the web 2026-11-16)
-
-Ranked for first import. "Lines" = terminus positions, "polys" = outlines.
-
-| # | Source | What | Coverage | Access | Terms |
-|---|---|---|---|---|---|
-| 1 | **GLIMS database** | polys, one per glacier per analysis | AK + NW Canada bbox: 63,553 outlines, 35,744 glacier ids, 10,070 glaciers with ≥2 epochs, 2,174 with ≥5; epochs 1770, 1948–57, 1970s, 1986, 1990, 1999, 2005, 2010, 2015, 2019 | open WFS `https://www.glims.org/geoserver/ows`, layer `GLIMS:GLIMS_Glacier_Outlines`, GeoJSON by bbox, no login | "must cite"; no named licence |
-| 2 | **USGS Glacier Bay termini** (Avdievitch, Bliss, Coe 2023, doi:10.5066/P9WDA76U) | 233 dated lines, 1700–2019, with source and comment fields | Glacier Bay | ScienceBase zip, 192 KB | CC0 |
-| 3 | **McNabb & Hock, NSIDC-0634** | >10,000 terminus lines + length series, 1948–2012 | 50 Alaska tidewater glaciers | Earthdata login, 6.8 MB, one shapefile per glacier | cite |
-| 4 | **Roberts-Pierel, NSIDC G10040** | automated statewide ice cover, even years 1986–2020 (18 epochs), debris split | Alaska only | open HTTPS, ~60 MB per epoch; also an NPS FeatureServer | cite |
-| 5 | **Bevington & Menounos 2022** (Zenodo 5900363) | automated annual outlines 1984–2021 | BC + Alberta | one 5 GB GeoPackage | CC BY 4.0 |
-| 6 | **RGI 7.0** regions 01, 02 | single epoch (~2000); carries `glims_id`, RGI 6 links, centerlines, glacier complexes | global | same GLIMS WFS, no login | cite |
-| 7 | **USGS benchmark glaciers** (doi:10.5066/P9R8BP3K) | historic + current margins since the 1940s | Gulkana, Wolverine, Lemon Creek and others | ScienceBase, 13.6 MB | CC0 |
-| 8 | **WGMS front variations** | length-change numbers, no geometry | 136 series in the bbox; Columbia from 1899 | 868 MB zip of CSVs | cite |
-| 9 | **LIA outlines**: Carrivick 2026 (5,289 LIA glaciers), Reinthaler & Paul 2023 | polys | Alaska | article supplement; Zenodo 8113575 | CC BY |
-| 10 | **NPS Kenai Fjords termini** | lines for 19 glaciers, 1984–2021, with centerlines | Kenai Fjords | IRMA file geodatabase | not stated |
-| — | Rick 2022 ice-marginal lakes | polys, four epochs 1984–2019 | Alaska | Arctic Data Center | CC BY 4.0 |
-
-What GLIMS already contains, so it need not be imported separately: Kienholz
-2015 (the RGI base), the Juneau Icefield series 1770–2019 (Newcastle), western
-Prince William Sound 1950s–2018 (Maraldo), Kenai (Oslo), map-era 1948–57
-outlines, a 2019 Forest Service Chugach set.
-
-Not usable or not found: TermPicks, CALFIN, AutoTerm (Greenland only); Bolch
-1985/2000 epochs, Yukon polygons (Barrand & Sharp), the Loso NPS geodatabase,
-Glacier Bay isochrones other than the USGS compilation (no download located);
-PP 1386-K, Field, Post & Meier (narrative only, no GIS).
-
-**Things the sources will do to us**
-- **Divides differ between submissions.** Columbia is 936, 944 and 774 km²
-  under one GLIMS id. An area series across submissions is not a retreat
-  signal. Terminus position along a flowline is robust to this, so length is
-  the first derived quantity and area comes second, computed inside a fixed
-  basin (the RGI 7 glacier or complex).
-- **Dates are soft.** RGI/GLIMS `src_date` is per glacier and sometimes a
-  nominal mid-year; Glacier Bay is year-only; LIA is "about 1770". Every
-  observation needs a bracket, not a date.
-- **Ids are uneven.** GLIMS id is the stable key; RGI 7 ids may change again;
-  0634 and Glacier Bay carry names only; G10040 and (unchecked) Bevington
-  carry no per-glacier id. LIA glaciers map one-to-many onto modern ones.
-- **The WFS drops fields** (`analysts`, `proc_desc`, `anlys_time`). The full
-  download has them but sits behind Earthdata login. Mirror the WFS first;
-  enrich from the login download later.
-- **Editing rights.** CC0 and CC BY sources are clear. GLIMS, RGI, 0634 and
-  G10040 say only "cite". Publisher records are shown verbatim and our
-  refinements are separate records naming their parent, which is the
-  defensible shape; still worth an email to GLIMS before the refinements go
-  public (decision D4).
-
-## 4. Data model
-
-PostGIS in `tethys_db`, raw psycopg2, `migrate_glaciers` run once per
-environment, as for landslides.
-
-- **`glaciers`** — `id` (key; the RGI 7.0 id today), `glims_id`, `name`,
-  reference outline (RGI 7), `term_type`, every RGI attribute in `props`.
-  Seeded from RGI 7.0 region 01. *[changed]* **The key is not the GLIMS id**:
-  RGI 7.0 gives one GLIMS id to as many as eight separate glaciers (135 ids
-  shared among 323 of the 27,509), so it cannot identify a row. It stays as
-  an attribute and is the first thing a GLIMS outline is matched on when it
-  names exactly one glacier. Only 661 of the 27,509 carry a name, so search
-  by name is thin until names are brought in from elsewhere (GNIS, GLIMS).
-  Name-only sources are matched by name then by position; unmatched rows stay
-  unmatched and are shown, never guessed.
-- **`glacier_links`** — many-to-many between glaciers (LIA parent → modern
-  children, complex → members, RGI 6 ↔ 7).
-- **Mirrors** — `glacier_obs`, one row per published feature, the publisher's
-  attributes untouched in `props`, replaced whole per source on refetch
-  inside a transaction, count-checked (the rules of `inventory/external.py`).
-  Beside `props` sit our reading of the row: which glacier, what kind
-  (outline / debris / terminus), the date bracket. Registry: `glaciers/sources.py`.
-  *[changed]* One table with a `source` column instead of a table per source:
-  every source reduces to the same few derived columns, and the map draws
-  them from one tile layer.
-- **`glacier_extents`** (ours; the **consensus layer**, phase 4) — seeded by a
-  best-guess merge of the sources, then improved by admins. One row per
-  observation:
-  `glacier_id`, `kind` (outline, terminus, debris, LIA limit), geometry,
-  `date_min` / `date_max`, `date_basis` (image, map, moraine, account),
-  `image_ref` (scene id or basemap), `method`, `source` + `source_ref` (the
-  publisher's own ids, e.g. `glac_id`+`anlys_id`, since mirror row ids do not
-  survive a refetch), `parent_extent_id` (what it refines), `status`
-  (pending / reviewed), `superseded_at`, `notes`, `created_by`. Field names
-  follow GLIMS where one exists, so a series can be offered back to GLIMS.
-- **`glacier_flowlines`** — the reference line retreat is measured along.
-  Seeded from RGI 7 centerlines, which stop at the ~2000 terminus, so editors
-  extend them down-valley for earlier positions (trace editor).
-- **Derived, not stored by hand:** length-vs-time (terminus ∩ flowline) and
-  area-vs-time inside the fixed basin, each point carrying its date bracket
-  and source.
-
-Edit history goes in SQLite beside `LandslideEditMeta`, keeping the Tethys
-schema clean.
-
-## 5. Interface
-
-- **Sidebar with tabs**, matching the inventory's chrome: *Glaciers* (search,
-  filter by region / terminus type / number of epochs), *Retreat*, *Flow*,
-  *Overlays*.
-- **Map**: glaciers drawn from the reference outline; click selects one.
-  Selected glacier shows all its observations coloured by year (ramp in
-  `ls_colors.js`), terminus lines on top; the time bar steps through epochs.
-- **Glacier card**: names and ids, links out (GLIMS, WGMS), the length and
-  area charts with bracket whiskers, the list of observations by source with
-  show/hide, and a download.
-- **Background time layers** (G10040, Bevington): statewide ice cover by
-  year as PMTiles on R2, driven by the same time bar. These are the "what the
-  ice looked like that year" context and the starting material for a trace,
-  not records.
-- **Refining** (editors): adopt a source's series for one glacier; move an
-  outline's vertices; trace a new terminus on dated imagery; set the date
-  bracket and basis; mark superseded. Lines reuse `scarps.js`, polygons reuse
-  the inventory's Terra Draw editing, pointer ownership through `ls_tools.js`.
-  Imagery to trace on is already here: AHAP 1978–86, USGS historical topo, BC
-  orthophotos, Sentinel fetches and GeoTIFF uploads (`trace_rasters.js`).
-- **Landform traces as a reference layer** (an open thread since October):
-  moraine crests and trimlines are the field evidence for the oldest
-  positions, and a trace group can be cited as the basis of an LIA limit.
-- **URL state** through `ls_hash.js`; existing /glaciers/ hash keys keep their
-  meaning (additive only).
-
-## 6. Phases
-
-Each ends in something testable in dev, and ships only on sign-off.
-
-**0. Make room (no visible change).** Split `glaciers.js` into a page shell
-and `gl_tracers.js`, behaviour-identical, tracers lazy-loaded. Decisions D1–D5.
-
-**1. Identity and the first imports (read-only).** `glaciers` table from
-RGI 7; `fetch_glacier_source` for GLIMS (AK + NW Canada bbox), the USGS
-Glacier Bay lines, NSIDC-0634 and the USGS benchmark margins; matching report
-for the name-only sources. Sidebar, glacier search, click → card listing
-epochs by source, time bar over the selected glacier's observations.
-*Test: Columbia, Muir, Mendenhall, Grewingk, Portage each show a history.*
-
-**2. Statewide time layers.** All 18 G10040 epochs (and the debris split) as
-PMTiles on R2 with the time bar; Bevington for BC/Alberta once its attributes
-are inspected. The inventory's 2020 overlay row is unchanged.
-
-**3. Derived series.** Flowlines from RGI 7 centerlines, length and area
-charts with brackets, WGMS front-variation numbers plotted beside ours as an
-independent check, per-glacier GeoJSON download.
-
-**4. Refinement.** `glacier_extents`, adopt, vertex edit, new dated terminus
-trace, flowline extension, pending queue and review, edit history,
-`check_invariants` entries for the kind vocabulary and colour ramp.
-*This is the phase where Hig's own histories start to exist.*
-
-**5. Publish.** `/glaciers/methods/`, attribution per source, lift `noindex`
-and the robots block, deep links.
-
-**Later, on the same ids:** LIA outlines and the one-to-many links; ice-marginal
-lakes (Rick 2022) beside retreat; thickness/bed and flotation; per-landslide
-"ice-free since" read from the retreat history at a slope, which is the input
-the inventory wants for debuttressing.
-
-## 7. Decisions for Hig
-
-Answered by Hig, 2026-11-16.
-
-- **D1. How source data becomes ours.** Not adoption glacier by glacier.
-  The sources are layers that can be switched on and off; beside them sits a
-  **provisional consensus layer, a best-guess merge of everything available,
-  which an admin then improves**, and which is actively improved over time.
-  So phase 4 starts with a merge rule (which source wins for a given glacier
-  and epoch, how duplicates across submissions collapse, how a terminus line
-  and an outline of the same year reconcile) run over the whole mirror, not
-  with an adopt button. The rule has to be re-runnable when a source is
-  refetched without overwriting what an admin changed: a consensus row
-  records whether it is still as merged or has been edited.
-- **D2. Scope.** Alaska first (RGI region 01, which includes the Canadian
+- **D1. How source data becomes ours.** Mirrored sources are layers to
+  switch on and off. Beside them sits a provisional consensus that an admin
+  improves over time. For this design that means a consensus face series
+  per path (Q2). It must survive a source refetch without overwriting an
+  admin's change, so every consensus point records whether it is still as
+  merged or has been edited.
+- **D2. Scope.** Alaska first (RGI region 01, which takes in the Canadian
   side of the St Elias and Coast Mountains). Yukon and BC later.
-- **D3. Who edits.** `inventory_editors`, no new group.
-- **D4. Terms.** These are public scientific data; cite them as such, no
-  permission request. Every source carries its citation and DOI in the
-  registry and shows them in the page. DOIs on file: GLIMS 10.7265/N5V98602;
-  RGI 7.0 10.5067/F6JMOVY5NAVZ; NSIDC-0634 10.5067/3OOVUDFK3R0W; G10040
-  10.7265/8esq-w553; USGS Glacier Bay 10.5066/P9WDA76U; USGS benchmark
-  10.5066/P9R8BP3K; Bevington & Menounos 10.5281/zenodo.5900363; WGMS FoG
-  10.5904/wgms-fog-2026-02-10; Reinthaler & Paul 10.5281/zenodo.8113575;
-  Rick 2022 10.18739/A2MK6591G; Carrivick 2026 by its article DOI
-  10.1038/s41598-026-70307-w. **No DOI found** for the NPS Kenai Fjords
-  termini (IRMA reference 2293309 only).
-- **D5. Earthdata-login sources**: fetched on the workstation
-  (`tools/glaciers/download_sources.sh`, `~/.netrc`), converted there, loaded
-  per environment from `data/glaciers/sources/`. Nothing on the droplet holds
-  the credential.
+- **D3. Who edits.** `inventory_editors`; no new group.
+- **D4. Terms.** Public scientific data, cited as such; no permission
+  request. Every source carries its citation and DOI in the registry
+  (`glaciers/sources.py`) and shows them on the page. DOIs on file: GLIMS
+  10.7265/N5V98602; RGI 7.0 10.5067/F6JMOVY5NAVZ; NSIDC-0634
+  10.5067/3OOVUDFK3R0W; G10040 10.7265/8esq-w553; USGS Glacier Bay
+  10.5066/P9WDA76U; USGS benchmark 10.5066/P9R8BP3K; Bevington & Menounos
+  10.5281/zenodo.5900363; WGMS FoG 10.5904/wgms-fog-2026-02-10; Reinthaler &
+  Paul 10.5281/zenodo.8113575; Rick 2022 10.18739/A2MK6591G; Carrivick 2026
+  10.1038/s41598-026-70307-w. None found for the NPS Kenai Fjords termini
+  (IRMA reference 2293309).
+- **D5. Earthdata-login sources** are fetched and converted on the
+  workstation (`tools/glaciers/download_sources.sh`, `~/.netrc`) and loaded
+  per environment from `data/glaciers/sources/`. The droplet never holds the
+  credential.
 
-## 8. Found while building (2026-11-16)
+## 6. Sources
 
-- **G10040 carries a glacier id.** Every polygon has `RGIId` (RGI 6.0) and
-  `GN_area`, that year's area. So a per-glacier area series every two years
-  1986–2020 is one table join away (phase 3); it needs the RGI 6→7 links.
-- **The former-ice problem is real in Glacier Bay.** Of the 233 USGS lines, 82
-  match no glacier: they are positions of the single Glacier Bay ice mass, far
-  down-bay of anything in RGI. Muir's own card starts in 1980. Showing a
-  glacier its ancestors' termini needs the many-to-many links of §4.
-- **Matching the 50 NSIDC-0634 files**: 48 land on the glacier of the same
-  name. `cascade` lands on an RGI row named Barry Glacier and `moraine_apron`
-  on Grotto; both want a look.
-- **One NSIDC-0634 file has no projection** (`yakutat/turner`); its `proj`
-  attribute supplies the zone.
+Mirrored now: GLIMS (outlines), NSIDC-0634 McNabb & Hock (tidewater termini
+1948–2012, 50 glaciers, with their own length series), USGS Glacier Bay
+termini 1700–2019, USGS benchmark margins, G10040 ice cover (raster),
+RGI 7.0 outlines and centrelines.
 
-## 9. Not yet verified
+Candidates for face lines, in order of use to this design:
 
-Bevington's attribute list (whether it carries glacier ids); which years the
-USGS benchmark margins cover; the identity of several GLIMS submissions
-(inferred from affiliation and dates); whether the Carrivick LIA supplement
-is downloadable as stated; the WGMS 2026 table layout; how heavy the full
-GLIMS geometry is for the bbox (only attributes were pulled), which decides
-between vector tiles from PostGIS and PMTiles built at fetch time.
+| Source | What | Why it matters here |
+|---|---|---|
+| NPS Kenai Fjords termini | lines for 19 glaciers, 1984–2021, with centrelines | face lines, lake and tidewater; IRMA geodatabase, terms not stated |
+| WGMS front variations | length changes, no geometry; 136 series in the box, Columbia from 1899 | an independent check on plotted distances, as 0634's lengths are |
+| LIA outlines (Carrivick 2026; Reinthaler & Paul 2023) | polygons | the oldest limit, through the outline crossing of §3.1 |
+| Bevington & Menounos 2022 | annual outlines 1984–2021 | BC and Alberta only, so for after D2 |
+| Rick 2022 ice-marginal lakes | four epochs 1984–2019 | lake-terminating fronts and their lakes |
+
+Not usable or not found: TermPicks, CALFIN, AutoTerm (Greenland only);
+Kienholz's hand-corrected Alaska centrelines (never published); Zhang and
+others 2022 centrelines (RGI 6, unsuitable for tidewater); any Alaska fjord
+centreline or velocity-derived flowline dataset; PP 1386-K and Field, and
+Post & Meier (narrative only, no GIS).
+
+## 7. Things the data do to us
+
+- **RGI centrelines stop at each glacier's own outline and at the present
+  terminus.** So joins across glaciers and every reach past today's ice are
+  our work. OGGM's downstream routine skips tidewater glaciers. The
+  "Strahler" field counts depth; it is not a true Strahler order.
+- **Divides differ between submissions.** Columbia is 936, 944 and 774 km²
+  under one GLIMS id. Position along a line is robust to this; area is not.
+  The same fact is why §3.1 reads only an outline's down-flow exit.
+- **Dates are soft.** Every observation is a bracket, not a date.
+- **Ids are uneven.** One GLIMS id names as many as eight RGI 7 glaciers;
+  0634 and Glacier Bay carry names only; 661 of 27,509 RGI rows have a
+  name. Unmatched rows stay unmatched and are drawn, never guessed.
+- **Glacier Bay's 82 unmatched lines** are positions of the one former ice
+  mass, down-bay of anything in RGI. The network takes them, because a
+  line drawn down the bay crosses them; no glacier-to-glacier link table is
+  needed for that.
+- **Side-by-side glaciers.** A face that crosses no line is projected onto
+  ONE line, its own glacier's if one is in reach. Before that rule, Tsaa's
+  plot carried 318 of Grotto's faces. Any new placement rule (outlines
+  included) must keep to it.
+- **NSIDC-0634 matching**: `cascade` lands on an RGI row named Barry and
+  `moraine_apron` on Grotto (Hig has since made Moraine/Apron a
+  distributary of Grotto). `yakutat/turner` has no projection file; its
+  `proj` attribute gives the zone.
+
+## 8. Not yet verified
+
+Bevington's attributes (whether it carries glacier ids); which years the
+USGS benchmark margins cover; whether the Carrivick LIA supplement can be
+downloaded as stated; the WGMS 2026 table layout; the accuracy of any
+pre-2000 DEM along a glacier (Q1).

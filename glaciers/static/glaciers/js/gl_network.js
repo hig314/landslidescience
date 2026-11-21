@@ -1,6 +1,6 @@
 /* /glaciers — the flow network, face lines, and the distance plot.
  *
- * Server side and the reasoning: glaciers/network.py, GLACIERS_PLAN.md §0.
+ * Server side and the reasoning: glaciers/network.py, GLACIERS_PLAN.md §1.
  *
  * WHAT IS ON THE MAP
  *   RGI centrelines   reference only (tile layer `lines`), thin and pale.

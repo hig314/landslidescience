@@ -92,8 +92,12 @@ In no particular order.
 - **`/glaciers/` — DEPLOYED 2026-11-18, then SET ASIDE by Hig the same
   day** (3ad1851, e65bb2b, 0a35193, 654a8bf; prod is at 654a8bf). Nothing
   of this work is uncommitted or undeployed. **To resume, start here:**
-  (1) ask Hig whether prod or dev is the working copy of the network (they
-  have diverged since the copy; Claude suggested prod, Hig did not answer);
+  (1) **prod is the working copy** (Hig, 2026-11-20: 352 flow lines, 9
+  faces there that day; dev still holds the 2026-11-18 copy, so refresh
+  dev's glacier tables from prod before testing glacier work in dev). The
+  ordered next-work list is now GLACIERS_PLAN.md §3, which supersedes items
+  2–3 here; first on it is plotting GLIMS outline crossings, which is why
+  Portage (17 GLIMS outlines, no terminus-line source) plots one face;
   (2) the unbuilt list: pin-a-face control, consensus face series,
   elevation as the plot axis, cross-glacier joins, split-line and
   simplify-line buttons, loading network lines by map view, byte ranges
@@ -139,7 +143,7 @@ In no particular order.
   `glac_cover_mask.pmtiles` and `glac_debris_mask.pmtiles` to R2 overlays.
   Also on prod for the network: `fetch_glacier_source centerlines` (needs
   `rgi7_centerlines.geojsonl` in the rsync). **Same day, Hig refocused**
-  (plan §0): calving-face position, then surface elevation, along a
+  (GLACIERS_PLAN.md §1): calving-face position, then surface elevation, along a
   river-like flow network; area is low priority. Built in dev: the network
   editor, adopt / draft / import, and the distance-time plot. Dev holds the
   four Icy Bay glaciers adopted (80 lines) plus four drafted former-bed lines

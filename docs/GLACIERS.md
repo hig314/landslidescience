@@ -85,7 +85,7 @@ these polygons.
 
 ### The flow network and ice faces (2026-11-16, later the same day)
 
-Hig's refocus (GLACIERS_PLAN.md §0): area is not the target; **calving-face
+Hig's refocus (GLACIERS_PLAN.md §1): area is not the target; **calving-face
 position** is, then surface elevation, both against distance along a
 **river-like network of centrelines with feeders**. Built: `glaciers/network.py`,
 `gl_network.js`.
