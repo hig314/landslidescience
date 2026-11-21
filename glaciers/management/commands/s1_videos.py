@@ -1,6 +1,7 @@
 """Bring Hig's Sentinel-1 timelapses in from a Drive folder, in two steps.
 
     manage.py s1_videos resolve <review dir>              (dev: writes <dir>/manifest.json)
+    manage.py s1_videos fixes <review dir> <decisions>     (dev: reads Hig's typed corrections)
     manage.py s1_videos import <manifest> <decisions> [--dry-run]   (prod)
 
 The review dir is what tools/glaciers/s1_videos.py wrote (probe + dates).
@@ -95,7 +96,7 @@ class Command(BaseCommand):
     help = __doc__.split('\n\n')[0]
 
     def add_arguments(self, p):
-        p.add_argument('step', choices=['resolve', 'import'])
+        p.add_argument('step', choices=['resolve', 'fixes', 'import'])
         p.add_argument('path')
         p.add_argument('decisions', nargs='?')
         p.add_argument('--dry-run', action='store_true')
@@ -103,6 +104,10 @@ class Command(BaseCommand):
     def handle(self, *a, **o):
         if o['step'] == 'resolve':
             self.resolve(Path(o['path']))
+        elif o['step'] == 'fixes':
+            if not o['decisions']:
+                raise CommandError('fixes needs the review dir and the decisions file')
+            self.fixes(Path(o['path']), Path(o['decisions']))
         else:
             if not o['decisions']:
                 raise CommandError('import needs the manifest and the decisions file')
@@ -274,6 +279,77 @@ class Command(BaseCommand):
                                 'more months missing (%d against %d)' % (v['missing'], best['missing']))
 
     # ------------------------------------------------------------------
+    def resolve_fix(self, cur, text):
+        """Hig's correction typed on the review page -> a placement, or None
+        when it names no glacier (then it is kept as a note). Accepts a
+        GLIMS id (G222190E59103N), an RGI 7.0 id (full, or 01-17002, or
+        17002), or a glacier name."""
+        t = (text or '').strip()
+        if not t:
+            return None
+        m = re.search(r'\bG\d{6}E\d{5}N\b', t, re.I)
+        if m:
+            gid = m.group(0).upper()
+            # one GLIMS id can name several RGI glaciers: the largest, as for names
+            cur.execute("SELECT id, name, area_km2 FROM glaciers WHERE glims_id = %s ORDER BY area_km2 DESC", (gid,))
+            rows = cur.fetchall()
+            if not rows:
+                cur.execute("""SELECT g.id, g.name, g.area_km2 FROM glacier_obs o JOIN glaciers g ON g.id = o.glacier_id
+                               WHERE o.source = 'glims' AND o.props->>'glac_id' = %s
+                               GROUP BY g.id, g.name, g.area_km2 ORDER BY count(*) DESC, g.area_km2 DESC""", (gid,))
+                rows = cur.fetchall()
+            if rows:
+                r = rows[0]
+                return {'how': 'yours', 'glacier_id': r[0], 'name': r[1] or '', 'area_km2': r[2], 'glims_id': gid,
+                        'note': 'your entry %s' % gid + ('; it also names %d other RGI glaciers' % (len(rows) - 1) if len(rows) > 1 else '')}
+            return {'error': 'GLIMS id %s matches no glacier here' % gid}
+        m = re.search(r'(?:RGI2000-v7\.0-G-)?(\d{2})-(\d{5})\b', t) or re.fullmatch(r'(\d{5})', t)
+        if m:
+            gid = 'RGI2000-v7.0-G-%s-%s' % ((m.group(1), m.group(2)) if m.lastindex == 2 else ('01', m.group(1)))
+            cur.execute("SELECT id, name, area_km2 FROM glaciers WHERE id = %s", (gid,))
+            r = cur.fetchone()
+            if r:
+                return {'how': 'yours', 'glacier_id': r[0], 'name': r[1] or '', 'area_km2': r[2], 'note': 'your entry %s' % t}
+            return {'error': '%s is not an RGI 7.0 glacier here' % gid}
+        rows = self._by_name(cur, t)
+        if rows:
+            rows.sort(key=lambda x: -(x[2] or 0))
+            r = rows[0]
+            return {'how': 'yours', 'glacier_id': r[0], 'name': r[1] or t, 'area_km2': r[2],
+                    'note': 'your entry "%s"' % t + ('; %d glaciers have that name, the largest taken' % len(rows) if len(rows) > 1 else '')}
+        return None
+
+    def fixes(self, d, decisions):
+        """Read the review page's decisions, turn each typed correction into
+        a placement (`fix_place` on the manifest entry), and say what was
+        understood. The import uses fix_place over the automatic one."""
+        man = json.loads((d / 'manifest.json').read_text())
+        dec = json.loads(decisions.read_text())
+        conn = _get_conn()
+        try:
+            cur = conn.cursor()
+            for v in man['videos']:
+                fx = (dec.get(v['id']) or {}).get('fix', '')
+                v.pop('fix_place', None)
+                if not fx:
+                    continue
+                pl = self.resolve_fix(cur, fx)
+                if pl is None:
+                    v['fix_place'] = {'how': 'note', 'note': fx}
+                    self.stdout.write('%s: kept as a note: %s' % (v['name'], fx))
+                else:
+                    if pl.get('glacier_id'):
+                        cur.execute("SELECT count(*) FROM glacier_lines WHERE kind = 'flowline' AND glacier_id = %s", (pl['glacier_id'],))
+                        pl['lines'] = cur.fetchone()[0]
+                    v['fix_place'] = pl
+                    self.stdout.write('%s: %s' % (v['name'], pl.get('error') or '%s %s (%s lines in the network here)' % (
+                        pl['glacier_id'], pl['name'] or '(unnamed)', pl.get('lines'))))
+            conn.rollback()
+        finally:
+            _put_conn(conn)
+        (d / 'manifest.json').write_text(json.dumps(man, indent=1, default=str))
+
+    # ------------------------------------------------------------------
     def do_import(self, manifest, decisions, dry):
         man = {v['id']: v for v in json.loads(manifest.read_text())['videos']}
         dec = json.loads(decisions.read_text())
@@ -287,7 +363,13 @@ class Command(BaseCommand):
             if v.get('existing'):
                 self.stdout.write('already on the site (video %s): %s' % (v['existing'], v['name']))
                 continue
-            gid = d.get('glacier_id') or v['place'].get('glacier_id')
+            fp = v.get('fix_place') or {}
+            if fp.get('error'):
+                raise CommandError('%s: your correction was not understood (%s); fix it on the page and run fixes again'
+                                   % (v['name'], fp['error']))
+            gid = fp.get('glacier_id') or v['place'].get('glacier_id')
+            if fp.get('glacier_id'):
+                v['place'] = dict(fp, line_id=None)       # your glacier, not the automatic one
             if not gid and not v['place'].get('line_id'):
                 raise CommandError('approved but unplaced: %s' % v['name'])
             todo.append((v, gid))

@@ -276,6 +276,24 @@ def cmd_dates(a):
                 print('%3d/%d %s ERROR %s' % (done, len(files), futs[f], e), flush=True)
 
 
+def cmd_collect(a):
+    """The review page's decisions, exported one JSON file per video (the
+    artifact's `decisions` collection), merged into <out>/decisions.json:
+    {file id: {status, fix}}."""
+    out = Path(a.out)
+    src = Path(a.exported)
+    dec = {}
+    for f in sorted(src.glob('*.json')):
+        d = json.loads(f.read_text())
+        d = d.get('data', d)                 # the export may wrap the body
+        dec[f.stem] = {'status': d.get('status') or '', 'fix': (d.get('fix') or '').strip()}
+    (out / 'decisions.json').write_text(json.dumps(dec, indent=1))
+    n = {}
+    for v in dec.values():
+        n[v['status'] or 'none'] = n.get(v['status'] or 'none', 0) + 1
+    print('%d decisions: %s; %d with a correction' % (len(dec), n, sum(1 for v in dec.values() if v['fix'])))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -290,6 +308,10 @@ def main():
     g.add_argument('--jobs', type=int, default=6)
     g.add_argument('--force', action='store_true')
     g.set_defaults(fn=cmd_gap)
+    c = sub.add_parser('collect', help="merge the review page's exported decisions into decisions.json")
+    c.add_argument('exported', help='folder of one JSON file per decision')
+    c.add_argument('--out', default=str(DEFAULT_OUT))
+    c.set_defaults(fn=cmd_collect)
     d = sub.add_parser('dates', help='read the label of every frame (streams each video once)')
     d.add_argument('--out', default=str(DEFAULT_OUT))
     d.add_argument('--jobs', type=int, default=4)
