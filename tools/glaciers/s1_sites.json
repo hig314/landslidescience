@@ -1,0 +1,130 @@
+{
+ "_doc": "Hand rules for naming the glacier of a Sentinel-1 timelapse from its file name (glaciers/management/commands/s1_videos.py). Keys are the site part of the file name with any trailing number or version stripped (Portage3 -> Portage). `glacier`: a glacier name to look up (RGI, GLIMS, then GNIS); `gnis`: a GNIS feature whose point places it (a lake or stream: the nearest large glacier); `unplaced`: no rule, Hig names it. `note` is shown on the review page. Sites with no entry are matched by name after the qualifier words are stripped. First written 2026-11-20 from Hig's folder of 145 videos.",
+ "aliases": {
+  "Woznesenski": "Wosnesenski",
+  "Tweedsmiur": "Tweedsmuir",
+  "Le_Conte": "LeConte"
+ },
+ "qualifiers": [
+  "East",
+  "West",
+  "North",
+  "South",
+  "Middle",
+  "Upper",
+  "Lower",
+  "NW",
+  "Lake",
+  "lake",
+  "neighbors",
+  "neighbor",
+  "throat",
+  "lobe",
+  "breach",
+  "GFKR",
+  "dammed",
+  "spit",
+  "Deltas",
+  "Terminus",
+  "calving",
+  "Glacier"
+ ],
+ "sites": {
+  "Alsek-GP": {
+   "glacier": "Alsek",
+   "note": "Alsek and Grand Plateau in one view; placed on Alsek"
+  },
+  "Alsek_Lake": {
+   "glacier": "Alsek",
+   "note": "Alsek Lake, placed on Alsek Glacier's face"
+  },
+  "LGP": {
+   "glacier": "Grand Plateau",
+   "note": "read as Lake Grand Plateau; placed on Grand Plateau Glacier (a guess)"
+  },
+  "Berg_Lake": {
+   "gnis": "Berg Lakes",
+   "note": "Berg Lakes, placed on the nearest large glacier"
+  },
+  "Brady-Abyss": {
+   "glacier": "Brady",
+   "note": "Brady at Abyss Lake"
+  },
+  "Ferris_Grand_Pacific": {
+   "glacier": "Grand Pacific",
+   "note": "Ferris and Grand Pacific; placed on Grand Pacific"
+  },
+  "Margerie_Grand_Pacific": {
+   "glacier": "Margerie",
+   "note": "Margerie and Grand Pacific; placed on Margerie"
+  },
+  "Pedersen_Aialik": {
+   "glacier": "Pedersen",
+   "note": "Pedersen and Aialik; placed on Pedersen"
+  },
+  "South_Sawyer_Tracy": {
+   "glacier": "South Sawyer"
+  },
+  "Endicott": {
+   "glacier": "Dawes",
+   "note": "Endicott Arm; placed on Dawes Glacier at its head (a guess)"
+  },
+  "Sitkagi": {
+   "line": "Sitkagi",
+   "glacier": "Malaspina",
+   "note": "Sitkagi Bluffs: Hig's own line named Sitkagi"
+  },
+  "Fountain": {
+   "gnis": "Fountain Stream",
+   "note": "Fountain Stream, Malaspina's east side; nearest large glacier"
+  },
+  "Sudden_Stream": {
+   "gnis": "Sudden Stream",
+   "note": "Sudden Stream; nearest large glacier"
+  },
+  "Oily_Lake": {
+   "gnis": "Oily Lake",
+   "note": "Oily Lake; nearest large glacier"
+  },
+  "Caetani": {
+   "glacier": "Agassiz",
+   "note": "Caetani: Hig placed two Caetani videos on Agassiz Glacier (2026-11-18/21)"
+  },
+  "Iliamna": {
+   "gnis": "Iliamna Volcano",
+   "note": "Iliamna Volcano; nearest large glacier to the summit (a guess)"
+  },
+  "Snow": {
+   "glacier": "Snow",
+   "note": "read as Snow Glacier (Kenai)"
+  },
+  "McCarthy": {
+   "glacier": "McCarthy Creek",
+   "note": "McCarthy, not McCarty (there is a separate McCarty video): read as McCarthy Creek Glacier (a guess)"
+  },
+  "Land_lobe": {
+   "unplaced": true
+  },
+  "Mount_King_George": {
+   "unplaced": true
+  },
+  "Devils_Thumb": {
+   "unplaced": true
+  },
+  "Kanamori": {
+   "unplaced": true
+  },
+  "Raiou": {
+   "unplaced": true
+  },
+  "Redstone": {
+   "unplaced": true
+  },
+  "Billy_Sheep": {
+   "unplaced": true
+  },
+  "Lake_Safron": {
+   "unplaced": true
+  }
+ }
+}
