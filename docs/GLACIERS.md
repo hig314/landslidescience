@@ -442,3 +442,42 @@ Portage's history is 17 GLIMS outlines. Now an outline gives one point,
   the tongue as debris).
 - **Cost**: each outline is cut to the line's box before reprojection;
   Yahtse's path went 0.6 s → 1.0 s, the others less.
+
+## Sentinel-1 timelapses from a Drive folder (2026-11-20)
+
+Hig makes monthly S1 RGB timelapses in Earth Engine into one Drive folder
+(`1glvNdBsjprtNPjXyIZhASgbF8Lyng3Mc`, 145 videos on 2026-11-20). Bringing them
+in is three steps; the record of each run is in the main checkout's
+`data/glaciers/s1_review/` (not in git).
+
+1. **Probe** (workstation): `tools/glaciers/s1_videos.py probe <folder>` lists
+   the public folder (no login) and, by HTTP range requests, saves each
+   video's index, the label corners of its first and last frames and a
+   thumbnail of the last frame. The month is burned into every frame;
+   `s1_labels.py` reads it against digit templates (`s1_glyphs.json`).
+   `gap` finds the S1B outage (S1B failed 23 Dec 2021; S1C from 2025) by
+   seeking to the frames either side of January 2022.
+2. **Resolve and review** (dev): `manage.py s1_videos resolve <dir>` names each
+   video's glacier (rules in `tools/glaciers/s1_sites.json`; Hig's named lines;
+   RGI and GLIMS names; GNIS points from `data/glaciers/gnis/`) and picks one
+   video per glacier and subject (no gap, then the latest). Hig reviews one
+   frame per video on a page (https://claude.ai/artifact/48wufseowgxA4pztWZKKwe):
+   approve, reject, or type the glacier (GLIMS id, RGI id or name). Export its
+   `decisions` collection, then `s1_videos.py collect <exported dir>` and
+   `manage.py s1_videos fixes <dir> <dir>/decisions.json`, which reads the typed
+   corrections; republish the page's `videos.json` to show what they became.
+3. **Import** (prod, after copying `manifest.json` and `decisions.json` to the
+   droplet's `data/glaciers/s1_review/`): `manage.py s1_videos import ...
+   [--dry-run]`. Approved, or assigned and not rejected, videos become public
+   `s1` videos; the glacier's RGI centrelines are adopted if the network has
+   none; the anchor is the RGI terminus, moved onto the nearest of Hig's lines
+   when they miss it. Each video is one transaction with its download; a failed
+   download rolls back its adoption and the run carries on. What the site
+   already has (by Drive file id) is skipped, so reruns are safe.
+
+**Drive's download quota.** A publicly shared file allows only a few full
+downloads a day, and every ffmpeg open counts as one. The probe, a full-stream
+date read (abandoned: Drive serves a 35 MB file in minutes) and two gap passes
+used it up on most of the folder on 2026-11-20; Drive then answers with a
+"Quota exceeded" page, from the droplet too. Touch each file as few times as
+possible. Bounded ranges still work, but do not use them to get round the quota.
