@@ -410,9 +410,9 @@
   {
    "id": "solve_1120",
    "stage": "solve",
-   "live": "2026-11-20 16:43:46",
-   "commit": null,
-   "what": "solve (s3), Hig's review of 2026-11-20 (Halibut Cove Lagoon, Petrof Beach): the still-water shore ring and the lake profile's shore are cells that are NOT WATER (body lines in open water were held at the level); a confident gridded bed is fixed to its edge (striped multibeam was soft everywhere); a compilation's pull fades within 30 m of a measured bed; sea casts within 15 m of a measured bed are left to it; the deep pass keeps the product within 32 m of a layer's cell (solve_box); the low bound is retired (low_bound_m 0); unmeasured land within 15 m of a traced high-tide line gives way and the line is held at its level, a break of slope. Lines: tide_vectors.py rescue restored 12 dropped straight high-tide edges (2.16 km; chains of r1c1 r1c2 r2c1 r2c4 r3c4 r4c5 hold one). Every s3 solve before this moment was redone."
+   "live": "2026-11-20 16:53:20",
+   "commit": "47c95d6 + the next",
+   "what": "solve (s3), Hig's review of 2026-11-20 (Halibut Cove Lagoon, Petrof Beach): the still-water shore ring and the lake profile's shore are cells that are NOT WATER (body lines in open water were held at the level); a confident gridded bed is fixed to its edge (striped multibeam was soft everywhere); a compilation's pull fades within 30 m of a measured bed; sea casts within 15 m of a measured bed are left to it; the deep pass keeps the product within 32 m of a layer's cell (solve_box); the low bound is retired (low_bound_m 0); unmeasured land within 15 m of a traced high-tide line gives way and the line is held at its level, a break of slope. Lines: tide_vectors.py rescue restored 12 dropped straight high-tide edges (2.16 km; chains of r1c1 r1c2 r2c1 r2c4 r3c4 r4c5 hold one). Every s3 solve before this moment was redone. ALSO (Hig, same day: 'a hill on the beach below the high-tide line - the surface should grade from the high tide line down to the lowtide line'): unmeasured land inside the mapped high-tide water (tide_high_water.geojson, traced islands excepted) gives way wholly (line_yield_water). No s3 solve stands from before this moment."
   }
  ]
 }

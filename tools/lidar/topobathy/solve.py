@@ -30,7 +30,7 @@ W = Path("/Volumes/Nunatak/lidar_build/composite"); WATER = Path("/Users/Hig/Cla
 EDITS = W / "review_1114" / "solve_edits.geojson"       # a reviewer's typing of evidence: polygons, kind "not_bed" (optionally only cells deeper_than_m)
 COMP = ("ocm2023", "ncei2010", "cudem2022", "crm")
 DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hig's low-tide mapping
-P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=0.0, snd_cast_beside_m=15.0, fix_grid_bed_edge=1, comp_near_bed_m=30.0, line_yield_m=15.0, line_yield_min_level_m=2.0, low_bound_tol_m=0.5,
+P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=0.0, snd_cast_beside_m=15.0, fix_grid_bed_edge=1, comp_near_bed_m=30.0, line_yield_m=15.0, line_yield_min_level_m=2.0, line_yield_water=1, low_bound_tol_m=0.5,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24, amg=1,
          snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
@@ -549,11 +549,19 @@ def main(argv=None, ret=False):
     # (fixed or soft, thin or not) and a lidar-derived grid's are not touched; ArcticDEM's is unmeasured here like 3DEP's.
     if p["line_yield_m"] > 0:
         gl_ = [(g, 1) for g, pr_ in _feats("tide_lines.geojson") if g.intersects(wb_) and float(pr_["level_m"]) >= p["line_yield_min_level_m"]]
-        if gl_:
-            lm_ = np.pad(features.rasterize(gl_, out_shape=(H0, W0), transform=T, all_touched=True).astype(bool), pad)
-            yl_ = (ndimage.distance_transform_edt(~lm_) * res <= p["line_yield_m"]) & (land3 | high | (meas & ~conf)) & ~conf & ~(has & ((src & lidar_b) != 0)) & ~ice & ~still & inwin   # 3DEP, the dry fill, ArcticDEM: not a lidar's ground, thin or not
+        # ...AND INSIDE THE MAPPED HIGH-TIDE WATER it gives way wholly (Hig 2026-11-20, Petrof: "there is a hill on the beach below the
+        # high-tide line - the surface should grade from the high tide line down to the lowtide line, not go over a hump"): 3DEP's and
+        # ArcticDEM's smear of the forested cliff stood 8-12 m on the beach, fixed or soft, 30 m seaward of the line.  tide_high_water.geojson
+        # is the polygon with the unmapped islands cut out; a rock or islet a lidar saw, a traced island and the rocks layer still stand.
+        hw_ = np.zeros(jz.shape, bool)
+        if p["line_yield_water"]:
+            gh_ = [(g, 1) for g, _ in _feats("tide_high_water.geojson") if g.intersects(wb_)]
+            if gh_: hw_ = np.pad(features.rasterize(gh_, out_shape=(H0, W0), transform=T).astype(bool), pad) & ~np.isfinite(isl_lv)
+        if gl_ or hw_.any():
+            lm_ = np.pad(features.rasterize(gl_, out_shape=(H0, W0), transform=T, all_touched=True).astype(bool), pad) if gl_ else np.zeros(jz.shape, bool)
+            yl_ = (((ndimage.distance_transform_edt(~lm_) * res <= p["line_yield_m"]) if lm_.any() else lm_) | hw_) & (land3 | high | (meas & ~conf)) & ~conf & ~(has & ((src & lidar_b) != 0)) & ~ice & ~still & inwin   # 3DEP, the dry fill, ArcticDEM: not a lidar's ground, thin or not
             if yl_.any():
-                log(f"  traced high-tide lines as contours: {int(yl_.sum())} cells of unmeasured land within {p['line_yield_m']:g} m of one give way ({int((yl_ & fixed).sum())} were fixed; they stood p50/p90 {np.percentile(cur[yl_ & np.isfinite(cur)], 50):.1f}/{np.percentile(cur[yl_ & np.isfinite(cur)], 90):.1f} m)")
+                log(f"  traced high-tide lines as contours: {int(yl_.sum())} cells of unmeasured land within {p['line_yield_m']:g} m of one or inside the mapped high-tide water ({int((yl_ & hw_).sum())}) give way ({int((yl_ & fixed).sum())} were fixed; they stood p50/p90 {np.percentile(cur[yl_ & np.isfinite(cur)], 50):.1f}/{np.percentile(cur[yl_ & np.isfinite(cur)], 90):.1f} m)")
                 fixed = fixed & ~yl_; fix_other = fix_other & ~yl_; w[yl_] = 0.0; b[yl_] = 0.0
                 # ...and ON the line the land that gave way stands AT its level, held (as soft data at line_sigma_m, 18 m of cliff 15 m away
                 # left the line's cells at 10.8 m: "it should drop to that level")
