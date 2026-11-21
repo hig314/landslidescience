@@ -93,8 +93,12 @@ In no particular order.
   day** (3ad1851, e65bb2b, 0a35193, 654a8bf; prod is at 654a8bf). Nothing
   of this work is uncommitted or undeployed. **To resume, start here:**
   (1) **prod is the working copy** (Hig, 2026-11-20: 352 flow lines, 9
-  faces there that day; dev still holds the 2026-11-18 copy, so refresh
-  dev's glacier tables from prod before testing glacier work in dev). The
+  faces there that day). **Dev refreshed from prod 2026-11-20** (Hig's
+  permission): `glacier_lines`, `glacier_videos`, `glacier_video_anchors`
+  COPYed from prod in one transaction, sequences set, counts and row md5s
+  matched before commit; the mirror tables already agreed (same counts and
+  fetch times); `data/glacier_videos/` rsynced. Dev's pre-refresh tables
+  are kept in the main checkout's `data/glaciers/dev_backup_20261120/`. The
   ordered next-work list is now GLACIERS_PLAN.md §3, which supersedes items
   2–3 here; first on it is plotting GLIMS outline crossings, which is why
   Portage (17 GLIMS outlines, no terminus-line source) plots one face;
