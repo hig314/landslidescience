@@ -28,10 +28,16 @@ window.GLNetwork = (function () {
 
     var GL, map, CFG;
     var API = '/glaciers/lines/';
-    var SRC_COLOR = { nsidc0634: '#d62728', usgs_glacier_bay: '#9467bd', ours: '#ff4081' };
-    var SRC_LABEL = { nsidc0634: 'McNabb & Hock', usgs_glacier_bay: 'USGS Glacier Bay', ours: 'Ours' };
+    var SRC_COLOR = { nsidc0634: '#d62728', usgs_glacier_bay: '#9467bd', ours: '#ff4081',
+                      glims: '#78909c', usgs_benchmark: '#8d6e63' };
+    var SRC_LABEL = { nsidc0634: 'McNabb & Hock', usgs_glacier_bay: 'USGS Glacier Bay', ours: 'Ours',
+                      glims: 'GLIMS outlines', usgs_benchmark: 'USGS benchmark outlines' };
     var S = { path: null, pathId: null, method: 'x_m', axes: 'tx', editing: false, refOn: true };
     try { if (localStorage.getItem('gl_nw_axes') === 'dx') S.axes = 'dx'; } catch (e) {}
+    // Outline points (where the path leaves a mapped outline) are on unless
+    // this browser switched them off (Hig, 2026-11-20: show them, light).
+    S.outlines = true;
+    try { if (localStorage.getItem('gl_nw_outlines') === '0') S.outlines = false; } catch (e) {}
     var el = {};
 
     function $(id) { return document.getElementById(id); }
@@ -141,7 +147,8 @@ window.GLNetwork = (function () {
         var c = el.chart;
         if (!S.path) { c.style.display = 'none'; c.innerHTML = ''; return; }
         c.style.display = visible() ? '' : 'none';
-        var P = S.path, F = P.faces.filter(function (f) { return f.t0 != null; });
+        var P = S.path, nOut = P.faces.filter(function (f) { return f.t0 != null && f.how === 'outline'; }).length;
+        var F = P.faces.filter(function (f) { return f.t0 != null && (S.outlines || f.how !== 'outline'); });
         var W = Math.max(420, Math.min(900, el.chart.parentNode.clientWidth - 40)), H = 270;
         var m = { l: 46, r: 14, t: 30, b: 34 };
         // The distance axis covers where the faces are, not the whole line:
@@ -235,7 +242,20 @@ window.GLNetwork = (function () {
                     '</title></rect>';
             });
         });
+        // Outline points first, so a traced or published face is never under one.
         F.forEach(function (f, i) {
+            if (f.how !== 'outline') return;
+            var d = DK(f[S.method]), col = SRC_COLOR[f.source] || '#555';
+            if (f.t1 != null && f.t1 - f.t0 > 0.02) {
+                s += '<line x1="' + PX(d, f.t0) + '" x2="' + PX(d, f.t1) + '" y1="' + PY(d, f.t0) + '" y2="' + PY(d, f.t1) +
+                    '" stroke="' + col + '" stroke-width="1.2" opacity="0.4"/>';
+            }
+            var tm = (f.t0 + (f.t1 || f.t0)) / 2;
+            s += '<circle class="nw-pt" data-i="' + i + '" cx="' + PX(d, tm) + '" cy="' + PY(d, tm) + '" r="2.8" fill="' + col +
+                '" fill-opacity="0.5" stroke="' + col + '" stroke-opacity="0.8" stroke-width="0.6"/>';
+        });
+        F.forEach(function (f, i) {
+            if (f.how === 'outline') return;
             var d = DK(f[S.method]), col = SRC_COLOR[f.source] || '#555';
             if (f.t1 != null && f.t1 - f.t0 > 0.02) {          // the date bracket, as a whisker along the time axis
                 s += '<line x1="' + PX(d, f.t0) + '" x2="' + PX(d, f.t1) + '" y1="' + PY(d, f.t0) + '" y2="' + PY(d, f.t1) +
@@ -251,11 +271,14 @@ window.GLNetwork = (function () {
         var srcs = {};
         F.forEach(function (f) { srcs[f.source] = (srcs[f.source] || 0) + 1; });
         var head = '<div class="nw-head"><b>' + esc(P.reaches[0].name || 'Flow line ' + P.line_id) + '</b> to the outlet · ' +
-            (P.total_m / 1000).toFixed(1) + ' km · ' + F.length + ' ice faces ' +
+            (P.total_m / 1000).toFixed(1) + ' km · ' + (F.length - (S.outlines ? nOut : 0)) + ' ice faces ' +
             Object.keys(srcs).map(function (k) {
                 return '<span class="nw-key"><i style="background:' + (SRC_COLOR[k] || '#555') + '"></i>' + esc(SRC_LABEL[k] || k) + ' ' + srcs[k] + '</span>';
             }).join('') +
-            '<span class="nw-tools"><select id="nw-axes" title="Which way round the plot is drawn">' +
+            '<span class="nw-tools">' +
+            (nOut ? '<label title="Where the line leaves each mapped outline of a glacier on this path (GLIMS, USGS benchmark)">' +
+                '<input type="checkbox" id="nw-outl"' + (S.outlines ? ' checked' : '') + '> outlines (' + nOut + ')</label> ' : '') +
+            '<select id="nw-axes" title="Which way round the plot is drawn">' +
             '<option value="tx">time across, distance up</option><option value="dx">distance across, time up</option></select>' +
             '<select id="nw-method" title="How a face becomes one position on the line">' +
             '<option value="x_m">width-averaged position</option><option value="cross_m">centreline crossing</option></select>' +
@@ -269,7 +292,12 @@ window.GLNetwork = (function () {
             }).join('') + '</div>' : '';
         c.innerHTML = head + s + vids + '<div class="nw-tip" id="nw-tip"></div>' +
             '<div class="nw-foot">Filled = the face crosses the line; ring = it stops short and is projected onto it; ' +
-            'diamond = pinned by hand. Click a point to set the year bar.</div>';
+            'diamond = pinned by hand; pale = where the line leaves a mapped outline. Click a point to set the year bar.</div>';
+        if ($('nw-outl')) $('nw-outl').addEventListener('change', function () {
+            S.outlines = this.checked;
+            try { localStorage.setItem('gl_nw_outlines', S.outlines ? '1' : '0'); } catch (e) {}
+            renderChart();
+        });
         $('nw-axes').value = S.axes;
         $('nw-axes').addEventListener('change', function () {
             S.axes = this.value;
@@ -301,7 +329,8 @@ window.GLNetwork = (function () {
             p.addEventListener('mouseenter', function () {
                 tip.textContent = (f.date_min === f.date_max ? f.date_min : f.date_min + ' to ' + f.date_max) + ' · ' +
                     DK(f[S.method]).toFixed(2) + ' km · ' + (SRC_LABEL[f.source] || f.source) +
-                    (f.label ? ' · ' + f.label : '') + (f.how !== 'crossing' ? ' · ' + f.how : '');
+                    (f.label ? ' · ' + f.label : '') +
+                    (f.how === 'outline' ? ' · where the line leaves this outline' : f.how !== 'crossing' ? ' · ' + f.how : '');
                 hi(f.id);
             });
             p.addEventListener('mouseleave', function () { tip.textContent = ''; hi(null); });

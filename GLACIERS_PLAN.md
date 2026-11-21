@@ -77,7 +77,9 @@ Portage is the first glacier with no terminus-line source to show the gap.
 
 ## 3. Next work, in recommended order
 
-1. **Outline crossings on the plot** (the Portage fix). For each outline
+1. **Outline crossings on the plot** (the Portage fix). *Built in dev
+   2026-11-20 (docs/GLACIERS.md, last section); the rules below are as
+   built.* For each outline
    linked to a glacier whose line is on the path, plot one position: the
    furthest-down-flow point where the path leaves the polygon. Mark it `how =
    outline` with its own symbol, so it is never mistaken for a traced face.
@@ -94,10 +96,13 @@ Portage is the first glacier with no terminus-line source to show the gap.
    G10040 could later add one point per even year 1986–2020, read from the
    bit mask along the path. That needs the raster read on the server, and
    the container has no GDAL, so it is a second step.
-2. **Load network lines by map view.** At 352 lines the editor's list
-   download (`lines/api/scarps/`) is 816 KB on every page load, and it grows
-   about 2.5 KB a line. Fetch lines for the view, or by network, before the
-   network doubles again.
+2. **Load network lines by map view.** At 352 lines the list
+   (`lines/api/scarps/`) is 816 KB, but 190 KB as sent (gzip), about 0.5 KB
+   a line, loaded by every visitor. Not urgent yet (checked 2026-11-20). The
+   change is in `scarps.js`, which is `main`'s (WORKSTREAMS.md), and it touches
+   snapping and the in-memory edit state, so do it there when the list nears
+   1 MB as sent. Do not trim the coordinate precision instead: joins rely on
+   the 2 m vertex rule at 6 decimals.
 3. **Pin a face.** The schema and the maths are in (`pin_line_id`,
    `pin_frac`); the control to set a pin is not. This is for fronts too wide
    for a crossing to mean anything (Bering, Malaspina).
@@ -112,9 +117,11 @@ Portage is the first glacier with no terminus-line source to show the gap.
    trunk by following ITS_LIVE flow from the tributary's terminus. This also
    checks adopted lines where RGI's geometry is weakest (wide lobes,
    icefields). The annual 240 m fields are on disk (`data/glaciers/region/`).
-7. **Consensus face series** (D1). This waits on Q2.
+7. **Consensus face series** (D1): every point kept (Q2); review comes
+   later.
 8. **Surface elevation on the y axis.** Ice-surface profiles along a path by
-   date, and trimline traces for the oldest surface. This waits on Q1.
+   date, and trimline traces for the oldest surface; the USGS map-derived
+   DEMs first among the old ones (Q1).
 9. **The landslide link.** For a slope in the inventory, the nearest reach,
    when the face passed, and how long it has been ice-free. This is the
    debuttressing input the inventory wants.
@@ -126,28 +133,23 @@ Portage is the first glacier with no terminus-line source to show the gap.
 
 ## 4. Questions for Hig
 
-- **Q1. Which DEMs to trust before 2000?** They set the oldest surface
-  profiles. The candidates have not been checked for accuracy along a glacier
-  path:
-  - NED and the 1950s USGS topographic maps it was made from;
-  - AHAP photogrammetry (1978–86 photos; no statewide DEM is known);
-  - SPOT or ASTER for the late 1990s.
-  
-  From 2000 on there are Hugonnet dh/dt, IfSAR (2010s), ArcticDEM (2008 on)
-  and our lidar.
-- **Q2. What does "consensus" mean for faces?** Three options:
-  - (a) one chosen point per date, where the best source wins;
-  - (b) a fitted, smoothed series;
-  - (c) every point kept, with outliers and advances flagged for an admin to
-    accept or reject.
-  
-  Recommended: **(c)**. A face down-bay of an older one is either an advance
-  (Hubbard, Taku, Johns Hopkins) or an error, and only a person can tell
-  which. (a) and (b) can be computed from (c) later; going back from them is
-  not possible.
-- **Q3. Outlines on the plot: on or off by default?** They will far outnumber
-  traced faces wherever GLIMS is dense. Recommended: on, in a lighter symbol,
-  with a source switch.
+- **Q1. Which DEMs to trust before 2000?** *Answered (Hig, 2026-11-20):* DEMs
+  are generally robust on glacier surfaces; the trouble with old ones is that
+  their dates are often unclear. **Include the DEMs rasterised from the
+  mid-20th-century USGS topographic maps.** So each surface profile carries a
+  date bracket like a face, and for a map-derived DEM the bracket comes from
+  the map's photography dates (on the quad), not the DEM's production date.
+  Still to find: where the map-derived DEMs for Alaska are served, and how
+  to read each quad's photo date. Candidates after that: AHAP (1978–86, no
+  statewide DEM known), SPOT or ASTER for the late 1990s; from 2000,
+  Hugonnet dh/dt, IfSAR, ArcticDEM and our lidar.
+- **Q2. What does "consensus" mean for faces?** *Answered (Hig,
+  2026-11-20):* **keep every point.** Small advances are quite plausible and
+  some are large, so nothing is forced monotonic and nothing is dropped for
+  disagreeing. Review rules wait until there is enough on the plots to see
+  what is needed.
+- **Q3. Outlines on the plot: on or off by default?** *Answered (Hig,
+  2026-11-20):* on, light. Built that way, with a switch.
 
 Answered since the first plan: lake-terminating faces are in the first pass
 (Portage); Hig draws the first networks himself, by hand where ITS_LIVE

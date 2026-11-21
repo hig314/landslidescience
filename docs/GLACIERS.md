@@ -410,3 +410,35 @@ What still grows with the network: `normalize()` loads every flow line's
 coordinates, and the editor downloads every line as one GeoJSON
 (`lines/api/scarps/`, 2.5 KB a line). Fine for hundreds of lines; adopting
 all 41,293 RGI centrelines at once is not what this design is for.
+
+## Outlines on the plot (2026-11-20)
+
+Portage plotted one point although its map showed fronts from 1951 to 2019:
+the plot read only face LINES (ours, NSIDC-0634, USGS Glacier Bay), and
+Portage's history is 17 GLIMS outlines. Now an outline gives one point,
+`how = outline`: where the path LEAVES it, furthest down-flow
+(`_outline_points`, `_OUTLINES_SQL` in `network.py`).
+
+- **Only outlines of glaciers whose lines are on the path** (`glacier_id`
+  of the path's reaches), never a neighbour's. A drawn line with no
+  `glacier_id` brings none.
+- **Dropped**: an exit within `OUTLINE_DIVIDE_M` (150 m) of another glacier's
+  RGI outline (the ice runs on into that glacier, so it is a divide, not a
+  front); an exit at the end of the part of a reach that is on the path (the
+  next reach gives the exit, or the path stops inside the ice and measured
+  no front); `debris` rows (not faces).
+- **Every submission is plotted**, several on one date included. One
+  position, so `x_m` = `cross_m` (no width averaging).
+- **Page**: light points under the faces, in the source's colour (GLIMS
+  grey-blue, USGS benchmark brown), an "outlines (n)" switch in the plot
+  header, remembered per browser (`gl_nw_outlines`); on by default (Hig).
+- **Checked against McNabb & Hock** on dev's Icy Bay network: the eight GLIMS
+  outlines of 2000 and 2010 on Guyot, Tyndall, Tsaa and Yahtse sit within
+  30 m of the 0634 centreline crossing of the same date, one at 0.37 km
+  (Tsaa 2010). Portage (prod's line 377, run in a rolled-back dev
+  transaction): 12 of 17 outlines plot, 10.63 km from the head in 1951 to
+  8.31 km in 2018; the other five are 0.01 to 0.05 km² fragments off the
+  line, among them the whole of the 2019 USFS "outline" (that submission maps
+  the tongue as debris).
+- **Cost**: each outline is cut to the line's box before reprojection;
+  Yahtse's path went 0.6 s → 1.0 s, the others less.

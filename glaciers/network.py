@@ -981,6 +981,66 @@ FROM c, r
 """
 
 
+# Outlines on the plot (GLACIERS_PLAN.md §3.1, 2026-11-20). An outline has no
+# face line, so it gives one number: where the path LEAVES it, furthest
+# down-flow. Only outlines of glaciers whose lines are on the path (never a
+# neighbour's: the Tsaa/Grotto rule). For each outline and reach, `f` is the
+# fraction along the reach of the lowest point of the reach inside the
+# outline; `divide` says that point lies on another glacier's RGI outline,
+# i.e. the ice carries on into another glacier there and it is no front.
+OUTLINE_DIVIDE_M = 150
+_OUTLINES_SQL = """
+WITH p AS (
+  SELECT u.id, ST_GeometryN(l.geom, 1) AS line, ST_Transform(ST_GeometryN(l.geom, 1), 3338) AS lm
+    FROM unnest(%(ids)s::int[]) AS u(id) JOIN glacier_lines l ON l.id = u.id),
+o AS (
+  SELECT o.id, o.source, o.date_min, o.date_max, o.label, o.glacier_id, o.geom
+    FROM glacier_obs o
+   WHERE o.kind = 'outline' AND o.glacier_id = ANY(%(gids)s)),
+x AS (
+  -- the outline is cut to the line's box before it is reprojected: whole
+  -- icefield outlines made this most of the path's time
+  SELECT o.id, o.source, o.date_min, o.date_max, o.label, o.glacier_id, p.id AS rid, p.lm,
+         (SELECT max(ST_LineLocatePoint(p.lm, d.geom))
+            FROM ST_DumpPoints(ST_Intersection(p.lm, ST_Transform(
+                 ST_ClipByBox2D(o.geom, ST_Expand(ST_Envelope(p.line), 0.01)), 3338))) d) AS f
+    FROM o JOIN p ON ST_Intersects(o.geom, p.line))
+SELECT x.id, x.source, x.date_min, x.date_max, x.label, x.rid, x.f,
+       EXISTS (SELECT 1 FROM glaciers g, LATERAL (SELECT ST_Transform(ST_LineInterpolatePoint(x.lm, x.f), 4326) AS pt) q
+                WHERE g.id <> x.glacier_id AND ST_DWithin(g.geom, q.pt, 0.004)
+                  AND ST_DWithin(g.geom::geography, q.pt::geography, %(div)s)) AS divide
+  FROM x WHERE x.f IS NOT NULL
+"""
+
+
+def _outline_points(cur, path):
+    """The plot's outline points: one per outline that the path leaves at a
+    front. Dropped: an exit on another glacier's outline (a divide), and an
+    exit at the end of the part of a reach on the path, where the ice goes on
+    into the next reach (that reach gives the exit) or the path stops inside
+    the ice (no front measured)."""
+    gids = sorted({p['glacier_id'] for p in path if p.get('glacier_id')})
+    if not gids:
+        return {}
+    R = {p['id']: p for p in path}
+    cur.execute(_OUTLINES_SQL, {'ids': list(R), 'gids': gids, 'div': OUTLINE_DIVIDE_M})
+    out = {}
+    for oid, src, d0, d1, label, rid, f, divide in cur.fetchall():
+        reach = R[rid]
+        if f < reach['from_frac'] - 1e-6 or f > reach['to_frac'] - 1e-4 or divide:
+            continue
+        x = reach['end_m'] + (reach['to_frac'] - f) * reach['full_m']
+        fid = 'o%d' % oid
+        if fid in out and out[fid]['x_m'] <= x:      # keep the lowest exit on the path
+            continue
+        out[fid] = {'id': fid, 'source': src, 'how': 'outline', 'reach': rid,
+                    'date_min': d0.isoformat() if d0 else None,
+                    'date_max': d1.isoformat() if d1 else None,
+                    't0': _dec(d0), 't1': _dec(d1, True),
+                    'x_m': round(x, 1), 'cross_m': round(x, 1), 'label': label or ''}
+    return out
+
+
 @require_safe
 def api_path(request, line_id):
     """The path from one flow line down to its network's outlet, and every
@@ -993,7 +1053,8 @@ def api_path(request, line_id):
     (`cross_m`). A face that crosses NO flow line is placed the same way on
     one line only and marked `projected` (a line of the glacier it was
     published for if one is within NEAR_M, else the nearest); a pinned face sits
-    where it was pinned.
+    where it was pinned. An outline of a glacier on the path gives one point,
+    `how = outline`, where the path leaves it (`_outline_points`).
     """
     conn = _get_conn()
     try:
@@ -1063,6 +1124,8 @@ def api_path(request, line_id):
                     'date_max': d1.isoformat() if d1 else None,
                     't0': _dec(d0), 't1': _dec(d1, True),
                     'x_m': round(x, 1), 'cross_m': round(xc, 1), 'label': label or ''})
+        for fid, v in _outline_points(cur, path).items():
+            best[fid] = ((2, 0), v)
         ids = [p['id'] for p in path]
         cur.execute("""SELECT id, date_min, date_max, source_note, notes, pin_line_id, pin_frac
                        FROM glacier_lines WHERE kind = 'face' AND pin_line_id = ANY(%s)""", (ids,))
