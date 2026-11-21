@@ -1255,6 +1255,10 @@
         'sp-north':  { key: 'north',  fine: 'north60',  short: 'Northness' },
         'cl-daymet-prcp':   { key: 'daymet_prcp',  short: 'Precipitation — Daymet 1 km' },
         'cl-daymet-tmean':  { key: 'daymet_tmean', short: 'Air temperature — Daymet 1 km' },
+        // Landform statistics (2026-11-20): no 60 m archive, so they brush but do not paint.
+        'lf-ridge-r500': { key: 'ridge_r500', short: 'Ridge radius — 500 m disc' },
+        'lf-ridge-n500': { key: 'ridge_n500', short: 'Ridge scale exponent n' },
+        'lf-valley-f':   { key: 'valley_f',   short: 'Valley fall F — log₁₀ m' },
         'pf-gruber-maat':   { key: 'maat',   short: 'MAAT — Gruber 1 km' },
         'pf-gruber-maat60': { key: 'maat60', fine: 'maat60', short: 'MAAT — downscaled 60 m' },
         'pf-obu-magt':      { key: 'magt',   short: 'MAGT — Obu 1 km' },

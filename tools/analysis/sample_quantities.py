@@ -153,6 +153,9 @@ def main():
         if q.get('alaska_only'):
             bad |= ~in_ak
         v[bad] = np.nan
+        if q.get('log10'):
+            with np.errstate(invalid='ignore', divide='ignore'):
+                v = np.where(v > 0, np.log10(v), np.nan)
         cols[k] = [None if np.isnan(t) else (int(t) if q.get('integer') or 'classes' in q else round(float(t), 4)) for t in v]
         print(f'  {k:8s} {int((~bad).sum()):5d} of {len(ids)} with a value')
     if 'aspect' in cols and 'slope' in cols and 'aspect' not in carry:
