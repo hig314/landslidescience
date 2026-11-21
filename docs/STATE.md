@@ -26,15 +26,13 @@ on a flat battery ~20:51–21:25 and a Nunatak write failed in it).
   2026-11-20 21:47 kj_r7c4 entry is marked INVALID (it read a stale product).
   If the power fails again: the queue resumes per its header; check the box
   in progress for a `solve.json` before trusting it.
-- **Pushed to GitHub at Hig's request but NOT deployed and not signed off:**
-  hand-placed sounding points on `/lidar/` (`soundings.py` point types +
-  create/update API, `sounding_points.js`, profile hooks, `lidar_preview.html`,
-  export kind `estimate`). The next prod deploy ships it: test it in dev
-  first, run `migrate_soundings` on prod right after (new `point_type` column
-  + `sounding_point_types` table), then copy dev's `hand_placed` survey to
-  prod (see the hand-placed soundings memory). `check_invariants` was not run
-  (Docker was down at commit time). Also committed: the Scoops work under
-  `tools/terrain/scoops*/` (code and README only, no outputs).
+- **Hand-placed sounding points DEPLOYED 2026-11-21 untested** (Hig chose to
+  ship them with the landform axes; `migrate_soundings` run on prod). **Dev's
+  `hand_placed` survey (19 points, 19 levels) is NOT yet on prod**: the copy
+  was blocked by the tool permission check; the export is in this session's
+  scratchpad (gone at reboot) and must be redone from dev (see the
+  hand-placed soundings memory). Until then a point placed on prod starts a
+  new `hand_placed` survey there, which the copy must then merge into.
 - Still uncommitted on purpose: the `docker-compose.override.yml` Nunatak
   pmtiles mount (local-only) and `logs/`.
 - Before relaunching any long run: `pmset -g batt` on AC, Nunatak mounted,
@@ -56,6 +54,8 @@ by curl, by API or not at all.
 - [ ] **NOAA chart basemap, NASA global susceptibility overlay** (9585f3d, 2026-11-05): neither drawn in a browser on prod.
 - [ ] **NASA susceptibility and the five fixed-scale slopes as analysis axes** (df9247b, c0ce02a): checked by API only.
 - [ ] **Edit-form checks** (069905e, 2026-11-11): nobody has saved through the banner / date-bracket / year-text checks on prod. Records 1166, 1174 and 1504 will trip them on their next edit (see *Edit-form follow-ups* below).
+- [ ] **Hand-placed sounding points on /lidar/** (251acb6, deployed 2026-11-21): never tested in dev or prod; read endpoints answer 200, nobody has placed or edited a point.
+- [ ] **Landform statistics as analysis axes** (7d208a9, 2026-11-21): density API checked on prod; not drawn in a browser there.
 - [ ] **Terrain comparison** (2026-11-12/13): profiles, shared QMS bases, `hc=1`, JPEG export not browser-tested on prod.
 - [ ] **Saved comparisons** (6c8dc13, 2026-11-13): nothing saved on prod yet; the first signed-in *Submit* is the first real test.
 - [ ] **`/traffic/services/`** (2026-11-14): not opened signed in on prod.
@@ -71,6 +71,7 @@ by curl, by API or not at all.
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-21 · Ridge radius, ridge n, valley fall F as Cross-two-overlays axes, landslide-comparison hold lifted by Hig (7d208a9); hand-placed sounding points (251acb6, untested, data copy pending) · docs/ANALYSIS.md
 - 2026-11-19 · Daymet precipitation + air temperature, overlays and analysis axes (76febe2); exploratory landform statistics, overlays only (6764ed9) · docs/PERMAFROST.md. Open: multi-size required-strength run stopped when Nunatak was unplugged, next steps atop tools/terrain/scoops/README.md
 - 2026-11-16 · Inventory-tab explorer for the outside inventories ("Showing" switch; families, ring/size/fade, presets, their fields, review filter, spelling fold) · docs/EXTERNAL_INVENTORIES.md
 - 2026-11-16 · Review of mirrored external records: shared categories (`+`), note, promoted read live; editors only; `migrate_external_review` per environment · docs/EXTERNAL_INVENTORIES.md
