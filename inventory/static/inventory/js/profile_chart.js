@@ -101,6 +101,12 @@ window.LSProfileChart = (function () {
   function create(o) {
     var panel = o.panel, hoverMode = o.hover || 'column';
     var data = null, locked = true, sel = null, brushing = false, statusText = '', titleText = '';
+    // Series switched off from the legend (2026-11-17, Hig: "selectively turn off some profiles"): by id, kept
+    // across redraws and new data, so a series stays off when the line is re-read.
+    var off = {};
+    function key(s) { return s.id || s.label; }
+    function shown(s) { return !off[key(s)]; }
+    function shortName(s) { var t = String(s.short || s.label || ''); return t.length > 28 ? t.slice(0, 27) + '\u2026' : t; }
     var el = {};
 
     // ---- DOM ---------------------------------------------------------------
@@ -141,7 +147,7 @@ window.LSProfileChart = (function () {
     // ---- drawing -----------------------------------------------------------
     function draw() {
       if (!data || !el.svg) return;
-      var series = data.series;
+      var all = data.series, series = all.filter(shown);
       var rect = el.body.getBoundingClientRect();
       var W = Math.max(200, rect.width), H = Math.max(120, rect.height);
       var m = { l: 52, r: 14, t: 16, b: 28 };
@@ -210,13 +216,19 @@ window.LSProfileChart = (function () {
       });
       // Legend: inside the plot when it fills the panel, below it when a 1:1
       // profile is a thin band with room to spare (the usual case at 1:1).
-      var need = series.length * 13 + 6, below = (H - m.b - (oy + ch)) > need + 18;
+      // Every series is listed, the hidden ones faint; a click on an entry hides or shows it.  Names are the short
+      // ones (the survey id), cut at 28 characters; the full title is the entry's tooltip.
+      var need = all.length * 13 + 6, below = (H - m.b - (oy + ch)) > need + 18;
       var ly = below ? oy + ch + 30 : oy + 12, lx = ox + 8;
-      series.forEach(function (s) {
+      all.forEach(function (s) {
+        parts.push('<g class="pc-leg" data-k="' + esc(key(s)) + '" style="cursor:pointer" opacity="' + (shown(s) ? 1 : 0.3) + '">' +
+                   '<title>' + esc(s.label) + (shown(s) ? ' (click to hide)' : ' (hidden: click to show)') + '</title>' +
+                   '<rect x="' + (lx - 2) + '" y="' + (ly - 6) + '" width="' + (30 + 6 * shortName(s).length) + '" height="12" fill="#fff" fill-opacity="0.01"/>');
         if (s.marker) parts.push('<circle cx="' + (lx + 11) + '" cy="' + ly + '" r="3" fill="' + s.color + '"/>');
         else parts.push('<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 22) + '" y2="' + ly + '" stroke="' + s.color +
                    '" stroke-width="2"' + (s.dash ? ' stroke-dasharray="' + s.dash + '"' : '') + '/>');
-        parts.push('<text x="' + (lx + 26) + '" y="' + (ly + 3) + '" font-size="10" fill="#333">' + esc(s.label) + '</text>');
+        parts.push('<text x="' + (lx + 26) + '" y="' + (ly + 3) + '" font-size="10" fill="#333"' + (shown(s) ? '' : ' text-decoration="line-through"') + '>' +
+                   esc(shortName(s)) + '</text></g>');
         ly += 13;
       });
       parts.push('<text x="' + (o.ends ? ox + cw / 2 : ox + cw - 4) + '" y="' + (oy - 3) + '" font-size="10" text-anchor="' +
@@ -242,7 +254,7 @@ window.LSProfileChart = (function () {
       var g = el.svg._geom, p = svgXY(e), hit = null;
       if (hoverMode === 'nearest') {
         var bd = 18 * 18;
-        data.series.forEach(function (s) { s.runs.forEach(function (run) { run.forEach(function (q) {
+        data.series.forEach(function (s) { if (!shown(s)) return; s.runs.forEach(function (run) { run.forEach(function (q) {
           if (isNaN(q._py)) return;
           var dd = (q._px - p[0]) * (q._px - p[0]) + (q._py - p[1]) * (q._py - p[1]);
           if (dd < bd) { bd = dd; hit = { d: q.d, series: s, point: q }; }
@@ -281,6 +293,13 @@ window.LSProfileChart = (function () {
     }
     el.svg.addEventListener('mousemove', onMove);
     el.svg.addEventListener('mouseleave', leave);
+    el.svg.addEventListener('click', function (e) {
+      var g = e.target.closest && e.target.closest('.pc-leg');
+      if (!g) return;
+      var k = g.getAttribute('data-k');
+      if (off[k]) delete off[k]; else off[k] = true;
+      draw();
+    });
 
     // ---- brushed window ----------------------------------------------------
     function paintStats() {
@@ -292,6 +311,7 @@ window.LSProfileChart = (function () {
               '<th title="Least-squares line through the samples, signed along the x axis">slope</th>' +
               '<th title="Twice the quadratic coefficient of a least-squares parabola; positive = concave up">curvature (1/km)</th><th>n</th></tr></thead><tbody>';
       data.series.forEach(function (s) {
+        if (!shown(s)) return;
         var st = windowStats(s, sel);
         h += '<tr><td><span class="profile-tip-sw" style="background:' + s.color + '"></span>' + esc(s.short || s.label) + '</td>';
         if (st.n < 2) { h += '<td colspan="3" class="profile-stats-none">no data in window</td><td>' + st.n + '</td></tr>'; return; }
@@ -313,6 +333,7 @@ window.LSProfileChart = (function () {
     LSTools.drag(el.svg, {
       onStart: function (e) {
         if (!data || !el.svg._geom || e.button !== 0) return false;
+        if (e.target.closest && e.target.closest('.pc-leg')) return false;     // a legend click toggles, never brushes
         brushing = true;
         sel = { d0: chartD(e.clientX), d1: chartD(e.clientX) };
         el.tip.style.display = 'none';

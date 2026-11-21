@@ -68,12 +68,15 @@ window.LSSoundings = (function () {
       paint: { 'circle-color': RAMP,
                'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 1.5, 13, 3, 16, 5.5],
                'circle-stroke-color': ['case', ['==', ['get', 'flag'], 'suspect'], '#e65100',
+                                       ['!=', ['coalesce', ['get', 'point_type'], ''], ''], '#7b1fa2',
                                        ['==', ['get', 'depth_bound'], 'min'], '#111111', '#ffffff'],
                // ['zoom'] is legal only as the input of a TOP-LEVEL interpolate/step, so the
                // bound test goes inside the stops (nested the other way, the layer is refused).
                'circle-stroke-width': ['interpolate', ['linear'], ['zoom'],
-                                       9, ['case', ['==', ['get', 'depth_bound'], 'min'], 2.5, 0.3],
-                                       14, ['case', ['==', ['get', 'depth_bound'], 'min'], 2.5, 1]] } });
+                                       9, ['case', ['==', ['get', 'depth_bound'], 'min'], 2.5,
+                                           ['!=', ['coalesce', ['get', 'point_type'], ''], ''], 1.5, 0.3],
+                                       14, ['case', ['==', ['get', 'depth_bound'], 'min'], 2.5,
+                                           ['!=', ['coalesce', ['get', 'point_type'], ''], ''], 2.5, 1]] } });
     map.addLayer({ id: REJ, type: 'circle', source: SRC, layout: { visibility: visDrape() },
       filter: ['all', ['==', ['get', 'kind'], 'sounding'], ['==', ['get', 'flag'], 'rejected']],
       paint: { 'circle-color': 'rgba(0,0,0,0)', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 2, 16, 6],
@@ -128,19 +131,33 @@ window.LSSoundings = (function () {
   // 2 rejected (a grey ring). Size follows the zoom like the 2D circles.
   function barLayer() {
     var prog = null, buf = null, n = 0, loc = {};
+    // Markers in perspective (Hig, 2026-11-16: "grow smaller with distance and disappear when they're particularly far
+    // from the camera ... fade when behind a surface"): the size scales with the clip w of the map's centre over the
+    // marker's own w (clamped x0.3..x2.5, so a nadir view is unchanged), the marker fades out between FAR0 and FAR1
+    // times the centre's distance, and the depth test runs against the terrain at a point LIFT metres above the
+    // sounding (a sounding on the modelled bed is not hidden by the bed it sits on).  Two passes: in front at full
+    // opacity, behind at HIDDEN_ALPHA.  The bars keep no depth test (they are under the surface by design).
+    var FAR0 = 3.0, FAR1 = 6.0, LIFT_M = 2.0, HIDDEN_ALPHA = 0.25;
     var VS = 'attribute vec3 a_pos; attribute vec3 a_col; attribute float a_kind; uniform mat4 u_matrix; uniform float u_ex;' +
-             'uniform float u_size; varying vec3 v_col; varying float v_kind;' +
-             'void main() { gl_Position = u_matrix * vec4(a_pos.xy, a_pos.z * u_ex, 1.0);' +
-             ' gl_PointSize = a_kind > 0.5 && a_kind < 1.5 ? u_size * 1.5 : u_size; v_col = a_col; v_kind = a_kind; }';
+             'uniform float u_size; uniform float u_wref; uniform float u_lift; uniform float u_persp;' +
+             'varying vec3 v_col; varying float v_kind; varying float v_fade;' +
+             'void main() { vec4 p = u_matrix * vec4(a_pos.xy, a_pos.z * u_ex, 1.0);' +
+             ' vec4 q = u_matrix * vec4(a_pos.xy, a_pos.z * u_ex + u_lift, 1.0);' +
+             ' gl_Position = vec4(p.xy, q.z / q.w * p.w, p.w);' +
+             ' float k = 1.0; v_fade = 1.0;' +
+             ' if (u_persp > 0.5 && u_wref > 0.0 && p.w > 0.0) { float f = p.w / u_wref; k = clamp(1.0 / f, 0.3, 2.5);' +
+             '  v_fade = 1.0 - smoothstep(' + FAR0.toFixed(2) + ', ' + FAR1.toFixed(2) + ', f); }' +
+             ' gl_PointSize = (a_kind > 0.5 && a_kind < 1.5 ? u_size * 1.5 : u_size) * k; v_col = a_col; v_kind = a_kind; }';
     var FS = 'precision mediump float; uniform float u_alpha; uniform float u_dot; varying vec3 v_col; varying float v_kind;' +
-             'void main() { vec3 col = v_col;' +
+             'varying float v_fade;' +
+             'void main() { vec3 col = v_col; float al = u_alpha * v_fade; if (al < 0.02) discard;' +
              ' if (u_dot > 0.5) { vec2 c = gl_PointCoord - 0.5; float r = length(c);' +
              '  if (v_kind > 1.5) { if (r > 0.5 || r < 0.32) discard; col = vec3(0.55); }' +
              '  else if (v_kind > 0.5) { float y = gl_PointCoord.y, x = abs(gl_PointCoord.x - 0.5);' +
              '   float w = 0.48 * (0.95 - y) / 0.85; if (y < 0.1 || y > 0.95 || x > w) discard;' +
              '   float wi = 0.48 * (0.95 - 0.16 - y) / 0.85; if (y < 0.2 || x > wi) col = vec3(0.07); }' +
              '  else { if (r > 0.5) discard; if (r > 0.36) col = vec3(1.0); } }' +
-             ' gl_FragColor = vec4(col * u_alpha, u_alpha); }';
+             ' gl_FragColor = vec4(col * al, al); }';
     function build(gl) {
       // two vertices per sounding (surface, bed) for the bars, then every sounding again as a marker
       var top = [], mk = [];
@@ -176,7 +193,7 @@ window.LSSoundings = (function () {
         gl.attachShader(prog, sh(gl, gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl, gl.FRAGMENT_SHADER, FS));
         gl.linkProgram(prog);
         ['a_pos', 'a_col', 'a_kind'].forEach(function (k) { loc[k] = gl.getAttribLocation(prog, k); });
-        ['u_matrix', 'u_ex', 'u_alpha', 'u_dot', 'u_size'].forEach(function (k) { loc[k] = gl.getUniformLocation(prog, k); });
+        ['u_matrix', 'u_ex', 'u_alpha', 'u_dot', 'u_size', 'u_wref', 'u_lift', 'u_persp'].forEach(function (k) { loc[k] = gl.getUniformLocation(prog, k); });
         build(gl);
         syncDrape();
       },
@@ -186,7 +203,15 @@ window.LSSoundings = (function () {
         var M = (args && args.defaultProjectionData && args.defaultProjectionData.mainMatrix) || args.modelViewProjectionMatrix || args;
         gl.useProgram(prog);
         gl.uniformMatrix4fv(loc.u_matrix, false, new Float32Array(M));   // MapLibre hands over a Float64Array
-        gl.uniform1f(loc.u_ex, t.exaggeration || 1);
+        var ex = t.exaggeration || 1;
+        gl.uniform1f(loc.u_ex, ex);
+        // the reference distance: clip w of the map's centre on the terrain (column-major: w = M[3]x + M[7]y + M[11]z + M[15])
+        var ctr = map.getCenter(), ce = (map.queryTerrainElevation && map.queryTerrainElevation(ctr)) || 0;
+        var cm = maplibregl.MercatorCoordinate.fromLngLat(ctr, 0), zPerM = maplibregl.MercatorCoordinate.fromLngLat(ctr, 1).z;
+        // queryTerrainElevation returns the exaggerated height; the marker's z is multiplied by ex in the shader
+        var wref = M[3] * cm.x + M[7] * cm.y + M[11] * (ce * zPerM) + M[15];
+        gl.uniform1f(loc.u_wref, wref > 0 ? wref : 0);
+        gl.uniform1f(loc.u_lift, LIFT_M * zPerM * ex);
         gl.uniform1f(loc.u_size, sizeFor(map.getZoom()) * (window.devicePixelRatio || 1));
         gl.bindBuffer(gl.ARRAY_BUFFER, buf);
         gl.enableVertexAttribArray(loc.a_pos); gl.enableVertexAttribArray(loc.a_col); gl.enableVertexAttribArray(loc.a_kind);
@@ -196,11 +221,16 @@ window.LSSoundings = (function () {
         gl.disable(gl.DEPTH_TEST);
         gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
         if (n && seeThrough >= 0.02) {
-          gl.uniform1f(loc.u_alpha, seeThrough);
+          gl.uniform1f(loc.u_alpha, seeThrough); gl.uniform1f(loc.u_persp, 0); gl.uniform1f(loc.u_lift, 0);
           gl.uniform1f(loc.u_dot, 0); gl.drawArrays(gl.LINES, 0, 2 * n);
+          gl.uniform1f(loc.u_lift, LIFT_M * zPerM * ex);
         }
-        gl.uniform1f(loc.u_alpha, 1);
-        gl.uniform1f(loc.u_dot, 1); gl.drawArrays(gl.POINTS, 2 * n, nm);
+        // markers: in front of the terrain at full opacity, behind it faint (MapLibre re-sets its GL state after a custom layer)
+        gl.uniform1f(loc.u_persp, 1); gl.uniform1f(loc.u_dot, 1);
+        gl.enable(gl.DEPTH_TEST); gl.depthMask(false);
+        gl.depthFunc(gl.LEQUAL); gl.uniform1f(loc.u_alpha, 1); gl.drawArrays(gl.POINTS, 2 * n, nm);
+        gl.depthFunc(gl.GREATER); gl.uniform1f(loc.u_alpha, HIDDEN_ALPHA); gl.drawArrays(gl.POINTS, 2 * n, nm);
+        gl.depthFunc(gl.LEQUAL); gl.depthMask(true); gl.disable(gl.DEPTH_TEST);
         gl.disableVertexAttribArray(loc.a_kind);
       },
       onRemove: function (m, gl) { if (buf) gl.deleteBuffer(buf); if (prog) gl.deleteProgram(prog); buf = prog = null; }
@@ -242,7 +272,7 @@ window.LSSoundings = (function () {
     if (!f) return;
     var p = f.properties, sv = surveys[p.survey_id] || {}, lv = levels[p.level_id] || null;
     var orig = (p.depth_unit && p.depth_unit !== 'm' && p.depth_orig != null) ? ' (' + p.depth_orig + ' ' + esc(p.depth_unit) + ')' : '';
-    var head = p.kind === 'contour' ? 'Depth contour' : 'Sounding';
+    var head = p.kind === 'contour' ? 'Depth contour' : p.point_type ? esc(p.point_type) + ' point' : 'Sounding';
     var html = '<div class="snd-pop" style="font-size:12px;line-height:1.4;max-width:270px">' +
       '<div style="font-weight:600">' + head + (lv && lv.water_body ? ' · ' + esc(lv.water_body) : '') + '</div>' +
       '<div>' + (p.depth_bound === 'min' ? 'at least ' : '') + '<b>' + Number(p.depth_m).toFixed(1) + ' m</b> deep' + orig +
@@ -260,6 +290,8 @@ window.LSSoundings = (function () {
     if (p.flag) html += '<div style="color:' + (p.flag === 'rejected' ? '#b00020' : '#e65100') + '">' + esc(p.flag) +
       (p.flag_reason ? ': ' + esc(p.flag_reason) : '') + '</div>';
     if (p.notes) html += '<div style="white-space:pre-wrap">' + esc(p.notes) + '</div>';
+    if (p.point_type) html += '<div style="color:#7b1fa2;font-size:11px">placed by hand' + (p.created_by ? ' by ' + esc(p.created_by) : '') +
+      ' — not a measurement</div>';
     html += '<div style="color:#555;font-size:11px;margin-top:4px;border-top:1px solid #eee;padding-top:3px">' +
       esc(sv.title || '') + (p.observed_at ? '<br>' + esc(fmtWhen(p.observed_at)) : '') +
       (sv.collector ? '<br>by ' + esc(sv.collector) : '') + (sv.method ? ' · ' + esc(sv.method) : '') +
@@ -285,6 +317,17 @@ window.LSSoundings = (function () {
         return data;
       });
     return loading;
+  }
+
+  // Fetch again and redraw (a hand-placed point was saved, 2026-11-17): the layers are rebuilt, the
+  // custom bar layer with them (its buffer is built once, onAdd).
+  function reload() {
+    data = null; loading = null;
+    if (map) {
+      [BARS, LBL, HIT, REJ, PT, CON].forEach(function (id) { if (id && map.getLayer(id)) map.removeLayer(id); });
+      if (map.getSource(SRC)) map.removeSource(SRC);
+    }
+    return load();
   }
 
   function init(opts) {
@@ -326,7 +369,7 @@ window.LSSoundings = (function () {
     return out.sort(function (a, b) { return a.d - b.d; });
   }
 
-  return { init: init, setVisible: setVisible, setSeeThrough: setSeeThrough,
+  return { init: init, reload: reload, setVisible: setVisible, setSeeThrough: setSeeThrough,
            onChange: function (fn) { listeners.push(fn); }, visible: function () { return shown; },
            all: function () { return data; }, near: near, survey: function (id) { return surveys[id]; },
            level: function (id) { return levels[id]; } };

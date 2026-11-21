@@ -5,7 +5,7 @@
     python manage.py export_soundings --out ... --contour-step 20
 
 Columns: x, y (in --epsg), z (NAVD88 m = level - depth), sigma (m: the
-depth's and the level's in quadrature), depth_m, survey, kind (sounding |
+depth's and the level's in quadrature), depth_m, survey, kind (sounding | estimate: a hand-placed point |
 contour), id, level_key, bound ('min' = a lower bound: the bed is at or
 below z, never a depth -- fill.py keeps these out of its exact points).  This is the `points` file a composite recipe names
 (tools/lidar/topobathy/fill.py reads x, y, z and sigma); a recipe should name a
@@ -45,12 +45,13 @@ class Command(BaseCommand):
             cur.execute("""
                 SELECT ST_X(ST_Transform(s.geom, %s)), ST_Y(ST_Transform(s.geom, %s)), s.z,
                        s.sigma_z * CASE WHEN s.flag = 'suspect' THEN 2 ELSE 1 END, s.depth_m, v.slug, s.id, s.level_key,
-                       s.depth_bound
+                       s.depth_bound, s.point_type
                   FROM soundings_z s JOIN sounding_surveys v ON v.id = s.survey_id
                  WHERE s.flag <> 'rejected' AND s.z IS NOT NULL""" + sv_sql + ' ORDER BY s.id',
                         [o['epsg'], o['epsg']] + sv_par)
-            for x, y, z, sg, d, slug, i, lk, bd in cur.fetchall():
-                rows.append([x, y, z, sg, d, slug, 'sounding', i, lk, bd])
+            # a hand-placed point (point_type set, 2026-11-17) goes out as kind 'estimate', so a composite can tell it apart
+            for x, y, z, sg, d, slug, i, lk, bd, pt in cur.fetchall():
+                rows.append([x, y, z, sg, d, slug, 'estimate' if pt else 'sounding', i, lk, bd])
             cur.execute("""
                 SELECT count(*) FROM soundings_z s JOIN sounding_surveys v ON v.id = s.survey_id
                  WHERE s.flag <> 'rejected' AND s.z IS NULL""" + sv_sql, sv_par)
