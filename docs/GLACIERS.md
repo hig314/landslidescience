@@ -481,3 +481,20 @@ date read (abandoned: Drive serves a 35 MB file in minutes) and two gap passes
 used it up on most of the folder on 2026-11-20; Drive then answers with a
 "Quota exceeded" page, from the droplet too. Touch each file as few times as
 possible. Bounded ranges still work, but do not use them to get round the quota.
+
+## Placing S1 timelapses from their content (exploration, 2026-11-21)
+
+`tools/glaciers/s1_georef/` (not wired into the site). Per video: register
+frames on edge strength, drop frames that correlate badly with the median
+over stable pixels (median - 8 MAD; Brady-Abyss 2022-05 is a warped scene),
+take per-pixel statistics (median colour, p10/median/p90, temporal spread,
+sign persistence), simulate S1 from 3DEP (cos local incidence, cast shadow,
+look 77 deg asc / 283 deg desc, 38 deg incidence) and match median brightness
+to it by NCC. Hig's exports are **10 m in Web Mercator units** (ground pixel
+10 cos(lat)); `match.py --merc 10` fixes the scale. The wrong orbit's
+simulation is the built-in test; RGI outlines are the independent check.
+5 of 7 confirmed (Brady-Abyss, Baird, Bear, Taku, Aialik), Columbia weak,
+Hubbard not placed (too little stable terrain). The ctx_3dep bake is holey
+away from lidar surveys; `sim.py` reads Mapterhorn z11 (same 3DEP) by
+default. Work and GeoTIFFs: `/Volumes/Nunatak/glacier_s1_georef/`. Write-up:
+https://claude.ai/artifact/WBGwjcCGMxY1FHk9wz1RQr
