@@ -33,7 +33,7 @@ DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hi
 P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=0.0, snd_cast_beside_m=15.0, fix_grid_bed_edge=1, comp_near_bed_m=30.0, line_yield_m=15.0, line_yield_min_level_m=2.0, line_yield_water=1, low_bound_tol_m=0.5,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24, amg=1,
-         snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_far=1, snd_cap=1, snd_far_min_m=40.0, snd_far_max_m=200.0, snd_far_len_m=50.0, snd_far_pct=50.0, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
+         snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_edge=1, snd_edge_full_m=8.0, snd_edge_fade_m=40.0, snd_edge_gap_m=0.05, snd_far=1, snd_cap=1, snd_far_min_m=40.0, snd_far_max_m=200.0, snd_far_len_m=50.0, snd_far_pct=50.0, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
 
 
 GRID = dict(res=0.0)      # > 0: every raster is read onto this resolution (the box driver's coarse deep-sea pass, --set grid_m=16)
@@ -375,6 +375,7 @@ def main(argv=None, ret=False):
                 if int(k) in tab and "kind" in o: tab[int(k)]["kind"] = o["kind"]
         kinds = {k: v.get("kind") for k, v in tab.items()}
     except Exception as e: log(f"  (no body table: {e})")
+    sndb = np.zeros(jz.shape, bool)                                                                      # still water whose level is its soundings' own
     if p["snd_mode"]:
         # A BODY'S LEVEL IS ITS SOUNDINGS' OWN (level = z + depth, the survey's): Gore Lake stands at 1.59 m by Hig's 2022 casts and at -3.13 in
         # the box that took it for tidal water -- and a bound at -3.13 forbids the casts at -2.41.
@@ -393,7 +394,7 @@ def main(argv=None, ret=False):
                 if k_ > 0: lv_.setdefault(int(k_), []).append(float(row["z"]) + float(row["depth"]))
         for k_, v_ in lv_.items():
             if len(v_) >= 3:
-                m_ = Lw_ == k_; log(f"  still water of {m_.sum() * res * res / 1e4:.1f} ha in {len(np.unique(bid[m_]))} bodies: level {np.nanmedian(lev[m_]):.2f} m in the product, {np.median(v_):.2f} m by its {len(v_)} soundings: theirs taken, for all of it"); lev[m_] = float(np.median(v_))
+                m_ = Lw_ == k_; log(f"  still water of {m_.sum() * res * res / 1e4:.1f} ha in {len(np.unique(bid[m_]))} bodies: level {np.nanmedian(lev[m_]):.2f} m in the product, {np.median(v_):.2f} m by its {len(v_)} soundings: theirs taken, for all of it"); lev[m_] = float(np.median(v_)); sndb |= m_
     # WATER WITH NO BODY: a cell the shoreline stage labels water that the water-body raster leaves at 0 (its coarser grid, a sliver) takes
     # the body nearest it within 20 m.  Left at 0 it counted as still water of an unsounded lake and kept the product's bed -- a 13 m hole in
     # the Woz at +11 m (59.536174,-151.352177; Hig 2026-11-16).
@@ -495,6 +496,19 @@ def main(argv=None, ret=False):
     # (a gravel bar the shore stage labelled water and the river-bed rule dug 1.5 m into: Hig 2026-11-15, the Woz flat, "false rocks ... not
     # present in the lidar" -- the solve held the bar, the box driver kept the product's cell).  The driver writes these cells as returned here.
     fixed = fix_meas | fix_other; zfix = np.where(fix_meas, np.where((si != 3) & np.isfinite(cur), cur, jz), np.where(fix_other, cur, 0.0))
+    # THE SHORE OF A SOUNDED LAKE DOES NOT STAND BELOW ITS LEVEL (Hig 2026-11-21, Petrof Lake): the level is the casts' (or Hig's reading of
+    # it, 14.5 m), the shore ground is another survey's on another day -- ArcticDEM has 0.6 ha at 12.2-12.6 m within 4 m of the mapped
+    # shore, a strip of "land" under the lake.  Measured ground within snd_edge_full_m of such water is raised to the level (plus a gap);
+    # the lift is FEATHERED out to snd_edge_fade_m so it leaves no step, and beyond that the ground is as measured (the outlet's valley
+    # falls below its lake, and is right to).
+    if p["snd_mode"] and p["snd_edge"] and sndb.any():
+        de_, ie_ = ndimage.distance_transform_edt(~sndb, return_indices=True); de_ = de_ * res; le_ = lev[ie_[0], ie_[1]]
+        ld_ = fixed & ~np.isin(lab, (2, 3)) & ~ice & inwin & (de_ > 0) & (de_ <= p["snd_edge_fade_m"]) & np.isfinite(le_)
+        if ld_.any():
+            t_ = np.clip((p["snd_edge_fade_m"] - de_) / max(p["snd_edge_fade_m"] - p["snd_edge_full_m"], res), 0.0, 1.0); t_ = t_ * t_ * (3 - 2 * t_)
+            up_ = np.where(ld_, np.maximum(le_ + p["snd_edge_gap_m"] - zfix, 0.0) * t_, 0.0)
+            if (up_ > 0).any():
+                zfix = zfix + up_; log(f"  the shore of sounded water: {int((up_ > 0.02).sum())} cells of measured ground below its level are raised to it within {p['snd_edge_full_m']:.0f} m of the water, feathered out to {p['snd_edge_fade_m']:.0f} m (most {up_.max():.2f} m, {int((up_ > 0.5).sum())} cells by over 0.5 m)")
     if ret and int((~fixed & inwin).sum()) < 20: return None                                             # nothing to solve in this tile
     if nblind: log(f"  still water: {nblind} cells a water-blind source took part in are no bed evidence")
     if ncr: log(f"  rivers above the tide: {ncr} compilation cells are no bed evidence")

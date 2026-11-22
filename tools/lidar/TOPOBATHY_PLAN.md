@@ -1,5 +1,13 @@
 # Topobathy compositing: tools and interface
 
+**Petrof Lake at 14.50 m + the shore rule (2026-11-21, ~20:00).** Hig, after the viewer's ArcticDEM datum was fixed (main,
+b91077e): "might be as high as 15 m, maybe 14.5 ... handle the edge with feathering that makes sure not to go below
+that lake level". Casts of `pg_2022_a` set to 14.50 - depth in `soundings_edited.csv` and `soundings_20261121.csv`
+(14.5 is MY pick of his two numbers). New solve rule `snd_edge` (ledger `snd_edge_1121`): fixed ground within 8 m of
+sounded still water is raised to its level, feathered out to 40 m. Window test `review_1121/solve/pl_edge` + `edge_chk.py`.
+It applies to every sounded lake (Grewingk's lidar shore will rise up to ~1 m at the water: CHECK in r6c4). kj_r6c2's solve
+started 19:39 on the code before this: after the HOLD, set aside its solve.json, relaunch the runner (re-solve + republish).
+
 **Petrof ArcticDEM datum, SETTLED 2026-11-21 evening (supersedes the "+1 m shift" question below).** The 1-2 m Hig
 saw in the viewer profile is the profile's datum: `LSDemRead.ARCTICDEM` reads PGC's `Height Orthometric` (EGM2008),
 and on the outwash plain that is 1.06 m BELOW our staged NAVD88 mosaic (p10-p90 -1.14..-0.98, 21 ha; same at the

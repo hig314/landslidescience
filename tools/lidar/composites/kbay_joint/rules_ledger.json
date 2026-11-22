@@ -420,6 +420,13 @@
    "live": "2026-11-21 16:36:27",
    "commit": null,
    "what": "Hig's review of the first s3 publish (2026-11-21). LINES (tide_vectors.py islands): 3DEP land >= 10 m inside the high-tide water that is DETACHED from the polygon's edge (>= 50 m, >= 0.3 ha) is an unmapped island however small, cut out down to 5 m -- Division Island 59.42142,-150.69406 and 13 more (80 ha; boxes r4c5 r3c5 r4c1 r3c1); line_yield_water had sunk them (-28 m). JOINT: a newer lidar supersedes an older lidar's ground by date only where its own ground is solid (>= 60 % of cells within 25 m; above the tide) -- the 2019 Homer flight's thinning north edge, canopy classed ground, stood as pimples over the 2008 lidar (59.69257,-151.57322, r6c2); else the two are cross-checked. SOLVE (snd mode): the sounded level goes to ALL the connected water, body id or not (Petrof Lake's embayment 59.39672,-150.81461 kept 12.04 m beside the lake at 8.42); far from every cast (beyond the casts' own spacing) a sounded lake's bed is its depth profile (snd_far, reach 50 m); no cell of a sounded lake is deeper than its deepest datum (snd_cap) -- Petrof Lake stood at -52 / -66 m where its deepest cast is -40.6; solve_box solves a sounded lake that crosses tile cores WHOLE in one window (--lake-max 6500 m). Chains redone for r4c5 r3c5 (islands) r6c2 r6c4 (joint); r7c4 r3c3 r4c0 r0c2 r7c5 hold no sounded still water, no new island and no lidar superseded by a lidar: unchanged by construction, their cm22 / s3 stand."
+  },
+  {
+   "id": "snd_edge_1121",
+   "stage": "solve",
+   "live": "2026-11-21 19:44:35",
+   "commit": null,
+   "what": "SOLVE (snd mode), Hig 2026-11-21: the shore of a SOUNDED lake does not stand below its level. Fixed ground within 8 m of still water whose level is its soundings' own is raised to that level (+0.05 m); the lift is feathered to nothing at 40 m (snd_edge, snd_edge_full_m, snd_edge_fade_m, snd_edge_gap_m). Petrof Lake's level is now 14.50 m by Hig's reading (casts of level_key pg_2022_a; was 8.42 as surveyed, 14.00 earlier the same day); its ArcticDEM shore has 0.6 ha at 12.2-12.6 m and the 3DEP lake flat (8.42) stands as land where the delta prograded. Window test pl_edge: shore cells below the level 0-4 m out 53.5 % -> 5.4 % (the rest are water cells). Applies to every sounded lake: Grewingk (50.01 by sonar vs 49.02 in the lidar), Beluga, Homer reservoir. kj_r6c2's solve of 19:39 started BEFORE this was live (re-solve after the hold)."
   }
  ]
 }
