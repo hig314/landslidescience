@@ -1,5 +1,17 @@
 # Topobathy compositing: tools and interface
 
+**Petrof ArcticDEM datum, SETTLED 2026-11-21 evening (supersedes the "+1 m shift" question below).** The 1-2 m Hig
+saw in the viewer profile is the profile's datum: `LSDemRead.ARCTICDEM` reads PGC's `Height Orthometric` (EGM2008),
+and on the outwash plain that is 1.06 m BELOW our staged NAVD88 mosaic (p10-p90 -1.14..-0.98, 21 ha; same at the
+shore cells), while Mapterhorn = our 3DEP (+0.01). So the +1 m Hig asked for is already in the staged mosaic and the
+chain's ground product: NO shift applied. ArcticDEM's own water surface mid-lake reads 12.78 EGM2008 = 13.84 m NAVD88,
+which backs the 14 m level. Left over: ~0.6 ha of staged ground at 12.2-12.6 m within 4 m of the mapped shore, nearly
+all at the lake's SOUTH end (59.37616,-150.83073; 59.37695,-150.83497; 59.37664,-150.82747) and one spot at
+59.38155,-150.80775 -- below a 14 m lake; not explained (another strip at a lower stage?). A 4 m bilinear resample
+hides these cells (it drops cells beside voids): read shore ground at the native 2 m. Scripts: `$W/review_1121/
+datum_cmp.py, datum_cmp2.py, shore2m.py, shore_low.py, s_end.py`. Viewer follow-up for the main stream: the profile
+could add the local EGM2008->NAVD88 offset to ArcticDEM, or say the datum in the legend.
+
 ## Resume here (2026-11-18, 12:45) — FULL RERUN run_1118: every box, chain cm22 -> solve s3, on one code
 
 **STATE 2026-11-21 17:33: REDO of four boxes RUNNING on commit 7ded876 (Hig's review of the first publish; ledger `review_1121`):
