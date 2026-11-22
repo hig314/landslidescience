@@ -27,7 +27,7 @@ import numpy as np
 OBS = Path("/Volumes/Nunatak/lidar_build/obs/soundings")
 BASE = {OBS / "nos_1915_1931_20261103.csv": OBS / "nos_1915_1931_edited.csv", OBS / "nos_1977_1984_20261103.csv": OBS / "nos_1977_1984_edited.csv"}
 # the lake and nearshore soundings (tools/soundings export): only an `unbound` edit applies to them -- they are not in the review layer
-LAKE = {OBS / "soundings_20261017.csv": OBS / "soundings_edited.csv"}
+LAKE = {OBS / "soundings_20261121.csv": OBS / "soundings_edited.csv"}   # 20261017 + Petrof Lake at 14.00 m (Hig 2026-11-21; level_key pg_2022_a was 3DEP's flat, 8.42)
 EDITS = Path(__file__).resolve().parent.parent / "water" / "cast_edits.geojson"
 OGR = "/opt/homebrew/bin/ogr2ogr"
 DEV_DB = "tethys-timescale-grafana-tethys_db-1"

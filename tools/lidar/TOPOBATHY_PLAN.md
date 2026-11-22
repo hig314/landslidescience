@@ -13,6 +13,17 @@ Division Island (59.42142,-150.69406: 27.5 m; its chain is redone with the islan
 (59.69257,-151.57322).  Not seen at box fidelity before this run: the joint rule (fuse test only), Grewingk's lake and Halibut Cove
 Lagoon under snd_far / snd_cap (r6c4), the islands in the CHAIN.  Open question for Hig: Petrof Lake's level, 8.42 or 12.04 m
 (see the diagnosis below).  Trap met again: `until ! pgrep -f "solve_box.py X"` in a wait loop matches its own shell -- never ends.
+**Petrof Lake's level (Hig 2026-11-21 evening): "~14 m"; "the shoreline prograded between 3DEP and the image I used to trace";
+"ArcticDEM ... vertically shifted downward by 1 m ... use the ArcticDEM surface shifted up 1 m to match 3DEP in the outwash plain
+(which is not vegetated)".**  DONE: the 26 casts of level_key `pg_2022_a` stand at 14.00 m (z = 14.00 - depth, +5.58) in
+`obs/soundings/soundings_20261121.csv` (= 20261017 + this) and in `soundings_edited.csv` (pre-edit copy
+`soundings_edited.before_petrof14_20261121.csv`; cast_edits.py LAKE points at the new base; `apply` was NOT run -- it syncs the dev
+database).  r4c5's chain had not started, so the redo takes it.  NOT DONE, owed to the main stream: the level row in the dev and
+prod databases and `KNOWN_LEVELS` in tools/soundings/ingest_higman_glacial_lakes.py still say 8.42.
+NOT DONE, ASKED HIG: the +1 m ArcticDEM shift.  In OUR staged mosaic (`arcticdem_v41_navd88_2m.tif`) ArcticDEM - 3DEP on the
+plain (3DEP 14-24 m, slope < 4 %, 16 ha) is -0.2 to -0.3 m (median), not -1; and its ground at the mapped shore (0-4 m outside
+Hig's polygon, 2,649 kept cells) stands p5 12.1 / p10 12.3 / p25 12.7 / p50 14.3 m -- so about a quarter of the measured shore
+ground lies UNDER a 14 m lake (the water stage's 12.04 is that lower envelope).  `$W/review_1121/outwash.py`, `adem_off.py`.
 
 **HOLD (Hig, 2026-11-20 ~22:00, power-cord trouble): the queue is stopped by the main session once kj_r7c4's
 solve finishes. Do NOT relaunch run_1118.sh or start any other analysis until Hig says so.** The last line of
