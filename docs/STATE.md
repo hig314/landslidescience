@@ -89,20 +89,18 @@ In no particular order.
   sheets, publish/branch, the `lidar_scene.js` extraction, a shading worker
   pool; on prod, profiles / shared QMS bases / `hc=1` / JPEG export and the
   first *Submit* of a saved comparison are still untried, see the checklist).
-- **S1 timelapse import — RESUME 2026-11-21 when Drive's download quota has
-  reset** (docs/GLACIERS.md, last section). Import command deployed (935cca2).
-  Hig had approved or assigned 8 videos (Bainbridge2, Land lobe → Columbia,
-  Alsek_Glacier_2, Aialik, Allen ASC (has the gap; approved as the only Allen),
-  Snow → RGI 01-08388, Alsek-GP → G222190E59103N / RGI 01-17002, Devils Thumb →
-  RGI 01-21437); the prod dry run placed all 8; the real run on 2026-11-20 got
-  "Quota exceeded" for every file and left nothing behind. To resume: check one
-  file downloads (`curl -sL '<drive download url>' | head -c 3000 | grep title`
-  shows no "Quota exceeded"), re-export the page's decisions (Hig may have
-  added more), collect, `fixes`, republish `videos.json`, copy `manifest.json`
-  and `decisions.json` to the droplet, dry run, then run. Check after:
-  Land lobe sits on Columbia line 416, 1.9 km from RGI's terminus point.
-  The 93 videos without a gap read keep the interim rule (40+ missing months =
-  gap); do not re-run `gap` over the folder (it spends the quota).
+- **S1 timelapse import — first batch LIVE 2026-11-21** (docs/GLACIERS.md,
+  last section). Drive's quota had reset; the page's decisions were
+  re-exported (20: 16 approved, 3 assigned, 1 rejected) and all 19 imported
+  on prod, 0 failed (log `data/glaciers/s1_review/import_20261121.log` on the
+  droplet; the 2026-11-20 manifest/decisions kept beside it as
+  `*.2026-11-20.json`). Prod now has 32 `s1` videos. To check by eye: Land
+  lobe on Columbia line 416 (1.9 km from RGI's terminus), Alsek-GP on line 350
+  (990 m), Brady and Brady-Abyss share line 998, Baird and Baird_Middle share
+  line 455. The rest of the folder (~125 videos) is unreviewed; the same
+  steps bring in the next batch (reruns skip what is already in). The 93
+  videos without a gap read keep the interim rule (40+ missing months = gap);
+  do not re-run `gap` over the folder (it spends the quota).
 - **`/glaciers/` — DEPLOYED 2026-11-18, then SET ASIDE by Hig the same
   day** (3ad1851, e65bb2b, 0a35193, 654a8bf; prod is at 654a8bf). Nothing
   of this work is uncommitted or undeployed. **To resume, start here:**
