@@ -18,7 +18,7 @@
  * tileSize?, pmtiles? | tiles? | imageServer?, sea?, datum?}. Voids (alpha <
  * 255) read NaN; `sea` (Mapterhorn's 0 m) is masked by the caller via readAt().
  *
- *   LSDemRead.ARCTICDEM                 // PGC's 2 m mosaic, orthometric, read live
+ *   LSDemRead.ARCTICDEM                 // PGC's 2 m mosaic, read live; NAVD88 in Alaska (datumShift)
  *   LSDemRead.arcticCovers(lat)         // worth asking ArcticDEM here at all?
  *
  * An `imageServer` source is an ArcGIS ImageServer read as float32 TIFF
@@ -46,7 +46,54 @@ window.LSDemRead = (function () {
   var ARCTICDEM = { id: 'arcticdem', title: 'ArcticDEM 2 m (PGC)', maxzoom: 16, native: 2,
                     imageServer: 'https://di-pgc.img.arcgis.com/arcgis/rest/services/arcticdem_latest/ImageServer',
                     renderingRule: { rasterFunction: 'Height Orthometric' },
-                    datum: 'EGM2008 (PGC orthometric heights)' };
+                    datumShift: 'ak',
+                    datum: 'NAVD88 (GEOID12B) in Alaska; EGM2008 elsewhere (PGC orthometric heights)' };
+  // EGM2008 -> NAVD88 for sources marked datumShift: 'ak'. PGC's orthometric
+  // heights sit about a metre below NAVD88 in south-central Alaska (1.06 m at
+  // Petrof Lake, 2026-11-21), which on a profile beside 3DEP or the lidar
+  // reads as an error in one of them. The correction is applied HERE, as a
+  // tile is decoded, so the profile, the probe and anything else that reads
+  // the source get NAVD88 and nothing downstream knows about datums. The grid
+  // (dem_datum_ak.js, built by tools/build_dem_datum_ak.py) is Alaska only:
+  // in Canada the reference, Mapterhorn, is EGM2008 too. Without the grid
+  // the heights stay EGM2008.
+  var _akGrid;
+  function akGrid() {
+    if (_akGrid !== undefined) return _akGrid;
+    var g = window.LSDemDatumAK; _akGrid = null;
+    if (g && g.b64) {
+      var bin = atob(g.b64), n = bin.length >> 1, v = new Float32Array(n);
+      for (var i = 0; i < n; i++) {
+        var q = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
+        if (q & 0x8000) q -= 0x10000;
+        v[i] = q === -32768 ? NaN : q / 100;
+      }
+      _akGrid = { lon0: g.lon0, lat1: g.lat1, step: g.step, nx: g.nx, ny: g.ny, v: v };
+    }
+    return _akGrid;
+  }
+  // Metres to add at a point; 0 outside the grid or where it has no value.
+  function datumShiftAt(lon, lat) {
+    var g = akGrid(); if (!g) return 0;
+    var fx = (lon - g.lon0) / g.step, fy = (g.lat1 - lat) / g.step;
+    var x0 = Math.floor(fx), y0 = Math.floor(fy);
+    if (x0 < 0 || y0 < 0 || x0 >= g.nx - 1 || y0 >= g.ny - 1) return 0;
+    var u = fx - x0, w = fy - y0, i = y0 * g.nx + x0;
+    var c = (g.v[i] * (1 - u) + g.v[i + 1] * u) * (1 - w) + (g.v[i + g.nx] * (1 - u) + g.v[i + g.nx + 1] * u) * w;
+    return c === c ? c : 0;
+  }
+  function shiftTile(t, z, x, y) {           // in place; t covers web-mercator tile z/x/y
+    if (!akGrid()) return t;
+    var n = Math.pow(2, z);
+    for (var r = 0; r < t.h; r++) {
+      var lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + (r + 0.5) / t.h) / n))) * 180 / Math.PI;
+      for (var c = 0; c < t.w; c++) {
+        var k = r * t.w + c;
+        if (t.data[k] === t.data[k]) t.data[k] += datumShiftAt((x + (c + 0.5) / t.w) / n * 360 - 180, lat);
+      }
+    }
+    return t;
+  }
   // ArcticDEM is the Arctic plus Alaska and the coast ranges south of 60°N
   // (it reaches Stewart, 56.5°N). South of 50°N there is nothing to ask for.
   function arcticCovers(lat) { return lat >= 50; }
@@ -145,7 +192,9 @@ window.LSDemRead = (function () {
         .then(function (b) {
           var t = b && decodeTiff(b);
           if (!t) return null;
-          for (var i = 0; i < t.data.length; i++) if (t.data[i] === t.data[i]) return t;
+          for (var i = 0; i < t.data.length; i++) {
+            if (t.data[i] === t.data[i]) return source.datumShift === 'ak' ? shiftTile(t, z, x, y) : t;
+          }
           return null;                       // all void: outside the mosaic
         });
     } else {
@@ -191,7 +240,7 @@ window.LSDemRead = (function () {
     return z;
   }
 
-  return { MAPTERHORN: MAPTERHORN, ARCTICDEM: ARCTICDEM, arcticCovers: arcticCovers,
+  return { MAPTERHORN: MAPTERHORN, ARCTICDEM: ARCTICDEM, arcticCovers: arcticCovers, datumShiftAt: datumShiftAt,
            decodeTiff: decodeTiff, surveySource: surveySource, archive: archive, tileFor: tileFor,
            elevationAt: elevationAt, readAt: readAt, zoomFor: zoomFor,
            metersPerPixel: metersPerPixel };
