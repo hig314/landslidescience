@@ -2,6 +2,18 @@
 
 ## Resume here (2026-11-18, 12:45) — FULL RERUN run_1118: every box, chain cm22 -> solve s3, on one code
 
+**STATE 2026-11-21 17:33: REDO of four boxes RUNNING on commit 7ded876 (Hig's review of the first publish; ledger `review_1121`):
+`run_1118.sh` under caffeinate redoes chain + solve of r6c2 r6c4 r3c5 r4c5 (markers: a line appended to chain.log, `out_s3/solve.json`
+set aside as `.pre_1121`), skips r7c4 r3c3 r4c0 r0c2 r7c5 (unchanged by construction), republishes `kbay_joint_s3` (latest-code
+boxes only: `publish_s3.sh` reads `$W/LATEST_CODE_T1`; the five unchanged boxes pass on their 2026-11-20 solves) and HOLDS.**
+Expect ~5 h.  The other 39 boxes wait for Hig: `touch $W/GO_AFTER_FIRST_PUBLISH` and relaunch.  If a rule changes again, rewrite
+`$W/LATEST_CODE_T1` and revisit the SAME set in publish_s3.sh.  Hig is to check at the republish: Petrof Lake (59.38363,-150.82546;
+59.38981,-150.81310: -34.3 m both in the box test, deepest cast -40.6), its embayment (59.39672,-150.81461: 8.6 m, the lake's level),
+Division Island (59.42142,-150.69406: 27.5 m; its chain is redone with the island cut out of the high-tide water), the pimples
+(59.69257,-151.57322).  Not seen at box fidelity before this run: the joint rule (fuse test only), Grewingk's lake and Halibut Cove
+Lagoon under snd_far / snd_cap (r6c4), the islands in the CHAIN.  Open question for Hig: Petrof Lake's level, 8.42 or 12.04 m
+(see the diagnosis below).  Trap met again: `until ! pgrep -f "solve_box.py X"` in a wait loop matches its own shell -- never ends.
+
 **HOLD (Hig, 2026-11-20 ~22:00, power-cord trouble): the queue is stopped by the main session once kj_r7c4's
 solve finishes. Do NOT relaunch run_1118.sh or start any other analysis until Hig says so.** The last line of
 `$W/run_1118.log` records where it stopped. The stop is done by the detached `$W/hold_after_r7c4.sh`
