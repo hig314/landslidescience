@@ -1,5 +1,14 @@
 # Topobathy compositing: tools and interface
 
+**OVERNIGHT RUN, 2026-11-21 21:52 -> (Hig: "let this run through the night ... review whatever has been produced" in the
+morning, unrun areas as holes).** `GO_AFTER_FIRST_PUBLISH` is set: `run_1118.sh` goes on past the hold into the other 39
+boxes (none has a cm22 chain: each is chain + solve on the current code, ~3 h a box). `$W/pub_watch.sh` (new, under
+caffeinate) republishes `kbay_joint_s3` -- latest-code boxes only -- after EVERY box solve, so the dev layer is current
+whenever Hig looks. kj_r6c2 was re-solved by hand at 21:52 (snd_edge + snd_far_local; its old solve.json is
+`solve.json.pre_edge_1121`). Both branches pushed 2026-11-21 ~21:45 at Hig's word (topobathy 2b839ed, main 81dc811); prod
+not deployed. Morning: check the log for failures, that pub_watch's last publish follows the last solve, then look at
+Petrof (r4c5: 14.5 m, shore rule, local profile), Grewingk's shore under snd_edge (r6c4), Homer pimples (r6c2).
+
 **`snd_far_local`: ON by default since 2026-11-21 20:55 (Hig: "put this update into future boxes"; ledger `snd_far_local_1121`).** The lone-cast fix: far from casts the bed
 goes to the lake profile SCALED by the casts of its own area (cast depth / profile depth, carried by inverse distance
 softened at the casts' spacing, never over 1). Window test `review_1121/solve/pl_local` vs `pl_edge`, picture
