@@ -434,6 +434,13 @@
    "live": "2026-11-21 20:55:00",
    "commit": null,
    "what": "SOLVE (snd mode), Hig 2026-11-21 ('let's put this update into future boxes'): far from casts the bed goes to the lake's depth profile SCALED to the casts of its own area (cast depth / profile depth, inverse distance softened at the casts' spacing, never over 1; snd_far_local, snd_far_local_min). Petrof Lake's lone 19 m and 13 m southern casts (59.37869,-150.81877) become a broad 15-25 m floor instead of two mounds in a 35 m basin; mean depth 28.1 -> 24.0 m, casts met, deepest unchanged. Window test pl_local, review_1121/petrof_local.png. Live for solves started after this time: r6c4 r3c5 r4c5 in the redo; kj_r6c2 (solved 19:39) re-solved after the hold."
+  },
+  {
+   "id": "snd_edge_1122",
+   "stage": "solve",
+   "live": "2026-11-22 09:50:00",
+   "commit": null,
+   "what": "SOLVE (snd mode), revises snd_edge_1121 after Hig's review of the box run (2026-11-22: 'a ridge at the shoreline, and then the level descends inland before jumping up sharply', Petrof's prograded delta 59.40068,-150.82033: the lift faded over 40 m back onto 3DEP's old lake flat at 8.42 m). Ground that is not a lidar's and is CONNECTED to the sounded water under a plane rising 0.005 from its level is raised to that plane, in full to 150 m and feathered to 300 m (snd_edge_slope, snd_edge_wide_full_m, snd_edge_wide_fade_m); a lidar's ground keeps the 8 / 40 m feather. Window test pl_edge2, review_1121/petrof_delta.png: the trough (to 8.4 m, 60 m wide) is gone, the delta stands at 14.8-15.2 m and meets the ground. Live for solves started after this time; kj_r4c5 re-solved after the run (after_run_r4c5.sh); kj_r6c2 and kj_r6c4 stand on snd_edge_1121 (their lake shores are mostly lidar)."
   }
  ]
 }

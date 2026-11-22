@@ -33,7 +33,7 @@ DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hi
 P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=0.0, snd_cast_beside_m=15.0, fix_grid_bed_edge=1, comp_near_bed_m=30.0, line_yield_m=15.0, line_yield_min_level_m=2.0, line_yield_water=1, low_bound_tol_m=0.5,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24, amg=1,
-         snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_edge=1, snd_edge_full_m=8.0, snd_edge_fade_m=40.0, snd_edge_gap_m=0.05, snd_far=1, snd_far_local=1, snd_far_local_min=0.25, snd_cap=1, snd_far_min_m=40.0, snd_far_max_m=200.0, snd_far_len_m=50.0, snd_far_pct=50.0, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
+         snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_edge=1, snd_edge_full_m=8.0, snd_edge_fade_m=40.0, snd_edge_gap_m=0.05, snd_edge_slope=0.005, snd_edge_wide_full_m=150.0, snd_edge_wide_fade_m=300.0, snd_far=1, snd_far_local=1, snd_far_local_min=0.25, snd_cap=1, snd_far_min_m=40.0, snd_far_max_m=200.0, snd_far_len_m=50.0, snd_far_pct=50.0, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
 
 
 GRID = dict(res=0.0)      # > 0: every raster is read onto this resolution (the box driver's coarse deep-sea pass, --set grid_m=16)
@@ -501,14 +501,29 @@ def main(argv=None, ret=False):
     # shore, a strip of "land" under the lake.  Measured ground within snd_edge_full_m of such water is raised to the level (plus a gap);
     # the lift is FEATHERED out to snd_edge_fade_m so it leaves no step, and beyond that the ground is as measured (the outlet's valley
     # falls below its lake, and is right to).
+    # ...2026-11-22 (Hig, on the first box run: "a ridge at the shoreline, and then the level descends inland before jumping up sharply
+    # rather than gradually rising to blend into the topography", worst on the prograded delta 59.40068,-150.82033): there the "ground" is
+    # 3DEP's old lake flat (8.42 m), wider than the 40 m the lift faded over, so the surface fell back to it and met real ground in a step.
+    # Ground that is NOT a lidar's (the prior: 3DEP, ArcticDEM) is therefore treated as one area: every cell CONNECTED to the water that
+    # lies under a plane rising snd_edge_slope from the level is raised to that plane, out to snd_edge_wide_full_m (fading to
+    # snd_edge_wide_fade_m only so that an outlet's valley is let go) -- it ends where real ground stands above the plane, with no step.
+    # A lidar's ground keeps the short feather: it saw the shore, on another day's level.
     if p["snd_mode"] and p["snd_edge"] and sndb.any():
         de_, ie_ = ndimage.distance_transform_edt(~sndb, return_indices=True); de_ = de_ * res; le_ = lev[ie_[0], ie_[1]]
-        ld_ = fixed & ~np.isin(lab, (2, 3)) & ~ice & inwin & (de_ > 0) & (de_ <= p["snd_edge_fade_m"]) & np.isfinite(le_)
+        land_ = fixed & ~np.isin(lab, (2, 3)) & ~ice & inwin & (de_ > 0) & np.isfinite(le_); sm_ = lambda t: t * t * (3 - 2 * t)
+        up_ = np.zeros(jz.shape)
+        ld_ = land_ & fix_meas & (de_ <= p["snd_edge_fade_m"])
         if ld_.any():
-            t_ = np.clip((p["snd_edge_fade_m"] - de_) / max(p["snd_edge_fade_m"] - p["snd_edge_full_m"], res), 0.0, 1.0); t_ = t_ * t_ * (3 - 2 * t_)
+            t_ = sm_(np.clip((p["snd_edge_fade_m"] - de_) / max(p["snd_edge_fade_m"] - p["snd_edge_full_m"], res), 0.0, 1.0))
             up_ = np.where(ld_, np.maximum(le_ + p["snd_edge_gap_m"] - zfix, 0.0) * t_, 0.0)
-            if (up_ > 0).any():
-                zfix = zfix + up_; log(f"  the shore of sounded water: {int((up_ > 0.02).sum())} cells of measured ground below its level are raised to it within {p['snd_edge_full_m']:.0f} m of the water, feathered out to {p['snd_edge_fade_m']:.0f} m (most {up_.max():.2f} m, {int((up_ > 0.5).sum())} cells by over 0.5 m)")
+        tg_ = le_ + p["snd_edge_gap_m"] + p["snd_edge_slope"] * de_
+        lw_ = land_ & ~fix_meas & (de_ <= p["snd_edge_wide_fade_m"]) & (zfix < tg_)
+        if lw_.any():
+            Le_, _n = ndimage.label(lw_ | sndb, structure=np.ones((3, 3), bool)); lw_ &= np.isin(Le_, np.unique(Le_[sndb]))
+            t_ = sm_(np.clip((p["snd_edge_wide_fade_m"] - de_) / max(p["snd_edge_wide_fade_m"] - p["snd_edge_wide_full_m"], res), 0.0, 1.0))
+            up_ = np.where(lw_, (tg_ - zfix) * t_, up_)
+        if (up_ > 0).any():
+            zfix = zfix + up_; log(f"  the shore of sounded water: {int((up_ > 0.02).sum())} cells of ground below its level are raised to it ({int((ld_ & (up_ > 0.02)).sum())} of a lidar's, within {p['snd_edge_full_m']:.0f} m, feathered to {p['snd_edge_fade_m']:.0f} m; {int((lw_ & (up_ > 0.02)).sum())} of prior ground joined to the water, on a plane rising {p['snd_edge_slope']:.3f}, to {p['snd_edge_wide_full_m']:.0f} m, feathered to {p['snd_edge_wide_fade_m']:.0f} m); most {up_.max():.2f} m, {int((up_ > 0.5).sum())} cells by over 0.5 m")
     if ret and int((~fixed & inwin).sum()) < 20: return None                                             # nothing to solve in this tile
     if nblind: log(f"  still water: {nblind} cells a water-blind source took part in are no bed evidence")
     if ncr: log(f"  rivers above the tide: {ncr} compilation cells are no bed evidence")
