@@ -1,5 +1,13 @@
 # Topobathy compositing: tools and interface
 
+**Recorded, not fixed (Hig 2026-11-21, on `review_1121/petrof_14p5.png`):** "seems ok except the sounding at 59.37869,
+-150.81877 is postulated to be on an isolated ridge, rather than to be representative of that area of the lake. Not a
+huge issue, but worth noting." That is cast id 37222 (19 m deep): `snd_far` pulls the bed back to the lake's depth
+profile ~50 m beyond a lone cast, so a lone SHALLOW cast in a wide unsounded area stands as a mound (the 13 m cast south of
+it likewise). The fix belongs with the wavy-cast-surface note: far from other casts a cast should move the local profile
+(its area's depth), not just a cone about itself -- e.g. the departure from the profile decaying over the distance to the
+NEXT cast or the shore rather than a fixed 50 m.
+
 **Petrof Lake at 14.50 m + the shore rule (2026-11-21, ~20:00).** Hig, after the viewer's ArcticDEM datum was fixed (main,
 b91077e): "might be as high as 15 m, maybe 14.5 ... handle the edge with feathering that makes sure not to go below
 that lake level". Casts of `pg_2022_a` set to 14.50 - depth in `soundings_edited.csv` and `soundings_20261121.csv`
