@@ -427,6 +427,13 @@
    "live": "2026-11-21 19:44:35",
    "commit": null,
    "what": "SOLVE (snd mode), Hig 2026-11-21: the shore of a SOUNDED lake does not stand below its level. Fixed ground within 8 m of still water whose level is its soundings' own is raised to that level (+0.05 m); the lift is feathered to nothing at 40 m (snd_edge, snd_edge_full_m, snd_edge_fade_m, snd_edge_gap_m). Petrof Lake's level is now 14.50 m by Hig's reading (casts of level_key pg_2022_a; was 8.42 as surveyed, 14.00 earlier the same day); its ArcticDEM shore has 0.6 ha at 12.2-12.6 m and the 3DEP lake flat (8.42) stands as land where the delta prograded. Window test pl_edge: shore cells below the level 0-4 m out 53.5 % -> 5.4 % (the rest are water cells). Applies to every sounded lake: Grewingk (50.01 by sonar vs 49.02 in the lidar), Beluga, Homer reservoir. kj_r6c2's solve of 19:39 started BEFORE this was live (re-solve after the hold)."
+  },
+  {
+   "id": "snd_far_local_1121",
+   "stage": "solve",
+   "live": "2026-11-21 20:55:00",
+   "commit": null,
+   "what": "SOLVE (snd mode), Hig 2026-11-21 ('let's put this update into future boxes'): far from casts the bed goes to the lake's depth profile SCALED to the casts of its own area (cast depth / profile depth, inverse distance softened at the casts' spacing, never over 1; snd_far_local, snd_far_local_min). Petrof Lake's lone 19 m and 13 m southern casts (59.37869,-150.81877) become a broad 15-25 m floor instead of two mounds in a 35 m basin; mean depth 28.1 -> 24.0 m, casts met, deepest unchanged. Window test pl_local, review_1121/petrof_local.png. Live for solves started after this time: r6c4 r3c5 r4c5 in the redo; kj_r6c2 (solved 19:39) re-solved after the hold."
   }
  ]
 }

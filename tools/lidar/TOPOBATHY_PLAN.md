@@ -1,6 +1,6 @@
 # Topobathy compositing: tools and interface
 
-**`snd_far_local` (2026-11-21 ~20:40): written, OFF by default, waiting on Hig.** The lone-cast fix: far from casts the bed
+**`snd_far_local`: ON by default since 2026-11-21 20:55 (Hig: "put this update into future boxes"; ledger `snd_far_local_1121`).** The lone-cast fix: far from casts the bed
 goes to the lake profile SCALED by the casts of its own area (cast depth / profile depth, carried by inverse distance
 softened at the casts' spacing, never over 1). Window test `review_1121/solve/pl_local` vs `pl_edge`, picture
 `review_1121/petrof_local.png` (`petrof_cmp.py`): Petrof's southern basin becomes a broad 15-25 m floor about the 19 m and
