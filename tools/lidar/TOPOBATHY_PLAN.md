@@ -1,5 +1,27 @@
 # Topobathy compositing: tools and interface
 
+**HIG'S MORNING REVIEW, 2026-11-22 (14 boxes published): "looking good enough I think we should finish the full run and make
+this a published product, assuming nothing worse shows up (waiting on Homer Harbor and Woz delta for instance)".** So: let
+run_1118 finish all boxes (pub_watch republishes after each); then the publishing step (a `datasets.json` entry on this
+branch, hosting builds/publishes -- WORKSTREAMS.md; ask Hig before anything leaves dev). ISSUES TO RECORD AND LOOK AT IN A
+FUTURE RUN (not fixed now):
+1. Petrof shore feather (`snd_edge`) "didn't work right - there is a ridge at the shoreline, and then the level descends
+   inland before jumping up sharply rather than gradually rising to blend into the topography", worst on the prograded
+   delta 59.40068,-150.82033. (Mine: the lift is zfix + (level - z) x t(d): where the ground is the 3DEP lake flat (8.42)
+   out to > 40 m from the mapped shore, the raised surface FALLS with t back to 8.42 at 40 m, then meets real ground in a
+   step. The rule must not fade toward ground that is itself below the level: flood-fill the below-level ground connected
+   to the lake and treat ALL of it (raise to the level and grade up to the first ground above it), not a fixed 40 m.)
+2. A strange deep hole in Picnic Harbor, 59.26840,-151.43624.
+3. Survey-edge artifact at 59.38863,-152.29149.
+4. Grewingk "has developed something of a ramp up to the bottom of the ice-face" (new in the r6c4 redo: suspects snd_far_local /
+   snd_far / snd_edge at the ice; r6c4's gate also flags solid_over_level_water 1019, face_bad_cells 115, perched_over_deep 0.9 ha).
+5. Small anomaly in the shallow subtidal, 59.65321,-151.67248.
+6. Bradley Lake "mapped as extraordinarily deep - we need to return to interpreting the old surveys here, but regardless of
+   that I'm confused as to why it would be suggested it's such a deep basin". NOT DIAGNOSED: r7c5's solve leaves it "as
+   the product has it" (a lake with no sounding), so the depth is the CHAIN's (fill stage / the pre-dam lakebed points in
+   obs/bradley), e.g. 194 m at 59.752,-150.83 against a 348.6 m level; no row of soundings_edited.csv lies in
+   59.70-59.82, -150.95..-150.65. Start at how obs/bradley enters the r7c5 recipe and its datum (1955 contours in feet?).
+
 **OVERNIGHT RUN, 2026-11-21 21:52 -> (Hig: "let this run through the night ... review whatever has been produced" in the
 morning, unrun areas as holes).** `GO_AFTER_FIRST_PUBLISH` is set: `run_1118.sh` goes on past the hold into the other 39
 boxes (none has a cm22 chain: each is chain + solve on the current code, ~3 h a box). `$W/pub_watch.sh` (new, under
