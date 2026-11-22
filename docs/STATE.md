@@ -94,10 +94,13 @@ In no particular order.
   re-exported (20: 16 approved, 3 assigned, 1 rejected) and all 19 imported
   on prod, 0 failed (log `data/glaciers/s1_review/import_20261121.log` on the
   droplet; the 2026-11-20 manifest/decisions kept beside it as
-  `*.2026-11-20.json`). Prod now has 32 `s1` videos. To check by eye: Land
-  lobe on Columbia line 416 (1.9 km from RGI's terminus), Alsek-GP on line 350
-  (990 m), Brady and Brady-Abyss share line 998, Baird and Baird_Middle share
-  line 455. The rest of the folder (~125 videos) is unreviewed; the same
+  `*.2026-11-20.json`). Prod now has 32 `s1` videos. Hig's placements after
+  the run: Land lobe moved one leg up Columbia's east arm (line 416, 0.58–0.70;
+  retreat), Baird Middle one leg up the Baird trunk (455, 0.64–0.81); Alsek and
+  both Brady videos stay where the import put them. The review page now sorts
+  groups by how sure the match is (strong / one thing to check / guessed / not
+  placed; `tierOf` in its index.html, kept in the main checkout's
+  `data/glaciers/s1_review/page/`). The rest of the folder (~125 videos) is unreviewed; the same
   steps bring in the next batch (reruns skip what is already in). The 93
   videos without a gap read keep the interim rule (40+ missing months = gap);
   do not re-run `gap` over the folder (it spends the quota).
