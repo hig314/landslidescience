@@ -31,6 +31,7 @@ urlpatterns = [
     path('lines/api/videos/', videos.api_videos, name='videos'),
     path('lines/api/videos/save/', videos.api_video_save, name='video_save'),
     path('lines/api/segment/', videos.api_segment, name='segment'),
+    re_path(r'^video/georef/(?P<name>[a-f0-9]{16}_[a-z]+\.webp)$', videos.serve_georef, name='video_georef'),
     re_path(r'^video/(?P<name>[a-f0-9]{16}\.(?:mp4|webm|gif))$', videos.serve_video, name='video'),
     re_path(r'^g/(?P<gid>RGI2000-v7\.0-G-\d\d-\d{5})/$', views.glacier_redirect, name='glacier'),
 ]

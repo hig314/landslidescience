@@ -482,19 +482,49 @@ used it up on most of the folder on 2026-11-20; Drive then answers with a
 "Quota exceeded" page, from the droplet too. Touch each file as few times as
 possible. Bounded ranges still work, but do not use them to get round the quota.
 
-## Placing S1 timelapses from their content (exploration, 2026-11-21)
+## Placing S1 timelapses from their content (2026-11-21/22)
 
-`tools/glaciers/s1_georef/` (not wired into the site). Per video: register
-frames on edge strength, drop frames that correlate badly with the median
-over stable pixels (median - 8 MAD; Brady-Abyss 2022-05 is a warped scene),
-take per-pixel statistics (median colour, p10/median/p90, temporal spread,
-sign persistence), simulate S1 from 3DEP (cos local incidence, cast shadow,
-look 77 deg asc / 283 deg desc, 38 deg incidence) and match median brightness
-to it by NCC. Hig's exports are **10 m in Web Mercator units** (ground pixel
-10 cos(lat)); `match.py --merc 10` fixes the scale. The wrong orbit's
-simulation is the built-in test; RGI outlines are the independent check.
-5 of 7 confirmed (Brady-Abyss, Baird, Bear, Taku, Aialik), Columbia weak,
-Hubbard not placed (too little stable terrain). The ctx_3dep bake is holey
-away from lidar surveys; `sim.py` reads Mapterhorn z11 (same 3DEP) by
-default. Work and GeoTIFFs: `/Volumes/Nunatak/glacier_s1_georef/`. Write-up:
-https://claude.ai/artifact/WBGwjcCGMxY1FHk9wz1RQr
+`tools/glaciers/s1_georef/`. Per video: register frames on edge strength,
+drop frames that correlate badly with the median over stable pixels (median
+- 8 MAD; Brady-Abyss 2022-05 is a warped scene), take per-pixel statistics
+(median colour, p10/median/p90, temporal spread, sign persistence, median
+edge strength), simulate S1 from 3DEP (cos local incidence, cast shadow,
+look 77 deg asc / 283 deg desc, 38 deg incidence) and match by NCC. Hig's
+exports are **10 m in Web Mercator units** (ground pixel 10 cos(lat));
+`match.py --merc 10` fixes the scale. The ctx_3dep bake is holey away from
+lidar surveys; `sim.py` reads Mapterhorn z11 (same 3DEP) by default.
+Exploration write-up: https://claude.ai/artifact/WBGwjcCGMxY1FHk9wz1RQr
+
+Two rules learned on Hubbard (2026-11-22), which has little rock in frame:
+**water is filled dark** in the simulation (DEM <= 2 m; it was the land mean,
+which threw away the coastline, the strongest stable feature of a tidewater
+scene), and a third product `stab` weights the template by stability
+(|sign persistence| smoothed, thresholded, grown 15 px), which demotes the
+calving face and flowing ice and keeps islands and shore. With both, Hubbard
+lands within ~130 m of a hand tie point (Gilbert Point); before, 1.6 km off.
+
+Pipeline (all of it on the workstation; work dir `/Volumes/Nunatak/glacier_s1_georef/`):
+1. `batch.py site_videos.txt`: per site video (list = prod's s1 videos with
+   their anchors) fetch, `stack.py`, `sim.py` (±30 km around the anchor),
+   RGI export from dev, `match.py --merc 10` (lum / feat / stab x asc / desc).
+   One at a time: `stack.py` is row-blocked float16 (~5 GB peak; the first
+   version took 28 GB on a 2572x1960x105 video).
+2. `decide.py`: per video, the candidate most others agree with (within
+   800 m), checked against RGI outlines (median edge strength under the
+   outline / median of the frame; ~1.5 at a right placement, ~1.0 wrong).
+   Grade good / fair / none, and `rgi_check.jpg`. Every placement is looked
+   at by eye before it goes to the site; the grade orders that review.
+3. `web_products.py OUT [--skip ...] [--manual tie.json]`: five WebP images per
+   video (median, range, variability, sign, edges; the frame's own grid,
+   label box transparent) and `georef.json` keyed by video file name.
+4. rsync the WebPs to `data/glacier_videos/georef/` (each environment), copy
+   georef.json, `manage.py s1_videos georef <georef.json> [--dry-run]` (it
+   refuses a video whose images are not there yet).
+
+On the map (`gl_videos.js`): a placed video is a faint dashed box with a
+dot at its NW corner; hovering the edge lights it, clicking the edge or dot
+opens a menu (the video, or a product); the choice zooms to the box and
+draws it in place, directly above the topmost raster (outlines and flow
+lines stay on top), with a panel (product, opacity, play/pause + seek for
+the video, zoom). The segment marker's player popup has the same buttons.
+Column `glacier_videos.georef` (jsonb, `migrate_glaciers`).

@@ -3,6 +3,12 @@
     manage.py s1_videos resolve <review dir>              (dev: writes <dir>/manifest.json)
     manage.py s1_videos fixes <review dir> <decisions>     (dev: reads Hig's typed corrections)
     manage.py s1_videos import <manifest> <decisions> [--dry-run]   (prod)
+    manage.py s1_videos georef <georef.json> [--dry-run]            (each environment)
+
+GEOREF stores where each video sits on the map, found from its content by
+tools/glaciers/s1_georef/ (docs/GLACIERS.md): georef.json maps a video's file
+name to {bounds, grade, products, ...}; the product images go to
+data/glacier_videos/georef/ separately (rsync). A null value clears one.
 
 The review dir is what tools/glaciers/s1_videos.py wrote (probe + dates).
 RESOLVE names each video's glacier and picks one video per glacier; Hig
@@ -96,7 +102,7 @@ class Command(BaseCommand):
     help = __doc__.split('\n\n')[0]
 
     def add_arguments(self, p):
-        p.add_argument('step', choices=['resolve', 'fixes', 'import'])
+        p.add_argument('step', choices=['resolve', 'fixes', 'import', 'georef'])
         p.add_argument('path')
         p.add_argument('decisions', nargs='?')
         p.add_argument('--dry-run', action='store_true')
@@ -104,6 +110,8 @@ class Command(BaseCommand):
     def handle(self, *a, **o):
         if o['step'] == 'resolve':
             self.resolve(Path(o['path']))
+        elif o['step'] == 'georef':
+            self.georef(Path(o['path']), o['dry_run'])
         elif o['step'] == 'fixes':
             if not o['decisions']:
                 raise CommandError('fixes needs the review dir and the decisions file')
@@ -114,6 +122,38 @@ class Command(BaseCommand):
             self.do_import(Path(o['path']), Path(o['decisions']), o['dry_run'])
 
     # ------------------------------------------------------------------
+    def georef(self, path, dry):
+        from glaciers.videos import GEOREF_DIR
+        data = json.loads(path.read_text())
+        conn = _get_conn()
+        try:
+            cur = conn.cursor()
+            n = missing = 0
+            for fname, g in data.items():
+                cur.execute('SELECT id FROM glacier_videos WHERE file = %s', (fname,))
+                row = cur.fetchone()
+                if not row:
+                    missing += 1
+                    self.stdout.write('  no video with file %s' % fname)
+                    continue
+                if g is not None:
+                    stem = fname.rsplit('.', 1)[0]
+                    lack = [p for p in g.get('products', []) if not (GEOREF_DIR / ('%s_%s.webp' % (stem, p))).is_file()]
+                    if lack:
+                        self.stdout.write('  %s: product images missing (%s); copy them to %s first' % (fname, ', '.join(lack), GEOREF_DIR))
+                        continue
+                cur.execute('UPDATE glacier_videos SET georef = %s WHERE id = %s',
+                            (None if g is None else json.dumps(g), row[0]))
+                n += 1
+            if dry:
+                conn.rollback()
+                self.stdout.write('dry run: %d would be set, %d not found' % (n, missing))
+            else:
+                conn.commit()
+                self.stdout.write('%d set, %d not found' % (n, missing))
+        finally:
+            _put_conn(conn)
+
     def resolve(self, d):
         rules = json.loads(SITES.read_text())
         listing = json.loads((d / 'listing.json').read_text())

@@ -51,6 +51,17 @@ SNAP_M = 400            # an anchor further than this from every flow line is of
 MAX_UPLOAD = 150 * 1024 * 1024
 VIDEO_DIR = Path(settings.BASE_DIR) / 'data' / 'glacier_videos'
 _FILE_RE = re.compile(r'^[a-f0-9]{16}\.(mp4|webm|gif)$')
+# Static products of a placed video, one image each, the frame's own extent:
+# <video stem>_<product>.webp (tools/glaciers/s1_georef/web_products.py).
+GEOREF_DIR = VIDEO_DIR / 'georef'
+GEOREF_PRODUCTS = [
+    {'id': 'median', 'label': 'Median', 'title': 'Median of every month, in the video\'s own colours'},
+    {'id': 'range', 'label': 'Brightness range', 'title': 'Brightness over the months as colour: red = the brightest tenth, green = the median, blue = the darkest tenth. Grey is steady; colour is change'},
+    {'id': 'variability', 'label': 'Variability', 'title': 'How much brightness changes month to month (temporal standard deviation of log brightness); bright = changeable'},
+    {'id': 'sign', 'label': 'Sign persistence', 'title': 'Whether a spot stays brighter (orange) or darker (blue) than its surroundings through the series; white = it flips. Rock and flow bands persist, flowing texture does not'},
+    {'id': 'edges', 'label': 'Edge strength', 'title': 'Median edge strength over the months: edges that are there most of the time, whether light-on-dark or dark-on-light'},
+]
+_GEOREF_RE = re.compile(r'^([a-f0-9]{16})_(%s)\.webp$' % '|'.join(p['id'] for p in GEOREF_PRODUCTS))
 _TYPES = {'mp4': 'video/mp4', 'webm': 'video/webm', 'gif': 'image/gif'}
 
 # `upload`: the video is a file we are given, not a link we archive.
@@ -80,6 +91,11 @@ CREATE TABLE IF NOT EXISTS glacier_video_anchors (
 CREATE INDEX IF NOT EXISTS glacier_video_anchors_video_idx ON glacier_video_anchors (video_id);
 ALTER TABLE glacier_videos ADD COLUMN IF NOT EXISTS source_url text;
 ALTER TABLE glacier_videos ADD COLUMN IF NOT EXISTS fetch_error text;
+-- where an s1 video sits on the map, found from its content
+-- (tools/glaciers/s1_georef/, docs/GLACIERS.md): {bounds: [w, s, e, n] lon/lat
+-- of the frame's edges, grade, products: [...], frames, dropped, ...}.
+-- Set by `manage.py s1_videos georef`; the product images are under GEOREF_DIR.
+ALTER TABLE glacier_videos ADD COLUMN IF NOT EXISTS georef jsonb;
 """
 
 
@@ -240,11 +256,11 @@ def _geoms(cur, segs):
 def _rows(cur, only=None):
     cur.execute("""
         SELECT v.id, v.kind, v.slug, v.file, v.caption, v.date_min, v.date_max, v.added_by,
-               ps.story_type, ps.mp4_archived_at IS NOT NULL, v.source_url, v.fetch_error
+               ps.story_type, ps.mp4_archived_at IS NOT NULL, v.source_url, v.fetch_error, v.georef
         FROM glacier_videos v LEFT JOIN planet_stories ps ON ps.slug = v.slug
         """ + ('WHERE v.id = %s' if only else '') + ' ORDER BY v.id', ((only,) if only else ()))
     vids = {}
-    for vid, kind, slug, fname, cap, d0, d1, who, stype, archived, src_url, ferr in cur.fetchall():
+    for vid, kind, slug, fname, cap, d0, d1, who, stype, archived, src_url, ferr, geo in cur.fetchall():
         k = _KIND.get(kind, {'label': kind, 'color': '#555'})
         v = {'id': vid, 'kind': kind, 'kind_label': k['label'], 'color': k['color'],
              'caption': cap, 'date': span_text(d0, d1), 'added_by': who,
@@ -261,6 +277,11 @@ def _rows(cur, only=None):
         elif fname:
             v['src'] = '/glaciers/video/' + fname
             v['media'] = 'image' if fname.endswith('.gif') else 'video'
+            if geo and geo.get('bounds'):
+                stem = fname.rsplit('.', 1)[0]
+                v['georef'] = {'bounds': geo['bounds'], 'grade': geo.get('grade'),
+                               'products': [dict(p, src='/glaciers/video/georef/%s_%s.webp' % (stem, p['id']))
+                                            for p in GEOREF_PRODUCTS if p['id'] in geo.get('products', [])]}
         elif ferr:
             v['state'], v['error'] = 'failed', ferr
         else:
@@ -509,6 +530,19 @@ def _part(f, start, length, block=1 << 16):
             yield chunk
     finally:
         f.close()
+
+
+@require_safe
+def serve_georef(request, name):
+    """One static product image of a placed video (GEOREF_PRODUCTS)."""
+    if not _GEOREF_RE.match(name or ''):
+        return HttpResponseNotFound()
+    path = GEOREF_DIR / name
+    if not path.is_file():
+        return HttpResponseNotFound()
+    resp = FileResponse(path.open('rb'), content_type='image/webp')
+    resp['Cache-Control'] = 'public, max-age=86400'
+    return resp
 
 
 @require_safe

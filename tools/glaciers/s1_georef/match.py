@@ -42,6 +42,22 @@ def score_map(tmpl, tmask, img):
     return cv2.matchTemplate(img, t, cv2.TM_CCOEFF_NORMED)
 
 
+def wncc(img, t, w):
+    """NCC with a per-pixel template weight w (0..1), all by FFT:
+    sum w(t-tw)(I-Iw) / sqrt(sum w(t-tw)^2 * (sum wI^2 - (sum wI)^2)), w summing to 1.
+    Masked matchTemplate is the same thing but far too slow for a 90 km search."""
+    img = ((img - img.mean()) / (img.std() + 1e-9)).astype(np.float32)   # float32 only: standardise first so sum wI^2 - (sum wI)^2 keeps its digits
+    w = (w / w.sum()).astype(np.float32)
+    tw = float((w * t).sum())
+    tp = (w * (t - tw)).astype(np.float32)
+    tv = float((w * (t - tw) ** 2).sum())
+    num = cv2.matchTemplate(img, tp, cv2.TM_CCORR)
+    m1 = cv2.matchTemplate(img, w, cv2.TM_CCORR)
+    m2 = cv2.matchTemplate(img * img, w, cv2.TM_CCORR)
+    var = np.maximum(m2 - m1 * m1, 1e-9)
+    return (num / np.sqrt(var * tv)).astype(np.float32)
+
+
 def peak2(r, excl):
     """best peak, the best outside a radius of it, and the peak's
     significance: (peak - median of the map) / robust sd of the map. Raw NCC
@@ -57,16 +73,34 @@ def peak2(r, excl):
     return mx, loc, r2.max(), (mx - med) / sd
 
 
-def run(st, ref, orbit, prod, sizes, ratios, down, res, win=None):
-    vid = st['lum_med'] if prod == 'lum' else st['feat_med']
-    vmask = st['mask'].astype(np.float32)
+def stable_mask(st, lo=0.15, grow=15):
+    """Pixels whose light-or-dark character holds through the series: rock,
+    shore, islands (even ones iced over some months), not flowing ice, the
+    calving face or water. |sign persistence| smoothed, thresholded, then
+    grown so the contrast at each feature's edge (island against water)
+    stays in. Demotes the ever-changing face; Hubbard needed it (2026-11-22)."""
+    b = cv2.GaussianBlur(np.abs(st['sign']).astype(np.float32), (0, 0), 4)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * grow + 1, 2 * grow + 1))
+    m = cv2.dilate((b > lo).astype(np.uint8), k) > 0
+    return m & st['mask']
+
+
+def run(st, ref, orbit, prod, sizes, ratios, down, res, win=None, water_dark=True):
+    vid = st['feat_med'] if prod == 'feat' else st['lum_med']
+    vmask = (stable_mask(st) if prod == 'stab' else st['mask']).astype(np.float32)
     key = orbit
     I, valid = prep_ref(ref, key, down)
     rres = res * down
+    # Water (DEM <= 2 m) is dark in SAR most months, and the coast is the
+    # strongest stable feature of a tidewater scene: fill it dark, not with
+    # the land mean (which left Hubbard 1.6 km off, 2026-11-22). Done before
+    # the gradient so the coastline is an edge in 'feat' too.
+    if water_dark:
+        I = np.where(valid, I, np.percentile(I[valid], 2)).astype(np.float32)
+    else:
+        I = np.where(valid, I, I[valid].mean()).astype(np.float32)
     if prod == 'feat':
         I = gradmag(I)
-    # where the reference is not land, fill with its mean: it neither helps nor hurts much
-    I = np.where(valid, I, I[valid].mean()).astype(np.float32)
     ox = oy = 0
     if win is not None:                         # (x0, y0, x1, y1) in this grid
         x0, y0, x1, y1 = [int(v) for v in win]
@@ -83,7 +117,11 @@ def run(st, ref, orbit, prod, sizes, ratios, down, res, win=None):
             m = (cv2.resize(vmask, (w, h), interpolation=cv2.INTER_AREA) > 0.99).astype(np.float32)
             if prod == 'lum':
                 pass
-            r = score_map(t, m, I)
+            if prod == 'stab':
+                wt = cv2.resize(vmask, (w, h), interpolation=cv2.INTER_AREA)
+                r = wncc(I.astype(np.float64), t.astype(np.float64), wt.astype(np.float64))
+            else:
+                r = score_map(t, m, I)
             mx, loc, second, z = peak2(r, max(3, int(0.1 * min(w, h))))
             loc = (loc[0] + ox, loc[1] + oy)
             rows.append((s, q, mx, second, loc, z))
@@ -117,7 +155,7 @@ def main():
         s0 = a.merc * math.cos(latc)
         sizes = s0 * np.exp(np.linspace(-0.05, 0.05, 5)); ratios = [1.0]
     out = {}
-    for prod in ('lum', 'feat'):
+    for prod in ('lum', 'feat', 'stab'):
         for orbit in ('asc', 'desc'):
             best, rows = run(st, ref, orbit, prod, sizes, ratios, a.coarse, res)
             s, q, mx, second, loc, w, h, z, _ = best
