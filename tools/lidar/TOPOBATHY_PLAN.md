@@ -2,7 +2,156 @@
 
 ## Resume here (2026-11-18, 12:45) — FULL RERUN run_1118: every box, chain cm22 -> solve s3, on one code
 
-**Running:** `$W/run_1118.sh` under caffeinate (log `$W/run_1118.log`, per-box change report `$W/run_1118_diff.txt`), resumable; order:
+**HOLD (Hig, 2026-11-20 ~22:00, power-cord trouble): the queue is stopped by the main session once kj_r7c4's
+solve finishes. Do NOT relaunch run_1118.sh or start any other analysis until Hig says so.** The last line of
+`$W/run_1118.log` records where it stopped. The stop is done by the detached `$W/hold_after_r7c4.sh`
+(waits for the first log line naming kj_r3c5, then kills the queue and that box's solve; kj_r3c5 has no cm22
+solve.json, so it is redone on relaunch).
+
+**RUNNING since 2026-11-20 16:53 on commit 0568d6f (47c95d6 + `line_yield_water`; ledger row `solve_1120`): `run_1118.sh`
+under caffeinate.**  (2026-11-20 ~20:51-21:25 the Mac HIBERNATED on a flat battery (power cord) in kj_r7c4's solve; uptime
+unbroken, every process resumed on wake, but kj_r7c4's solve_box then died silently ~21:46 (no output, no traceback); the main
+session had paused the queue at 21:40; relaunched 21:47 on AC, r7c4's solve redone from the start (rc 0 at 22:37: 94 of 100 tiles, 21.9 % replaced).  **HELD by Hig
+at 22:37 after r7c4 (main session): no further boxes until Hig says so**; r3c5's solve stopped at its start, redone on relaunch.
+**RELEASED by Hig 2026-11-21 10:48** as a possible FINAL run, gated on the first publish: queue r3c5 r4c5 r3c3 r4c0 + **r0c2**
+(open ocean, casts only, 7,950 casts) + **r7c5** (alpine: 3DEP 210 km2, ArcticDEM + arcticdem_alpine) -> publish -> the runner
+HOLDS (`touch $W/GO_AFTER_FIRST_PUBLISH` and relaunch runs the other 39).  `publish_s3.sh` now mosaics ONLY boxes whose s3 solve
+names cm22 and postdates 0568d6f (list in `$MOS/boxes_latest.txt`); every other box is a hole (Hig: "only reviewing what is truly
+the latest code").  Pre-edit copies `$W/publish_s3_before_1121.sh`, `$W/run_1118_before_1121.sh`.  If a rule changes after the
+review, move the date in publish_s3.sh's filter with it.
+**FIRST PUBLISH 2026-11-21 14:58, runner HOLDING for Hig's review:** `kbay_joint_s3` in the dev viewer = r0c2 r3c3 r3c5 r4c0 r4c5
+r6c2 r6c4 r7c4 r7c5 only (holes elsewhere), all solves rc 0, no failed tiles.  Checked in boxes: r6c4's perched bodies no longer lift
+the bed (s3 = chain).  To look at: r7c4 12.8 ha +7.2 m vs s2 at 59.78798,-151.01201; gate rows r4c5 (2, as cm21), r4c0 water_km2
+336 vs 1344 (x4 exactly, one older tag: untraced), r7c5 (2).
+**Hig's review of the first publish (2026-11-21 ~15:30): "looking pretty good, including throughout the intertidal".**  To fix before the rerun:
+- Petrof Lake (r4c5): deep basins assumed where there are no observations (59.38363,-150.82546; 59.38981,-150.81310) -- "most likely the
+  observations are representative and these deeper basins don't exist".
+- The little embayment at 59.39672,-150.81461 (r4c5): "still struggling".
+- Division Island 59.42142,-150.69406 (r4c5): no shoreline, though 3DEP and ArcticDEM should have it -- "a substantial island".
+- Pimply bumps in an E/W band through 59.69257,-151.57322 (r6c2), not visible in the 2008 or 2019 lidar.
+Recorded, NOT to hold the full run (fix only if synergistic):
+- A low but sharp seam running N/S through 59.40543,-152.10082 (r4c0).
+- Bathymetry from casts: some mechanism (e.g. splines linking points along strongly curved features) to modestly raise fidelity to the
+  observations and avoid wavy surfaces that wobble between successive evenly spaced casts.
+**Diagnosis and fixes (2026-11-21 evening; ledger row `review_1121`; UNCOMMITTED; pre-edit copies `$W/*_before_1121.*`; tools and
+figures in `$W/review_1121/`: view.py jpt.py wpt.py wfig.py islands_scan.py, window solves `solve/pl_*`, `div_fix`):**
+- **Division Island = yesterday's `line_yield_water`.**  The chain had it at 27 m; the solve sank it to -28 m: it lies whole inside
+  tide_high_water.geojson (no line traced; its core < 200 m, so tide_vectors' island rule missed it), and "unmeasured land inside the
+  mapped high-tide water gives way".  Fourteen islands in all (80 ha, boxes r4c5 r3c5 r4c1 r3c1).  Fix at the source,
+  `tide_vectors.py islands`: a 3DEP blob >= 10 m, >= 0.3 ha, DETACHED >= 50 m from the polygon's edge is an island, cut out down to
+  5 m (tide_high_water / tide_sea / tide_islands.geojson rewritten: 7 kept + 14 new).  Window `div_fix`: 8.5 ha back, new - chain p50 0.
+- **Petrof Lake basins** = the lake fit's DEPARTURE from its depth profile never decays: casts in 48 m of water 30 m off a steep shore
+  stand 30 m under the profile, and that offset ran into the arms with no cast (31 + 30 = -61 m; deepest cast -40.6); plus the plate
+  overshooting beyond the last cast of a line (-71).  Plus the tiles: the lake lies across two, one saw 21 casts, one 8 (-51.6 in the box
+  against -40.9 in one window).  Fixes: `snd_far` (beyond the casts' spacing the bed is the profile; reach `snd_far_len_m` 50 -- 99 m
+  left a third of the lake on the cap, 20 m made a cone of every cast), `snd_cap` (no deeper than the body's deepest datum, cast or
+  measured bed), solve_box `--lake-max` (a sounded lake crossing tile cores is solved whole in one window).  Window `pl_fix4`.
+- **The embayment** = an order-of-operations fault: the casts' level (8.42) was given to cells with a body id only; the inlet has
+  none (8 m body raster) and kept the product's 12.04 m, its bed 2-4 m over the lake.  The level now goes to all connected water.
+  **ASK HIG:** the product's 12.04 m is the water stage's (ArcticDEM ground on 40 % of the shore stands 3.6 m over 3DEP's flat);
+  the casts' 8.42 is 3DEP's hydro-flat ("2022 level unknown").  The solve takes the casts' -- which is right?  3.6 m of depth hangs on it.
+- **Pimples** = the 2019 Homer (DGGS) flight's north edge: its ground thins out over 500 m and what is left is canopy classed
+  ground; by date it superseded the solid 2008 ground.  joint.py: supersede by date only where the newer lidar is solid
+  (`supersede_solid_m` 25, `supersede_solid_frac` 0.6).  Fuse test `$W/review_1121/joint_pimples`: lumpy cells 11.2 -> 1.7 % in the
+  band, voids 34 -> 6 %.
+- **Seam at 59.40543,-152.10082 (not fixed):** the west edge of NCEI 2010's grid in the joint; east of it the product keeps the
+  compilation, west the 16 m deep pass from casts lowered the bed ~3 m; the grid's edge cells are fixed.  Same family as the wavy
+  cast surfaces: for a later session.
+- **What must be redone:** chains + solves r4c5 r3c5 (islands), r6c2 r6c4 (joint).  r7c4 r3c3 r4c0 r0c2 r7c5 are unchanged by
+  construction (no sounded still water -- checked with SND_PROF_ONLY on their deep passes --, no new island, no lidar superseded by a
+  lidar): their cm22 / s3 stand.  Restarted twice at 20:22 / 20:27 for nice 10 + 2 math
+threads per process (Docker starved).  Restarted once at 16:53 in r6c2's solve for Hig's second note on Petrof: "a hill on the beach below
+the high-tide line - the surface should grade from the high tide line down to the lowtide line".  The hump was 3DEP
+(fixed) and ArcticDEM (soft) standing 8-12 m INSIDE the mapped high-tide water; unmeasured land inside
+tide_high_water.geojson now gives way wholly, traced islands excepted.  Window `pet_ct5`: every profile grades 3.65 ->
+-1.7 m.  Hig on the lagoon window `hcl_p4`: "looks good".)  Every s3
+solve made before it is redone (markers set aside as `out_s3/solve.json.ring_bug_1120` / `.ring_only_1120`); chains are
+kept except kj_r4c5's (a line appended to its chain.log makes the runner redo it: restored high line).  Order: solves of
+r6c2 r6c4 r7c4 r3c5, r4c5 chain + solve, r3c3 solve, r4c0, then the FIRST `kbay_joint_s3` publish (~12-15 h), then on.
+**To check at that publish (not yet seen at full-box fidelity -- windows only):** Halibut Cove Lagoon 59.57183,-151.19578
+(r6c4; window `hcl_p4`: solve - product p1/p99 -1.3/+1.2 m, figure `$W/review_1120/halibut_lagoon_window.png`) and Petrof
+59.36015,-150.82710 (r4c5 AFTER its chain rerun: the chain's own high_line ramp now has the line too; window `pet_ct4`,
+figure `$W/review_1120/petrof_before_after.png`; a 0.4 m scalloping of the 3.65 m contour along the line remained in the
+window).  The per-box change report `$W/run_1118_diff.txt` is the regression check for the five global solve changes
+below; none was tested outside these two windows.
+**What went live at 16:44 (Hig's answers of 2026-11-20: retire the low bound; "think of the high tide line as
+approximately a contour - it should drop to that level"):**
+- solve.py: (1) a still body's SHORE = cells that are not water -- the `snd_shore` ring, the hinge band and the lake
+  profile's distance (see the fault below); (2) `fix_grid_bed_edge`: a confident gridded bed under water is fixed to its
+  edge (the lattice's 10 m stripes were "edge" everywhere: 9 % of the lagoon window fixed, 15 % soft; now 24 % / 0.4 %);
+  (3) `comp_near_bed_m` 30: a compilation's pull fades beside a measured BED (not beside land: the Woz inlet rule
+  stands); (4) `snd_cast_beside_m` 15: NOS / CRM casts within 15 m (or one coarse cell) of a measured bed are left to it
+  (H09884: 131 of 324 stand > 8 m above the multibeam); (5) `low_bound_m` 0: the guard is retired (code left in);
+  (6) `line_yield_m` 15, `line_yield_min_level_m` 2: unmeasured land (3DEP, dry fill, ArcticDEM; never a lidar's) within
+  15 m of a traced high line gives way, its cells ON the line are held at the level, and the line is a hinge.
+- solve_box.py: deep modelled cells within 2 coarse cells (32 m) of a layer's cell keep the product, not the 16 m pass.
+- tide_vectors.py `rescue` (run it after build / merge / review; build does not call it): a dropped HIGH edge under
+  700 m with the sea on one side and land on the other 100 m off (>= 80 % of it) is a shore.  12 edges, 2.16 km, flagged
+  `rescued` in tide_lines.geojson and tide_vector_lines.geojson (pre-edit copies `$W/tide_*_before_1120.geojson`).
+  Boxes holding one: r1c1 r1c2 r2c1 r2c4 r3c4 r4c5.  Hig's Petrof polygon has straight edges of 159-271 m; LONG_EDGE_M
+  150 had dropped them as closing edges, so the beach had no high line and the cap's plate ran to 3DEP's edge.
+- NOT done: point-cloud hosting of the reclassified sets (Hig: wants "our best reclassified version ... hosted online",
+  deferred to its own session; only kenai_2008 r1 is on R2, KBay reclass + Kenai r2 are local only).
+**The stop of 15:11 and the diagnosis:**
+- **The fault (`snd_shore` ring, solve.py):** "the outermost ring of a still body's cells is data at its level" took the
+  ring beside ANY cell outside the still/pond set -- other water included.  The lagoon is cut into ~47 bodies (sea, tidal,
+  lake, perched), so every body line in open water was held at +1.5..2.5 m over a -60 m bed in the 16 m deep pass
+  (window `hcl_deep`: fit - cast RMS 18.1 m, 415 ring cells); the box kept its deep modelled cells and the 2 m tiles then
+  bent 21,000 measured multibeam cells (soft: swath edges) up to it.  Peaks topped near -15 m = scope_deep_m.  Fix: the
+  ring (and the hinge band) is beside cells that are NOT WATER (shore_label 2/3).  Window `hcl_deepfx`: 2 ring cells,
+  RMS 4.4 m.  In the repo's solve.py since 15:11 (uncommitted; pre-edit copy `$W/solve_before_1120.py`); needs a
+  rules_ledger row once r6c4 confirms it.  Residual to look at in r6c4: the fixed deep pass still differs from the
+  product by -9 / +11 m (p1 / p99) along some gap lines; NOS H09884's casts there disagree with the multibeam by tens of
+  metres (131 of 324 stand > 8 m above it).  s1's grooves in the swath gaps are a separate, older matter.
+- **Petrof terraces (Hig: "digital terraces, especially along the high-tide", 59.36015,-150.82710) = the solve's LOW
+  BOUND.**  The only evidence within 30 m of those free cells is the fixed prior land at the cliff foot (3DEP, 8.99 m),
+  so they were put at 8.49 m in 60 m blocks.  `low_bound_m=0` gives a clean ramp (window `pet_nolb`).  Narrower rule in
+  `/Volumes/Nunatak/lidar_build/lidar_dev/topobathy/solve.py` ONLY (not the repo): fixed and soft PRIOR land is no
+  evidence for the bound -- the terrace at Hig's point goes (8.7 -> 2.8 m ramp), 1,973 cells of blocks remain to the
+  west (a 3.1 m shelf between the high and low lines where they run 20 m apart) plus two narrow tabs.  Dropping the
+  lines from the evidence made it WORSE (the bound is a minimum: less evidence = higher bound).  Third time this guard
+  makes blocks (Fox squares, Beluga shelf): proposed to Hig to retire it now that pit_post raises closed basins.
+  Separate design point: 3DEP stands 8.7 m AT the traced high-tide line (level 3.65); should prior land within ~15 m
+  of the line yield to the line's level?
+- **Disk 2026-11-20 (Hig's go-ahead):** removed box archives cm0 cm1 cm2 cm5 cm16 cm17 fix2h v8, kbay_joint_cm1,
+  kbay_v3_boxes; and, R2-verified by the audit agent, cog/dixon_2023.tif, kbay_reclass_test full/mosaic_v1 full/out_v1
+  viewer_build/{pm_v2,kbay_2023_reclass,kbay_2023_reclass_v2}, anchorage_2015/tiles*.  Nunatak 68 -> 149 GB free.
+  Not removed, need Hig: kenai_2008/dtm 18.5 (manifest src, COG on R2), superseded/ 16, kenai_taught feat cache 58,
+  kbay_reclass_test/site 60 + model caches 9 (retraining caches, local only), Powder dev_viewer_retired 15.
+- A killed solve_box leaves its spawned tile workers running (load average 220): `pkill -f "multiprocessing[.]spawn"`.
+
+**Was RESTARTED 2026-11-20 14:15** (`run_1118.sh` under caffeinate, on AC; Nunatak `diskutil verifyVolume` clean, the
+last outputs read whole).  It resumed at kj_r3c3's solve; then r4c0, then the first `kbay_joint_s3` publish (Docker
+was not running at the restart: the dev viewer needs it).  **Disk:** Nunatak 69 GB free, ~2.7 GB a box so far, so the
+run's own 20 GB stop will trip some 18 boxes on unless more is cleared (ask Hig).  Checks done at the restart:
+- r3c5 island (59.26687,-150.88567): 0.9 m in s1 -> 30.8 m in cm22 / s3.  Fixed.
+- Petrof (59.36015,-150.82741): s3 = s2 (the 3.7 m plate is in cm22); still the design question for Hig.
+- r6c4 perched_over_deep 0.25 -> 0.90 ha = six "perched" bodies of 0.04-0.5 ha, joint's own water at 1.6-2.6 m over
+  the -33..-61 m multibeam, at 59.5634,-151.1989 (four) and 59.5750,-151.1938 (two).  The chain's bed is unchanged
+  there, but s3 stands up to 20 m higher within 40 m of them (max -37.9 against -58.5): NOT diagnosed; asked Hig what
+  is at those spots.
+- Gate rows clip_shelf (r4c5 8629, r3c3 6351, r3c5 1118, r6c4 2849) are near what cm21 / cm18 / cm5 had; land_km2
+  "MOVED" in all four (r3c3 150.6 -> 207.7): cause not looked up.  r3c3 solid_over_level_water 88 (cm18 460).
+- Still owed: Picnic Harbor and the west-edge line once r3c3 / r4c0 have solved.
+
+**Was STOPPED 2026-11-19 ~17:00 (state as of the 19:45 shutdown).** The Nunatak drive dropped off the Mac (not
+visible to diskutil; Powder stayed mounted) during kj_r3c3's solve; the runner and the solve died with it, then Hig
+shut down for a power problem. Nothing is running. **Before restarting:** First Aid on Nunatak (unclean disconnect),
+then check `$W/run_1118.log` and that the last outputs open (`$W/kj_r3c3/out_cm22/kj_r3c3.tif`, `$W/kj_r4c5/out_s3/`).
+Restart: `cd $W && nohup caffeinate -i -s zsh run_1118.sh > /dev/null 2>&1 &` (it skips what is done; r3c3's
+half-written `out_s3` has no solve.json so its solve reruns; then r4c0, then the first `kbay_joint_s3` publish).
+- Done on cm22 + s3, no failed tiles: r6c2, r6c4, r7c4, r3c5, r4c5. r3c3: chain cm22 done (gate: 4 rows), solve not.
+  **No s3 mosaic has been published yet.**
+- Checked in the box products (`$W/review_1118/pt.py BOX TAGS lat,lon [k]`): r6c2 false water all land, reservoir
+  water, Beluga margin clean; Grewingk lump +3.7 -> -12.6 m (casts -17 to -19: still 4-6 m shallow); Fox basins
+  -8.0 / -6.1 -> +0.9 / +0.8 m; Fox square step gone.
+- **Not yet checked (owed to Hig before the hand-off):** r6c4 gate rows perched_over_deep_ha 0.25 -> 0.90 and
+  clip_shelf_cells 2451 -> 2849; the hill in r3c5 (59.26687,-150.88567); Petrof r4c5 (gate: 2 rows); r3c3's 4 gate
+  rows; Picnic Harbor and the west-edge line once r3c3 / r4c0 have solved.
+- Sleeps on battery stretched r3c3's chain to ten hours (caffeinate -s only holds on AC).
+- `$W/stop_1119.sh` is a one-off timed stop for that evening; its deadlines are hard-coded, do not reuse as is.
+
+**Was running:** `$W/run_1118.sh` under caffeinate (log `$W/run_1118.log`, per-box change report `$W/run_1118_diff.txt`), resumable; order:
 Hig's issue boxes r6c2 r6c4 r7c4 r3c5 r4c5 r3c3 r4c0 -> publish `kbay_joint_s3` (`$W/publish_s3.sh`; mosaic on
 /Volumes/Powder/lidar_build/kbay_joint_s3, tags s3,s2,s1,cm19,cm18) -> rows 7..0, a publish every 8 boxes.  **Don't edit joint.py /
 solve.py / fill.py in the repo while it runs** (test edits in /Volumes/Nunatak/lidar_build/lidar_dev).  The edits of today (solve.py, joint.py,

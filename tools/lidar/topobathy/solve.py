@@ -33,7 +33,7 @@ DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hi
 P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=0.0, snd_cast_beside_m=15.0, fix_grid_bed_edge=1, comp_near_bed_m=30.0, line_yield_m=15.0, line_yield_min_level_m=2.0, line_yield_water=1, low_bound_tol_m=0.5,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24, amg=1,
-         snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
+         snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_far=1, snd_cap=1, snd_far_min_m=40.0, snd_far_max_m=200.0, snd_far_len_m=50.0, snd_far_pct=50.0, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
 
 
 GRID = dict(res=0.0)      # > 0: every raster is read onto this resolution (the box driver's coarse deep-sea pass, --set grid_m=16)
@@ -381,7 +381,10 @@ def main(argv=None, ret=False):
         # ...of the WHOLE connected water, not of one body id: Gore Lake is body 3 and thirteen slivers of its own outline (27, 43, 54 ...);
         # the slivers kept -3.13 and their beds were bound 4.7 m under the lake -- Hig's "rectilinear closed basins" (2026-11-15).
         nr_ = [k for k, v in kinds.items() if v in ("river", "sea")]
-        wc_ = np.isin(lab, (2, 3)) & np.isfinite(bid) & (bid > 0) & ~np.isin(bid, nr_); Lw_, nw_ = ndimage.label(wc_, structure=np.ones((3, 3), bool)); lv_ = {}
+        # ...and of the water the body raster leaves at 0 (its 8 m grid, a sliver, a narrow inlet): Petrof Lake's little embayment at
+        # 59.39672,-150.81461 (Hig 2026-11-21, "still struggling") is labelled water with no body id; it kept the product's level, 12.04 m,
+        # beside the lake at its casts' 8.42, and its bed stood 2-4 m over the lake it is an arm of.
+        wc_ = np.isin(lab, (2, 3)) & inwin & ~(np.isfinite(bid) & (bid > 0) & np.isin(bid, nr_)); Lw_, nw_ = ndimage.label(wc_, structure=np.ones((3, 3), bool)); lv_ = {}
         for path in R["fill"]["points"]:
             if re.search(r"nos_|crm_", os.path.basename(path)): continue
             for row in _rows(path):
@@ -814,6 +817,7 @@ def main(argv=None, ret=False):
         # THE WATER'S EDGE IS WHERE THE BED MEETS THE LEVEL: the outermost ring of a still body's cells is data at its level (less the gap).
         # Without it the bank's height runs into the lake and the bound has to push a strip down all round the shore -- a contact problem
         # that took the fit dozens of rounds (Gore: 24 full-resolution rounds, the last still moving 2 cm) for what is known beforehand.
+        ring_ = np.zeros(jz.shape, bool)
         if p["snd_shore"] and sw_.any():
             # ...its SHORE: the cells beside it that are not water.  Beside other water (a lagoon the body raster cuts into "tidal" and "sea"
             # pieces, the sea outside a pond's mouth) the edge of the body is no shore and the bed does not meet the level there (Hig
@@ -846,7 +850,7 @@ def main(argv=None, ret=False):
         # the edge held at the level and nothing else said, the smoothest bed between shores is a sheet at the level, and every cast a pit in
         # it.  The prior: depth as a non-decreasing function of the distance from shore (islands are shore), fitted to the body's casts
         # (isotonic), 0 at the edge; the fit leans on it at snd_prior_k x the local spacing, so a cast still rules its neighbourhood.
-        zano = np.zeros(jz.shape); prof_ = np.zeros(jz.shape, bool)
+        zano = np.zeros(jz.shape); prof_ = np.zeros(jz.shape, bool); capz = np.full(jz.shape, -np.inf)
         if p["snd_profile"] and sw_.any():
             # (the shore = the nearest cell that is NOT WATER: a body's line against other water -- a lagoon cut into "tidal" and "sea" pieces --
             # is no shore to shoal towards; 2026-11-20, Halibut Cove Lagoon)
@@ -902,6 +906,10 @@ def main(argv=None, ret=False):
                 fc_ = np.clip((gH / sm_) ** gam_, 0.5, 2.0) if (gH is not None and gam_ > 0) else np.ones(jz.shape)
                 D_, rms_, xs_, ys_ = prof_fit(va_[:, 0] * (np.clip((va_[:, 2] / sm_) ** gam_, 0.5, 2.0) if gam_ > 0 else 1.0), va_[:, 1])
                 zano[m_] = lev[m_] - D_(dsh[m_] * fc_[m_]); prof_ |= m_ & ~fixed
+                # the body's deepest datum, cast or measured bed (see snd_cap below): a lagoon's multibeam at -60 m among casts at -20 is
+                # no reason to hold the gaps between its swaths at -20
+                mb_ = m_ & ((fixed & ~ring_) | (w > 0)); zb_ = np.where(fixed, zfix, b / np.maximum(w, 1e-30))
+                capz[m_] = lev[m_] - max(float(va_[:, 1].max()), float((lev[mb_] - zb_[mb_]).max()) if mb_.any() else 0.0)
                 log(f"  lake profile from {len(v_)} casts ({m_.sum() * res * res / 1e4:.1f} ha): depth at " + ", ".join(f"{x_:.0f} m: {y_:.1f}" for x_, y_ in zip(xs_[1:], ys_[1:])) + f" (effective distance); casts about it RMS {rms_:.2f} m; land slope at the shore p10/p50/p90 {np.percentile(gH[m_ & (dsh <= 2 * res)], [10, 50, 90]).round(2) if gH is not None and (m_ & (dsh <= 2 * res)).any() else 'none'}, gamma {gam_:g} (distance stretched x {np.percentile(fc_[m_], [5, 95]).round(2)} p5/p95)")
             if os.environ.get("SND_PROF_ONLY"): raise SystemExit(0)
             if prof_.any():
@@ -913,6 +921,25 @@ def main(argv=None, ret=False):
                 lk_ = zano != 0; ii_ = ndimage.distance_transform_edt(~lk_, return_distances=False, return_indices=True)
                 Pf_ = zano[ii_[0], ii_[1]]; Pf_ = np.where(lk_, zano, np.where(np.isfinite(lev[ii_[0], ii_[1]]), lev[ii_[0], ii_[1]] - p["still_gap_m"], Pf_))
                 Pf_ = ndimage.gaussian_filter(Pf_, p["snd_prof_smooth_m"] / res); zano = np.where(lk_, Pf_, 0.0); p = dict(p, _zp=Pf_)
+                # ...and FAR FROM EVERY CAST THE BED IS THE PROFILE (Hig 2026-11-21, Petrof Lake 59.38363,-150.82546 and 59.38981,-150.81310:
+                # "deep basins are assumed in areas where we have no observations - most likely the observations are representative and
+                # these deeper basins don't exist").  The departure is minimum curvature and nothing brought it back to zero: casts in
+                # 48 m of water 30 m off a steep shore stand 30 m under the profile there, and that departure ran on, undiminished, into
+                # an arm with no cast in it -- 31 m of profile + 30 m = a basin at -61 m in a lake whose deepest cast is -40.6.  Beyond the
+                # casts' own spacing (the body's median nearest-neighbour distance, snd_far_min_m..snd_far_max_m) a mass term pulls the
+                # bed to the profile, at full strength from twice that distance, with a reach of snd_far_len_m (at the reach of the casts' spacing,
+                # 99 m in Petrof, the banks' slope leaking through the shore's hinge still held a third of the lake 5-8 m under its profile,
+                # on the cap below): a cast still rules its neighbourhood, and says nothing about an arm it is not in.
+                if p["snd_far"] and sl_:
+                    cxy_ = np.array([(q[0], q[1]) for q in sl_ if prof_[q[0], q[1]] or sw_[q[0], q[1]]], float)
+                    if len(cxy_) >= 2:
+                        from scipy.spatial import cKDTree as _KD
+                        dn_ = _KD(cxy_).query(cxy_, k=2)[0][:, 1] * res; R0_ = float(np.clip(np.percentile(dn_, p["snd_far_pct"]), p["snd_far_min_m"], p["snd_far_max_m"]))   # the median (snd_far_pct 50).  At the upper quartile (159 m in Petrof, where its two lone southern casts 250 m apart would join into one shoal instead of two cones) 13 ha of the lake went onto the cap below and the fit ran 35 min unfinished
+                        cm_ = np.zeros(jz.shape, bool); cm_[cxy_[:, 0].astype(int), cxy_[:, 1].astype(int)] = True
+                        cm_ |= sw_ & ((fixed & ~ring_) | (w > 0))                                    # a measured bed in the body speaks like a cast
+                        dc_ = ndimage.distance_transform_edt(~cm_) * res; g_ = np.clip((dc_ - R0_) / R0_, 0.0, 1.0) ** 2
+                        far_ = prof_ & (g_ > 0); mu = np.where(far_, lb0 / (p["snd_far_len_m"] / res) ** 4 * g_, mu); z1 = np.where(far_, Pf_, z1)
+                        log(f"  far from every cast the bed is the profile: casts stand {R0_:.0f} m apart (nearest neighbour, p{p['snd_far_pct']:g}); {int(far_.sum()) * res * res / 1e4:.1f} ha of sounded still water lie beyond that, {int((prof_ & (g_ >= 1)).sum()) * res * res / 1e4:.1f} ha beyond twice it")
         cur_ = [(q[0], q[1]) for q in sl_]                                    # where each cast's datum sits: its own cell until it has to move
         def snd_w(zc):
             # A CAST IS MOVED, NOT DOUBTED (Hig, the NOS casts: "misplaced, not wrong") -- but only when it cannot be met where it is: a cast
@@ -949,6 +976,18 @@ def main(argv=None, ret=False):
         from skimage.morphology import reconstruction
         lbnd = np.full(jz.shape, -np.inf); wl = np.zeros(jz.shape); edge_ = np.zeros(jz.shape, bool); edge_[0] = edge_[-1] = True; edge_[:, 0] = edge_[:, -1] = True
         seeds = fixed | ((w + wq) > 0) | edge_ | (ptype == 2) | ~inwin; pit_ha = 0.0; pit_max = 0.0
+        # NO CELL OF A SOUNDED LAKE LIES DEEPER THAN ITS DEEPEST CAST (Hig 2026-11-21, Petrof Lake): beyond the last cast of a line that
+        # runs down a wall the plate carries the wall's slope on -- -71 m beside casts at -39 and -40 in a lake whose deepest cast is
+        # -40.6 -- and the basin rule lets it stand, the casts being on its flank.  A lower bound like the basins', at the level less the
+        # body's deepest cast depth.
+        if p["snd_cap"] and np.isfinite(capz).any():
+            lbnd = np.where(prof_ & np.isfinite(capz), capz, lbnd); n_cap = 0
+            for it_ in range(3):
+                wl = np.where(np.isfinite(lbnd) & (z < lbnd - 1e-4), p["bound_w"], wl)
+                if int((wl > 0).sum()) == n_cap: break
+                if it_ == 0: log(f"  no deeper than the deepest cast: {int((wl > 0).sum()) * res * res / 1e4:.2f} ha of sounded still water stood below it, by up to {float((lbnd - z)[wl > 0].max()):.1f} m; held at it")
+                n_cap = int((wl > 0).sum())
+                z, act = solve_in(fixed, zfix, w + wq + wl, b + bq + wl * np.where(wl > 0, lbnd, 0.0), mu, z1, ub, p["lam"], p["tau"], p, None, cutm, cl_, beta, ops)
         for it_ in range(int(p["pit_rounds"])):
             q_ = z - zano; F_ = reconstruction(np.where(seeds, q_, q_.max() + 1.0), q_, method="erosion"); pit = ~seeds & (F_ - q_ > p["pit_tol_m"]); F_ = F_ + zano
             if not pit.any(): break

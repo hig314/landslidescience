@@ -35,6 +35,7 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument("box"); ap.add_argument("--tag", default="cm18"); ap.add_argument("--out-tag", default="s1"); ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--core", type=float, default=2000.0); ap.add_argument("--halo", type=float, default=400.0); ap.add_argument("--set", nargs="*", default=[])
     ap.add_argument("--snd-lakes", action="store_true", help="tiles holding a sounded lake are solved with the casts as data (snd_mode=1); the rest as --set says")
+    ap.add_argument("--lake-max", type=float, default=6500.0, help="a sounded lake wider than this with its halo (m) is left to the tiles")
     ap.add_argument("--deep-grid", type=float, default=0.0, help="solve the deep sea over the whole box at this resolution first (m); 0 = off")
     a = ap.parse_args(); d = S.W / a.box / f"out_{a.tag}"; o = S.W / a.box / f"out_{a.out_tag}"; o.mkdir(parents=True, exist_ok=True)
     lg = open(o / "solve.log", "w")
@@ -120,6 +121,32 @@ def main():
         kind[r0:r1, c0:c1][core] = k[core]; typ[r0:r1, c0:c1][core] = R["typing"][core]; zown[r0:r1, c0:c1][core] = z[core]
         n_s += 1; free += R["free"]
         log(f"  tile r{r} c{c}: {R['free']} free cells, {dt:.0f} s" + "".join("\n      " + l.strip() for l in R["log"] if any(q in l for q in ("guard:", "lone deep", "still water", "low-tide water:")) and not l.strip().endswith("dropped: 0")))
+    # A SOUNDED LAKE IS SOLVED WHOLE (Hig 2026-11-21, Petrof Lake 59.38363,-150.82546): the lake lies across two tiles; one saw 21 of its 26
+    # casts, the other 8, each fitted its own depth profile to its own share, and the bed at Hig's point stood at -51.6 m in the box against
+    # -40.9 in one window over the whole lake.  Every piece of sounded still water that does not lie inside one tile's core is solved again
+    # in ONE window (its extent + the halo, up to --lake-max m a side) with all its casts, and that answer is the lake's: whole inside the
+    # water, blended into the tiles' over 60 m outside it.  A larger lake stays with the tiles (said in the log).
+    if a.snd_lakes and lkm.any():
+        Lk, nlk = ndimage.label(lkm, structure=np.ones((3, 3), bool)); ljobs = []
+        for i_, sl_ in enumerate(ndimage.find_objects(Lk), 1):
+            if sl_[0].start // nc == (sl_[0].stop - 1) // nc and sl_[1].start // nc == (sl_[1].stop - 1) // nc: continue      # inside one core: that tile had it whole
+            r0, r1, c0, c1 = max(sl_[0].start - nh, 0), min(sl_[0].stop + nh, H), max(sl_[1].start - nh, 0), min(sl_[1].stop + nh, Wd)
+            if max(r1 - r0, c1 - c0) * res > a.lake_max:
+                log(f"  sounded lake {i_} ({int((Lk[sl_] == i_).sum()) * res * res / 1e4:.0f} ha) spans {(r1 - r0) * res:.0f} x {(c1 - c0) * res:.0f} m with its halo: over --lake-max {a.lake_max:g}, left to the tiles"); continue
+            x0, y1 = T * (c0, r0); x1, y0 = T * (c1, r1)
+            st_ = [x for x in list(a.set) + (["snd_scope=0"] if a.deep_grid > 0 else []) if not x.startswith("snd_mode=")] + ["snd_mode=1"]
+            ljobs.append((i_, (r0, r1, c0, c1), [a.box, f"lake_{i_}", str(x0), str(y0), str(x1), str(y1), "--tag", a.tag, "--lakes", str(lakes), "--nofig", "--nowrite", "--quiet"] + (["--cur", str(curfile)] if curfile else []) + ["--set"] + st_))
+        for (i_, (r0, r1, c0, c1), _a), (_r, _c, R, dt) in zip(ljobs, ex.map(_tile, [(j[0], 0, j[2]) for j in ljobs])):
+            if isinstance(R, str) or R is None: log(f"  sounded lake {i_}: {R} -- the tiles' answer stands there"); continue
+            z, k = R["z"], R["kind"]
+            if z.shape != (r1 - r0, c1 - c0): log(f"  sounded lake {i_}: shape {z.shape} != {(r1 - r0, c1 - c0)} -- skipped"); continue
+            body = Lk[r0:r1, c0:c1] == i_; f_ = np.clip(1.0 - ndimage.distance_transform_edt(~body) * res / 60.0, 0.0, 1.0).astype(np.float32)
+            dn_ = den[r0:r1, c0:c1]; za_ = np.where(dn_ > 1e-6, num[r0:r1, c0:c1] / np.maximum(dn_, 1e-6), z)
+            m = (k >= 2) & (f_ > 0) & ((dn_ > 1e-6) | body)
+            num[r0:r1, c0:c1][m] = (f_ * z + (1.0 - f_) * za_)[m]; den[r0:r1, c0:c1][m] = 1.0
+            kind[r0:r1, c0:c1][body] = k[body]; typ[r0:r1, c0:c1][body] = R["typing"][body]; zown[r0:r1, c0:c1][body] = z[body]
+            log(f"  sounded lake {i_}: {int(body.sum()) * res * res / 1e4:.0f} ha solved whole in one window of {(r1 - r0) * res:.0f} x {(c1 - c0) * res:.0f} m, {dt:.0f} s" + "".join("\n      " + l.strip() for l in R["log"] if any(q in l for q in ("lake profile", "far from every cast", "no deeper than", "fit - cast", "still water of"))))
+        del Lk
     # A cell is replaced only where the tile that OWNS it (its core) types it soft or free.  A window's outermost rows are soft to the tile
     # that sees them as the edge of its data, and where no other tile had a say they went out as fitted: a cross of lines at every window
     # corner, +2.8 m at one on the bay floor off the Spit (Hig's review of 2026-11-15, 59.59694,-151.40752: "box edge artifacts?").

@@ -261,6 +261,7 @@ def _poly(g):
 
 
 ISLAND_MIN_M, ISLAND_CORE_M = 10.0, 200.0
+ISLAND_DET_M, ISLAND_DET_MIN_HA, ISLAND_DET_LOW_M = 50.0, 0.3, 5.0
 
 
 def _unmapped_islands(high):
@@ -278,6 +279,24 @@ def _unmapped_islands(high):
     hi = m & (z >= ISLAND_MIN_M)
     core = ndimage.binary_erosion(hi, iterations=int(round(ISLAND_CORE_M / 10.0)))
     lab, n = ndimage.label(hi, np.ones((3, 3), bool)); keep = np.unique(lab[core]); keep = keep[keep > 0]
+    # ...and a blob DETACHED from the water's edge is an island however small (Hig 2026-11-21, Division Island 59.42142,-150.69406, 8 ha,
+    # 36 m high, no shoreline traced: "we should have picked this up in 3DEP and ArcticDEM - it's a substantial island"; its core reaches
+    # only ~100 m, so the high-tide water held it whole and the solve's line_yield_water sank it to -28 m, with fifteen more on the outer
+    # coast).  The cliff's smear hugs the line; a blob of ISLAND_DET_MIN_HA or more none of whose cells comes within ISLAND_DET_M of the
+    # polygon's edge is not a smear.  It is cut out down to ISLAND_DET_LOW_M (its own component there), where that is detached too.
+    if n:
+        idx = np.arange(1, n + 1); din = ndimage.distance_transform_edt(m) * 10.0
+        det = idx[(ndimage.minimum(din, lab, idx) >= ISLAND_DET_M) & (ndimage.sum(hi, lab, idx) >= ISLAND_DET_MIN_HA * 100.0)]
+        det = np.setdiff1d(det, keep)
+        if det.size:
+            lo = m & (z >= ISLAND_DET_LOW_M); labl, nl = ndimage.label(lo, np.ones((3, 3), bool)); il = np.arange(1, nl + 1)
+            okl = np.zeros(nl + 1, bool); okl[1:] = ndimage.minimum(din, labl, il) >= ISLAND_DET_M / 2.0
+            grow = np.isin(labl, np.unique(labl[np.isin(lab, det)])) & okl[labl]                     # the low components holding a detached blob, detached themselves
+            hi = hi | grow; lab, n = ndimage.label(hi, np.ones((3, 3), bool))
+            keep = np.unique(np.concatenate([np.unique(lab[core]), np.unique(lab[grow])])); keep = keep[keep > 0]
+            keep = np.array([k for k in keep if (lab == k)[core].any() or ndimage.minimum(din, lab, [k])[0] >= ISLAND_DET_M / 2.0])
+            print(f"  detached blobs: {det.size}, grown to {ISLAND_DET_LOW_M:g} m: {int(grow.sum()) / 100:.0f} ha", flush=True)
+        del din
     if not keep.size:
         return None
     isl = np.isin(lab, keep)
@@ -295,7 +314,11 @@ def islands(a):
     isl = _unmapped_islands(hw)
     if isl is None:
         print("  no unmapped islands"); return
-    (HERE / "tide_islands.geojson").write_text(json.dumps(_fc([dict(type="Feature", properties=dict(source="3DEP land inside the high-tide water, tide_vectors.py islands"), geometry=mapping(g)) for g in getattr(isl, "geoms", [isl])])))
+    # (run on products whose earlier islands are already cut out, this finds only the NEW ones: the file keeps the old beside them)
+    old_ = json.load(open(HERE / "tide_islands.geojson"))["features"] if (HERE / "tide_islands.geojson").exists() else []
+    old_ = [f for f in old_ if not shape(f["geometry"]).intersects(isl)]
+    (HERE / "tide_islands.geojson").write_text(json.dumps(_fc(old_ + [dict(type="Feature", properties=dict(source="3DEP land inside the high-tide water, tide_vectors.py islands"), geometry=mapping(g)) for g in getattr(isl, "geoms", [isl])])))
+    print(f"  tide_islands.geojson: {len(old_)} kept + {len(getattr(isl, 'geoms', [isl]))} new", flush=True)
     hw2 = _poly(shapely.make_valid(hw.difference(isl)))
     (HERE / "tide_high_water.geojson").write_text(json.dumps(_fc([dict(type="Feature", properties={}, geometry=mapping(hw2))])))
     S0 = json.load(open(HERE / "tide_sea.geojson"))["features"]; S = []; cut = 0.0

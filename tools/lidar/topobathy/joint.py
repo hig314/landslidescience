@@ -860,6 +860,21 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
     # wholesale under one 5 yr window)
     py = cfg["pool_years"]; py = py if isinstance(py, dict) else dict(DEFAULTS["pool_years"], ground=float(py))   # a bare number is the ground window only
     sup = {n: np.zeros((H, W), bool) for n in names}
+    # A NEWER LIDAR SUPERSEDES AN OLDER ONE'S GROUND ONLY WHERE ITS OWN GROUND IS SOLID (Hig 2026-11-21, 59.69257,-151.57322, kj_r6c2: "pimply
+    # bumps that aren't visible in either 2008 or 2019 lidar in an E/W band").  The band is the north edge of the 2019 Homer flight, where
+    # its ground thins out over 500 m (cells with ground 79 % -> 1 %, 2 returns a cell against 10-12 inside) and what is left is largely
+    # canopy classed ground: 8 % of its cells stand > 1.5 m over the 30 m median at 58 % coverage, 26 % at 21 %, 72 % at 1 %, against
+    # 0.3-0.9 % inside the flight and for the 2008 lidar.  By its date each of those cells superseded the 2008 lidar's solid ground within
+    # 4 m of it, and the cross-check then had nothing to judge the lump against.  Where the newer survey's ground covers less than
+    # supersede_solid_frac of the cells within supersede_solid_m, above the tide's reach, the older lidar's ground stands beside it and
+    # the two are cross-checked like contemporaries: a lump is rejected high against the solid surface, a cell that agrees is pooled.
+    thin_new = {}
+    if float(cfg.get("supersede_solid_m", 25.0)) > 0:
+        k_ = 2 * int(round(float(cfg.get("supersede_solid_m", 25.0)) / res)) + 1
+        for m in names:
+            if S[m].kind == "lidar" and S[m].cls == "ground" and not S[m].derived:
+                thin_new[m] = ndimage.uniform_filter((allow[m] & np.isfinite(Z[m])).astype(np.float32), size=k_, mode="nearest") < float(cfg.get("supersede_solid_frac", 0.6))
+    rep["superseded_not_thin_cells"] = {}
     for n in names:
         for m in names:
             # a BED is superseded only by a newer bed: a lidar's ground over the sea (its surface misclassed, a bar at
@@ -873,7 +888,14 @@ def fuse(recipe_path, win=None, out=None, res=None, log=print, dump=False):
             if S[m].derived and not S[n].derived:
                 continue
             if S[m].date - S[n].date > float(py.get(S[m].cls, 5.0)):
-                sup[n] |= np.isfinite(Z[n]) & near[m]
+                if m in thin_new and n in thin_new:
+                    keep_ = np.isfinite(Z[n]) & near[m] & thin_new[m] & ~thin_new[n] & (Z[n] > float(cfg.get("tide_max_m", 4.5)) + 1.0)
+                    if keep_.any():
+                        rep["superseded_not_thin_cells"][f"{n}<-{m}"] = int(keep_.sum())
+                        log(f"  {n:14s} not superseded by {m} where that survey's ground is thin and this one's solid: {float(keep_.sum()) * res * res / 1e4:.1f} ha")
+                    sup[n] |= np.isfinite(Z[n]) & near[m] & ~keep_
+                else:
+                    sup[n] |= np.isfinite(Z[n]) & near[m]
     # ...and INSIDE THE GLACIER OUTLINE every source is ice, whatever its vendor class (2026-10-25, Hig: a jaggy seam on
     # Grewingk Glacier where the 2021 lidar's "ground" stood beside and against the 2023 SfM -- ice moves metres a year,
     # so the two epochs cross-rejected each other cell by cell): the ice window applies, and the older yields.
