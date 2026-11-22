@@ -113,6 +113,10 @@ static int env_bin(double v)
     return b < 0 || b >= ENV_NB ? -1 : b;
 }
 
+/* Optional: where each node's best surface was (zc, R), to seed scoops_climb. */
+static double *NODE_Z = NULL, *NODE_R = NULL;
+void scoops_nodepar_set(double *z, double *r) { NODE_Z = z; NODE_R = r; }
+
 void scoops_setup(const double *dem, int ny, int nx, double dx)
 {
     DEM = dem; NY = ny; NX = nx; DX = dx;
@@ -223,6 +227,7 @@ typedef struct {
     single_t *single;                   /* single-surface mode */
     double force_delta;                 /* radians, or > 100 = use fall direction */
     double *node_best;                  /* highest c of any surface (may be < 0), first phi */
+    double *nb_par;                     /* with node_best: zc and R of the surface holding it */
 } run_t;
 
 static double sphere(const run_t *rn, double xc, double yc, double zc, double R, int *touch)
@@ -350,7 +355,10 @@ static double sphere(const run_t *rn, double xc, double yc, double zc, double R,
 
             if (rn->node_best && rn->nphi) {          /* how close this node came, for refining */
                 double cn = creq[0] == creq[0] ? creq[0] : cord[0];
-                if (cn > *rn->node_best) *rn->node_best = cn;
+                if (cn > *rn->node_best) {
+                    *rn->node_best = cn;
+                    if (rn->nb_par) { rn->nb_par[0] = zc; rn->nb_par[1] = R; }
+                }
             }
             double Fo = 0, Fb = 0; int conv = 0;
             if (forward) {
@@ -525,8 +533,9 @@ void scoops_search(const double *xn, const double *yn, long nnodes,
         if (nj < 0) nj = 0;
         if (ni > NX - 1) ni = NX - 1;
         if (nj > NY - 1) nj = NY - 1;
-        double zg = DEM[nj * NX + ni], best = -1e30;
+        double zg = DEM[nj * NX + ni], best = -1e30, par[2] = {0, 0};
         rn.node_best = node_best ? &best : NULL;
+        rn.nb_par = NODE_Z ? par : NULL;
         /* "the elevation of the first search-lattice node [is] zsmin plus a
          * multiple of zsrchres, so that the lattice node is always above the DEM" */
         double z0 = zsmin;
@@ -549,5 +558,55 @@ void scoops_search(const double *xn, const double *yn, long nnodes,
             }
         }
         if (node_best) node_best[k] = (float)best;
+        if (NODE_Z) { NODE_Z[k] = par[0]; NODE_R[k] = par[1]; }
+    }
+}
+
+/* Hill climbing from seeds: each (x, y, z, R) is the best surface a lattice node found.
+ * A compass search in the four parameters: try a step either way in each, move to the
+ * best of the eight if it raises the node's c (first friction angle), otherwise halve
+ * the steps, `nhalve` times. Every surface tried is painted like any other, so the maps
+ * gain from the whole path. Surfaces outside the volume class or touching the DEM edge
+ * score nothing, which keeps the climb inside the class. */
+static double climb_eval(run_t *rn, const double *p)
+{
+    double b = -1e30; int touch;
+    if (p[3] <= DX) return b;
+    rn->node_best = &b;
+    sphere(rn, p[0], p[1], p[2], p[3], &touch);
+    return b;
+}
+
+void scoops_climb(const double *xs, const double *ys, const double *zs, const double *Rs, long n,
+                  double hxy, double hz, double hr, int nhalve, int maxmoves,
+                  double vmin, double vmax, int minc, double gamma,
+                  int nphi, const double *phi_deg, int nbin, const double *edges,
+                  float *creq, float *creq_vol, double mincellfrac, float *node_best, stats_t *st)
+{
+    double tanphi[16];
+    for (int p = 0; p < nphi; p++) tanphi[p] = tan(phi_deg[p] * M_PI / 180);
+    run_t rn; memset(&rn, 0, sizeof rn);
+    rn.vmin = vmin; rn.vmax = vmax; rn.gamma = gamma; rn.minc = minc;
+    rn.nphi = nphi; rn.nbin = nbin; rn.tanphi = tanphi; rn.edges = edges;
+    rn.creq = creq; rn.creq_vol = creq_vol; rn.c = -1;
+    rn.mincellfrac = mincellfrac; rn.st = st; rn.force_delta = 1e9;
+    for (long k = 0; k < n; k++) {
+        double p[4] = {xs[k], ys[k], zs[k], Rs[k]}, h[4] = {hxy, hxy, hz, hr};
+        double best = climb_eval(&rn, p), scale = 1;
+        int moves = 0;
+        for (int lev = 0; lev <= nhalve && moves < maxmoves; ) {
+            double bv = best, bq[4]; int found = 0;
+            for (int d = 0; d < 4; d++)
+                for (int sgn = -1; sgn <= 1; sgn += 2) {
+                    double q[4] = {p[0], p[1], p[2], p[3]};
+                    q[d] += sgn * h[d] * scale;
+                    double v = climb_eval(&rn, q);
+                    if (v > bv + 1e-9) { bv = v; memcpy(bq, q, sizeof bq); found = 1; }
+                }
+            if (found) { memcpy(p, bq, sizeof bq); best = bv; moves++; }
+            else { scale *= .5; lev++; }
+        }
+        if (node_best) node_best[k] = (float)best;
+        if (NODE_Z) { NODE_Z[k] = p[2]; NODE_R[k] = p[3]; }
     }
 }

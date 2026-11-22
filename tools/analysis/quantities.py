@@ -26,6 +26,9 @@ ROOT = Path(__file__).resolve().parents[2]
 # or point PF_BUILD at the copy before building those quantities.
 B = Path(os.environ.get('PF_BUILD', '/Volumes/Nunatak/permafrost_build'))
 DATA = ROOT / 'data'
+# The landform statistics' statewide run (tools/terrain/landform/landform_state.py):
+# 40 m EPSG:3338 VRTs of the blurred, spread fields, on Nunatak.
+LF = Path(os.environ.get('LF_STATE', '/Volumes/Nunatak/terrain_build/landform/state'))
 
 # Alaska (the `alaska` region subset, in EPSG:3338), for products that cover
 # Alaska only: a raster whose model stops at the border but writes 0 beyond
@@ -63,6 +66,21 @@ QUANTITIES = {
            ('slope_2k', 'sp-slope-2k', 'Slope, 2 km', '2 km', 'steepest line 2 km long centred on the point'))},
     'north':  dict(overlay='sp-north', label='Northness', units='', range=(-1, 1), bins=40, res='60 m',
                    src=B / 'out/northness60_land.tif', note='cos(aspect)·sin(slope)'),
+    # ---- Landform statistics (tools/terrain/landform/, form only) ---------------
+    # Each is spread onto the slopes (ridges down, valleys up) and blurred 1 km
+    # before it reaches the 40 m grid, so a lattice point or a centroid reads the
+    # signature of the landscape around it, not the crest or floor it sits on.
+    # `log10`: the builder and the sampler store log10 of the value (F spans
+    # three decades; the panel has no log axis).
+    'ridge_r500': dict(overlay='lf-ridge-r500', label='Ridge radius (500 m disc)', units='m', range=(0, 1600), bins=64,
+                       res='40 m, 1 km blur', src=LF / 'ridge_R500.vrt',
+                       note='radius of the crest cross-section; saturates near 1,560 m in low relief (the crest test needs a 20 m drop)'),
+    'ridge_n500': dict(overlay='lf-ridge-n500', label='Ridge scale exponent n', units='', range=(-0.5, 3), bins=70,
+                       res='40 m, 1 km blur', src=LF / 'ridge_n500.vrt',
+                       note='log2(radius at the 1 km disc / at the 500 m disc): 0 round, 1 straight flanks, more cusped'),
+    'valley_f': dict(overlay='lf-valley-f', label='Valley fall across the floor', units='log₁₀ m', range=(-1, 2.7), bins=74,
+                     res='40 m, 1 km blur', src=LF / 'valley_F.vrt', log10=True,
+                     note='log10 of F = down-valley gradient × floor width: 0 = 1 m, 1 = 10 m, 2 = 100 m'),
     # ---- Climate / subsurface: the three permafrost products and our downscale --
     # Daymet V4 R1, 1991-2020 means of its annual summaries (tools/climate/):
     # Lambert conformal conic, so the builder warps it (nearest) onto the lattice.

@@ -67,20 +67,26 @@ window.LSProfile = (function () {
     render();
   }
   function fc(features) { return { type: 'FeatureCollection', features: features }; }
+  // The layers on demand (2026-11-17, /lidar/: isStyleLoaded() is false while tiles load, so init's
+  // ensureLayers() was skipped, style.load had already fired, and every click drew nothing).
+  function need(id) {
+    if (!map.getSource(id)) { try { ensureLayers(); } catch (e) { /* style not ready: the next call retries */ } }
+    return map.getSource(id);
+  }
   function render() {
     var feats = [];
     var coords = line || active;
     if (coords.length >= 2) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} });
     coords.forEach(function (c) { feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: {} }); });
-    if (map.getSource(SRC)) map.getSource(SRC).setData(fc(feats));
+    if (need(SRC)) map.getSource(SRC).setData(fc(feats));
   }
   function setPreview(coords) {
-    if (!map.getSource(PREVIEW)) return;
+    if (!need(PREVIEW)) return;
     map.getSource(PREVIEW).setData(fc(coords.length >= 2
       ? [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }] : []));
   }
   function setCursor(lngLat) {
-    if (!map.getSource(CURSOR)) return;
+    if (!need(CURSOR)) return;
     map.getSource(CURSOR).setData(fc(lngLat
       ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: lngLat }, properties: {} }] : []));
   }
@@ -222,7 +228,10 @@ window.LSProfile = (function () {
         });
       });
       Promise.all(reads).then(function (zs) {
-        if (s.optional && !zs.some(function (v) { return !isNaN(v); })) { result.pending--; draw(); return; }
+        // A survey with no sample on the line is not in the profile (2026-11-17, Hig on /lidar/: "the 2023 lidar is
+        // showing in the profile even though it's nowhere in the profile"): its footprint test passed, its reads all
+        // came back void, and it stood in the legend with nothing drawn.  Every source, not only the optional ones.
+        if (!zs.some(function (v) { return !isNaN(v); })) { result.pending--; draw(); return; }
         result.series.push({ id: s.id, title: s.title, color: PALETTE[i % PALETTE.length], z: zs, zoom: z });
         result.pending--;
         draw();

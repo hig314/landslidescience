@@ -1,6 +1,6 @@
 # State of play
 
-*Last revised 2026-11-16.* The one dated snapshot in the project notes: what
+*Last revised 2026-11-20.* The one dated snapshot in the project notes: what
 is waiting to be confirmed on production, what is open, and a short log of
 what shipped. **It rots**; correct or delete an entry rather than working
 around it. For lidar publishing state do not trust any number written down
@@ -10,6 +10,42 @@ How this file is kept: a feature's design lives in its `docs/` file, not
 here. When something ships it gets one line in the log and, if part of it has
 not been exercised on production, one line in the checklist. Log lines older
 than about two months can go; git has them.
+
+## Restart here (2026-11-21 21:00)
+
+Written for a restart after the power-cord trouble of 2026-11-20 (the Mac
+hibernated on a flat battery ~20:51–21:25 and a Nunatak write failed in it).
+
+- **Scoops3D reference pilots: paused, nothing running.** Done, failed and
+  the exact resume commands: `tools/terrain/scoops/README.md`, "Paused
+  2026-11-20". Waits for Hig. The no-comparison hold still applies to
+  Scoops (it was lifted for the landform statistics only).
+- **Topobathy `run_1118.sh`: RUNNING, owned by the topobathy session.** The
+  2026-11-20 hold stopped it after kj_r7c4 (done, rc 0); Hig's review_1121
+  fixes relaunched it 2026-11-21 17:33 (commit 7ded876), redoing r6c2 r6c4
+  r3c5 r4c5, then a publish and its own HOLD for Hig. Its state is atop
+  `tools/lidar/TOPOBATHY_PLAN.md` (topobathy worktree) and in
+  `$W/run_1118.log`. If the power fails: the queue resumes per its header;
+  check the box in progress for a `solve.json` before trusting it.
+- **Hand-placed sounding points: code deployed 2026-11-21 (untested, Hig's
+  choice; `migrate_soundings` run on prod); DATA NOT YET ON PROD.** Dev's
+  `hand_placed` survey (19 points, 19 levels, Hig's real estimates) was
+  exported to `data/soundings_handoff/hand_placed_dev_2026-11-21.json`, with
+  `hp_import.py` beside it (one transaction, id remap, refuses if the survey
+  already exists, checks counts; run command in its header). The tool
+  permission check refused the prod write; Hig to approve or run it. Do not
+  place points on prod before it runs (a prod point starts its own
+  `hand_placed` survey and the copy becomes a merge). Points added in dev
+  after 2026-11-21 need a fresh export (`hp_export.py`, same folder).
+- **Landform statistics as analysis axes: deployed 2026-11-21** (7d208a9),
+  cube columns rsynced; not yet drawn in a browser on prod.
+- **Local, not pushed:** b91077e (ArcticDEM profile/probe read as NAVD88,
+  from another session) waits for Hig's dev test. Uncommitted on purpose:
+  the `docker-compose.override.yml` Nunatak pmtiles mount (local-only),
+  `logs/`, the two `_scoops_core.so` builds.
+- Dev stack (Docker, :8001) was started 2026-11-21 and left up.
+- Before relaunching any long run: `pmset -g batt` on AC, Nunatak mounted,
+  runs under `caffeinate -i -s`.
 
 ## To confirm on production
 
@@ -27,6 +63,8 @@ by curl, by API or not at all.
 - [ ] **NOAA chart basemap, NASA global susceptibility overlay** (9585f3d, 2026-11-05): neither drawn in a browser on prod.
 - [ ] **NASA susceptibility and the five fixed-scale slopes as analysis axes** (df9247b, c0ce02a): checked by API only.
 - [ ] **Edit-form checks** (069905e, 2026-11-11): nobody has saved through the banner / date-bracket / year-text checks on prod. Records 1166, 1174 and 1504 will trip them on their next edit (see *Edit-form follow-ups* below).
+- [ ] **Hand-placed sounding points on /lidar/** (251acb6, deployed 2026-11-21): never tested in dev or prod; read endpoints answer 200, nobody has placed or edited a point.
+- [ ] **Landform statistics as analysis axes** (7d208a9, 2026-11-21): density API checked on prod; not drawn in a browser there.
 - [ ] **Terrain comparison** (2026-11-12/13): profiles, shared QMS bases, `hc=1`, JPEG export not browser-tested on prod.
 - [ ] **Saved comparisons** (6c8dc13, 2026-11-13): nothing saved on prod yet; the first signed-in *Submit* is the first real test.
 - [ ] **`/traffic/services/`** (2026-11-14): not opened signed in on prod.
@@ -42,6 +80,7 @@ by curl, by API or not at all.
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-21 · Ridge radius, ridge n, valley fall F as Cross-two-overlays axes, landslide-comparison hold lifted by Hig (7d208a9); hand-placed sounding points (251acb6, untested, data copy pending) · docs/ANALYSIS.md
 - 2026-11-19 · Daymet precipitation + air temperature, overlays and analysis axes (76febe2); exploratory landform statistics, overlays only (6764ed9) · docs/PERMAFROST.md. Open: multi-size required-strength run stopped when Nunatak was unplugged, next steps atop tools/terrain/scoops/README.md
 - 2026-11-16 · Inventory-tab explorer for the outside inventories ("Showing" switch; families, ring/size/fade, presets, their fields, review filter, spelling fold) · docs/EXTERNAL_INVENTORIES.md
 - 2026-11-16 · Review of mirrored external records: shared categories (`+`), note, promoted read live; editors only; `migrate_external_review` per environment · docs/EXTERNAL_INVENTORIES.md

@@ -111,6 +111,22 @@ CREATE TABLE IF NOT EXISTS soundings (
     updated_at      timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE soundings ADD COLUMN IF NOT EXISTS depth_bound text NOT NULL DEFAULT '';  -- '' depth | 'min' at least this deep
+-- POINT TYPES (2026-11-17, Hig: "a simple interface to add new estimated sounding points ... a type that is 'Estimated' by
+-- default, and new types can be created with a '+' button"): '' for a measured sounding as delivered; a name from
+-- sounding_point_types for a point placed by hand on /lidar/ (an estimate from the downstream topography, say).  The
+-- type rides the export, so a composite can weigh an estimate as one.
+ALTER TABLE soundings ADD COLUMN IF NOT EXISTS point_type text NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS sounding_point_types (
+    id              serial PRIMARY KEY,
+    name            text NOT NULL,
+    notes           text NOT NULL DEFAULT '',
+    created_by      text NOT NULL DEFAULT '',
+    created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sounding_point_types_name_key ON sounding_point_types (lower(name));
+INSERT INTO sounding_point_types (name, notes, created_by)
+     SELECT 'Estimated', 'a depth inferred, not measured (e.g. from the downstream topography of a dammed lake)', 'system'
+      WHERE NOT EXISTS (SELECT 1 FROM sounding_point_types WHERE lower(name) = 'estimated');
 CREATE INDEX IF NOT EXISTS soundings_geom_idx ON soundings USING GIST (geom);
 CREATE INDEX IF NOT EXISTS soundings_survey_idx ON soundings (survey_id);
 

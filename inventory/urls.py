@@ -110,6 +110,10 @@ urlpatterns = [
     path('api/scarps/', scarps.api_scarps, name='api_scarps'),
     # Bathymetric soundings: reads only; gated surveys for data users (inventory/soundings.py).
     path('api/soundings/', soundings.api_soundings, name='api_soundings'),
+    path('api/soundings/types/', soundings.api_point_types, name='api_sounding_types'),
+    path('api/soundings/types/create/', soundings.api_point_type_create, name='api_sounding_type_create'),
+    path('api/soundings/points/create/', soundings.api_point_create, name='api_sounding_point_create'),
+    path('api/soundings/points/<int:point_id>/', soundings.api_point_update, name='api_sounding_point_update'),
     # Permafrost patch detail (the analysis panel's permafrost preset); grids in data/permafrost/.
     path('api/permafrost/patch/', permafrost.api_patch, name='api_permafrost_patch'),
     # The analysis panel's quantity cube (inventory/analysis.py; data/quantities/).

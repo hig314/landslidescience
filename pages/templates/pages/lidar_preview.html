@@ -128,6 +128,21 @@ vanish depending on which way you light them.
   /* Group profile (trace_profile.js): the panel and chart are ls_panels.css's
      (.float-panel, .profile-*), as on /inventory/; this is only where it opens. */
   #tgp-panel { top: 10px; left: 312px; width: 660px; height: 340px; }
+  /* The elevation profile (profile.js, the inventory's tool, 2026-11-17) and the hand-placed
+     sounding points (sounding_points.js): both float, and both can be open at once. */
+  #profile-panel { top: 360px; left: 312px; width: 640px; height: 300px; }
+  #sp-panel { top: 60px; left: calc(100% - 370px); width: 300px; min-height: 0; height: auto; resize: none;
+              font-size: 12px; }
+  #sp-panel .sp-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid #eee;
+                       font-weight: 600; }
+  #sp-panel .sp-head span { flex: 1; }
+  #sp-panel .sp-body { padding: 6px 10px 8px; }
+  #sp-panel .sp-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+  #sp-panel .sp-row label { width: 92px; color: #555; }
+  #sp-panel .sp-row input[type=number], #sp-panel select { width: 90px; }
+  #sp-panel .sp-hint { color: #777; font-size: 11px; }
+  #sp-panel textarea { width: 100%; box-sizing: border-box; }
+  #sp-panel button.sp-x { border: none; background: none; font-size: 15px; cursor: pointer; }
   .tgp-mark { cursor: grab; background: #111; color: #fff; font: 700 12px system-ui, sans-serif; border: 2px solid #fff;
     border-radius: 50%; width: 20px; height: 20px; line-height: 20px; text-align: center;
     box-shadow: 0 1px 4px rgba(0,0,0,.4); }
@@ -321,6 +336,7 @@ vanish depending on which way you light them.
   </details>
 </div>
 
+<div id="profile-panel" class="float-panel hidden"></div>
 {% if is_inventory_editor %}
 <div id="trace-panel">
   <div class="hd">&#9998; Trace landforms</div>
@@ -349,6 +365,29 @@ vanish depending on which way you light them.
   <div class="msg" id="tp-msg"></div>
   <div style="text-align:right"><button type="button" id="tp-exit">Exit</button></div>
 </div>
+<div id="sp-panel" class="float-panel hidden">
+  <div class="sp-head float-header"><span id="sp-title">New point</span><button type="button" class="sp-x" id="sp-x" title="Close (leaves the tool)">&times;</button></div>
+  <div class="sp-body">
+    <div class="sp-hint">Click the map to place a point; click a purple-ringed point to edit it; drag the marker to move it.
+      A profile drawn first (&#8767;) stays open beside this.</div>
+    <div class="sp-row"><label>Where</label><span id="sp-where">click the map</span></div>
+    <div class="sp-row"><label>Type</label><select id="sp-type"></select>
+      <button type="button" id="sp-addtype" title="A new type">+</button></div>
+    <div class="sp-row" id="sp-newtype" style="display:none"><label></label><input id="sp-newname" placeholder="new type name" style="width:120px">
+      <button type="button" id="sp-newok">Add</button></div>
+    <div class="sp-row"><label>Water level (m)</label><input type="number" step="0.01" id="sp-level"></div>
+    <div class="sp-row"><label></label><span class="sp-hint" id="sp-levelsrc"></span></div>
+    <div class="sp-row"><label>Bed elevation (m)</label><input type="number" step="0.01" id="sp-bed"></div>
+    <div class="sp-row"><label>or depth (m)</label><input type="number" step="0.01" id="sp-depthin"></div>
+    <div class="sp-row"><label></label><span class="sp-hint" id="sp-depth">type either; the other follows</span></div>
+    <div class="sp-row"><label>&plusmn; (m)</label><input type="number" step="0.1" min="0.01" id="sp-sigma" value="1"></div>
+    <textarea id="sp-notes" rows="3" placeholder="How the depth was estimated (e.g. outlet invert from the downstream profile)"></textarea>
+    <div class="sp-row"><button type="button" id="sp-save">Add point</button><button type="button" id="sp-del" style="display:none">Delete</button>
+      <span style="flex:1"></span><button type="button" id="sp-exit">Exit</button></div>
+    <div class="sp-hint" id="sp-msg"></div>
+    <div class="sp-hint">Elevations NAVD88. Depth = level &minus; bed.</div>
+  </div>
+</div>
 <script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
 <script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>
 {% endif %}
@@ -368,10 +407,14 @@ vanish depending on which way you light them.
 <script src="{% static 'inventory/js/ls_export.js' %}"></script>
 <script src="{% static 'inventory/js/scarps.js' %}"></script>
 <script src="{% static 'inventory/js/soundings.js' %}"></script>
+<script src="{% static 'inventory/js/dem_datum_ak.js' %}"></script>
 <script src="{% static 'inventory/js/dem_read.js' %}"></script>
 <script src="{% static 'inventory/js/ls_water.js' %}"></script>
 <script src="{% static 'inventory/js/profile_chart.js' %}"></script>
 <script src="{% static 'inventory/js/trace_profile.js' %}"></script>
+<script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
+<script src="{% static 'inventory/js/profile.js' %}"></script>
+{% if is_inventory_editor %}<script src="{% static 'inventory/js/sounding_points.js' %}"></script>{% endif %}
 <script>
 (function () {
   'use strict';
@@ -577,6 +620,15 @@ vanish depending on which way you light them.
   var active = null;          // dataset id whose DEM is currently loaded
   var publicIds = {};         // ids in the PUBLIC catalogue (not the gated one)
   var catalog = null;
+  var readExtra = null, readMerged = null;     // dev mode: the public surveys, for reading (profile, water level)
+  function readCatalog() {
+    if (!catalog || !readExtra) return catalog;
+    if (readMerged && readMerged._base === catalog) return readMerged;
+    var have = {}; catalog.features.forEach(function (f) { have[f.properties.id] = true; });
+    readMerged = Object.assign({}, catalog, { features: catalog.features.concat(readExtra.filter(function (f) { return !have[f.properties.id]; })) });
+    readMerged._base = catalog;
+    return readMerged;
+  }
 
   function fmtBytes(n) {
     if (!n) return '—';
@@ -2018,6 +2070,11 @@ vanish depending on which way you light them.
     // 404 unless DEBUG) -- e.g. the KBay reclassification comparison.
     var _devCat = new URLSearchParams(location.search).get('catalog') === 'dev';
     var _pubCat = fetch(_devCat ? '/lidar/dev/catalog.geojson' : '/lidar/catalog.geojson').then(function (r) { return r.json(); });
+    // ...and in dev mode the public surveys too, for READING only (the profile, the point tool's water level;
+    // 2026-11-17, Hig: Beluga Lake's level is in Homer 2019, which the dev catalogue does not carry).  They are
+    // not listed or drawn here; readCatalog() is the dev catalogue plus them.
+    if (_devCat) fetch('/lidar/catalog.geojson').then(function (r) { return r.json(); })
+      .then(function (j) { readExtra = j.features || []; readMerged = null; }).catch(function () {});
     var _gatedCat = _devCat ? Promise.resolve(null) : {% if can_view_restricted %}
       fetch('/lidar/catalog-gated.geojson')
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -2495,6 +2552,39 @@ vanish depending on which way you light them.
       onPick: tracePopup,
       flash: function (m, bad) { if (tp) { tpSay(m, bad); tpSync(); traceKindFilter(); traceGroupsUi(); } }
     }).then(function () {
+      // The elevation profile (profile.js, the inventory's tool; 2026-11-17, Hig: "useful in general, but
+      // would be useful for generating points too"): its line and chart outlive its mode, so a profile
+      // drawn first stays open while the point tool places points.
+      if (window.LSProfile) LSProfile.init({ map: map, catalog: readCatalog, makePanel: LSFloat.make });
+      // Hand-placed sounding points (editors).  The WATER LEVEL is read under the click from a LIDAR that shows
+      // the water: the survey on show first, then every covering survey, newest first -- never a bathymetry or
+      // topobathy surface (2026-11-17: over a lake those show the BED, so every estimate stood "above the water"
+      // and was refused), and a survey void there (KBay 2023's DTM drops the water) is passed over.  Mapterhorn
+      // only as the last resort: its 3DEP is not reliably flattened (Beluga Lake: 3.75 m against Homer 2019's
+      // 5.61 m and the city's managed 5.49-6.10 m).
+      function showsWater(f) { return !!f && !/bathy|multibeam|sonar/i.test(f.properties.product || ''); }
+      function levelSources(lon, lat) {
+        var cat = readCatalog(); if (!cat) return [];
+        var fs = cat.features.filter(function (f) { return showsWater(f) && f.geometry && turf.booleanPointInPolygon([lon, lat], f); });
+        fs.sort(function (a, b) { return (b.properties.id === active) - (a.properties.id === active) || (+b.properties.year || 0) - (+a.properties.year || 0); });
+        return fs.map(function (f) { return f.properties.id; });
+      }
+      if (IS_EDITOR && window.LSSoundPts) LSSoundPts.init({
+        map: map, api: '/inventory/', csrf: function () { return '{{ csrf_token }}'; },
+        showSoundings: function () {
+          var cb = document.getElementById('sdv');
+          if (!cb.checked) { cb.checked = true; soundingsShow(true); syncUrl(); }
+        },
+        surface: function (lon, lat) {
+          var ids = levelSources(lon, lat);
+          return LSProfile.pointElevations(lon, lat, ids).then(function (rows) {
+            var by = {}; rows.forEach(function (r) { if (isFinite(r.z)) by[r.id] = r; });
+            for (var i = 0; i < ids.length; i++) if (by[ids[i]]) return { z: by[ids[i]].z, src: by[ids[i]].title || ids[i] };
+            var mt = by.mapterhorn;
+            return mt ? { z: mt.z, src: 'Mapterhorn (3DEP) -- no lidar water here; 3DEP is not always flattened, check it' } : null;
+          });
+        }
+      });
       LSTraceProfile.init({
         map: map, catalog: function () { return catalog; },
         preferred: function () { return [active, document.getElementById('df').value].filter(Boolean); },

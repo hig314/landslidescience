@@ -121,6 +121,9 @@ def build(key, xs, ys):
     if q.get('alaska_only'):
         bad |= ~alaska_mask()
     g[bad] = np.nan
+    if q.get('log10'):
+        with np.errstate(invalid='ignore', divide='ignore'):
+            g = np.where(g > 0, np.log10(g), np.nan).astype(np.float32)
     np.save(OUT / f'{key}.npy', g)
     ok = np.isfinite(g)
     print(f'  {key:8s} {ok.sum():>9,} valid   {np.nanmin(g):10.3f} .. {np.nanmax(g):10.3f}' if ok.any() else f'  {key:8s} EMPTY')

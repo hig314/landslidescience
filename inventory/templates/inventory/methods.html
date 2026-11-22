@@ -542,10 +542,12 @@
   two sides of the map's wiper: set up a wiper with two overlays and they
   become x (left) and y (right); pick axes in the panel and the wiper is
   made to show them, so the map always shows what the plot is crossing.
-  Twenty-six quantities can be axes today: elevation, slope, aspect and
+  Twenty-nine quantities can be axes today: elevation, slope, aspect and
   northness from the 60&nbsp;m terrain; slope at the five other fixed
   scales of the slope overlays (local, 200&nbsp;m, 500&nbsp;m, 1&nbsp;km and
-  2&nbsp;km); Daymet mean annual precipitation and air temperature (the
+  2&nbsp;km); the three landform statistics (ridge radius, ridge scale
+  exponent n, and valley fall F, whose axis is its base-10 logarithm because
+  F spans three decades: 0 is 1&nbsp;m, 1 is 10&nbsp;m, 2 is 100&nbsp;m); Daymet mean annual precipitation and air temperature (the
   precipitation axis stops at 3000&nbsp;mm, wetter ground counts in its last
   bin); the Gruber, Obu and Pastick
   permafrost products and our downscales; the four susceptibility models
@@ -683,7 +685,11 @@
   larger valley's floor reads that floor's width; wide lowland floors read
   high on width alone; and drainage area is counted only within about
   5&nbsp;km of each 50&nbsp;km working block. These are first versions, shown
-  for inspection. Build code is in <code>tools/terrain/landform/</code>.
+  for inspection. All three can be axes of the <em>Cross two overlays</em>
+  panel, read from the 40&nbsp;m smoothed fields at the lattice points and at
+  each landslide&rsquo;s centroid, so a landslide reads the signature of the
+  landscape around it rather than the crest or floor it sits on; they brush
+  but do not paint the map. Build code is in <code>tools/terrain/landform/</code>.
 </p>
 <p>
   <strong>Precipitation and air temperature (Daymet).</strong> The Climate
