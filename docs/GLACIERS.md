@@ -503,17 +503,39 @@ scene), and a third product `stab` weights the template by stability
 calving face and flowing ice and keeps islands and shore. With both, Hubbard
 lands within ~130 m of a hand tie point (Gilbert Point); before, 1.6 km off.
 
+**Second method, `match2.py` + `fine.py` (2026-11-22), the one in use.**
+`match.py` left three things free that are not: the scale (its +-5 % search
+let Hubbard's candidates range 4.5..5.02 m; the reference is Web Mercator
+too, so the template size is exactly 10 / reference pixel), the orbit (the
+video's name says it; it agreed with the winner on 53 of 56 accepted), and
+which product to trust (decide.py voted over six separate peaks). match2
+sums the three products' significance maps into one consensus, runs it with
+water filled dark AND with water left out of the correlation (two-sided
+weighted NCC; Icy Bay's mélange is bright, so the dark fill is wrong there
+and Guyot only placed this way), keeps the better, and uses the anchor as a
+soft prior (-1 significance a km beyond 3 km from the frame). `fine.py`
+repeats it on a 10 m simulation (Mapterhorn z13) around the result, at the
+video's own pixel. 3 s a video for match2, ~15 s for fine (tile fetches).
+On the 76 site videos: 60 of the 63 accepted unchanged (< 300 m), three
+moved and better (Hubbard ~730 m, now on the ascending orbit its name says:
+Gilbert Point's coast on the rock and the islet on its outline; Grand
+Pacific; Columbia), and 8 of the 13 rejected placed (two Guyot, two Tsaa,
+Margerie, Skilak, Tyndall, Alsek). Still not placed: Grand Pacific "Ferris",
+Knik (3b7679), both Agassiz, Bering East (flat piedmont ice, little to hold).
+`compare.py` is the regression gate (against the eye-checked placements);
+`look.py` the eye check (median beside the DEM hillshade, coast + RGI on both).
+
 Pipeline (all of it on the workstation; work dir `/Volumes/Nunatak/glacier_s1_georef/`):
 1. `batch.py site_videos.txt`: per site video (list = prod's s1 videos with
    their anchors) fetch, `stack.py`, `sim.py` (±30 km around the anchor),
-   RGI export from dev, `match.py --merc 10` (lum / feat / stab x asc / desc).
+   RGI export from dev, then (first method) `match.py --merc 10`.
    One at a time: `stack.py` is row-blocked float16 (~5 GB peak; the first
    version took 28 GB on a 2572x1960x105 video).
-2. `decide.py`: per video, the candidate most others agree with (within
-   800 m), checked against RGI outlines (median edge strength under the
-   outline / median of the frame; ~1.5 at a right placement, ~1.0 wrong).
-   Grade good / fair / none, and `rgi_check.jpg`. Every placement is looked
-   at by eye before it goes to the site; the grade orders that review.
+2. `m2_all.sh m2_p1` (match2 per video), `fine_all.sh` (fine.py), eye check
+   with `look.py`, the accepted ids into `accepted.txt`, then
+   `decide2.py m2_p1 accepted.txt` -> `v/<id>/placement.json` (the first
+   method's kept as `placement_v1.json`; first method: `decide.py`, which
+   voted over match.py's six candidates and graded them with an RGI score).
 3. `web_products.py OUT [--skip ...] [--manual tie.json]`: five WebP images per
    video (median, range, variability, sign, edges; the frame's own grid,
    label box transparent) and `georef.json` keyed by video file name.
@@ -526,5 +548,6 @@ dot at its NW corner; hovering the edge lights it, clicking the edge or dot
 opens a menu (the video, or a product); the choice zooms to the box and
 draws it in place, directly above the topmost raster (outlines and flow
 lines stay on top), with a panel (product, opacity, play/pause + seek for
-the video, zoom). The segment marker's player popup has the same buttons.
+the video, zoom). A placed video's dot and segment on the glacier path are
+left off (Hig, 2026-11-22: one way in per video); unplaced videos keep them.
 Column `glacier_videos.georef` (jsonb, `migrate_glaciers`).

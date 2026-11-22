@@ -62,7 +62,7 @@ def mapterhorn(x0, y0, x1, y1, z=11):
     return mos, tr
 
 
-def load_dem(w, s, e, n, res, source='3dep'):
+def load_dem(w, s, e, n, res, source='3dep', z=11):
     lat0 = (s + n) / 2
     k = 1 / math.cos(math.radians(lat0))           # mercator metres per ground metre
     x0, y1 = merc(w, n); x1, y0 = merc(e, s)
@@ -73,7 +73,7 @@ def load_dem(w, s, e, n, res, source='3dep'):
     tr = from_origin(x0, y1, px, px)
     out = np.full((H, W), np.nan, np.float32)
     if source == 'mapterhorn':
-        mos, mtr = mapterhorn(x0, y0, x1, y1)
+        mos, mtr = mapterhorn(x0, y0, x1, y1, z)
         reproject(mos, out, src_transform=mtr, src_crs='EPSG:3857', src_nodata=np.nan, dst_transform=tr,
                   dst_crs='EPSG:3857', resampling=Resampling.bilinear, dst_nodata=np.nan)
         out[out < -50] = np.nan

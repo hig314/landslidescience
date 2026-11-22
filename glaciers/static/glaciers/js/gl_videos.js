@@ -50,7 +50,7 @@ window.GLVideos = (function () {
     // ------------------------------------------------------------------
     function addLayers() {
         if (!map.getSource('gv-seg')) {
-            map.addSource('gv-seg', { type: 'geojson', data: D.segments || EMPTY });
+            map.addSource('gv-seg', { type: 'geojson', data: unplaced(D.segments) });
             map.addLayer({ id: 'gv-seg', type: 'line', source: 'gv-seg',
                            layout: { 'line-cap': 'round', 'line-join': 'round' },
                            paint: { 'line-color': ['get', 'color'], 'line-width': 11, 'line-opacity': 0.32 } });
@@ -62,7 +62,7 @@ window.GLVideos = (function () {
                            paint: { 'line-color': '#ff4081', 'line-width': 9, 'line-opacity': 0.75 } });
         }
         if (!map.getSource('gv-pt')) {
-            map.addSource('gv-pt', { type: 'geojson', data: D.points || EMPTY });
+            map.addSource('gv-pt', { type: 'geojson', data: unplaced(D.points) });
             map.addLayer({ id: 'gv-pt', type: 'circle', source: 'gv-pt',
                            paint: { 'circle-radius': 7, 'circle-color': ['get', 'color'],
                                     'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } });
@@ -102,14 +102,24 @@ window.GLVideos = (function () {
             if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v ? 'visible' : 'none');
         });
     }
+    // A video placed from its content (georef) is reached from its footprint
+    // box; its dot and segment on the glacier path are left off, so there is
+    // one way in per video (Hig, 2026-11-22). Unplaced videos keep the dot.
+    function unplaced(fc) {
+        if (!fc) return EMPTY;
+        return { type: 'FeatureCollection', features: fc.features.filter(function (f) {
+            var v = byId[f.properties.video_id];
+            return !(v && v.georef && v.media === 'video');
+        }) };
+    }
     function pickData() {
         return { type: 'FeatureCollection', features: S.picks.map(function (p) {
             return { type: 'Feature', geometry: p.geometry, properties: {} };
         }) };
     }
     function redraw() {
-        if (map.getSource('gv-seg')) map.getSource('gv-seg').setData(D.segments || EMPTY);
-        if (map.getSource('gv-pt')) map.getSource('gv-pt').setData(D.points || EMPTY);
+        if (map.getSource('gv-seg')) map.getSource('gv-seg').setData(unplaced(D.segments));
+        if (map.getSource('gv-pt')) map.getSource('gv-pt').setData(unplaced(D.points));
         if (map.getSource('gv-pick')) map.getSource('gv-pick').setData(pickData());
         if (map.getSource('gv-foot')) map.getSource('gv-foot').setData(footData());
         if (map.getSource('gv-corner')) map.getSource('gv-corner').setData(cornerData());
