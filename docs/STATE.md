@@ -94,7 +94,13 @@ In no particular order.
   re-exported (20: 16 approved, 3 assigned, 1 rejected) and all 19 imported
   on prod, 0 failed (log `data/glaciers/s1_review/import_20261121.log` on the
   droplet; the 2026-11-20 manifest/decisions kept beside it as
-  `*.2026-11-20.json`). Prod now has 32 `s1` videos. Hig's placements after
+  `*.2026-11-20.json`). Second batch the same evening: 44 more, 0 failed
+  (`import_20261121b.log`; inputs before it kept as `*.2026-11-21a.json`);
+  prod now has 76 `s1` videos and 5.6 GB free on the droplet, so the next
+  batches need a look at disk first. Columbia3 sits on Columbia's lowest leg
+  (Hig to say whether it moves up the east arm). Picking a leg on the page:
+  paste a /glaciers/ URL centred on the leg (`map=z/lat/lon`); the import does
+  not read it yet, so such videos are moved by hand after the run. Hig's placements after
   the run: Land lobe moved one leg up Columbia's east arm (line 416, 0.58–0.70;
   retreat), Baird Middle one leg up the Baird trunk (455, 0.64–0.81); Alsek and
   both Brady videos stay where the import put them. The review page now sorts
