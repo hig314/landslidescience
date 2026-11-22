@@ -1,5 +1,14 @@
 # Topobathy compositing: tools and interface
 
+**`snd_far_local` (2026-11-21 ~20:40): written, OFF by default, waiting on Hig.** The lone-cast fix: far from casts the bed
+goes to the lake profile SCALED by the casts of its own area (cast depth / profile depth, carried by inverse distance
+softened at the casts' spacing, never over 1). Window test `review_1121/solve/pl_local` vs `pl_edge`, picture
+`review_1121/petrof_local.png` (`petrof_cmp.py`): Petrof's southern basin becomes a broad 15-25 m floor about the 19 m and
+13 m casts instead of two mounds in a 35 m basin; lake mean depth 28.1 -> 24.0 m, deepest unchanged (49.0), every cast
+still met, the north untouched; 226 s (412 s before). Not tested on Grewingk / Halibut Cove Lagoon / Beluga. Distance is
+straight-line (through a peninsula). To turn on: default `snd_far_local=1` in solve.py + a ledger row, then re-solve the
+sounded boxes.
+
 **Recorded, not fixed (Hig 2026-11-21, on `review_1121/petrof_14p5.png`):** "seems ok except the sounding at 59.37869,
 -150.81877 is postulated to be on an isolated ridge, rather than to be representative of that area of the lake. Not a
 huge issue, but worth noting." That is cast id 37222 (19 m deep): `snd_far` pulls the bed back to the lake's depth
@@ -53,8 +62,9 @@ plain (3DEP 14-24 m, slope < 4 %, 16 ha) is -0.2 to -0.3 m (median), not -1; and
 Hig's polygon, 2,649 kept cells) stands p5 12.1 / p10 12.3 / p25 12.7 / p50 14.3 m -- so about a quarter of the measured shore
 ground lies UNDER a 14 m lake (the water stage's 12.04 is that lower envelope).  `$W/review_1121/outwash.py`, `adem_off.py`.
 
-**HOLD (Hig, 2026-11-20 ~22:00, power-cord trouble): the queue is stopped by the main session once kj_r7c4's
-solve finishes. Do NOT relaunch run_1118.sh or start any other analysis until Hig says so.** The last line of
+*(Past, LIFTED: the queue was relaunched 2026-11-21 17:33 for Hig's review_1121 fixes.)* HOLD (Hig, 2026-11-20
+~22:00, power-cord trouble): the queue is stopped by the main session once kj_r7c4's
+solve finishes. Do NOT relaunch run_1118.sh or start any other analysis until Hig says so. The last line of
 `$W/run_1118.log` records where it stopped. The stop is done by the detached `$W/hold_after_r7c4.sh`
 (waits for the first log line naming kj_r3c5, then kills the queue and that box's solve; kj_r3c5 has no cm22
 solve.json, so it is redone on relaunch).

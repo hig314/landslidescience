@@ -33,7 +33,7 @@ DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hi
 P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=0.0, snd_cast_beside_m=15.0, fix_grid_bed_edge=1, comp_near_bed_m=30.0, line_yield_m=15.0, line_yield_min_level_m=2.0, line_yield_water=1, low_bound_tol_m=0.5,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24, amg=1,
-         snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_edge=1, snd_edge_full_m=8.0, snd_edge_fade_m=40.0, snd_edge_gap_m=0.05, snd_far=1, snd_cap=1, snd_far_min_m=40.0, snd_far_max_m=200.0, snd_far_len_m=50.0, snd_far_pct=50.0, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
+         snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_edge=1, snd_edge_full_m=8.0, snd_edge_fade_m=40.0, snd_edge_gap_m=0.05, snd_far=1, snd_far_local=0, snd_far_local_min=0.25, snd_cap=1, snd_far_min_m=40.0, snd_far_max_m=200.0, snd_far_len_m=50.0, snd_far_pct=50.0, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
 
 
 GRID = dict(res=0.0)      # > 0: every raster is read onto this resolution (the box driver's coarse deep-sea pass, --set grid_m=16)
@@ -952,7 +952,28 @@ def main(argv=None, ret=False):
                         cm_ = np.zeros(jz.shape, bool); cm_[cxy_[:, 0].astype(int), cxy_[:, 1].astype(int)] = True
                         cm_ |= sw_ & ((fixed & ~ring_) | (w > 0))                                    # a measured bed in the body speaks like a cast
                         dc_ = ndimage.distance_transform_edt(~cm_) * res; g_ = np.clip((dc_ - R0_) / R0_, 0.0, 1.0) ** 2
-                        far_ = prof_ & (g_ > 0); mu = np.where(far_, lb0 / (p["snd_far_len_m"] / res) ** 4 * g_, mu); z1 = np.where(far_, Pf_, z1)
+                        Pt_ = Pf_
+                        # ...THE PROFILE SCALED TO THE CASTS OF ITS OWN AREA (snd_far_local; Hig 2026-11-21, Petrof Lake 59.37869,-150.81877: a
+                        # lone 19 m cast in the unsounded southern basin "is postulated to be on an isolated ridge, rather than to be
+                        # representative of that area of the lake").  Each cast says how deep ITS part of the lake is against the lake-wide
+                        # profile (its depth / the profile's there); that ratio is carried between the casts by inverse distance, softened at
+                        # the casts' spacing, so a lone cast speaks for the ground out to about half way to the next ones.  Never over 1: a cast
+                        # deeper than the profile (48 m of water 30 m off a steep shore) is the shore's steepness, not a deeper basin next door
+                        # -- the rule above stands.
+                        if p["snd_far_local"]:
+                            st_ = 8; s_ = np.ones(jz.shape)
+                            for k_ in cb_:
+                                ck_ = np.array([(q[0], q[1], (lev[q[0], q[1]] - q[2]) / max(lev[q[0], q[1]] - Pf_[q[0], q[1]], 0.5)) for q in sl_ if Lb_[q[0], q[1]] == k_ and np.isfinite(lev[q[0], q[1]])], float)
+                                if len(ck_) < p["snd_prof_min"]: continue
+                                m_ = Lb_ == k_; rr_, cc_ = np.nonzero(m_); r0_, r1_, c0_, c1_ = rr_.min(), rr_.max() + 1, cc_.min(), cc_.max() + 1
+                                gr_, gc_ = np.arange(r0_, r1_ + st_, st_), np.arange(c0_, c1_ + st_, st_); num_ = np.zeros((gr_.size, gc_.size)); den_ = np.zeros_like(num_)
+                                for r_, c_, q_ in ck_:
+                                    w_ = 1.0 / (((gr_[:, None] - r_) ** 2 + (gc_[None, :] - c_) ** 2) * res * res + R0_ * R0_) ** 2; num_ += w_ * q_; den_ += w_
+                                sk_ = ndimage.map_coordinates(num_ / den_, np.array(np.meshgrid((np.arange(r0_, r1_) - r0_) / st_, (np.arange(c0_, c1_) - c0_) / st_, indexing="ij")), order=1, mode="nearest")
+                                s_[r0_:r1_, c0_:c1_] = np.where(m_[r0_:r1_, c0_:c1_], np.clip(sk_, p["snd_far_local_min"], 1.0), s_[r0_:r1_, c0_:c1_])
+                            Pt_ = np.where(prof_ & np.isfinite(lev), lev - s_ * (lev - Pf_), Pf_)
+                            log(f"  ...the profile scaled to the casts of its own area: scale p5/p50/p95 {np.percentile(s_[prof_], [5, 50, 95]).round(2)}; {int((prof_ & (s_ < 0.9)).sum()) * res * res / 1e4:.1f} ha of sounded still water take a profile over a tenth shallower than the lake's")
+                        far_ = prof_ & (g_ > 0); mu = np.where(far_, lb0 / (p["snd_far_len_m"] / res) ** 4 * g_, mu); z1 = np.where(far_, Pt_, z1)
                         log(f"  far from every cast the bed is the profile: casts stand {R0_:.0f} m apart (nearest neighbour, p{p['snd_far_pct']:g}); {int(far_.sum()) * res * res / 1e4:.1f} ha of sounded still water lie beyond that, {int((prof_ & (g_ >= 1)).sum()) * res * res / 1e4:.1f} ha beyond twice it")
         cur_ = [(q[0], q[1]) for q in sl_]                                    # where each cast's datum sits: its own cell until it has to move
         def snd_w(zc):
