@@ -3,7 +3,8 @@
 **Petrof shore rule revised + r4c5 queued (2026-11-22 ~09:50; Hig: "queue a rerun of that box after the others").** Issue 1
 below is fixed in solve.py (ledger `snd_edge_1122`; test `pl_edge2`, `review_1121/petrof_delta.png`, `delta_cmp.py`).
 `$W/after_run_r4c5.sh` (running, under caffeinate) waits for run_1118 to end, re-solves kj_r4c5 and republishes. Left: a
-0.4 m hump at the shoreline itself (15.2 then 14.8 m inland) in the test profiles.
+0.4 m hump at the shoreline itself (15.2 then 14.8 m inland) in the test profiles. Hig 2026-11-22: "there's still a
+slight ridge along the lake, but it's definitely good enough at this point" -- recorded, not to be chased now.
 
 **HIG'S MORNING REVIEW, 2026-11-22 (14 boxes published): "looking good enough I think we should finish the full run and make
 this a published product, assuming nothing worse shows up (waiting on Homer Harbor and Woz delta for instance)".** So: let
