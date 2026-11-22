@@ -11,30 +11,39 @@ here. When something ships it gets one line in the log and, if part of it has
 not been exercised on production, one line in the checklist. Log lines older
 than about two months can go; git has them.
 
-## Restart here (2026-11-20 22:00, power-cord trouble)
+## Restart here (2026-11-21 21:00)
 
-Hig paused work while the Mac's power cord is unreliable (the Mac hibernated
-on a flat battery ~20:51–21:25 and a Nunatak write failed in it).
+Written for a restart after the power-cord trouble of 2026-11-20 (the Mac
+hibernated on a flat battery ~20:51–21:25 and a Nunatak write failed in it).
 
 - **Scoops3D reference pilots: paused, nothing running.** Done, failed and
   the exact resume commands: `tools/terrain/scoops/README.md`, "Paused
-  2026-11-20". The standing no-comparison hold still applies.
-- **Topobathy full rerun `run_1118.sh`: left RUNNING** (Hig's choice). The
-  topobathy session relaunched it at 21:47 on AC, redoing kj_r7c4's solve;
-  its state and resume block are atop `tools/lidar/TOPOBATHY_PLAN.md`
-  (topobathy worktree) and in `$W/run_1118.log`. In `run_1118_diff.txt` the
-  2026-11-20 21:47 kj_r7c4 entry is marked INVALID (it read a stale product).
-  If the power fails again: the queue resumes per its header; check the box
-  in progress for a `solve.json` before trusting it.
-- **Hand-placed sounding points DEPLOYED 2026-11-21 untested** (Hig chose to
-  ship them with the landform axes; `migrate_soundings` run on prod). **Dev's
-  `hand_placed` survey (19 points, 19 levels) is NOT yet on prod**: the copy
-  was blocked by the tool permission check; the export is in this session's
-  scratchpad (gone at reboot) and must be redone from dev (see the
-  hand-placed soundings memory). Until then a point placed on prod starts a
-  new `hand_placed` survey there, which the copy must then merge into.
-- Still uncommitted on purpose: the `docker-compose.override.yml` Nunatak
-  pmtiles mount (local-only) and `logs/`.
+  2026-11-20". Waits for Hig. The no-comparison hold still applies to
+  Scoops (it was lifted for the landform statistics only).
+- **Topobathy `run_1118.sh`: RUNNING, owned by the topobathy session.** The
+  2026-11-20 hold stopped it after kj_r7c4 (done, rc 0); Hig's review_1121
+  fixes relaunched it 2026-11-21 17:33 (commit 7ded876), redoing r6c2 r6c4
+  r3c5 r4c5, then a publish and its own HOLD for Hig. Its state is atop
+  `tools/lidar/TOPOBATHY_PLAN.md` (topobathy worktree) and in
+  `$W/run_1118.log`. If the power fails: the queue resumes per its header;
+  check the box in progress for a `solve.json` before trusting it.
+- **Hand-placed sounding points: code deployed 2026-11-21 (untested, Hig's
+  choice; `migrate_soundings` run on prod); DATA NOT YET ON PROD.** Dev's
+  `hand_placed` survey (19 points, 19 levels, Hig's real estimates) was
+  exported to `data/soundings_handoff/hand_placed_dev_2026-11-21.json`, with
+  `hp_import.py` beside it (one transaction, id remap, refuses if the survey
+  already exists, checks counts; run command in its header). The tool
+  permission check refused the prod write; Hig to approve or run it. Do not
+  place points on prod before it runs (a prod point starts its own
+  `hand_placed` survey and the copy becomes a merge). Points added in dev
+  after 2026-11-21 need a fresh export (`hp_export.py`, same folder).
+- **Landform statistics as analysis axes: deployed 2026-11-21** (7d208a9),
+  cube columns rsynced; not yet drawn in a browser on prod.
+- **Local, not pushed:** b91077e (ArcticDEM profile/probe read as NAVD88,
+  from another session) waits for Hig's dev test. Uncommitted on purpose:
+  the `docker-compose.override.yml` Nunatak pmtiles mount (local-only),
+  `logs/`, the two `_scoops_core.so` builds.
+- Dev stack (Docker, :8001) was started 2026-11-21 and left up.
 - Before relaunching any long run: `pmset -g batt` on AC, Nunatak mounted,
   runs under `caffeinate -i -s`.
 
