@@ -17,7 +17,11 @@
  *     offers the video or one of its static products (median, brightness
  *     range, variability, sign persistence, edge strength) drawn in place on
  *     the map, and zooms to it. One overlay at a time, with a small panel
- *     (product, opacity, play/pause and a time slider for the video).
+ *     (product, opacity, play/pause and a time slider for the video);
+ *   - a BUILT timelapse (tools/glaciers/s1_build/, `manage.py s1_videos
+ *     built`) has no date burned in: georef.months names frame k, at
+ *     georef.fps, and the month is drawn over the video as it plays, on the
+ *     map (a label at the frame's NW corner) and in the panel and popup.
  *
  * Clicks go through LSTools: a 'reference' entry above the network's own
  * (so a marker click plays the video rather than plotting the path), and,
@@ -39,6 +43,26 @@ window.GLVideos = (function () {
         });
     }
     function visible() { return GL.tab() !== 'flow'; }
+    // A built timelapse's month at time t (georef.months[k] is frame k).
+    var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    function frameMonth(v, t) {
+        var g = v && v.georef;
+        if (!g || !g.months || !g.months.length) return null;
+        var i = Math.max(0, Math.min(g.months.length - 1, Math.floor(t * (g.fps || 10) + 1e-3)));
+        var m = g.months[i];
+        return MON[+m.slice(5, 7) - 1] + ' ' + m.slice(0, 4);
+    }
+    // Follow a video's frames until alive() says stop. A frame loop rather
+    // than 'timeupdate' (about 4 a second, behind a 10 fps video).
+    function followMonths(v, vid, alive, show) {
+        var last = null;
+        (function tick() {
+            if (!alive()) return;
+            var s = frameMonth(v, vid.currentTime);
+            if (s !== last) { last = s; show(s || ''); }
+            requestAnimationFrame(tick);
+        })();
+    }
     function say(msg, bad) {
         if (!el.msg) return;
         el.msg.textContent = msg || '';
@@ -101,6 +125,7 @@ window.GLVideos = (function () {
         ['gv-seg', 'gv-pt', 'gv-pick', 'gv-foot', 'gv-foot-hi', 'gv-foot-hit', 'gv-corner', 'gv-ov'].forEach(function (id) {
             if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v ? 'visible' : 'none');
         });
+        if (ovDate) ovDate.getElement().style.display = v ? '' : 'none';
     }
     // A video placed from its content (georef) is reached from its footprint
     // box; its dot and segment on the glacier path are left off, so there is
@@ -129,6 +154,7 @@ window.GLVideos = (function () {
     // Placed videos: the footprint boxes, and one overlay drawn in place
     // ------------------------------------------------------------------
     var OV = { id: null, product: null, opacity: 0.9 }, ovEl = null, hoverId = null, hoverWired = false;
+    var ovDate = null, frameTok = 0;        // the month label on the map; the frame loop's ticket
     function placed() { return D.videos.filter(function (v) { return v.georef && v.media === 'video'; }); }
     function corners(b) { return [[b[0], b[3]], [b[2], b[3]], [b[2], b[1]], [b[0], b[1]]]; }
     function footData() {
@@ -164,7 +190,12 @@ window.GLVideos = (function () {
         for (var j = last + 1; j < L.length; j++) if (L[j].id !== 'gv-ov') return L[j].id;
         return undefined;
     }
+    function dropDate() {
+        frameTok++;
+        if (ovDate) { ovDate.remove(); ovDate = null; }
+    }
     function clearOverlay() {
+        dropDate();
         if (map.getLayer('gv-ov')) map.removeLayer('gv-ov');
         if (map.getSource('gv-ov')) map.removeSource('gv-ov');
         OV.id = null; OV.product = null;
@@ -174,12 +205,20 @@ window.GLVideos = (function () {
     function showOverlay(id, product, fit) {
         var v = byId[id];
         if (!v || !v.georef) return;
+        dropDate();
         if (map.getLayer('gv-ov')) map.removeLayer('gv-ov');
         if (map.getSource('gv-ov')) map.removeSource('gv-ov');
         OV.id = id; OV.product = product;
         var coords = corners(v.georef.bounds);
         if (product === 'video') {
             map.addSource('gv-ov', { type: 'video', urls: [v.src], coordinates: coords });
+            if (v.georef.months) {
+                var lab = document.createElement('div');
+                lab.className = 'gv-date-map';
+                lab.style.display = visible() ? '' : 'none';
+                ovDate = new maplibregl.Marker({ element: lab, anchor: 'top-left', offset: [6, 6] })
+                    .setLngLat(coords[0]).addTo(map);
+            }
         } else {
             var p = v.georef.products.filter(function (x) { return x.id === product; })[0];
             if (!p) { clearOverlay(); return; }
@@ -214,7 +253,8 @@ window.GLVideos = (function () {
             }).join('') + '</div>' +
             (OV.product === 'video'
                 ? '<div class="gv-ovv"><button type="button" data-a="play" title="Play or pause">❚❚</button>' +
-                  '<input type="range" data-a="seek" min="0" max="1" step="0.001" value="0" title="Position in the series"></div>'
+                  '<input type="range" data-a="seek" min="0" max="1" step="0.001" value="0" title="Position in the series">' +
+                  (v.georef.months ? '<span class="gv-date" data-a="date" title="The month this frame shows"></span>' : '') + '</div>'
                 : '') +
             '<div class="gv-ovv"><span>Opacity</span><input type="range" data-a="op" min="0.1" max="1" step="0.05" value="' + OV.opacity + '">' +
             '<button type="button" data-a="zoom" title="Zoom to the video">Zoom</button></div>' +
@@ -252,6 +292,13 @@ window.GLVideos = (function () {
                     if (vid.duration && !vid.paused) seek.value = vid.currentTime / vid.duration;
                 }
                 vid.addEventListener('timeupdate', upd); vid.addEventListener('play', upd); vid.addEventListener('pause', upd);
+                if (v.georef.months) {
+                    var tok = ++frameTok, dateEl = ovEl.querySelector('[data-a=date]');
+                    followMonths(v, vid, function () { return tok === frameTok && ovVideo() === vid; }, function (s) {
+                        if (dateEl) dateEl.textContent = s;
+                        if (ovDate) ovDate.getElement().textContent = s;
+                    });
+                }
                 // MapLibre's video source (5.5 VideoSource.prepare) copies a
                 // frame to its texture only while the video plays, so a seek
                 // while paused left the old frame on the map: copy the frame
@@ -336,7 +383,10 @@ window.GLVideos = (function () {
         var h = '<div class="gv-pop"><b>' + esc(v.caption || v.kind_label) + '</b>' +
             '<div class="rt-sub">' + esc(v.kind_label) + (v.date ? ' · ' + esc(v.date) : '') + '</div>';
         if (v.media === 'video') {
-            h += '<video src="' + esc(v.src) + '" controls loop muted autoplay playsinline></video>';
+            var dated = v.georef && v.georef.months;
+            h += (dated ? '<div class="gv-vwrap">' : '') +
+                '<video src="' + esc(v.src) + '" controls loop muted autoplay playsinline></video>' +
+                (dated ? '<span class="gv-date-map"></span></div>' : '');
         } else if (v.media === 'image') {
             h += '<img src="' + esc(v.src) + '" alt="">';
         } else if (v.state === 'comparison') {
@@ -371,6 +421,12 @@ window.GLVideos = (function () {
                     esc((byId[i].caption || byId[i].kind_label).slice(0, 28)) + '</button>';
             }).join('') + '</div>' : '';
             box.innerHTML = tabs + player(byId[id]);
+            var bv = box.querySelector('.gv-vwrap video'), bd = box.querySelector('.gv-vwrap .gv-date-map');
+            if (bv && bd) {
+                var seen = false;           // runs until this video leaves the page (tab change, popup closed)
+                followMonths(byId[id], bv, function () { if (bv.isConnected) seen = true; return !seen || bv.isConnected; },
+                             function (s) { bd.textContent = s; });
+            }
             Array.prototype.forEach.call(box.querySelectorAll('[data-t]'), function (b) {
                 b.addEventListener('click', function () { show(+b.getAttribute('data-t')); });
             });

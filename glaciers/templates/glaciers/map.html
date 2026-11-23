@@ -147,6 +147,12 @@
   .gv-ovh button { border: none; background: none; font-size: 16px; line-height: 1; cursor: pointer; color: #6b635d; }
   .gv-ovv { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
   .gv-ovv input[type=range] { flex: 1; }
+  /* a built timelapse's month, as it plays: in the panel, on the map, over the boxed video */
+  .gv-date { font: 600 11px/1 system-ui, sans-serif; min-width: 58px; text-align: right; font-variant-numeric: tabular-nums; }
+  .gv-date-map { font: 700 15px/1 system-ui, sans-serif; color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000;
+                 pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .gv-vwrap { position: relative; }
+  .gv-vwrap .gv-date-map { position: absolute; left: 8px; top: 12px; }
   .gv-ovv button { font-size: 10.5px; border: 1px solid #c9c2bb; background: #f7f5f3; border-radius: 3px; padding: 1px 6px; cursor: pointer; min-width: 28px; }
   .nw-vids { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
   .nw-vids button { font-size: 10.5px; border: 1px solid; background: #fff; border-radius: 9px; padding: 0 7px; cursor: pointer; }
