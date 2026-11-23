@@ -1,3 +1,35 @@
+> **RUN STRATEGY AND PERFORMANCE (2026-11-23; Hig asked for these to be kept as notes).** Timing record: `$W/run_timing.py`
+> -> `run_timing.csv`, `run_timing_stages.csv`; per-step times inside the fill are in each box's `timing_fill.log`.
+> At 38 boxes: chain 38 h, solve 9 h; fill 20 h of the chain.
+> - **CORRECTION: r3c3's 422 min "edited lines" step was the Mac ASLEEP** (2026-11-19 06:36 on, `pmset -g log`; that chain was
+>   not even this week's -- the log spans earlier passes), not the code. `run_timing.py` now leaves it out.
+> - **Strategy 1 -- skip the chain when only solve rules changed.** Most rule changes of 2026-11-21..23 were the solve's
+>   (snd_edge, snd_far_local, harbor), yet a full rerun redoes every chain (~80% of the compute). `rules_ledger.json` already
+>   names each rule's `stage`: a rerun should compare, per box, the live rules of each stage against the ones the box's
+>   products were made under (`rules_applied.py`) and redo only from the first stage that differs -- solve-only where the
+>   chain's rules are unchanged (as the Petrof and Seldovia re-solves did by hand). Not built; a design job for the next run.
+> - **Strategy 2 -- two boxes at once.** The chain is mostly single-threaded numpy; the solve is threaded. Outer boxes
+>   (rows 0-2) are light (chain 20-40 min, little memory). Rule so far is ONE window solve at a time and no crops beside
+>   a fill (r6c3 took 8.5 h under swap, 2026-11-11). Candidate: a second chain beside the first for outer boxes only,
+>   under memguard, never two solves. Hig 2026-11-23: revisit the evening the run is still going, to use the machine fully.
+> - **Publish (done):** `composites/kbay_joint/publish_inc.py`, called by `$W/publish_s3.sh` since 11:38 (the whole rebuild
+>   is `publish_s3_full.sh`; `FULL=1` forces a clean start). Only crops a changed box touches are re-blended, only their
+>   tiles recut (from a VRT of all crops, extents snapped out to whole tiles), slope kept per crop. First use 9.9 min
+>   including the one-time slope/overview bootstrap (was ~22); recut tiles agree with the mosaic to 0.05 m at z16 and
+>   untouched tiles are untouched. STILL rewrites both PMTiles (3.5 GB) on the boot disk each time -- the snapshot churn
+>   remains; `pub_watch.sh` (restarted) skips a publish under 25 GB free. Off-boot-disk PMTiles needs a compose mount
+>   in the main checkout (the other stream's file): ask Hig.
+> - **Shoreface, edited lines** (`topobathy/shoreface.py:415`): one whole-box distance transform per distinct line level,
+>   3-6 s each (r3c3 99 levels, r3c4/r6c4 80); ~0.9 h a run. `review_1121/perf/shoreface.patch` (UNAPPLIED): per-level
+>   discs on padded tiles; on r3c3's real lines old 515 s, new 3.4 s, 0 of 1.7 M cells differ. Verify in the pipeline by
+>   one box's fill before/after, `fill.tif` byte for byte.
+> - **"Tidal lens" time is the per-lake loop before it** (`topobathy/fill.py:1967` on): ~25 whole-grid passes per lake
+>   (r7c1 1,695 lakes 41 min; r7c4 588 lakes 21 min; time vs lakes x cells r = 0.90 over 30 boxes; 3.1 h a run).
+>   `review_1121/perf/lens.patch` (UNAPPLIED, parses, NEVER RUN): reject tests on each domain's own window. Verify on
+>   r7c1: `fill.tif`, `fill_lakes.json`, `fill_water_level.tif` identical.
+> - **Soundings splines (~9 h a run, the largest steady cost):** being scoped (`review_1121/perf/spline_*`).
+> Apply the patches only between runs (each box's chain starts fresh processes: an edit to fill.py goes live mid-queue).
+
 > **Harbour rule LIVE 2026-11-23 10:36:05 (Hig: "The rule looks good - commit and deploy, and go ahead and put rerun of Seldovia at the
 > end of the queue").** `harbor=1` by default. `$W/after_run_harbor.sh` waits for the runner and `after_run_r4c5.sh`, re-solves
 > r4c1 r4c2 r5c2, publishes. Boxes solved before the live time (Homer's among them) do not carry it.
