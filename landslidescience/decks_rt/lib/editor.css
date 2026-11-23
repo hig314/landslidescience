@@ -45,3 +45,27 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 .reveal .kn-ed-livemark { background: #dfe6ee; color: #456; font: 600 120px/1 -apple-system, Helvetica, Arial, sans-serif; display: flex; align-items: center; justify-content: center; }
 .kn-ed-bar .kn-ed-livebar { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
 .kn-ed-bar .kn-ed-livebar:empty { display: none; }
+
+/* opacity and crop */
+.kn-ed-bar .kn-ed-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; }
+.kn-ed-bar .kn-ed-tools input[type=range] { width: 110px; accent-color: #2f8cff; }
+.kn-ed-bar .kn-ed-opn { width: 3em; font-variant-numeric: tabular-nums; color: #9fc6ff; }
+.reveal .kn-ed-ghost { position: absolute; max-width: none; max-height: none; margin: 0; border: 0; opacity: 0.35; pointer-events: none;
+  outline: calc(1px * var(--k)) dashed #ffb02e; }
+.reveal .kn-ed-box.kn-ed-crop { outline-color: #ffb02e; cursor: move; }
+.reveal .kn-ed-crop .kn-ed-h { border-color: #ffb02e; background: #ffb02e; }
+
+/* the "Slide…" panel: background colour and transition */
+.kn-ed-fmt { position: fixed; left: 150px; top: 36px; z-index: 1001; width: 250px; padding: 10px 12px 12px; border-radius: 8px; background: #2a2a2d; color: #ddd;
+  font: 12px/1.4 -apple-system, "Helvetica Neue", Arial, sans-serif; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); }
+.kn-ed-fmt-head { color: #fff; font-weight: 600; margin-bottom: 8px; }
+.kn-ed-fmt label { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.kn-ed-fmt label > span:first-child { width: 96px; color: #bbb; }
+.kn-ed-fmt input, .kn-ed-fmt select { font: inherit; color: #eee; background: #111; border: 1px solid #666; border-radius: 4px; padding: 2px 5px; }
+.kn-ed-fmt input[type=color] { width: 34px; height: 24px; padding: 0 1px; }
+.kn-ed-fmt input[type=text] { width: 68px; }
+.kn-ed-fmt input[type=number] { width: 46px; }
+.kn-ed-fmt input:disabled { opacity: 0.4; }
+.kn-ed-fmt-sw { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 2px 102px; }
+.kn-ed-fmt-sw button { width: 18px; height: 18px; padding: 0; border: 1px solid #777; border-radius: 3px; cursor: pointer; }
+.kn-ed-fmt-sw button.on { outline: 2px solid #2f8cff; outline-offset: 1px; }

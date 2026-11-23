@@ -16,6 +16,13 @@
  *                     original was, on any slide; only if that spot already holds the same
  *                     thing is it offset, so that it can be seen.
  *   Delete            remove       ] [ } {   forward, backward, to front, to back
+ *   Opacity           the slider in the bar sets how opaque the selection is. Turn an image down to
+ *                     see what is under it while lining the two up, then back to 100.
+ *   Crop              (bar, double-click an image, or Enter on one) the image's frame becomes a
+ *                     mask: the handles move the mask's edges over the image, which stays where it
+ *                     is and shows faintly beyond them; dragging inside, or the arrows, slide the
+ *                     image under the mask. Enter, Esc or a click elsewhere finishes. Resizing an
+ *                     image outside crop mode scales the picture and its crop together.
  *
  * S opens the slide sorter: click, Shift-click (a range) or Cmd-click slides; drag to
  * reorder; Cmd-C / X / V / D and Delete work on slides; double-click or Enter opens one.
@@ -42,6 +49,7 @@
   var mtime = RT.mtime, blocked = false, typing = null, drag = null;
   var sorter = null, picks = [], anchor = null, sdrag = null;
   var using = null, liveAt = 0, asking = null;
+  var cropping = null, opBefore = null, liveFor = null;
   var HERE = location.pathname.replace(/[^\/]*$/, "");
   function csrf(h) { if (window.DECK_CSRF) h["X-CSRFToken"] = window.DECK_CSRF; return h; }    // on the site (see deck.js)
   function deckName(p) { var m = /\/decks\/([A-Za-z0-9_-]+)\/$/.exec(p || ""); return m && m[1]; }
@@ -104,16 +112,18 @@
 
   // ---------------------------------------------------------------- history
   // A change is recorded as the slide's data before it; undo puts that back.
+  function mine(s) {                       // mark a slide as edited here, so that a re-import leaves it alone
+    if (s.owner === "here") return;        // owner goes after kn, where the importer looks for it
+    var o = {}; Object.keys(s).forEach(function (k) { o[k] = s[k]; if (k === "kn") o.owner = "here"; });
+    if (!o.owner) o.owner = "here";
+    Object.keys(s).forEach(function (k) { delete s[k]; });
+    Object.keys(o).forEach(function (k) { s[k] = o[k]; });
+  }
   function snapshot() { var c = cur(); return { i: c.i, json: JSON.stringify(c.s) }; }
   function commit(before) {
     var c = cur();
     if (JSON.stringify(c.s) === before.json) return false;
-    if (c.s.owner !== "here") {            // owner goes after kn, where the importer looks for it
-      var o = {}; Object.keys(c.s).forEach(function (k) { o[k] = c.s[k]; if (k === "kn") o.owner = "here"; });
-      if (!o.owner) o.owner = "here";
-      Object.keys(c.s).forEach(function (k) { delete c.s[k]; });
-      Object.keys(o).forEach(function (k) { c.s[k] = o[k]; });
-    }
+    mine(c.s);
     undo.push(before); redo = [];
     if (undo.length > 200) undo.shift();
     touch();
@@ -127,7 +137,7 @@
     deck.source = deck.source || {}; deck.source.restructured = true;     // the importer asks before resetting this
     touch(); resynced(at);
   }
-  function resynced(at) { sel = []; RT.resync(at); prepare(); draw(); if (sorter) drawSorter(); }
+  function resynced(at) { sel = []; RT.resync(at); prepare(); draw(); if (sorter) drawSorter(); else fmtFill(); }
   function restore(from, to) {
     var h = from.pop();
     if (!h) return;
@@ -151,6 +161,7 @@
     prepare();
     sel = sel.filter(function (e) { return c.s.elements.indexOf(e) >= 0; });
     draw();
+    fmtFill();
   }
   function prepare() {                     // a slide as it should be while it is edited
     var c = cur();
@@ -167,8 +178,15 @@
   function draw(guides) {
     layer.innerHTML = "";
     layer.style.setProperty("--k", 1 / (cur().sec.getBoundingClientRect().width / W));
+    if (cropping && (sel.length !== 1 || sel[0] !== cropping || cur().s.elements.indexOf(cropping) < 0)) cropping = null;
+    if (cropping) {                        // the whole picture, faint, behind its mask
+      var ce = cropping, f = ce.fit || [0, 0, ce.w, ce.h], cn = nodeOf(ce), g = mk("img", "kn-ed-ghost", layer);
+      g.src = cn && cn.firstChild ? (cn.firstChild.currentSrc || cn.firstChild.src || cn.firstChild.getAttribute("data-src")) : ce.src;
+      g.style.left = ce.x + f[0] + "px"; g.style.top = ce.y + f[1] + "px"; g.style.width = f[2] + "px"; g.style.height = f[3] + "px";
+      if (ce.flip) g.style.transform = ce.flip === "h" ? "scaleX(-1)" : "scaleY(-1)";
+    }
     sel.forEach(function (e) {
-      var b = mk("div", "kn-ed-box", layer);
+      var b = mk("div", "kn-ed-box" + (e === cropping ? " kn-ed-crop" : ""), layer);
       b.style.left = e.x + "px"; b.style.top = e.y + "px"; b.style.width = e.w + "px"; b.style.height = e.h + "px";
       if (e.rot) b.style.transform = "rotate(" + (-e.rot) + "deg)";
       if (sel.length === 1 && !e.rot && !typing) ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach(function (d) { mk("div", "kn-ed-h kn-ed-" + d, b).setAttribute("data-h", d); });
@@ -180,8 +198,46 @@
     });
     var t = "";
     if (sel.length) { var b = boxOf(sel); t = "x " + round(b.x) + "  y " + round(b.y) + "  w " + round(b.w) + "  h " + round(b.h) + (sel.length > 1 ? "  (" + sel.length + ")" : ""); }
+    if (cropping) { var cf = cropping.fit || [0, 0, cropping.w, cropping.h]; t += "   picture " + round(cf[2]) + " × " + round(cf[3]); }
     bar.geo.textContent = t;
+    drawTools();
     drawLive();
+  }
+  // ---------------------------------------------------------------- opacity and crop (in the bar)
+  function drawTools() {
+    var any = sel.length && !sorter && !typing;
+    bar.tools.style.display = any ? "" : "none";
+    if (!any) return;
+    if (!opBefore) { var v = sel[0].op == null ? 100 : sel[0].op; bar.op.value = v; bar.opn.textContent = Math.round(v) + "%"; }
+    var img = sel.length === 1 && sel[0].type === "image" && !sel[0].rot;
+    bar.crop.style.display = img ? "" : "none";
+    bar.crop.textContent = cropping ? "Finish crop" : "Crop";
+  }
+  function opacity(v, done) {              // the slider moving (one undo step per drag), then let go
+    if (!sel.length) return;
+    if (!opBefore) opBefore = snapshot();
+    sel.forEach(function (e) {
+      if (v >= 100) delete e.op; else e.op = v;
+      var n = nodeOf(e);
+      if (n) n.style.opacity = v >= 100 ? "" : v / 100;
+    });
+    bar.opn.textContent = Math.round(v) + "%";
+    if (done) { var b = opBefore; opBefore = null; commit(b); }
+  }
+  function crop(e) {                       // start or finish masking an image
+    if (cropping || !e) {
+      var c = cropping; cropping = null;
+      if (c && c.fit && Math.abs(c.fit[0]) < 0.6 && Math.abs(c.fit[1]) < 0.6 && Math.abs(c.fit[2] - c.w) < 0.6 && Math.abs(c.fit[3] - c.h) < 0.6) {
+        change(function () { delete c.fit; }); place(c);       // the mask is the whole picture again
+      }
+    } else if (e.type === "image" && !e.rot) { sel = [e]; cropping = e; }
+    draw();
+  }
+  function slide(dx, dy) {                 // the picture under its mask, kept covering it
+    var e = cropping, f = e.fit || [0, 0, e.w, e.h];
+    var fx = Math.min(0, Math.max(e.w - f[2], f[0] + dx)), fy = Math.min(0, Math.max(e.h - f[3], f[1] + dy));
+    e.fit = [round(fx), round(fy), f[2], f[3]];
+    place(e);
   }
   function place(e) {                      // an element's node, after its frame changed
     var n = nodeOf(e);
@@ -190,6 +246,8 @@
     if (e.type === "image" && e.fit) {
       var im = n.firstChild;
       im.style.left = e.fit[0] + "px"; im.style.top = e.fit[1] + "px"; im.style.width = e.fit[2] + "px"; im.style.height = e.fit[3] + "px";
+    } else if (e.type === "image" && n.firstChild) {
+      var i2 = n.firstChild; i2.style.left = i2.style.top = i2.style.width = i2.style.height = "";
     }
   }
 
@@ -219,6 +277,16 @@
     ev.preventDefault();
     var p = point(ev), h = ev.target.getAttribute && ev.target.getAttribute("data-h");
     var under = hits(p), was = sel.slice();
+    if (cropping) {
+      var ce = cropping, inside = p.x >= ce.x && p.x <= ce.x + ce.w && p.y >= ce.y && p.y <= ce.y + ce.h;
+      if (!h && !inside) { crop(null); return; }
+      var f0 = (ce.fit || [0, 0, ce.w, ce.h]).slice();
+      drag = { p: p, handle: h, crop: true, before: snapshot(), moved: false, under: [], was: was,
+               orig: [{ x: ce.x, y: ce.y, w: ce.w, h: ce.h, fit: f0 }], snap: lines(c, sel) };
+      drag.snap.xs.push(ce.x + f0[0], ce.x + f0[0] + f0[2]); drag.snap.ys.push(ce.y + f0[1], ce.y + f0[1] + f0[3]);
+      try { layer.setPointerCapture(ev.pointerId); } catch (x) {}
+      return;
+    }
     if (!h) {
       var top = under.filter(function (e) { return sel.indexOf(e) >= 0; })[0] || under[0];
       if (!top) { sel = []; draw(); return; }
@@ -237,6 +305,22 @@
     var p = point(ev), dx = p.x - drag.p.x, dy = p.y - drag.p.y, tol = ev.metaKey ? -1 : 7 / p.k, guides = [];
     if (!drag.moved && Math.abs(dx) * p.k < 3 && Math.abs(dy) * p.k < 3) return;
     drag.moved = true;
+    if (drag.crop) {
+      var ce = sel[0], co = drag.orig[0], cf = co.fit, ch = drag.handle || "";
+      if (!ch) { ce.fit = cf.slice(); slide(Math.round(dx), Math.round(dy)); draw(); return; }
+      // the picture stays where it is on the slide; the mask's edges move over it, never beyond it
+      var ix0 = co.x + cf[0], iy0 = co.y + cf[1], ix1 = ix0 + cf[2], iy1 = iy0 + cf[3];
+      var mx0 = co.x, my0 = co.y, mx1 = co.x + co.w, my1 = co.y + co.h, cs;
+      if (ch.indexOf("w") >= 0) { mx0 += dx; cs = nearest([mx0], drag.snap.xs, tol); if (cs) { mx0 += cs.d; guides.push({ x: cs.at }); } mx0 = Math.max(ix0, Math.min(mx0, mx1 - 10)); }
+      if (ch.indexOf("e") >= 0) { mx1 += dx; cs = nearest([mx1], drag.snap.xs, tol); if (cs) { mx1 += cs.d; guides.push({ x: cs.at }); } mx1 = Math.min(ix1, Math.max(mx1, mx0 + 10)); }
+      if (ch.indexOf("n") >= 0) { my0 += dy; cs = nearest([my0], drag.snap.ys, tol); if (cs) { my0 += cs.d; guides.push({ y: cs.at }); } my0 = Math.max(iy0, Math.min(my0, my1 - 10)); }
+      if (ch.indexOf("s") >= 0) { my1 += dy; cs = nearest([my1], drag.snap.ys, tol); if (cs) { my1 += cs.d; guides.push({ y: cs.at }); } my1 = Math.min(iy1, Math.max(my1, my0 + 10)); }
+      if (!guides.length) { mx0 = Math.round(mx0); mx1 = Math.round(mx1); my0 = Math.round(my0); my1 = Math.round(my1); }   // whole pixels unless snapped
+      ce.x = round(mx0); ce.y = round(my0); ce.w = round(mx1 - mx0); ce.h = round(my1 - my0);
+      ce.fit = [round(ix0 - ce.x), round(iy0 - ce.y), cf[2], cf[3]];
+      place(ce); draw(guides);
+      return;
+    }
     if (!drag.handle) {
       if (ev.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
       var b = boxOf(drag.orig);
@@ -275,12 +359,16 @@
     if (!drag) return;
     var d = drag; drag = null;
     if (d.moved) commit(d.before);
+    else if (d.crop) { /* a click in crop mode changes nothing */ }
     else if (!d.handle && !d.shift && d.was.length === 1 && sel.length === 1 && d.was[0] === sel[0] && d.under.length > 1) {
       sel = [d.under[(d.under.indexOf(sel[0]) + 1) % d.under.length]];     // a second click: the one underneath
     }
     draw();
   }
   function dbl(ev) {
+    if (cropping) return;
+    var top = hits(point(ev)).filter(function (x) { return sel.indexOf(x) >= 0; })[0] || hits(point(ev))[0];
+    if (top && top.type === "image" && !top.rot) { crop(top); return; }
     var e = hits(point(ev)).filter(function (x) { return x.type === "text"; })[0];
     if (e) { sel = [e]; retype(e); }
   }
@@ -296,6 +384,14 @@
   function drawLive() {
     var e = liveSel(), b = bar.live;
     b.innerHTML = "";
+    if (e !== liveFor) {                   // a figure was just selected: the step named in the bar and the view
+      liveFor = e;                         // in the figure must be the same one, or Use would store the wrong view
+      if (e) {
+        var shown = cur().sec.querySelectorAll(".kn-step.visible:not(.kn-pz)").length;   // where the talk had got to
+        showStep(e, Math.min(e.states.length - 1, shown), false);
+        return;
+      }
+    }
     if (!e) { if (using) use(null); return; }
     liveAt = Math.min(liveAt, e.states.length - 1);
     function btn(label, title, fn) { var x = mk("button", "", b, label); x.title = title; x.onclick = function () { fn(); x.blur(); }; }
@@ -308,9 +404,26 @@
       btn("Finish", "Stop operating the figure; the view it is left in becomes this step", function () { use(null); });
     }
     if (e.states.length > 1) btn("Remove step", "Remove this step", function () {
-      change(function () { e.states.splice(liveAt, 1); });
+      change(function () { e.states.splice(liveAt, 1); opensAt(e); });
+      steps(e);
       showStep(e, liveAt); if (!using) rebuild();
     });
+  }
+  function steps(e) {                      // one click per step: the slide's step markers follow the figure's steps,
+    var i = deck.slides.findIndex(function (x) { return x.elements && x.elements.indexOf(e) >= 0; });   // without reloading the figure
+    var sec = RT.slidesEl.querySelector('section[data-i="' + i + '"]');
+    if (!sec) return;
+    var have = sec.querySelectorAll(".kn-step:not(.kn-pz)"), want = e.states.length - 1, k;
+    for (k = have.length; k < want; k++) mk("span", "fragment kn-step", sec);
+    for (k = have.length - 1; k >= want; k--) have[k].remove();
+    Reveal.syncFragments(sec);
+  }
+  function opensAt(e) {                    // the page's address opens at its first step, so nothing jumps when it loads
+    if (!e.states[0] || e.states[0].indexOf("=") < 0) return;
+    var h = e.src.indexOf("#");             // a page that keeps its view after "#" (the inventory): only that part changes
+    if (h >= 0) { e.src = e.src.slice(0, h) + "#" + e.states[0]; return; }
+    if (e.src.indexOf("?") < 0) return;
+    e.src = e.src.split("?")[0] + "?" + e.states[0] + (/[?&]embed=1(&|$)/.test(e.src) ? "&embed=1" : "");
   }
   function use(e) {                        // let the pointer through to the figure, or stop
     var was = using;
@@ -338,16 +451,14 @@
     if (typeof state !== "string" || !state || !s) return;
     var before = { i: a.i, json: JSON.stringify(s) }, old = e.states[a.at];
     if (a.how === "add") { e.states.splice(a.at + 1, 0, state); liveAt = a.at + 1; }
-    else if (state !== old) {
-      e.states[a.at] = state;
-      if (old && e.src.indexOf(old) >= 0) e.src = e.src.replace(old, state);      // a page that opens at the view in its address
-    }
+    else if (state !== old) e.states[a.at] = state;
+    opensAt(e); steps(e);
     if (JSON.stringify(s) !== before.json) {
       s.owner = "here"; undo.push(before); redo = []; touch();
       status(a.how === "add" ? "Step " + (liveAt + 1) + " captured" : "Step " + (a.at + 1) + " now shows this view");
     }
-    if (a.how === "keep") { if (cur().i === a.i) rebuild(); else RT.render(a.i); }
-    else drawLive();
+    if (a.how === "keep") { if (on && cur().i === a.i) rebuild(); else if (on) RT.render(a.i); }   // (after Done: the slide is left as it is)
+    else if (on) drawLive();
   }
   RT.stepFor = function (e) { return (liveSel() === e ? liveAt : 0) + 1; };    // which step a figure shows while editing
 
@@ -503,14 +614,102 @@
     }).catch(function (x) { status("Paste failed: " + x.message, true); });
   }
 
+  // ---------------------------------------------------------------- slide settings
+  // The "Slide…" panel: background colour and the transition to the next slide, for the slide
+  // showing or, in the sorter, for every selected slide. One undo step per choice (a drag in
+  // the colour picker counts as one).
+  var fmt = null, fmtBefore = null;
+  function fmtSlides() { return sorter ? deck.slides.filter(function (x) { return picks.indexOf(x) >= 0; }) : [cur().s]; }
+  function hex(c) {
+    c = String(c || "").trim().toLowerCase();
+    if (/^[0-9a-f]{3}$|^[0-9a-f]{6}$/.test(c)) c = "#" + c;
+    if (/^#[0-9a-f]{3}$/.test(c)) c = "#" + c[1] + c[1] + c[2] + c[2] + c[3] + c[3];
+    return /^#[0-9a-f]{6}$/.test(c) ? c : null;
+  }
+  function fmtSet(fn, done) {
+    var list = fmtSlides();
+    if (!list.length) return;
+    if (!fmtBefore) fmtBefore = snapshotAll();
+    list.forEach(function (x) { fn(x); if (sorter) RT.render(deck.slides.indexOf(x)); });
+    if (!sorter) rebuild();
+    if (!done) return;
+    var b = fmtBefore; fmtBefore = null;
+    if (JSON.stringify(deck.slides) !== b.all) {
+      list.forEach(mine);
+      undo.push(b); redo = [];
+      if (undo.length > 200) undo.shift();
+      touch();
+    }
+    if (sorter) drawSorter(); else fmtFill();
+  }
+  function fmtFill() {                     // the panel shows the (first) slide it applies to
+    if (!fmt) return;
+    var list = fmtSlides(), x = list[0];
+    fmt.head.textContent = !x ? "No slide selected" : list.length > 1 ? list.length + " slides selected" : "Slide " + (deck.slides.indexOf(x) + 1);
+    [fmt.col, fmt.hex, fmt.tr, fmt.dur].forEach(function (n) { n.disabled = !x; });
+    if (!x) return;
+    var bg = hex(x.bg) || "#000000";
+    fmt.col.value = bg;
+    if (document.activeElement !== fmt.hex) fmt.hex.value = bg;
+    fmt.tr.value = x.dissolve ? "dissolve" : "cut";
+    if (document.activeElement !== fmt.dur) fmt.dur.value = x.dissolve || 1;
+    fmt.dur.disabled = !x.dissolve;
+    var n = {}, used;
+    deck.slides.forEach(function (y) { var c = hex(y.bg); if (c) n[c] = (n[c] || 0) + 1; });
+    used = Object.keys(n).sort(function (a, b) { return n[b] - n[a]; });
+    used = ["#000000", "#ffffff"].concat(used.filter(function (c) { return c !== "#000000" && c !== "#ffffff"; })).slice(0, 10);
+    fmt.sw.innerHTML = "";
+    used.forEach(function (c) {
+      var b = mk("button", c === bg ? "on" : "", fmt.sw);
+      b.style.background = c; b.title = c + (n[c] ? ": on " + n[c] + " slide" + (n[c] > 1 ? "s" : "") : "");
+      b.onclick = function () { fmtSet(function (y) { y.bg = c; }, true); b.blur(); };
+    });
+  }
+  function fmtOpen(yes) {
+    if (!yes) { if (fmt) { fmt.el.remove(); fmt = null; fmtBefore = null; } return; }
+    if (fmt) return;
+    fmt = { el: mk("div", "kn-ed-fmt", document.body) };
+    fmt.head = mk("div", "kn-ed-fmt-head", fmt.el);
+    var r = mk("label", "", fmt.el);
+    mk("span", "", r, "Background");
+    fmt.col = mk("input", "", r); fmt.col.type = "color";
+    fmt.hex = mk("input", "", r); fmt.hex.type = "text"; fmt.hex.size = 8; fmt.hex.spellcheck = false;
+    fmt.sw = mk("div", "kn-ed-fmt-sw", fmt.el);
+    fmt.sw.title = "Black, white, and the backgrounds this deck already uses";
+    r = mk("label", "", fmt.el);
+    mk("span", "", r, "To the next slide");
+    fmt.tr = mk("select", "", r);
+    mk("option", "", fmt.tr, "Cut").value = "cut"; mk("option", "", fmt.tr, "Dissolve").value = "dissolve";
+    fmt.dur = mk("input", "", r); fmt.dur.type = "number"; fmt.dur.min = 0.1; fmt.dur.max = 10; fmt.dur.step = 0.5;
+    mk("span", "kn-ed-fmt-s", r, "s");
+    fmt.col.addEventListener("input", function () { var c = fmt.col.value; fmt.hex.value = c; fmtSet(function (y) { y.bg = c; }, false); });
+    fmt.col.addEventListener("change", function () { var c = fmt.col.value; fmtSet(function (y) { y.bg = c; }, true); });
+    fmt.hex.addEventListener("change", function () {
+      var c = hex(fmt.hex.value);
+      fmt.hex.blur();
+      if (c) fmtSet(function (y) { y.bg = c; }, true); else { status("A colour is written like #1a2b3c", true); fmtFill(); }
+    });
+    function trans() {
+      var d = fmt.tr.value === "dissolve" ? Math.max(0.1, Math.min(10, +fmt.dur.value || 1)) : 0;
+      fmt.tr.blur(); fmt.dur.blur();
+      fmtSet(function (y) { if (d) y.dissolve = d; else delete y.dissolve; }, true);
+    }
+    fmt.tr.addEventListener("change", trans);
+    fmt.dur.addEventListener("change", trans);
+    fmtFill();
+  }
+
   // ---------------------------------------------------------------- slides
   function removeSlides() {
-    var list = sorter ? picks : [];
-    if (!list.length || list.length >= deck.slides.length) return;
+    if (cropping) crop(null);
+    var list = sorter ? picks.slice() : [cur().s];       // in the sorter: the selected slides; otherwise the one showing
+    if (!list.length) { status("Select a slide to delete first", true); return; }
+    if (list.length >= deck.slides.length) { status("A deck keeps at least one slide", true); return; }
     var before = snapshotAll(), at = deck.slides.indexOf(list[0]);
     list.forEach(function (x) { deck.slides.splice(deck.slides.indexOf(x), 1); });
     picks = [];
     commitAll(before, Math.min(at, deck.slides.length - 1));
+    status((list.length > 1 ? list.length + " slides" : "Slide") + " deleted. Undo (Cmd-Z) brings " + (list.length > 1 ? "them" : "it") + " back");
   }
   function addSlide() {
     var before = snapshotAll(), at = cur().i + 1;
@@ -530,6 +729,7 @@
   }
   function drawSorter() {
     var here = cur().i;
+    fmtFill();
     sorter.innerHTML = "";
     deck.slides.forEach(function (s, i) {
       var t = mk("div", "kn-ed-thumb" + (picks.indexOf(s) >= 0 ? " picked" : "") + (i === here ? " current" : ""), sorter);
@@ -556,7 +756,7 @@
       picks = [cur().s]; anchor = picks[0];
       drawSorter();
       var c = sorter.querySelector(".current"); if (c) c.scrollIntoView({ block: "center" });
-    } else if (!yes && sorter) { sorter.remove(); sorter = null; prepare(); draw(); }
+    } else if (!yes && sorter) { sorter.remove(); sorter = null; prepare(); draw(); fmtFill(); }
   }
   function thumbAt(ev) { var t = ev.target; while (t && t !== sorter && !t.knSlide) t = t.parentNode; return t && t.knSlide ? t : null; }
   function sDown(ev) {
@@ -623,13 +823,24 @@
   }
   function go(d) { var i = cur().i + d; if (i >= 0 && i < deck.slides.length) { sel = []; Reveal.slide(i); } }
 
-  function field(ev) { return /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target && ev.target.tagName || ""); }   // typing in a form field (the site's menu)
+  function field(ev) {
+    var t = ev.target || {};                // a slider or a button that kept the focus is not typing
+    if (t.tagName === "INPUT") return !/^(range|checkbox|radio|button|submit|reset|color|file|image)$/.test(t.type || "");
+    return /^(TEXTAREA|SELECT)$/.test(t.tagName || "");
+  }   // typing in a form field (the site's menu)
   function key(ev) {
     if (field(ev)) return;
     if (!on) { if ((ev.key === "e" || ev.key === "E") && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !/^(INPUT|TEXTAREA)$/.test(ev.target.tagName)) toggle(); return; }
     if (typing) { ev.stopPropagation(); if (ev.key === "Escape") { ev.preventDefault(); finish(); } return; }
     if (using && ev.key === "Escape") { ev.preventDefault(); use(null); return; }
     var cmd = ev.metaKey || ev.ctrlKey, k = ev.key, done = true, step = ev.shiftKey ? 10 : 1;
+    if (cropping && !cmd) {                // crop mode: arrows slide the picture, Enter or Esc finishes
+      var a = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[k];
+      if (a) { change(function () { slide(a[0], a[1]); }); draw(); }
+      else if (k === "Enter" || k === "Escape") crop(null);
+      ev.preventDefault(); ev.stopPropagation();
+      return;
+    }
     if (cmd && (k === "z" || k === "Z")) { if (ev.shiftKey) restore(redo, undo); else restore(undo, redo); }
     else if (cmd && (k === "c" || k === "x" || k === "v")) done = false;      // the copy / cut / paste events below
     else if (cmd && k === "d") paste(copy());
@@ -641,6 +852,7 @@
     else if (k === "Escape") { sel = []; draw(); }
     else if (k === "Backspace" || k === "Delete") remove();
     else if (k === "Enter" && sel.length === 1 && sel[0].type === "text") retype(sel[0]);
+    else if (k === "Enter" && sel.length === 1 && sel[0].type === "image") crop(sel[0]);
     else if (k === "]") order("forward"); else if (k === "[") order("backward");
     else if (k === "}") order("front"); else if (k === "{") order("back");
     else if (k === "PageDown") go(1); else if (k === "PageUp") go(-1);
@@ -663,6 +875,8 @@
     bar.where = mk("span", "kn-ed-where", bar.el);
     button("Slides", "The slide sorter: select, reorder, copy and paste slides  S", function () { openSorter(!sorter); });
     button("+ Slide", "Add an empty slide after this one", addSlide);
+    button("− Slide", "Delete this slide (in the sorter: the selected slides; Delete does the same there). Undo brings it back", removeSlides);
+    button("Slide…", "This slide's background colour and its transition to the next slide (in the sorter: the selected slides')", function () { fmtOpen(!fmt); });
     button("+ Text", "Add a text box", function () { if (!sorter) addText(); });
     button("Front", "Bring to front  }", function () { order("front"); });
     button("Forward", "Bring forward  ]", function () { order("forward"); });
@@ -671,6 +885,16 @@
     button("Undo", "Cmd-Z", function () { restore(undo, redo); });
     button("Redo", "Shift-Cmd-Z", function () { restore(redo, undo); });
     bar.geo = mk("span", "kn-ed-geo", bar.el);
+    bar.tools = mk("span", "kn-ed-tools", bar.el);
+    mk("span", "", bar.tools, "Opacity");
+    bar.op = mk("input", "", bar.tools); bar.op.type = "range"; bar.op.min = 0; bar.op.max = 100; bar.op.step = 1;
+    bar.op.title = "How opaque the selection is. Turn an image down to line it up with what is under it.";
+    bar.opn = mk("span", "kn-ed-opn", bar.tools);
+    bar.op.addEventListener("input", function () { opacity(+bar.op.value, false); });
+    bar.op.addEventListener("change", function () { opacity(+bar.op.value, true); bar.op.blur(); });
+    bar.crop = mk("button", "", bar.tools, "Crop");
+    bar.crop.title = "Mask the image: drag the handles over it, drag inside to slide it. Double-click an image does the same.";
+    bar.crop.onclick = function () { crop(cropping ? null : sel[0]); bar.crop.blur(); };
     bar.live = mk("span", "kn-ed-livebar", bar.el);
     bar.status = mk("span", "kn-ed-status", bar.el);
     button("Done", "Back to presenting  E", toggle).className = "kn-ed-done";
@@ -701,21 +925,29 @@
       if (!asking || !d || d.type !== "deck:state" || ev.source !== asking.win) return;
       capture(d.state);
     });
-    Reveal.on("slidechanged", function () { if (on && !sorter) { finish(); sel = []; prepare(); draw(); } });
+    Reveal.on("slidechanged", function () { if (on) fmtFill(); });
+    Reveal.on("slidechanged", function () { if (on && !sorter) { finish(); cropping = null; liveFor = null; sel = []; prepare(); draw(); } });
     window.addEventListener("resize", function () { if (on) setTimeout(draw, 50); });
     window.addEventListener("beforeunload", function () { if (timer) { clearTimeout(timer); save(); } });
   }
   function toggle() {
     if (!layer) setup();
     finish();
+    if (cropping) crop(null);
+    if (using) use(null);                  // Done while operating a figure: its view is kept, as with Finish
     if (sorter) openSorter(false);
+    fmtOpen(false);
     on = !on; RT.editing = on;
     document.body.classList.toggle("kn-editing", on);
     Reveal.layout();                       // the stage sits below the bar while editing
     Reveal.configure({ keyboard: on ? false : { 75: null } });
     sel = [];
+    liveFor = null;
     if (on) { prepare(); draw(); status(blocked ? "deck.json was changed on disk. Reload the page." : "", blocked); }
-    else { layer.remove(); if (timer) { clearTimeout(timer); save(); } }
+    else {
+      var fr = cur().sec.querySelector("iframe.kn-live");       // back to the step the talk is at
+      if (fr && RT.liveLoaded) RT.liveLoaded(fr);
+      layer.remove(); if (timer) { clearTimeout(timer); save(); } }
   }
   toggle();
 })();

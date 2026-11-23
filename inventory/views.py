@@ -651,6 +651,15 @@ def home(request):
     # unfiltered case is hot and cached; the filtered case is rare (mostly
     # exercised by snapshot builds) so we don't cache it.
     subset = (request.GET.get('subset') or '').strip() or None
+    # Embed mode (?embed=1; docs/MAP_UI.md): the one response of this site's
+    # map that may be framed. It is rendered as a signed-out visitor whoever
+    # is signed in (a deck is projected and published; a frame on the same
+    # site would carry the editor's session), which the context processors
+    # and the template then follow without knowing about embeds.
+    embed = request.GET.get('embed') == '1'
+    if embed:
+        from django.contrib.auth.models import AnonymousUser
+        request.user = AnonymousUser()
     counts, unclassified, flagged = _home_counts(subset)
 
     def make_class_list(type_key, order):
@@ -662,7 +671,8 @@ def home(request):
                  _HALO_COLOR.get(cls))
                 for cls in order]
 
-    return render(request, "inventory/home.html", {
+    resp = render(request, "inventory/home.html", {
+        "embed":              embed,
         "slow_active":        make_class_list('slow', _SLOW_ACTIVE_ORDER),
         "slow_other":         make_class_list('slow', _SLOW_OTHER_ORDER),
         "cat_recent":         make_class_list('catastrophic', _CAT_RECENT_ORDER),
@@ -683,6 +693,10 @@ def home(request):
         # mirrored outside inventories (external.py `explore`; ext_explore.js).
         "explore_sources":    _explore_sources(),
     })
+    if embed:
+        resp.xframe_options_exempt = True
+        resp['Content-Security-Policy'] = 'frame-ancestors ' + settings.EMBED_FRAME_ANCESTORS
+    return resp
 
 
 def _explore_sources():

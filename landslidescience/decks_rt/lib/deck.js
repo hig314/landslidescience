@@ -233,6 +233,12 @@
         }
         fr.knShown = true;
       }
+      // A figure that was clicked holds the keyboard, also after its slide is left: keys then
+      // go to a page nobody can see. Take the keyboard back.
+      function release() {
+        var a = document.activeElement;
+        if (a && a.tagName === "IFRAME") { a.blur(); window.focus(); }
+      }
       function frameOf(win) {
         return Array.prototype.filter.call(slidesEl.querySelectorAll("iframe.kn-live"), function (fr) { return fr.contentWindow === win; })[0];
       }
@@ -242,7 +248,13 @@
         if (!fr || typeof d.type !== "string") return;
         if (d.type === "deck-key" || d.type === "deck:key") {
           if (RT.editing) return;                  // while editing, keys in a figure do not turn the slide
-          if (d.key === "ArrowLeft" || d.key === "PageUp") Reveal.prev(); else Reveal.next();
+          if (d.key === "e" || d.key === "E") {    // E pressed inside the figure: the deck's, like E anywhere else
+            release();
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+          } else if (d.key === "m" || d.key === "M") {   // the owner's menu (lib/sitemenu.js)
+            release();
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "m", bubbles: true }));
+          } else if (d.key === "ArrowLeft" || d.key === "PageUp") Reveal.prev(); else Reveal.next();
         } else if (d.type === "deck:ready") {
           var fb = fr.parentNode.querySelector(".kn-fallback");
           if (fb) fb.remove();
@@ -301,6 +313,7 @@
       Reveal.on("slidechanged", function (ev) {
         var prev = ev.previousSlide, cur = ev.currentSlide;
         var forward = prev && index(cur) === index(prev) + 1;
+        release();
         // dissolve out of the previous slide: a copy of it fades out over the new one
         var d = prev ? +data(prev).dissolve || 0 : 0;
         var st = prev && prev.querySelector(".kn-stack");

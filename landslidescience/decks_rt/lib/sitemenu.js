@@ -1,8 +1,10 @@
 /*
  * lib/sitemenu.js — the owner's menu on a deck served by the site (loaded by lib/deck.js when
- * deck.site.owner). A ☰ button at upper right: it shows when the mouse moves and fades after a
- * few seconds, so it is never on screen during a talk driven by a clicker; it stays while the
- * editor is open. The menu says what the deck is (draft, published, a copy) and offers what
+ * deck.site.owner). A ☰ button at upper right that keeps out of the slide's way: it shows only
+ * when the mouse is pushed against the right edge of the window (or leaves through it) or M
+ * is pressed (M also opens and closes the menu), and goes a moment after the mouse has left
+ * it. Until then it takes no clicks, so slide content under it works. While the editor is
+ * open it sits at the right end of the editor's bar. The menu says what the deck is (draft, published, a copy) and offers what
  * can be done with it: edit, publish, copy, and the way to the list of talks, where the
  * actions that need a typed confirmation live (replace a published deck, discard a draft).
  * Actions are POSTs to /decks/_do with window.DECK_CSRF, the same ones the list page makes.
@@ -13,10 +15,13 @@
   if (!site || !site.owner) return;
   var css = document.createElement("style");
   css.textContent =
-    ".kn-menu-btn{position:fixed;right:10px;top:8px;z-index:1500;width:34px;height:30px;border:0;border-radius:5px;background:rgba(0,0,0,.55);color:#fff;font:18px/30px -apple-system,Arial,sans-serif;cursor:pointer;opacity:0;transition:opacity .3s}" +
-    ".kn-menu-btn.on,body.kn-editing .kn-menu-btn{opacity:1}body.kn-editing .kn-menu-btn{top:40px}" +
+    ".kn-menu-btn{position:fixed;right:10px;top:8px;z-index:1500;width:34px;height:30px;border:0;border-radius:5px;background:rgba(0,0,0,.55);color:#fff;font:18px/30px -apple-system,Arial,sans-serif;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .3s}" +
+    ".kn-menu-edge{position:fixed;right:0;top:0;width:4px;height:100%;z-index:1499}body.kn-editing .kn-menu-edge{display:none}" +
+    ".kn-menu-btn.on,body.kn-editing .kn-menu-btn{opacity:1;pointer-events:auto}" +
+    "body.kn-editing .kn-menu-btn{top:3px;right:8px;width:30px;height:24px;font-size:15px;line-height:24px;background:#3a3a3c}" +
+    "body.kn-editing .kn-ed-bar{padding-right:46px}" +
     ".kn-menu{position:fixed;right:10px;top:44px;z-index:1500;width:290px;padding:10px 0;border-radius:8px;background:#2a2a2d;color:#ddd;font:14px/1.45 -apple-system,'Helvetica Neue',Arial,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.5)}" +
-    "body.kn-editing .kn-menu{top:76px}" +
+    "body.kn-editing .kn-menu{top:34px}" +
     ".kn-menu .what{padding:2px 16px 10px;border-bottom:1px solid #444;margin-bottom:6px}.kn-menu .what b{color:#fff;display:block}.kn-menu .what span{color:#aaa;font-size:13px}" +
     ".kn-menu a,.kn-menu button.item{display:block;width:100%;box-sizing:border-box;padding:6px 16px;border:0;background:none;color:#eee;font:inherit;text-align:left;text-decoration:none;cursor:pointer}" +
     ".kn-menu a:hover,.kn-menu button.item:hover{background:#3a3a3e}.kn-menu .warn{color:#ff9d8a}" +
@@ -33,12 +38,21 @@
     return n;
   }
   var btn = mk("button", "kn-menu-btn", document.body, "☰"), menu = null, hide = 0;
-  btn.title = "This talk: edit, publish, copy";
-  document.addEventListener("mousemove", function () {
+  btn.title = "This talk: edit, publish, copy  (M)";
+  function wake() {                                      // show the button; it goes once the mouse has left it alone
     btn.classList.add("on");
     clearTimeout(hide);
-    hide = setTimeout(function () { if (!menu) btn.classList.remove("on"); }, 2500);
-  });
+    hide = setTimeout(function () {
+      if (menu || btn.matches(":hover") || edge.matches(":hover")) wake(); else btn.classList.remove("on");
+    }, 1800);
+  }
+  // A strip along the right edge, above everything: over a live figure the mouse belongs to
+  // the figure's page and this one hears nothing, and the strip is what still does.
+  var edge = mk("div", "kn-menu-edge", document.body);
+  edge.addEventListener("mouseenter", wake);
+  edge.addEventListener("mousemove", wake);
+  // In a window (not full screen) the mouse overshoots the strip and leaves: that counts too.
+  document.documentElement.addEventListener("mouseleave", function (ev) { if (ev.clientX >= window.innerWidth - 2) wake(); });
 
   // one of the list page's actions; the server answers with a redirect to /decks/?msg=…[&bad=1]
   function act(fields) {
@@ -101,5 +115,10 @@
   }
   btn.onclick = function () { if (menu) close(); else open(); btn.blur(); };
   document.addEventListener("pointerdown", function (ev) { if (menu && !menu.contains(ev.target) && ev.target !== btn) close(); }, true);
-  document.addEventListener("keydown", function (ev) { if (menu && ev.key === "Escape") close(); });
+  document.addEventListener("keydown", function (ev) {
+    if (menu && ev.key === "Escape") { close(); ev.stopImmediatePropagation(); return; }   // Escape closes the menu and nothing else
+    var t = ev.target, typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ""));
+    if ((ev.key !== "m" && ev.key !== "M") || ev.metaKey || ev.ctrlKey || ev.altKey || typing) return;
+    if (menu) close(); else { open(); wake(); }
+  }, true);                                              // before the editor's and reveal's own key handlers
 })();

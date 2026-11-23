@@ -98,6 +98,63 @@ There is no on-map legend or floating basemap-picker — those got removed in fa
 
 **Basemap thumbnails** ship as committed static assets at `inventory/static/inventory/img/basemap-thumbs/*.{png,jpg}` (~180 KB total). The HTML template injects a `basemapThumbs` dict into `LS_CONFIG` via `{% static %}` → WhiteNoise serves them with content-hashed filenames + `Cache-Control: max-age=315360000, public, immutable`. The snapshot build sets `staticBase: './static/'` so the same machinery works in the offline bundle.
 
+## Embeds and control subsets (2026-11-22; `embed_ui.js`)
+
+The same scheme as `/lidar/compare/` (docs/LIDAR.md), for the deck brief in
+`inventory/DECK_EMBED.md`. Three parts, usable separately.
+
+- **The reader's controls: `ui=<id,id…>` in the hash.** Every control a link
+  can give or withhold has an id in `CTL` (`embed_ui.js`): `types`, `traces`,
+  `filternote`, `limitview`, `explore`, `classes`, `features`, `include`,
+  `sliders`, `refmaps`, `analysis`, `zoom`, `goto`, `tools`, `scale`, `hint`,
+  and `record` (behaviour: a click opens the record panel). No `ui=` = all
+  (every older link); `ui=none` = none. Elements carry `data-ctl` in
+  `home.html`, or a selector in `CTL` for what MapLibre and the tool modules
+  build; `check_invariants` ("map control ids") keeps the two in step.
+  Panning and zooming the map are always available. Layout follows what is
+  left: an empty sidebar tab goes, a lone tab loses the tab bar, a sidebar
+  with only the pinned strip becomes a small box over the map, an empty one
+  is removed (`body.ui-*` classes, rules in `home.html`). **Hiding is
+  presentation, not enforcement** (the reader can edit the link). `ui` is a
+  `_VIEW_PARAMS` row written to the address bar and deck steps only, never
+  to the remembered view or a default view. Not given ids yet: the editor's
+  `+data` / draw controls, the wiper's floating panel, the pieces inside the
+  Reference maps tab (it is one id).
+- **The picker.** Site admins get *Reader's controls / embed…* in the user
+  menu (`user_menu_extra` block in `base.html`): tick controls (unticked are
+  dimmed while it is open, hidden when it closes), then *Copy link*, *Copy
+  embed link*, or for the Presentation tool (also as the **Deck slide / step**
+  pair in the top bar, `header_extra` block) *Copy slide* (a `live` element
+  with `src` and the first state) / *Copy step* (the state string).
+- **Embed mode: `/inventory/?embed=1`.** `views.home` sends
+  `frame-ancestors` (`settings.EMBED_FRAME_ANCESTORS`, default `*`) in place
+  of `X-Frame-Options: DENY`, for that response only, and **renders it as a
+  signed-out visitor whoever is signed in** (`request.user` replaced before
+  rendering, so the context processors and the template follow). The page
+  sets `window.LS_EMBED` and wraps `fetch` to send no credentials, so its API
+  calls are anonymous too even in a same-site frame. Not covered by that:
+  requests MapLibre's workers make for same-origin tiles still carry the
+  cookie; nothing gated is reachable that way without the gated catalogue,
+  which a signed-out page never asks for. **This is the check to repeat if
+  an auth-dependent tile route is ever added to this page.** In embed mode
+  the site header is hidden and `map.js` (`EMBED`) neither reads nor writes
+  `ls_map_view`, `ls_map_session`, `ls_overlays` or the browser's own QMS
+  basemaps. Credits stay (no control id hides the attribution).
+- **Deck protocol** (`vendor/deck-embed.js`, loaded only in embed mode).
+  `getState` = `_viewStateString('deck')`: written in full like a default
+  view (`_full(mode)`), plus filters, `ui` and the open record (`id=`, which
+  the address bar never carries). `setState` = `_deckSetState` →
+  `_applyViewState(…, 'deck')`: **the string is the whole view, so what it
+  does not name is put away**: filters reset to defaults first
+  (`_filterDefaults`), wiper closed, analysis panels closed, record panel
+  closed, sidebar tab back to Inventory, `ui` back to all. Camera: a cut when
+  `animate` is false, else a 2 s flight whatever the distance. The deck is
+  told the new view when the flight ends, not during it. `ready` goes on the
+  map's first `idle`, or after 8 s (a frame not yet on screen may not draw).
+  **Left for a later pass:** the profile line, sample circle, analysis axes,
+  stereonet and outside-inventory explorer are written but not cleared by a
+  step that lacks them; no settled signal; no larger type for a projector.
+
 ## Shared basemap handling and map symbology
 
 **Basemap handling is shared** between the main map and this preview map via `inventory/static/inventory/js/basemaps.js` (`window.LSBasemaps`): the built-in basemap descriptors (`DEFAULTS`) **and** the single `buildRasterStyle(bm, opts)` + the tile-URL transforms, so the two maps can't drift (they used to keep duplicate copies). Both load the module, pass `transformRequest: LSBasemaps.transformRequest` at construction, and call `registerProtocols()` once. **All tile-URL transforms funnel through one place** (`buildRasterStyle` for live tiles, `thumbnailUrl` for card previews): `{x}/{y}/{z}` native; `scheme:'tms'`/`{-y}` bottom-origin; `{q}/{quadkey}/{switch:…}/{s}/{subdomain}` rewritten per-tile by `transformRequest` (quadkey computed from z/x/y, loaded as a plain image → no CORS dependency); and **`reproject:'epsg3395'`** warped per-tile by the `reproj` `addProtocol` — a 1-D vertical resample (3857 and 3395 share X/x-tile-index; only latitude→Y differs, ~997 px offset at z12/63°N) that fetches the source 3395 tile(s), canvas-warps, returns JPEG. Reproject needs CORS (canvas readback), so the backend only sets `reproject` for EPSG:3395 services with `cors_status==enabled` (e.g. Yandex Satellite); thumbnails use the un-warped source tile. Add a basemap or a transform **only in basemaps.js**. The edit/review preview map also fetches `api/qms/promoted` so admin-shared QMS layers (incl. reprojected Yandex) are flippable while mapping geometry.

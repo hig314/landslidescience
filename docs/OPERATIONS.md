@@ -145,6 +145,7 @@ no guards of their own:
 
 | `lidar_open` | `/lidar/` once the catalogue is in | the survey on show (public id, else `restricted`), 3D on, framed |
 | `lidar_survey` / `lidar_pointcloud` | a survey chosen in the list; its *Point cloud* link; once per survey per page load | public survey id, else `restricted` |
+| `map_embed` / `map_embed_copy` | `/inventory/` opened in embed mode or with a `ui=` subset; an admin copying a link, embed, slide or step from *Reader's controls* | embed, framed, framing host, the control ids; which |
 | `lidar_control` | any sidebar control on `/lidar/`, by its element id (`methods` = a `?` link, `zoomto`); once per id per page load | control id |
 
 `download` also carries `compare_png` / `compare_jpg` (scale, pane count)
