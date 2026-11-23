@@ -33,7 +33,7 @@ DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hi
 P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=0.0, snd_cast_beside_m=15.0, fix_grid_bed_edge=1, comp_near_bed_m=30.0, line_yield_m=15.0, line_yield_min_level_m=2.0, line_yield_water=1, low_bound_tol_m=0.5,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24, amg=1,
-         snd_mode=0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_edge=1, snd_edge_full_m=8.0, snd_edge_fade_m=40.0, snd_edge_gap_m=0.05, snd_edge_slope=0.005, snd_edge_wide_full_m=150.0, snd_edge_wide_fade_m=300.0, snd_far=1, snd_far_local=1, snd_far_local_min=0.25, snd_cap=1, snd_far_min_m=40.0, snd_far_max_m=200.0, snd_far_len_m=50.0, snd_far_pct=50.0, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
+         snd_mode=0, obj_hull=0, obj_hull_near_m=4.0, obj_hull_under_m=2.5, obj_hull_rise_m=1.5, obj_hull_reach_m=15.0, obj_hull_max_m2=200.0, pit_post=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_edge=1, snd_edge_full_m=8.0, snd_edge_fade_m=40.0, snd_edge_gap_m=0.05, snd_edge_slope=0.005, snd_edge_wide_full_m=150.0, snd_edge_wide_fade_m=300.0, snd_far=1, snd_far_local=1, snd_far_local_min=0.25, snd_cap=1, snd_far_min_m=40.0, snd_far_max_m=200.0, snd_far_len_m=50.0, snd_far_pct=50.0, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
 
 
 GRID = dict(res=0.0)      # > 0: every raster is read onto this resolution (the box driver's coarse deep-sea pass, --set grid_m=16)
@@ -351,6 +351,26 @@ def main(argv=None, ret=False):
     # ...nor is its fringe: the cells within 4 m of it, in the water, that are no bed return (a float's edge mixed with the water beside it
     # stood as soft "ground" half way up and left a mound where the float was taken out)
     objm = (objs > 0) | (ndimage.binary_dilation(objs > 0, iterations=max(int(round(4.0 / res)), 1)) & np.isin(lab, (2, 3)) & (cls != 3))
+    # THE UNDERSIDE OF AN OBJECT IS NO BED (Hig 2026-11-23, the floats of Seldovia harbour, 59.43693,-151.71542: "some of the same cleanup
+    # as we did in Homer").  The layer stage types the floats structure / object and they are water; but the multibeam and the green lidar
+    # return off their hulls and those cells are classed BED -- 178 cells in 50 specks (largest 21 cells) at -1.9..+0.4 m on a -5 m floor,
+    # held as confident measurements, and the solve draped a mound over each.  A speck of bed (<= obj_hull_max_m2) that touches the typed
+    # object (obj_hull_near_m), lies within obj_hull_under_m of the water's level, and stands obj_hull_rise_m over the lowest other measured
+    # bed within obj_hull_reach_m is the object, not the floor.  A bank under a pier is no speck and stays.
+    n_hull = 0
+    if p["obj_hull"]:
+        stf_ = J / "layer_structure.tif"; strs_ = padf(read(stf_, win)[0], 0) if stf_.exists() else np.zeros(jz.shape, np.uint8)
+        ob_ = (objs > 0) | (strs_ > 0)
+        if ob_.any():
+            bed_ = has & (cls == 3) & np.isfinite(jz)
+            cand_ = bed_ & ndimage.binary_dilation(ob_, iterations=max(int(round(p["obj_hull_near_m"] / res)), 1)) & np.isin(lab, (2, 3)) & np.isfinite(lev) & (jz > lev - p["obj_hull_under_m"])
+            if cand_.any():
+                lo_ = ndimage.minimum_filter(np.where(bed_ & ~cand_, jz, np.inf), size=2 * int(round(p["obj_hull_reach_m"] / res)) + 1)
+                cand_ &= (jz - lo_ > p["obj_hull_rise_m"])
+                Lh_, nh_ = ndimage.label(cand_, structure=np.ones((3, 3), bool))
+                if nh_:
+                    szh_ = ndimage.sum(cand_, Lh_, range(1, nh_ + 1)) * res * res; hull_ = cand_ & np.isin(Lh_, 1 + np.flatnonzero(szh_ <= p["obj_hull_max_m2"]))
+                    n_hull = int((hull_ & ~objm).sum()); objm |= hull_
     n_obj = int((has & objm).sum()); has &= ~objm
     comp_only = has & ((src & ~(comp_b | pts_b)) == 0)
     meas = has & ~comp_only
@@ -610,6 +630,7 @@ def main(argv=None, ret=False):
         nlf += int((mk & fixed).sum()); mk &= ~fixed; nl += int(mk.sum()); linecells |= mk
         w[mk] += 1 / s_ ** 2; b[mk] += lv / s_ ** 2
     if n_obj: log(f"  objects on the water (the layer stage's typing): {n_obj} cells are no ground")
+    if n_hull: log(f"  the underside of an object: {n_hull} cells of 'bed' in specks on a typed float or structure, at the water's level over a deeper floor, are no bed")
     log(f"  fixed: measured {fix_meas[inwin].mean():.1%}, lakes/ice/high prior {fix_other[inwin].mean():.1%}; soft measured {soft[inwin].mean():.1%} (of them compilations excluded: {comp_only[inwin].mean():.1%} of the window are prior only)")
     log(f"  soundings {ns} (+{len(held)} held out; {nb_} depth bounds; {n_stale} stale in a moving zone, not used; {n_beside} sea casts within {p['snd_cast_beside_m']:g} m of a measured bed left to it); tide-line cells {nl} free, {nlf} on fixed cells (not honoured)")
     # --- the bound: the water a lidar saw ----------------------------------------------------------------------------------

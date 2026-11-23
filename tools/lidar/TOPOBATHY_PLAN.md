@@ -1,3 +1,15 @@
+> **Seldovia floats, traced (2026-11-23).** The chain is clean there (fill under the floats p50 -4.9 m); the mounds are the
+> SOLVE's. The floats are typed structure/object and are water, but ~180 cells in ~50 specks (largest 21 cells) of
+> multibeam (`bathy2009`) and green-lidar (`seldovia2019bed`) returns off the hulls are classed BED at -1.9..+0.4 m on a
+> -5 m floor, held as confident measurements; the solve drapes a mound on each. New rule `obj_hull` in solve.py (a speck
+> of bed touching a typed object, within 2.5 m of the level, 1.5 m over other bed within 15 m, <= 200 m2, is no bed):
+> on the window (`review_1121/solve/seld0` before, `seld1` after, picture `seldovia_floats.png`) it frees 182 cells and
+> removes three of the big mounds, but most remain and a few cells rise -- so there is a second cause, suspect the
+> compilation prior (ptype 2: ocm2023/ncei2010 carry the floats; its level correction ran p50 +1.25, p95 +4.3 m here)
+> on the freed cells.  **`obj_hull` defaults to 0 (unfinished)**; the running queue is unaffected.  Window command:
+> `python topobathy/solve.py kj_r4c1 NAME 572560 6589108 573160 6589708 --tag cm22 --out $W/review_1121/solve --nofig --set snd_mode=1 obj_hull=1`.
+> Disk: Hig thinned the snapshots 10:20 (69 GB free); pub_watch left off (13 more publishes would churn ~45 GB).
+
 > **2026-11-23, Hig: floats in Seldovia harbor (59.43693,-151.71542) stand in the s3 surface; "we should do some of the
 > same cleanup as we did in Homer"** (the 2026-11-12 Homer rules `structure` / `superseded` / `bedprotect` are live but
 > do not clear it). The harbor sits in the r4c1/r4c2 overlap (r5c2 only clips it). First look, `$W/review_1121/seld_probe.py
