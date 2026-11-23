@@ -1,3 +1,15 @@
+> **2026-11-23, Hig: floats in Seldovia harbor (59.43693,-151.71542) stand in the s3 surface; "we should do some of the
+> same cleanup as we did in Homer"** (the 2026-11-12 Homer rules `structure` / `superseded` / `bedprotect` are live but
+> do not clear it). The harbor sits in the r4c1/r4c2 overlap (r5c2 only clips it). First look, `$W/review_1121/seld_probe.py
+> BOX` on a 300 m window: ~3,000 cells stand >1 m over a 60 m median of low ground, in ~60-100 patches (largest
+> 0.44 ha), z -3.7..+5.5; by `class_now` they are bed (3) ~45%, ground (1) ~35%, water (2) ~20%, so the floats come in
+> mostly as green-lidar "bed" and lidar "ground", not as unclassed returns -- which is why `structure` passes them.
+> NOT yet traced to a layer or rule. Then rerun r4c1 + r4c2 (+ r5c2).
+> **Boot disk, same day:** every publish rewrites ~3.5 GB in `data/lidar_dev/pmtiles` and the hourly Time Machine
+> local snapshots keep each old copy for 24 h (disk fell 57 -> 12 GB free over a day of per-box publishes).
+> `pub_watch.sh` stopped by hand at 10:10; the runner's PUB marks still publish. Old dev layers kbay_joint
+> cm16/cm18/s1/s2 and `data/iceboost/{raw,tmp}` deleted at Hig's word (catalogue backup `catalog.geojson.bak_20261123_pre_prune`).
+
 > **Hig's review, 2026-11-22 evening:** Homer Spit/Harbor (r6c3) looks good; Woz delta (r5c2/r5c3) looks good.
 > Run at 24 of 48 boxes. `perched_over_deep_ha` is up against the best run in r6c3, r5c2, r5c3, r5c4 (untraced).
 
