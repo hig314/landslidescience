@@ -54,6 +54,14 @@
   #rt-ticks i { position: absolute; width: 2px; height: 6px; margin-left: -1px;
                 box-shadow: 0 0 0 .5px rgba(0,0,0,.45); }
   .rt-end { color: #888; font-variant-numeric: tabular-nums; }
+  /* The year bar is closed by default (Hig, 2026-11-22: keep it, but behind
+     a control); this button opens it, the bar's x closes it. */
+  #rt-open { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 10;
+             border: 1px solid #d8d2cc; background: rgba(255,255,255,0.95); border-radius: 14px;
+             padding: 4px 12px; font-size: 12px; color: #444; cursor: pointer;
+             box-shadow: 0 1px 6px rgba(0,0,0,0.18); }
+  #rt-open:hover, #rt-close:hover { background: #fff; color: #000; }
+  #rt-close { border: 0; background: none; color: #888; font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
   .gl-ov-row { margin: 3px 0; }
   .gl-ov-row label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
   .gl-ov-row input[type=range] { width: 100%; height: 12px; }
@@ -301,7 +309,8 @@
     <div id="gl-map"></div>
     <canvas id="tracer-canvas"></canvas>
     <div id="nw-chart" style="display:none"></div>
-    <div class="gl-timebar" id="rt-bar">
+    <button type="button" id="rt-open" title="Step the ice cover and dated outlines through the years">▶ Retreat by year</button>
+    <div class="gl-timebar" id="rt-bar" style="display:none">
       <button id="rt-play" title="Play / pause">▶</button>
       <span class="rt-end" id="rt-lo"></span>
       <div id="rt-track">
@@ -310,6 +319,7 @@
       </div>
       <span class="rt-end" id="rt-hi"></span>
       <span id="rt-year"></span>
+      <button type="button" id="rt-close" title="Close: back to the present">×</button>
     </div>
     <div class="gl-timebar" id="gl-timebar" style="display:none">
       <button id="gl-play" title="Play / pause">▶</button>

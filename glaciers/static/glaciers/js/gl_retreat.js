@@ -45,7 +45,7 @@ window.GLRetreat = (function () {
         stamp: '0',
         sources: [], srcOn: {}, identity: null,
         year: NOW_YEAR, minYear: DEF_MIN_YEAR,
-        coverOn: true, baseOn: true, debrisOn: true,
+        coverOn: true, baseOn: true, debrisOn: true, barOpen: false,
         sel: null,                       // api/glacier response
         selId: null,
         playing: false, playTimer: null
@@ -373,6 +373,13 @@ window.GLRetreat = (function () {
             el.ticks.appendChild(t);
         });
     }
+    // The year bar: closed by default, opened by its button; neither shows
+    // on the Flow tab, which has its own bar.
+    function showBar() {
+        var here = GL.tab() !== 'flow';
+        el.bar.style.display = here && S.barOpen ? '' : 'none';
+        el.open.style.display = here && !S.barOpen ? '' : 'none';
+    }
     function play(on) {
         S.playing = on;
         el.play.textContent = on ? '❚❚' : '▶';
@@ -679,10 +686,10 @@ window.GLRetreat = (function () {
 
     function init(gl) {
         GL = gl; map = gl.map;
-        ['search', 'results', 'card', 'sources', 'legend', 'time', 'year', 'play', 'ticks', 'lo', 'hi', 'bar']
+        ['search', 'results', 'card', 'sources', 'legend', 'time', 'year', 'play', 'ticks', 'lo', 'hi', 'bar', 'open', 'close']
             .forEach(function (k) { el[k] = $('rt-' + k); });
         var X = GL.hash.extras || {};
-        if (X.yr != null && isFinite(+X.yr)) S.year = +X.yr;
+        if (X.yr != null && isFinite(+X.yr)) { S.year = +X.yr; S.barOpen = true; }   // a link to a past year opens the bar
         if (X.gc === '0') S.coverOn = false;
         var srcWanted = X.src != null ? X.src.split(',') : null;
         GL.addHashExtras(hashExtras, ['g', 'yr', 'src', 'gc']);
@@ -693,8 +700,15 @@ window.GLRetreat = (function () {
         el.time.addEventListener('input', function () { setYear(+el.time.value, true); });
         el.time.addEventListener('change', function () { GL.writeHash(); });
         el.play.addEventListener('click', function () { play(!S.playing); });
+        el.open.addEventListener('click', function () { S.barOpen = true; showBar(); });
+        // Closing goes back to the present: a past year must not stay applied
+        // to the cover and outlines with nothing on screen saying so.
+        el.close.addEventListener('click', function () {
+            S.barOpen = false; if (S.playing) play(false);
+            setYear(NOW_YEAR); showBar(); GL.writeHash();
+        });
         GL.onTab(function (name) {
-            el.bar.style.display = name === 'flow' ? 'none' : '';
+            showBar();
             if (name === 'flow' && S.playing) play(false);
             if (map.getLayer('gx-ref-fill')) { applyObs(); applyCover(); }
         });

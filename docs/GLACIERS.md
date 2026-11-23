@@ -180,6 +180,13 @@ map.js's handler (same rule: `LSTools.blocked()` wins, except tracing with no
 line in progress). This is the third copy (map.js, lidar_preview.html,
 glaciers.js); moving them into one helper is a main-stream job.
 
+**The retreat year bar is closed by default** (2026-11-22, Hig: "keep the
+functionality but hide it by default, opening it with a control"): a
+"▶ Retreat by year" button at the bottom of the map opens it on the Retreat
+and Layers tabs; its × closes it and puts the year back to the present (so a
+past year never stays applied to the ice cover and outlines unseen). A link
+with `yr=` opens it. Flow keeps its own bar.
+
 - **Shared-module discipline**: basemaps from `basemaps.js`, glacier
   overlays from `ls_overlays.js` (single source of truth with the inventory
   map — add/change glacier overlays ONLY there). Planned convergence
