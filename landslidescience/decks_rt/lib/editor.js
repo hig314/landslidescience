@@ -402,8 +402,18 @@
     }
     if (e.states.length > 1) btn("Remove step", "Remove this step", function () {
       change(function () { e.states.splice(liveAt, 1); opensAt(e); });
+      steps(e);
       showStep(e, liveAt); if (!using) rebuild();
     });
+  }
+  function steps(e) {                      // one click per step: the slide's step markers follow the figure's steps,
+    var i = deck.slides.findIndex(function (x) { return x.elements && x.elements.indexOf(e) >= 0; });   // without reloading the figure
+    var sec = RT.slidesEl.querySelector('section[data-i="' + i + '"]');
+    if (!sec) return;
+    var have = sec.querySelectorAll(".kn-step:not(.kn-pz)"), want = e.states.length - 1, k;
+    for (k = have.length; k < want; k++) mk("span", "fragment kn-step", sec);
+    for (k = have.length - 1; k >= want; k--) have[k].remove();
+    Reveal.syncFragments(sec);
   }
   function opensAt(e) {                    // the page's address opens at its first step, so nothing jumps when it loads
     if (!e.states[0] || e.states[0].indexOf("=") < 0 || e.src.indexOf("?") < 0) return;
@@ -436,13 +446,13 @@
     var before = { i: a.i, json: JSON.stringify(s) }, old = e.states[a.at];
     if (a.how === "add") { e.states.splice(a.at + 1, 0, state); liveAt = a.at + 1; }
     else if (state !== old) e.states[a.at] = state;
-    opensAt(e);
+    opensAt(e); steps(e);
     if (JSON.stringify(s) !== before.json) {
       s.owner = "here"; undo.push(before); redo = []; touch();
       status(a.how === "add" ? "Step " + (liveAt + 1) + " captured" : "Step " + (a.at + 1) + " now shows this view");
     }
-    if (a.how === "keep") { if (cur().i === a.i) rebuild(); else RT.render(a.i); }
-    else drawLive();
+    if (a.how === "keep") { if (on && cur().i === a.i) rebuild(); else if (on) RT.render(a.i); }   // (after Done: the slide is left as it is)
+    else if (on) drawLive();
   }
   RT.stepFor = function (e) { return (liveSel() === e ? liveAt : 0) + 1; };    // which step a figure shows while editing
 
@@ -822,6 +832,7 @@
     if (!layer) setup();
     finish();
     if (cropping) crop(null);
+    if (using) use(null);                  // Done while operating a figure: its view is kept, as with Finish
     if (sorter) openSorter(false);
     on = !on; RT.editing = on;
     document.body.classList.toggle("kn-editing", on);

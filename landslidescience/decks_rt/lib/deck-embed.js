@@ -41,8 +41,13 @@
     m.type = type;
     window.parent.postMessage(m, "*");
   }
+  // Keys belong to the page only while text is being entered. A slider, checkbox or button that
+  // was just clicked keeps the focus, and must not swallow the clicker (an arrow key would
+  // otherwise move the slider and the talk would stand still).
   function typing(t) {
-    return t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ""));
+    if (!t) return false;
+    if (t.isContentEditable || /^(TEXTAREA|SELECT)$/.test(t.tagName || "")) return true;
+    return t.tagName === "INPUT" && !/^(range|checkbox|radio|button|submit|reset|color|file|image)$/i.test(t.type || "");
   }
 
   var DeckEmbed = {
