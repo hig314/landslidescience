@@ -1,3 +1,7 @@
+> **Harbour rule LIVE 2026-11-23 10:36:05 (Hig: "The rule looks good - commit and deploy, and go ahead and put rerun of Seldovia at the
+> end of the queue").** `harbor=1` by default. `$W/after_run_harbor.sh` waits for the runner and `after_run_r4c5.sh`, re-solves
+> r4c1 r4c2 r5c2, publishes. Boxes solved before the live time (Homer's among them) do not carry it.
+
 > **Harbour as a terrain (Hig 2026-11-23: "a single tree of rules to work for both cases ... explicitly identifying a
 > 'Harbor' as a type of terrain"). DEVELOPED, `harbor=0` by default, waiting on Hig; ledger `harbor_1123`.** The
 > speck rule `obj_hull` is withdrawn (it caught a third of the cells). The rest were the same thing in bigger clumps and

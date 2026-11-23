@@ -445,9 +445,9 @@
   {
    "id": "harbor_1123",
    "stage": "solve",
-   "live": null,
+   "live": "2026-11-23 10:36:05",
    "commit": null,
-   "what": "SOLVE, Hig 2026-11-23 (floats of Seldovia harbour 59.43693,-151.71542; 'a single tree of rules' for Homer and Seldovia; 'explicitly identifying a Harbor as a type of terrain'): HARBOUR = tidal water within harbor_reach_m (30) of typed structures / objects that together make harbor_min_obj_m2 (400); typing raster value 5. In it a measured cell (any class) standing harbor_rise_m (1.0) over the grey opening of the measured surface by a harbor_probe_m (12) disc is on the works (hull, float underside, piling), no measurement. DEVELOPED, default harbor=0 until Hig approves; not live in any box. Windows: Seldovia 542 cells freed, every mound gone, nothing raised over the floor; Homer 16.9 ha harbour, 1203 cells freed, one remaining mound gone, otherwise unchanged."
+   "what": "SOLVE, Hig 2026-11-23 (floats of Seldovia harbour 59.43693,-151.71542; 'a single tree of rules' for Homer and Seldovia; 'explicitly identifying a Harbor as a type of terrain'): HARBOUR = tidal water within harbor_reach_m (30) of typed structures / objects that together make harbor_min_obj_m2 (400); typing raster value 5. In it a measured cell (any class) standing harbor_rise_m (1.0) over the grey opening of the measured surface by a harbor_probe_m (12) disc is on the works (hull, float underside, piling), no measurement. Hig 2026-11-23: 'The rule looks good - commit and deploy'; default harbor=1 from the live time: boxes solved after it carry it (the tail of run_1118 and the re-solves of r4c1 r4c2 r5c2); every earlier box, Homer's r6c2 r6c3 among them, does not. Windows: Seldovia 542 cells freed, every mound gone, nothing raised over the floor; Homer 16.9 ha harbour, 1203 cells freed, one remaining mound gone, otherwise unchanged."
   }
  ]
 }
