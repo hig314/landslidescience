@@ -1,0 +1,25 @@
+/* fonts/fonts.css — the open fonts a deck can carry with it, so that it looks the same on a
+   computer that has none of the Mac's. Liberation (SIL Open Font License 1.1, see LICENSE.txt),
+   copied unmodified. tools/open_fonts.py switches a deck to them.
+
+   Liberation Sans has Helvetica's letter widths, and in a browser its lines sit where
+   Helvetica's do. "Liberation Sans HN" is the same files given Helvetica Neue's vertical
+   measures (per face, from the Mac's HelveticaNeue.ttc), so text that was in Helvetica Neue
+   keeps its line pitch and baseline. Safari ignores those three descriptors (to my knowledge,
+   as of 2026): there, that text sits about 0.02 em higher and untightened lines are 4% closer. */
+@font-face { font-family: "Liberation Sans"; src: url(LiberationSans-Regular.ttf) format("truetype"); font-weight: 400; font-style: normal; font-display: block; }
+@font-face { font-family: "Liberation Sans"; src: url(LiberationSans-Bold.ttf) format("truetype"); font-weight: 700; font-style: normal; font-display: block; }
+@font-face { font-family: "Liberation Sans"; src: url(LiberationSans-Italic.ttf) format("truetype"); font-weight: 400; font-style: italic; font-display: block; }
+@font-face { font-family: "Liberation Sans"; src: url(LiberationSans-BoldItalic.ttf) format("truetype"); font-weight: 700; font-style: italic; font-display: block; }
+@font-face { font-family: "Liberation Sans HN"; src: url(LiberationSans-Regular.ttf) format("truetype"); font-weight: 400; font-style: normal; font-display: block; ascent-override: 95.2%; descent-override: 21.3%; line-gap-override: 2.8%; }
+@font-face { font-family: "Liberation Sans HN"; src: url(LiberationSans-Bold.ttf) format("truetype"); font-weight: 700; font-style: normal; font-display: block; ascent-override: 97.5%; descent-override: 21.7%; line-gap-override: 2.9%; }
+@font-face { font-family: "Liberation Sans HN"; src: url(LiberationSans-Italic.ttf) format("truetype"); font-weight: 400; font-style: italic; font-display: block; ascent-override: 95.7%; descent-override: 21.3%; line-gap-override: 2.8%; }
+@font-face { font-family: "Liberation Sans HN"; src: url(LiberationSans-BoldItalic.ttf) format("truetype"); font-weight: 700; font-style: italic; font-display: block; ascent-override: 97.5%; descent-override: 21.7%; line-gap-override: 2.9%; }
+@font-face { font-family: "Liberation Serif"; src: url(LiberationSerif-Regular.ttf) format("truetype"); font-weight: 400; font-style: normal; font-display: block; }
+@font-face { font-family: "Liberation Serif"; src: url(LiberationSerif-Bold.ttf) format("truetype"); font-weight: 700; font-style: normal; font-display: block; }
+@font-face { font-family: "Liberation Serif"; src: url(LiberationSerif-Italic.ttf) format("truetype"); font-weight: 400; font-style: italic; font-display: block; }
+@font-face { font-family: "Liberation Serif"; src: url(LiberationSerif-BoldItalic.ttf) format("truetype"); font-weight: 700; font-style: italic; font-display: block; }
+@font-face { font-family: "Liberation Mono"; src: url(LiberationMono-Regular.ttf) format("truetype"); font-weight: 400; font-style: normal; font-display: block; }
+@font-face { font-family: "Liberation Mono"; src: url(LiberationMono-Bold.ttf) format("truetype"); font-weight: 700; font-style: normal; font-display: block; }
+@font-face { font-family: "Liberation Mono"; src: url(LiberationMono-Italic.ttf) format("truetype"); font-weight: 400; font-style: italic; font-display: block; }
+@font-face { font-family: "Liberation Mono"; src: url(LiberationMono-BoldItalic.ttf) format("truetype"); font-weight: 700; font-style: italic; font-display: block; }

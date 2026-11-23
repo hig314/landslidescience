@@ -208,11 +208,14 @@ urlpatterns = [
             coherence_tile, name='coherence_tile'),
     re_path(r'^tiles/glacierfit/(?P<var>v0|amp|trend)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             glacierfit_tile),
-    # Published talks (docs/DECKS.md): static folders in data/decks/, drafts
-    # and presenter notes for the owner only.
+    # Talks (docs/DECKS.md): decks stored, shown and edited from data/decks/.
+    # Drafts and presenter notes answer their owner only. _do and _rt cannot
+    # be deck names (a name starts with a letter or digit).
     path('decks/', decks_serve.index, name='decks'),
-    re_path(r'^decks/(?P<name>[A-Za-z0-9_-]+)$', decks_serve.slash),
-    re_path(r'^decks/(?P<name>[A-Za-z0-9_-]+)/(?P<rest>.*)$', decks_serve.serve),
+    path('decks/_do', decks_serve.do),
+    re_path(r'^decks/_rt/(?P<rest>.+)$', decks_serve.runtime),
+    re_path(r'^decks/(?P<name>[A-Za-z0-9][A-Za-z0-9_-]*)$', decks_serve.slash),
+    re_path(r'^decks/(?P<name>[A-Za-z0-9][A-Za-z0-9_-]*)/(?P<rest>.*)$', decks_serve.serve),
     path('admin/', admin.site.urls),
     path('inventory/', include('inventory.urls')),
     path('glaciers/', include('glaciers.urls')),
