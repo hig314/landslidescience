@@ -139,6 +139,39 @@ no guards of their own:
 | `explore_filter` / `explore_group` / `explore_chart` / `explore_preset` | explore.js | **column names only, never the values typed** |
 | `download` | zip link, explorer CSV/TSV, map PNG | kind, row count |
 | `explore_to_map` | "Show on map" | selection size |
+| `compare_open` | `/lidar/compare/` once loaded | pane count, mode, embed, framed, **the embedding page's hostname only**, the `ui=` subset, opened from a saved entry |
+| `compare_control` | any control on `/lidar/compare/`, by its `data-ctl` id (`map` = a gesture in a pane); once per id per page load | control id, embed |
+| `compare_save` / `compare_deck` | *Submit* / *Update*; the Deck *slide* / *step* buttons | updated; which |
+
+| `lidar_open` | `/lidar/` once the catalogue is in | the survey on show (public id, else `restricted`), 3D on, framed |
+| `lidar_survey` / `lidar_pointcloud` | a survey chosen in the list; its *Point cloud* link; once per survey per page load | public survey id, else `restricted` |
+| `lidar_control` | any sidebar control on `/lidar/`, by its element id (`methods` = a `?` link, `zoomto`); once per id per page load | control id |
+
+`download` also carries `compare_png` / `compare_jpg` (scale, pane count)
+and `lidar_dtm` (public survey id).
+
+**A survey id reaches the analytics only if it is in the public catalogue.**
+A restricted survey, and anything in `?catalog=dev`, is sent as the word
+`restricted` (`trkSurvey` in `lidar_preview.html`): the analytics database
+must not be a place where a name the public cannot see turns up.
+
+**`LSTrack.event` waits for the tracker** (up to 10 s): the tag is
+`defer`, so a page-open event raised during start-up used to be dropped.
+
+**Pages with no base template need the tag by hand.** `/lidar/` and
+`/lidar/compare/` are standalone templates and carried no beacon until
+2026-11-22: neither had ever sent a pageview, and `/lidar/`'s one
+`LSTrack.event('download')` call was guarded and silent. Both now include
+`_analytics.html`. Their state lives in the query string, rewritten by
+`replaceState`; `data-exclude-search` is what keeps that from minting
+pageviews. Still uncounted inside a page: on `/lidar/` the tools outside
+the sidebar that are not shared with `/inventory/` (tracing, sounding
+points; the profile already reports `map_tool`), and everything on
+`/glaciers/`. `/lidar/audit/` has no tag on purpose (admins).
+An embed on another site is a pageview of `/lidar/compare/` whose referrer
+is the embedding page; `compare_open` with `framed` is the cleaner count.
+The opt-out cookie is not sent to a frame on someone else's site, so an
+opted-out browser is counted there (DNT still holds).
 
 **Privacy stance**: cookieless, DNT honoured client-side via
 `data-do-not-track`, IP used only for the session hash and country then

@@ -85,6 +85,13 @@ MIDDLEWARE = [
     'inventory.middleware.CacheStampMiddleware',   # cross-worker cache invalidation
 ]
 
+# Who may show an embed-mode page (?embed=1) in a frame: the value of that
+# response's Content-Security-Policy frame-ancestors. Anyone (Hig, 2026-11-22):
+# embed mode is the signed-out page and can save nothing, so there is no
+# click to hijack. Every other page keeps X-Frame-Options: DENY. Set the env
+# to a list of origins to narrow it if embedding is ever misused.
+EMBED_FRAME_ANCESTORS = os.environ.get('EMBED_FRAME_ANCESTORS', '*')
+
 # Where @login_required and friends send anonymous users. Points at the
 # collaborator sign-in, NOT Django's /admin/login/ (which admits staff only).
 LOGIN_URL = '/inventory/login/'

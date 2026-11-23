@@ -34,11 +34,16 @@ an excluded visit makes no analytics request rather than one filtered later.
      * loaded, blocked, disabled by DNT, or switched off entirely. Every
      * tracking call in this codebase goes through LSTrack.event and is
      * therefore safe to leave in place unconditionally. */
+    /* The tracker loads deferred, so an event raised while the page is
+     * still starting (a page-open event) is held and retried for up to 10 s
+     * rather than dropped; a blocked tracker just lets it lapse. */
     window.LSTrack = {
-      event: function (name, data) {
+      event: function (name, data, n) {
         try {
           if (window.umami && typeof window.umami.track === 'function') {
             window.umami.track(name, data || {});
+          } else if ((n || 0) < 20) {
+            setTimeout(function () { window.LSTrack.event(name, data, (n || 0) + 1); }, 500);
           }
         } catch (e) { /* analytics must never break a page */ }
       }

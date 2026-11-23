@@ -147,6 +147,7 @@ vanish depending on which way you light them.
     border-radius: 50%; width: 20px; height: 20px; line-height: 20px; text-align: center;
     box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 </style>
+{% include '_analytics.html' %}
 </head>
 <body>
 <div id="map"></div>
@@ -2059,6 +2060,50 @@ vanish depending on which way you light them.
     syncUrl();
   });
 
+  // ---- usage counts (docs/OPERATIONS.md, Traffic analytics) ---------------
+  // Which parts of the viewer get used: each sidebar control by its element
+  // id, once per page load, and which surveys are looked at. Never a value
+  // typed, never a place. A survey's id is sent only if it is in the PUBLIC
+  // catalogue: a restricted or dev-only one is reported as 'restricted', so
+  // no name the public cannot see reaches the analytics database.
+  var _trkDev = new URLSearchParams(location.search).get('catalog') === 'dev';
+  function trkSurvey(id) { return id ? (!_trkDev && publicIds[id] ? id : 'restricted') : ''; }
+  function trk(name, data) { if (window.LSTrack) LSTrack.event(name, data); }
+  var _trkSeen = {};
+  function trkOnce(name, key, data) {
+    if (_trkSeen[name + ':' + key]) return;
+    _trkSeen[name + ':' + key] = 1;
+    trk(name, data);
+  }
+  function lidarTrackOpen() {
+    trk('lidar_open', { ds: trkSurvey(active), framed: window.parent !== window, dev: _trkDev,
+                        t3d: !!(document.getElementById('t3d') || {}).checked });
+  }
+  (function () {
+    var panel = document.getElementById('panel');
+    function dsOf(el) { var d = el.closest('.ds'); return d ? trkSurvey(d.dataset.id) : ''; }
+    panel.addEventListener('change', function (e) {
+      var t = e.target;
+      if (t.name === 'ds') { var id = trkSurvey(t.value); trkOnce('lidar_survey', id, { id: id }); return; }
+      var el = t.closest('[id]');
+      if (el && el !== panel) trkOnce('lidar_control', el.id, { ctl: el.id });
+    }, true);
+    panel.addEventListener('click', function (e) {
+      var a = e.target.closest('a, button, summary');
+      if (!a) return;
+      if (a.tagName === 'A' && a.closest('.ds')) {
+        var id = dsOf(a);
+        if (a.classList.contains('zoomto')) trkOnce('lidar_control', 'zoomto', { ctl: 'zoomto' });
+        else if (/Point cloud/.test(a.textContent)) trkOnce('lidar_pointcloud', id, { id: id });
+        else trkOnce('download', 'dtm:' + id, { kind: 'lidar_dtm', id: id });
+        return;
+      }
+      if (a.classList.contains('mlink')) { trkOnce('lidar_control', 'methods', { ctl: 'methods' }); return; }
+      var el = a.closest('[id]');
+      if (el && el !== panel) trkOnce('lidar_control', el.id, { ctl: el.id });
+    }, true);
+  })();
+
   // ---- boot -------------------------------------------------------------
   map.on('load', function () {
     watchTerrainForFloor();
@@ -2084,6 +2129,7 @@ vanish depending on which way you light them.
       .then(function (both) {
         var fc = both[0];
         fc.features.forEach(function (f) { publicIds[f.properties.id] = true; });
+        setTimeout(lidarTrackOpen, 1500);         // after the link's survey has been applied
         if (both[1] && both[1].features && both[1].features.length) {
           // Keep every other property of the public catalogue (context in
           // particular); only the feature list grows.

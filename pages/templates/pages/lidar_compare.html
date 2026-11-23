@@ -19,8 +19,8 @@
   #ptitle { display: inline-block; min-width: 12em; font-size: 18px; font-weight: 600; outline: none; }
   /* In Frame mode titles look editable: dashed underline, text cursor, a hint
      on hover; Enter or clicking away commits, an emptied title reverts. */
-  body.frame #ptitle, body.frame .strip .ttl { border-bottom: 1px dashed #999; cursor: text; }
-  body.frame #ptitle:focus, body.frame .strip .ttl:focus { border-bottom-style: solid; background: #fffbe0; }
+  #ptitle[contenteditable=true], .strip .ttl[contenteditable=true] { border-bottom: 1px dashed #999; cursor: text; }
+  #ptitle[contenteditable=true]:focus, .strip .ttl[contenteditable=true]:focus { border-bottom-style: solid; background: #fffbe0; }
   #key { flex: none; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center;
          padding: 6px 10px; border-bottom: 1px solid #ccc; background: #f6f6f4; }
   #key .grp { display: flex; align-items: center; gap: 5px; }
@@ -134,55 +134,75 @@
           background: rgba(255,255,255,.6); font-size: 16px; font-weight: 600; }
   #_coord-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 10;
                   background: rgba(0,0,0,.8); color: #fff; padding: 5px 10px; border-radius: 4px; }
+  /* Control subset (ui=) and embed mode (embed=1). Every control carries a
+     data-ctl id from the CTL list in the script; the rules that hide the ones
+     a link leaves out are written into #uistyle by applyUi(). While the
+     picker is open they are dimmed instead, so the author sees what is cut. */
+  body.nokey #key { display: none; }
+  /* hc=1 collapses the controls a reader was given; with none given there is nothing to bring back. */
+  body.noctl #showctl { display: none !important; }
+  #uipanel .uig { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 12px; }
+  #uipanel .uig b { font-weight: 600; min-width: 6.5em; }
+  #uipanel input[type=text] { font: 11px ui-monospace, monospace; width: 34em; max-width: 100%; }
+  body.embed { overflow: hidden; }
+  body.embed [data-ctl~=saved], body.embed #uibtn, body.embed #perflbl { display: none !important; }
 </style>
+<style id="uistyle"></style>
+{% include '_analytics.html' %}
 </head>
-<body>
+<body{% if embed %} class="embed"{% endif %}>
 <div id="wrap">
-  <div id="pagehead"><span id="ptitle" spellcheck="false"></span></div>
+  <div id="pagehead" data-ctl="title"><span id="ptitle" spellcheck="false"></span></div>
   <div id="key">
-    <span id="seg"><button data-m="frame">Frame</button><button data-m="together">Together</button></span>
-    <span class="grp" title="Ground scale at the centre of every pane (the same in all)">
+    <span id="seg" data-ctl="mode"><button data-m="frame">Frame</button><button data-m="together">Together</button></span>
+    <span class="grp" data-ctl="scale" title="Ground scale at the centre of every pane (the same in all)">
       <span id="scalebar"><span id="sbl">—</span><i id="sbi"></i></span>
-      <label class="lock"><input type="checkbox" data-lock="scale">lock</label></span>
-    <span class="grp"><label>Tilt <span class="v" id="pv"></span></label><input type="range" id="pitch" min="0" max="80" step="1">
-      <label class="lock"><input type="checkbox" data-lock="tilt">lock</label></span>
-    <span class="grp"><label>Rotation</label>
+      <label class="lock" data-ctl="locks"><input type="checkbox" data-lock="scale">lock</label></span>
+    <span class="grp" data-ctl="tilt"><label>Tilt <span class="v" id="pv"></span></label><input type="range" id="pitch" min="0" max="80" step="1">
+      <label class="lock" data-ctl="locks"><input type="checkbox" data-lock="tilt">lock</label></span>
+    <span class="grp" data-ctl="locks"><label>Rotation</label>
       <label class="lock"><input type="checkbox" data-lock="rotation">lock</label></span>
-    <span class="grp"><label>Position</label>
+    <span class="grp" data-ctl="locks"><label>Position</label>
       <label class="lock"><input type="checkbox" data-lock="position">lock</label></span>
-    <span class="grp"><label><input type="checkbox" id="t3d"> 3D</label>
+    <span class="grp" data-ctl="ve"><label><input type="checkbox" id="t3d"> 3D</label>
       <label>VE <span class="v" id="exv"></span></label><input type="range" id="ex" min="0" max="100" step="1" title="Terrain exaggeration, 0 to 10×. At 0 the panes are a flat map (still tilted); profiles always read true heights.">
-      <label class="lock"><input type="checkbox" data-lock="ex">lock</label></span>
-    <span class="grp"><select id="mode">
+      <label class="lock" data-ctl="locks"><input type="checkbox" data-lock="ex">lock</label></span>
+    <span class="grp" data-ctl="shade"><select id="mode">
         <option value="preset">Preset</option><option value="hillshade">Hillshade</option>
         <option value="slope">Slope</option><option value="none">No shading</option></select>
       <label title="Sun fixed to the view (upper left of every pane) rather than to true north"><input type="checkbox" id="sunrel"> sun ↖ view</label>
       <label>az <span class="v" id="azv"></span></label><input type="range" id="az" min="0" max="359" step="1">
-      <label class="lock"><input type="checkbox" data-lock="style">lock</label></span>
-    <span class="grp"><label>Base</label><select id="bm"></select>
-      <label>shading <span class="v" id="opv"></span></label><input type="range" id="op" min="0" max="100" step="1"></span>
-    <span class="grp"><label title="The landslide inventory, styled as on /inventory/ (dots everywhere, outlines once zoomed in). Every public record; the inventory's filters are not applied here."><input type="checkbox" id="lson"> Landslides</label>
-      <select id="ovadd" title="Overlays from /inventory/, shown in every pane, above the shading"></select>
+      <label class="lock" data-ctl="locks"><input type="checkbox" data-lock="style">lock</label></span>
+    <span class="grp" data-ctl="base"><label>Base</label><select id="bm"></select></span>
+    <span class="grp" data-ctl="shadeop"><label>shading <span class="v" id="opv"></span></label><input type="range" id="op" min="0" max="100" step="1"></span>
+    <span class="grp" data-ctl="landslides"><label title="The landslide inventory, styled as on /inventory/ (dots everywhere, outlines once zoomed in). Every public record; the inventory's filters are not applied here."><input type="checkbox" id="lson"> Landslides</label></span>
+    <span class="grp" data-ctl="overlays"><select id="ovadd" title="Overlays from /inventory/, shown in every pane, above the shading"></select>
       <span id="ovlist"></span></span>
-    <span class="grp"><label>Panes</label><select id="npanes"><option>1</option><option>2</option><option>3</option><option>4</option>
+    <span class="grp" data-ctl="panes"><label>Panes</label><select id="npanes"><option>1</option><option>2</option><option>3</option><option>4</option>
         <option>6</option><option>9</option><option>12</option></select>
       <label>cols</label><select id="cols"><option value="0">auto</option><option>1</option><option>2</option><option>3</option><option>4</option></select></span>
-    <span class="grp frameonly"><input id="addlink" placeholder="paste a /lidar/ or /inventory/ link to add a pane" size="34" title="A /lidar/ link adds its place, look direction and survey. An /inventory/ map link adds its place and turns on its landslides and the overlays this page can show."></span>
-    <span class="grp frameonly"><button id="annbtn" title="Scale bar and north arrow on the ground in every pane: settings for all panes here, angle and position per pane">Scale bar &amp; north arrow…</button>
-      <button id="pfbtn" title="A profile line in every pane, each drawn in an inset at one shared scale">Profiles…</button></span>
-    <span class="grp"><label>Export <select id="expscale"><option value="2">2×</option><option value="4">4×</option></select></label>
+    <span class="grp frameonly" data-ctl="addlink"><input id="addlink" placeholder="paste a /lidar/ or /inventory/ link to add a pane" size="34" title="A /lidar/ link adds its place, look direction and survey. An /inventory/ map link adds its place and turns on its landslides and the overlays this page can show."></span>
+    <span class="grp frameonly" data-ctl="annot"><button id="annbtn" title="Scale bar and north arrow on the ground in every pane: settings for all panes here, angle and position per pane">Scale bar &amp; north arrow…</button></span>
+    <span class="grp frameonly" data-ctl="profiles"><button id="pfbtn" title="A profile line in every pane, each drawn in an inset at one shared scale">Profiles…</button></span>
+    <span class="grp" data-ctl="export"><label>Export <select id="expscale"><option value="2">2×</option><option value="4">4×</option></select></label>
       <select id="expfmt" title="PNG is lossless; JPEG (quality 90) is several times smaller and hard to tell apart on imagery and shading"><option value="png">PNG</option><option value="jpg">JPEG</option></select>
-      <button id="exportpng" title="The whole sheet as an image, every pane redrawn at this pixel ratio with deeper tiles">Export</button>
-      <button id="hidectl" title="Hide the controls; titles, panes and credits stay">Hide controls</button></span>
-    <span class="grp"><button id="copy">Copy link</button><button id="reset" title="Back to the view this link opened with">Reset</button>
-      <label id="perflbl" style="display:none"><input type="checkbox" id="perfon" checked> perf</label>
-      <a href="/lidar/methods/#compare" target="_blank" rel="noopener" title="How this works">?</a></span>
-    <span class="grp"><a href="/lidar/compare/saved/" title="The list of saved comparisons">Saved list</a>{% if can_save %}
+      <button id="exportpng" title="The whole sheet as an image, every pane redrawn at this pixel ratio with deeper tiles">Export</button></span>
+    <span class="grp" data-ctl="hide"><button id="hidectl" title="Hide the controls; titles, panes and credits stay">Hide controls</button></span>
+    <span class="grp" data-ctl="link"><button id="copy">Copy link</button></span>
+    <span class="grp" data-ctl="reset"><button id="reset" title="Back to the view this link opened with">Reset</button></span>
+    <span class="grp"><label id="perflbl" style="display:none"><input type="checkbox" id="perfon" checked> perf</label>
+      <a data-ctl="help" href="/lidar/methods/#compare" target="_blank" rel="noopener" title="How this works">?</a></span>
+    <span class="grp" data-ctl="saved"><a href="/lidar/compare/saved/" title="The list of saved comparisons">Saved list</a>{% if can_save %}
       <input id="svname" size="18" placeholder="name on the list" title="The name this comparison is listed under">
       <button id="svsubmit" title="Add this comparison to the public list as a new entry, with a new id">Submit</button>
       <button id="svupdate" style="display:none" title="Overwrite the saved entry this comparison was opened from">Update</button>{% endif %}
-      <span id="svcode" class="v" title="Id of the saved entry this comparison came from"></span></span>
+      <span id="svcode" class="v" title="Id of the saved entry this comparison came from"></span></span>{% if can_save %}
+    <span class="grp"><button id="uibtn" title="Choose which of these controls a reader of this link (or of an embedded copy) is given; the rest are hidden for them">Reader's controls…</button>
+      <label title="For the Presentation tool. Slide: a whole live element for deck.json, opening at this view. Step: this view as one more entry for that element's states list.">Deck</label>
+      <button id="deckslide" title="Copy a live slide element (JSON) that opens at this view, with the reader's controls chosen here">slide</button>
+      <button id="deckstep" title="Copy this view as a step: a string to add to the slide's states">step</button></span>{% endif %}
   </div>
+  <div id="uipanel" class="dockbar" style="display:none"></div>
   <div id="annpanel" class="dockbar" style="display:none"></div>
   <div id="pfpanel" class="dockbar" style="display:none"></div>
   <div id="grid"></div>
@@ -195,6 +215,8 @@
 <div id="busy"></div>
 
 {{ saved|json_script:"sv-data" }}
+<script>window.LS_EMBED = {{ embed|yesno:"true,false" }};</script>
+{% if embed %}<script src="{% static 'inventory/js/vendor/deck-embed.js' %}"></script>{% endif %}
 <script>window.LS_SAVE = { can: {{ can_save|yesno:"true,false" }}, canUpdate: {{ can_update|yesno:"true,false" }}, csrf: '{% if can_save %}{{ csrf_token }}{% endif %}' };</script>
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
@@ -245,49 +267,80 @@
     ['sitka_2019', 57.095, -135.254, 300], ['dickason_2024', 61.817, -151.752, 330]
   ].map(function (a) { return { ds: a[0], lat: a[1], lon: a[2], b: a[3], title: null }; });
 
+  // The whole comparison is one query string. readState() turns one into a
+  // shared state and a pane list; it is used at load and again by
+  // applyState() (a deck stepping an embedded copy to its next view), so a
+  // param that is absent always means its default, never "leave as it is".
   var Q = new URLSearchParams(location.search);
-  function qn(k, d) { var v = Q.get(k); return v === null || v === '' || !isFinite(+v) ? d : +v; }
-  var S = {
-    mode: Q.get('m') === 'together' ? 'together' : 'frame',
-    res: qn('res', 3), pitch: qn('p', 50), ex: qn('ex', 10) / 10, t3d: Q.get('t3d') !== '0',
-    shade: Q.get('sh') || 'preset', bm: Q.get('bm') === 'none' ? '' : (Q.get('bm') || 'esri-img'), op: qn('op', 100) / 100,
-    sunRel: Q.get('sr') !== '0', az: qn('az', 315), cols: qn('cols', 0),
-    locks: {}, title: Q.get('t') || null, clean: Q.get('hc') === '1'
-  };
-  // Saved-list entry this comparison was opened from (sv=, checked by the
-  // server: an unknown id arrives as null and is dropped from the link).
-  var SAVED = JSON.parse(document.getElementById('sv-data').textContent || 'null');
-  S.sv = SAVED ? SAVED.code : null;
-  (Q.get('lk') || '').split(',').forEach(function (k) { if (k) S.locks[k] = true; });
-  // Shared layers, the same in every pane (like the base): ls=1 draws the
-  // landslide inventory; ov=<id>.<pct>,... the baked overlays, by their
-  // /inventory/ ids, with opacity 0-100. An id this page does not know is
-  // dropped.
+  var EMBED = !!window.LS_EMBED;
+  // Embed mode is the signed-out page: its own requests go without the cookie.
+  function get(u) { return fetch(u, EMBED ? { credentials: 'omit' } : undefined); }
   var OVR = LSOverlays.bakedOverlays();
-  S.ls = Q.get('ls') === '1';
-  S.ov = {};
-  (Q.get('ov') || '').split(',').forEach(function (t) {
-    var m = /^([a-z0-9-]+)\.(\d+)$/.exec(t);
-    if (m && OVR.byId[m[1]]) S.ov[m[1]] = Math.min(100, +m[2]) / 100;
-  });
-  var P = [];
-  if (Q.get('pn')) {
-    Q.get('pn').split(';').forEach(function (s) {
-      var a = s.split(',');
-      // A context-only pane is written lat,lon,bearing (trailing empties
-      // trimmed), so three fields are a whole pane.
-      if (a.length < 2 || a[0] === '' || a[1] === '' || !isFinite(+a[0]) || !isFinite(+a[1])) return;
-      P.push({ lat: +a[0], lon: +a[1], b: +a[2] || 0, ds: a[3] || null,
-               title: a[4] ? decodeURIComponent(a[4]) : null, dsAuto: a[5] !== 'm' });
+
+  // ---- controls (ui=) --------------------------------------------------------
+  // Every control on the page has an id here and carries it as data-ctl. A
+  // link with ui=<id>,<id>... offers its reader only those; without ui= all
+  // are offered (so a control added later shows in old links that did not
+  // choose). Hiding a control does not undo what it set: the link still
+  // fixes the mode, the locks, the layers. ui=none hides them all.
+  // [id, label, where]; check_invariants holds this list to the data-ctl
+  // attributes in this file.
+  var CTL = [
+    ['title', 'Page title', 'page'],
+    ['mode', 'Frame / Together', 'key'], ['scale', 'Scale readout', 'key'], ['tilt', 'Tilt', 'key'],
+    ['ve', '3D and exaggeration', 'key'], ['shade', 'Shading style and sun', 'key'],
+    ['base', 'Base layer', 'key'], ['shadeop', 'Shading opacity', 'key'],
+    ['landslides', 'Landslides', 'key'], ['overlays', 'Overlays', 'key'],
+    ['panes', 'Pane count and columns', 'key'], ['addlink', 'Add a pane from a link', 'key'],
+    ['annot', 'Scale bar & north arrow', 'key'], ['profiles', 'Profiles', 'key'],
+    ['locks', 'Locks', 'key'], ['export', 'Export', 'key'], ['hide', 'Hide controls', 'key'],
+    ['link', 'Copy link', 'key'], ['reset', 'Reset', 'key'], ['help', 'Help link', 'key'], ['saved', 'Saved list', 'key'],
+    ['survey', 'Survey choice', 'pane'], ['rename', 'Rename titles', 'pane'], ['reorder', 'Move a pane', 'pane'],
+    ['remove', 'Remove a pane', 'pane'], ['meas', 'Scale check', 'pane']
+  ];
+  var CTL_IDS = {}; CTL.forEach(function (c) { CTL_IDS[c[0]] = c; });
+  function uiOn(id) { return !S.ui || S.ui.indexOf(id) >= 0; }
+
+  function readState(Q) {
+    function qn(k, d) { var v = Q.get(k); return v === null || v === '' || !isFinite(+v) ? d : +v; }
+    var S = {
+      mode: Q.get('m') === 'together' ? 'together' : 'frame',
+      res: qn('res', 3), pitch: qn('p', 50), ex: qn('ex', 10) / 10, t3d: Q.get('t3d') !== '0',
+      shade: Q.get('sh') || 'preset', bm: Q.get('bm') === 'none' ? '' : (Q.get('bm') || 'esri-img'), op: qn('op', 100) / 100,
+      sunRel: Q.get('sr') !== '0', az: qn('az', 315), cols: qn('cols', 0),
+      locks: {}, title: Q.get('t') || null, clean: Q.get('hc') === '1'
+    };
+    (Q.get('lk') || '').split(',').forEach(function (k) { if (k) S.locks[k] = true; });
+    // ui= present (even empty, or "none") = a chosen subset; absent = all.
+    S.ui = Q.get('ui') === null ? null
+      : Q.get('ui').split(',').filter(function (k) { return CTL_IDS[k]; });
+    // Shared layers, the same in every pane (like the base): ls=1 draws the
+    // landslide inventory; ov=<id>.<pct>,... the baked overlays, by their
+    // /inventory/ ids, with opacity 0-100. An id this page does not know is
+    // dropped.
+    S.ls = Q.get('ls') === '1';
+    S.ov = {};
+    (Q.get('ov') || '').split(',').forEach(function (t) {
+      var m = /^([a-z0-9-]+)\.(\d+)$/.exec(t);
+      if (m && OVR.byId[m[1]]) S.ov[m[1]] = Math.min(100, +m[2]) / 100;
     });
-  }
-  var nWanted = P.length ? P.length : Math.min(MAXP, qn('n', 9));
-  if (!P.length) P = DEFAULT_PANES.slice(0, nWanted).map(function (p) { return Object.assign({}, p); });
-  // Scale bar and north arrow: the spec is shared (sb=len,seg,th,fs,col and
-  // na=size,col; present = on), the placement is per pane (sp=i,lon,lat,rel
-  // with rel the bar's angle from perpendicular to the look direction, and
-  // np=i,lon,lat).
-  (function () {
+    var P = [];
+    if (Q.get('pn')) {
+      Q.get('pn').split(';').forEach(function (s) {
+        var a = s.split(',');
+        // A context-only pane is written lat,lon,bearing (trailing empties
+        // trimmed), so three fields are a whole pane.
+        if (a.length < 2 || a[0] === '' || a[1] === '' || !isFinite(+a[0]) || !isFinite(+a[1])) return;
+        P.push({ lat: +a[0], lon: +a[1], b: +a[2] || 0, ds: a[3] || null,
+                 title: a[4] ? decodeURIComponent(a[4]) : null, dsAuto: a[5] !== 'm' });
+      });
+    }
+    var nWanted = P.length ? P.length : Math.min(MAXP, qn('n', 9));
+    if (!P.length) P = DEFAULT_PANES.slice(0, nWanted).map(function (p) { return Object.assign({}, p); });
+    // Scale bar and north arrow: the spec is shared (sb=len,seg,th,fs,col and
+    // na=size,col; present = on), the placement is per pane (sp=i,lon,lat,rel
+    // with rel the bar's angle from perpendicular to the look direction, and
+    // np=i,lon,lat).
     var a = (Q.get('sb') || '').split(','), b = (Q.get('na') || '').split(',');
     S.sb = { on: !!Q.get('sb'), len: +a[0] || 0, seg: +a[1] || 4, th: +a[2] || 2, fs: +a[3] || 2, col: a[4] === 'l' ? 'l' : 'd' };
     // Units for the scale bar and the profile axes: metric or statute (u=us).
@@ -311,7 +364,14 @@
       var v = t.split(','), p = P[+v[0]];
       if (p && isFinite(+v[1]) && isFinite(+v[2])) p.na = { lon: +v[1], lat: +v[2] };
     });
-  })();
+    return { S: S, P: P };
+  }
+  var S, P;
+  (function () { var st = readState(Q); S = st.S; P = st.P; })();
+  // Saved-list entry this comparison was opened from (sv=, checked by the
+  // server: an unknown id arrives as null and is dropped from the link).
+  var SAVED = JSON.parse(document.getElementById('sv-data').textContent || 'null');
+  S.sv = SAVED ? SAVED.code : null;
   var initialSearch = location.search;
 
   // ---- catalogue + DEM registrations --------------------------------------
@@ -488,9 +548,9 @@
     var el = document.createElement('div');
     el.className = 'pane';
     if (p.uid === undefined) p.uid = paneSeq++;
-    el.innerHTML = '<div class="strip"><span class="mv frameonly" title="Drag to move this pane; Esc puts it back">⠿</span><span class="ttl"></span><select class="frameonly ds"></select>' +
-                   '<span class="meas"></span>' + northSvg() +
-                   '<button class="rm frameonly" title="Remove pane">✕</button></div><div class="panebar"></div><div class="mapbox"></div>';
+    el.innerHTML = '<div class="strip"><span class="mv frameonly" data-ctl="reorder" title="Drag to move this pane; Esc puts it back">⠿</span><span class="ttl"></span><select class="frameonly ds" data-ctl="survey"></select>' +
+                   '<span class="meas" data-ctl="meas"></span>' + northSvg() +
+                   '<button class="rm frameonly" data-ctl="remove" title="Remove pane">✕</button></div><div class="panebar"></div><div class="mapbox"></div>';
     grid.appendChild(el);
     p.el = el;
     var ttl = el.querySelector('.ttl');
@@ -625,8 +685,8 @@
   function lsLoad() {
     if (LS.loading) return LS.loading;
     LS.loading = Promise.all([
-      fetch('/inventory/api/settings/').then(function (r) { return r.json(); }),
-      fetch('/inventory/api/features/').then(function (r) { return r.json(); })
+      get('/inventory/api/settings/').then(function (r) { return r.json(); }),
+      get('/inventory/api/features/').then(function (r) { return r.json(); })
     ]).then(function (a) {
       LS.pal = LSColors.palette(a[0]);
       LS.polyZoom = parseInt(a[0].polygon_zoom, 10) || 7;
@@ -638,7 +698,7 @@
   }
   function rampsLoad() {
     if (LS.rampsLoading) return;
-    LS.rampsLoading = fetch('/inventory/api/ramps/').then(function (r) { return r.json(); })
+    LS.rampsLoading = get('/inventory/api/ramps/').then(function (r) { return r.json(); })
       .then(function (d) { LS.ramps = d; legend(); }).catch(function () {});
   }
   // Bring a pane's shared layers in line with S (add what is on, drop what
@@ -695,7 +755,7 @@
     var w = bb[2] - bb[0], h = bb[3] - bb[1];
     var ask = [bb[0] - w / 4, bb[1] - h / 4, bb[2] + w / 4, bb[3] + h / 4];
     var seq = p.polySeq = (p.polySeq || 0) + 1;
-    fetch('/inventory/api/polygons/?bbox=' + ask.map(function (v) { return v.toFixed(5); }).join(','))
+    get('/inventory/api/polygons/?bbox=' + ask.map(function (v) { return v.toFixed(5); }).join(','))
       .then(function (r) { return r.json(); })
       .then(function (fc) {
         if (seq !== p.polySeq || !m.getSource('polygons')) return;     // a newer request, or switched off
@@ -844,6 +904,8 @@
 
   // ---- linked navigation (plan §3) ----------------------------------------
   function setDriver(i) {
+    travelling = 0;                              // a reader's gesture ends a step in progress
+    trackCtl('map');
     driver = i;
     P.forEach(function (p, j) { p.el.classList.toggle('drv', j === i); });
     perf.gestureStart = performance.now();
@@ -1042,9 +1104,9 @@
     document.body.classList.toggle('frame', S.mode === 'frame');
     P.forEach(function (p) {
       var t = p.el && p.el.querySelector('.ttl');
-      if (t) t.contentEditable = S.mode === 'frame' ? 'true' : 'false';
+      if (t) t.contentEditable = S.mode === 'frame' && uiOn('rename') ? 'true' : 'false';
     });
-    $('ptitle').contentEditable = S.mode === 'frame' ? 'true' : 'false';
+    $('ptitle').contentEditable = S.mode === 'frame' && uiOn('rename') ? 'true' : 'false';
     syncLockUI();
   }
   function credits() {
@@ -1071,7 +1133,7 @@
   // to who is looking. A link naming one keeps it in S.bm until the list
   // arrives; a viewer who cannot see it gets a white base, the id untouched.
   function loadSharedBases() {
-    fetch('/inventory/api/qms/promoted/').then(function (r) { return r.ok ? r.json() : null; })
+    get('/inventory/api/qms/promoted/').then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         var extra = d && (d.layers || d.results || (Array.isArray(d) ? d : null));
         if (!extra || !extra.length) return;
@@ -1147,7 +1209,7 @@
     });
     $('copy').addEventListener('click', function () {
       writeUrl();
-      navigator.clipboard && navigator.clipboard.writeText(location.href).then(function () { toast('Link copied'); });
+      navigator.clipboard && navigator.clipboard.writeText(shareHref()).then(function () { toast('Link copied'); });
     });
     $('reset').addEventListener('click', function () { location.search = initialSearch; });
     if (LS_SAVE.can) {
@@ -1172,6 +1234,11 @@
     $('perfon').addEventListener('change', function () { $('perf').style.display = this.checked ? '' : 'none'; });
     $('annbtn').addEventListener('click', function () { if (editing) annClose(); else annOpen(); });
     $('pfbtn').addEventListener('click', function () { if (pfEditing) pfClose(); else pfOpen(); });
+    if ($('uibtn')) $('uibtn').addEventListener('click', function () { if (uiPicking) uiClose(); else uiOpen(); });
+    if ($('deckslide')) {
+      $('deckslide').addEventListener('click', function () { deckCopy(true); });
+      $('deckstep').addEventListener('click', function () { deckCopy(false); });
+    }
     $('hidectl').addEventListener('click', function () { setClean(true); });
     $('showctl').addEventListener('click', function () { setClean(false); });
     $('exportpng').addEventListener('click', function () { exportPng(+$('expscale').value, $('expfmt').value); });
@@ -2104,6 +2171,7 @@
       a.download = ((S.title || 'terrain-comparison').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'terrain-comparison') + '_' + scale + 'x.' + (jpg ? 'jpg' : 'png');
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 60000);
+      track('download', { kind: 'compare_' + (jpg ? 'jpg' : 'png'), scale: scale, panes: P.length });
       toast('Exported ' + out.width + ' × ' + out.height + ' px, ' + (blob.size / 1048576).toFixed(1) + ' MB ' + (jpg ? 'JPEG' : 'PNG'));
     } catch (err) {
       console.error(err); toast('Export failed: ' + err.message);
@@ -2120,14 +2188,16 @@
   // ---- URL -------------------------------------------------------------------
   var urlT = null;
   function syncUrl() { clearTimeout(urlT); urlT = setTimeout(writeUrl, 300); }
-  function writeUrl() {
+  // The comparison as a query: every shared setting is always written, so
+  // the string is the whole view (what a deck stores per step).
+  function stateQuery() {
     var q = new URLSearchParams();
     q.set('m', S.mode); q.set('res', S.res.toFixed(3)); q.set('p', Math.round(S.pitch));
     q.set('ex', Math.round(S.ex * 10)); q.set('t3d', S.t3d ? 1 : 0); q.set('sh', S.shade);
     q.set('bm', S.bm || 'none'); q.set('op', Math.round(S.op * 100)); q.set('sr', S.sunRel ? 1 : 0); q.set('az', S.az);
     if (S.title) q.set('t', S.title);
     if (S.clean) q.set('hc', 1);
-    if (S.sv) q.set('sv', S.sv);
+    if (S.ui) q.set('ui', S.ui.join(',') || 'none');
     if (S.cols) q.set('cols', S.cols);
     var lk = Object.keys(S.locks); if (lk.length) q.set('lk', lk.join(','));
     if (S.ls) q.set('ls', 1);
@@ -2158,7 +2228,20 @@
     });
     if (S.sb.on && sp.length) q.set('sp', sp.join(';'));
     if (S.na.on && np.length) q.set('np', np.join(';'));
+    return q;
+  }
+  function writeUrl() {
+    if (travelling) return;                    // mid-step values are not a view
+    var q = stateQuery();
+    if (S.sv) q.set('sv', S.sv);
+    if (EMBED) q.set('embed', 1);              // a reload inside the frame must stay framable
     history.replaceState(null, '', location.pathname + '?' + q.toString());
+    if (window.DeckEmbed) DeckEmbed.changed();
+  }
+  // The link to hand on: never the embed address.
+  function shareHref() {
+    var q = stateQuery(); if (S.sv) q.set('sv', S.sv);
+    return location.origin + location.pathname + '?' + q.toString();
   }
 
   // ---- saved list ------------------------------------------------------------
@@ -2187,6 +2270,7 @@
         .then(function (j) { if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status); return j; });
     }).then(function (j) {
       S.sv = j.code; $('svname').value = j.name; svNameAuto = j.name === titleName(); syncSaved(); writeUrl();
+      track('compare_save', { updated: !!j.updated });
       toast((j.updated ? 'Updated ' : 'Added to the list as ') + j.code);
     }).catch(function (e) { toast('Not saved: ' + e.message); });
   }
@@ -2246,6 +2330,215 @@
       '  off ground ' + P.filter(function (p) { return p.groundOff > Math.max(1, S.res); }).length;
   }
 
+  // ---- control subset: apply, and the author's picker ------------------------
+  // applyUi() writes one hiding rule per control the link leaves out, so
+  // elements built later (pane strips, overlay chips) follow without being
+  // visited. The picker is offered to those who can save comparisons; while
+  // it is open the left-out controls are dimmed rather than hidden.
+  var uiPicking = false;
+  function applyUi() {
+    var off = CTL.filter(function (c) { return !uiOn(c[0]); }).map(function (c) { return c[0]; });
+    $('uistyle').textContent = off.map(function (id) {
+      return 'body:not(.uipick) [data-ctl~="' + id + '"] { display: none !important; }\n' +
+             'body.uipick [data-ctl~="' + id + '"] { opacity: .3; }';
+    }).join('\n');
+    // No key control left: the bar itself goes (an author keeps it, for the picker).
+    var anyKey = CTL.some(function (c) { return c[2] === 'key' && uiOn(c[0]) && !(EMBED && c[0] === 'saved'); });
+    document.body.classList.toggle('nokey', !anyKey && !$('uibtn'));
+    var anyPane = CTL.some(function (c) { return c[2] === 'pane' && c[0] !== 'rename' && uiOn(c[0]); });
+    document.body.classList.toggle('noctl', !anyKey && !anyPane && !$('uibtn'));
+    if (typeof syncKey === 'function' && P.length && P[0].el) syncKey();   // titles: editable or not
+    setTimeout(layoutGrid, 0);
+  }
+  function uiOpen() {
+    uiPicking = true; document.body.classList.add('uipick'); uiPanel(); setTimeout(layoutGrid, 0);
+  }
+  function uiClose() {
+    uiPicking = false; document.body.classList.remove('uipick');
+    $('uipanel').style.display = 'none'; setTimeout(layoutGrid, 0);
+  }
+  function embedHref() {
+    var q = stateQuery();
+    // A saved comparison embeds by its short link, which follows every Update.
+    if (S.sv) return location.origin + '/lidar/compare/s/' + S.sv + '/?embed=1';
+    q.set('embed', 1);
+    return location.origin + location.pathname + '?' + q.toString();
+  }
+  function uiPanel() {
+    var pn = $('uipanel'), groups = [['page', 'Page'], ['key', 'Key'], ['pane', 'Each pane']];
+    pn.innerHTML = '<h4>Reader\'s controls</h4>' +
+      groups.map(function (g) {
+        return '<div class="uig"><b>' + g[1] + '</b>' + CTL.filter(function (c) { return c[2] === g[0]; }).map(function (c) {
+          return '<label title="ui id: ' + c[0] + '"><input type="checkbox" data-ui="' + c[0] + '"' + (uiOn(c[0]) ? ' checked' : '') + '> ' + esc(c[1]) + '</label>';
+        }).join('') + '</div>';
+      }).join('') +
+      '<div class="btns"><button id="ui-all">All</button><button id="ui-none">None</button>' +
+      '<a id="ui-open" target="_blank" rel="noopener" title="This comparison as an embedded reader gets it: signed out, these controls only">Open embed view</a>' +
+      '<button id="ui-code" title="An iframe for another page; any site may show it.">Copy embed code</button>' +
+      '<button id="ui-done"><b>Done</b></button></div>' +
+      '<div class="hint">Unticked controls are hidden for anyone opening this link (dimmed here while this bar is open). ' +
+      'What they set stays as it is now: mode, locks, layers and panes are part of the link. To let a reader tilt but not pan, tick Tilt and lock Position. ' +
+      'Embedding a saved comparison uses its short link, so <b>Update</b> it after changing this.</div>';
+    pn.style.display = '';
+    function f(id) { return document.getElementById(id); }
+    function take() {
+      var on = [].filter.call(pn.querySelectorAll('[data-ui]'), function (cb) { return cb.checked; })
+                 .map(function (cb) { return cb.dataset.ui; });
+      S.ui = on.length === CTL.length ? null : on;
+      applyUi(); f('ui-open').href = embedHref(); syncUrl();
+    }
+    pn.querySelectorAll('[data-ui]').forEach(function (cb) { cb.onchange = take; });
+    function all(v) { pn.querySelectorAll('[data-ui]').forEach(function (cb) { cb.checked = v; }); take(); }
+    f('ui-all').onclick = function () { all(true); };
+    f('ui-none').onclick = function () { all(false); };
+    f('ui-open').href = embedHref();
+    f('ui-open').onmouseenter = f('ui-open').onfocus = function () { this.href = embedHref(); };
+    f('ui-code').onclick = function () {
+      var code = '<iframe src="' + esc(embedHref()) + '" width="960" height="540" style="border:0" allowfullscreen></iframe>';
+      if (navigator.clipboard) navigator.clipboard.writeText(code).then(function () { toast('Embed code copied'); });
+    };
+    f('ui-done').onclick = uiClose;
+  }
+
+  // ---- handing a view to a deck -----------------------------------------------
+  // The Presentation tool's live element (its CLAUDE.md, "Live figure
+  // protocol"): src = the embed page, states = one view string per click.
+  // "slide" copies a whole element whose src already opens at this view (so
+  // the frame does not first build the default nine panes) and whose first
+  // state is this view; "step" copies the view alone, a JSON string ready to
+  // go after a comma in that element's states. Both are the view a reader
+  // gets: the chosen controls, signed out.
+  function deckCopy(slide) {
+    var st = stateQuery().toString(), txt;
+    if (slide) {
+      txt = JSON.stringify({ type: 'live', src: location.origin + location.pathname + '?' + st + '&embed=1',
+                             states: [st], x: 0, y: 0, w: 1920, h: 1080 }, null, 1);
+    } else txt = JSON.stringify(st);
+    var say = function () {
+      toast(slide ? 'Deck slide copied: paste it into the deck\'s elements' +
+                    (/^(localhost|127\.)/.test(location.hostname) ? ' (src points at this dev server)' : '')
+                  : 'Deck step copied: add it to the slide\'s states');
+    };
+    if (navigator.clipboard) navigator.clipboard.writeText(txt).then(say, function () { toast('Could not copy'); });
+    track('compare_deck', { what: slide ? 'slide' : 'step' });
+  }
+
+  // ---- usage counts (docs/OPERATIONS.md, Traffic analytics) -------------------
+  // Which controls get used, never what was typed or where the panes are. One
+  // listener covers every control through its data-ctl id; each id is
+  // reported once per page load (LSTrack holds an early event until the
+  // deferred tracker has loaded).
+  function track(name, data) { if (window.LSTrack) LSTrack.event(name, data); }
+  var usedCtl = {};
+  function trackCtl(id) {
+    if (usedCtl[id]) return;
+    usedCtl[id] = 1;
+    track('compare_control', { ctl: id, embed: EMBED });
+  }
+  document.addEventListener('change', function (e) {
+    var el = e.target.closest && e.target.closest('[data-ctl]');
+    if (el) trackCtl(el.getAttribute('data-ctl'));
+  }, true);
+  document.addEventListener('click', function (e) {
+    var hit = e.target.closest && e.target.closest('button, a, .mv');
+    var el = hit && hit.closest('[data-ctl]');
+    if (el) trackCtl(el.getAttribute('data-ctl'));
+  }, true);
+  function trackOpen() {
+    var framed = window.parent !== window, host = '';
+    // The embedding page's site only (never its address): who shows our map.
+    if (framed) { try { host = new URL(document.referrer).hostname; } catch (e) {} }
+    track('compare_open', { panes: P.length, mode: S.mode, embed: EMBED, framed: framed, host: host,
+                            ui: S.ui ? (S.ui.join(',') || 'none') : 'all', saved: !!S.sv });
+  }
+
+  // ---- applying a whole state in place (embed: a deck's next step) ----------
+  // The page was written to read its link once; this brings a running page
+  // to another link without a reload. Panes are matched by position: kept
+  // ones move (their maps and tiles stay), extra ones go, new ones are
+  // built. With animate, places a kept pane can reach within ~40 of its own
+  // widths, and the shared scale and tilt, are travelled in a fixed time by
+  // setting the cameras each frame (the page's own applyAll; MapLibre's
+  // easeTo is avoided here for the reason settle() gives). Anything farther
+  // cuts.
+  var travelling = 0, pendingState = null, TRAVEL_MS = 1400;
+  function applyState(str, o) {
+    if (!catalog) { pendingState = [str, o]; return; }       // before the first build: keep the latest
+    var st = readState(new URLSearchParams(String(str || '').replace(/^[?#]/, '')));
+    travelling = 0;
+    if (editing) annClose();
+    if (pfEditing) pfClose();
+    if (uiPicking) uiClose();
+    var was = { bm: S.bm, res: S.res, pitch: S.pitch, sv: S.sv };
+    var sigs = P.map(function (p, i) { return p.loaded ? shadeUrl(p, i) + '|' + S.shade : null; });
+    var from = P.map(function (p) { return { lat: p.lat, lon: p.lon, b: p.b }; });
+    Object.keys(st.S).forEach(function (k) { S[k] = st.S[k]; });        // S keeps its identity
+    S.sv = was.sv;
+    while (P.length > st.P.length) {
+      var x = P.pop();
+      if (x.map) x.map.remove();
+      if (x.el) x.el.remove();
+    }
+    if (driver >= P.length) driver = -1;
+    if (activePane >= P.length) activePane = 0;
+    st.P.forEach(function (n, i) {
+      if (n.ds && !props[n.ds]) n.ds = null;
+      var p = P[i];
+      if (!p) { P.push(n); buildPane(i); return; }
+      ['lat', 'lon', 'b', 'ds', 'title', 'dsAuto', 'pl', 'pfPos', 'sb', 'na'].forEach(function (k) { p[k] = n[k]; });
+      p.el.querySelector('.ttl').textContent = p.title || (props[p.ds] ? props[p.ds].title : 'Context');
+    });
+    $('ptitle').textContent = S.title || 'Untitled comparison'; docTitle();
+    document.body.classList.toggle('clean', S.clean);
+    $('lson').checked = S.ls;
+    if (S.ls) lsLoad();
+    if (Object.keys(S.ov).length) rampsLoad();
+    P.forEach(function (p, i) {
+      if (!p.loaded) return;                      // a new pane sets itself up on 'load'
+      p.map.setMinPitch(0); p.map.setMaxPitch(85);              // locks go back on after the move
+      if (S.bm !== was.bm) setBase(p);
+      if (sigs[i] !== shadeUrl(p, i) + '|' + S.shade) rebuildSources(p, i);
+      else {
+        applyTerrain(p);
+        if (p.map.getLayer('shade')) p.map.setPaintProperty('shade', 'raster-opacity', S.op);
+      }
+      sharedLayers(p); annPane(p); pfPane(p);
+    });
+    ovControls(); legend(); credits(); applyUi(); layoutGrid();
+    if (S.pf.on) pfRenderAll();
+    function land() {
+      travelling = 0;
+      applyAll(-1);
+      P.forEach(function (p) { if (p.loaded) { applyLocks(p); surveyOptions(p); drawNorth(p); } });
+      syncKey(); gestureEnded(); syncUrl();
+    }
+    var to = P.map(function (p) { return { lat: p.lat, lon: p.lon, b: p.b }; }), toRes = S.res, toPitch = S.pitch;
+    var near = function (i) {
+      if (!from[i] || !P[i].loaded) return false;
+      var d = gdist([from[i].lon, from[i].lat], [to[i].lon, to[i].lat]);
+      return d < 40 * Math.max(was.res, toRes) * (paneSize(P[i])[0] || 600);
+    };
+    var moves = P.map(function (p, i) { return near(i); });
+    if (!o || o.animate === false || !moves.some(Boolean) || document.hidden) { land(); return; }
+    var id = travelling = ++travelSeq, t0 = performance.now();
+    (function tick(t) {
+      if (travelling !== id) return;              // a newer step, or the reader took over
+      var k = Math.min(1, (t - t0) / TRAVEL_MS), e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      S.res = Math.exp(Math.log(was.res) + (Math.log(toRes) - Math.log(was.res)) * e);
+      S.pitch = was.pitch + (toPitch - was.pitch) * e;
+      P.forEach(function (p, i) {
+        if (!moves[i]) { p.lat = to[i].lat; p.lon = to[i].lon; p.b = to[i].b; return; }
+        p.lat = from[i].lat + (to[i].lat - from[i].lat) * e;
+        p.lon = wrap180(from[i].lon + wrap180(to[i].lon - from[i].lon) * e);
+        p.b = ((from[i].b + wrap180(to[i].b - from[i].b) * e) % 360 + 360) % 360;
+      });
+      if (k >= 1) { S.res = toRes; S.pitch = toPitch; P.forEach(function (p, i) { p.lat = to[i].lat; p.lon = to[i].lon; p.b = to[i].b; }); land(); return; }
+      applyAll(-1); syncKey();
+      requestAnimationFrame(tick);
+    })(t0);
+  }
+  var travelSeq = 0;
+
   // ---- boot ------------------------------------------------------------------
   if (Q.get('perf') === '1') { $('perf').style.display = ''; $('perflbl').style.display = ''; }
   fillBase(); loadSharedBases();
@@ -2255,6 +2548,7 @@
   ovControls(); legend();
   bindKey();
   if (S.clean) document.body.classList.add('clean');
+  applyUi();
   if (LS_SAVE.can) {
     svNameAuto = !SAVED || SAVED.name === titleName();
     $('svname').value = SAVED ? SAVED.name : titleName();
@@ -2267,7 +2561,7 @@
   editable($('ptitle'), function () { return S.title; }, function (v) { S.title = v; followTitle(); },
            function () { return 'Untitled comparison'; }, 'Title of this comparison (Frame mode)');
   docTitle();
-  fetch('/lidar/catalog.geojson').then(function (r) { return r.json(); }).then(function (fc) {
+  get('/lidar/catalog.geojson').then(function (r) { return r.json(); }).then(function (fc) {
     catalog = fc;
     fc.features.forEach(function (f) {
       var p = f.properties;
@@ -2284,6 +2578,26 @@
     P.forEach(function (p, i) { buildPane(i); });
     layoutGrid(); syncKey(); credits(); syncUrl();
     requestAnimationFrame(frame);
+    if (pendingState) { var ps = pendingState; pendingState = null; applyState(ps[0], { animate: false }); }
+    deckReady(); trackOpen();
+  });
+  // Embed protocol (inventory/DECK_EMBED.md; vendor/deck-embed.js, loaded in
+  // embed mode only). The state string is the page's own query, so every
+  // step a deck stores is also a link. Ready = every pane has drawn once, or
+  // 8 s after the catalogue, whichever is first (a hidden frame gets no
+  // animation frames, so 'idle' may not come until the slide is shown).
+  function deckReady() {
+    if (!window.DeckEmbed) return;
+    var done = false, t0 = performance.now();
+    (function wait() {
+      if (done) return;
+      if (coldMs != null || performance.now() - t0 > 8000) { done = true; DeckEmbed.ready(); return; }
+      setTimeout(wait, 150);
+    })();
+  }
+  if (window.DeckEmbed) DeckEmbed.init({
+    getState: function () { return stateQuery().toString(); },
+    setState: applyState
   });
   window.addEventListener('resize', layoutGrid);
   // A drag that ends over another pane (or the key) is never ended: MapLibre
