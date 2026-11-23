@@ -416,7 +416,10 @@
     Reveal.syncFragments(sec);
   }
   function opensAt(e) {                    // the page's address opens at its first step, so nothing jumps when it loads
-    if (!e.states[0] || e.states[0].indexOf("=") < 0 || e.src.indexOf("?") < 0) return;
+    if (!e.states[0] || e.states[0].indexOf("=") < 0) return;
+    var h = e.src.indexOf("#");             // a page that keeps its view after "#" (the inventory): only that part changes
+    if (h >= 0) { e.src = e.src.slice(0, h) + "#" + e.states[0]; return; }
+    if (e.src.indexOf("?") < 0) return;
     e.src = e.src.split("?")[0] + "?" + e.states[0] + (/[?&]embed=1(&|$)/.test(e.src) ? "&embed=1" : "");
   }
   function use(e) {                        // let the pointer through to the figure, or stop
@@ -610,12 +613,15 @@
 
   // ---------------------------------------------------------------- slides
   function removeSlides() {
-    var list = sorter ? picks : [];
-    if (!list.length || list.length >= deck.slides.length) return;
+    if (cropping) crop(null);
+    var list = sorter ? picks.slice() : [cur().s];       // in the sorter: the selected slides; otherwise the one showing
+    if (!list.length) { status("Select a slide to delete first", true); return; }
+    if (list.length >= deck.slides.length) { status("A deck keeps at least one slide", true); return; }
     var before = snapshotAll(), at = deck.slides.indexOf(list[0]);
     list.forEach(function (x) { deck.slides.splice(deck.slides.indexOf(x), 1); });
     picks = [];
     commitAll(before, Math.min(at, deck.slides.length - 1));
+    status((list.length > 1 ? list.length + " slides" : "Slide") + " deleted. Undo (Cmd-Z) brings " + (list.length > 1 ? "them" : "it") + " back");
   }
   function addSlide() {
     var before = snapshotAll(), at = cur().i + 1;
@@ -728,7 +734,11 @@
   }
   function go(d) { var i = cur().i + d; if (i >= 0 && i < deck.slides.length) { sel = []; Reveal.slide(i); } }
 
-  function field(ev) { return /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target && ev.target.tagName || ""); }   // typing in a form field (the site's menu)
+  function field(ev) {
+    var t = ev.target || {};                // a slider or a button that kept the focus is not typing
+    if (t.tagName === "INPUT") return !/^(range|checkbox|radio|button|submit|reset|color|file|image)$/.test(t.type || "");
+    return /^(TEXTAREA|SELECT)$/.test(t.tagName || "");
+  }   // typing in a form field (the site's menu)
   function key(ev) {
     if (field(ev)) return;
     if (!on) { if ((ev.key === "e" || ev.key === "E") && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !/^(INPUT|TEXTAREA)$/.test(ev.target.tagName)) toggle(); return; }
@@ -776,6 +786,7 @@
     bar.where = mk("span", "kn-ed-where", bar.el);
     button("Slides", "The slide sorter: select, reorder, copy and paste slides  S", function () { openSorter(!sorter); });
     button("+ Slide", "Add an empty slide after this one", addSlide);
+    button("− Slide", "Delete this slide (in the sorter: the selected slides; Delete does the same there). Undo brings it back", removeSlides);
     button("+ Text", "Add a text box", function () { if (!sorter) addText(); });
     button("Front", "Bring to front  }", function () { order("front"); });
     button("Forward", "Bring forward  ]", function () { order("forward"); });
