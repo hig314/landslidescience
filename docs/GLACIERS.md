@@ -173,6 +173,13 @@ in `glaciers/views.py`, which tests for `data/glaciers/experiments/` — a
 directory that is never rsynced to prod. Keep new research scaffolding
 behind that same gate rather than inventing a second switch.
 
+**Right-click → copy coords** (2026-11-22, Hig: "add our ctrl-click for
+coordinates tool"): right-click (Ctrl-click on a Mac) copies `lat, lon` with a
+toast, as on /inventory/ and /lidar/; glaciers.js keeps its own copy of
+map.js's handler (same rule: `LSTools.blocked()` wins, except tracing with no
+line in progress). This is the third copy (map.js, lidar_preview.html,
+glaciers.js); moving them into one helper is a main-stream job.
+
 - **Shared-module discipline**: basemaps from `basemaps.js`, glacier
   overlays from `ls_overlays.js` (single source of truth with the inventory
   map — add/change glacier overlays ONLY there). Planned convergence
