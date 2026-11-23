@@ -136,9 +136,16 @@ In no particular order.
   no longer show their path dot. Not placed: Grand Pacific "Ferris", Knik
   3b7679, both Agassiz, Bering East (Hig to give centres with the locator).
   Work dir `/Volumes/Nunatak/glacier_s1_georef/` (accepted.txt = the
-  eye-checked list; review_skip_v2.txt the five). Next: the 18 strong
-  candidates not yet online (`cand_batch.py cand/strong.json`), placed
-  before import.
+  eye-checked list; review_skip_v2.txt the five). Strong candidates
+  (`cand_batch.py cand/strong.json`): 11 of 18 placed and LIVE the same
+  day, placed BEFORE import, so they went in without Drive: the local mp4s
+  (sha1(drive id)[:16] names) + WebPs rsynced, rows inserted from
+  `data/glaciers/s1_georef/cand_dev_rows.json` (added_by 's1 georef
+  candidate'), then `s1_videos georef cand_georef.json`. Prod: 87 s1
+  videos, 82 placed, 4.9 GB free. Open: 34 videos need a centre from Hig
+  (review page's "Needs a centre" view saves `center` [lat, lon] +
+  `center_text`, `loc_note` in its `decisions` docs; 5 site, 7 missed, 22
+  not searched): rerun match2 + fine with that as the anchor.
 - **S1 timelapse import — first batch LIVE 2026-11-21** (docs/GLACIERS.md,
   last section). Drive's quota had reset; the page's decisions were
   re-exported (20: 16 approved, 3 assigned, 1 rejected) and all 19 imported
