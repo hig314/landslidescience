@@ -470,6 +470,38 @@
     // ---------------------------------------------------------------------
     window.LSTools.init(map, { position: 'top-right' });
 
+    // Right-click (Ctrl-click on a Mac) anywhere on the map -> "lat, lon" on
+    // the clipboard, as on /inventory/ (map.js) and /lidar/: the same text,
+    // the same toast, the same rule. A tool holding the map owns right-click,
+    // except line tracing with no line in progress (scarps.js stops the event
+    // itself when it means a vertex or the end of a line).
+    map.on('contextmenu', function (e) {
+        var tracing = window.LSScarps && window.LSScarps.isDrawing();
+        if (window.LSTools.blocked() && !tracing) return;
+        e.preventDefault();
+        var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
+        var done = function () { coordToast(txt + ' copied'); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(txt).then(done, function () { coordToast(txt); });
+        } else { coordToast(txt); }
+    });
+    function coordToast(msg) {
+        var t = document.getElementById('_coord-toast');
+        if (!t) {
+            t = document.createElement('div');
+            t.id = '_coord-toast';
+            // at the top: the year and flow bars sit along the bottom here
+            t.style.cssText = 'position:absolute;top:12px;left:50%;transform:translateX(-50%);' +
+                'background:rgba(20,20,20,.88);color:#fff;padding:6px 12px;border-radius:4px;' +
+                'font-size:13px;z-index:12;pointer-events:none;transition:opacity .3s;opacity:0;';
+            map.getContainer().appendChild(t);
+        }
+        t.textContent = msg;
+        t.style.opacity = '1';
+        clearTimeout(t._h);
+        t._h = setTimeout(function () { t.style.opacity = '0'; }, 1600);
+    }
+
     // ---------------------------------------------------------------------
     // URL hash. The shell writes it; each module contributes its own params
     // through addHashExtras. Params a not-yet-loaded module owns (site= and

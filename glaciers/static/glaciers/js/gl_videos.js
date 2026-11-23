@@ -252,6 +252,22 @@ window.GLVideos = (function () {
                     if (vid.duration && !vid.paused) seek.value = vid.currentTime / vid.duration;
                 }
                 vid.addEventListener('timeupdate', upd); vid.addEventListener('play', upd); vid.addEventListener('pause', upd);
+                // MapLibre's video source (5.5 VideoSource.prepare) copies a
+                // frame to its texture only while the video plays, so a seek
+                // while paused left the old frame on the map: copy the frame
+                // the seek landed on ourselves, the same way prepare() does.
+                vid.addEventListener('seeked', function () {
+                    if (!vid.paused) return;
+                    var src = map.getSource('gv-ov');
+                    try {
+                        if (src && src.texture && src.getVideo && src.getVideo() === vid) {
+                            var gl = map.painter.context.gl;
+                            src.texture.bind(gl.LINEAR, gl.CLAMP_TO_EDGE);
+                            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, vid);
+                        }
+                    } catch (e) { /* internals changed: the frame updates on the next play */ }
+                    map.triggerRepaint();
+                });
                 upd();
             })(0);
         }

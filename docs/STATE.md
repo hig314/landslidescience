@@ -128,6 +128,24 @@ In no particular order.
   sheets, publish/branch, the `lidar_scene.js` extraction, a shading worker
   pool; on prod, profiles / shared QMS bases / `hc=1` / JPEG export and the
   first *Submit* of a saved comparison are still untried, see the checklist).
+- **S1 videos placed from their content — LIVE 2026-11-22** (22be63d;
+  docs/GLACIERS.md, "Placing S1 timelapses from their content"). 71 of the
+  76 site videos have a footprint box + five products on prod
+  (`glacier_videos.georef`, `migrate_glaciers` run, 355 WebPs / 142 MB in
+  `data/glacier_videos/georef/`, droplet 5.4 GB free after). Placed videos
+  no longer show their path dot. Not placed: Grand Pacific "Ferris", Knik
+  3b7679, both Agassiz, Bering East (Hig to give centres with the locator).
+  Work dir `/Volumes/Nunatak/glacier_s1_georef/` (accepted.txt = the
+  eye-checked list; review_skip_v2.txt the five). Strong candidates
+  (`cand_batch.py cand/strong.json`): 11 of 18 placed and LIVE the same
+  day, placed BEFORE import, so they went in without Drive: the local mp4s
+  (sha1(drive id)[:16] names) + WebPs rsynced, rows inserted from
+  `data/glaciers/s1_georef/cand_dev_rows.json` (added_by 's1 georef
+  candidate'), then `s1_videos georef cand_georef.json`. Prod: 87 s1
+  videos, 82 placed, 4.9 GB free. Open: 34 videos need a centre from Hig
+  (review page's "Needs a centre" view saves `center` [lat, lon] +
+  `center_text`, `loc_note` in its `decisions` docs; 5 site, 7 missed, 22
+  not searched): rerun match2 + fine with that as the anchor.
 - **S1 timelapse import — first batch LIVE 2026-11-21** (docs/GLACIERS.md,
   last section). Drive's quota had reset; the page's decisions were
   re-exported (20: 16 approved, 3 assigned, 1 rejected) and all 19 imported
