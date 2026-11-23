@@ -4,6 +4,16 @@
     manage.py s1_videos fixes <review dir> <decisions>     (dev: reads Hig's typed corrections)
     manage.py s1_videos import <manifest> <decisions> [--dry-run]   (prod)
     manage.py s1_videos georef <georef.json> [--dry-run]            (each environment)
+    manage.py s1_videos built <build dir> [--caption ..] [--anchor lon,lat] [--dry-run]   (each environment)
+
+BUILT adds (or, for a build already in, replaces) a timelapse made by
+tools/glaciers/s1_build/build.py: georeferenced from the start, so it goes
+in placed, with each frame's month (georef.months, georef.fps), which the map
+shows as the video plays instead of a date burned into the frame. The dir
+holds the clean mp4 and meta.json (build.py --stage puts them in
+data/glaciers/s1_build/NAME/). The anchor is the nearest flow line to the
+build's centre inside the frame; where there is none, the RGI centrelines of
+the glacier at the centre are adopted first.
 
 GEOREF stores where each video sits on the map, found from its content by
 tools/glaciers/s1_georef/ (docs/GLACIERS.md): georef.json maps a video's file
@@ -37,6 +47,7 @@ video lands on the segment of the network holding that point
 import csv
 import json
 import re
+import secrets
 import shutil
 from pathlib import Path
 
@@ -102,16 +113,20 @@ class Command(BaseCommand):
     help = __doc__.split('\n\n')[0]
 
     def add_arguments(self, p):
-        p.add_argument('step', choices=['resolve', 'fixes', 'import', 'georef'])
+        p.add_argument('step', choices=['resolve', 'fixes', 'import', 'georef', 'built'])
         p.add_argument('path')
         p.add_argument('decisions', nargs='?')
         p.add_argument('--dry-run', action='store_true')
+        p.add_argument('--caption', default=None, help='built: the caption (default: glacier name, pass)')
+        p.add_argument('--anchor', default=None, help='built: lon,lat to anchor on instead of the centre')
 
     def handle(self, *a, **o):
         if o['step'] == 'resolve':
             self.resolve(Path(o['path']))
         elif o['step'] == 'georef':
             self.georef(Path(o['path']), o['dry_run'])
+        elif o['step'] == 'built':
+            self.built(Path(o['path']), o['caption'], o['anchor'], o['dry_run'])
         elif o['step'] == 'fixes':
             if not o['decisions']:
                 raise CommandError('fixes needs the review dir and the decisions file')
@@ -122,6 +137,84 @@ class Command(BaseCommand):
             self.do_import(Path(o['path']), Path(o['decisions']), o['dry_run'])
 
     # ------------------------------------------------------------------
+    def built(self, d, caption, anchor, dry):
+        meta = json.loads((d / 'meta.json').read_text())
+        mp4 = d / meta['video']
+        if not mp4.is_file():
+            raise CommandError('%s is missing' % mp4)
+        lon, lat = (map(float, anchor.split(','))) if anchor else meta['centre']
+        w, s_, e, n = meta['bounds']
+        georef = {'bounds': meta['bounds'], 'grade': 'good', 'products': [], 'method': 'built',
+                  'months': meta['months'], 'fps': meta['fps'], 'build': meta['name'],
+                  'orbit': meta['orbit'], 'relative_orbit': meta['relative_orbit'],
+                  'source': meta['source'], 'built': meta['built']}
+        conn = _get_conn()
+        new = None
+        try:
+            cur = conn.cursor()
+            pt = 'ST_SetSRID(ST_MakePoint(%s, %s), 4326)'
+            near = ('''SELECT ST_X(c), ST_Y(c), d FROM (
+                         SELECT ST_ClosestPoint(geom, ''' + pt + ''') c,
+                                ST_Distance(geom::geography, ''' + pt + '''::geography) d
+                         FROM glacier_lines WHERE kind = 'flowline'
+                           AND ST_Intersects(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
+                         ORDER BY geom <-> ''' + pt + ''' LIMIT 1) q''')
+            args = (lon, lat, lon, lat, w, s_, e, n, lon, lat)
+            cur.execute(near, args)
+            r = cur.fetchone()
+            adopted = 0
+            g = self._glacier_at(cur, lon, lat, within_km=5)
+            if not r:
+                if not g:
+                    raise CommandError('no flow line in the frame and no glacier within 5 km of %.5f, %.5f: give --anchor' % (lon, lat))
+                adopted = network.adopt(cur, g['glacier_id'], g['name'], 's1 build')
+                cur.execute(near, args)
+                r = cur.fetchone()
+                if not r:
+                    raise CommandError('%s has no centreline in the frame: give --anchor' % g['name'])
+            seg = videos.resolve(cur, [[r[0], r[1]]])[0]
+            if not seg:
+                raise CommandError('the anchor %.5f, %.5f is on no flow line' % (r[0], r[1]))
+            cap = caption or '%s · Sentinel-1 %s, monthly' % ((g or {}).get('name') or meta['name'], meta['orbit'])
+            m0, m1 = meta['months'][0], meta['months'][-1]
+            cur.execute("SELECT id, file FROM glacier_videos WHERE georef->>'build' = %s", (meta['name'],))
+            old = cur.fetchone()
+            self.stdout.write('%s: %s, %d frames %s to %s; anchor %.0f m from the centre on %s%s%s%s' % (
+                meta['name'], cap, len(meta['months']), m0, m1, r[2], seg['name'] or 'line %d' % seg['line_id'],
+                ', %d lines adopted' % adopted if adopted else '', ', replacing video %d' % old[0] if old else '',
+                ' [dry run]' if dry else ''))
+            if dry:
+                conn.rollback()
+                return
+            videos.VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+            name = '%s.mp4' % secrets.token_hex(8)
+            new = videos.VIDEO_DIR / name
+            shutil.copyfile(mp4, str(new) + '.part')
+            Path(str(new) + '.part').rename(new)
+            if old:
+                cur.execute('''UPDATE glacier_videos SET file = %s, caption = %s, date_min = %s, date_max = %s, georef = %s
+                               WHERE id = %s''', (name, cap, m0 + '-01', _month_end(m1), json.dumps(georef), old[0]))
+                cur.execute('DELETE FROM glacier_video_anchors WHERE video_id = %s', (old[0],))
+                vid = old[0]
+            else:
+                cur.execute('''INSERT INTO glacier_videos (kind, file, caption, date_min, date_max, added_by, georef)
+                               VALUES ('s1', %s, %s, %s, %s, 's1 build', %s) RETURNING id''',
+                            (name, cap, m0 + '-01', _month_end(m1), json.dumps(georef)))
+                vid = cur.fetchone()[0]
+            cur.execute('INSERT INTO glacier_video_anchors (video_id, geom) VALUES (%s, ' + pt + ')', (vid, r[0], r[1]))
+            conn.commit()
+            new = None
+            if old and old[1]:
+                (videos.VIDEO_DIR / old[1]).unlink(missing_ok=True)
+            self.stdout.write('video %d: /glaciers/video/%s' % (vid, name))
+        except Exception:
+            conn.rollback()
+            if new:
+                new.unlink(missing_ok=True)
+            raise
+        finally:
+            _put_conn(conn)
+
     def georef(self, path, dry):
         from glaciers.videos import GEOREF_DIR
         data = json.loads(path.read_text())

@@ -93,7 +93,8 @@ ALTER TABLE glacier_videos ADD COLUMN IF NOT EXISTS source_url text;
 ALTER TABLE glacier_videos ADD COLUMN IF NOT EXISTS fetch_error text;
 -- where an s1 video sits on the map, found from its content
 -- (tools/glaciers/s1_georef/, docs/GLACIERS.md): {bounds: [w, s, e, n] lon/lat
--- of the frame's edges, grade, products: [...], frames, dropped, ...}.
+-- of the frame's edges, grade, products: [...], frames, dropped, ...; a built
+-- timelapse (s1_videos built) adds months: ["YYYY-MM", ...] (frame k) and fps}.
 -- Set by `manage.py s1_videos georef`; the product images are under GEOREF_DIR.
 ALTER TABLE glacier_videos ADD COLUMN IF NOT EXISTS georef jsonb;
 """
@@ -282,6 +283,8 @@ def _rows(cur, only=None):
                 v['georef'] = {'bounds': geo['bounds'], 'grade': geo.get('grade'),
                                'products': [dict(p, src='/glaciers/video/georef/%s_%s.webp' % (stem, p['id']))
                                             for p in GEOREF_PRODUCTS if p['id'] in geo.get('products', [])]}
+                if geo.get('months'):          # a built timelapse: frame k is months[k], at fps
+                    v['georef'].update(months=geo['months'], fps=geo.get('fps', 10))
         elif ferr:
             v['state'], v['error'] = 'failed', ferr
         else:

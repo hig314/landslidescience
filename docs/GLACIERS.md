@@ -565,3 +565,49 @@ lines stay on top), with a panel (product, opacity, play/pause + seek for
 the video, zoom). A placed video's dot and segment on the glacier path are
 left off (Hig, 2026-11-22: one way in per video); unplaced videos keep them.
 Column `glacier_videos.georef` (jsonb, `migrate_glaciers`).
+
+## Building S1 timelapses ourselves (2026-11-23)
+
+`tools/glaciers/s1_build/build.py NAME LAT LON [--stage]` makes a monthly
+Sentinel-1 timelapse for a frame centred on a point (default 10.6 x 6.7 km,
+the median of the placed Earth Engine videos), georeferenced from the start:
+no matching. Source: Microsoft Planetary Computer `sentinel-1-rtc` (terrain
+corrected GRD, 10 m COGs, anonymous SAS token); only the frame's window is
+read from each scene. Rendering repeats Hig's Earth Engine script (monthly
+mean in dB, 3x3 Lee, RGB VV [-20,0], VH [-25,-5], VV-VH [1,15]); the one
+difference is the source, gamma0 flattened for terrain rather than sigma0,
+so slopes facing the radar are less bright. Work dir
+`/Volumes/Nunatak/glacier_s1_build/NAME/`: per-scene windows (cached, so a
+rerun fetches only new scenes), `stack.npz` (monthly VV/VH in dB, the input
+for any further analysis), frames, a clean and a labelled mp4, `meta.json`.
+~30 min for ~270 scenes at 8 threads.
+
+**Which pass.** Every direction + relative orbit over the frame is scored:
+months from the catalogue, then one scene a year (nearest mid-July) read at
+1/10 resolution to check it covers >= 70 % of the frame; the most months in
+covered years wins. The candidate table (first/last month, gaps) is printed
+and kept in meta.json, so a run forced onto the other direction (`--orbit
+desc`, `--rel N`) shows how far it goes. Over the test frame (58.329,
+-133.436) descending stops in Dec 2021 (Sentinel-1B); ASF's own archive has
+no descending scenes there 2022-2026 either, so that is the acquisition
+plan, not the catalogue. A stopped pass can resume (S1C from 2025, S1D from
+2026): rerun later and the new scenes come in.
+
+**Onto /glaciers/.** `--stage` copies the clean mp4 + meta.json to
+`data/glaciers/s1_build/NAME/`; `manage.py s1_videos built
+data/glaciers/s1_build/NAME [--caption ..] [--anchor lon,lat] [--dry-run]`
+adds it as a placed `s1` video (georef.method 'built', no products), anchored
+on the nearest flow line in the frame (adopting the RGI centrelines of the
+glacier at the centre if there is none). Rerunning it for the same NAME
+replaces the file and keeps the video's id. For prod: rsync the staged dir to
+the droplet's `data/glaciers/s1_build/` and run the same command there.
+
+No date is burned in: `georef.months[k]` is frame k at `georef.fps`, and
+`gl_videos.js` shows the month as the video plays, as a label at the frame's
+NW corner on the map, beside the time slider in the panel, and over the video
+in the popup.
+
+Open: a layover mask from the viewing geometry (the streaked faces are where
+terrain correction smears slopes tilted toward the radar, opposite slopes in
+the two directions) and an ascending + descending merge; products (median
+etc.) from stack.npz; feature tracking on the stack.
