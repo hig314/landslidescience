@@ -5,9 +5,21 @@
  *   { title, width, height, slides: [ slide, … ] }      (published: true in a copy made by tools/publish.py;
  *                                                         site: {name, state, owner, edit} when served by the site, see below)
  *   slide: { kn, bg, notes, dissolve, panzoom, flat: [stage images], use: "elements" | "flat",
- *            check: [what the importer could not reproduce], owner, elements: [ element, … ] }
- *   element: frame x, y, w, h in slide pixels; optional rot (degrees), op (0–100), build
- *            (the click at which it appears: 1 or absent = with the slide)
+ *            check: [what the importer could not reproduce], owner, builds: [ row, … ], elements: [ element, … ] }
+ *   element: frame x, y, w, h in slide pixels; optional rot (degrees), op (0–100), id (what a build row names),
+ *            build (the importer's form: the click at which it appears; 1 or absent = with the slide)
+ *   builds:  the slide's build order, as in Keynote: rows that run in order.
+ *            row: { el: element id, do: "in" | "out" | "step", para, start, delay, fx, dur }
+ *              in / out   the element (or its paragraph number para, from 0) appears / goes away. What has an
+ *                         "in" row as its first row is absent until then.
+ *              step       the live figure moves on one stage
+ *              start      "click" (default) | "with" (when the row before starts) | "after" (when it ends);
+ *                         rows before the first "click" row run when the slide arrives
+ *              delay      seconds before the row starts
+ *              fx, dur    "dissolve" over dur seconds (default 1); absent = at once. On a step row dur is how
+ *                         long the figure takes, for a following "after" row.
+ *            Absent: the order is read from the elements' build / paraBuilds and the figure's stages (builds
+ *            first, one click each), which is what the importer writes. The editor writes builds.
  *     text   { text, font, weight, italic, size, color, align, valign, lineHeight, paraGap, indent, tracking, fill,
  *              markers, markerIndent, paraBuilds, runs: [{t, …overrides}] }
  *                                             lineHeight, paraGap (extra space between paragraphs), indent in pixels; tracking in em;
@@ -65,7 +77,6 @@
     node.style.width = e.w + "px"; node.style.height = e.h + "px";
     if (e.rot) node.style.transform = "rotate(" + (-e.rot) + "deg)";
     if (e.op != null && e.op !== 100) node.style.opacity = e.op / 100;
-    if (e.build > 1) { node.classList.add("fragment"); node.setAttribute("data-fragment-index", e.build - 2); }
     return node;
   }
   function styleText(node, s) {
@@ -99,9 +110,8 @@
             if (k || !p) {
               p = el("div", "kn-p", body);
               if (e.paraGap && np) p.style.marginTop = e.paraGap + "px";
-              var mk = e.markers && e.markers[np], pb = e.paraBuilds && e.paraBuilds[np];
+              var mk = e.markers && e.markers[np];
               if (mk) { p.style.paddingLeft = (e.markerIndent || 0) + "px"; el("span", "kn-marker", p).textContent = mk; }
-              if (pb > Math.max(1, e.build || 1)) { p.classList.add("fragment"); p.setAttribute("data-fragment-index", pb - 2); }
               np++;
             }
             if (t) { var sp = el("span", "", p); sp.textContent = t; styleText(sp, r); sp.setAttribute("data-r", ri); }
@@ -123,8 +133,6 @@
       n = el("iframe", "kn-el kn-live", stack);
       n.setAttribute("data-src", e.src); n.setAttribute("data-preload", ""); n.allow = "fullscreen";
       n.addEventListener("load", function () { if (RT.liveLoaded) RT.liveLoaded(n); });
-      var count = e.states ? e.states.length : (e.steps || 1);
-      for (var i = 1; i < count; i++) el("span", "fragment kn-step", stack.parentNode);
       if (e.fallback) {                 // shown until the page reports ready (no network, slow tiles)
         var fb = frame(el("img", "kn-el kn-fallback", stack), e);
         fb.setAttribute("data-src", e.fallback); fb.alt = "";
@@ -133,11 +141,77 @@
     n.knEl = e;
     return frame(n, e);
   }
+  // ---- the build order ----
+  // plan(s): the slide's rows with their elements found: [{e, para, do, start, delay, fx, dur}]
+  function stages(e) { return e ? (e.states ? e.states.length : (e.steps || 1)) : 1; }
+  function plan(s) {
+    if (!s || s.use === "flat" || !s.elements) return [];
+    var rows = [], live = s.elements.filter(function (e) { return e.type === "live"; })[0], n = 1, max = stages(live);
+    if (s.builds) {
+      var by = {};
+      s.elements.forEach(function (e) { if (e.id && !by[e.id]) by[e.id] = e; });
+      s.builds.forEach(function (b) {
+        var e = by[b.el];
+        if (!e || (b.do === "step" && (e !== live || n >= max))) return;
+        if (b.do === "step") n++;
+        rows.push({ e: e, para: b.para, do: b.do, start: b.start || "click", delay: +b.delay || 0, fx: b.fx || "", dur: +b.dur || 0 });
+      });
+    } else {                              // the importer's form: a click number on elements and paragraphs
+      var ev = [];
+      s.elements.forEach(function (e, k) {
+        var b = e.build > 1 ? e.build : 1;
+        if (b > 1) ev.push({ at: b, k: k, e: e, para: -1 });
+        (e.paraBuilds || []).forEach(function (pb, np) { if (pb > b) ev.push({ at: pb, k: k, e: e, para: np }); });
+      });
+      ev.sort(function (a, b) { return a.at - b.at || a.k - b.k || a.para - b.para; });
+      ev.forEach(function (x, j) {
+        rows.push({ e: x.e, para: x.para < 0 ? undefined : x.para, do: "in", start: j && ev[j - 1].at === x.at ? "with" : "click", delay: 0, fx: "", dur: 0 });
+      });
+    }
+    for (; n < max; n++) rows.push({ e: live, do: "step", start: "click", delay: 0, fx: "", dur: 0 });   // a stage with no row of its own
+    return rows;
+  }
+  function groups(rows) {                 // [rows that run on arrival, rows of click 1, rows of click 2, …]
+    var g = [[]];
+    rows.forEach(function (r) { if (r.start === "click") g.push([r]); else g[g.length - 1].push(r); });
+    return g;
+  }
+  function nodeFor(sec, r) {
+    var n = Array.prototype.filter.call(sec.querySelector(".kn-stack").children, function (x) { return x.knEl === r.e; })[0];
+    if (n && r.para != null) n = n.querySelectorAll(".kn-body > .kn-p")[r.para];
+    return n;
+  }
+  function stateAt(sec, s, c) {           // what shows once click c has played out (0: on arrival; -1: before anything)
+    var rows = plan(s), g = groups(rows), nodes = new Map(), stage = 1;
+    rows.forEach(function (r) {           // what a row will bring in is absent before it
+      var n = r.do === "step" ? null : nodeFor(sec, r);
+      if (n && !nodes.has(n)) nodes.set(n, r.do !== "in");
+    });
+    for (var k = 0; k <= c && k < g.length; k++) g[k].forEach(function (r) {
+      if (r.do === "step") { stage++; return; }
+      var n = nodeFor(sec, r);
+      if (n) nodes.set(n, r.do === "in");
+    });
+    return { nodes: nodes, stage: stage, groups: g };
+  }
+  function clicksOf(sec) { return sec.querySelectorAll(".kn-step.visible:not(.kn-pz)").length; }
+  function showNode(n, vis, dur, ghost) {
+    n.style.transition = dur ? "opacity " + dur + "s linear" + (vis ? "" : ", visibility 0s linear " + dur + "s") : "none";
+    if (dur) void n.offsetWidth;
+    n.classList.toggle("kn-off", !vis && !ghost);
+    n.classList.toggle("kn-ghost", !vis && !!ghost);
+  }
+  function spans(sec, s) {                // one step of reveal's per click; a pan/zoom click comes after them
+    Array.prototype.forEach.call(sec.querySelectorAll(".kn-step:not(.kn-pz)"), function (n) { n.remove(); });
+    var n = groups(plan(s)).length - 1, pz = sec.querySelector(".kn-pz");
+    for (var i = 0; i < n; i++) el("span", "fragment kn-step", sec);
+    if (pz) { pz.removeAttribute("data-fragment-index"); sec.appendChild(pz); }
+  }
+
   // (re)build a slide's stack from its data
-  function fill(sec, s) { fillStack(sec.querySelector(".kn-stack"), sec, s); }
+  function fill(sec, s) { fillStack(sec.querySelector(".kn-stack"), sec, s); spans(sec, s); }
   function fillStack(stack, sec, s) {
     stack.innerHTML = "";
-    Array.prototype.forEach.call(sec.querySelectorAll(".kn-step:not(.kn-pz)"), function (n) { n.remove(); });
     if (s.use === "flat" || !s.elements) {
       (s.flat || []).forEach(function (src, j) {
         var im = el("img", "kn-flat" + (j ? " fragment" : ""), stack);
@@ -221,11 +295,12 @@
 
       // ---- live pages (protocol: lib/deck-embed.js) ----
       function liveData(sec) { return (data(sec).elements || []).filter(function (e) { return e.type === "live"; })[0]; }
-      function liveStep(sec, replay) {
+      function liveStep(sec, replay, n) {  // n: the stage to show; absent = the one the slide's clicks have reached
         var fr = sec.querySelector("iframe.kn-live"), e = liveData(sec);
         if (!fr || !fr.contentWindow || !e) return;
-        var n = 1 + sec.querySelectorAll(".kn-step.visible:not(.kn-pz)").length, w = fr.contentWindow;
-        if (RT.editing && RT.stepFor) n = RT.stepFor(e);          // the editor chooses the step shown
+        var w = fr.contentWindow;
+        if (n == null) n = RT.editing && RT.stepFor ? RT.stepFor(e) : stateAt(sec, data(sec), clicksOf(sec)).stage;   // the editor chooses the step shown
+        n = Math.max(1, Math.min(stages(e), n));
         if (e.states) w.postMessage({ type: "deck:state", state: e.states[n - 1], animate: !!fr.knShown }, "*");
         else {
           w.postMessage({ type: "deck:step", step: n, replay: !!replay }, "*");
@@ -233,6 +308,46 @@
         }
         fr.knShown = true;
       }
+      // ---- builds: put a slide in the state its clicks have reached, or play the click just made ----
+      // o.play: run the rows of the last click in time; o.replay: the slide was arrived at going forwards;
+      // o.quiet: leave the figure alone; o.at: a click to show instead; o.present: as in the talk, also while editing.
+      function stop(sec) { (sec.knTimers || []).forEach(clearTimeout); sec.knTimers = []; }
+      function apply(sec, o) {
+        var s = data(sec);
+        o = o || {};
+        if (!s || !sec.querySelector(".kn-stack")) return 0;
+        stop(sec);
+        var ed = RT.editing && !o.present;
+        var c = o.at != null ? o.at : ed ? RT.editClick : clicksOf(sec);
+        if (ed && c == null) {             // editing with no click chosen: everything shows
+          stateAt(sec, s, -1).nodes.forEach(function (v, n) { showNode(n, true, 0); });
+          if (!o.quiet) liveStep(sec, o.replay);
+          return 0;
+        }
+        var st = stateAt(sec, s, o.play ? c - 1 : c), stage = st.stage, t0 = 0, t1 = 0, end = 0;
+        st.nodes.forEach(function (v, n) { showNode(n, v, 0, ed); });
+        if (!o.quiet && (!o.play || c === 0)) liveStep(sec, o.replay, ed ? null : stage);
+        if (!o.play) return 0;
+        (st.groups[c] || []).forEach(function (r, j) {
+          var at = (j === 0 ? 0 : r.start === "after" ? t1 : t0) + r.delay;
+          var dur = r.do === "step" ? r.dur : r.fx === "dissolve" ? (r.dur || 1) : 0, fire;
+          t0 = at; t1 = at + dur; end = Math.max(end, t1);
+          if (r.do === "step") { var n = ++stage; fire = function () { liveStep(sec, false, n); }; }
+          else { var node = nodeFor(sec, r); fire = function () { if (node) showNode(node, r.do === "in", dur); }; }
+          if (at <= 0) fire(); else sec.knTimers.push(setTimeout(fire, at * 1000));
+        });
+        return end;
+      }
+      function paint() { Array.prototype.forEach.call(slidesEl.querySelectorAll(":scope > section"), function (sec) { apply(sec, { quiet: true }); }); }
+      RT.plan = plan; RT.apply = apply; RT.paint = paint;
+      RT.stageAt = function (sec, c) { return stateAt(sec, data(sec), c).stage; };
+      RT.stage = function (sec) { return stateAt(sec, data(sec), clicksOf(sec)).stage; };
+      RT.clicks = function (i) {           // the build order of slide i changed: as many steps as it has clicks
+        var sec = slidesEl.querySelector('section[data-i="' + i + '"]');
+        spans(sec, deck.slides[i]); Reveal.syncFragments(sec);
+        return sec;
+      };
+
       // A figure that was clicked holds the keyboard, also after its slide is left: keys then
       // go to a page nobody can see. Take the keyboard back.
       function release() {
@@ -276,12 +391,14 @@
         slidesEl.appendChild(overlay);
         Reveal.sync();
         Reveal.slide(Math.max(0, Math.min(i, deck.slides.length - 1)));
+        paint();
       };
       RT.render = function (i) {             // rebuild slide i from its data, in place
         var sec = slidesEl.querySelector('section[data-i="' + i + '"]');
         fill(sec, deck.slides[i]);
         Array.prototype.forEach.call(sec.querySelectorAll("[data-src]"), function (n) { n.src = n.getAttribute("data-src"); n.removeAttribute("data-src"); });
         Reveal.syncFragments(sec);
+        apply(sec, { quiet: true });
         return sec;
       };
       document.addEventListener("keydown", function (ev) {
@@ -338,16 +455,18 @@
           panzoom(cur, p.on === "click" ? !!clickDone : false, false);
           if (p.on !== "click") { void cur.offsetWidth; panzoom(cur, true, true); }
         }
-        liveStep(cur, forward);
+        if (prev) stop(prev);
+        apply(cur, { play: !!forward && !RT.editing && clicksOf(cur) === 0, replay: !!forward });
       });
       Reveal.on("fragmentshown", function (ev) {
         var sec = ev.fragment.closest("section");
-        if (ev.fragment.classList.contains("kn-pz")) panzoom(sec, true, true); else liveStep(sec, false);
+        if (ev.fragment.classList.contains("kn-pz")) panzoom(sec, true, true); else apply(sec, { play: true });
       });
       Reveal.on("fragmenthidden", function (ev) {
         var sec = ev.fragment.closest("section");
-        if (ev.fragment.classList.contains("kn-pz")) panzoom(sec, false, true); else liveStep(sec, false);
+        if (ev.fragment.classList.contains("kn-pz")) panzoom(sec, false, true); else apply(sec, {});
       });
+      paint();
       var cur0 = Reveal.getCurrentSlide(), p0 = cur0 && data(cur0).panzoom;
       if (p0) panzoom(cur0, !!cur0.querySelector(".kn-pz.visible") || p0.on !== "click", false);
     });

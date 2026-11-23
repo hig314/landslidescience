@@ -31,6 +31,9 @@ html, body { background: #000; }
 /* builds and pan/zoom triggers: steps with no effect of their own */
 .reveal .kn-stack .fragment, .reveal .kn-step { transition: none; }
 .reveal .kn-step { position: absolute; width: 0; height: 0; }
+/* builds: what a row has not yet brought in, or has taken out (kn-ghost: the same, while editing) */
+.reveal .kn-off { opacity: 0 !important; visibility: hidden; }
+.reveal .kn-ghost { opacity: 0.22 !important; }
 /* dissolve: a copy of the outgoing slide, laid over the incoming slide and faded out */
 #kn-dissolve { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 40;
   pointer-events: none; display: none; }
