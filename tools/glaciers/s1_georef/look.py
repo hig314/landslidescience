@@ -1,7 +1,8 @@
 """Eye check of a placement: the video median | the DEM hillshade at the
 same bounds, with the DEM's 2 m coast and RGI outlines drawn on both.
-usage: look.py ID BOUNDS_JSON_OR_MATCH2_JSON OUT.jpg [peak index]"""
-import json, math, sys
+usage: look.py ID BOUNDS_JSON_OR_MATCH2_JSON OUT.jpg [peak index]
+LOOK_TAG=_c reads ref/<ID>_c.npz and its RGI (a cand_batch --tag run)."""
+import json, math, os, sys
 from pathlib import Path
 import numpy as np, cv2
 ROOT = Path('/Volumes/Nunatak/glacier_s1_georef')
@@ -19,7 +20,7 @@ def main():
     b = j['best']['bounds_3857'] if k is None and 'best' in j else j['peaks'][k]['bounds_3857'] if k is not None else j['bounds_3857']
     st = np.load(ROOT / 'v' / vid / 'stack.npz'); med = np.ascontiguousarray(st['med_rgb'][..., ::-1])
     h, w = med.shape[:2]
-    r = np.load(ROOT / 'ref' / (vid + '.npz')); z = np.nan_to_num(r['dem'], nan=0); T = r['transform']
+    r = np.load(ROOT / 'ref' / (vid + os.environ.get('LOOK_TAG', '') + '.npz')); z = np.nan_to_num(r['dem'], nan=0); T = r['transform']
     # sample the DEM on the video grid
     xs = (b[0] + (np.arange(w) + 0.5) * (b[2] - b[0]) / w - T[2]) / T[0]
     ys = (b[3] - (np.arange(h) + 0.5) * (b[3] - b[1]) / h - T[5]) / T[4]
@@ -29,7 +30,7 @@ def main():
     hs = np.clip(0.5 + (-gx + gy) * 0.5 / np.sqrt(1 + gx ** 2 + gy ** 2), 0, 1)
     hs = cv2.cvtColor((hs * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
     coast = cv2.morphologyEx((zc <= 2).astype(np.uint8), cv2.MORPH_GRADIENT, np.ones((5, 5), np.uint8)) > 0
-    rgi = json.load(open(ROOT / 'ref' / (vid + '_rgi.json')))
+    rgi = json.load(open(ROOT / 'ref' / (vid + os.environ.get('LOOK_TAG', '') + '_rgi.json')))
     m = np.zeros((h, w), np.uint8); sx = w / (b[2] - b[0]); sy = h / (b[3] - b[1])
     for _g, _n, g in rgi:
         for p in (g['coordinates'] if g['type'] == 'MultiPolygon' else [g['coordinates']]):

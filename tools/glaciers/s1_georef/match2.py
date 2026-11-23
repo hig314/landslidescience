@@ -29,7 +29,7 @@ Then, instead of six independent peaks that decide.py votes on:
 Then fine.py repeats the consensus on a 10 m simulation around the result.
 Regression gate: compare.py against the eye-checked placements.
 
-usage: match2.py STACK.npz REF.npz META.json OUT.json [--prior-km 3 --prior-w 1] [--feat-w 1] [--down 4]
+usage: match2.py STACK.npz REF.npz META.json OUT.json [--prior-km 3 --prior-w 1] [--centre] [--feat-w 1] [--down 4]
 OUT.json: {best: {bounds_3857, z, ncc:{prod: ncc}, orbit}, peaks: [...top 5 coarse...]}"""
 import argparse, json, math, sys
 from pathlib import Path
@@ -139,7 +139,7 @@ def peaks(S, n, excl):
     return out
 
 
-def place(st, ref, orbit, down, anchor, prior_km, prior_w, water):
+def place(st, ref, orbit, down, anchor, prior_km, prior_w, water, centre=False):
     T = ref['transform']
     nccs, (w, h), px = score(st, ref, orbit, down, water=water)
     S = sum(WEIGHT[p] * zmap(r) for p, r in zip(PRODS, nccs))
@@ -147,8 +147,11 @@ def place(st, ref, orbit, down, anchor, prior_km, prior_w, water):
         ax, ay = merc(*anchor)
         ys, xs = np.mgrid[0:S.shape[0], 0:S.shape[1]]
         X0 = T[2] + xs * px; Y1 = T[5] - ys * px                 # frame's top-left for each offset
-        kx = np.maximum(0, np.maximum(X0 - ax, ax - (X0 + w * px)))
-        ky = np.maximum(0, np.maximum((Y1 - h * px) - ay, ay - Y1))
+        if centre:                                   # anchor = the middle of the view (Hig's centres)
+            kx = np.abs(X0 + w * px / 2 - ax); ky = np.abs(Y1 - h * px / 2 - ay)
+        else:                                        # anchor = somewhere in the view
+            kx = np.maximum(0, np.maximum(X0 - ax, ax - (X0 + w * px)))
+            ky = np.maximum(0, np.maximum((Y1 - h * px) - ay, ay - Y1))
         lat = math.radians(anchor[1])
         dkm = np.hypot(kx, ky) * math.cos(lat) / 1000.0              # ground km from frame to anchor
         S = S - prior_w * np.maximum(0, dkm - prior_km)
@@ -178,6 +181,7 @@ def main():
     ap.add_argument('stack'); ap.add_argument('ref'); ap.add_argument('meta'); ap.add_argument('out')
     ap.add_argument('--down', type=int, default=4); ap.add_argument('--feat-w', type=float, default=1.0)
     ap.add_argument('--prior-km', type=float, default=3.0); ap.add_argument('--prior-w', type=float, default=1.0)
+    ap.add_argument('--centre', action='store_true', help="the anchor is the view's middle (a centre Hig gave), not just a point in it")
     a = ap.parse_args()
     WEIGHT['feat'] = a.feat_w
     st = np.load(a.stack); ref = np.load(a.ref); meta = json.load(open(a.meta))
@@ -187,7 +191,7 @@ def main():
     res = []
     for orbit in orbits:
         for water in ('dark', 'free'):
-            S, pk, (w, h), px, nccs = place(st, ref, orbit, a.down, meta.get('anchor'), a.prior_km, a.prior_w, water)
+            S, pk, (w, h), px, nccs = place(st, ref, orbit, a.down, meta.get('anchor'), a.prior_km, a.prior_w, water, a.centre)
             for z, x, y in pk:
                 res.append(dict(orbit=orbit, water=water, z=round(z, 2), x=x, y=y,
                                 ncc={p: round(float(np.nan_to_num(r[y, x])), 3) for p, r in zip(PRODS, nccs)},
@@ -201,7 +205,7 @@ def main():
     second = next((r['z'] for r in res[1:] if r['orbit'] == b['orbit'] and r['water'] == b['water'] and far(r)), None)
     best = dict(orbit=b['orbit'], water=b['water'], z=b['z'], second=second, margin=round(b['z'] - (second or 0), 2), z_fine=round(zf, 2),
                 ncc=nc, bounds_3857=[X0, Y1 - h * px, X0 + w * px, Y1])
-    json.dump(dict(best=best, peaks=res, prior=dict(km=a.prior_km, w=a.prior_w)), open(a.out, 'w'), indent=1)
+    json.dump(dict(best=best, peaks=res, prior=dict(km=a.prior_km, w=a.prior_w, centre=a.centre)), open(a.out, 'w'), indent=1)
     print(json.dumps(best))
 
 
