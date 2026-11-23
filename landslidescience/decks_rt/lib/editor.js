@@ -49,7 +49,7 @@
   var mtime = RT.mtime, blocked = false, typing = null, drag = null;
   var sorter = null, picks = [], anchor = null, sdrag = null;
   var using = null, liveAt = 0, asking = null;
-  var cropping = null, opBefore = null;
+  var cropping = null, opBefore = null, liveFor = null;
   var HERE = location.pathname.replace(/[^\/]*$/, "");
   function csrf(h) { if (window.DECK_CSRF) h["X-CSRFToken"] = window.DECK_CSRF; return h; }    // on the site (see deck.js)
   function deckName(p) { var m = /\/decks\/([A-Za-z0-9_-]+)\/$/.exec(p || ""); return m && m[1]; }
@@ -381,6 +381,14 @@
   function drawLive() {
     var e = liveSel(), b = bar.live;
     b.innerHTML = "";
+    if (e !== liveFor) {                   // a figure was just selected: the step named in the bar and the view
+      liveFor = e;                         // in the figure must be the same one, or Use would store the wrong view
+      if (e) {
+        var shown = cur().sec.querySelectorAll(".kn-step.visible:not(.kn-pz)").length;   // where the talk had got to
+        showStep(e, Math.min(e.states.length - 1, shown), false);
+        return;
+      }
+    }
     if (!e) { if (using) use(null); return; }
     liveAt = Math.min(liveAt, e.states.length - 1);
     function btn(label, title, fn) { var x = mk("button", "", b, label); x.title = title; x.onclick = function () { fn(); x.blur(); }; }
@@ -393,9 +401,13 @@
       btn("Finish", "Stop operating the figure; the view it is left in becomes this step", function () { use(null); });
     }
     if (e.states.length > 1) btn("Remove step", "Remove this step", function () {
-      change(function () { e.states.splice(liveAt, 1); });
+      change(function () { e.states.splice(liveAt, 1); opensAt(e); });
       showStep(e, liveAt); if (!using) rebuild();
     });
+  }
+  function opensAt(e) {                    // the page's address opens at its first step, so nothing jumps when it loads
+    if (!e.states[0] || e.states[0].indexOf("=") < 0 || e.src.indexOf("?") < 0) return;
+    e.src = e.src.split("?")[0] + "?" + e.states[0] + (/[?&]embed=1(&|$)/.test(e.src) ? "&embed=1" : "");
   }
   function use(e) {                        // let the pointer through to the figure, or stop
     var was = using;
@@ -423,10 +435,8 @@
     if (typeof state !== "string" || !state || !s) return;
     var before = { i: a.i, json: JSON.stringify(s) }, old = e.states[a.at];
     if (a.how === "add") { e.states.splice(a.at + 1, 0, state); liveAt = a.at + 1; }
-    else if (state !== old) {
-      e.states[a.at] = state;
-      if (old && e.src.indexOf(old) >= 0) e.src = e.src.replace(old, state);      // a page that opens at the view in its address
-    }
+    else if (state !== old) e.states[a.at] = state;
+    opensAt(e);
     if (JSON.stringify(s) !== before.json) {
       s.owner = "here"; undo.push(before); redo = []; touch();
       status(a.how === "add" ? "Step " + (liveAt + 1) + " captured" : "Step " + (a.at + 1) + " now shows this view");
@@ -804,7 +814,7 @@
       if (!asking || !d || d.type !== "deck:state" || ev.source !== asking.win) return;
       capture(d.state);
     });
-    Reveal.on("slidechanged", function () { if (on && !sorter) { finish(); cropping = null; sel = []; prepare(); draw(); } });
+    Reveal.on("slidechanged", function () { if (on && !sorter) { finish(); cropping = null; liveFor = null; sel = []; prepare(); draw(); } });
     window.addEventListener("resize", function () { if (on) setTimeout(draw, 50); });
     window.addEventListener("beforeunload", function () { if (timer) { clearTimeout(timer); save(); } });
   }
@@ -818,8 +828,12 @@
     Reveal.layout();                       // the stage sits below the bar while editing
     Reveal.configure({ keyboard: on ? false : { 75: null } });
     sel = [];
+    liveFor = null;
     if (on) { prepare(); draw(); status(blocked ? "deck.json was changed on disk. Reload the page." : "", blocked); }
-    else { layer.remove(); if (timer) { clearTimeout(timer); save(); } }
+    else {
+      var fr = cur().sec.querySelector("iframe.kn-live");       // back to the step the talk is at
+      if (fr && RT.liveLoaded) RT.liveLoaded(fr);
+      layer.remove(); if (timer) { clearTimeout(timer); save(); } }
   }
   toggle();
 })();
