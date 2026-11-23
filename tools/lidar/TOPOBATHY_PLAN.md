@@ -27,7 +27,15 @@
 >   (r7c1 1,695 lakes 41 min; r7c4 588 lakes 21 min; time vs lakes x cells r = 0.90 over 30 boxes; 3.1 h a run).
 >   `review_1121/perf/lens.patch` (UNAPPLIED, parses, NEVER RUN): reject tests on each domain's own window. Verify on
 >   r7c1: `fill.tif`, `fill_lakes.json`, `fill_water_level.tif` identical.
-> - **Soundings splines (~9 h a run, the largest steady cost):** being scoped (`review_1121/perf/spline_*`).
+> - **Soundings splines (9.8 h over 36 boxes, 212 calls; the largest steady cost)** (`topobathy/fill.py:711-829`
+>   `_spline_residual`, called at 2810 and per ceiling pass at 2879): a dense thin-plate smoothing spline, <= ~5,000
+>   sites, 41 dense solves for the smoothing parameter, then the field on a lattice of up to 4 M nodes in ONE thread --
+>   and the lattice is the cost (benchmark: solves 28 s, lattice 435 s). `review_1121/perf/spline.patch` (UNAPPLIED):
+>   lattice distances by one BLAS product in a thread pool (`points_threads`, default 4), one eigen-decomposition for
+>   the bisection. Same mathematics. Benchmark 463 s -> 61 s; the real function old vs patched on a synthetic lake
+>   51 s -> 12 s, max difference 2.4e-7 m. Estimate for a run 9.8 h -> ~2 h (extrapolated). Verify on r2c3 or r3c5:
+>   `fill.tif`, `fill_sigma.tif` within 1e-4 m, same spline log lines. Not done: warm restart of the ceiling passes
+>   (3.1 h), the point reading before the spline (1.3 h). See `spline_README.txt`.
 > Apply the patches only between runs (each box's chain starts fresh processes: an edit to fill.py goes live mid-queue).
 
 > **Harbour rule LIVE 2026-11-23 10:36:05 (Hig: "The rule looks good - commit and deploy, and go ahead and put rerun of Seldovia at the
