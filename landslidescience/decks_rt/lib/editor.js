@@ -112,16 +112,18 @@
 
   // ---------------------------------------------------------------- history
   // A change is recorded as the slide's data before it; undo puts that back.
+  function mine(s) {                       // mark a slide as edited here, so that a re-import leaves it alone
+    if (s.owner === "here") return;        // owner goes after kn, where the importer looks for it
+    var o = {}; Object.keys(s).forEach(function (k) { o[k] = s[k]; if (k === "kn") o.owner = "here"; });
+    if (!o.owner) o.owner = "here";
+    Object.keys(s).forEach(function (k) { delete s[k]; });
+    Object.keys(o).forEach(function (k) { s[k] = o[k]; });
+  }
   function snapshot() { var c = cur(); return { i: c.i, json: JSON.stringify(c.s) }; }
   function commit(before) {
     var c = cur();
     if (JSON.stringify(c.s) === before.json) return false;
-    if (c.s.owner !== "here") {            // owner goes after kn, where the importer looks for it
-      var o = {}; Object.keys(c.s).forEach(function (k) { o[k] = c.s[k]; if (k === "kn") o.owner = "here"; });
-      if (!o.owner) o.owner = "here";
-      Object.keys(c.s).forEach(function (k) { delete c.s[k]; });
-      Object.keys(o).forEach(function (k) { c.s[k] = o[k]; });
-    }
+    mine(c.s);
     undo.push(before); redo = [];
     if (undo.length > 200) undo.shift();
     touch();
@@ -135,7 +137,7 @@
     deck.source = deck.source || {}; deck.source.restructured = true;     // the importer asks before resetting this
     touch(); resynced(at);
   }
-  function resynced(at) { sel = []; RT.resync(at); prepare(); draw(); if (sorter) drawSorter(); }
+  function resynced(at) { sel = []; RT.resync(at); prepare(); draw(); if (sorter) drawSorter(); else fmtFill(); }
   function restore(from, to) {
     var h = from.pop();
     if (!h) return;
@@ -159,6 +161,7 @@
     prepare();
     sel = sel.filter(function (e) { return c.s.elements.indexOf(e) >= 0; });
     draw();
+    fmtFill();
   }
   function prepare() {                     // a slide as it should be while it is edited
     var c = cur();
@@ -611,6 +614,91 @@
     }).catch(function (x) { status("Paste failed: " + x.message, true); });
   }
 
+  // ---------------------------------------------------------------- slide settings
+  // The "Slide…" panel: background colour and the transition to the next slide, for the slide
+  // showing or, in the sorter, for every selected slide. One undo step per choice (a drag in
+  // the colour picker counts as one).
+  var fmt = null, fmtBefore = null;
+  function fmtSlides() { return sorter ? deck.slides.filter(function (x) { return picks.indexOf(x) >= 0; }) : [cur().s]; }
+  function hex(c) {
+    c = String(c || "").trim().toLowerCase();
+    if (/^[0-9a-f]{3}$|^[0-9a-f]{6}$/.test(c)) c = "#" + c;
+    if (/^#[0-9a-f]{3}$/.test(c)) c = "#" + c[1] + c[1] + c[2] + c[2] + c[3] + c[3];
+    return /^#[0-9a-f]{6}$/.test(c) ? c : null;
+  }
+  function fmtSet(fn, done) {
+    var list = fmtSlides();
+    if (!list.length) return;
+    if (!fmtBefore) fmtBefore = snapshotAll();
+    list.forEach(function (x) { fn(x); if (sorter) RT.render(deck.slides.indexOf(x)); });
+    if (!sorter) rebuild();
+    if (!done) return;
+    var b = fmtBefore; fmtBefore = null;
+    if (JSON.stringify(deck.slides) !== b.all) {
+      list.forEach(mine);
+      undo.push(b); redo = [];
+      if (undo.length > 200) undo.shift();
+      touch();
+    }
+    if (sorter) drawSorter(); else fmtFill();
+  }
+  function fmtFill() {                     // the panel shows the (first) slide it applies to
+    if (!fmt) return;
+    var list = fmtSlides(), x = list[0];
+    fmt.head.textContent = !x ? "No slide selected" : list.length > 1 ? list.length + " slides selected" : "Slide " + (deck.slides.indexOf(x) + 1);
+    [fmt.col, fmt.hex, fmt.tr, fmt.dur].forEach(function (n) { n.disabled = !x; });
+    if (!x) return;
+    var bg = hex(x.bg) || "#000000";
+    fmt.col.value = bg;
+    if (document.activeElement !== fmt.hex) fmt.hex.value = bg;
+    fmt.tr.value = x.dissolve ? "dissolve" : "cut";
+    if (document.activeElement !== fmt.dur) fmt.dur.value = x.dissolve || 1;
+    fmt.dur.disabled = !x.dissolve;
+    var n = {}, used;
+    deck.slides.forEach(function (y) { var c = hex(y.bg); if (c) n[c] = (n[c] || 0) + 1; });
+    used = Object.keys(n).sort(function (a, b) { return n[b] - n[a]; });
+    used = ["#000000", "#ffffff"].concat(used.filter(function (c) { return c !== "#000000" && c !== "#ffffff"; })).slice(0, 10);
+    fmt.sw.innerHTML = "";
+    used.forEach(function (c) {
+      var b = mk("button", c === bg ? "on" : "", fmt.sw);
+      b.style.background = c; b.title = c + (n[c] ? ": on " + n[c] + " slide" + (n[c] > 1 ? "s" : "") : "");
+      b.onclick = function () { fmtSet(function (y) { y.bg = c; }, true); b.blur(); };
+    });
+  }
+  function fmtOpen(yes) {
+    if (!yes) { if (fmt) { fmt.el.remove(); fmt = null; fmtBefore = null; } return; }
+    if (fmt) return;
+    fmt = { el: mk("div", "kn-ed-fmt", document.body) };
+    fmt.head = mk("div", "kn-ed-fmt-head", fmt.el);
+    var r = mk("label", "", fmt.el);
+    mk("span", "", r, "Background");
+    fmt.col = mk("input", "", r); fmt.col.type = "color";
+    fmt.hex = mk("input", "", r); fmt.hex.type = "text"; fmt.hex.size = 8; fmt.hex.spellcheck = false;
+    fmt.sw = mk("div", "kn-ed-fmt-sw", fmt.el);
+    fmt.sw.title = "Black, white, and the backgrounds this deck already uses";
+    r = mk("label", "", fmt.el);
+    mk("span", "", r, "To the next slide");
+    fmt.tr = mk("select", "", r);
+    mk("option", "", fmt.tr, "Cut").value = "cut"; mk("option", "", fmt.tr, "Dissolve").value = "dissolve";
+    fmt.dur = mk("input", "", r); fmt.dur.type = "number"; fmt.dur.min = 0.1; fmt.dur.max = 10; fmt.dur.step = 0.5;
+    mk("span", "kn-ed-fmt-s", r, "s");
+    fmt.col.addEventListener("input", function () { var c = fmt.col.value; fmt.hex.value = c; fmtSet(function (y) { y.bg = c; }, false); });
+    fmt.col.addEventListener("change", function () { var c = fmt.col.value; fmtSet(function (y) { y.bg = c; }, true); });
+    fmt.hex.addEventListener("change", function () {
+      var c = hex(fmt.hex.value);
+      fmt.hex.blur();
+      if (c) fmtSet(function (y) { y.bg = c; }, true); else { status("A colour is written like #1a2b3c", true); fmtFill(); }
+    });
+    function trans() {
+      var d = fmt.tr.value === "dissolve" ? Math.max(0.1, Math.min(10, +fmt.dur.value || 1)) : 0;
+      fmt.tr.blur(); fmt.dur.blur();
+      fmtSet(function (y) { if (d) y.dissolve = d; else delete y.dissolve; }, true);
+    }
+    fmt.tr.addEventListener("change", trans);
+    fmt.dur.addEventListener("change", trans);
+    fmtFill();
+  }
+
   // ---------------------------------------------------------------- slides
   function removeSlides() {
     if (cropping) crop(null);
@@ -641,6 +729,7 @@
   }
   function drawSorter() {
     var here = cur().i;
+    fmtFill();
     sorter.innerHTML = "";
     deck.slides.forEach(function (s, i) {
       var t = mk("div", "kn-ed-thumb" + (picks.indexOf(s) >= 0 ? " picked" : "") + (i === here ? " current" : ""), sorter);
@@ -667,7 +756,7 @@
       picks = [cur().s]; anchor = picks[0];
       drawSorter();
       var c = sorter.querySelector(".current"); if (c) c.scrollIntoView({ block: "center" });
-    } else if (!yes && sorter) { sorter.remove(); sorter = null; prepare(); draw(); }
+    } else if (!yes && sorter) { sorter.remove(); sorter = null; prepare(); draw(); fmtFill(); }
   }
   function thumbAt(ev) { var t = ev.target; while (t && t !== sorter && !t.knSlide) t = t.parentNode; return t && t.knSlide ? t : null; }
   function sDown(ev) {
@@ -787,6 +876,7 @@
     button("Slides", "The slide sorter: select, reorder, copy and paste slides  S", function () { openSorter(!sorter); });
     button("+ Slide", "Add an empty slide after this one", addSlide);
     button("− Slide", "Delete this slide (in the sorter: the selected slides; Delete does the same there). Undo brings it back", removeSlides);
+    button("Slide…", "This slide's background colour and its transition to the next slide (in the sorter: the selected slides')", function () { fmtOpen(!fmt); });
     button("+ Text", "Add a text box", function () { if (!sorter) addText(); });
     button("Front", "Bring to front  }", function () { order("front"); });
     button("Forward", "Bring forward  ]", function () { order("forward"); });
@@ -835,6 +925,7 @@
       if (!asking || !d || d.type !== "deck:state" || ev.source !== asking.win) return;
       capture(d.state);
     });
+    Reveal.on("slidechanged", function () { if (on) fmtFill(); });
     Reveal.on("slidechanged", function () { if (on && !sorter) { finish(); cropping = null; liveFor = null; sel = []; prepare(); draw(); } });
     window.addEventListener("resize", function () { if (on) setTimeout(draw, 50); });
     window.addEventListener("beforeunload", function () { if (timer) { clearTimeout(timer); save(); } });
@@ -845,6 +936,7 @@
     if (cropping) crop(null);
     if (using) use(null);                  // Done while operating a figure: its view is kept, as with Finish
     if (sorter) openSorter(false);
+    fmtOpen(false);
     on = !on; RT.editing = on;
     document.body.classList.toggle("kn-editing", on);
     Reveal.layout();                       // the stage sits below the bar while editing
