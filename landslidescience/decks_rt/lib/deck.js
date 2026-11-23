@@ -187,7 +187,10 @@
     document.title = deck.title || document.title;
     deck.slides.forEach(section);
     if (deck.published) published();
-    else if (deck.site) el("script", "", document.body).src = BASE + "offline.js";
+    else if (deck.site) {
+      el("script", "", document.body).src = BASE + "offline.js";
+      if (deck.site.owner) el("script", "", document.body).src = BASE + "sitemenu.js";      // ☰: edit, publish, copy
+    }
 
     Reveal.initialize({
       width: W, height: H, margin: 0, minScale: 0.05, maxScale: 8,

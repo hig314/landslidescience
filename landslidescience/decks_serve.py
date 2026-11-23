@@ -180,7 +180,9 @@ button{font:inherit;padding:3px 11px;border:1px solid #888;border-radius:4px;bac
 details{margin-top:8px} summary{color:#a00;cursor:pointer;font-size:14px} .danger{border:1px solid #d99;border-radius:6px;padding:8px 12px;margin-top:6px;font-size:14px}
 .danger button{border-color:#a00;color:#a00} .msg{background:#eef6ff;border:1px solid #b6d4f5;border-radius:6px;padding:8px 12px}
 .msg.bad{background:#fff0f0;border-color:#e0a0a0} p.small{color:#666;font-size:13px}
-</style></head><body><h1>Talks</h1>%s%s%s<p class="small"><a href="/">landslidescience.org</a></p></body></html>'''
+</style></head><body><h1>Talks</h1>%s%s%s<p class="small"><a href="/">landslidescience.org</a></p>
+<script>var d = location.hash && document.getElementById(location.hash.slice(1)); if (d && d.tagName === "DETAILS") { d.open = true; d.scrollIntoView(); }</script>
+</body></html>'''
 _NAME_INPUT = '<input name="new" placeholder="name for the copy" pattern="[A-Za-z0-9][A-Za-z0-9_-]*" required> '
 _CONFIRM = '<input name="confirm" autocomplete="off" required> '
 
@@ -230,7 +232,7 @@ def index(request):
                                    o, o, form('replace', 'Replace %s' % o, _CONFIRM))
                 danger += ('<div class="danger"><b>Discard this draft.</b> Type <b>%s</b> to confirm:<br>%s</div>'
                            % (name, form('discard', 'Discard', _CONFIRM)))
-                row += '<details><summary>Danger zone</summary>%s</details>' % danger
+                row += '<details id="danger-%s"><summary>Danger zone</summary>%s</details>' % (name, danger)
             row += '</div>'
         rows.append(row + '</div>')
     msg = request.GET.get('msg')
@@ -410,6 +412,10 @@ def _deck_get(name, meta, owner):
     out = {k: v for k, v in deck.items() if k not in ('slides', 'site', 'published')}
     out['site'] = {'name': name, 'state': 'published' if _published(meta) else 'draft',
                    'owner': owner, 'edit': owner and not _published(meta)}
+    if owner and meta.get('copy_of') and not _published(meta):
+        orig = _meta(meta['copy_of'])
+        if orig and _published(orig):                  # the menu offers "Replace ..." for this
+            out['site']['copy_of'] = meta['copy_of']
     out['slides'] = [{k: v for k, v in s.items() if k != 'notes'} for s in deck.get('slides', [])]
     resp = JsonResponse(out, json_dumps_params={'ensure_ascii': False, 'separators': (',', ':')})
     resp['X-Mtime'] = str((DECKS / name / 'deck.json').stat().st_mtime_ns)
@@ -533,7 +539,7 @@ def serve(request, name, rest=''):
     if rest in ('', 'index.html'):
         deck = _json(name, 'deck.json') or {}
         head = '' if pub else '\n  <meta name="robots" content="noindex">'
-        tail = '\n<script>window.DECK_CSRF=%s;</script>' % json.dumps(get_token(request)) if owner and not pub else ''
+        tail = '\n<script>window.DECK_CSRF=%s;</script>' % json.dumps(get_token(request)) if owner else ''
         resp = HttpResponse(_SHELL % (head, html.escape(str(deck.get('title') or name)), tail))
     elif rest == 'deck.json':
         resp = _deck_get(name, meta, owner)

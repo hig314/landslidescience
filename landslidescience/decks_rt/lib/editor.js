@@ -623,7 +623,9 @@
   }
   function go(d) { var i = cur().i + d; if (i >= 0 && i < deck.slides.length) { sel = []; Reveal.slide(i); } }
 
+  function field(ev) { return /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target && ev.target.tagName || ""); }   // typing in a form field (the site's menu)
   function key(ev) {
+    if (field(ev)) return;
     if (!on) { if ((ev.key === "e" || ev.key === "E") && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !/^(INPUT|TEXTAREA)$/.test(ev.target.tagName)) toggle(); return; }
     if (typing) { ev.stopPropagation(); if (ev.key === "Escape") { ev.preventDefault(); finish(); } return; }
     if (using && ev.key === "Escape") { ev.preventDefault(); use(null); return; }
@@ -680,7 +682,7 @@
     // Copies also go on the system clipboard, and a paste reads it: so a copy made in another
     // browser, or an element offered by another page, pastes here.
     function onCopy(ev, cut) {
-      if (!on || typing) return;
+      if (!on || typing || field(ev)) return;
       var c = copy();
       if (!c) return;
       ev.preventDefault();
@@ -690,7 +692,7 @@
     document.addEventListener("copy", function (ev) { onCopy(ev, false); });
     document.addEventListener("cut", function (ev) { onCopy(ev, true); });
     document.addEventListener("paste", function (ev) {
-      if (!on || typing) return;
+      if (!on || typing || field(ev)) return;
       ev.preventDefault();
       paste(readClip(ev.clipboardData.getData("text/plain")));
     });
