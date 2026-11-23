@@ -25,6 +25,8 @@ CODE checks (exit status 1 if any fails):
      A mismatch there shows the wrong year's ice with nothing to say so. Also
      that the network editing panel offers the line kinds and face bases the
      server accepts.
+  6c. /inventory/: every data-ctl id in home.html is in embed_ui.js CTL, and
+      every CTL id is on a control (or is one the page does not write).
   6b. /lidar/compare/: every data-ctl id on a control is in the page's CTL
      list (the ids a ui= link can name), and every CTL id is on a control. A
      control with no id cannot be offered or withheld by an embedded link.
@@ -228,6 +230,26 @@ def check_compare_controls():
     return fails, []
 
 
+
+def check_map_controls():
+    """/inventory/: the template's data-ctl ids against embed_ui.js CTL. An id
+    with a `sel` (built by MapLibre or a tool module) or the behaviour-only
+    `record` has no element in the template."""
+    js = (Path(settings.BASE_DIR) / 'inventory/static/inventory/js/embed_ui.js').read_text(encoding='utf-8')
+    html = (Path(settings.BASE_DIR) / 'inventory/templates/inventory/home.html').read_text(encoding='utf-8')
+    rows = re.findall(r"\{ id: '([a-z]+)',[^}]*\}", js)
+    ids = set(rows)
+    no_el = set(re.findall(r"\{ id: '([a-z]+)',[^}]*\bsel:", js)) | {'record'}
+    used = {x for v in re.findall(r'data-ctl="([^"]+)"', html) for x in v.split()}
+    fails = []
+    if not ids:
+        fails.append('the CTL list was not found in embed_ui.js (pattern changed?)')
+    if used - ids:
+        fails.append(f'data-ctl ids not in CTL: {sorted(used - ids)}')
+    if ids - used - no_el:
+        fails.append(f'CTL ids on no control: {sorted(ids - used - no_el)}')
+    return fails, [f'{len(ids)} control ids']
+
 def data_hidden_records(cur):
     order = _class_order() or []
     cur.execute(f"""SELECT l.id, l.unique_name, l.landslide_class FROM landslides l
@@ -271,7 +293,8 @@ class Command(BaseCommand):
                           ('pinned-label fields', check_pin_labels),
                           ('ramp files', check_ramp_files),
                           ('glacier extent sources', check_glacier_sources),
-                          ('comparison control ids', check_compare_controls)):
+                          ('comparison control ids', check_compare_controls),
+                          ('map control ids', check_map_controls)):
             fails, notes = fn()
             w(f'{"FAIL" if fails else "ok  "}  {title}')
             for f in fails:

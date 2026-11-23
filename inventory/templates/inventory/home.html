@@ -3,7 +3,7 @@
 
 {% block title %}Alaska Landslide Inventory{% endblock %}
 {% block page_title %}Inventory{% endblock %}
-{% block body_class %}inv-map-body{% endblock %}
+{% block body_class %}inv-map-body{% if embed %} embed{% endif %}{% endblock %}
 
 {% block extra_styles %}
   <link href="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.css" rel="stylesheet">
@@ -50,8 +50,66 @@
     .inv-draw-popup-box button.primary { background: #00897b; color: #fff; border: none; }
     .inv-draw-popup-box button { font-size: 13px; padding: 5px 12px; border-radius: 4px;
                                  border: 1px solid #d6c8c2; background: #f0ebe9; color: #5D4037; cursor: pointer; }
+    /* ---- Reader's controls and embed mode (embed_ui.js). The per-control
+       hiding rules are written by the script into #ls-uistyle; these are the
+       layouts that follow from what is left. ---- */
+    body.embed .inv-header { display: none; }
+    body.embed .inv-sidebar, body.embed #inventory-content { top: 0; }
+    body.ui-notab-inventory .inv-tab[data-tab="inventory"], body.ui-notab-inventory .inv-panel[data-panel="inventory"],
+    body.ui-notab-refmaps .inv-tab[data-tab="refmaps"],
+    body.ui-notab-analysis .inv-tab[data-tab="analysis"],
+    body.ui-onetab .inv-tabs, body.ui-nopanels .inv-tabs, body.ui-nopanels .inv-panel,
+    body.ui-nosidebar .inv-sidebar { display: none !important; }
+    body.ui-nopanels #inventory-content { left: 0; }
+    /* Only the pinned strip is left: a small box over the map, beside the zoom buttons. */
+    body.ui-strip .inv-sidebar { top: 54px; left: 50px; bottom: auto; width: auto; z-index: 6;
+      border: 1px solid #d4cdc0; border-radius: 6px; box-shadow: 0 1px 6px rgba(0,0,0,0.25); overflow: hidden; }
+    body.embed.ui-strip .inv-sidebar { top: 10px; }
+    body.ui-strip .inv-pinned { border-bottom: none; }
+    #uipanel { position: fixed; top: 54px; right: 14px; width: 330px; z-index: 30; padding: 0;
+      font: 12px/1.4 system-ui, sans-serif; max-height: calc(100vh - 70px); overflow: auto; }
+    #uipanel.hidden { display: none; }
+    #uipanel .uip-head { display: flex; align-items: center; padding: 8px 12px; color: #5D4037; font-size: 13px; }
+    #uipanel .uip-close { margin-left: auto; border: none; background: none; font-size: 17px; line-height: 1; cursor: pointer; color: #888; }
+    #uipanel .uip-body { padding: 8px 12px 12px; }
+    #uipanel .uip-note { margin: 0 0 6px; color: #777; font-size: 11px; }
+    #uipanel label { display: block; padding: 1px 0; cursor: pointer; }
+    #uipanel code { color: #999; font-size: 10px; }
+    #uipanel .uip-row { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+    #uipanel .uip-row button { font-size: 12px; padding: 4px 9px; border-radius: 4px; border: 1px solid #d6c8c2;
+      background: #f0ebe9; color: #5D4037; cursor: pointer; }
+    #uipanel .uip-status { min-height: 15px; margin-top: 6px; color: #00695c; font-size: 11px; }
+    .inv-menu-btn { display: block; width: 100%; text-align: left; border: none; background: none;
+      font: inherit; color: inherit; padding: 6px 12px; cursor: pointer; }
+    .inv-menu-btn:hover { background: #f0ebe9; }
+    .inv-deck { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #777; }
+    .inv-deck button { font: inherit; padding: 2px 8px; border: 1px solid #d6c8c2; border-radius: 4px;
+      background: #f0ebe9; color: #5D4037; cursor: pointer; }
+    .inv-deck button.done { background: #00897b; border-color: #00897b; color: #fff; }
   </style>
 {% endblock %}
+
+{% comment %}
+Reader's controls / embed links (embed_ui.js): site admins choose which
+controls a link gives its reader and copy the link, the embed link, or a
+live figure for a presentation. Never offered inside an embed.
+{% endcomment %}
+{% block user_menu_extra %}{% if not embed %}
+  <button type="button" id="embed-ui-btn" class="inv-menu-btn" role="menuitem"
+          title="Choose which controls a link gives its reader, and copy it as a link, an embed, or a live slide">Reader&rsquo;s controls / embed&hellip;</button>
+{% endif %}{% endblock %}
+
+{% comment %}
+Deck buttons in the top bar (site admins; the same two as on /lidar/compare/):
+this view as a live figure for the Presentation tool, or as the next step of
+one already on a slide. Also in the Reader's controls panel.
+{% endcomment %}
+{% block header_extra %}{% if is_site_admin and not embed %}
+  <span class="inv-deck" title="Copy this view for the Presentation tool">Deck
+    <button type="button" data-deck-copy="slide" title="Copy this view as a live figure: paste it onto a slide in the Presentation tool.">slide</button>
+    <button type="button" data-deck-copy="step" title="Copy this view as the next step of a figure already on a slide: select the figure there and paste.">step</button>
+  </span>
+{% endif %}{% endblock %}
 
 {% block download_extra %}
   <button type="button" id="dl-map-image"
@@ -62,14 +120,18 @@
 <aside class="inv-sidebar">
   {# ---- Pinned strip: always visible regardless of active tab ---- #}
   <div class="inv-pinned">
+    {% comment %}
+    data-ctl: the control ids a link's ui= can give or withhold (embed_ui.js
+    CTL; checked by check_invariants). A new control here gets one.
+    {% endcomment %}
     <div class="inv-pinned-row">
-      <label class="nav-filter-label small" style="display:inline-flex; margin-right:10px;">
+      <label class="nav-filter-label small" data-ctl="types" style="display:inline-flex; margin-right:10px;">
         <input type="checkbox" class="filter-type" value="slow" checked> Slow
       </label>
-      <label class="nav-filter-label small" style="display:inline-flex; margin-right:10px;">
+      <label class="nav-filter-label small" data-ctl="types" style="display:inline-flex; margin-right:10px;">
         <input type="checkbox" class="filter-type" value="catastrophic" checked> Catastrophic
       </label>
-      <label class="nav-filter-label small" style="display:inline-flex;"
+      <label class="nav-filter-label small" data-ctl="traces" style="display:inline-flex;"
              title="Landform traces: working observations of scarps (purple dashed), moraine crests, trimlines, strandlines and lineaments, traced on lidar. Not a published map.">
         <input type="checkbox" id="cb-scarps" checked> Traces
       </label>
@@ -93,7 +155,7 @@
     filters in force. Here because filters live two tabs away from wherever
     the reader may be, and now survive a round trip to a record form.
     {% endcomment %}
-    <div class="inv-pinned-row inv-filter-note" id="filter-note"
+    <div class="inv-pinned-row inv-filter-note" id="filter-note" data-ctl="filternote"
          title="No filter is restricting which landslides are shown.">Unfiltered</div>
   </div>
 
@@ -113,14 +175,14 @@
   inventory/external.py.
   {% endcomment %}
   {% if explore_sources %}
-  <div class="xex-switch">
+  <div class="xex-switch" data-ctl="explore">
     <label for="xex-ds">Showing</label>
     <select id="xex-ds">
       <option value="">Landslide Science (this inventory)</option>
       {% for s in explore_sources %}<option value="{{ s.id }}">{{ s.label }}</option>{% endfor %}
     </select>
   </div>
-  <div id="xex-panel" hidden></div>
+  <div id="xex-panel" data-ctl="explore" hidden></div>
   {% endif %}
   <ul class="inv-nav">
     {% comment %}
@@ -128,12 +190,12 @@
     pinned strip, which implies it applies everywhere; it does not — outside
     the Inventory tab there are no counts for it to limit.
     {% endcomment %}
-    <li class="nav-item filter-control" style="padding-bottom:2px;">
+    <li data-ctl="limitview" class="nav-item filter-control" style="padding-bottom:2px;">
       <label class="nav-filter-label small" style="color:#555;">
         <input type="checkbox" id="cb-limit-view"> Limit counts to map view
       </label>
     </li>
-    <li class="nav-item title">
+    <li data-ctl="classes" class="nav-item title">
       Class
       <span class="class-toggle-all">
         <a href="#" id="class-all">all</a> /
@@ -142,7 +204,7 @@
     </li>
 
     {# ---- Slow: active (obvious/patchy) ---- #}
-    <li class="nav-item nav-class-header">
+    <li data-ctl="classes" class="nav-item nav-class-header">
       Slow &mdash; active
       <span class="subgroup-toggle">
         <a href="#" class="sg-all" data-sg="slow-active">all</a> /
@@ -150,7 +212,7 @@
       </span>
     </li>
     {% for cls, cnt, color, halo in slow_active %}
-    <li class="nav-item sg-item" data-sg="slow-active">
+    <li data-ctl="classes" class="nav-item sg-item" data-sg="slow-active">
       <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked
                {% if cnt == 0 %}disabled{% endif %}>
@@ -162,7 +224,7 @@
     {% endfor %}
 
     {# ---- Slow: less active (subtle/geomorphic/small) ---- #}
-    <li class="nav-item nav-subgroup-header">
+    <li data-ctl="classes" class="nav-item nav-subgroup-header">
       Less active
       <span class="subgroup-toggle">
         <a href="#" class="sg-all" data-sg="slow-other">all</a> /
@@ -170,7 +232,7 @@
       </span>
     </li>
     {% for cls, cnt, color, halo in slow_other %}
-    <li class="nav-item sg-item" data-sg="slow-other">
+    <li data-ctl="classes" class="nav-item sg-item" data-sg="slow-other">
       <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked
                {% if cnt == 0 %}disabled{% endif %}>
@@ -182,7 +244,7 @@
     {% endfor %}
 
     {# ---- Large catastrophic landslides since 2012 (precursory + plain) ---- #}
-    <li class="nav-item nav-class-header">
+    <li data-ctl="classes" class="nav-item nav-class-header">
       Large catastrophic landslides since 2012
       <span class="subgroup-toggle">
         <a href="#" class="sg-all" data-sg="cat-recent">all</a> /
@@ -190,7 +252,7 @@
       </span>
     </li>
     {% for cls, cnt, color, halo in cat_recent %}
-    <li class="nav-item sg-item" data-sg="cat-recent">
+    <li data-ctl="classes" class="nav-item sg-item" data-sg="cat-recent">
       <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked
                {% if cnt == 0 %}disabled{% endif %}>
@@ -202,7 +264,7 @@
     {% endfor %}
 
     {# ---- Other catastrophic landslides (modern / Holocene / small) ---- #}
-    <li class="nav-item nav-subgroup-header">
+    <li data-ctl="classes" class="nav-item nav-subgroup-header">
       Other catastrophic landslides
       <span class="subgroup-toggle">
         <a href="#" class="sg-all" data-sg="cat-other">all</a> /
@@ -210,7 +272,7 @@
       </span>
     </li>
     {% for cls, cnt, color, halo in cat_other %}
-    <li class="nav-item sg-item" data-sg="cat-other">
+    <li data-ctl="classes" class="nav-item sg-item" data-sg="cat-other">
       <label class="nav-filter-label {% if cnt == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="{{ cls }}" checked
                {% if cnt == 0 %}disabled{% endif %}>
@@ -222,8 +284,8 @@
     {% endfor %}
 
     {# ---- Records with no landslide_class (catch-all so they don't go dark) ---- #}
-    <li class="nav-item nav-class-header" style="margin-top:6px;">Other</li>
-    <li class="nav-item">
+    <li data-ctl="classes" class="nav-item nav-class-header" style="margin-top:6px;">Other</li>
+    <li data-ctl="classes" class="nav-item">
       <label class="nav-filter-label {% if unclassified_count == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" class="filter-class" value="__unclassified__" checked
                {% if unclassified_count == 0 %}disabled{% endif %}>
@@ -233,7 +295,7 @@
       </label>
     </li>
 
-    <li class="nav-item separator"></li>
+    <li data-ctl="classes" class="nav-item separator"></li>
 
     {# ---- Other layers (hidden by default) ---- #}
     {% comment %}
@@ -243,8 +305,8 @@
     (map.js _ft*). The list is rendered here from the vocabulary so a value
     added in the form appears as a filter on the next load.
     {% endcomment %}
-    <li class="nav-item nav-class-header" title="Must have (✓), no preference (·), or exclude (✗) each feature. Records with no features recorded count as not having any.">Landslide features</li>
-    <li class="nav-item filter-control ft-list" id="ft-filter">
+    <li data-ctl="features" class="nav-item nav-class-header" title="Must have (✓), no preference (·), or exclude (✗) each feature. Records with no features recorded count as not having any.">Landslide features</li>
+    <li data-ctl="features" class="nav-item filter-control ft-list" id="ft-filter">
       {% for g in feature_groups %}
         <div class="ft-group">{{ g.title }}</div>
         {% for v in g.items %}
@@ -259,8 +321,8 @@
     </li>
 
     {# ---- Include-only checkboxes (attributes that are not features) ---- #}
-    <li class="nav-item nav-class-header">Include only</li>
-    <li class="nav-item filter-control">
+    <li data-ctl="include" class="nav-item nav-class-header">Include only</li>
+    <li data-ctl="include" class="nav-item filter-control">
       <label class="nav-filter-label small"><input type="checkbox" id="cb-stream"> Dammed streams</label>
       <label class="nav-filter-label small"><input type="checkbox" id="cb-site-volume"> Site-specific volume</label>
       <label class="nav-filter-label small"><input type="checkbox" id="cb-timed"> Time bracketed</label>
@@ -268,9 +330,9 @@
     </li>
 
     {% if is_inventory_editor %}
-    <li class="nav-item separator"></li>
-    <li class="nav-item nav-class-header">Needs attention (editors)</li>
-    <li class="nav-item filter-control">
+    <li data-ctl="include" class="nav-item separator"></li>
+    <li data-ctl="include" class="nav-item nav-class-header">Needs attention (editors)</li>
+    <li data-ctl="include" class="nav-item filter-control">
       <label class="nav-filter-label small {% if flagged_count == 0 %}nav-filter-disabled{% endif %}">
         <input type="checkbox" id="cb-flagged" {% if flagged_count == 0 %}disabled{% endif %}>
         Flagged for review <span class="cls-count">{{ flagged_count }}</span>
@@ -288,11 +350,11 @@
     </li>
     {% endif %}
 
-    <li class="nav-item separator"></li>
+    <li data-ctl="include" class="nav-item separator"></li>
 
     {# ---- Source area slider (dual: min + max bounds) ---- #}
-    <li class="nav-item nav-class-header">Source area</li>
-    <li class="nav-item filter-control">
+    <li data-ctl="sliders" class="nav-item nav-class-header">Source area</li>
+    <li data-ctl="sliders" class="nav-item filter-control">
       <div class="dual-range" data-slider="src-area">
         <div class="dual-track"></div>
         <div class="dual-progress"></div>
@@ -303,8 +365,8 @@
     </li>
 
     {# ---- Deposit area slider (dual) ---- #}
-    <li class="nav-item nav-class-header">Deposit area <span style="font-size:9px;font-weight:normal;color:#999;">(catastrophic only)</span></li>
-    <li class="nav-item filter-control">
+    <li data-ctl="sliders" class="nav-item nav-class-header">Deposit area <span style="font-size:9px;font-weight:normal;color:#999;">(catastrophic only)</span></li>
+    <li data-ctl="sliders" class="nav-item filter-control">
       <div class="dual-range" data-slider="dep-area">
         <div class="dual-track"></div>
         <div class="dual-progress"></div>
@@ -315,8 +377,8 @@
     </li>
 
     {# ---- Estimated volume slider (dual) ---- #}
-    <li class="nav-item nav-class-header">Estimated volume</li>
-    <li class="nav-item filter-control">
+    <li data-ctl="sliders" class="nav-item nav-class-header">Estimated volume</li>
+    <li data-ctl="sliders" class="nav-item filter-control">
       <div class="dual-range" data-slider="vol">
         <div class="dual-track"></div>
         <div class="dual-progress"></div>
@@ -327,8 +389,8 @@
     </li>
 
     {# ---- Year slider (dual; max-end limits to most-recent, min-end to oldest) ---- #}
-    <li class="nav-item nav-class-header">Age</li>
-    <li class="nav-item filter-control">
+    <li data-ctl="sliders" class="nav-item nav-class-header">Age</li>
+    <li data-ctl="sliders" class="nav-item filter-control">
       <div class="dual-range" data-slider="year">
         <div class="dual-track"></div>
         <div class="dual-progress"></div>
@@ -339,8 +401,8 @@
     </li>
 
     {# ---- Susceptibility sliders (dual): filter landslides by their sampled USGS value 0-81 ---- #}
-    <li class="nav-item nav-class-header">Susceptibility — n10 <span style="font-size:9px;font-weight:normal;color:#999;">(USGS, 0–81)</span></li>
-    <li class="nav-item filter-control">
+    <li data-ctl="sliders" class="nav-item nav-class-header">Susceptibility — n10 <span style="font-size:9px;font-weight:normal;color:#999;">(USGS, 0–81)</span></li>
+    <li data-ctl="sliders" class="nav-item filter-control">
       <div class="dual-range" data-slider="susc-n10">
         <div class="dual-track"></div>
         <div class="dual-progress"></div>
@@ -350,8 +412,8 @@
       <div class="slider-label"><span id="susc-n10-label">All</span></div>
     </li>
 
-    <li class="nav-item nav-class-header">Susceptibility — lw <span style="font-size:9px;font-weight:normal;color:#999;">(USGS, 0–81)</span></li>
-    <li class="nav-item filter-control">
+    <li data-ctl="sliders" class="nav-item nav-class-header">Susceptibility — lw <span style="font-size:9px;font-weight:normal;color:#999;">(USGS, 0–81)</span></li>
+    <li data-ctl="sliders" class="nav-item filter-control">
       <div class="dual-range" data-slider="susc-lw">
         <div class="dual-track"></div>
         <div class="dual-progress"></div>
@@ -360,14 +422,14 @@
       </div>
       <div class="slider-label"><span id="susc-lw-label">All</span></div>
     </li>
-    <li class="nav-item filter-control" style="padding-top:0;">
+    <li data-ctl="sliders" class="nav-item filter-control" style="padding-top:0;">
       <div class="slider-label" style="color:#666;"><span id="susc-filter-count">All landslides</span></div>
     </li>
   </ul>
   </section>
 
   {# ---- Reference maps panel: populated by JS (basemap hierarchy + overlays) ---- #}
-  <section class="inv-panel hidden" data-panel="refmaps">
+  <section class="inv-panel hidden" data-panel="refmaps" data-ctl="refmaps">
     <div id="refmaps-content">
       <p style="font-size:12px; color:#888; padding:10px 14px;">Loading…</p>
     </div>
@@ -400,7 +462,7 @@
   </section>
 
   {# ---- Analysis panel: chart toggles + limit-counts ---- #}
-  <section class="inv-panel hidden" data-panel="analysis">
+  <section class="inv-panel hidden" data-panel="analysis" data-ctl="analysis">
     <div style="padding:12px 14px;">
       <button id="hist-toggle" class="inv-analysis-btn">&#9656; Seasonal timing</button>
       <button id="timing-toggle" class="inv-analysis-btn">&#9656; Time-series</button>
@@ -654,7 +716,7 @@
      legend was removed because the Inventory tab shows the same swatches.
      (Methods is linked from the top nav, so no map-corner link for it.)
   {% endcomment %}
-  <div id="map-overlay-info">
+  <div id="map-overlay-info" data-ctl="hint">
     <div id="zoom-hint">Zoom in for polygons</div>
     <div class="overlay-row">
       <a href="{% url 'inventory:howto' %}">How to use this site</a>
@@ -664,6 +726,24 @@
 {% endblock %}
 
 {% block scripts %}
+{% if embed %}
+<script>
+  // Embed mode (docs/MAP_UI.md): framed on a slide or another site. The
+  // server rendered this page signed-out whoever is signed in; the page's own
+  // requests must be anonymous too. A frame on the same site (a deck on
+  // another port of this machine, or ever under this domain) would send the
+  // session cookie, so every fetch from here on goes without credentials.
+  window.LS_EMBED = true;
+  (function () {
+    var f = window.fetch;
+    window.fetch = function (u, o) {
+      o = Object.assign({}, o || {}, { credentials: 'omit' });
+      return f.call(window, u, o);
+    };
+  })();
+</script>
+<script src="{% static 'inventory/js/vendor/deck-embed.js' %}"></script>
+{% endif %}
 <script>
   // Inject role flag for the map detail panel — editors get a "⚙ Manage" link.
   window._isInventoryEditor = {% if is_inventory_editor %}true{% else %}false{% endif %};
@@ -767,5 +847,7 @@
 <script src="{% static 'inventory/js/scarp_ui.js' %}"></script>
 <script src="{% static 'inventory/js/revise_ui.js' %}"></script>
 <script src="{% static 'inventory/js/charts.js' %}"></script>
+{# Reader's controls (ui=), embed mode and the deck protocol; map.js calls into it. #}
+<script src="{% static 'inventory/js/embed_ui.js' %}"></script>
 <script src="{% static 'inventory/js/map.js' %}"></script>
 {% endblock %}
