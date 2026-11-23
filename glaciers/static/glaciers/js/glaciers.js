@@ -490,9 +490,10 @@
         if (!t) {
             t = document.createElement('div');
             t.id = '_coord-toast';
-            t.style.cssText = 'position:absolute;bottom:24px;left:50%;transform:translateX(-50%);' +
+            // at the top: the year and flow bars sit along the bottom here
+            t.style.cssText = 'position:absolute;top:12px;left:50%;transform:translateX(-50%);' +
                 'background:rgba(20,20,20,.88);color:#fff;padding:6px 12px;border-radius:4px;' +
-                'font-size:13px;z-index:5;pointer-events:none;transition:opacity .3s;opacity:0;';
+                'font-size:13px;z-index:12;pointer-events:none;transition:opacity .3s;opacity:0;';
             map.getContainer().appendChild(t);
         }
         t.textContent = msg;
