@@ -257,17 +257,18 @@ In no particular order.
   improve (Hig's D1). Loose: only 661 glaciers are named; 82 Glacier Bay
   lines and 5,202 GLIMS outlines match no glacier; `cascade` and
   `moraine_apron` NSIDC-0634 files want a look.
-- **Embeds and control subsets, first test on `/lidar/compare/`**
-  (2026-11-22, **dev only, uncommitted, untested in a browser**): `ui=`
-  control ids + *Reader's controls…* picker, `?embed=1` (framable, signed
-  out), deck protocol with in-place `applyState`. Design in docs/LIDAR.md
-  (end of the terrain comparison section); the deck's brief is
-  `inventory/DECK_EMBED.md` (untracked, Hig's). Test page:
+- **Embeds and control subsets** (`/lidar/compare/` deployed 2026-11-22,
+  c49ada0; **`/inventory/` built 2026-11-22, dev only, uncommitted**): `ui=`
+  control ids + *Reader's controls* picker, `?embed=1` (framable, signed
+  out), deck protocol. Comparison design in docs/LIDAR.md (end of the
+  terrain comparison section); the inventory's in docs/MAP_UI.md (*Embeds
+  and control subsets*), which lists what the first pass leaves out. The
+  deck's brief is `inventory/DECK_EMBED.md` (untracked, Hig's). Test page:
   `~/Claude_projects/Presentation/tools/serve.py` then
-  `http://127.0.0.1:8792/tools/embed_test.html?src=http://localhost:8001/lidar/compare/?embed=1`.
-  Next after Hig's test: the same on `/inventory/` (the deck's slide 30),
-  where the open work is a complete `'deck'` state mode, `id=` written,
-  and anonymous API calls.
+  `http://127.0.0.1:8792/tools/embed_test.html?src=http://localhost:8001/inventory/?embed=1`.
+  Checked in a browser on dev: embed page, a pared-down `ui=`, deck steps
+  there and back in a same-origin test frame, the picker. Not checked: the
+  Presentation tool itself, a cross-site frame, a hidden frame, a projector.
 - **Terrain comparison: landslides + baked overlays** (tested by Hig in dev,
   deployed 2026-11-16): `ls=1` / `ov=` on `/lidar/compare/`, `/inventory/`
   links in the paste box; the shared overlay rows and landslide layers moved

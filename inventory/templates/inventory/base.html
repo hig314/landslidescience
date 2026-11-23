@@ -38,6 +38,7 @@
         Pages that can offer more (the map offers its image export) fill the
         download_extra block; everywhere else the menu just holds the zip.
         {% endcomment %}
+        {% block header_extra %}{% endblock %}
         <span class="inv-dl-wrap">
           <button type="button" class="inv-dl-btn" id="dl-menu-btn"
                   aria-haspopup="true" aria-expanded="false">⬇ Download ▾</button>
@@ -78,6 +79,7 @@
                  title="Public visitors: visits, pages and referrers (self-hosted Umami)">&#128200; Usage: public</a>
               <a href="{% url 'traffic' %}?site=team" role="menuitem"
                  title="Signed-in collaborators only, tracked as a separate site">&#128200; Usage: collaborators</a>
+              {% block user_menu_extra %}{% endblock %}
               {% if user.is_staff %}
                 <a href="{% url 'admin:index' %}" role="menuitem"
                    title="Users, groups, pages and hosted files">Django admin</a>

@@ -13,6 +13,11 @@
     // Caddy serve with long cache headers). Snapshot bundles: './static/'
     // so they're self-contained.
     var STATIC_BASE = CFG.staticBase || '/static/';
+    // Embed mode (/inventory/?embed=1; embed_ui.js and docs/MAP_UI.md): the
+    // page in a frame on a slide or another site. Always the signed-out map,
+    // and it neither reads nor writes this browser's remembered views: a
+    // slide must open at the view it was given, on any machine.
+    var EMBED = !!window.LS_EMBED;
 
     // USGS Belair et al. (2024) landslide-susceptibility overlays (Alaska).
     // Self-hosted, pre-colored XYZ PNGs (YlOrRd, transparent over NoData) built
@@ -148,6 +153,8 @@
         if (x.tab != null && /^[a-z]+$/.test(x.tab)) out.tab = x.tab;   // validated against real tabs on apply
         if (x.an != null) out.an = x.an.split(',').filter(function (k) { return /^[a-z]+$/.test(k); });
         if (x.sc === '0' || x.sc === '1') out.sc = x.sc === '1';
+        // The reader's controls (embed_ui.js): ui=<id,id…>; ui=none = none.
+        if (x.ui != null && /^[a-z,]*$/.test(x.ui)) out.ui = x.ui;
         // The Inventory tab's outside-inventory explorer (ext_explore.js): xs = source
         // id ('' = ours), xf = its filters, xc = colour-by. Grammar in ext_explore.js.
         if (x.xs != null && /^[a-z0-9_]*$/.test(x.xs)) {
@@ -248,7 +255,7 @@
     // map) goes to that record's default view once it opens, as a double-click
     // does; before 2026-11-11 the explorer's new tab opened statewide.
     var _idOnlyLink = !!(_initialHash.id && _initialHash.zoom == null);
-    if (_initialHash.zoom == null) {
+    if (_initialHash.zoom == null && !EMBED) {
         var _sessView = _sessionViewRead();
         if (_sessView) {
             Object.keys(_initialHash).forEach(function (k) { _sessView[k] = _initialHash[k]; });
@@ -264,6 +271,8 @@
         }
     }
     var _pendingDetailId = _initialHash.id || null;
+    var _deckPending = null;     // a deck step that arrived before the layers (see _deckSetState)
+    var _deckTravel = false;     // on the way to a deck step
     // Explorer hand-off: null = unconstrained (the normal case).
     var _idsFilter = _initialHash.ids || null;
     function _syncIdsNotice() {
@@ -323,9 +332,10 @@
         // Every layer toggle passes through here; the review recorder ends
         // its view only if what is being looked at has changed.
         if (window.LSReview) LSReview.layoutChanged();
-        try { localStorage.setItem('ls_map_view', '#' + _viewStateString('saved')); } catch (e) {}
+        if (window.LSEmbedUI && !_deckTravel) LSEmbedUI.changed();   // tell a deck framing us (coalesced)
+        if (!EMBED) try { localStorage.setItem('ls_map_view', '#' + _viewStateString('saved')); } catch (e) {}
         var newHash = '#' + _viewStateString('url'), qs = _queryWithoutLegacy();
-        try {
+        if (!EMBED) try {
             sessionStorage.setItem(_SESSION_VIEW_KEY, JSON.stringify({ t: Date.now(), q: qs, v: newHash }));
         } catch (e) {}
         if (location.hash !== newHash || location.search !== qs) {
@@ -391,6 +401,7 @@
     // per browser in localStorage and merged into BASEMAPS under the 'QMS'
     // category. The QMS catalog is searched via the editor-only api/qms proxy.
     function _loadQmsBasemaps() {
+        if (EMBED) return [];
         try { return JSON.parse(localStorage.getItem('ls_qms_basemaps') || '[]') || []; } catch (e) { return []; }
     }
     function _saveQmsBasemaps(list) {
@@ -604,6 +615,7 @@
             writeHashState();   // strips id= now that the panel is open
         }
         _applyPendingBase();   // shared-layer base= from the URL, if its list is already in
+        if (_deckPending) { var dp = _deckPending; _deckPending = null; _deckSetState(dp[0], dp[1]); }
     }
 
     // 'load' fires once on initial render; we use 'once' so setStyle() re-fires don't hit this.
@@ -1379,7 +1391,7 @@
     // pane-selector to misread.
     var _ovState = (function () {
         var st = {};
-        try { st = JSON.parse(localStorage.getItem('ls_overlays') || '{}') || {}; } catch (e) {}
+        if (!EMBED) try { st = JSON.parse(localStorage.getItem('ls_overlays') || '{}') || {}; } catch (e) {}
         OVERLAYS.forEach(function (ov) {
             var s = st[ov.id] || {};
             var left = !!s.left, right = !!s.right;
@@ -1405,7 +1417,7 @@
     // panels are built later and read _ovState then.
     if (_initialHash.ov) _ovMergeHashSpec(_initialHash.ov);
     function _ovSaveState() {
-        try { localStorage.setItem('ls_overlays', JSON.stringify(_ovState)); } catch (e) {}
+        if (!EMBED) try { localStorage.setItem('ls_overlays', JSON.stringify(_ovState)); } catch (e) {}
     }
     // Encode the visible overlays for the URL hash: `<id>.l<pct>r<pct>` per
     // overlay, comma-joined; '' when nothing is visible (param omitted).
@@ -3965,6 +3977,17 @@
         var pm = bits('pm');
         if (pm != null) _pmBits().forEach(function (b) { if (b[0]) b[0].checked = !!(pm & b[1]); });
     }
+    // Every filter at its default, with `over` on top: what a deck step
+    // applies, since a step describes the whole view and a filter it does not
+    // name is off (the hash path above leaves an unnamed filter alone).
+    function _filterDefaults(over) {
+        var v = { ty: '3', c: String(ALL_CLASSES_MASK), f: '0', ft: '', lv: '0', pm: '0' };
+        _filterDuals().forEach(function (d) {
+            if (d[0]) v[d[1]] = d[0].sliderMin + ',' + d[0].sliderMax;
+        });
+        Object.keys(over || {}).forEach(function (k) { v[k] = over[k]; });
+        return v;
+    }
     // The pinned strip's "Unfiltered" / "FILTERED" note: is anything
     // restricting which landslides are drawn? Reads the same collection the
     // URL is written from, so the two cannot disagree. lv (limit counts to
@@ -4434,6 +4457,7 @@
         layers: ['points', 'polygon-fill'],
         handler: function (f) {
             var p = f.properties || {};
+            if (window.LSEmbedUI && !LSEmbedUI.on('record')) return;   // the reader was not given record panels
             showDetail(f.layer && f.layer.id === 'points' ? p.id : p.landslide_id);
         }
     });
@@ -5569,11 +5593,15 @@
     //   collect(mode, o)  put the current value on the codec object `o`
     //                     (ls_hash.js encode's shape; inventory-only params go
     //                     in o.extras as strings). mode is 'url' | 'saved' |
-    //                     'view' -- see _viewStateString.
+    //                     'view' -- see _viewStateString -- or 'deck': the whole
+    //                     view for a slide step (embed_ui.js), written in full
+    //                     like 'view' and with the filters and open record.
     //   apply(s, how)     put the parsed state `s` (parseHashState's shape) on
     //                     the map. how is 'hash' (the hash changed under us),
-    //                     'view' (a stored default view) or 'cold'. A param
-    //                     that is absent from `s` is LEFT ALONE.
+    //                     'view' (a stored default view), 'cold', or 'deck' (a
+    //                     slide step). A param that is absent from `s` is LEFT
+    //                     ALONE, except under 'deck', where the string is the
+    //                     whole view and what it does not name is put away.
     //   cold              how the param gets applied on a cold load:
     //                     true = by the loop just below this table, through
     //                     the same apply(). A string = it cannot wait that
@@ -5583,10 +5611,11 @@
     //
     // Row order is apply order; the codec fixes the order params are written.
     // ---------------------------------------------------------------------------
+    function _full(mode) { return mode === 'view' || mode === 'deck'; }
     var _VIEW_PARAMS = [
         { key: 'base', cold: 'map construction, then _pendingBase / _applyPendingBase',
           collect: function (mode, o) {
-              if (mode === 'view' || (_currentBasemap && _currentBasemap !== DEFAULT_BASEMAP_ID)) o.base = _currentBasemap;
+              if (_full(mode) || (_currentBasemap && _currentBasemap !== DEFAULT_BASEMAP_ID)) o.base = _currentBasemap;
               else if (_pendingBase) o.base = _pendingBase;   // still waiting on the shared-layer list
           },
           apply: function (s) {
@@ -5603,26 +5632,26 @@
               if (s.swipe && findBasemap(s.swipe)) {
                   if (s.sx != null) _swipeSetX(s.sx);
                   _swipeEnable(s.swipe);
-              } else if (how === 'view') {
+              } else if (how === 'view' || how === 'deck') {
                   _swipeDisable();
               }
           } },
         { key: 'ov', cold: '_ovMergeHashSpec, where _ovState is first loaded',
           collect: function (mode, o) {
-              var v = _ovSpec(mode === 'view');
-              if (mode === 'view' || Object.keys(v).length) o.ov = v;
+              var v = _ovSpec(_full(mode));
+              if (_full(mode) || Object.keys(v).length) o.ov = v;
           },
           apply: function (s) { if (s.ov) _ovApplyHashSpec(s.ov); } },
         { key: 'li', cold: '_pendingLi, applied when the lidar catalog arrives',
           collect: function (mode, o) {
               var v = _liSpec();
-              if (mode === 'view' || Object.keys(v).length) o.li = v;
+              if (_full(mode) || Object.keys(v).length) o.li = v;
           },
           apply: function (s) { if (s.li) _liApplyHashSpec(s.li); } },
         { key: 'ext', cold: '_pendingExt, applied when the source registry arrives',
           collect: function (mode, o) {
               var v = _extSpec();
-              if (mode === 'view' || Object.keys(v).length) o.ext = v;
+              if (_full(mode) || Object.keys(v).length) o.ext = v;
           },
           apply: function (s) {
               if (s.ext) _extApplyOrDefer(s.ext);
@@ -5642,20 +5671,20 @@
         { key: 'im', cold: '_pendingIm, applied when the imagery list arrives',
           collect: function (mode, o) {
               var v = _imSpec();
-              if (mode === 'view' || Object.keys(v).length) o.im = v;
+              if (_full(mode) || Object.keys(v).length) o.im = v;
           },
           apply: function (s) { if (s.im) _imApplyHashSpec(s.im); } },
         // Reference vectors: written only when off the page default (faults
         // on), where an empty list is a real answer ("none").
         { key: 'ref', cold: true,
           collect: function (mode, o) {
-              if (mode === 'view' || !_refIsDefault()) o.ref = _refSpec();
+              if (_full(mode) || !_refIsDefault()) o.ref = _refSpec();
           },
           apply: function (s) { if (s.ref) _refApply(s.ref); } },
         { key: 'sc', cold: true,
           collect: function (mode, o) {
               var on = _scarpsOn();
-              if (mode === 'view') o.extras.sc = on ? '1' : '0';
+              if (_full(mode)) o.extras.sc = on ? '1' : '0';
               else if (!on) o.extras.sc = '0';
           },
           apply: function (s) { if (s.sc != null) _scarpsSet(s.sc); } },
@@ -5663,11 +5692,12 @@
         // default view never applies any even if one is typed into it.
         { key: 'flt', cold: '_filterColdApply, before the first buildFilter',
           collect: function (mode, o) {
-              if (mode !== 'url') return;
+              if (mode !== 'url' && mode !== 'deck') return;
               var f = _filterCollect();
               _FILTER_KEYS.forEach(function (k) { if (f[k] != null) o.extras[k] = f[k]; });
           },
           apply: function (s, how) {
+              if (how === 'deck') { _filterApply(_filterDefaults(s.flt)); buildFilter(); return; }
               if (how !== 'hash' || !s.flt) return;
               _filterApply(s.flt);
               buildFilter();
@@ -5736,10 +5766,28 @@
               var tab = _activeSidebarTab();
               if (tab !== 'inventory') o.extras.tab = tab;
           },
-          apply: function (s) { if (s.tab) _setSidebarTab(s.tab); } },
+          apply: function (s, how) {
+              if (s.tab) _setSidebarTab(s.tab);
+              else if (how === 'deck') _setSidebarTab('inventory');
+          } },
         { key: 'an', cold: true,
           collect: function (mode, o) { o.extras.an = _anEncodeHash(); },
-          apply: function (s) { if (s.an) _anApplyHashSpec(s.an); } },
+          apply: function (s, how) {
+              if (s.an) _anApplyHashSpec(s.an);
+              else if (how === 'deck') _anApplyHashSpec([]);
+          } },
+        // The reader's controls (embed_ui.js): which of the page's controls
+        // this link gives its reader. Absent = all of them. Address bar and
+        // deck steps only: a remembered or default view never narrows the page.
+        { key: 'ui', cold: true,
+          collect: function (mode, o) {
+              if ((mode === 'url' || mode === 'deck') && window.LSEmbedUI && LSEmbedUI.spec() != null) o.extras.ui = LSEmbedUI.spec();
+          },
+          apply: function (s, how) {
+              if (!window.LSEmbedUI || how === 'view') return;
+              if (s.ui != null) LSEmbedUI.set(s.ui);
+              else if (how === 'deck') LSEmbedUI.set(null);
+          } },
         // The explorer's selection. Re-emitted so panning doesn't silently
         // drop it and the link stays shareable; never applied after load.
         { key: 'ids', cold: '_idsFilter',
@@ -5751,21 +5799,59 @@
               var c = map.getCenter();
               o.zoom = map.getZoom(); o.lat = c.lat; o.lon = c.lng;
           },
-          apply: function (s) {
+          apply: function (s, how) {
               if (s.lat != null && s.lon != null && s.zoom != null) {
-                  map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
+                  // A slide step: a cut when asked for one, else a flight of
+                  // fixed length (a room is watching; MapLibre's own duration
+                  // grows with distance).
+                  if (how === 'deck' && !_deckAnimate) map.jumpTo({ center: [s.lon, s.lat], zoom: s.zoom });
+                  else if (how === 'deck') map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom, duration: _DECK_FLY_MS, essential: true });
+                  else map.flyTo({ center: [s.lon, s.lat], zoom: s.zoom });
               }
           } },
-        // Never written: opening a record strips it (tryInit). The slug
-        // permalink is the shareable form of "this record".
+        // Not written to the address bar: opening a record strips it
+        // (tryInit); the slug permalink is the shareable form of "this
+        // record". A deck step does carry it: an open panel is part of what
+        // the audience sees, and a step without one closes it.
         { key: 'id', cold: '_pendingDetailId, opened by tryInit',
-          apply: function (s, how) { if (how === 'hash' && s.id != null) showDetail(s.id); } }
+          collect: function (mode, o) {
+              if (mode === 'deck' && _lastDetail && _detailOpen()) o.extras.id = String(_lastDetail.id);
+          },
+          apply: function (s, how) {
+              if (how === 'hash' && s.id != null) showDetail(s.id);
+              else if (how === 'deck') {
+                  if (s.id == null) { if (_detailOpen()) document.getElementById('close-panel').click(); }
+                  else if (!_detailOpen() || !_lastDetail || _lastDetail.id !== s.id) showDetail(s.id);
+              }
+          } }
     ];
+    function _detailOpen() { return !document.getElementById('detail-panel').classList.contains('hidden'); }
+    // A deck step (embed_ui.js -> DeckEmbed.setState): the string is a whole
+    // view. One that arrives before the layers exist waits for tryInit.
+    var _deckAnimate = true, _DECK_FLY_MS = 2000;
+    function _deckSetState(str, opts) {
+        if (!_layersInitialized) { _deckPending = [str, opts]; return; }
+        _deckAnimate = !(opts && opts.animate === false);
+        // The deck is told where the map is only once it has arrived, not
+        // from the middle of the flight it asked for.
+        _deckTravel = true;
+        var arrived = function () {
+            if (!_deckTravel) return;
+            _deckTravel = false;
+            if (window.LSEmbedUI) LSEmbedUI.changed();
+        };
+        map.once('moveend', arrived);
+        setTimeout(arrived, _DECK_FLY_MS + 600);
+        _applyViewState(parseHashState('#' + String(str || '').replace(/^#/, '')), 'deck');
+        _syncSwipeUI();
+        _lastHash = '#' + _viewStateString('url');
+    }
     function _applyViewState(s, how) {
         _VIEW_PARAMS.forEach(function (p) { if (p.apply) p.apply(s, how); });
         // After everything else, so the wiper's own panel is drawn from the
         // overlays and surveys this state just set.
         if (how === 'view' || (s.swipe && findBasemap(s.swipe))) _syncSwipeUI();
+        if (how === 'deck') writeHashState();
     }
     // Cold load: the rows that can wait until everything they touch exists.
     // Still synchronous, so it runs before the map has loaded and built a
@@ -5779,6 +5865,17 @@
         if (location.hash === _lastHash) return;
         _lastHash = location.hash;
         _applyViewState(parseHashState(), 'hash');
+    });
+
+    // Reader's controls, embed mode and the deck protocol: embed_ui.js.
+    if (window.LSEmbedUI) window.LSEmbedUI.init({
+        map: map,
+        embed: EMBED,
+        getState: function () { return _viewStateString('deck'); },
+        setState: _deckSetState,
+        writeHashState: function () { if (_mapReady) writeHashState(); },
+        setSidebarTab: _setSidebarTab,
+        activeSidebarTab: _activeSidebarTab
     });
 
     // High-resolution PNG export controls for the inventory map (the engine is ls_export: export_ui.js (moved out 2026-11-14).
