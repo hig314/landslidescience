@@ -1,7 +1,8 @@
 /*
  * lib/sitemenu.js — the owner's menu on a deck served by the site (loaded by lib/deck.js when
  * deck.site.owner). A ☰ button at upper right: it shows when the mouse moves and fades after a
- * few seconds, so it is never on screen during a talk driven by a clicker; it stays while the
+ * few seconds (over a live figure: when the mouse reaches that corner), so it is never on
+ * screen during a talk driven by a clicker; it stays while the
  * editor is open. The menu says what the deck is (draft, published, a copy) and offers what
  * can be done with it: edit, publish, copy, and the way to the list of talks, where the
  * actions that need a typed confirmation live (replace a published deck, discard a draft).
@@ -14,6 +15,7 @@
   var css = document.createElement("style");
   css.textContent =
     ".kn-menu-btn{position:fixed;right:10px;top:8px;z-index:1500;width:34px;height:30px;border:0;border-radius:5px;background:rgba(0,0,0,.55);color:#fff;font:18px/30px -apple-system,Arial,sans-serif;cursor:pointer;opacity:0;transition:opacity .3s}" +
+    ".kn-menu-corner{position:fixed;right:0;top:0;width:64px;height:48px;z-index:1499}body.kn-editing .kn-menu-corner{display:none}" +
     ".kn-menu-btn.on,body.kn-editing .kn-menu-btn{opacity:1}body.kn-editing .kn-menu-btn{top:40px}" +
     ".kn-menu{position:fixed;right:10px;top:44px;z-index:1500;width:290px;padding:10px 0;border-radius:8px;background:#2a2a2d;color:#ddd;font:14px/1.45 -apple-system,'Helvetica Neue',Arial,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.5)}" +
     "body.kn-editing .kn-menu{top:76px}" +
@@ -34,11 +36,17 @@
   }
   var btn = mk("button", "kn-menu-btn", document.body, "☰"), menu = null, hide = 0;
   btn.title = "This talk: edit, publish, copy";
-  document.addEventListener("mousemove", function () {
+  function wake() {
     btn.classList.add("on");
     clearTimeout(hide);
     hide = setTimeout(function () { if (!menu) btn.classList.remove("on"); }, 2500);
-  });
+  }
+  document.addEventListener("mousemove", wake);
+  // Over a live figure the mouse belongs to the figure's page and this one hears nothing:
+  // the corner itself is kept, so the button can always be reached.
+  var corner = mk("div", "kn-menu-corner", document.body);
+  corner.addEventListener("mouseenter", wake);
+  corner.addEventListener("mousemove", wake);
 
   // one of the list page's actions; the server answers with a redirect to /decks/?msg=…[&bad=1]
   function act(fields) {

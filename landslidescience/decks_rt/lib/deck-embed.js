@@ -19,7 +19,9 @@
  *                   deck:get   {}                  reply with deck:state (the editor's "capture this view")
  *   figure → deck   deck:ready {steps}             loaded; the deck then sends the slide's current step
  *                   deck:state {state}             the view now (after a change, or in answer to deck:get)
- *                   deck:key   {key}               a clicker key pressed while the figure had focus
+ *                   deck:key   {key}               a deck key pressed while the figure had focus: the
+ *                                                  clicker's (arrows, PageUp/Down) and E, the deck's
+ *                                                  "edit". A figure must not use E for itself.
  *
  * The state is a string the figure defines, by convention its URL hash without the "#", so a
  * view captured on a slide is also a link that opens the page there. The deck stores it as is.
@@ -30,7 +32,7 @@
  */
 (function () {
   "use strict";
-  var KEYS = { ArrowRight: 1, ArrowLeft: 1, PageDown: 1, PageUp: 1 };
+  var KEYS = { ArrowRight: 1, ArrowLeft: 1, PageDown: 1, PageUp: 1, e: 1, E: 1 };    // the clicker's keys, and the deck's E (edit)
   var api = null, pending = 0, isReady = false;
 
   function post(type, body) {
