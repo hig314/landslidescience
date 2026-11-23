@@ -45,3 +45,12 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 .reveal .kn-ed-livemark { background: #dfe6ee; color: #456; font: 600 120px/1 -apple-system, Helvetica, Arial, sans-serif; display: flex; align-items: center; justify-content: center; }
 .kn-ed-bar .kn-ed-livebar { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
 .kn-ed-bar .kn-ed-livebar:empty { display: none; }
+
+/* opacity and crop */
+.kn-ed-bar .kn-ed-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; }
+.kn-ed-bar .kn-ed-tools input[type=range] { width: 110px; accent-color: #2f8cff; }
+.kn-ed-bar .kn-ed-opn { width: 3em; font-variant-numeric: tabular-nums; color: #9fc6ff; }
+.reveal .kn-ed-ghost { position: absolute; max-width: none; max-height: none; margin: 0; border: 0; opacity: 0.35; pointer-events: none;
+  outline: calc(1px * var(--k)) dashed #ffb02e; }
+.reveal .kn-ed-box.kn-ed-crop { outline-color: #ffb02e; cursor: move; }
+.reveal .kn-ed-crop .kn-ed-h { border-color: #ffb02e; background: #ffb02e; }
