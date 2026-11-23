@@ -25,6 +25,8 @@ from django.views.static import serve as static_serve
 #                login-gated
 #   provisional  /glaciers/ — still experimental; not something to surface in
 #                search yet
+#   talks        /decks/ — large movies, and drafts answer 404; open this when a
+#                talk is meant to be found by search (Hig's call)
 #
 # /inventory/archive/ is deliberately OPEN despite overlapping the live
 # inventory: the snapshots are the citable record behind published work, and
@@ -49,6 +51,7 @@ Disallow: /inventory/planet/
 Disallow: /files/
 Disallow: /drops/
 Disallow: /glaciers/
+Disallow: /decks/
 """
 
 
@@ -146,7 +149,7 @@ def glacierfit_tile(request, var, z, x, y):
 # over HTTP range requests, so they need the range-capable views in
 # lidar_serve.py rather than django.views.static.serve (which, as of Django
 # 5.2, ignores Range entirely). Built by tools/lidar/build_lidar.py.
-from landslidescience import analytics, lidar_serve  # noqa: E402
+from landslidescience import analytics, decks_serve, lidar_serve  # noqa: E402
 from pages import views as pages_views  # noqa: E402
 
 
@@ -205,6 +208,11 @@ urlpatterns = [
             coherence_tile, name='coherence_tile'),
     re_path(r'^tiles/glacierfit/(?P<var>v0|amp|trend)/(?P<z>\d+)/(?P<x>\d+)/(?P<y>\d+)\.png$',
             glacierfit_tile),
+    # Published talks (docs/DECKS.md): static folders in data/decks/, drafts
+    # and presenter notes for the owner only.
+    path('decks/', decks_serve.index, name='decks'),
+    re_path(r'^decks/(?P<name>[A-Za-z0-9_-]+)$', decks_serve.slash),
+    re_path(r'^decks/(?P<name>[A-Za-z0-9_-]+)/(?P<rest>.*)$', decks_serve.serve),
     path('admin/', admin.site.urls),
     path('inventory/', include('inventory.urls')),
     path('glaciers/', include('glaciers.urls')),

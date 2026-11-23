@@ -31,6 +31,7 @@ separate worktrees (inventory + hosting on `main`, topobathy, glaciers): read
 | Explorer `/inventory/table/` | [docs/EXPLORER.md](docs/EXPLORER.md) |
 | `/files/`, photo drops `/drops/`, field photos | [docs/FILES_DROPS_PHOTOS.md](docs/FILES_DROPS_PHOTOS.md) |
 | `/glaciers/` | [docs/GLACIERS.md](docs/GLACIERS.md); generalisation + retreat histories plan in [GLACIERS_PLAN.md](GLACIERS_PLAN.md) |
+| Published talks at `/decks/` (static folders in `data/decks/`, drafts, presenter notes) | [docs/DECKS.md](docs/DECKS.md) |
 | Groups, permissions, the two sign-in doors, sessions | [docs/ACCOUNTS.md](docs/ACCOUNTS.md) |
 | Refresh dev from prod, robots/indexing, Umami analytics, Tethys relationship | [docs/OPERATIONS.md](docs/OPERATIONS.md) |
 | Collaborator write-only data staging | [DATA_DROP.md](DATA_DROP.md) |
@@ -156,6 +157,7 @@ pushing untested code to GH.
 | `/drops/` | inventory_editors + Hig | Photo drops: create upload links, see what arrived |
 | `/drops/<slug>/` | anyone with the link (+ optional passphrase) | Folder uploader — browser → private R2 directly, nothing through the droplet |
 | `/drops/<slug>/files/` | any signed-in account | Gallery of a drop; `links.txt` = presigned URLs for bulk download |
+| `/decks/`, `/decks/<name>/` | public once published; drafts and `notes.json` **superusers only** (404 otherwise) | Talks built by the Presentation project, served from `data/decks/` (`landslidescience/decks_serve.py`) |
 | `/admin/` | site_admins (Page + HostedFile perms) + Hig | Django admin — Page + HostedFile models + User/Group management |
 
 ## Production
