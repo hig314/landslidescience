@@ -1,3 +1,6 @@
+> **Hig's review, 2026-11-22 evening:** Homer Spit/Harbor (r6c3) looks good; Woz delta (r5c2/r5c3) looks good.
+> Run at 24 of 48 boxes. `perched_over_deep_ha` is up against the best run in r6c3, r5c2, r5c3, r5c4 (untraced).
+
 > **Runtime record (Hig 2026-11-22: the run is time-consuming; keep the data for a later optimisation job).**
 > `$W/run_timing.py` reads `run_1118.log` and each box's `chain.log` and writes `$W/run_timing.csv` (chain and
 > solve minutes per box) and `$W/run_timing_stages.csv` (minutes per chain stage). At 19 boxes: chain 31 h,
