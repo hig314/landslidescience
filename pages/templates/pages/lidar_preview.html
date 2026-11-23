@@ -86,6 +86,15 @@ vanish depending on which way you light them.
   #who { font-size: 11px; color: #666; margin: -4px 0 8px; }
   #who a { color: #1a5fb4; }
   #who .gated { color: #b26a00; }
+  #adminmenu { display: inline-block; position: relative; margin-left: 4px; }
+  #adminmenu summary { cursor: pointer; color: #1a5fb4; display: inline; list-style: none; }
+  #adminmenu summary::-webkit-details-marker { display: none; }
+  #adminmenu summary::after { content: ' \25BE'; }
+  #adminmenu .am { position: absolute; left: 0; top: 100%; z-index: 30; min-width: 150px;
+     background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 4px 0;
+     box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+  #adminmenu .am a { display: block; padding: 4px 10px; text-decoration: none; white-space: nowrap; }
+  #adminmenu .am a:hover { background: #eef3fa; }
   .btnrow { margin-bottom: 4px; }
   label.vis { font-weight: 600; }
   .visrow { margin: 0 0 6px 14px; }
@@ -163,9 +172,37 @@ vanish depending on which way you light them.
   <div id="who">
     {% if user.is_authenticated %}
       Signed in as {{ user.get_username }}{% if can_view_restricted %} ·
-      <span class="gated">restricted surveys shown</span> ·
-      <a href="/lidar/audit/">publication audit</a>{% endif %} ·
+      <span class="gated">restricted surveys shown</span>{% endif %} ·
       <a href="{% url 'inventory:logout' %}">sign out</a>
+      {% comment %}
+        Admin menu (Hig 2026-11-22): the doors an admin wants from this page,
+        each shown only to who may open it; the menu itself only if it has
+        something in it. /traffic/ signs the account into Umami. External
+        dashboards open in a new tab; our own pages stay in this one.
+      {% endcomment %}
+      {% if can_view_restricted or user.is_superuser or is_site_admin or user.is_staff or perms.pages.change_savedcomparison %}
+      <details id="adminmenu">
+        <summary title="Admin pages for this viewer and the site">Admin</summary>
+        <div class="am">
+          {% if UMAMI_PUBLIC_URL and user.is_superuser or UMAMI_PUBLIC_URL and is_site_admin %}
+          <a href="/traffic/" target="_blank" rel="noopener" title="Umami dashboard: page views and the events this viewer reports (surveys opened, controls used, downloads). Signs you in with this account.">Traffic (Umami)</a>
+          {% endif %}
+          {% if user.is_superuser or is_site_admin %}
+          <a href="/traffic/services/" title="Whether the outside services the maps read are answering.">Outside services</a>
+          <a href="/traffic/optout/" title="Stop counting this browser at all, signed in or out. Otherwise signed-in visits are counted on the separate collaborators site.">Analytics opt-out</a>
+          {% endif %}
+          {% if can_view_restricted %}
+          <a href="/lidar/audit/" title="For every survey: built, on R2, in the catalogue, and what the gate does.">Publication audit</a>
+          {% endif %}
+          {% if user.is_superuser or perms.pages.change_savedcomparison %}
+          <a href="/admin/pages/savedcomparison/" title="Edit the saved terrain comparisons.">Saved comparisons</a>
+          {% endif %}
+          {% if user.is_staff %}
+          <a href="/admin/" title="Django admin: pages, files, users and groups.">Site admin</a>
+          {% endif %}
+        </div>
+      </details>
+      {% endif %}
     {% else %}
       <a href="{% url 'inventory:login' %}?next={{ request.get_full_path|urlencode }}">Sign in</a>
       to see restricted surveys.

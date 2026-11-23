@@ -18,6 +18,10 @@ answers instead, in this order:
   state, checked rather than remembered: for every manifest entry it tests the four seams
   (built locally / present on R2 / present in the catalogue / what the gate
   actually does) and names any that disagree. Read it first.
+  Linked from the **Admin menu** in the `/lidar/` sidebar's signed-in line
+  (`#adminmenu`, 2026-11-22), which also holds Traffic (Umami, `/traffic/`),
+  outside services, analytics opt-out, saved comparisons and `/admin/`; each
+  item shows only to who may open it, and the menu only if it has an item.
 - **`tools/lidar/RESUME.md`** — the hosting stream's state of play and the
   publishing recipe, plus the incidents behind it (BAG extraction modes,
   rclone filters, the overnight uploader). 50 public and 7 gated as of

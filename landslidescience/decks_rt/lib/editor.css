@@ -1,0 +1,47 @@
+/* lib/editor.css — the editor's own marks (lib/editor.js). Sizes inside the slide are divided
+   by the slide's scale (--k), so handles and lines look the same at any window size. */
+body.kn-editing .reveal .fragment { opacity: 1 !important; visibility: visible !important; }
+body.kn-editing .reveal { top: 32px; height: calc(100% - 32px); }
+body.kn-editing .reveal iframe, body.kn-editing .reveal video { pointer-events: none; }
+body.kn-editing .reveal iframe.kn-ed-use { pointer-events: auto; }
+
+.reveal .kn-ed-layer { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 50;
+  cursor: default; touch-action: none; user-select: none; -webkit-user-select: none; --k: 1; }
+.reveal .kn-ed-layer.kn-ed-typing { pointer-events: none; }
+.reveal .kn-ed-box { position: absolute; box-sizing: border-box; outline: calc(1.5px * var(--k)) solid #2f8cff; pointer-events: none; }
+.reveal .kn-ed-typing .kn-ed-box { outline-style: dashed; }
+.reveal .kn-ed-h { position: absolute; width: calc(10px * var(--k)); height: calc(10px * var(--k));
+  margin: calc(-5px * var(--k)); background: #fff; border: calc(1px * var(--k)) solid #2f8cff; box-sizing: border-box; pointer-events: auto; }
+.reveal .kn-ed-nw { left: 0; top: 0; cursor: nwse-resize; }     .reveal .kn-ed-n { left: 50%; top: 0; cursor: ns-resize; }
+.reveal .kn-ed-ne { left: 100%; top: 0; cursor: nesw-resize; }  .reveal .kn-ed-e { left: 100%; top: 50%; cursor: ew-resize; }
+.reveal .kn-ed-se { left: 100%; top: 100%; cursor: nwse-resize; } .reveal .kn-ed-s { left: 50%; top: 100%; cursor: ns-resize; }
+.reveal .kn-ed-sw { left: 0; top: 100%; cursor: nesw-resize; }  .reveal .kn-ed-w { left: 0; top: 50%; cursor: ew-resize; }
+.reveal .kn-ed-guide { position: absolute; border-left: calc(1px * var(--k)) solid #ff3bd4; border-top: calc(1px * var(--k)) solid #ff3bd4; pointer-events: none; }
+.reveal .kn-text .kn-body[contenteditable] { outline: none; cursor: text; user-select: text; -webkit-user-select: text; }
+
+.kn-ed-bar { position: fixed; left: 0; right: 0; top: 0; z-index: 1000; display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px; background: rgba(28, 28, 30, 0.94); color: #ddd; font: 12px/1.3 -apple-system, "Helvetica Neue", Arial, sans-serif; }
+body:not(.kn-editing) .kn-ed-bar { display: none; }
+.kn-ed-bar button { font: inherit; color: #eee; background: #3a3a3c; border: 1px solid #555; border-radius: 4px; padding: 3px 9px; cursor: pointer; }
+.kn-ed-bar button:hover { background: #4a4a4e; }
+.kn-ed-bar .kn-ed-where { margin-right: 8px; color: #fff; font-weight: 600; }
+.kn-ed-bar .kn-ed-geo { margin-left: 10px; font-variant-numeric: tabular-nums; white-space: pre; color: #9fc6ff; }
+.kn-ed-bar .kn-ed-status { margin-left: auto; color: #8c8; }
+.kn-ed-bar .kn-ed-status.bad { color: #ff8a80; }
+.kn-ed-bar .kn-ed-done { background: #2f6fd0; border-color: #2f6fd0; }
+
+/* the slide sorter: inside .reveal so that slides drawn small take the deck's styles */
+.reveal .kn-ed-sorter { position: absolute; inset: 0; z-index: 60; overflow: auto; background: #1c1c1e; padding: 18px;
+  display: flex; flex-wrap: wrap; align-content: flex-start; gap: 14px 16px; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
+.reveal .kn-ed-thumb { position: relative; width: 240px; cursor: default; }
+.reveal .kn-ed-frame { position: relative; width: 240px; height: 135px; overflow: hidden; background: #000; outline: 1px solid #444; pointer-events: none; }
+.reveal .kn-ed-frame > img { width: 240px; height: 135px; max-width: none; max-height: none; margin: 0; border: 0; display: block; }
+.reveal .kn-ed-frame > .kn-stack { transform: scale(0.125); }
+.reveal .kn-ed-thumb.picked .kn-ed-frame { outline: 3px solid #2f8cff; }
+.reveal .kn-ed-thumb.current .kn-ed-num { color: #fff; font-weight: 700; }
+.reveal .kn-ed-num { font: 12px/1.6 -apple-system, "Helvetica Neue", Arial, sans-serif; color: #999; text-align: center; }
+.reveal .kn-ed-thumb.drop-before::before, .reveal .kn-ed-thumb.drop-after::after { content: ""; position: absolute; top: 0; width: 4px; height: 135px; background: #ff3bd4; }
+.reveal .kn-ed-thumb.drop-before::before { left: -10px; } .reveal .kn-ed-thumb.drop-after::after { right: -10px; }
+.reveal .kn-ed-livemark { background: #dfe6ee; color: #456; font: 600 120px/1 -apple-system, Helvetica, Arial, sans-serif; display: flex; align-items: center; justify-content: center; }
+.kn-ed-bar .kn-ed-livebar { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
+.kn-ed-bar .kn-ed-livebar:empty { display: none; }

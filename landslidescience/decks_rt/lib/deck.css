@@ -1,0 +1,38 @@
+/* lib/deck.css — a fixed 1920 × 1080 stage on reveal.js. Each slide is a stack (.kn-stack) of
+   absolutely placed elements (text, images, movies, shapes, live pages), or of Keynote's
+   full-frame renders when the slide is shown flat. No theme: slides carry their own look. */
+html, body { background: #000; }
+.reveal { background: #000; }
+.reveal .slides { text-align: left; }
+.reveal .slides > section { width: 1920px; height: 1080px; padding: 0; top: 0 !important; overflow: hidden; }
+.reveal .kn-stack { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden; }
+.reveal .kn-el { position: absolute; margin: 0; border: 0; box-sizing: border-box; max-width: none; max-height: none; }
+.reveal .kn-stack > img.kn-flat, .reveal section > img.kn-compare {
+  position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+  max-width: none; max-height: none; margin: 0; border: 0; display: block;
+}
+.reveal section > img.kn-compare { z-index: 30; pointer-events: none; }
+
+/* text: Keynote's box has no inset; lines are set at the font's own line height */
+.reveal .kn-text { display: flex; flex-direction: column; line-height: normal; letter-spacing: normal;
+  text-transform: none; text-shadow: none; overflow: visible; }
+.reveal .kn-text .kn-body { white-space: pre-wrap; overflow-wrap: break-word; width: 100%; }
+.reveal .kn-text .kn-p { position: relative; }
+.reveal .kn-text .kn-marker { position: absolute; left: 0; }
+
+/* images: the frame crops; the picture fills it unless a fit rectangle places it */
+.reveal .kn-image { overflow: hidden; }
+.reveal .kn-image > img { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+  max-width: none; max-height: none; margin: 0; border: 0; display: block; }
+.reveal video.kn-el { object-fit: contain; }
+.reveal iframe.kn-live { background: #fff; }
+.reveal img.kn-fallback { object-fit: cover; pointer-events: none; }
+
+/* builds and pan/zoom triggers: steps with no effect of their own */
+.reveal .kn-stack .fragment, .reveal .kn-step { transition: none; }
+.reveal .kn-step { position: absolute; width: 0; height: 0; }
+/* dissolve: a copy of the outgoing slide, laid over the incoming slide and faded out */
+#kn-dissolve { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 40;
+  pointer-events: none; display: none; }
+.kn-say { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 2000; padding: 8px 16px; border-radius: 6px;
+  background: rgba(0, 0, 0, 0.8); color: #eee; font: 14px/1.4 -apple-system, Arial, sans-serif; }
