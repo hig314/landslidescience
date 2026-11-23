@@ -1,3 +1,11 @@
+> **Runtime record (Hig 2026-11-22: the run is time-consuming; keep the data for a later optimisation job).**
+> `$W/run_timing.py` reads `run_1118.log` and each box's `chain.log` and writes `$W/run_timing.csv` (chain and
+> solve minutes per box) and `$W/run_timing_stages.csv` (minutes per chain stage). At 19 boxes: chain 31 h,
+> solve 6 h; the chain's `fill` stage alone is 19 h (about 60% of chain time), next `high line`, `water`,
+> `shore` at 1.4-1.9 h each. So the fill stage is the place to look first. Rerun the script when the run ends.
+> Hig also asked to review the islands between 59.50689,-151.51829 and 59.55031,-151.46739 (box r5c2, fallback
+> topo there) as soon as it publishes.
+
 # Topobathy compositing: tools and interface
 
 **Petrof shore rule revised + r4c5 queued (2026-11-22 ~09:50; Hig: "queue a rerun of that box after the others").** Issue 1
