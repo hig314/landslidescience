@@ -34,7 +34,7 @@ from django.views.decorators.http import require_POST
 from .models import SavedComparison
 
 _CODE_RE = re.compile(r'^[0-9a-f]{3}$')
-_DROP_KEYS = {'sv', 'perf'}
+_DROP_KEYS = {'sv', 'perf', 'embed'}
 
 
 def can_save_comparison(user, update=False):
@@ -77,6 +77,8 @@ def compare_short(request, code):
     if sc is None:
         raise Http404('No saved comparison with that id')
     q = sc.query + ('&' if sc.query else '') + 'sv=' + sc.code
+    if request.GET.get('embed') == '1':      # the short link, framed: /s/<code>/?embed=1
+        q += '&embed=1'
     return HttpResponseRedirect('/lidar/compare/?' + q)
 
 

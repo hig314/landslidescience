@@ -122,3 +122,44 @@ Also fixed: blurring an empty title no longer writes
 has been saved there yet, so the first signed-in Submit on prod is the
 first real test. Prod also not yet browser-tested: profiles, QMS bases,
 `hc=1`, JPEG export.
+
+**Control subsets and embed mode (first cut 2026-11-22, dev only, not
+committed; brief in `inventory/DECK_EMBED.md`).** The first test of two
+ideas meant for `/inventory/` and `/lidar/` too.
+*Control ids.* Every control carries `data-ctl="<id>"`; the ids, labels and
+where they sit are the one `CTL` list in the page script
+(`check_invariants` holds the attributes to it). `ui=<id>,<id>…` in the
+link offers the reader only those (`ui=none` = none; no `ui=` = all, so a
+control added later still shows in links that never chose). `applyUi()`
+writes one hiding rule per left-out id into `<style id="uistyle">`, so
+elements built later follow. Hiding is presentation, not enforcement, and it
+does not undo what a control set: mode, locks (`lk=`), layers and panes
+stay as the link says, which is how a view is made that invites one
+manipulation (tick Tilt, lock Position). `rename` has no element: it
+decides whether titles are editable. Those who can save comparisons get
+*Reader's controls…* (a docked picker; left-out controls dim while it is
+open, *Open embed view*, *Copy embed code*).
+`hc=1` is kept and means something different: `ui=` is which controls a
+reader is given, `hc=1` is that those are collapsed for now, with *Show
+controls* to bring them back (not shown when `ui=` gives none).
+*Embed mode.* `?embed=1` is the only response that may be framed
+(`xframe_options_exempt` + `Content-Security-Policy: frame-ancestors`
+from `settings.EMBED_FRAME_ANCESTORS`: `*`, anyone may embed, Hig
+2026-11-22; the env narrows it to a list of origins if it is misused). It renders signed out whoever is signed in
+(`can_save` false, no CSRF token) and the page's own requests go through
+`get()` with `credentials: 'omit'`. `/lidar/compare/s/<code>/?embed=1`
+carries the flag through the redirect, so an embedded saved comparison
+follows *Update*; `embed` is dropped from saved queries.
+*Deck protocol.* In embed mode the page loads `vendor/deck-embed.js` (a
+copy of `~/Claude_projects/Presentation/lib/deck-embed.js`; re-copy if it
+changes). State string = the page's query (`stateQuery()`, always
+complete: an absent param is its default). `readState()` parses one,
+at load and in `applyState(str, {animate})`, which brings the running page
+to another state without a reload: panes matched by position (kept maps
+move, extras removed, new built), sources rebuilt only where the shading
+URL changed, travel by per-frame `applyAll` over a fixed 1.4 s for panes
+moving less than ~40 pane widths, otherwise a cut. `writeUrl` calls
+`DeckEmbed.changed()`; `ready()` fires on the first all-panes idle or 8 s.
+Not done: tested in a browser by anyone; `/inventory/` and `/lidar/`;
+a settled signal; type scale for a projector; per-step text inside the
+frame.

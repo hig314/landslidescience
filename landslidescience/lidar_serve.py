@@ -491,8 +491,19 @@ def compare(request):
         sc = SavedComparison.objects.filter(code=sv).first()
         if sc:
             saved = {'code': sc.code, 'name': sc.name}
-    return render(request, 'pages/lidar_compare.html', {
+    # Embed mode (?embed=1): the page as a frame in a slide or another site.
+    # It is the signed-out page whoever is signed in (a deck on localhost is
+    # same-site with dev, so the session cookie IS sent), and the only
+    # response of this view that may be framed.
+    embed = request.GET.get('embed') == '1'
+    resp = render(request, 'pages/lidar_compare.html', {
         'saved': saved,
-        'can_save': can_save_comparison(request.user),
-        'can_update': can_save_comparison(request.user, update=True),
+        'embed': embed,
+        'can_save': not embed and can_save_comparison(request.user),
+        'can_update': not embed and can_save_comparison(request.user, update=True),
     })
+    if embed:
+        from django.conf import settings
+        resp.xframe_options_exempt = True
+        resp['Content-Security-Policy'] = 'frame-ancestors ' + settings.EMBED_FRAME_ANCESTORS
+    return resp

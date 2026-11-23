@@ -249,6 +249,17 @@ In no particular order.
   improve (Hig's D1). Loose: only 661 glaciers are named; 82 Glacier Bay
   lines and 5,202 GLIMS outlines match no glacier; `cascade` and
   `moraine_apron` NSIDC-0634 files want a look.
+- **Embeds and control subsets, first test on `/lidar/compare/`**
+  (2026-11-22, **dev only, uncommitted, untested in a browser**): `ui=`
+  control ids + *Reader's controls…* picker, `?embed=1` (framable, signed
+  out), deck protocol with in-place `applyState`. Design in docs/LIDAR.md
+  (end of the terrain comparison section); the deck's brief is
+  `inventory/DECK_EMBED.md` (untracked, Hig's). Test page:
+  `~/Claude_projects/Presentation/tools/serve.py` then
+  `http://127.0.0.1:8792/tools/embed_test.html?src=http://localhost:8001/lidar/compare/?embed=1`.
+  Next after Hig's test: the same on `/inventory/` (the deck's slide 30),
+  where the open work is a complete `'deck'` state mode, `id=` written,
+  and anonymous API calls.
 - **Terrain comparison: landslides + baked overlays** (tested by Hig in dev,
   deployed 2026-11-16): `ls=1` / `ov=` on `/lidar/compare/`, `/inventory/`
   links in the paste box; the shared overlay rows and landslide layers moved

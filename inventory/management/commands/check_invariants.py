@@ -25,6 +25,9 @@ CODE checks (exit status 1 if any fails):
      A mismatch there shows the wrong year's ice with nothing to say so. Also
      that the network editing panel offers the line kinds and face bases the
      server accepts.
+  6b. /lidar/compare/: every data-ctl id on a control is in the page's CTL
+     list (the ids a ui= link can name), and every CTL id is on a control. A
+     control with no id cannot be offered or withheld by an embedded link.
 
 DATA checks (reported; exit status 1 only with --strict):
   7. Public records whose class the map does not list (they are hidden).
@@ -207,6 +210,24 @@ def check_glacier_sources():
     return fails, []
 
 
+# CTL ids that gate behaviour rather than an element (titles: editable or not).
+_CTL_NO_ELEMENT = {'rename'}
+
+
+def check_compare_controls():
+    html = (Path(settings.BASE_DIR) / 'pages/templates/pages/lidar_compare.html').read_text(encoding='utf-8')
+    ids = set(re.findall(r"\['([a-z0-9]+)', '[^']+', '(?:page|key|pane)'\]", html))
+    used = {x for v in re.findall(r'data-ctl="([^"]+)"', html) for x in v.split()}
+    fails = []
+    if not ids:
+        fails.append('the CTL list was not found in lidar_compare.html (pattern changed?)')
+    if used - ids:
+        fails.append(f'data-ctl ids not in CTL: {sorted(used - ids)}')
+    if ids - used - _CTL_NO_ELEMENT:
+        fails.append(f'CTL ids on no control: {sorted(ids - used - _CTL_NO_ELEMENT)}')
+    return fails, []
+
+
 def data_hidden_records(cur):
     order = _class_order() or []
     cur.execute(f"""SELECT l.id, l.unique_name, l.landslide_class FROM landslides l
@@ -249,7 +270,8 @@ class Command(BaseCommand):
                           ('display-required fields', check_display_required),
                           ('pinned-label fields', check_pin_labels),
                           ('ramp files', check_ramp_files),
-                          ('glacier extent sources', check_glacier_sources)):
+                          ('glacier extent sources', check_glacier_sources),
+                          ('comparison control ids', check_compare_controls)):
             fails, notes = fn()
             w(f'{"FAIL" if fails else "ok  "}  {title}')
             for f in fails:
