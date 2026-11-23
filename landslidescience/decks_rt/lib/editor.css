@@ -69,3 +69,13 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 .kn-ed-fmt-sw { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 2px 102px; }
 .kn-ed-fmt-sw button { width: 18px; height: 18px; padding: 0; border: 1px solid #777; border-radius: 3px; cursor: pointer; }
 .kn-ed-fmt-sw button.on { outline: 2px solid #2f8cff; outline-offset: 1px; }
+
+/* the "View…" panel of a live figure: a step's view string, to edit by hand */
+.kn-ed-lv { left: auto; right: 60px; width: 520px; }
+.kn-ed-lv textarea { display: block; width: 100%; box-sizing: border-box; resize: vertical; font: 12px/1.45 Menlo, "Liberation Mono", monospace; color: #eee; background: #111;
+  border: 1px solid #666; border-radius: 4px; padding: 5px 7px; white-space: pre; overflow: auto; }
+.kn-ed-lv label > span:first-child { width: 40px; }
+.kn-ed-lv label input[type=text] { flex: 1; width: auto; font-family: Menlo, "Liberation Mono", monospace; }
+.kn-ed-lv-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: #999; }
+.kn-ed-lv-row button { font: inherit; color: #eee; background: #3a3a3c; border: 1px solid #555; border-radius: 4px; padding: 3px 12px; cursor: pointer; }
+.kn-ed-lv-row button.go { background: #2f6fd0; border-color: #2f6fd0; }

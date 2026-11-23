@@ -392,8 +392,9 @@
         return;
       }
     }
-    if (!e) { if (using) use(null); return; }
+    if (!e) { lvOpen(false); if (using) use(null); return; }
     liveAt = Math.min(liveAt, e.states.length - 1);
+    lvFill();
     function btn(label, title, fn) { var x = mk("button", "", b, label); x.title = title; x.onclick = function () { fn(); x.blur(); }; }
     btn("◀", "Show the previous step", function () { showStep(e, liveAt - 1); });
     mk("span", "", b, "step " + (liveAt + 1) + " of " + e.states.length);
@@ -403,11 +404,58 @@
       btn("Capture step", "Keep the figure's current view as a new step after this one", function () { ask(e, "add"); });
       btn("Finish", "Stop operating the figure; the view it is left in becomes this step", function () { use(null); });
     }
+    if (!using) btn("View…", "This step's view as text (the settings the figure's page is sent), to edit by hand", function () { lvOpen(!lv); });
     if (e.states.length > 1) btn("Remove step", "Remove this step", function () {
       change(function () { e.states.splice(liveAt, 1); opensAt(e); });
       steps(e);
       showStep(e, liveAt); if (!using) rebuild();
     });
+  }
+  // The "View…" panel: a step's view string, one setting per line, and the page's address.
+  var lv = null;
+  function lvPage(e) { var h = e.src.indexOf("#"); return h >= 0 ? e.src.slice(0, h) : e.src.split("?")[0]; }
+  function lvFill() {
+    var e = liveSel();
+    if (!lv || !e) return;
+    lv.head.textContent = "Step " + (liveAt + 1) + " of " + e.states.length + ": its view, one setting per line";
+    lv.text.value = String(e.states[liveAt] || "").split("&").join("\n");
+    lv.page.value = lvPage(e);
+  }
+  function lvApply() {
+    var e = liveSel();
+    if (!lv || !e) return;
+    var st = lv.text.value.split(/\n/).map(function (x) { return x.trim().replace(/^&+|&+$/g, ""); }).filter(Boolean).join("&");
+    var pg = lv.page.value.trim(), was = lvPage(e);
+    if (!st) { status("The view is empty: nothing was changed", true); return; }
+    var did = change(function () {
+      e.states[liveAt] = st;
+      if (pg && pg !== was) e.src = pg + e.src.slice(was.length);
+      opensAt(e);
+    });
+    if (pg && pg !== was) rebuild();       // another page: the figure loads again
+    else showStep(e, liveAt);              // the same page is sent the new view
+    status(did ? "Step " + (liveAt + 1) + " changed" : "Nothing changed");
+  }
+  function lvOpen(yes) {
+    if (!yes) { if (lv) { lv.el.remove(); lv = null; } return; }
+    if (lv || !liveSel()) return;
+    lv = { el: mk("div", "kn-ed-fmt kn-ed-lv", document.body) };
+    lv.head = mk("div", "kn-ed-fmt-head", lv.el);
+    lv.text = mk("textarea", "", lv.el); lv.text.spellcheck = false; lv.text.rows = 14;
+    var r = mk("label", "", lv.el);
+    mk("span", "", r, "Page");
+    lv.page = mk("input", "", r); lv.page.type = "text"; lv.page.spellcheck = false;
+    lv.page.title = "The page the figure shows. Changing it reloads the figure.";
+    r = mk("div", "kn-ed-lv-row", lv.el);
+    mk("button", "go", r, "Apply").onclick = lvApply;
+    mk("button", "", r, "Revert").onclick = lvFill;
+    mk("button", "", r, "Close").onclick = function () { lvOpen(false); };
+    mk("span", "", r, "Cmd-Enter applies");
+    lv.el.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); lvApply(); }
+      else if (ev.key === "Escape") { ev.target.blur(); }
+    });
+    lvFill();
   }
   function steps(e) {                      // one click per step: the slide's step markers follow the figure's steps,
     var i = deck.slides.findIndex(function (x) { return x.elements && x.elements.indexOf(e) >= 0; });   // without reloading the figure
@@ -936,7 +984,7 @@
     if (cropping) crop(null);
     if (using) use(null);                  // Done while operating a figure: its view is kept, as with Finish
     if (sorter) openSorter(false);
-    fmtOpen(false);
+    fmtOpen(false); lvOpen(false);
     on = !on; RT.editing = on;
     document.body.classList.toggle("kn-editing", on);
     Reveal.layout();                       // the stage sits below the bar while editing
