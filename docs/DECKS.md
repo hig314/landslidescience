@@ -78,7 +78,7 @@ in the site backup: once a deck is edited here, this is its only copy.
   (`/lidar/compare/?embed=1`), addressed root-relative. Embed mode must render
   signed-out whoever is signed in (`lidar_serve.compare` does): deck and map
   share an origin, so the session cookie always reaches the frame.
-- **The owner's menu.** On a deck, the owner gets a ☰ at upper right (shown on mouse movement, so not during a clicker-driven talk): edit, publish, copy, and links to the Danger zone on `/decks/`. It makes the same POSTs to `/decks/_do` as the list page.
+- **The owner's menu.** On a deck, the owner gets a ☰ at upper right (shown only when the mouse is pushed against the right edge of the window or M is pressed, so it never covers slide content; in the editor it sits in the editor's bar): edit, publish, copy, and links to the Danger zone on `/decks/`. It makes the same POSTs to `/decks/_do` as the list page.
 - **The runtime is shared.** `/decks/_rt/` serves `landslidescience/decks_rt/`
   to every deck, so a runtime change reaches published decks too. Update it
   with `tools/site.py runtime` in the Presentation project (which overwrites

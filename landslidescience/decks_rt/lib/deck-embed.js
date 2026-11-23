@@ -32,7 +32,7 @@
  */
 (function () {
   "use strict";
-  var KEYS = { ArrowRight: 1, ArrowLeft: 1, PageDown: 1, PageUp: 1, e: 1, E: 1 };    // the clicker's keys, and the deck's E (edit)
+  var KEYS = { ArrowRight: 1, ArrowLeft: 1, PageDown: 1, PageUp: 1, e: 1, E: 1, m: 1, M: 1 };    // the clicker's keys, and the deck's E (edit) and M (menu)
   var api = null, pending = 0, isReady = false;
 
   function post(type, body) {

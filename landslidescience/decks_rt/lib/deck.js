@@ -251,6 +251,9 @@
           if (d.key === "e" || d.key === "E") {    // E pressed inside the figure: the deck's, like E anywhere else
             release();
             document.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+          } else if (d.key === "m" || d.key === "M") {   // the owner's menu (lib/sitemenu.js)
+            release();
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "m", bubbles: true }));
           } else if (d.key === "ArrowLeft" || d.key === "PageUp") Reveal.prev(); else Reveal.next();
         } else if (d.type === "deck:ready") {
           var fb = fr.parentNode.querySelector(".kn-fallback");
