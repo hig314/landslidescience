@@ -29,6 +29,8 @@ def main():
     ap.add_argument('id'); ap.add_argument('m2'); ap.add_argument('out')
     ap.add_argument('--pad-m', type=float, default=1500.0, help='search radius, mercator m')
     a = ap.parse_args()
+    m2j = json.load(open(a.m2))
+    match2.FLAT_WATER = bool(m2j.get('flat_water')); match2.MIN_OVERLAP = m2j.get('min_overlap', 0.3)   # as the coarse search ran
     d = ROOT / 'v' / a.id
     st = np.load(d / 'stack.npz')
     best = json.load(open(a.m2))['best']
