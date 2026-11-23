@@ -441,6 +441,13 @@
    "live": "2026-11-22 09:50:00",
    "commit": null,
    "what": "SOLVE (snd mode), revises snd_edge_1121 after Hig's review of the box run (2026-11-22: 'a ridge at the shoreline, and then the level descends inland before jumping up sharply', Petrof's prograded delta 59.40068,-150.82033: the lift faded over 40 m back onto 3DEP's old lake flat at 8.42 m). Ground that is not a lidar's and is CONNECTED to the sounded water under a plane rising 0.005 from its level is raised to that plane, in full to 150 m and feathered to 300 m (snd_edge_slope, snd_edge_wide_full_m, snd_edge_wide_fade_m); a lidar's ground keeps the 8 / 40 m feather. Window test pl_edge2, review_1121/petrof_delta.png: the trough (to 8.4 m, 60 m wide) is gone, the delta stands at 14.8-15.2 m and meets the ground. Live for solves started after this time; kj_r4c5 re-solved after the run (after_run_r4c5.sh); kj_r6c2 and kj_r6c4 stand on snd_edge_1121 (their lake shores are mostly lidar)."
+  },
+  {
+   "id": "harbor_1123",
+   "stage": "solve",
+   "live": null,
+   "commit": null,
+   "what": "SOLVE, Hig 2026-11-23 (floats of Seldovia harbour 59.43693,-151.71542; 'a single tree of rules' for Homer and Seldovia; 'explicitly identifying a Harbor as a type of terrain'): HARBOUR = tidal water within harbor_reach_m (30) of typed structures / objects that together make harbor_min_obj_m2 (400); typing raster value 5. In it a measured cell (any class) standing harbor_rise_m (1.0) over the grey opening of the measured surface by a harbor_probe_m (12) disc is on the works (hull, float underside, piling), no measurement. DEVELOPED, default harbor=0 until Hig approves; not live in any box. Windows: Seldovia 542 cells freed, every mound gone, nothing raised over the floor; Homer 16.9 ha harbour, 1203 cells freed, one remaining mound gone, otherwise unchanged."
   }
  ]
 }

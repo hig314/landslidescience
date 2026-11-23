@@ -1,3 +1,20 @@
+> **Harbour as a terrain (Hig 2026-11-23: "a single tree of rules to work for both cases ... explicitly identifying a
+> 'Harbor' as a type of terrain"). DEVELOPED, `harbor=0` by default, waiting on Hig; ledger `harbor_1123`.** The
+> speck rule `obj_hull` is withdrawn (it caught a third of the cells). The rest were the same thing in bigger clumps and
+> further from a typed cell: multibeam / green-lidar returns off hulls and float undersides classed BED, some ABOVE
+> the water level. Rule in solve.py: HARBOUR = tidal water within 30 m of typed structures/objects totalling >= 400 m2
+> (typing raster = 5); there, a measured cell standing 1.0 m over the grey opening of the measured surface by a 12 m
+> disc (the floor a boat-sized probe can rest on; banks, breakwater toes and planes survive it) is no measurement.
+> The tree, same for Homer and Seldovia: (1) joint `structure`/objects: returns on the works are water; (2) solve: a
+> typed object is no ground, anywhere; (3) solve, harbour only: what stands over the probe floor is the works.
+> Windows (`review_1121/solve/`): Seldovia `seld0` -> `seld2`: 542 cells freed, all mounds gone, the only rises are
+> the pits beside the old mounds coming back to the floor (-7 -> -6); Homer `hom0` -> `hom1` (r6c3, 588704 6607817
+> 589704 6608817): 16.9 ha harbour, 1203 cells freed, one leftover mound gone (-4 m), nothing raised, rest unchanged.
+> Pictures `review_1121/seldovia_harbor.png`, `homer_harbor.png` (script `harbor_png.py A B out`).
+> NOT tested: other piers/docks (Halibut Cove, Jakolof, the deep-water dock), a rocky anchorage with skerries narrower
+> than 24 m inside 30 m of floats (they would be planed).  To make live: default harbor=1, re-solve r4c1 r4c2 r5c2
+> (Seldovia) and r6c2 r6c3 (Homer) at least; every box with typed structures differs.
+
 > **Seldovia floats, traced (2026-11-23).** The chain is clean there (fill under the floats p50 -4.9 m); the mounds are the
 > SOLVE's. The floats are typed structure/object and are water, but ~180 cells in ~50 specks (largest 21 cells) of
 > multibeam (`bathy2009`) and green-lidar (`seldovia2019bed`) returns off the hulls are classed BED at -1.9..+0.4 m on a
