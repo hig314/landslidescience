@@ -146,6 +146,14 @@ In no particular order.
   (review page's "Needs a centre" view saves `center` [lat, lon] +
   `center_text`, `loc_note` in its `decisions` docs; 5 site, 7 missed, 22
   not searched): rerun match2 + fine with that as the anchor.
+  Same day, later: 28 placed from Hig's centres (`cand_batch.py --tag _c
+  --centre`; work in `cand/centres*.json`, `cand/rows_c.json`, products in
+  `cand/web_c/`): 24 on PROD (105 s1 videos, 100 placed, 4.7 GB free), the
+  last 4 (McCarthy, Oily Lake, Lowell, Lituya Deltas) in dev only
+  (`cand/rows_4.json` + `georef_4.json`), waiting for Hig. Alsek Lake needed
+  `match2 --flat-water` (3DEP holds the lake at 24 m); Lowell (Yukon) needed
+  fine.py's Mapterhorn zoom fallback. Not placed: both Caetani (Agassiz) and
+  12 not yet given a centre.
 - **S1 timelapse import — first batch LIVE 2026-11-21** (docs/GLACIERS.md,
   last section). Drive's quota had reset; the page's decisions were
   re-exported (20: 16 approved, 3 assigned, 1 rejected) and all 19 imported

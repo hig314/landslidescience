@@ -29,6 +29,8 @@ def main():
     ap.add_argument('id'); ap.add_argument('m2'); ap.add_argument('out')
     ap.add_argument('--pad-m', type=float, default=1500.0, help='search radius, mercator m')
     a = ap.parse_args()
+    m2j = json.load(open(a.m2))
+    match2.FLAT_WATER = bool(m2j.get('flat_water')); match2.MIN_OVERLAP = m2j.get('min_overlap', 0.3)   # as the coarse search ran
     d = ROOT / 'v' / a.id
     st = np.load(d / 'stack.npz')
     best = json.load(open(a.m2))['best']
@@ -41,7 +43,15 @@ def main():
     else:
         # Mapterhorn z13 (3DEP in Alaska, ~5 m ground at 60 N); the 3DEP
         # context mosaic on Nunatak leaves out much of the coast (Hubbard: 64 %)
-        z, tr, k = load_dem(lo0, la0, lo1, la1, match2.MERC / k, source='mapterhorn', z=13)   # pixel = 10 mercator m
+        # z13 is 3DEP in Alaska; across the border (Lowell, Yukon) Mapterhorn
+        # stops at a coarser zoom and z13 comes back empty: step down until the
+        # frame's terrain is there (the grid stays 10 mercator m either way)
+        k0 = k
+        for zz in (13, 12, 11, 10):
+            z, tr, k = load_dem(lo0, la0, lo1, la1, match2.MERC / k0, source='mapterhorn', z=zz)   # pixel = 10 mercator m
+            if np.isfinite(z).mean() > 0.9:
+                break
+            print('mapterhorn z%d covers %.0f %% of the frame; trying z%d' % (zz, 100 * np.isfinite(z).mean(), zz - 1))
         sim = simulate(z, match2.MERC / k)
         ref = dict(dem=z, transform=np.array(tr)[:6], **sim)
         np.savez_compressed(cache, box=json.dumps([lo0, la0, lo1, la1]), **ref)

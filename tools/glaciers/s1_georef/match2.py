@@ -41,6 +41,25 @@ R = 6378137.0
 MERC = 10.0
 PRODS = ('lum', 'feat', 'stab')
 WEIGHT = {'lum': 1.0, 'feat': 1.0, 'stab': 1.0}   # --feat-w sets feat's
+FLAT_WATER = False   # --flat-water: lakes the DEM holds at one height count as water too
+
+
+def land_mask(dem):
+    """where the DEM is land: above 2 m, and with --flat-water not part of a
+    hydro-flattened lake (3DEP holds a lake at one height: Alsek Lake is 24 m
+    everywhere, so 'DEM <= 2 m' called it land and the simulation drew a flat
+    plain where the video has dark water). Flat = no height change over 7 x 7
+    pixels, kept only in patches of 50+ pixels so flat ice or a road is not
+    taken for a lake."""
+    land = np.isfinite(dem) & (dem > 2)
+    if FLAT_WATER:
+        z = np.nan_to_num(dem, nan=-1e4).astype(np.float32)
+        k = np.ones((7, 7), np.uint8)
+        flat = (cv2.dilate(z, k) - cv2.erode(z, k)) < 0.05
+        n, lab, stats, _ = cv2.connectedComponentsWithStats(flat.astype(np.uint8), 8)
+        big = np.zeros(n, bool); big[1:] = stats[1:, cv2.CC_STAT_AREA] >= 50
+        land &= ~big[lab]
+    return land
 
 
 def merc(lon, lat):
@@ -54,7 +73,7 @@ def ref_image(ref, orbit, down, prod, water):
     Bay: its mélange is bright, the dark fill is a wrong picture of it)."""
     I = ref[orbit].astype(np.float32)
     dem = ref['dem']
-    land = np.isfinite(dem) & (dem > 2)
+    land = land_mask(dem)
     fill = np.percentile(I[land], 2) if water == 'dark' else float(I[land].mean())
     I = np.where(land, I, fill).astype(np.float32)
     v = np.ones_like(I) if water == 'dark' else land.astype(np.float32)
@@ -68,10 +87,15 @@ def ref_image(ref, orbit, down, prod, water):
     return I, (v > 0.5).astype(np.float32)
 
 
-def dwncc(img, v, t, w, min_overlap=0.3):
+MIN_OVERLAP = 0.3
+
+
+def dwncc(img, v, t, w, min_overlap=None):
     """NCC with weights on both sides: w (0..1) on the template, v (0/1) on
     the image; each offset uses only pixels where both count. Six FFT
     correlations (Padfield's masked NCC, weighted)."""
+    if min_overlap is None:
+        min_overlap = MIN_OVERLAP
     img = ((img - img[v > 0].mean()) / (img[v > 0].std() + 1e-9)).astype(np.float32) * v
     v = v.astype(np.float32)
     t = ((t - (w * t).sum() / w.sum()) / (np.sqrt((w * (t - (w * t).sum() / w.sum()) ** 2).sum() / w.sum()) + 1e-9))
@@ -181,9 +205,13 @@ def main():
     ap.add_argument('stack'); ap.add_argument('ref'); ap.add_argument('meta'); ap.add_argument('out')
     ap.add_argument('--down', type=int, default=4); ap.add_argument('--feat-w', type=float, default=1.0)
     ap.add_argument('--prior-km', type=float, default=3.0); ap.add_argument('--prior-w', type=float, default=1.0)
+    ap.add_argument('--flat-water', action='store_true', help='hydro-flattened lakes count as water (land_mask)')
+    ap.add_argument('--min-overlap', type=float, default=0.3, help='least share of the frame that must fall on land')
     ap.add_argument('--centre', action='store_true', help="the anchor is the view's middle (a centre Hig gave), not just a point in it")
     a = ap.parse_args()
     WEIGHT['feat'] = a.feat_w
+    global FLAT_WATER, MIN_OVERLAP
+    FLAT_WATER = a.flat_water; MIN_OVERLAP = a.min_overlap
     st = np.load(a.stack); ref = np.load(a.ref); meta = json.load(open(a.meta))
     name = meta['name'].lower()
     orbits = ['asc'] if 'ascending' in name else ['desc'] if 'descending' in name else ['asc', 'desc']
@@ -205,7 +233,7 @@ def main():
     second = next((r['z'] for r in res[1:] if r['orbit'] == b['orbit'] and r['water'] == b['water'] and far(r)), None)
     best = dict(orbit=b['orbit'], water=b['water'], z=b['z'], second=second, margin=round(b['z'] - (second or 0), 2), z_fine=round(zf, 2),
                 ncc=nc, bounds_3857=[X0, Y1 - h * px, X0 + w * px, Y1])
-    json.dump(dict(best=best, peaks=res, prior=dict(km=a.prior_km, w=a.prior_w, centre=a.centre)), open(a.out, 'w'), indent=1)
+    json.dump(dict(best=best, peaks=res, prior=dict(km=a.prior_km, w=a.prior_w, centre=a.centre), flat_water=a.flat_water, min_overlap=a.min_overlap), open(a.out, 'w'), indent=1)
     print(json.dumps(best))
 
 
