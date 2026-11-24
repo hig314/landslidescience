@@ -748,3 +748,18 @@ was on `main`, R2 or the prod catalogue). Title "KBay Topobathy v01" (Hig); the 
   soundings, **Bradley Lake's bed 391 m below its surface**). Version 2 is the topobathy stream's.
 - Not done: `kbay_soundings` points entry; `grewingk_sonar_2023` ungating; the inland water surface
   (`kbay_topobathy_v1_water.tif`, built, not published -- waits for Hig's look).
+
+## 2026-11-24 11:40: the topobathy's water surface published, as a download and in the viewer
+
+- **Download** `cog/kbay_topobathy_v1_water.tif` (53 MB, DEFLATE): the inland water surface on the bed's grid, built by the topobathy
+  stream's `topobathy/water_product.py`; a NAMED download (`"downloads": [{"name": "water", "label": ..., "about": ...}]`). 2bcfa4d, 10:55.
+- **Viewer** (the sea-level slider and see-through water of 35189ad, inert until now): manifest `"surfaces"` + `"tide_levels"` ->
+  `pmtiles/<id>_wsurf.pmtiles` (terrarium) and `pmtiles/<id>_sea.pmtiles` (mapbox), built by `topobathy/water_viewer_layers.py` and
+  baked by `lidar_build/logs/kbay_water_pyramids.py` with build_lidar's functions. `make_catalog.py` lists them all-or-none and only
+  when on the bucket; `r2_put.sh` / `r2_publish_overnight.sh` upload them; `lidar_serve.gated_ids` gates `<id>_wsurf` / `<id>_sea`
+  with their survey. fc30d95; catalogue installed 11:38 (only `surfaces` and `tide_levels` of the one survey changed; backups
+  `catalog.geojson.bak.20261124-{105540,113854}`). Tidal datums: Homer gauge 9455558 heights above MLLW, MLLW at our measured
+  -1.38 m NAVD88 (the gauge's own NAVD88 tie is -1.553, 0.17 m lower: Hig to choose). Hig's look at the picture on prod is owed.
+- **QGIS 4.0.1 (Mac) has no ZSTD.** Its GDAL 3.12 refuses our ZSTD COGs ("missing codec ZSTD"); build_lidar's archives are ZSTD
+  (homer_2019 is; kbay_2023_reclass_v2 is DEFLATE), so *Download DTM* fails there for most surveys, including the topobathy's 2 m and
+  8 m files. Not fixed: re-encoding as DEFLATE is Hig's call (most local COGs were deleted after upload).
