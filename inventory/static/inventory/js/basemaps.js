@@ -87,7 +87,11 @@
       thumb: 'inventory/img/basemap-thumbs/noaa-chart.jpg',
       attr: 'Ocean base © Esri, GEBCO, NOAA, Garmin' },
     { id: 'usgs-img', label: 'USGS Imagery', category: 'Imagery', coverage: 'Global (high-res in US only)',
-      tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
+      // USGSImageryTopo (imagery with contours and names) was withdrawn by
+      // USGS (404 on 2026-11-23); ImageryOnly is the same imagery without them.
+      // ImageryOnly answers 404 at z9-11 over most of Alaska outside Southeast
+      // (measured the same day): blank there on a cold load at those zooms.
+      tiles: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
       thumb: 'inventory/img/basemap-thumbs/usgs-img.png',
       attr: 'USGS National Map' },
     { id: 'nrcs-ahap', label: 'AHAP 1978-1986', category: 'Historical', coverage: 'Alaska (partial)',

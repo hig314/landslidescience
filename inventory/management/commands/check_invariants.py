@@ -250,6 +250,24 @@ def check_map_controls():
         fails.append(f'CTL ids on no control: {sorted(ids - used - no_el)}')
     return fails, [f'{len(ids)} control ids']
 
+def check_basemap_probe():
+    """The daily probe (tools/ops/probe_services.py --basemaps) reads the
+    basemap table with a regular expression; every outside tiles / labelTiles
+    / style URL in basemaps.js must come out of it, or a basemap goes
+    unwatched."""
+    import importlib.util
+    path = Path(settings.BASE_DIR) / 'tools/ops/probe_services.py'
+    spec = importlib.util.spec_from_file_location('probe_services', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    js = (Path(settings.BASE_DIR) / 'inventory/static/inventory/js/basemaps.js').read_text(encoding='utf-8')
+    want = len(re.findall(r"\b(?:tiles|labelTiles|style):\s*['\"`]https?://", js))
+    got = len(mod.basemap_probes())
+    fails = [] if got == want and got else [
+        f'basemaps.js has {want} outside basemap URLs but the probe reads {got}']
+    return fails, [f'{got} basemap URLs probed daily']
+
+
 def data_hidden_records(cur):
     order = _class_order() or []
     cur.execute(f"""SELECT l.id, l.unique_name, l.landslide_class FROM landslides l
@@ -294,7 +312,8 @@ class Command(BaseCommand):
                           ('ramp files', check_ramp_files),
                           ('glacier extent sources', check_glacier_sources),
                           ('comparison control ids', check_compare_controls),
-                          ('map control ids', check_map_controls)):
+                          ('map control ids', check_map_controls),
+                          ('basemap probe coverage', check_basemap_probe)):
             fails, notes = fn()
             w(f'{"FAIL" if fails else "ok  "}  {title}')
             for f in fails:

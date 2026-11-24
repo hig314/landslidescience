@@ -16,6 +16,12 @@
  *                     original was, on any slide; only if that spot already holds the same
  *                     thing is it offset, so that it can be seen.
  *   Delete            remove       ] [ } {   forward, backward, to front, to back
+ *   Opt-Cmd-G         group the selection (Shift too: ungroup). A group is selected, moved, ordered,
+ *                     copied and built as one thing; double-click one of its members to work on
+ *                     that member alone. Groups do not nest: grouping groups makes one group.
+ *
+ * The bar's menus: Slide (sorter, new, delete, background and transition), Insert, Arrange
+ * (stacking order, group), Animate (build the selection in or out, the build order).
  *   Opacity           the slider in the bar sets how opaque the selection is. Turn an image down to
  *                     see what is under it while lining the two up, then back to 100.
  *   Crop              (bar, double-click an image, or Enter on one) the image's frame becomes a
@@ -49,7 +55,7 @@
   var mtime = RT.mtime, blocked = false, typing = null, drag = null;
   var sorter = null, picks = [], anchor = null, sdrag = null;
   var using = null, liveAt = 0, asking = null;
-  var cropping = null, opBefore = null, liveFor = null;
+  var cropping = null, opBefore = null, liveFor = null, cycled = null;
   var HERE = location.pathname.replace(/[^\/]*$/, "");
   function csrf(h) { if (window.DECK_CSRF) h["X-CSRFToken"] = window.DECK_CSRF; return h; }    // on the site (see deck.js)
   function deckName(p) { var m = /\/decks\/([A-Za-z0-9_-]+)\/$/.exec(p || ""); return m && m[1]; }
@@ -122,7 +128,7 @@
   function snapshot() { var c = cur(); return { i: c.i, json: JSON.stringify(c.s) }; }
   function commit(before) {
     var c = cur();
-    mend(c.s);
+    tidy(c.s); mend(c.s);
     if (JSON.stringify(c.s) === before.json) return false;
     mine(c.s);
     undo.push(before); redo = [];
@@ -191,6 +197,11 @@
       b.style.left = e.x + "px"; b.style.top = e.y + "px"; b.style.width = e.w + "px"; b.style.height = e.h + "px";
       if (e.rot) b.style.transform = "rotate(" + (-e.rot) + "deg)";
       if (sel.length === 1 && !e.rot && !typing) ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach(function (d) { mk("div", "kn-ed-h kn-ed-" + d, b).setAttribute("data-h", d); });
+    });
+    units(sel).forEach(function (u) {      // a group selected whole: one box round it
+      if (!u.g || !u.es.every(function (e) { return sel.indexOf(e) >= 0; })) return;
+      var gb = boxOf(u.es), n = mk("div", "kn-ed-box kn-ed-grp", layer);
+      n.style.left = gb.x + "px"; n.style.top = gb.y + "px"; n.style.width = gb.w + "px"; n.style.height = gb.h + "px";
     });
     (guides || []).forEach(function (g) {
       var n = mk("div", "kn-ed-guide", layer);
@@ -277,6 +288,7 @@
     var c = cur();
     if (!editable(c.s)) return;
     ev.preventDefault();
+    bpKeys = false;                        // a click on the slide: Delete means what is selected there
     var p = point(ev), h = ev.target.getAttribute && ev.target.getAttribute("data-h");
     var under = hits(p), was = sel.slice();
     if (cropping) {
@@ -290,13 +302,14 @@
       return;
     }
     if (!h) {
-      var top = under.filter(function (e) { return sel.indexOf(e) >= 0; })[0] || under[0];
+      var top = (ev.shiftKey ? null : under.filter(function (e) { return sel.indexOf(e) >= 0; })[0]) || under[0];   // Shift: what is on top here
       if (!top) { sel = []; draw(); return; }
-      if (ev.shiftKey) { if (sel.indexOf(top) >= 0) sel = sel.filter(function (e) { return e !== top; }); else sel.push(top); }
-      else if (sel.indexOf(top) < 0) sel = [top];
+      var u = unit(top);                   // a member of a group stands for the group
+      if (ev.shiftKey) { if (sel.indexOf(top) >= 0) sel = sel.filter(function (e) { return u.indexOf(e) < 0; }); else u.forEach(function (e) { if (sel.indexOf(e) < 0) sel.push(e); }); }
+      else if (sel.indexOf(top) < 0) sel = u;
       if (!sel.length) { draw(); return; }
     }
-    drag = { p: p, handle: h, before: snapshot(), moved: false, under: under, was: was, shift: ev.shiftKey,
+    drag = { p: p, handle: h, before: snapshot(), moved: false, under: under, was: was, shift: ev.shiftKey, top: top,
              orig: sel.map(function (e) { return { x: e.x, y: e.y, w: e.w, h: e.h, fit: e.fit && e.fit.slice() }; }),
              snap: lines(c, sel) };
     try { layer.setPointerCapture(ev.pointerId); } catch (x) {}
@@ -362,13 +375,20 @@
     var d = drag; drag = null;
     if (d.moved) commit(d.before);
     else if (d.crop) { /* a click in crop mode changes nothing */ }
-    else if (!d.handle && !d.shift && d.was.length === 1 && sel.length === 1 && d.was[0] === sel[0] && d.under.length > 1) {
-      sel = [d.under[(d.under.indexOf(sel[0]) + 1) % d.under.length]];     // a second click: the one underneath
+    else if (!d.handle && !d.shift && d.top && d.was.length === sel.length && sel.every(function (e) { return d.was.indexOf(e) >= 0; }) &&
+             (sel.length === 1 || sel.length === unit(sel[0]).length && sel.every(function (e) { return e.group === sel[0].group; }))) {
+      var at = d.under.indexOf(d.top), next = null;                        // a second click: the one underneath
+      for (var k = 1; k < d.under.length && !next; k++) { var o = d.under[(at + k) % d.under.length]; if (sel.indexOf(o) < 0) next = o; }
+      if (next) { cycled = { from: sel, t: Date.now() }; sel = unit(next); }
     }
     draw();
   }
   function dbl(ev) {
     if (cropping) return;
+    if (cycled && Date.now() - cycled.t < 600) sel = cycled.from;          // its second click was not a wish for the one underneath
+    cycled = null;
+    var gm = hits(point(ev)).filter(function (x) { return sel.indexOf(x) >= 0; })[0];
+    if (gm && gm.group && sel.length > 1) { sel = [gm]; draw(); status("One member of the group. Click another to have the group again."); return; }
     var top = hits(point(ev)).filter(function (x) { return sel.indexOf(x) >= 0; })[0] || hits(point(ev))[0];
     if (top && top.type === "image" && !top.rot) { crop(top); return; }
     var e = hits(point(ev)).filter(function (x) { return x.type === "text"; })[0];
@@ -595,6 +615,72 @@
     });
     rebuild();
   }
+  // ---- groups: elements of a slide that share a "group" name are one thing ----
+  function unit(e) { return e.group ? cur().s.elements.filter(function (x) { return x.group === e.group; }) : [e]; }
+  function units(list) {                   // a selection as its groups and lone elements, in its order: [{g, es}]
+    var out = [], seen = {};
+    list.forEach(function (e) {
+      if (!e.group) out.push({ es: [e] });
+      else if (!seen[e.group]) { seen[e.group] = 1; out.push({ g: e.group, es: unit(e) }); }
+    });
+    return out;
+  }
+  function gid(s) { var id; do { id = "g" + Math.random().toString(36).slice(2, 6); } while (id.length < 3 || s.elements.some(function (x) { return x.group === id; })); return id; }
+  function tidy(s) {                       // a group left with one member is no group; its build rows become that member's
+    var n = {};
+    (s.elements || []).forEach(function (e) { if (e.group) n[e.group] = (n[e.group] || 0) + 1; });
+    (s.elements || []).forEach(function (e) {
+      if (!e.group || n[e.group] > 1) return;
+      (s.builds || []).forEach(function (b) { if (b.grp === e.group) { delete b.grp; b.el = eid(s, e); } });
+      delete e.group;
+    });
+  }
+  function group() {
+    var c = cur(), list = c.s.elements.filter(function (e) { return sel.indexOf(e) >= 0; }), merged = false;
+    if (sorter || list.length < 2) { status("Select two or more things to group", true); return; }
+    change(function (c) {
+      var s = c.s, id = gid(s), ids = {}, grps = {}, keep = null;
+      if (RT.plan(s).some(function (r) { return r.do !== "step" && r.es.some(function (e) { return list.indexOf(e) >= 0; }); })) {
+        written(s);                        // the group takes the builds of the member that builds first; the others' go
+        list.forEach(function (e) { if (e.id) ids[e.id] = 1; if (e.group) grps[e.group] = 1; });
+        s.builds = s.builds.filter(function (b) {
+          if (b.do === "step" || !(b.grp ? grps[b.grp] : ids[b.el])) return true;
+          var k = b.grp ? "g" + b.grp : "e" + b.el;
+          if (b.para != null) { merged = true; return false; }
+          if (keep == null) keep = k;
+          if (k !== keep) { merged = true; return false; }
+          delete b.el; b.grp = id;
+          return true;
+        });
+      }
+      list.forEach(function (e) { e.group = id; });
+      var a = s.elements, top = a.indexOf(list[list.length - 1]);          // together in the stack, where the topmost was
+      s.elements = a.slice(0, top + 1).filter(function (e) { return list.indexOf(e) < 0; }).concat(list, a.slice(top + 1));
+    });
+    sel = list; RT.clicks(c.i); rebuild();
+    status(merged ? "Grouped. The group keeps the builds of its first member to build; the others' separate builds are gone (Undo brings them back)." : "Grouped");
+  }
+  function ungroup() {
+    var gs = {}, any = false;
+    sel.forEach(function (e) { if (e.group) { gs[e.group] = 1; any = true; } });
+    if (sorter || !any) { status("No group is selected", true); return; }
+    var all = [];
+    change(function (c) {
+      var s = c.s, out = [];
+      (s.builds || []).forEach(function (b) {          // a group's build row: one row per member, together
+        if (!b.grp || !gs[b.grp]) { out.push(b); return; }
+        s.elements.filter(function (e) { return e.group === b.grp; }).forEach(function (e, k) {
+          var n = { el: eid(s, e) };
+          Object.keys(b).forEach(function (key) { if (key !== "grp" && key !== "el") n[key] = b[key]; });
+          if (k) { n.start = "with"; delete n.delay; }
+          out.push(n);
+        });
+      });
+      if (s.builds) s.builds = out;
+      s.elements.forEach(function (e) { if (e.group && gs[e.group]) { all.push(e); delete e.group; } });
+    });
+    sel = all; RT.clicks(cur().i); rebuild(); status("Ungrouped");
+  }
   // ---- clipboard: one for elements and slides, shared by every deck on this server ----
   function setClip(kind, items) { var c = { kind: kind, from: HERE, items: items }; try { localStorage.setItem("kn-clip", JSON.stringify(c)); } catch (x) { status("Could not copy: " + x.message, true); } return c; }
   function readClip(text) {                // what the system clipboard holds, if it is ours or an element
@@ -639,7 +725,7 @@
     return clip;
   }
   function paste(given) {
-    var clip = given || getClip();
+    var clip = given ? JSON.parse(JSON.stringify(given)) : getClip();      // copies, never the things copied themselves
     if (!clip || !clip.items || !clip.items.length) return;
     var one = clip.kind === "elements" && clip.items.length === 1 && clip.items[0];
     if (one && one.type === "live" && one.states && sel.length === 1 && sel[0].type === "live" && sel[0].states && page(sel[0].src) === page(one.src) && !sorter) {
@@ -664,7 +750,9 @@
       } else if (!sorter && editable(cur().s)) {
         change(function (c) {
           function taken(e) { return c.s.elements.some(function (o) { return o.type === e.type && o.x === e.x && o.y === e.y && o.w === e.w && o.h === e.h; }); }
-          var off = 0;
+          var off = 0, gn = {}, gm = {};         // a pasted group is a new group; a lone member of one is alone
+          items.forEach(function (e) { if (e.group) gn[e.group] = (gn[e.group] || 0) + 1; });
+          items.forEach(function (e) { if (!e.group) return; if (gn[e.group] < 2) { delete e.group; return; } gm[e.group] = gm[e.group] || gid(c.s) + Object.keys(gm).length; e.group = gm[e.group]; });
           while (items.some(function (e) { return taken({ type: e.type, x: e.x + off, y: e.y + off, w: e.w, h: e.h }); })) off += 24;
           sel = items.map(function (e) { e.x += off; e.y += off; c.s.elements.push(e); return e; });
         });
@@ -676,7 +764,14 @@
   // ---------------------------------------------------------------- build order
   // The "Builds" panel: the slide's rows in order (deck.js: builds). A slide that came from the
   // importer has its order in the elements; the first change here writes it down as rows.
-  var bp = null, bpRow = -1, bpDrag = -1, bpTimer = 0;
+  var bp = null, bpRow = -1, bpDrag = -1, bpTimer = 0, bpKeys = false;   // bpKeys: a row was clicked last, so Delete means the row
+  function bpRemove() {                    // Delete on the selected row
+    var i = bpRow, rows = RT.plan(cur().s), r = rows[i];
+    if (!r) return;
+    if (r.do === "step") { status("A figure's stages stay in the order. To drop one, select the figure and use Remove step.", true); return; }
+    bpChange(function (b) { b.splice(i, 1); bpRow = Math.min(i, b.length - 1); });
+    status("Removed from the build order (the thing itself stays on the slide)");
+  }
   function parasOf(e) { return (e.runs ? e.runs.map(function (r) { return r.t; }).join("") : e.text || "").split("\n").length; }
   function eid(s, e) {                     // the name a build row knows an element by
     if (e.id) return e.id;
@@ -693,7 +788,10 @@
       delete e.build; delete e.paraBuilds;
     });
     var live = s.elements.filter(function (e) { return e.type === "live"; })[0], n = 1, max = live ? (live.states ? live.states.length : live.steps || 1) : 1;
+    var grp = {};
+    s.elements.forEach(function (e) { if (e.group) grp[e.group] = 1; });
     s.builds = s.builds.filter(function (b) {
+      if (b.grp) return b.do !== "step" && !!grp[b.grp];
       var e = seen[b.el];
       if (!e) return false;
       if (b.do === "step") return e === live && n < max && !!(++n);
@@ -715,6 +813,11 @@
     s.elements.forEach(function (e) { delete e.build; delete e.paraBuilds; });
     return s.builds;
   }
+  function rowName(r) {
+    if (!r.grp) return nameOf(r.e, r.para) + (r.para != null ? "  ¶" + (r.para + 1) : "");
+    var t = r.es.filter(function (e) { return e.type === "text"; })[0] || r.es[0];
+    return "Group of " + r.es.length + ": " + nameOf(t);
+  }
   function nameOf(e, para) {
     if (e.type === "text") {
       var t = e.runs ? e.runs.map(function (r) { return r.t; }).join("") : e.text || "";
@@ -734,23 +837,44 @@
   function clickOf(i) { var g = 0; RT.plan(cur().s).forEach(function (r, j) { if (r.start === "click" && j <= i) g++; }); return g; }
   function bpShow() { clearTimeout(bpTimer); RT.apply(cur().sec, {}); draw(); bpFill(); }
   function bpSet(b, key, v, plain) { if (v === plain || v == null || v === "") delete b[key]; else b[key] = v; }
-  function bpAdd(what) {
-    var c = cur(), list = c.s.elements.filter(function (e) { return sel.indexOf(e) >= 0; });
-    if (!list.length) { status("Select what should build " + (what === "out" ? "out" : "in") + " first", true); return; }
+  // Build what is selected in or out. A group is one row. Several things: `mode` says how they
+  // run ("with": together; "seq": one after another, each dissolving; "clicks": a click each),
+  // and without it the question is asked first.
+  function bpAdd(what, mode) {
+    var c = cur(), us = units(sel);
+    bpAsk(null);
+    if (sorter || !editable(c.s)) return;
+    if (!us.length) { status("Select what should build " + (what === "out" ? "out" : "in") + " first", true); return; }
+    if (what === "paras" && (sel.length !== 1 || sel[0].type !== "text")) { status("By paragraph is for one text box", true); return; }
+    if (what !== "paras" && us.length > 1 && !mode) { bpAsk(what, us.length); return; }
+    bpOpen(true);
     bpChange(function (rows, s) {
-      var first = true;
-      list.forEach(function (e) {
-        var n = what === "paras" ? parasOf(e) : 1;
-        for (var k = 0; k < n; k++) {
-          var b = { el: eid(s, e), do: what === "out" ? "out" : "in" };
-          if (what === "paras") b.para = k;
-          else if (!first) b.start = "with";
-          first = false;
-          rows.push(b);
-        }
+      if (what === "paras") for (var k = 0; k < parasOf(sel[0]); k++) rows.push({ el: eid(s, sel[0]), do: "in", para: k });
+      else us.forEach(function (u, k) {
+        var b = u.g ? { grp: u.g } : { el: eid(s, u.es[0]) };
+        b.do = what === "out" ? "out" : "in";
+        if (k && mode !== "clicks") b.start = mode === "seq" ? "after" : "with";
+        if (mode === "seq") b.fx = "dissolve";
+        rows.push(b);
       });
       bpRow = rows.length - 1;
     });
+  }
+  var asker = null;
+  function bpAsk(what, n) {                // several things to build: together, or in turn?
+    if (asker) { asker.remove(); asker = null; }
+    if (!what) return;
+    asker = mk("div", "kn-ed-fmt kn-ed-ask", document.body);
+    mk("div", "kn-ed-fmt-head", asker, "Build " + what + " " + n + " things");
+    function opt(label, hint, mode) {
+      var b = mk("button", "", asker); mk("b", "", b, label); mk("span", "", b, hint);
+      b.onclick = function () { bpAdd(what, mode); };
+    }
+    opt("Together", "one click, all at once", "with");
+    opt("One after another", "one click, each dissolves " + what + " in turn", "seq");
+    opt("One click each", "a click for every one", "clicks");
+    mk("button", "cancel", asker, "Cancel").onclick = function () { bpAsk(null); };
+    mk("div", "kn-ed-bhint", asker, "Timing and effect can be changed afterwards in the build order. To have them always act as one thing, group them (Arrange).");
   }
   function bpFill() {
     if (!bp) return;
@@ -759,26 +883,42 @@
     if (bpRow >= rows.length) bpRow = -1;
     bp.at.textContent = RT.editClick == null ? "everything" : RT.editClick === 0 ? "on arrival" : "click " + RT.editClick + " of " + total;
     bp.list.innerHTML = "";
-    if (!rows.length) mk("div", "kn-ed-bnone", bp.list, "Nothing builds on this slide. Select something on it, then Build in or Build out.");
+    var fig = editable(c.s) && c.s.elements.filter(function (e) { return e.type === "live" && !e.states && e.steps > 1; })[0];
+    if (fig) {                             // stage 1 plays when the slide arrives and has no row: its time is set here
+      var f1 = mk("div", "kn-ed-bdet kn-ed-b1", bp.list);
+      mk("span", "", f1, "Figure → stage 1, on arrival: plays for");
+      var t1 = mk("input", "", f1); t1.type = "number"; t1.min = 0; t1.max = 120; t1.step = 0.5; t1.value = fig.dur || ""; t1.placeholder = "own";
+      t1.title = "How long the figure's first stage plays (empty: its own pace)";
+      mk("span", "", f1, "s");
+      t1.onchange = function () { t1.blur(); change(function () { bpSet(fig, "dur", Math.max(0, Math.min(120, +t1.value || 0)), 0); }); RT.apply(c.sec, {}); bpFill(); };
+    }
+    if (!rows.length && !fig) mk("div", "kn-ed-bnone", bp.list, "Nothing builds on this slide. Select something on it, then Build in or Build out.");
     rows.forEach(function (r, i) {
       if (r.start === "click") g++;
       if (r.do === "step") stage++;
-      var mine_ = g, row = mk("div", "kn-ed-brow" + (i === bpRow ? " sel" : "") + (sel.indexOf(r.e) >= 0 ? " hit" : ""), bp.list);
-      row.draggable = true; row.knEl = r.e;
+      var mine_ = g, row = mk("div", "kn-ed-brow" + (i === bpRow ? " sel" : "") + (r.es.some(function (e) { return sel.indexOf(e) >= 0; }) ? " hit" : ""), bp.list);
+      row.draggable = true; row.knEls = r.es;
       var num = mk("span", "num", row, r.start === "click" ? String(g) : g === 0 && i === 0 ? "•" : "");
       num.title = r.start === "click" ? "Click " + g : g === 0 ? "When the slide arrives" : "";
-      mk("span", "what", row, r.do === "step" ? "Figure → stage " + stage : (r.do === "in" ? "In  " : "Out  ") + nameOf(r.e, r.para) + (r.para != null ? "  ¶" + (r.para + 1) : ""));
+      mk("span", "what", row, r.do === "step" ? "Figure → stage " + stage : (r.do === "in" ? "In  " : "Out  ") + rowName(r));
+      if (r.do === "step") {               // how long the figure plays this stage, in the row itself
+        mk("span", "s", row, "plays");
+        var tk = mk("input", "play", row); tk.type = "number"; tk.min = 0; tk.max = 120; tk.step = 0.5; tk.value = r.dur || ""; tk.placeholder = "own";
+        tk.title = "How long the figure plays this stage, in seconds. A figure that animates in its own time draws at this pace (empty: its own pace), and a row set to After previous waits this long";
+        mk("span", "s", row, "s");
+        tk.onchange = function () { tk.blur(); bpRow = i; bpChange(function (b) { bpSet(b[i], "dur", Math.max(0, Math.min(120, +tk.value || 0)), 0); }); };
+      }
       var st = mk("select", "", row);
       [["click", "On click"], ["with", "With previous"], ["after", "After previous"]].forEach(function (o) { mk("option", "", st, o[1]).value = o[0]; });
       st.value = r.start;
       st.onchange = function () { st.blur(); bpRow = i; bpChange(function (b) { bpSet(b[i], "start", st.value, "click"); }); };
-      var dl = mk("input", "", row); dl.type = "number"; dl.min = 0; dl.max = 60; dl.step = 0.5; dl.value = r.delay; dl.title = "Delay before it starts, in seconds";
+      var dl = mk("input", "", row); dl.type = "number"; dl.min = 0; dl.max = 60; dl.step = 0.5; dl.value = r.delay; dl.title = "Delay: seconds to wait before this row starts";
       dl.onchange = function () { dl.blur(); bpRow = i; bpChange(function (b) { bpSet(b[i], "delay", Math.max(0, Math.min(60, +dl.value || 0)), 0); }); };
       mk("span", "s", row, "s");
       row.addEventListener("click", function (ev) {
         if (/^(SELECT|INPUT|BUTTON|OPTION)$/.test(ev.target.tagName)) return;
-        bpRow = i; RT.editClick = mine_;
-        if (r.e.type !== "live" || r.e.states) sel = [r.e];
+        bpRow = i; RT.editClick = mine_; bpKeys = true;
+        if (r.e.type !== "live" || r.e.states) sel = r.es.slice();
         bpShow();
       });
       row.addEventListener("dragstart", function (ev) { bpDrag = i; ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", String(i)); });
@@ -795,11 +935,7 @@
       if (i !== bpRow) return;
       var det = mk("div", "kn-ed-bdet", bp.list);          // the selected row's details
       if (r.do === "step") {
-        mk("span", "", det, "The figure takes");
-        var tk = mk("input", "", det); tk.type = "number"; tk.min = 0; tk.max = 60; tk.step = 0.5; tk.value = r.dur;
-        tk.title = "How long the figure's own animation runs, so that a row set to After previous waits for it";
-        mk("span", "", det, "s");
-        tk.onchange = function () { tk.blur(); bpChange(function (b) { bpSet(b[i], "dur", Math.max(0, Math.min(60, +tk.value || 0)), 0); }); };
+        mk("span", "", det, "Set how long this stage plays in the row above (empty: the figure's own pace).");
       } else {
         mk("span", "", det, "Effect");
         var fx = mk("select", "", det);
@@ -823,7 +959,7 @@
   }
   function bpMark() {                      // the rows of what is selected on the slide
     if (!bp) return;
-    Array.prototype.forEach.call(bp.list.querySelectorAll(".kn-ed-brow"), function (n) { n.classList.toggle("hit", sel.indexOf(n.knEl) >= 0); });
+    Array.prototype.forEach.call(bp.list.querySelectorAll(".kn-ed-brow"), function (n) { n.classList.toggle("hit", n.knEls.some(function (e) { return sel.indexOf(e) >= 0; })); });
     bp.para.style.display = sel.length === 1 && sel[0].type === "text" && parasOf(sel[0]) > 1 ? "" : "none";
   }
   function bpStep(d) {                     // which click the slide is shown at: everything, on arrival, 1, 2, …
@@ -836,7 +972,7 @@
   function bpOpen(yes) {
     if (!yes) {
       if (!bp) return;
-      clearTimeout(bpTimer); bp.el.remove(); bp = null; bpRow = -1; RT.editClick = null;
+      clearTimeout(bpTimer); bp.el.remove(); bp = null; bpRow = -1; bpKeys = false; RT.editClick = null;
       RT.apply(cur().sec, {});
       return;
     }
@@ -850,13 +986,15 @@
     var a = mk("button", "", nav, "◀"); a.title = "Show the slide one click earlier"; a.onclick = function () { bpStep(-1); a.blur(); };
     bp.at = mk("span", "at", nav);
     var z = mk("button", "", nav, "▶"); z.title = "Show the slide one click later"; z.onclick = function () { bpStep(1); z.blur(); };
+    var cols = mk("div", "kn-ed-bcols", bp.el);
+    mk("span", "", cols, "Starts"); mk("span", "d", cols, "Delay");
     bp.list = mk("div", "kn-ed-blist", bp.el);
     var r = mk("div", "kn-ed-lv-row", bp.el);
     mk("button", "go", r, "Build in").onclick = function () { bpAdd("in"); };
     mk("button", "", r, "Build out").onclick = function () { bpAdd("out"); };
     bp.para = mk("button", "", r, "In, by paragraph"); bp.para.onclick = function () { bpAdd("paras"); };
     mk("button", "", r, "Close").onclick = function () { bpOpen(false); };
-    mk("div", "kn-ed-bhint", bp.el, "Drag a row to reorder. Click a row for its details. What is not showing at the chosen click is drawn faint.");
+    mk("div", "kn-ed-bhint", bp.el, "Drag a row to reorder. Click a row for its details; Delete removes it from the order. What is not showing at the chosen click is drawn faint.");
     bpFill();
   }
 
@@ -1078,6 +1216,8 @@
     if (field(ev)) return;
     if (!on) { if ((ev.key === "e" || ev.key === "E") && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !/^(INPUT|TEXTAREA)$/.test(ev.target.tagName)) toggle(); return; }
     if (typing) { ev.stopPropagation(); if (ev.key === "Escape") { ev.preventDefault(); finish(); } return; }
+    if ((menuOpen || asker) && ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); menuClose(); bpAsk(null); return; }
+    menuClose();
     if (using && ev.key === "Escape") { ev.preventDefault(); use(null); return; }
     var cmd = ev.metaKey || ev.ctrlKey, k = ev.key, done = true, step = ev.shiftKey ? 10 : 1;
     if (cropping && !cmd) {                // crop mode: arrows slide the picture, Enter or Esc finishes
@@ -1092,11 +1232,12 @@
     else if (cmd && k === "d") paste(copy());
     else if (sorter) done = sKey(ev, cmd, k);
     else if (cmd && k === "a") { sel = cur().s.elements.slice(); draw(); }
+    else if (cmd && ev.altKey && ev.code === "KeyG") { if (ev.shiftKey) ungroup(); else group(); }
     else if (cmd || ev.altKey) done = false;
     else if (k === "e" || k === "E") toggle();
     else if (k === "s" || k === "S") openSorter(true);
     else if (k === "Escape") { sel = []; draw(); }
-    else if (k === "Backspace" || k === "Delete") remove();
+    else if (k === "Backspace" || k === "Delete") { if (bp && bpKeys) bpRemove(); else remove(); }      // after the last row, Delete does not go on to the slide's things
     else if (k === "Enter" && sel.length === 1 && sel[0].type === "text") retype(sel[0]);
     else if (k === "Enter" && sel.length === 1 && sel[0].type === "image") crop(sel[0]);
     else if (k === "]") order("forward"); else if (k === "[") order("backward");
@@ -1111,6 +1252,28 @@
   }
 
   // ---------------------------------------------------------------- on and off
+  var menuOpen = null;                     // the bar's menus: a button that drops a list of commands
+  function menuClose() { if (menuOpen) { menuOpen.el.remove(); menuOpen.btn.classList.remove("open"); menuOpen = null; } }
+  function menu(label, title, items) {     // items(): [[label, key, fn, enabled?] | null for a line]
+    var b = mk("button", "kn-ed-mbtn", bar.el, label + " ▾");
+    b.title = title;
+    function show() {
+      menuClose();
+      var el = mk("div", "kn-ed-menu", bar.el);
+      el.style.left = b.offsetLeft + "px";
+      items().forEach(function (it) {
+        if (!it) { mk("div", "sep", el); return; }
+        var x = mk("button", "", el);
+        mk("span", "", x, it[0]); mk("span", "k", x, it[1] || "");
+        x.disabled = it[3] === false;
+        x.onclick = function () { menuClose(); it[2](); };
+      });
+      b.classList.add("open");
+      menuOpen = { el: el, btn: b };
+    }
+    b.onclick = function () { b.blur(); if (menuOpen && menuOpen.btn === b) menuClose(); else show(); };
+    b.onmouseenter = function () { if (menuOpen && menuOpen.btn !== b) show(); };
+  }
   function button(label, title, fn) { var b = mk("button", "", bar.el, label); b.title = title; b.onclick = function () { fn(); b.blur(); }; return b; }
   function setup() {
     layer = mk("div", "kn-ed-layer");
@@ -1119,16 +1282,36 @@
     layer.addEventListener("dblclick", dbl);
     bar = { el: mk("div", "kn-ed-bar", document.body) };
     bar.where = mk("span", "kn-ed-where", bar.el);
-    button("Slides", "The slide sorter: select, reorder, copy and paste slides  S", function () { openSorter(!sorter); });
-    button("+ Slide", "Add an empty slide after this one", addSlide);
-    button("− Slide", "Delete this slide (in the sorter: the selected slides; Delete does the same there). Undo brings it back", removeSlides);
-    button("Slide…", "This slide's background colour and its transition to the next slide (in the sorter: the selected slides')", function () { fmtOpen(!fmt); });
-    button("Builds", "The slide's build order: what appears or goes at each click, as in Keynote", function () { bpOpen(!bp); });
-    button("+ Text", "Add a text box", function () { if (!sorter) addText(); });
-    button("Front", "Bring to front  }", function () { order("front"); });
-    button("Forward", "Bring forward  ]", function () { order("forward"); });
-    button("Backward", "Send backward  [", function () { order("backward"); });
-    button("Back", "Send to back  {", function () { order("back"); });
+    var some = function () { return !sorter && sel.length > 0; };
+    menu("Slide", "Slides: the sorter, new, delete, background and transition", function () { return [
+      [sorter ? "Close the slide sorter" : "Slide sorter", "S", function () { openSorter(!sorter); }],
+      ["New slide", "", addSlide],
+      [sorter ? "Delete the selected slides" : "Delete this slide", sorter ? "Delete" : "", removeSlides],
+      null,
+      ["Background and transition…", "", function () { fmtOpen(true); }]
+    ]; });
+    menu("Insert", "Add to the slide", function () { return [
+      ["Text box", "", addText, !sorter && editable(cur().s)]
+    ]; });
+    menu("Arrange", "Stacking order and groups", function () {
+      var us = units(sel), grouped = sel.some(function (e) { return e.group; });
+      return [
+        ["Bring to front", "}", function () { order("front"); }, some()],
+        ["Bring forward", "]", function () { order("forward"); }, some()],
+        ["Send backward", "[", function () { order("backward"); }, some()],
+        ["Send to back", "{", function () { order("back"); }, some()],
+        null,
+        ["Group", "⌥⌘G", group, !sorter && sel.length > 1 && !(us.length === 1 && us[0].es.length === sel.length)],
+        ["Ungroup", "⌥⇧⌘G", ungroup, !sorter && grouped]
+      ];
+    });
+    menu("Animate", "Builds: what appears or goes at each click, as in Keynote", function () { return [
+      ["Build in", "", function () { bpAdd("in"); }, some()],
+      ["Build out", "", function () { bpAdd("out"); }, some()],
+      ["Build in, by paragraph", "", function () { bpAdd("paras"); }, !sorter && sel.length === 1 && sel[0].type === "text" && parasOf(sel[0]) > 1],
+      null,
+      [bp ? "Close the build order" : "Build order…", "", function () { bpOpen(!bp); }]
+    ]; });
     button("Undo", "Cmd-Z", function () { restore(undo, redo); });
     button("Redo", "Shift-Cmd-Z", function () { restore(redo, undo); });
     bar.geo = mk("span", "kn-ed-geo", bar.el);
@@ -1149,6 +1332,7 @@
     document.addEventListener("pointerdown", function (ev) {
       if (typing && !typing.node.contains(ev.target)) finish();
       if (using && !bar.el.contains(ev.target)) use(null);
+      if (menuOpen && !menuOpen.el.contains(ev.target) && !menuOpen.btn.contains(ev.target)) menuClose();
     }, true);
     // Copies also go on the system clipboard, and a paste reads it: so a copy made in another
     // browser, or an element offered by another page, pastes here.
@@ -1173,7 +1357,7 @@
       capture(d.state);
     });
     Reveal.on("slidechanged", function () { if (on) { fmtFill(); if (bp) { bpRow = -1; RT.editClick = null; RT.apply(cur().sec, {}); bpFill(); } } });
-    Reveal.on("slidechanged", function () { if (on && !sorter) { finish(); cropping = null; liveFor = null; sel = []; prepare(); draw(); } });
+    Reveal.on("slidechanged", function () { bpAsk(null); if (on && !sorter) { finish(); cropping = null; liveFor = null; sel = []; prepare(); draw(); } });
     window.addEventListener("resize", function () { if (on) setTimeout(draw, 50); });
     window.addEventListener("beforeunload", function () { if (timer) { clearTimeout(timer); save(); } });
   }
@@ -1183,7 +1367,7 @@
     if (cropping) crop(null);
     if (using) use(null);                  // Done while operating a figure: its view is kept, as with Finish
     if (sorter) openSorter(false);
-    fmtOpen(false); lvOpen(false); bpOpen(false);
+    fmtOpen(false); lvOpen(false); bpOpen(false); bpAsk(null); menuClose();
     on = !on; RT.editing = on;
     RT.paint();
     document.body.classList.toggle("kn-editing", on);

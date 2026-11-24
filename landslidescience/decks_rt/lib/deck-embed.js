@@ -5,7 +5,7 @@
  *   DeckEmbed.init({
  *     getState: function () { return "map=9/60.1/-149.4&base=…"; },   // the whole view, as one string
  *     setState: function (state, opts) { … },      // show that view; opts.animate: travel there or cut
- *     steps: 7, step: function (n, replay) { … }   // optional: the figure's own numbered stages
+ *     steps: 7, step: function (n, replay, dur) { … }   // optional: the figure's own numbered stages
  *   });
  *   DeckEmbed.ready();        // once, when the figure can be shown and will obey setState
  *   DeckEmbed.changed();      // whenever the view has changed (calls are coalesced)
@@ -15,7 +15,8 @@
  *
  * Messages (window.postMessage, every one an object with a "type"):
  *   deck → figure   deck:state {state, animate}    show this view
- *                   deck:step  {step, replay}      show stage n (1-based); replay = arrived going forwards
+ *                   deck:step  {step, replay, dur} show stage n (1-based); replay = arrived going forwards;
+ *                                              dur = seconds the stage should play for (0: the figure's own pace)
  *                   deck:get   {}                  reply with deck:state (the editor's "capture this view")
  *   figure → deck   deck:ready {steps}             loaded; the deck then sends the slide's current step
  *                   deck:state {state}             the view now (after a change, or in answer to deck:get)
@@ -59,7 +60,7 @@
         var d = ev.data;
         if (ev.source !== window.parent || !d || typeof d.type !== "string") return;
         if (d.type === "deck:state" && api.setState && typeof d.state === "string") api.setState(d.state, { animate: d.animate !== false });
-        else if (d.type === "deck:step" && api.step) api.step(+d.step || 1, !!d.replay);
+        else if (d.type === "deck:step" && api.step) api.step(+d.step || 1, !!d.replay, +d.dur || 0);
         else if (d.type === "deck:get" && api.getState) post("deck:state", { state: api.getState(), asked: true });
       });
       // Clicker keys belong to the deck. Capture phase, so the figure's own handlers (a map
