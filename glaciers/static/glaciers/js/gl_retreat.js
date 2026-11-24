@@ -50,7 +50,10 @@ window.GLRetreat = (function () {
         coverOn: true, baseOn: true, debrisOn: true, barOpen: false,
         sel: null,                       // api/glacier response
         selId: null,
-        playing: false, playTimer: null
+        playing: false, playTimer: null,
+        pick: {},                        // admin: card rows selected (obs id -> true)
+        rpick: {},                       // admin: rejected-list rows selected
+        lastRej: null                    // ids of the last reject, for its Undo
     };
     var el = {};
 
@@ -64,11 +67,18 @@ window.GLRetreat = (function () {
         if (a == null) return '';
         return (a >= 100 ? Math.round(a) : a >= 10 ? a.toFixed(1) : a.toFixed(2)) + ' km²';
     }
-    // A date bracket as text: one day, or the year when that is all there is.
+    // A date bracket as text (Hig's form, "18 Aug 2003"): one day, a whole
+    // month ("Mar 2020", the S1 auto faces), or the year when that is all.
+    var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     function fmtDate(p) {
         if (!p.date_min) return 'undated';
-        if (p.date_min === p.date_max) return p.date_min;
-        if (p.date_min.slice(0, 4) === (p.date_max || '').slice(0, 4)) return p.date_min.slice(0, 4);
+        var a = p.date_min, b = p.date_max || a;
+        if (a === b) return +a.slice(8, 10) + ' ' + MON[+a.slice(5, 7) - 1] + ' ' + a.slice(0, 4);
+        if (a.slice(0, 7) === b.slice(0, 7) && a.slice(8) === '01' &&
+            +b.slice(8) === new Date(+b.slice(0, 4), +b.slice(5, 7), 0).getDate()) {
+            return MON[+a.slice(5, 7) - 1] + ' ' + a.slice(0, 4);
+        }
+        if (a.slice(0, 4) === b.slice(0, 4)) return a.slice(0, 4);
         return p.date_min.slice(0, 4) + '–' + (p.date_max || '').slice(0, 4);
     }
     function srcById(id) {
@@ -139,7 +149,12 @@ window.GLRetreat = (function () {
               paint: { 'line-color': yc, 'line-width': 1.2 } });
         add({ id: 'gx-sel-hit', type: 'line', source: 'gx-sel',
               paint: { 'line-color': '#000', 'line-opacity': 0.01, 'line-width': 10 } });
+        // Faces an admin has selected on the card, whatever the year bar says.
+        add({ id: 'gx-pick', type: 'line', source: 'gx-sel', filter: ['in', ['get', 'id'], ['literal', []]],
+              layout: { 'line-cap': 'round', 'line-join': 'round' },
+              paint: { 'line-color': '#ffffff', 'line-opacity': 0.95, 'line-width': 4 } });
         applyAll();
+        syncPick();
         // Other modules (the flow network) add their layers over these.
         (GL.layerHooks || []).forEach(function (fn) { fn(); });
     }
@@ -314,7 +329,7 @@ window.GLRetreat = (function () {
         map.setPaintProperty('gx-sel-line', 'line-width', ['case', isCur, 3, 1.1]);
         map.setPaintProperty('gx-sel-line', 'line-opacity', ['case', isCur, 1, 0.75]);
         OBS_LAYERS.concat(HIT_LAYERS, ['gx-ref-fill', 'gx-ref-line', 'gx-selref-line',
-                                       'gx-sel-line', 'gx-sel-casing']).forEach(function (id) {
+                                       'gx-sel-line', 'gx-sel-casing', 'gx-pick']).forEach(function (id) {
             if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
         });
         markRows(cur);
@@ -428,8 +443,9 @@ window.GLRetreat = (function () {
             }).catch(function () {});
     }
 
-    function select(id, fit) {
+    function select(id, fit, reopenRejected) {
         if (!id) { clearSel(); return; }
+        if (id !== S.selId) { S.pick = {}; S.lastRej = null; }
         S.selId = id;
         el.card.innerHTML = '<div class="rt-none">Loading…</div>';
         fetch('/glaciers/api/glacier/' + encodeURIComponent(id) + '/?v=' + S.stamp)
@@ -439,7 +455,9 @@ window.GLRetreat = (function () {
                 S.sel = d;
                 setRange();
                 renderCard();
+                if (reopenRejected && $('rt-rejected')) $('rt-rejected').open = true;
                 applyAll();
+                if (!fit) dropIfAway();
                 if (fit) {
                     var b = d.glacier.bbox;
                     map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 60, maxZoom: 13, duration: 600 });
@@ -453,8 +471,16 @@ window.GLRetreat = (function () {
                 applyAll();
             });
     }
+    // A selection is dropped once its glacier is wholly out of view (Hig,
+    // 2026-11-23): a stored view or a long pan left Columbia selected, and its
+    // card and g= in the link, while the map was at Endicott.
+    function dropIfAway() {
+        if (!S.sel) return;
+        var b = S.sel.glacier.bbox, v = map.getBounds();
+        if (b[2] < v.getWest() || b[0] > v.getEast() || b[3] < v.getSouth() || b[1] > v.getNorth()) clearSel();
+    }
     function clearSel() {
-        S.selId = null; S.sel = null;
+        S.selId = null; S.sel = null; S.pick = {}; S.lastRej = null;
         setRange();
         renderCard();
         applyAll();
@@ -494,35 +520,71 @@ window.GLRetreat = (function () {
                 if (y0 == null || y < y0) y0 = y;
                 if (y1 == null || y > y1) y1 = y;
             });
+            var pickable = GL.CFG.faceAdmin && s.geom === 'line';
             h += '<details class="rt-grp"' + (L.length <= 40 ? ' open' : '') + '><summary>' + esc(s.short) +
                 ' <small>' + L.length + (s.geom === 'line' ? ' terminus positions' : ' outlines') +
-                (y0 != null ? ', ' + (y0 === y1 ? y0 : y0 + '–' + y1) : '') + '</small></summary><div class="rt-rows">';
+                (y0 != null ? ', ' + (y0 === y1 ? y0 : y0 + '–' + y1) : '') + '</small></summary>' +
+                (pickable ? '<div class="rt-pickbar"><span class="rt-sub">Click faces to select them</span>' +
+                    '<button type="button" class="rt-rejsel" data-src="' + esc(s.id) + '" disabled>Reject selected</button></div>' : '') +
+                '<div class="rt-rows">';
             L.forEach(function (f) {
                 var p = f.properties;
-                h += '<button type="button" class="rt-row" data-id="' + p.id + '" data-y="' +
+                var extra = p.source === 's1auto' && p.props && p.props.score != null ? 'score ' + (+p.props.score).toFixed(2) : '';
+                h += '<button type="button" class="rt-row' + (pickable ? ' pickable' : '') + (S.pick[p.id] ? ' pick' : '') +
+                    '" data-id="' + p.id + '" data-src="' + esc(p.source) + '" data-y="' +
                     (p.y0 == null ? '' : p.y0) + '" title="' + esc(p.label) + '">' +
                     '<i style="background:' + window.LSColors.glacierYearCss(p.y0) + '"></i>' +
                     '<span>' + esc(fmtDate(p)) + '</span>' +
-                    '<small>' + (p.kind === 'debris' ? 'debris cover ' : '') +
+                    '<small>' + (p.kind === 'debris' ? 'debris cover ' : '') + extra +
                     (p.area_km2 != null ? fmtArea(p.area_km2) : '') + '</small></button>';
             });
             h += '</div></details>';
         });
+        if (GL.CFG.faceAdmin && S.lastRej) {
+            h += '<div class="rt-rej">Rejected ' + S.lastRej.length + ' face' + (S.lastRej.length === 1 ? '' : 's') +
+                '. <button type="button" id="rt-undo">Undo</button></div>';
+        }
         el.card.innerHTML = h;
         $('rt-clear').addEventListener('click', clearSel);
+        if ($('rt-undo')) $('rt-undo').addEventListener('click', function () {
+            var ids = S.lastRej; this.disabled = true;
+            rejectFace(ids, true).then(function () { S.lastRej = null; renderCard(); });
+        });
         $('rt-zoom').addEventListener('click', function () {
             var b = g.bbox;
             map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 60, maxZoom: 13, duration: 600 });
         });
         Array.prototype.forEach.call(el.card.querySelectorAll('.rt-row'), function (b) {
             b.addEventListener('click', function () {
+                if (b.classList.contains('pickable')) {          // admin: select, not the year bar
+                    var id = +b.getAttribute('data-id');
+                    if (S.pick[id]) delete S.pick[id]; else S.pick[id] = true;
+                    b.classList.toggle('pick', !!S.pick[id]);
+                    syncPick();
+                    return;
+                }
                 var y = b.getAttribute('data-y');
                 if (y !== '') { setYear(+y); GL.writeHash(); }
             });
         });
+        Array.prototype.forEach.call(el.card.querySelectorAll('.rt-rejsel'), function (b) {
+            b.addEventListener('click', function () {
+                var src = b.getAttribute('data-src');
+                var ids = Array.prototype.map.call(el.card.querySelectorAll('.rt-row.pick[data-src="' + src + '"]'),
+                                                   function (r) { return +r.getAttribute('data-id'); });
+                if (!ids.length) return;
+                b.disabled = true; b.textContent = 'Rejecting…';
+                rejectFace(ids, false).then(function () {
+                    ids.forEach(function (i) { delete S.pick[i]; });
+                    S.lastRej = ids;
+                }).catch(function (e) { b.disabled = false; b.textContent = e.message; });
+            });
+        });
+        syncPick();
         if (GL.CFG.faceAdmin) {
             var rd = document.createElement('details');
             rd.className = 'rt-grp rt-rejected';
+            rd.id = 'rt-rejected';
             rd.innerHTML = '<summary>Rejected faces <small>(admin)</small></summary><div class="rt-rows"><div class="rt-none">Loading…</div></div>';
             el.card.appendChild(rd);
             rd.addEventListener('toggle', function () {
@@ -531,17 +593,33 @@ window.GLRetreat = (function () {
                 fetch('/glaciers/api/face/rejected/?glacier=' + encodeURIComponent(g.id)).then(function (r) { return r.json(); })
                     .then(function (d) {
                         if (!d.faces || !d.faces.length) { box.innerHTML = '<div class="rt-none">None.</div>'; return; }
-                        box.innerHTML = d.faces.map(function (f) {
-                            var sr = srcById(f.source);
-                            return '<div class="rt-rejrow"><span>' + esc(f.date || 'undated') + ' · ' + esc(sr ? sr.short : f.source) +
-                                '</span><small title="' + esc(f.at) + '">' + esc(f.by) + '</small>' +
-                                '<button type="button" data-restore="' + f.id + '">Restore</button></div>';
-                        }).join('');
-                        Array.prototype.forEach.call(box.querySelectorAll('[data-restore]'), function (b) {
+                        S.rpick = {};
+                        box.innerHTML = '<div class="rt-pickbar"><span class="rt-sub">Click faces to select them</span>' +
+                            '<button type="button" id="rt-restsel" disabled>Restore selected</button></div>' +
+                            d.faces.map(function (f) {
+                                var sr = srcById(f.source);
+                                return '<button type="button" class="rt-row pickable" data-rid="' + f.id + '" title="' + esc(f.label) + '">' +
+                                    '<span>' + esc(fmtDate({ date_min: f.date, date_max: f.date_max })) + ' · ' + esc(sr ? sr.short : f.source) +
+                                    '</span><small title="rejected ' + esc(f.at) + '">' + esc(f.by) + '</small></button>';
+                            }).join('');
+                        var rb = $('rt-restsel');
+                        function syncR() {
+                            var n = Object.keys(S.rpick).length;
+                            rb.disabled = !n; rb.textContent = n ? 'Restore selected (' + n + ')' : 'Restore selected';
+                        }
+                        Array.prototype.forEach.call(box.querySelectorAll('[data-rid]'), function (b) {
                             b.addEventListener('click', function () {
-                                b.disabled = true;
-                                rejectFace(b.getAttribute('data-restore'), true).catch(function (e) { b.textContent = e.message; });
+                                var id = +b.getAttribute('data-rid');
+                                if (S.rpick[id]) delete S.rpick[id]; else S.rpick[id] = true;
+                                b.classList.toggle('pick', !!S.rpick[id]); syncR();
                             });
+                        });
+                        rb.addEventListener('click', function () {
+                            var ids = Object.keys(S.rpick).map(Number);
+                            if (!ids.length) return;
+                            rb.disabled = true; rb.textContent = 'Restoring…';
+                            rejectFace(ids, true).then(function () { S.rpick = {}; S.lastRej = null; })
+                                .catch(function (e) { rb.disabled = false; rb.textContent = e.message; });
                         });
                     }).catch(function () { box.innerHTML = '<div class="rt-none">Could not load.</div>'; });
             });
@@ -707,9 +785,10 @@ window.GLRetreat = (function () {
     // Reject (undo = restore) one face; everything that shows faces is
     // refreshed: tiles (new stamp), the selected glacier, the open plot.
     function rejectFace(id, undo) {
+        var ids = (Array.isArray(id) ? id : [id]).map(Number);
         return fetch('/glaciers/api/face/reject/', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': GL.CFG.csrf },
-            body: JSON.stringify({ id: +id, undo: !!undo })
+            body: JSON.stringify({ ids: ids, undo: !!undo })
         }).then(function (r) {
             return r.json().catch(function () { throw new Error('HTTP ' + r.status); }).then(function (d) {
                 if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
@@ -728,8 +807,21 @@ window.GLRetreat = (function () {
             });
             renderSources();
         }).catch(function () {});
-        if (S.selId) select(S.selId, false);
+        var reopen = !!($('rt-rejected') && $('rt-rejected').open);
+        if (S.selId) select(S.selId, false, reopen);
         if (window.GLNetwork && window.GLNetwork.refresh) window.GLNetwork.refresh();
+    }
+    // The selected card rows: the button's count, and a white casing on the
+    // map whatever the year bar says (the faces may be later than it).
+    function syncPick() {
+        if (!el.card) return;
+        Array.prototype.forEach.call(el.card.querySelectorAll('.rt-rejsel'), function (b) {
+            var n = el.card.querySelectorAll('.rt-row.pick[data-src="' + b.getAttribute('data-src') + '"]').length;
+            b.disabled = !n; b.textContent = n ? 'Reject selected (' + n + ')' : 'Reject selected';
+        });
+        if (map.getLayer('gx-pick')) {
+            map.setFilter('gx-pick', ['in', ['get', 'id'], ['literal', Object.keys(S.pick).map(Number)]]);
+        }
     }
     function registerClicks() {
         var T = window.LSTools;
@@ -820,6 +912,7 @@ window.GLRetreat = (function () {
         renderCard();
         renderLegend();
         registerClicks();
+        map.on('moveend', function () { if (visible()) dropIfAway(); });
 
         fetch('/glaciers/api/sources/').then(function (r) { return r.json(); }).then(function (d) {
             S.sources = d.sources; S.identity = d.identity; S.stamp = d.stamp;
@@ -848,6 +941,7 @@ window.GLRetreat = (function () {
         // Is this source switched on (true until the registry has loaded)?
         srcOn: function (id) { return !S.sources.length || !!S.srcOn[id]; },
         rejectFace: rejectFace,
+        fmtDate: fmtDate,
         srcShort: function (id) { var s = srcById(id); return s ? s.short : id; },
         renderSources: function () { if (S.sources.length) renderSources(); }
     };

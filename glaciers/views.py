@@ -370,23 +370,28 @@ def _face_admin(request):
 
 @require_POST
 def api_face_reject(request):
-    """{id: glacier_obs id, undo: bool, note: str} -> {ok, stamp, ...}."""
+    """{ids: [glacier_obs id, ...] (or id), undo: bool, note: str} ->
+    {ok, ids, rejected, stamp}. All or nothing."""
     if not _face_admin(request):
         return JsonResponse({'error': 'only an admin can reject a face'}, status=403)
     try:
         body = json.loads(request.body or b'{}')
-        oid = int(body.get('id'))
+        ids = body.get('ids') if body.get('ids') is not None else [body.get('id')]
+        ids = [int(i) for i in ids][:500]
     except (TypeError, ValueError):
-        return JsonResponse({'error': 'give the face id'}, status=400)
+        return JsonResponse({'error': 'give the face ids'}, status=400)
+    if not ids:
+        return JsonResponse({'error': 'give the face ids'}, status=400)
+    on = not body.get('undo')
     get, put = _conn()
     conn = get()
     try:
         cur = conn.cursor()
-        r = sources.set_rejected(cur, oid, request.user.get_username(), on=not body.get('undo'),
-                                 note=str(body.get('note') or ''))
-        if not r:
-            conn.rollback()
-            return JsonResponse({'error': 'no such face'}, status=404)
+        for oid in ids:
+            if not sources.set_rejected(cur, oid, request.user.get_username(), on=on,
+                                        note=str(body.get('note') or '')):
+                conn.rollback()
+                return JsonResponse({'error': 'no such face: %d' % oid}, status=404)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -394,8 +399,7 @@ def api_face_reject(request):
     finally:
         put(conn)
     bump_stamp()
-    return JsonResponse({'ok': True, 'id': oid, 'rejected': not body.get('undo'), 'source': r[0],
-                         'ext_id': r[1], 'glacier_id': r[2], 'stamp': _stamp()})
+    return JsonResponse({'ok': True, 'ids': ids, 'rejected': on, 'stamp': _stamp()})
 
 
 @require_safe
@@ -405,11 +409,12 @@ def api_face_rejected(request):
         return JsonResponse({'error': 'admins only'}, status=403)
     gid = (request.GET.get('glacier') or '')[:40]
     rows = _query("""
-        SELECT o.id, o.source, o.date_min, o.label, r.rejected_by, r.rejected_at, r.note
+        SELECT o.id, o.source, o.date_min, o.label, r.rejected_by, r.rejected_at, r.note, o.date_max
         FROM glacier_obs o JOIN glacier_face_rejects r ON r.source = o.source AND r.ext_id = o.ext_id
         WHERE o.glacier_id = %s AND o.rejected ORDER BY o.date_min, o.id""", (gid,))
     resp = JsonResponse({'faces': [
-        {'id': r[0], 'source': r[1], 'date': r[2].isoformat() if r[2] else None, 'label': r[3],
+        {'id': r[0], 'source': r[1], 'date': r[2].isoformat() if r[2] else None,
+         'date_max': r[7].isoformat() if r[7] else None, 'label': r[3],
          'by': r[4], 'at': r[5].isoformat(timespec='minutes'), 'note': r[6]} for r in rows]})
     resp['Cache-Control'] = 'no-store'
     return resp

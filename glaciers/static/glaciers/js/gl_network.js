@@ -177,7 +177,8 @@ window.GLNetwork = (function () {
         if (!f || !CFG.faceAdmin || f.how === 'outline' || String(f.id).charAt(0) !== 'o' || !window.GLRetreat) {
             a.innerHTML = ''; return;
         }
-        var lab = (f.date_min === f.date_max ? f.date_min : f.date_min + ' to ' + f.date_max) + ' ' + (SRC_LABEL[f.source] || f.source);
+        var lab = ((window.GLRetreat && window.GLRetreat.fmtDate) ? window.GLRetreat.fmtDate(f)
+                   : (f.date_min === f.date_max ? f.date_min : f.date_min + ' to ' + f.date_max)) + ' ' + (SRC_LABEL[f.source] || f.source);
         a.innerHTML = esc(lab) + (f.label ? ' · ' + esc(f.label) : '') + ' <button type="button" id="nw-rej" title="Take this face off the map and the plots (kept; restore it from the glacier\'s card)">Reject this face</button>';
         $('nw-rej').addEventListener('click', function () {
             this.disabled = true;
@@ -378,7 +379,8 @@ window.GLNetwork = (function () {
         Array.prototype.forEach.call(c.querySelectorAll('.nw-pt'), function (p) {
             var f = F[+p.getAttribute('data-i')];
             p.addEventListener('mouseenter', function () {
-                tip.textContent = (f.date_min === f.date_max ? f.date_min : f.date_min + ' to ' + f.date_max) + ' · ' +
+                tip.textContent = ((window.GLRetreat && window.GLRetreat.fmtDate) ? window.GLRetreat.fmtDate(f)
+                                   : (f.date_min === f.date_max ? f.date_min : f.date_min + ' to ' + f.date_max)) + ' · ' +
                     DK(f[S.method]).toFixed(2) + ' km · ' + (SRC_LABEL[f.source] || f.source) +
                     (f.label ? ' · ' + f.label : '') +
                     (f.how === 'outline' ? ' · where the line leaves this outline' : f.how !== 'crossing' ? ' · ' + f.how : '');

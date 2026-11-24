@@ -662,15 +662,19 @@ carry month, score, method, along_m, build, video_id. Being a source, the
 faces get everything a mirrored terminus has: the year colours, the year
 bar, a source switch, the glacier card and the plot.
 
-**Rejecting a face** (site admins and superusers): *Reject this face* on a
+**Rejecting a face** (site admins and superusers): on the glacier's card,
+click face rows of a terminus source to select them (white on the map,
+whatever the year bar says; for admins a click there selects instead of
+moving the year bar), then *Reject selected*; or *Reject this face* on a
 face's map popup, or click its point on the plot. Any terminus row can be
 rejected, published ones too. `glacier_face_rejects` (source, ext_id, who,
 when) is the record and survives a refetch or a re-run; `glacier_obs.rejected`
 is the flag every face query filters on (tiles, card, plot, draft bed,
 outline points), re-applied after each load (`apply_rejects`). The extent
 stamp is bumped (now in ms), so tiles reload under a new URL. Undo is
-offered at once; later, *Rejected faces* on the glacier's card lists them
-with Restore. API: `POST /glaciers/api/face/reject/ {id, undo}`,
+offered at once; later, *Rejected faces* on the glacier's card lists them,
+select and *Restore selected*. API: `POST /glaciers/api/face/reject/
+{ids, undo}` (all or nothing),
 `GET /glaciers/api/face/rejected/?glacier=`.
 
 **Face switches**: the top of *Extent sources* has an *Ice faces* bar with
@@ -679,5 +683,10 @@ are not faces and are left alone) and *traced here* (the network editor's
 face kind, `LSScarps.setHiddenKinds`; `tf=0` in the URL). The distance plot
 follows the same switches and says how many faces are switched off.
 Starting an editing session turns traced faces back on.
+
+Also 2026-11-23: card dates read "18 Aug 2003", a whole month "Mar 2020"; a
+selected glacier is dropped once the map has moved wholly off it (a stored
+view had left Columbia selected, card and `g=`, with the map at Endicott);
+the year bar ends at the current year (it stopped at 2025, hiding 2026).
 
 New schema: `manage.py migrate_glaciers` once per environment.
