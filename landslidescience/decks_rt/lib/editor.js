@@ -288,6 +288,7 @@
     var c = cur();
     if (!editable(c.s)) return;
     ev.preventDefault();
+    bpKeys = false;                        // a click on the slide: Delete means what is selected there
     var p = point(ev), h = ev.target.getAttribute && ev.target.getAttribute("data-h");
     var under = hits(p), was = sel.slice();
     if (cropping) {
@@ -763,7 +764,14 @@
   // ---------------------------------------------------------------- build order
   // The "Builds" panel: the slide's rows in order (deck.js: builds). A slide that came from the
   // importer has its order in the elements; the first change here writes it down as rows.
-  var bp = null, bpRow = -1, bpDrag = -1, bpTimer = 0;
+  var bp = null, bpRow = -1, bpDrag = -1, bpTimer = 0, bpKeys = false;   // bpKeys: a row was clicked last, so Delete means the row
+  function bpRemove() {                    // Delete on the selected row
+    var i = bpRow, rows = RT.plan(cur().s), r = rows[i];
+    if (!r) return;
+    if (r.do === "step") { status("A figure's stages stay in the order. To drop one, select the figure and use Remove step.", true); return; }
+    bpChange(function (b) { b.splice(i, 1); bpRow = Math.min(i, b.length - 1); });
+    status("Removed from the build order (the thing itself stays on the slide)");
+  }
   function parasOf(e) { return (e.runs ? e.runs.map(function (r) { return r.t; }).join("") : e.text || "").split("\n").length; }
   function eid(s, e) {                     // the name a build row knows an element by
     if (e.id) return e.id;
@@ -909,7 +917,7 @@
       mk("span", "s", row, "s");
       row.addEventListener("click", function (ev) {
         if (/^(SELECT|INPUT|BUTTON|OPTION)$/.test(ev.target.tagName)) return;
-        bpRow = i; RT.editClick = mine_;
+        bpRow = i; RT.editClick = mine_; bpKeys = true;
         if (r.e.type !== "live" || r.e.states) sel = r.es.slice();
         bpShow();
       });
@@ -964,7 +972,7 @@
   function bpOpen(yes) {
     if (!yes) {
       if (!bp) return;
-      clearTimeout(bpTimer); bp.el.remove(); bp = null; bpRow = -1; RT.editClick = null;
+      clearTimeout(bpTimer); bp.el.remove(); bp = null; bpRow = -1; bpKeys = false; RT.editClick = null;
       RT.apply(cur().sec, {});
       return;
     }
@@ -986,7 +994,7 @@
     mk("button", "", r, "Build out").onclick = function () { bpAdd("out"); };
     bp.para = mk("button", "", r, "In, by paragraph"); bp.para.onclick = function () { bpAdd("paras"); };
     mk("button", "", r, "Close").onclick = function () { bpOpen(false); };
-    mk("div", "kn-ed-bhint", bp.el, "Drag a row to reorder. Click a row for its details. What is not showing at the chosen click is drawn faint.");
+    mk("div", "kn-ed-bhint", bp.el, "Drag a row to reorder. Click a row for its details; Delete removes it from the order. What is not showing at the chosen click is drawn faint.");
     bpFill();
   }
 
@@ -1229,7 +1237,7 @@
     else if (k === "e" || k === "E") toggle();
     else if (k === "s" || k === "S") openSorter(true);
     else if (k === "Escape") { sel = []; draw(); }
-    else if (k === "Backspace" || k === "Delete") remove();
+    else if (k === "Backspace" || k === "Delete") { if (bp && bpKeys) bpRemove(); else remove(); }      // after the last row, Delete does not go on to the slide's things
     else if (k === "Enter" && sel.length === 1 && sel[0].type === "text") retype(sel[0]);
     else if (k === "Enter" && sel.length === 1 && sel[0].type === "image") crop(sel[0]);
     else if (k === "]") order("forward"); else if (k === "[") order("backward");

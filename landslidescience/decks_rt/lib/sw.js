@@ -7,7 +7,9 @@
  * background (deck:fill from the page; progress is posted back as deck:offline). Requests:
  *   the page and deck.json   network first (3 s), so a changed deck shows at once when
  *                            there is a connection; the saved copy otherwise
- *   every other deck file    the saved copy first; byte ranges (movies) are cut from it
+ *   every other deck file    the saved copy first; byte ranges (movies) are cut from it. A copy saved
+ *                            by an earlier version is used only if the file has not changed since
+ *                            (or there is no connection): a changed figure must not show its old self
  *   anything else            untouched: maps in frames belong to other pages, and saves
  *                            from the editor are not GETs
  * A new version fills its own cache, taking unchanged files from the old one without
@@ -24,6 +26,7 @@ const MANIFEST = SCOPE + "__manifest";
 const FRESH = [SCOPE + "index.html", SCOPE + "deck.json"];
 const abs = (p) => (p[0] === "/" ? ORIGIN + p : SCOPE + p);
 const KNOWN = new Set(FILES.map((f) => abs(f[0])));
+const TAGS = new Map(FILES.map((f) => [abs(f[0]), [f[0], f[2]]]));
 let filling = null;
 
 self.addEventListener("install", () => self.skipWaiting());
@@ -70,12 +73,18 @@ self.addEventListener("message", (ev) => {
   ev.waitUntil(filling);
 });
 
-async function saved(url) {                    // this version's copy, else an older version's
+async function saved(url, any) {               // this version's copy, else an older version's of the same file (any: of any age)
   const hit = await (await caches.open(CACHE)).match(url);
   if (hit) return hit;
+  const [path, tag] = TAGS.get(url) || [];
   for (const k of await caches.keys()) {
     if (!k.startsWith(PREFIX) || k === CACHE) continue;
-    const old = await (await caches.open(k)).match(url);
+    const c = await caches.open(k);
+    if (!any) {
+      const m = await c.match(MANIFEST);
+      if (!tag || !m || (await m.json())[path] !== tag) continue;
+    }
+    const old = await c.match(url);
     if (old) return old;
   }
   return null;
@@ -106,9 +115,10 @@ self.addEventListener("fetch", (ev) => {
         if (r.ok) return r;
         if (r.status === 404 || r.status === 403) return r;      // taken down, or no longer this visitor's: not the saved copy
       } catch (e) { /* no connection: the saved copy */ }
-      return (await saved(url)) || fetch(req);
+      return (await saved(url, true)) || fetch(req);
     })());
   } else {
-    ev.respondWith(saved(url).then((hit) => hit ? ranged(req, hit) : fetch(req)));
+    ev.respondWith(saved(url).then((hit) => hit ? ranged(req, hit) :
+      fetch(req).catch(() => saved(url, true).then((old) => old ? ranged(req, old) : Response.error()))));
   }
 });
