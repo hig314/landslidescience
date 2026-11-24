@@ -24,7 +24,7 @@ from pathlib import Path
 from django.conf import settings
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
-from django.views.decorators.http import require_safe
+from django.views.decorators.http import require_POST, require_safe
 
 from . import sources
 
@@ -150,7 +150,7 @@ STAMP_FILE = DATA_DIR / '.extent_stamp'
 
 def bump_stamp():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    STAMP_FILE.write_text(str(int(time.time())))
+    STAMP_FILE.write_text(str(int(time.time() * 1000)))   # ms: two rejects in one second differ
 
 
 def _stamp():
@@ -214,7 +214,7 @@ SELECT
            extract(year FROM o.date_max)::int AS y1,
            ST_AsMVTGeom({geom_o}, b.m, 4096, 64, true) AS geom
     FROM glacier_obs o, b
-    WHERE %(obs)s AND o.{gcol} && b.{env}
+    WHERE %(obs)s AND o.{gcol} && b.{env} AND NOT o.rejected
       AND (o.area_km2 IS NULL OR o.area_km2 >= %(amin)s)) q WHERE q.geom IS NOT NULL),
  (SELECT ST_AsMVT(q, 'lines', 4096, 'geom') FROM (
     SELECT c.glacier_id AS gid, c.is_main AS main,
@@ -293,7 +293,7 @@ def api_search(request):
     like = '%' + q.replace('\\', '').replace('%', '').replace('_', ' ').lower() + '%'
     rows = _query("""
         SELECT g.id, g.name, g.glims_id, g.area_km2, g.cenlon, g.cenlat,
-               (SELECT count(*) FROM glacier_obs o WHERE o.glacier_id = g.id)
+               (SELECT count(*) FROM glacier_obs o WHERE o.glacier_id = g.id AND NOT o.rejected)
         FROM glaciers g
         WHERE lower(g.name) LIKE %s OR g.glims_id = %s OR g.id = %s
         ORDER BY (lower(g.name) = %s) DESC, g.area_km2 DESC NULLS LAST LIMIT 30""",
@@ -318,7 +318,7 @@ def api_glacier(request, gid):
         SELECT id, source, ext_id, kind, link_how, date_min, date_max, label, area_km2,
                props, ST_AsGeoJSON(geom, 6),
                ST_XMin(geom), ST_YMin(geom), ST_XMax(geom), ST_YMax(geom)
-        FROM glacier_obs WHERE glacier_id = %s
+        FROM glacier_obs WHERE glacier_id = %s AND NOT rejected
         ORDER BY date_min NULLS LAST, source, area_km2 DESC NULLS LAST, id""", (gid,))
     bbox = [g[12], g[13], g[14], g[15]]
     feats = []
@@ -354,3 +354,62 @@ def api_obs(request, obs_id):
         'date_min': o[5].isoformat() if o[5] else None,
         'date_max': o[6].isoformat() if o[6] else None,
         'label': o[7], 'area_km2': o[8], 'props': o[9], 'glacier_id': o[10], 'glacier_name': o[11]}), 300)
+
+
+# ---------------------------------------------------------------------------
+# Rejecting a face (2026-11-23): an admin's "this one is wrong" on any
+# terminus row (S1 auto faces first of all). Recorded in glacier_face_rejects
+# by (source, ext_id) so it survives a refetch or a re-run of the detector;
+# the row is kept and flagged, and every face query skips flagged rows.
+# Site admins (and superusers) only.
+# ---------------------------------------------------------------------------
+def _face_admin(request):
+    from inventory.auth import is_site_admin
+    return is_site_admin(request.user)
+
+
+@require_POST
+def api_face_reject(request):
+    """{id: glacier_obs id, undo: bool, note: str} -> {ok, stamp, ...}."""
+    if not _face_admin(request):
+        return JsonResponse({'error': 'only an admin can reject a face'}, status=403)
+    try:
+        body = json.loads(request.body or b'{}')
+        oid = int(body.get('id'))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': 'give the face id'}, status=400)
+    get, put = _conn()
+    conn = get()
+    try:
+        cur = conn.cursor()
+        r = sources.set_rejected(cur, oid, request.user.get_username(), on=not body.get('undo'),
+                                 note=str(body.get('note') or ''))
+        if not r:
+            conn.rollback()
+            return JsonResponse({'error': 'no such face'}, status=404)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        put(conn)
+    bump_stamp()
+    return JsonResponse({'ok': True, 'id': oid, 'rejected': not body.get('undo'), 'source': r[0],
+                         'ext_id': r[1], 'glacier_id': r[2], 'stamp': _stamp()})
+
+
+@require_safe
+def api_face_rejected(request):
+    """The rejected faces of one glacier (?glacier=<id>), for restoring."""
+    if not _face_admin(request):
+        return JsonResponse({'error': 'admins only'}, status=403)
+    gid = (request.GET.get('glacier') or '')[:40]
+    rows = _query("""
+        SELECT o.id, o.source, o.date_min, o.label, r.rejected_by, r.rejected_at, r.note
+        FROM glacier_obs o JOIN glacier_face_rejects r ON r.source = o.source AND r.ext_id = o.ext_id
+        WHERE o.glacier_id = %s AND o.rejected ORDER BY o.date_min, o.id""", (gid,))
+    resp = JsonResponse({'faces': [
+        {'id': r[0], 'source': r[1], 'date': r[2].isoformat() if r[2] else None, 'label': r[3],
+         'by': r[4], 'at': r[5].isoformat(timespec='minutes'), 'note': r[6]} for r in rows]})
+    resp['Cache-Control'] = 'no-store'
+    return resp

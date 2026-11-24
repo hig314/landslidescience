@@ -68,6 +68,8 @@ RGI7 = {
 # id -> description. `kind` is what a row is unless `kind_of` says otherwise.
 # `dates(props)` returns (date_min, date_max) as ISO strings: a BRACKET, since
 # several of these sources know the year and nothing finer.
+S1AUTO = 's1auto'
+
 SOURCES = {
     'glims': {
         'title': 'GLIMS Glacier Database',
@@ -128,6 +130,26 @@ SOURCES = {
         'fetch': {'type': 'file', 'file': 'usgs_benchmark.geojsonl'},
         'link': 'overlap',
         'color': '#2ca02c',
+    },
+    # Ours, not mirrored: ice faces found in the Sentinel-1 timelapses we
+    # build (tools/glaciers/s1_build/faces.py), loaded per build by
+    # `manage.py s1_videos faces`, never by fetch_glacier_source. Only the
+    # months whose own image shows the face clearly (Hig, 2026-11-23).
+    S1AUTO: {
+        'title': 'Ice faces detected in our Sentinel-1 timelapses',
+        'short': 'S1 auto faces',
+        'what': 'Calving faces found automatically in the monthly Sentinel-1 radar '
+                'timelapses built here, kept only for the months whose image shows the '
+                'face clearly (a bright-to-water step along most of it, wall to wall). '
+                'Not hand-checked; an admin can reject a bad one.',
+        'cite': 'Detected at landslidescience.org from Copernicus Sentinel-1 RTC '
+                '(Microsoft Planetary Computer, sentinel-1-rtc).',
+        'doi': '',
+        'url': 'https://planetarycomputer.microsoft.com/dataset/sentinel-1-rtc',
+        'geom': 'line',
+        'fetch': None,
+        'link': 'given',
+        'color': '#00acc1',
     },
 }
 
@@ -214,6 +236,19 @@ CREATE TABLE IF NOT EXISTS glacier_sources (
     n_linked    integer NOT NULL DEFAULT 0,
     year_min    integer,
     year_max    integer
+);
+
+-- An admin's "this face is wrong" (2026-11-23). Keyed on (source, ext_id),
+-- which survives a refetch or a re-run of the detector; `rejected` on the
+-- row is the copy every query filters on, re-applied after each load.
+ALTER TABLE glacier_obs ADD COLUMN IF NOT EXISTS rejected boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS glacier_face_rejects (
+    source      text NOT NULL,
+    ext_id      text NOT NULL,
+    rejected_by text NOT NULL,
+    rejected_at timestamptz NOT NULL DEFAULT now(),
+    note        text NOT NULL DEFAULT '',
+    PRIMARY KEY (source, ext_id)
 );
 """
 
@@ -503,15 +538,74 @@ def load_source(cur, sid, log=lambda s: None, dry=False):
                     'WHERE source = %s', (sid,))
     set_tile_geom(cur, 'glacier_obs', 'source = %s', (sid,), poly=poly)
     link(cur, sid)
+    apply_rejects(cur, sid)
+    rep.update(source_stats(cur, sid))
+    cur.execute('ANALYZE glacier_obs')
+    return rep
+
+
+def source_stats(cur, sid):
+    """Recount one source into glacier_sources (rejected rows not counted)."""
     cur.execute('SELECT count(*), count(glacier_id), min(extract(year from date_min))::int, '
-                'max(extract(year from date_max))::int FROM glacier_obs WHERE source = %s', (sid,))
+                'max(extract(year from date_max))::int FROM glacier_obs WHERE source = %s AND NOT rejected', (sid,))
     n, nl, y0, y1 = cur.fetchone()
     cur.execute('INSERT INTO glacier_sources (source, fetched_at, n, n_linked, year_min, year_max) '
                 'VALUES (%s, now(), %s, %s, %s, %s) ON CONFLICT (source) DO UPDATE SET '
                 'fetched_at = now(), n = EXCLUDED.n, n_linked = EXCLUDED.n_linked, '
                 'year_min = EXCLUDED.year_min, year_max = EXCLUDED.year_max', (sid, n, nl, y0, y1))
-    cur.execute('ANALYZE glacier_obs')
-    rep.update(n=n, linked=nl, year_min=y0, year_max=y1)
+    return {'n': n, 'linked': nl, 'year_min': y0, 'year_max': y1}
+
+
+def apply_rejects(cur, sid):
+    """Mark a (re)loaded source's rows that an admin has rejected."""
+    cur.execute('UPDATE glacier_obs o SET rejected = true FROM glacier_face_rejects r '
+                'WHERE o.source = %s AND r.source = o.source AND r.ext_id = o.ext_id', (sid,))
+    return cur.rowcount
+
+
+def set_rejected(cur, obs_id, user, on=True, note=''):
+    """Reject (or restore) one face row. Returns (source, ext_id, glacier_id)
+    or None if there is no such terminus row."""
+    cur.execute("SELECT source, ext_id, glacier_id FROM glacier_obs WHERE id = %s AND kind = 'terminus'",
+                (obs_id,))
+    r = cur.fetchone()
+    if not r:
+        return None
+    if on:
+        cur.execute('INSERT INTO glacier_face_rejects (source, ext_id, rejected_by, note) VALUES (%s,%s,%s,%s) '
+                    'ON CONFLICT (source, ext_id) DO UPDATE SET rejected_by = EXCLUDED.rejected_by, '
+                    'rejected_at = now(), note = EXCLUDED.note', (r[0], r[1], user, note[:300]))
+    else:
+        cur.execute('DELETE FROM glacier_face_rejects WHERE source = %s AND ext_id = %s', (r[0], r[1]))
+    cur.execute('UPDATE glacier_obs SET rejected = %s WHERE source = %s AND ext_id = %s', (on, r[0], r[1]))
+    source_stats(cur, r[0])
+    return r
+
+
+def load_s1_faces(cur, build, fc, glacier_id, video_id=None):
+    """Replace one build's S1 auto faces (faces.py's faces.geojson) in
+    glacier_obs. ext_id = '<build>:<month>', so a rejection made against an
+    earlier run still holds for the same month. A face is dated to its
+    month (the frame is a monthly mean). Returns a report dict."""
+    import calendar
+    cur.execute('DELETE FROM glacier_obs WHERE source = %s AND ext_id LIKE %s', (S1AUTO, build + ':%'))
+    old = cur.rowcount
+    sql = ('INSERT INTO glacier_obs (source, ext_id, props, kind, glacier_id, link_how, date_min, date_max, '
+           'label, geom) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,' + _LINE + ')')
+    rows = []
+    for f in fc['features']:
+        p = f['properties']
+        y, m = int(p['month'][:4]), int(p['month'][5:7])
+        props = dict(p, build=build, video_id=video_id, min_score=fc.get('min_score'))
+        rows.append((S1AUTO, '%s:%s' % (build, p['month']), json.dumps(props), 'terminus', glacier_id,
+                     'given' if glacier_id else None, '%04d-%02d-01' % (y, m),
+                     '%04d-%02d-%02d' % (y, m, calendar.monthrange(y, m)[1]),
+                     'S1 auto, score %.2f (%s)' % (p['score'], build), json.dumps(f['geometry'])))
+    cur.executemany(sql, rows)
+    set_tile_geom(cur, 'glacier_obs', 'source = %s AND ext_id LIKE %s', (S1AUTO, build + ':%'), poly=False)
+    nrej = apply_rejects(cur, S1AUTO)
+    rep = {'build': build, 'replaced': old, 'loaded': len(rows), 'rejected_kept': nrej}
+    rep.update(source_stats(cur, S1AUTO))
     return rep
 
 
@@ -545,6 +639,8 @@ _NEAREST_SUB = """
 
 def link(cur, sid):
     how = SOURCES[sid]['link']
+    if how == 'given':            # set by whatever loaded the rows
+        return
     cur.execute("UPDATE glacier_obs SET glacier_id = NULL, link_how = NULL WHERE source = %s", (sid,))
     par = {'sid': sid, 'deg': _NEAR_DEG, 'm': _NEAR_M}
     if how == 'id_then_overlap':

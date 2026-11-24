@@ -16,6 +16,8 @@ urlpatterns = [
     path('api/search/', views.api_search, name='api_search'),
     re_path(r'^api/glacier/(?P<gid>RGI2000-v7\.0-G-\d\d-\d{5})/$', views.api_glacier, name='api_glacier'),
     re_path(r'^api/obs/(?P<obs_id>\d{1,12})/$', views.api_obs, name='api_obs'),
+    path('api/face/reject/', views.api_face_reject, name='api_face_reject'),
+    path('api/face/rejected/', views.api_face_rejected, name='api_face_rejected'),
     # The flow network and our face lines (glaciers/network.py). The
     # api/scarps/ paths are the landform-trace editor's contract, which is
     # mounted on this table from /glaciers/ with api = '/glaciers/lines/'.

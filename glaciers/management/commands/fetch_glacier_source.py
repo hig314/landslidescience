@@ -40,8 +40,11 @@ class Command(BaseCommand):
             for sid, s in sources.SOURCES.items():
                 self.stdout.write('%s\n    %s\n    doi:%s' % (sid, s['title'], s['doi']))
             return
-        ids = list(sources.SOURCES) if (o['all'] or (o['relink'] and not o['source'])) \
+        # sources with no fetch (S1 auto faces) are loaded by their own command
+        ids = [k for k, s in sources.SOURCES.items() if s['fetch']] if (o['all'] or (o['relink'] and not o['source'])) \
             else ([o['source']] if o['source'] else [])
+        if ids and ids[0] in sources.SOURCES and not sources.SOURCES[ids[0]]['fetch']:
+            raise CommandError('%s is not fetched; it is loaded by manage.py s1_videos faces' % ids[0])
         if not ids:
             raise CommandError('give a source id, rgi7, --all, or --list')
         for sid in ids:

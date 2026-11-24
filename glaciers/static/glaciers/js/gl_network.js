@@ -29,15 +29,21 @@ window.GLNetwork = (function () {
     var GL, map, CFG;
     var API = '/glaciers/lines/';
     var SRC_COLOR = { nsidc0634: '#d62728', usgs_glacier_bay: '#9467bd', ours: '#ff4081',
-                      glims: '#78909c', usgs_benchmark: '#8d6e63' };
-    var SRC_LABEL = { nsidc0634: 'McNabb & Hock', usgs_glacier_bay: 'USGS Glacier Bay', ours: 'Ours',
-                      glims: 'GLIMS outlines', usgs_benchmark: 'USGS benchmark outlines' };
+                      glims: '#78909c', usgs_benchmark: '#8d6e63', s1auto: '#00acc1' };
+    var SRC_LABEL = { nsidc0634: 'McNabb & Hock', usgs_glacier_bay: 'USGS Glacier Bay', ours: 'Traced here',
+                      glims: 'GLIMS outlines', usgs_benchmark: 'USGS benchmark outlines', s1auto: 'S1 auto' };
     var S = { path: null, pathId: null, method: 'x_m', axes: 'tx', editing: false, refOn: true };
     try { if (localStorage.getItem('gl_nw_axes') === 'dx') S.axes = 'dx'; } catch (e) {}
     // Outline points (where the path leaves a mapped outline) are on unless
     // this browser switched them off (Hig, 2026-11-20: show them, light).
     S.outlines = true;
     try { if (localStorage.getItem('gl_nw_outlines') === '0') S.outlines = false; } catch (e) {}
+    // Faces traced here are shown unless switched off (the "Ice faces" bar in
+    // the sidebar, gl_retreat.js; tf=0 in the URL). The plot follows the same
+    // switches as the map: traced here, and each source.
+    S.traced = true;
+    // The last face rejected from the plot, for its Undo.
+    S.rejected = null;
     var el = {};
 
     function $(id) { return document.getElementById(id); }
@@ -143,12 +149,54 @@ window.GLNetwork = (function () {
         var n = (fid && fid.charAt(0) === 'o') ? +fid.slice(1) : -1;
         map.setFilter('gn-hi', ['==', ['get', 'id'], n]);
     }
+    function switchedOn(f) {
+        if (f.source === 'ours') return S.traced;
+        return !window.GLRetreat || !window.GLRetreat.srcOn || window.GLRetreat.srcOn(f.source);
+    }
+    function setTraced(on) {
+        S.traced = !!on;
+        if (window.LSScarps && S.ready) window.LSScarps.setHiddenKinds(S.traced ? [] : ['face']);
+        if (window.GLRetreat && window.GLRetreat.renderSources) window.GLRetreat.renderSources();
+        renderChart(); GL.writeHash();
+    }
+    // Under the plot: the clicked face, with Reject for an admin (published
+    // and S1 auto faces; a face traced here is deleted in the editor), or the
+    // Undo of the last reject.
+    function renderAct(f) {
+        var a = $('nw-act');
+        if (!a) return;
+        if (S.rejected) {
+            a.innerHTML = 'Rejected the ' + esc(S.rejected.label) + ' face. <button type="button" id="nw-undo">Undo</button>';
+            $('nw-undo').addEventListener('click', function () {
+                var id = S.rejected.id; this.disabled = true;
+                window.GLRetreat.rejectFace(id, true).then(function () { S.rejected = null; })
+                    .catch(function (e) { a.textContent = e.message; });
+            });
+            return;
+        }
+        if (!f || !CFG.faceAdmin || f.how === 'outline' || String(f.id).charAt(0) !== 'o' || !window.GLRetreat) {
+            a.innerHTML = ''; return;
+        }
+        var lab = (f.date_min === f.date_max ? f.date_min : f.date_min + ' to ' + f.date_max) + ' ' + (SRC_LABEL[f.source] || f.source);
+        a.innerHTML = esc(lab) + (f.label ? ' · ' + esc(f.label) : '') + ' <button type="button" id="nw-rej" title="Take this face off the map and the plots (kept; restore it from the glacier\'s card)">Reject this face</button>';
+        $('nw-rej').addEventListener('click', function () {
+            this.disabled = true;
+            var b = this;
+            window.GLRetreat.rejectFace(String(f.id).slice(1), false).then(function () {
+                S.rejected = { id: String(f.id).slice(1), label: lab };
+                renderAct(null);
+            }).catch(function (e) { b.disabled = false; b.textContent = e.message; });
+        });
+    }
     function renderChart() {
         var c = el.chart;
         if (!S.path) { c.style.display = 'none'; c.innerHTML = ''; return; }
         c.style.display = visible() ? '' : 'none';
-        var P = S.path, nOut = P.faces.filter(function (f) { return f.t0 != null && f.how === 'outline'; }).length;
-        var F = P.faces.filter(function (f) { return f.t0 != null && (S.outlines || f.how !== 'outline'); });
+        var P = S.path;
+        var shown = P.faces.filter(function (f) { return f.t0 != null && switchedOn(f); });
+        var nOff = P.faces.filter(function (f) { return f.t0 != null && f.how !== 'outline' && !switchedOn(f); }).length;
+        var nOut = shown.filter(function (f) { return f.how === 'outline'; }).length;
+        var F = shown.filter(function (f) { return S.outlines || f.how !== 'outline'; });
         var W = Math.max(420, Math.min(900, el.chart.parentNode.clientWidth - 40)), H = 270;
         var m = { l: 46, r: 14, t: 30, b: 34 };
         // The distance axis covers where the faces are, not the whole line:
@@ -272,6 +320,7 @@ window.GLNetwork = (function () {
         F.forEach(function (f) { srcs[f.source] = (srcs[f.source] || 0) + 1; });
         var head = '<div class="nw-head"><b>' + esc(P.reaches[0].name || 'Flow line ' + P.line_id) + '</b> to the outlet · ' +
             (P.total_m / 1000).toFixed(1) + ' km · ' + (F.length - (S.outlines ? nOut : 0)) + ' ice faces ' +
+            (nOff ? '<span class="rt-sub" title="Switched off in the sidebar (Ice faces, Extent sources)">(' + nOff + ' switched off) </span>' : '') +
             Object.keys(srcs).map(function (k) {
                 return '<span class="nw-key"><i style="background:' + (SRC_COLOR[k] || '#555') + '"></i>' + esc(SRC_LABEL[k] || k) + ' ' + srcs[k] + '</span>';
             }).join('') +
@@ -290,9 +339,11 @@ window.GLNetwork = (function () {
                     '; color:' + v.color + '" title="' + esc(v.kind_label) + '">▶ ' + esc((v.caption || v.kind_label).slice(0, 34)) +
                     (v.date ? ' · ' + esc(v.date) : '') + '</button>';
             }).join('') + '</div>' : '';
-        c.innerHTML = head + s + vids + '<div class="nw-tip" id="nw-tip"></div>' +
+        c.innerHTML = head + s + vids + '<div class="nw-tip" id="nw-tip"></div><div class="nw-act" id="nw-act"></div>' +
             '<div class="nw-foot">Filled = the face crosses the line; ring = it stops short and is projected onto it; ' +
-            'diamond = pinned by hand; pale = where the line leaves a mapped outline. Click a point to set the year bar.</div>';
+            'diamond = pinned by hand; pale = where the line leaves a mapped outline. Click a point to set the year bar' +
+            (CFG.faceAdmin ? ' and to reject it' : '') + '.</div>';
+        renderAct(null);
         if ($('nw-outl')) $('nw-outl').addEventListener('change', function () {
             S.outlines = this.checked;
             try { localStorage.setItem('gl_nw_outlines', S.outlines ? '1' : '0'); } catch (e) {}
@@ -336,6 +387,8 @@ window.GLNetwork = (function () {
             p.addEventListener('mouseleave', function () { tip.textContent = ''; hi(null); });
             p.addEventListener('click', function () {
                 if (window.GLRetreat && window.GLRetreat.setYear) window.GLRetreat.setYear(Math.floor(f.t0));
+                S.rejected = null;
+                renderAct(f);
             });
         });
     }
@@ -392,6 +445,7 @@ window.GLNetwork = (function () {
             say('The drawing library did not load; check the connection and reload.', true); return;
         }
         if (!window.LSTools.claim('glnet')) return;
+        if (!S.traced) setTraced(true);           // editing faces you cannot see helps nobody
         S.editing = true;
         if (GL.tab() === 'flow') GL.showTab('retreat', true);
         try {
@@ -635,9 +689,11 @@ window.GLNetwork = (function () {
         var X = GL.hash.extras || {};
         // Until the network has loaded, a link's np= is carried, not dropped.
         var np0 = (X.np != null && isFinite(+X.np)) ? String(+X.np) : null;
+        if (X.tf === '0') S.traced = false;
         GL.addHashExtras(function () {
-            return { np: S.pathId != null ? String(S.pathId) : (S.ready ? null : np0) };
-        }, ['np']);
+            return { np: S.pathId != null ? String(S.pathId) : (S.ready ? null : np0),
+                     tf: S.traced ? null : '0' };
+        }, ['np', 'tf']);
         GL.onTab(function () {
             if (S.editing && GL.tab() === 'flow') stopEdit();
             if (S.editing && S.autoSrc) S.autoSrc();     // back from Reference maps: the basemap may have changed
@@ -702,6 +758,8 @@ window.GLNetwork = (function () {
             }
         }).then(function () {
             S.ready = true;
+            if (!S.traced) window.LSScarps.setHiddenKinds(['face']);
+            if (window.GLRetreat && window.GLRetreat.renderSources) window.GLRetreat.renderSources();
             if (map.getSource('gx')) addLayers();
             applyVis();
             cardHook.rerender();
@@ -717,6 +775,8 @@ window.GLNetwork = (function () {
     }
 
     return { init: init, showPath: showPath,
+             traced: function () { return S.traced; }, setTraced: setTraced,
+             redraw: function () { renderChart(); },
              // redraw the open plot (a video was linked or changed)
              refresh: function () { if (S.pathId != null) showPath(S.pathId); } };
 })();

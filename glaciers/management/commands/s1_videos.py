@@ -114,7 +114,7 @@ class Command(BaseCommand):
     help = __doc__.split('\n\n')[0]
 
     def add_arguments(self, p):
-        p.add_argument('step', choices=['resolve', 'fixes', 'import', 'georef', 'built'])
+        p.add_argument('step', choices=['resolve', 'fixes', 'import', 'georef', 'built', 'faces'])
         p.add_argument('path')
         p.add_argument('decisions', nargs='?')
         p.add_argument('--dry-run', action='store_true')
@@ -128,6 +128,8 @@ class Command(BaseCommand):
             self.georef(Path(o['path']), o['dry_run'])
         elif o['step'] == 'built':
             self.built(Path(o['path']), o['caption'], o['anchor'], o['dry_run'])
+        elif o['step'] == 'faces':
+            self.faces(Path(o['path']), o['dry_run'])
         elif o['step'] == 'fixes':
             if not o['decisions']:
                 raise CommandError('fixes needs the review dir and the decisions file')
@@ -136,6 +138,60 @@ class Command(BaseCommand):
             if not o['decisions']:
                 raise CommandError('import needs the manifest and the decisions file')
             self.do_import(Path(o['path']), Path(o['decisions']), o['dry_run'])
+
+    # ------------------------------------------------------------------
+    def faces(self, d, dry):
+        """Load a build's confident S1 faces (tools/glaciers/s1_build/faces.py
+        --stage puts faces.geojson beside the mp4) as source 's1auto' rows of
+        glacier_obs, replacing that build's earlier run; rejections made
+        against the earlier run still hold (same build and month). The
+        glacier is the one of the flow line the detector followed, else of
+        the flow line most faces cross, else the nearest RGI glacier."""
+        from glaciers import sources, views
+        meta = json.loads((d / 'meta.json').read_text())
+        fc = json.loads((d / 'faces.geojson').read_text())
+        build = meta['name']
+        if fc.get('build') and fc['build'] != build:
+            raise CommandError('faces.geojson is for %s, meta.json for %s' % (fc['build'], build))
+        from inventory.views import _get_conn, _put_conn
+        conn = _get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM glacier_videos WHERE georef->>'build' = %s ORDER BY id DESC LIMIT 1", (build,))
+            r = cur.fetchone()
+            vid = r[0] if r else None
+            cur.execute("SELECT glacier_id FROM glacier_lines WHERE id = %s AND kind = 'flowline'", (fc.get('line_id'),))
+            r = cur.fetchone()
+            gid, how = (r[0], 'the line the detector followed (%s)' % fc.get('line_id')) if r and r[0] else (None, None)
+            if not gid:
+                cur.execute("""SELECT l.glacier_id, count(*) FROM glacier_lines l,
+                                      (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326) g) f
+                               WHERE l.kind = 'flowline' AND l.glacier_id IS NOT NULL AND ST_Intersects(l.geom, f.g)
+                               GROUP BY 1 ORDER BY 2 DESC LIMIT 1""",
+                            (json.dumps({'type': 'GeometryCollection',
+                                         'geometries': [f['geometry'] for f in fc['features']]}),))
+                r = cur.fetchone()
+                gid, how = (r[0], 'the flow line the faces cross') if r else (None, None)
+            if not gid and fc['features']:
+                g0 = json.dumps(fc['features'][-1]['geometry'])
+                cur.execute('SELECT ' + sources._NEAREST_SUB.format(line='ST_SetSRID(ST_GeomFromGeoJSON(%(g)s), 4326)'),
+                            {'g': g0, 'deg': sources._NEAR_DEG, 'm': sources._NEAR_M})
+                r = cur.fetchone()
+                gid, how = (r[0], 'the nearest RGI glacier') if r and r[0] else (None, 'none found')
+            rep = sources.load_s1_faces(cur, build, fc, gid, vid)
+            if dry:
+                conn.rollback()
+            else:
+                conn.commit()
+                views.bump_stamp()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            _put_conn(conn)
+        self.stdout.write('%s%s: %d faces loaded (replacing %d), %d still rejected; glacier %s from %s; video %s; '
+                          'source now %d faces' % ('DRY RUN ' if dry else '', build, rep['loaded'], rep['replaced'],
+                                                   rep['rejected_kept'], gid, how, vid, rep['n']))
 
     # ------------------------------------------------------------------
     def built(self, d, caption, anchor, dry):

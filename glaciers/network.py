@@ -824,7 +824,7 @@ def api_draft_extension(request):
             return JsonResponse({'error': 'this glacier\'s main line already runs past its terminus; edit it by hand'}, status=400)
         cur.execute("""SELECT ST_X(p), ST_Y(p) FROM (
                          SELECT ST_LineInterpolatePoint(ST_GeometryN(geom,1), 0.5) p, date_min
-                         FROM glacier_obs WHERE glacier_id = %s AND kind = 'terminus') q
+                         FROM glacier_obs WHERE glacier_id = %s AND kind = 'terminus' AND NOT rejected) q
                        ORDER BY date_min DESC NULLS LAST""", (gid,))
         end = (m[1], m[2])
         # Faces cluster and wander near a terminus that has sat still for
@@ -953,7 +953,7 @@ WITH r AS (SELECT ST_GeometryN(geom, 1) AS line, ST_Transform(ST_GeometryN(geom,
 c AS (
   SELECT 'o' || o.id AS fid, o.source, o.date_min, o.date_max, o.label, o.geom, o.glacier_id AS gid
     FROM glacier_obs o, r
-   WHERE o.kind = 'terminus' AND ST_DWithin(o.geom, r.line, 0.03)
+   WHERE o.kind = 'terminus' AND NOT o.rejected AND ST_DWithin(o.geom, r.line, 0.03)
   UNION ALL
   SELECT 'l' || l.id, 'ours', l.date_min, l.date_max,
          CASE WHEN l.source_note <> '' THEN l.source_note ELSE l.notes END, l.geom, NULL::text
@@ -996,7 +996,7 @@ WITH p AS (
 o AS (
   SELECT o.id, o.source, o.date_min, o.date_max, o.label, o.glacier_id, o.geom
     FROM glacier_obs o
-   WHERE o.kind = 'outline' AND o.glacier_id = ANY(%(gids)s)),
+   WHERE o.kind = 'outline' AND NOT o.rejected AND o.glacier_id = ANY(%(gids)s)),
 x AS (
   -- the outline is cut to the line's box before it is reprojected: whole
   -- icefield outlines made this most of the path's time

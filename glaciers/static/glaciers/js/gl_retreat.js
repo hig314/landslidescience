@@ -518,6 +518,32 @@ window.GLRetreat = (function () {
                 if (y !== '') { setYear(+y); GL.writeHash(); }
             });
         });
+        if (GL.CFG.faceAdmin) {
+            var rd = document.createElement('details');
+            rd.className = 'rt-grp rt-rejected';
+            rd.innerHTML = '<summary>Rejected faces <small>(admin)</small></summary><div class="rt-rows"><div class="rt-none">Loading…</div></div>';
+            el.card.appendChild(rd);
+            rd.addEventListener('toggle', function () {
+                if (!rd.open) return;
+                var box = rd.querySelector('.rt-rows');
+                fetch('/glaciers/api/face/rejected/?glacier=' + encodeURIComponent(g.id)).then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (!d.faces || !d.faces.length) { box.innerHTML = '<div class="rt-none">None.</div>'; return; }
+                        box.innerHTML = d.faces.map(function (f) {
+                            var sr = srcById(f.source);
+                            return '<div class="rt-rejrow"><span>' + esc(f.date || 'undated') + ' · ' + esc(sr ? sr.short : f.source) +
+                                '</span><small title="' + esc(f.at) + '">' + esc(f.by) + '</small>' +
+                                '<button type="button" data-restore="' + f.id + '">Restore</button></div>';
+                        }).join('');
+                        Array.prototype.forEach.call(box.querySelectorAll('[data-restore]'), function (b) {
+                            b.addEventListener('click', function () {
+                                b.disabled = true;
+                                rejectFace(b.getAttribute('data-restore'), true).catch(function (e) { b.textContent = e.message; });
+                            });
+                        });
+                    }).catch(function () { box.innerHTML = '<div class="rt-none">Could not load.</div>'; });
+            });
+        }
         markRows(currentIds());
         (GL.cardHooks || []).forEach(function (fn) { fn(el.card, S.sel); });
     }
@@ -539,15 +565,33 @@ window.GLRetreat = (function () {
     function doiLink(doi) {
         return '<a target="_blank" rel="noopener" href="https://doi.org/' + esc(doi) + '">doi:' + esc(doi) + '</a>';
     }
+    // Sources that are face LINES (terminus positions), as against outlines.
+    function faceSources() { return S.sources.filter(function (s) { return s.geom === 'line'; }); }
+    // Every face switch at once (Hig, 2026-11-23): our traced faces and each
+    // terminus source; outline sources are not faces and stay as they are.
+    function setAllFaces(on) {
+        faceSources().forEach(function (s) { S.srcOn[s.id] = on; });
+        if (window.GLNetwork && window.GLNetwork.setTraced) window.GLNetwork.setTraced(on);
+        renderSources(); applyObs(); GL.writeHash(); facesChanged();
+    }
+    function facesChanged() {
+        if (window.GLNetwork && window.GLNetwork.redraw) window.GLNetwork.redraw();
+    }
     function renderSources() {
-        var h = '';
+        var traced = !window.GLNetwork || !window.GLNetwork.traced || window.GLNetwork.traced();
+        var h = '<div class="rt-faces"><b>Ice faces</b>' +
+            '<button type="button" data-fa="1" title="Show every face: traced here and from every terminus source, on the map and the plot">all on</button>' +
+            '<button type="button" data-fa="0" title="Hide every face: traced here and from every terminus source, on the map and the plot">all off</button>' +
+            '<label title="Faces traced on this page (the network editor)"><input type="checkbox" id="rt-traced"' +
+            (traced ? ' checked' : '') + '><i style="background:#ff4081"></i>traced here</label></div>';
         S.sources.forEach(function (s) {
             h += '<div class="rt-src"><label><input type="checkbox" data-src="' + esc(s.id) + '"' +
                 (S.srcOn[s.id] ? ' checked' : '') + '><span>' + esc(s.short) + '</span>' +
                 '<small>' + (s.n ? s.n.toLocaleString() + (s.geom === 'line' ? ' lines' : ' outlines') +
                     (s.year_min ? ', ' + s.year_min + '–' + s.year_max : '') : 'not loaded') + '</small></label>' +
                 '<details><summary>about</summary><p>' + esc(s.what) + '</p><p>' + esc(s.cite) + ' ' +
-                doiLink(s.doi) + '</p></details></div>';
+                (s.doi ? doiLink(s.doi) : '<a target="_blank" rel="noopener" href="' + esc(s.url) + '">source</a>') +
+                '</p></details></div>';
         });
         h += '<div class="rt-src"><label><input type="checkbox" id="rt-cover"' + (S.coverOn ? ' checked' : '') +
             '><span>Statewide ice cover</span><small id="rt-cover-note"></small></label>' +
@@ -569,8 +613,14 @@ window.GLRetreat = (function () {
         Array.prototype.forEach.call(el.sources.querySelectorAll('input[data-src]'), function (cb) {
             cb.addEventListener('change', function () {
                 S.srcOn[cb.getAttribute('data-src')] = cb.checked;
-                applyObs(); GL.writeHash();
+                applyObs(); GL.writeHash(); facesChanged();
             });
+        });
+        Array.prototype.forEach.call(el.sources.querySelectorAll('[data-fa]'), function (b) {
+            b.addEventListener('click', function () { setAllFaces(b.getAttribute('data-fa') === '1'); });
+        });
+        $('rt-traced').addEventListener('change', function () {
+            if (window.GLNetwork && window.GLNetwork.setTraced) window.GLNetwork.setTraced(this.checked);
         });
         $('rt-cover').addEventListener('change', function () { S.coverOn = this.checked; applyCover(); GL.writeHash(); });
         $('rt-base').addEventListener('change', function () { S.baseOn = this.checked; applyCover(); });
@@ -619,14 +669,65 @@ window.GLRetreat = (function () {
                 } else if (!o.glacier_id) {
                     h += '<div class="rt-sub">Not matched to a glacier.</div>';
                 }
-                h += '<div class="rt-sub">As published:</div>' + propsTable(o.props) +
-                    (s.doi ? '<div class="rt-sub">' + doiLink(s.doi) + '</div>' : '') + '</div>';
-                pop.setHTML(h);
+                if (o.source === 's1auto' && o.props && o.props.video_id) {
+                    h += '<div><a href="#" id="rt-pop-vid">▶ Play the timelapse it was found in</a></div>';
+                }
+                h += '<div class="rt-sub">' + (o.source === 's1auto' ? 'As detected:' : 'As published:') + '</div>' +
+                    propsTable(o.props) +
+                    (s.doi ? '<div class="rt-sub">' + doiLink(s.doi) + '</div>' : '');
+                if (GL.CFG.faceAdmin && o.kind === 'terminus') {
+                    h += '<div class="rt-rej"><button type="button" id="rt-pop-rej" title="Take this face off the map and ' +
+                        'the plots. It is kept, and can be restored from the glacier\'s card.">Reject this face</button></div>';
+                }
+                pop.setHTML(h + '</div>');
+                var rj = document.getElementById('rt-pop-rej');
+                if (rj) rj.addEventListener('click', function () {
+                    rj.disabled = true;
+                    rejectFace(o.id, false).then(function () {
+                        rj.parentNode.innerHTML = 'Rejected. <button type="button" id="rt-pop-undo">Undo</button>';
+                        document.getElementById('rt-pop-undo').addEventListener('click', function () {
+                            this.disabled = true;
+                            rejectFace(o.id, true).then(function () { window.LSTools.popup.close(); });
+                        });
+                    }).catch(function (e) { rj.disabled = false; rj.textContent = e.message; });
+                });
+                var pv = document.getElementById('rt-pop-vid');
+                if (pv) pv.addEventListener('click', function (ev) {
+                    ev.preventDefault();
+                    if (window.GLVideos) window.GLVideos.open(+o.props.video_id, e.lngLat);
+                });
                 var a = document.getElementById('rt-pop-sel');
                 if (a) a.addEventListener('click', function (ev) {
                     ev.preventDefault(); window.LSTools.popup.close(); select(o.glacier_id, false);
                 });
             }).catch(function () {});
+    }
+    // Reject (undo = restore) one face; everything that shows faces is
+    // refreshed: tiles (new stamp), the selected glacier, the open plot.
+    function rejectFace(id, undo) {
+        return fetch('/glaciers/api/face/reject/', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': GL.CFG.csrf },
+            body: JSON.stringify({ id: +id, undo: !!undo })
+        }).then(function (r) {
+            return r.json().catch(function () { throw new Error('HTTP ' + r.status); }).then(function (d) {
+                if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+                afterReject(d);
+                return d;
+            });
+        });
+    }
+    function afterReject(d) {
+        S.stamp = d.stamp;
+        var src = map.getSource('gx');
+        if (src && src.setTiles) src.setTiles([location.origin + '/glaciers/tiles/{z}/{x}/{y}.pbf?v=' + S.stamp]);
+        fetch('/glaciers/api/sources/').then(function (r) { return r.json(); }).then(function (x) {
+            x.sources.forEach(function (n) {
+                S.sources.forEach(function (o) { if (o.id === n.id) { o.n = n.n; o.year_min = n.year_min; o.year_max = n.year_max; } });
+            });
+            renderSources();
+        }).catch(function () {});
+        if (S.selId) select(S.selId, false);
+        if (window.GLNetwork && window.GLNetwork.refresh) window.GLNetwork.refresh();
     }
     function registerClicks() {
         var T = window.LSTools;
@@ -741,6 +842,11 @@ window.GLRetreat = (function () {
     return {
         init: init,
         setYear: function (y) { setYear(y); GL.writeHash(); },
-        rerenderCard: function () { if (el.card) renderCard(); }
+        rerenderCard: function () { if (el.card) renderCard(); },
+        // Is this source switched on (true until the registry has loaded)?
+        srcOn: function (id) { return !S.sources.length || !!S.srcOn[id]; },
+        rejectFace: rejectFace,
+        srcShort: function (id) { var s = srcById(id); return s ? s.short : id; },
+        renderSources: function () { if (S.sources.length) renderSources(); }
     };
 })();

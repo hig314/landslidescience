@@ -618,5 +618,66 @@ fps from georef.fps, else 10, which is what the Earth Engine exports use).
 
 Open: a layover mask from the viewing geometry (the streaked faces are where
 terrain correction smears slopes tilted toward the radar, opposite slopes in
-the two directions) and an ascending + descending merge; feature tracking on the stack;
-automatic ice-face detection (being explored).
+the two directions) and an ascending + descending merge; feature tracking on the stack.
+
+## Ice faces from our S1 timelapses (2026-11-23)
+
+Hig: map only the faces the radar shows clearly; a face every month is not
+needed for the story. Tried on Endicott (Dawes) against Hig's four traces:
+edges of bright ice (floating ice is bright too), change dates, then
+month-to-month texture persistence and offset tracking. Tracking separates
+the slow trunk from the fjord, but the last few hundred metres before the
+face decorrelate within 12 days at 10 m, which is exactly where the bergs
+sit, so it was dropped (Hig). What ships is a confidence score.
+
+**`tools/glaciers/s1_build/faces.py NAME [--line ID] [--min-score 0.6]
+[--stage]`** on a build.py stack (method in its docstring; the parts in
+`facekit.py`, which also keeps the exploration):
+- the flow line: the network's (read from prod's public list), the line
+  with most length in the frame followed down its `down_id` chain;
+- the channel: what moves (low month-to-month texture correlation), joined
+  to the line; rock keeps its speckle, ice and water do not;
+- per month two candidates, *consistent* (bright through the months either
+  side, not water in > 25% of the past 12) and *single* (this month's
+  smoothed image), each the glacier's edge against the fjord inside the
+  channel;
+- score = fraction of the face that is a > 3 dB bright-to-water step ×
+  straightness × reaches both walls × lies within 250 m (along the line) of
+  where it crosses it; kept at >= 0.6; then a kept face more than 200 m
+  down-fjord of the kept faces on both sides is dropped (winter ice or
+  packed melange read as glacier). Endicott: 70 of 120 months, Mar–Apr 2020
+  out, Dec 2019 and Jul 2020 in; Hig judged two of the 47 kept since 2021
+  questionable (2024-05, 2026-08) and accepted that rate.
+
+Writes `faces/faces.geojson`, `scores.json`, `kept.jpg`, `position.png`;
+`--stage` copies the geojson beside the staged mp4.
+
+**Into the app**: `manage.py s1_videos faces data/glaciers/s1_build/NAME`
+loads them as source `s1auto` in `glacier_obs` (sources.py `S1AUTO`: ours,
+not mirrored, `fetch: None` so `fetch_glacier_source --all` skips it,
+`link: 'given'`). `ext_id = '<build>:<month>'`; a re-run replaces that
+build's rows. The glacier is that of the flow line the detector followed,
+else of the line most faces cross, else the nearest RGI glacier; `props`
+carry month, score, method, along_m, build, video_id. Being a source, the
+faces get everything a mirrored terminus has: the year colours, the year
+bar, a source switch, the glacier card and the plot.
+
+**Rejecting a face** (site admins and superusers): *Reject this face* on a
+face's map popup, or click its point on the plot. Any terminus row can be
+rejected, published ones too. `glacier_face_rejects` (source, ext_id, who,
+when) is the record and survives a refetch or a re-run; `glacier_obs.rejected`
+is the flag every face query filters on (tiles, card, plot, draft bed,
+outline points), re-applied after each load (`apply_rejects`). The extent
+stamp is bumped (now in ms), so tiles reload under a new URL. Undo is
+offered at once; later, *Rejected faces* on the glacier's card lists them
+with Restore. API: `POST /glaciers/api/face/reject/ {id, undo}`,
+`GET /glaciers/api/face/rejected/?glacier=`.
+
+**Face switches**: the top of *Extent sources* has an *Ice faces* bar with
+*all on* / *all off* (traced here + every terminus source; outline sources
+are not faces and are left alone) and *traced here* (the network editor's
+face kind, `LSScarps.setHiddenKinds`; `tf=0` in the URL). The distance plot
+follows the same switches and says how many faces are switched off.
+Starting an editing session turns traced faces back on.
+
+New schema: `manage.py migrate_glaciers` once per environment.
