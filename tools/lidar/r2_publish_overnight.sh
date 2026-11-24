@@ -61,6 +61,9 @@ on_bucket() {
 expected() {
   id=$1
   [ -f "$COG_DIR/$id.tif" ] && echo "cog/$id.tif $COG_DIR/$id.tif"
+  for f in "$COG_DIR/${id}"_[0-9]*m.tif; do      # smaller download copies (manifest "downloads")
+    [ -f "$f" ] && echo "cog/$(basename "$f") $f"
+  done
   [ -f "$PM_DIR/$id.pmtiles" ] && echo "pmtiles/$id.pmtiles $PM_DIR/$id.pmtiles"
   [ -f "$PM_DIR/${id}_slope.pmtiles" ] && echo "pmtiles/${id}_slope.pmtiles $PM_DIR/${id}_slope.pmtiles"
   [ -f "$PM_DIR/${id}_ortho.pmtiles" ] && echo "pmtiles/${id}_ortho.pmtiles $PM_DIR/${id}_ortho.pmtiles"

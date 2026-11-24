@@ -1160,6 +1160,29 @@
       "source_url": "https://irma.nps.gov/DataStore/Reference/Profile/2320351",
       "region": "Kenai Peninsula",
       "notes": "Multibeam survey of Portage Lake by the National Park Service Water Resources Division for the US Forest Service, June-July 2026 (the delivery metadata's dates line reads 2025 in error, per Hig), with an EchoBoat 160 uncrewed surface vessel, a NORBIT iWBMSe multibeam sonar and an Applanix SurfMaster; processed in Hypack/Hysweep. Collected to support modelling of landslide-generated tsunamis at Portage Lake. NAD83(2011) / UTM 6N, NAVD88 (GEOID12B). DERIVED PRODUCT (Hig 2026-11-16): NPS's 2 m GeoTIFF (pixels 2.12 x 2.10 m) with its internal holes -- 16 % of the footprint, 0.86 km2 between swaths -- filled by a surface minimising tension and curvature with every measured cell held, and kept within the range of the measurements within ~50 m; nothing is added outside the survey's footprint (closed over 60 m). Built by lidar_build/portage_lake_mb_2026/fill_holes.py. Why: the gaps open onto the survey's edge, so the viewer's context fill put 3DEP's lake surface (~+30 m) up through them as pillars. The NPS delivery asks that derived products identify the NPS as the source. The 0.5 m point file (11.46 M soundings) is held locally as COPC and not hosted."
+    },
+    {
+      "id": "kbay_topobathy_v1",
+      "title": "KBay Topobathy v01",
+      "src": "/Volumes/Powder/lidar_build/kbay_joint_s3/kbay_topobathy_v1.tif",
+      "target_epsg": 6334,
+      "native_res_m": 2.0,
+      "center_lat": 59.45,
+      "min_zoom": 8,
+      "max_zoom": 16,
+      "year": 2023,
+      "product": "Topobathy composite (land, intertidal, sea bed and lake beds in one surface)",
+      "archive_mode": "copy",
+      "vertical_datum": "NAVD88 (GEOID12B, as the sources)",
+      "region": "Kenai Peninsula",
+      "source": "landslidescience.org composite of: NOAA OCM Kachemak Bay 2023/24 lidar; Grewingk 2021 and 2019 lidar; Homer 2018/2019/2021 and Seldovia 2019 topobathy lidar; Kenai Peninsula 2008 lidar; Chugachmiut lidar; NOAA multibeam and BAG surveys (2009, H12146, OCM 2023); NOS hydrographic soundings 1915-1984; lake soundings (Riordan 2018, Grewingk, Petrof and Gore 2022); Grewingk Lake multibeam 2023 (K. Hughes); ArcticDEM, CUDEM, NCEI and USGS 3DEP where nothing better saw the ground",
+      "downloads": [
+        {
+          "res_m": 8,
+          "resampling": "average"
+        }
+      ],
+      "notes": "One continuous 2 m surface from mountain to sea floor for Kachemak Bay and the outer coast to the south-west, built point-first: every lidar from its returns, the measured beds from multibeam and green lidar, sparse soundings honoured where nothing else saw the bed, and a single solve across the water margin so that shore, intertidal and bed meet without a seam. Run run_1118 (2026-11-18 to 23), 48 boxes, chain tag cm22, solve tag s3; reviewed by Hig in dev as kbay_joint_s3. Modelled, not measured, where no survey reached: lake beds without soundings, the sea bed between sparse soundings, river channels. Known issues carried to version 2: the shoreline ridge at Petrof Lake; Homer Harbor solved before the harbour rule; a ramp of shoaling bed below the Grewingk ice face; sparse old lead-line soundings on the outer reef (59.136, -152.037) that disagree with the surface. Public: Hig cleared the Grewingk Lake multibeam for fully public use on 2026-11-23. A smaller 8 m copy (each cell the mean of the sixteen 2 m cells it covers) is offered beside the full file for download."
     }
   ]
 }

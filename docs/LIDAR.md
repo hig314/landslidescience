@@ -29,6 +29,8 @@ answers instead, in this order:
 
 **The manifest is two files** (2026-11-14): the tracked `tools/lidar/datasets.json` and an optional, gitignored `datasets.local.json` of the same shape for surveys that must not leave this machine (the repository is public, and a manifest row alone publishes a survey's name and source). `tools/lidar/lidar_manifest.py` `load()` merges them and is what `build_lidar.py`, `make_catalog.py`, `publish_audit.py`, `r2_put.sh` and `r2_sync.sh` read; a local entry must be `dev_only`, and the upload scripts refuse any id that is gated, owner-only or in neither file. `composite.py publish --write` still writes to the tracked file.
 
+**Smaller download copies** (2026-11-24, first for `kbay_topobathy_v1`): a manifest key `"downloads": [{"res_m": 8, "resampling": "average"}]` offers a coarser copy of the archive beside *Download DTM* in the `/lidar/` list. `tools/lidar/make_downloads.py <id>` writes `cog/<id>_<res>m.tif` (the mean of the full-resolution cells, `-ovr NONE` so the archive's overviews are not what gets averaged); `r2_put.sh` / `r2_publish_overnight.sh` upload it with the survey; `make_catalog.py` lists it in the feature's `downloads` only once the file is there (on the bucket for a `--verify-r2` build); `lidar_serve.gated_ids` gates `<id>_<res>m` with its survey. It is a download only: nothing draws from it.
+
 **An owner-only tier sits inside gating** (2026-11-10): `"owner_only": true`
 beside `"gated": true` rides the gated catalogue, and `lidar_serve.owner_only_ids()`
 limits that survey and its `_slope`/`_ortho` to superusers (bytes, gated

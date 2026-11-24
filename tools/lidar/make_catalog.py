@@ -356,6 +356,24 @@ def main():
         if not cog_bytes:
             print(f"  skip {did}: no archive COG yet", file=sys.stderr)
             continue
+        # Smaller copies of the archive offered for download (manifest key
+        # "downloads": [{"res_m": 8, "resampling": "average"}], built by
+        # make_downloads.py as cog/<id>_<res>m.tif). Listed only when the file
+        # is there -- on the bucket for a production catalogue -- so that a
+        # manifest key alone cannot produce a link that 404s.
+        downloads = []
+        for dl in ds.get("downloads") or []:
+            name = f"{did}_{dl['res_m']:g}m.tif"
+            local = COG_DIR / name
+            if on_r2_ok and (verify_here or not local.exists()):
+                dl_bytes = _r2_size(f"cog/{name}")
+            else:
+                dl_bytes = local.stat().st_size if local.exists() else None
+            if dl_bytes:
+                downloads.append({"res_m": dl["res_m"], "resampling": dl.get("resampling"),
+                                  "url": f"{COG_PUBLIC_BASE}/{name}", "bytes": dl_bytes})
+            else:
+                print(f"  note {did}: download copy {name} not there; not listed", file=sys.stderr)
         # The pyramid is what the viewer actually draws. A survey whose archive
         # exists but whose tiles do not is mid-build: listing it advertises a
         # pmtiles_url that 404s, and the viewer shows an entry that renders
@@ -464,6 +482,7 @@ def main():
                 "ortho_bytes": ortho_bytes or None,
                 "cog_url": f"{COG_PUBLIC_BASE}/{did}.tif",
                 "cog_bytes": cog_bytes,
+                "downloads": downloads or None,
                 # The survey's point cloud page (tools/lidar/points.json,
                 # points_publish.py): its revisions, ours and the surveyor's.
                 # Listed only once the survey's index is on the bucket.
