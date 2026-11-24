@@ -33,7 +33,7 @@ DOUBT = ("kenai2008",)          # surveys whose ground class does not outrank Hi
 P = dict(lam=20.0, tau=0.05, tide_max_m=4.5, fix_min_n=3, fix_sigma_max_m=1e9, fix_edge_m=6.0, edge_gain=6.0, edge_len_m=5.0, prior3dep_sigma_m=1.5, deep_prior_m=-6.0, scope_deep_m=-15.0, scope_dry_m=30.0, low_level_m=-1.87, low_tol_m=1.0, low_line_m=30.0, low_rock_m=40.0, comp_len_m=6.0, low_stale_m=250.0, prior_near_m=200.0, prior_fill_m=80.0, level_soft=0.01, level_soft_comp=0.1, still_gap_m=0.1, berg_max_m2=50000.0, sloped_sigma_m=0.3, step_m=0.8, lone_deep_m=0.0, lone_max_m2=10000.0, taper_comp=0, lone_ref_m=40.0, deep_near_m=30.0, sound_len_m=16.0, sound_n0=4.0, a_level=0, hinge_beta=0.03, hinge_cells=2, deep_len_m=10.0, converge_m=0.02, bound_gap_m=0.15, bound_w=100.0, low_bound_m=0.0, snd_cast_beside_m=15.0, fix_grid_bed_edge=1, comp_near_bed_m=30.0, line_yield_m=15.0, line_yield_min_level_m=2.0, line_yield_water=1, low_bound_tol_m=0.5,
          line_sigma_m=0.5, sounding_sigma_min_m=0.2, prof_slope=0.01, prof_dmax_m=3.0, prof_min_cells=2000, sloped_water=0.0015, slope_len_m=60.0, sloped_depth_m=0.3, prior_len_m=40.0,
          level_len_m=1500.0, level_cell=8, audit_len_m=120.0, audit_n0=60.0, audit_sd_m=0.5, huber_k=2.5, w_fix=50.0, rounds=1, iters=150, max_rounds=24, amg=1,
-         snd_mode=0, harbor=1, harbor_reach_m=30.0, harbor_min_obj_m2=400.0, harbor_probe_m=12.0, harbor_rise_m=1.0, harbor_level_max_m=3.0, pit_post=1, prof_ice_shore=0, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_edge=1, snd_edge_full_m=8.0, snd_edge_fade_m=40.0, snd_edge_gap_m=0.05, snd_edge_slope=0.005, snd_edge_wide_full_m=150.0, snd_edge_wide_fade_m=300.0, snd_far=1, snd_far_local=1, snd_far_local_min=0.25, snd_cap=1, snd_far_min_m=40.0, snd_far_max_m=200.0, snd_far_len_m=50.0, snd_far_pct=50.0, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
+         snd_mode=0, harbor=1, harbor_reach_m=30.0, harbor_min_obj_m2=400.0, harbor_probe_m=12.0, harbor_rise_m=1.0, harbor_level_max_m=3.0, pit_post=1, prof_ice_shore=0, face_zone=1, deep_datum=1, snd_floor_m=0.15, snd_frac=0.015, snd_pos_lake_m=4.0, snd_pos_new_m=15.0, snd_pos_old_m=30.0, snd_len_max_m=512.0, snd_len_k=1.0, pit_tol_m=0.3, pit_rounds=4, snd_scope=1, snd_slope_rounds=0, snd_move_k=1.0, snd_shore=1, snd_profile=1, snd_edge=1, snd_edge_full_m=8.0, snd_edge_fade_m=40.0, snd_edge_gap_m=0.05, snd_edge_slope=0.005, snd_edge_wide_full_m=150.0, snd_edge_wide_fade_m=300.0, snd_far=1, snd_far_local=1, snd_far_local_min=0.25, snd_cap=1, snd_far_min_m=40.0, snd_far_max_m=200.0, snd_far_len_m=50.0, snd_far_pct=50.0, snd_prof_min=5, snd_prof_group=4, snd_prof_smooth_m=12.0, snd_slope_band_m=60.0, snd_slope_gamma=0.25, snd_slope_gamma_max=0.5, snd_hinge=1, snd_gain=20.0, snd_coarse_level=1, snd_fine_rounds=6, snd_fine_moves=3, snd_fine_pits=2, snd_old_floor_m=0.5, snd_old_frac=0.02, snd_new_floor_m=0.3, snd_new_frac=0.01, grid_m=0.0)
 
 
 GRID = dict(res=0.0)      # > 0: every raster is read onto this resolution (the box driver's coarse deep-sea pass, --set grid_m=16)
@@ -905,6 +905,7 @@ def main(argv=None, ret=False):
         # it.  The prior: depth as a non-decreasing function of the distance from shore (islands are shore), fitted to the body's casts
         # (isotonic), 0 at the edge; the fit leans on it at snd_prior_k x the local spacing, so a cast still rules its neighbourhood.
         zano = np.zeros(jz.shape); prof_ = np.zeros(jz.shape, bool); capz = np.full(jz.shape, -np.inf)
+        fz_ = None
         if p["snd_profile"] and sw_.any():
             # (the shore = the nearest cell that is NOT WATER: a body's line against other water -- a lagoon cut into "tidal" and "sea" pieces --
             # is no shore to shoal towards; 2026-11-20, Halibut Cove Lagoon)
@@ -913,6 +914,11 @@ def main(argv=None, ret=False):
             # profile put zero depth at it, and far from the casts (none are taken under a calving face) the bed IS the profile: s3 climbed from -100 m
             # 200 m off the face to +32 m at it.  The distance is now to the nearest LAND; across the face it is the valley's own width.
             dsh = ndimage.distance_transform_edt(sw_ | np.isin(lab, (2, 3)) | ~inwin | (ice if not p["prof_ice_shore"] else False)) * res; Lb_, nb_ = ndimage.label(sw_, structure=np.ones((3, 3), bool)); cb_ = {}
+            # THE FACE ZONE HAS NO PROFILE AT ALL (Hig 2026-11-24: "Agreed on the grewingk fix").  With the ice no shore the ramp halved and stayed:
+            # the lake-wide profile is a shore's (15 m of water 45 m off it), nobody sounds under a calving face, so far from every cast the profile
+            # ruled and the bed rose 50 m in the last 80 m, where the chain product and the casts nearest the face (138-164 m, 2026) are deep.  Water
+            # NEARER THE ICE THAN ANY LAND takes no prior: the bed continues from the measured basin to the cut at the ice.
+            if p["face_zone"] and ice.any(): fz_ = sw_ & (ndimage.distance_transform_edt(~ice) * res < dsh)
             # WHERE THE LAND IS STEEP THE LAKE DEEPENS FASTER (Hig 2026-11-15: "some sense of extrapolating the land slope down under the lake ...
             # gently nudged": carried down outright, the slope overstates the depth and the casts come out as bumps in a basin they are typical
             # of).  The land's slope at the shore (height above the level over distance, in the band snd_slope_band_m wide, averaged along the
@@ -1019,6 +1025,8 @@ def main(argv=None, ret=False):
                             log(f"  ...the profile scaled to the casts of its own area: scale p5/p50/p95 {np.percentile(s_[prof_], [5, 50, 95]).round(2)}; {int((prof_ & (s_ < 0.9)).sum()) * res * res / 1e4:.1f} ha of sounded still water take a profile over a tenth shallower than the lake's")
                         far_ = prof_ & (g_ > 0); mu = np.where(far_, lb0 / (p["snd_far_len_m"] / res) ** 4 * g_, mu); z1 = np.where(far_, Pt_, z1)
                         log(f"  far from every cast the bed is the profile: casts stand {R0_:.0f} m apart (nearest neighbour, p{p['snd_far_pct']:g}); {int(far_.sum()) * res * res / 1e4:.1f} ha of sounded still water lie beyond that, {int((prof_ & (g_ >= 1)).sum()) * res * res / 1e4:.1f} ha beyond twice it")
+        if fz_ is not None and fz_.any():
+            mu = np.where(fz_, 0.0, mu); log(f"  the face zone (still water nearer the ice than any land): {int(fz_.sum()) * res * res / 1e4:.1f} ha take no prior -- the bed continues from the measured basin to the ice")
         cur_ = [(q[0], q[1]) for q in sl_]                                    # where each cast's datum sits: its own cell until it has to move
         def snd_w(zc):
             # A CAST IS MOVED, NOT DOUBTED (Hig, the NOS casts: "misplaced, not wrong") -- but only when it cannot be met where it is: a cast

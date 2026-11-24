@@ -475,7 +475,7 @@
    "stage": "solve",
    "live": "2026-11-23 21:58:00",
    "commit": null,
-   "what": "SOLVE, Hig 2026-11-22/23 (Grewingk: 'a ramp up to the bottom of the ice-face'; 'the basin should be as though there's no shore there'): prof_ice_shore=0 -- glacier ice is no shore for the lake depth profile's distance (dsh). PARTIAL: bed 0-20 m from the ice -3 -> -30 m median in the whole-lake test, a 50 m rise in the last 80 m remains (the profile itself rules the face zone). Unfinished; r6c4 not to be queued until the face-zone rule is settled."
+   "what": "SOLVE, Hig 2026-11-22/23 (Grewingk: 'a ramp up to the bottom of the ice-face'; 'the basin should be as though there's no shore there'): prof_ice_shore=0 -- glacier ice is no shore for the lake depth profile's distance (dsh). PARTIAL: bed 0-20 m from the ice -3 -> -30 m median in the whole-lake test, a 50 m rise in the last 80 m remains (the profile itself rules the face zone). Unfinished; r6c4 not to be queued until the face-zone rule is settled. COMPLETED 2026-11-24 00:1x by face_zone=1 (Hig: 'Agreed on the grewingk fix'): still water nearer the ice than any land takes NO prior (19.1 ha at Grewingk); whole-lake test, median bed 0-20 m from the ice -3 (v1 rule) -> -79 m, 80-120 m -80 -> -94 m; the four 2026 casts by the face met to 1 m (were 2-5 m shallow). Watch: the lower-bound cast at 263 m from the ice (at least 120 m of water, z <= -71.5) stands at -59.9 (was -65.9)."
   }
  ]
 }
