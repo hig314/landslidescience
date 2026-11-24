@@ -24,8 +24,8 @@ answers instead, in this order:
   item shows only to who may open it, and the menu only if it has an item.
 - **`tools/lidar/RESUME.md`** — the hosting stream's state of play and the
   publishing recipe, plus the incidents behind it (BAG extraction modes,
-  rclone filters, the overnight uploader). 50 public and 7 gated as of
-  2026-11-06 (Homer 2019 and 2021 NCMP added that day), which is the number `/lidar/audit/` will confirm or correct.
+  rclone filters, the overnight uploader). 52 public and 7 gated as of
+  2026-11-24 (KBay Topobathy v01 added that day), which is the number `/lidar/audit/` will confirm or correct.
 
 **The manifest is two files** (2026-11-14): the tracked `tools/lidar/datasets.json` and an optional, gitignored `datasets.local.json` of the same shape for surveys that must not leave this machine (the repository is public, and a manifest row alone publishes a survey's name and source). `tools/lidar/lidar_manifest.py` `load()` merges them and is what `build_lidar.py`, `make_catalog.py`, `publish_audit.py`, `r2_put.sh` and `r2_sync.sh` read; a local entry must be `dev_only`, and the upload scripts refuse any id that is gated, owner-only or in neither file. `composite.py publish --write` still writes to the tracked file.
 

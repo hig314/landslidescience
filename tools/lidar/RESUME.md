@@ -722,3 +722,29 @@ reclassification and the use of overlaps are worked out.
   serves it), Kenai raw EPT 72 GB, Grewingk 2021 21 GB, Homer 2019 DGGS 11 GB (72 of 157
   tiles unreadable), Seldovia 2019 vendor LAS 6 GB, Homer 2018 NCMP 2.5 GB, Grewingk 2019
   2.2 GB. R2 held 322 GiB before this (cog 168, pmtiles 89, permafrost_build 42, overlays 23).
+
+## 2026-11-24 09:40: KBay Topobathy v01 published (`kbay_topobathy_v1`) -- 52 public, 7 gated
+
+The topobathy stream's first bay composite (run_1118, 2 m, 8,885 km2, -276 to 1,752 m), published FROM THE TOPOBATHY
+SESSION at Hig's direction ("prioritize publishing the existing version"; he had believed it already out: nothing of it
+was on `main`, R2 or the prod catalogue). Title "KBay Topobathy v01" (Hig); the id stays `kbay_topobathy_v1`.
+
+- **No tile build.** The dev pyramids of the layer Hig reviewed (`data/lidar_dev/pmtiles/kbay_joint_s3{,_slope}.pmtiles`,
+  built 2026-11-23 20:13 from the same crops) were copied to `data/lidar/pmtiles/kbay_topobathy_v1*` and their metadata
+  relabelled with `pmtiles edit`; 150 random points against the archive: median 0.004 m. Archive = the COG copied from
+  Powder (`cmp` identical).
+- **Smaller download copies, new** (manifest `"downloads"`, `make_downloads.py`, docs/LIDAR.md): `cog/kbay_topobathy_v1_8m.tif`,
+  413 MB, the exact mean of the sixteen 2 m cells. `r2_put.sh` / `r2_publish_overnight.sh` carry `cog/<id>_<N>m.tif`.
+- Upload 01:40-03:21 (~1.4 MB/s), all four files verified. 730b0d4 + 4817085 + 67b6ffe pushed and deployed 09:38.
+- **`make_catalog.py` now retries a dropped R2 request** (4817085). Before it, a `--verify-r2` build beside the upload
+  dropped goodwin_2023 and haines_2022 and barry_arm_2023's slope, and a second on an idle link dropped one `tiles_url`:
+  ALWAYS diff a built catalogue against what prod serves before installing (ids gone, fields changed), as done here.
+- Catalogue installed 09:39 (52 surveys, the one added, no other field changed; the Bradley Lake sentence was set in the
+  built file's notes from the manifest); droplet backups `catalog{,-gated}.geojson.bak.20261124-093901`; the gated
+  catalogue was left as it was (same 7 ids). Kept copies: `lidar_build/catalog_20261124/`.
+- Checked: pages 200, the four files 206, Worker tile 200, gated 403 to anonymous, `publish_audit.py` "nothing a reader
+  would see as broken". **The droplet has 2.3 GB free (98 %).**
+- Known issues ride in its notes (Petrof shore ridge, Homer Harbor, the Grewingk face ramp, the outer reef's old
+  soundings, **Bradley Lake's bed 391 m below its surface**). Version 2 is the topobathy stream's.
+- Not done: `kbay_soundings` points entry; `grewingk_sonar_2023` ungating; the inland water surface
+  (`kbay_topobathy_v1_water.tif`, built, not published -- waits for Hig's look).
