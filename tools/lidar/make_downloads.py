@@ -42,6 +42,8 @@ def main():
         b, cell, nodata = r.bounds, r.res[0], r.nodata
     env = {k: v for k, v in os.environ.items() if k not in ("PROJ_LIB", "PROJ_DATA")}
     for dl in ds.get("downloads") or []:
+        if not dl.get("res_m"):
+            continue                                  # a named companion (the water surface): built elsewhere, not a copy of the archive
         res = dl["res_m"]
         if dl.get("resampling", "average") != "average":
             sys.exit(f"{did}: only 'average' is built here")
@@ -57,7 +59,7 @@ def main():
         subprocess.run([str(GDALWARP), "-q", "-overwrite", "-ovr", "NONE", "-tr", str(res), str(res),
                         "-te", str(b.left), str(b.bottom), str(b.right), str(b.top), "-r", "average",
                         "-srcnodata", str(nodata), "-dstnodata", str(nodata), "-wm", "1024", "-multi",
-                        "-of", "COG", "-co", "COMPRESS=ZSTD", "-co", "PREDICTOR=3", "-co", "BLOCKSIZE=512",
+                        "-of", "COG", "-co", "COMPRESS=DEFLATE", "-co", "LEVEL=9", "-co", "PREDICTOR=3", "-co", "BLOCKSIZE=512",
                         "-co", "OVERVIEW_RESAMPLING=AVERAGE", "-co", "NUM_THREADS=4", str(src), str(tmp)],
                        check=True, env=env)
         tmp.rename(dst)
