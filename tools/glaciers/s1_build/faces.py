@@ -146,6 +146,31 @@ def score_months(S, line, channel, connect=50, a_wet=0.4):
     return out
 
 
+def score_lake(S, line):
+    """Lake-terminating fronts (--lake; Hig, 2026-11-24, Sitkagi): each
+    month the lagoon (the dark water the line crosses that does not touch
+    the frame edge) and its shore where it is CHANGING, i.e. next to pixels
+    that turned from ice to water in the record; the face runs along that
+    whole stretch and stops where the shore is stable (moraine, beach).
+    Scored by the clear bright-to-water fraction alone (no walls)."""
+    X = fk.anomaly(S)
+    chg, _ = fk.changing_mask(X)
+    every = np.ones(X.shape[1:], bool)
+    out = []
+    for k in range(len(S['months'])):
+        lk = fk.lake_mask(X[k], line)
+        r = fk.lake_face(lk, chg, line) if lk is not None else None
+        if not r:
+            out.append([]); continue
+        d, L = r
+        c = fk.face_confidence(X[k], ~lk, lk, every, L)
+        c.update(method='lake', along=float(d), spans=True, straight=1.0, across=1.0,
+                 coords=[list(map(float, q)) for q in L.coords])
+        c['score'] = c['clear']
+        out.append([c])
+    return out
+
+
 def sheet(S, line, sc, ks, fp, cols=4):
     from PIL import Image, ImageDraw
     tiles = []
@@ -193,23 +218,28 @@ def main():
     ap.add_argument('--strip-m', type=float, default=0,
                     help='channel = within this many metres of the flow line, instead of the texture test '
                          '(for debris-covered, slow ice the texture test calls rock)')
+    ap.add_argument('--lake', action='store_true',
+                    help='lake-terminating front: the lagoon shore where it is changing (Sitkagi)')
     ap.add_argument('--stage', action='store_true')
     a = ap.parse_args()
     S = fk.load(a.name)
     fd = os.path.join(S['dir'], 'faces'); os.makedirs(fd, exist_ok=True)
     line, lid = path_line(S, fetch_lines(a.api, S['dir']), a.line)
     print('flow line %d, %.1f km in the frame' % (lid, line.length * 10 / 1000))
-    if a.strip_m:
-        channel = strip_mask(S, line, a.strip_m)
+    if a.lake:
+        sc = score_lake(S, line)
     else:
-        channel = channel_mask(S, line, os.path.join(fd, 'texture_corr.npy'))
-    print('channel %.0f%% of the frame' % (100 * channel.mean()))
-    sc = score_months(S, line, channel, a.connect or None, a.single_wet)
+        if a.strip_m:
+            channel = strip_mask(S, line, a.strip_m)
+        else:
+            channel = channel_mask(S, line, os.path.join(fd, 'texture_corr.npy'))
+        print('channel %.0f%% of the frame' % (100 * channel.mean()))
+        sc = score_months(S, line, channel, a.connect or None, a.single_wet)
     ks = [k for k, c in enumerate(sc) if c and c[0]['score'] >= a.min_score]
     keep = fk.drop_spikes([sc[k][0]['along'] for k in ks])
     spikes = [S['months'][ks[i]] for i in range(len(ks)) if i not in keep]
     ks = [ks[i] for i in keep]
-    print('%d of %d months kept; dropped as down-fjord spikes: %s' % (len(ks), len(sc), ', '.join(spikes) or 'none'))
+    print('%d of %d months kept; dropped as spikes: %s' % (len(ks), len(sc), ', '.join(spikes) or 'none'))
     feats = [{'type': 'Feature',
               'properties': {'month': S['months'][k], 'score': round(sc[k][0]['score'], 2),
                              'method': sc[k][0]['method'], 'along_m': round(sc[k][0]['along'] * 10),
@@ -219,6 +249,7 @@ def main():
                                            for x, y in sc[k][0]['coords']]}} for k in ks]
     meta = json.load(open(os.path.join(S['dir'], 'meta.json')))
     fc = {'type': 'FeatureCollection', 'build': meta.get('name', a.name), 'min_score': a.min_score,
+          'mode': 'lake' if a.lake else 'fjord',
           'line_id': lid, 'features': feats}
     json.dump(fc, open(os.path.join(fd, 'faces.geojson'), 'w'))
     json.dump({S['months'][k]: [{x: v for x, v in c.items() if x != 'coords'} for c in cs]

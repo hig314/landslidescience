@@ -627,24 +627,28 @@ def wall_to_wall(piece, channel, near=6):
     return ok, float(np.hypot(x1 - x0, y1 - y0) / max(piece.length, 1e-6))
 
 
-def drop_spikes(along, tol=20.0):
+def drop_spikes(along, tol=20.0, up_tol=50.0):
     """Indices to keep from a time series of face positions (px along the
-    line, up-glacier positive): repeatedly drop the worst face lying more
-    than tol px down-glacier of BOTH its kept neighbours (a winter ice sheet
-    or packed melange read as the glacier: it advances and retreats again).
-    A real retreat sits between its neighbours and is kept."""
+    line, up-glacier positive). First, repeatedly drop the worst face lying
+    more than tol px down-glacier of BOTH its kept neighbours (a winter ice
+    sheet or packed melange read as glacier: it advances and retreats
+    again); then, the same for faces more than up_tol px UP-glacier of both
+    (another lake, a dark patch). Down-fjord first: those are the common
+    error, and next to them a true face looks like an up-glacier spike. A
+    real retreat sits between its neighbours and is kept."""
     keep = list(range(len(along)))
-    while len(keep) > 2:
-        worst, wi = 0.0, None
-        for j in range(len(keep)):
-            a = along[keep[j]]
-            nb = [along[keep[i]] for i in (j - 1, j + 1) if 0 <= i < len(keep)]
-            ex = min(nb) - a
-            if ex > tol and ex > worst:
-                worst, wi = ex, j
-        if wi is None:
-            break
-        keep.pop(wi)
+    for sign, lim in ((1, tol), (-1, up_tol)):
+        while len(keep) > 2:
+            worst, wi = 0.0, None
+            for j in range(len(keep)):
+                a = along[keep[j]]
+                nb = [along[keep[i]] for i in (j - 1, j + 1) if 0 <= i < len(keep)]
+                ex = (min(nb) - a) if sign > 0 else (a - max(nb))
+                if ex > lim and ex > worst:
+                    worst, wi = ex, j
+            if wi is None:
+                break
+            keep.pop(wi)
     return keep
 
 
@@ -654,3 +658,82 @@ def across(piece, line, at, band=25.0, step=2.0):
     a long leg down the fjord (a patch edge) or up a margin scores less."""
     ds = np.array([line.project(piece.interpolate(t)) for t in np.arange(0, piece.length, step)])
     return float(np.mean(np.abs(ds - at) <= band)) if len(ds) else 0.0
+
+
+# --- lake-terminating fronts (Hig, 2026-11-24, Sitkagi): the ice face is the
+# lagoon's ice cliff, followed to its logical end, i.e. the part of the
+# shore that is CHANGING. Stable shore (moraine, beach) is not face.
+
+def changing_mask(X, drop=3.0, t=6.0, open_r=1):
+    """Pixels that turned from bright (ice) to dark (water) once in the
+    record: the best single step down is > drop dB with t value > t."""
+    from scipy.ndimage import binary_opening
+    from skimage.morphology import disk
+    C, D, Tv = change_date(X)
+    return binary_opening((D > drop) & (Tv > t), disk(open_r)), C
+
+
+def lake_mask(Xk, line, sigma=2.0, open_r=2, min_px=200):
+    """This month's lagoon: dark water (Otsu over the frame, smoothed) in a
+    component the flow line crosses that does not touch the frame edge
+    (that is the sea); the largest such."""
+    from scipy.ndimage import gaussian_filter, binary_opening, binary_fill_holes
+    from skimage.filters import threshold_otsu
+    from skimage.measure import label
+    from skimage.morphology import disk
+    G = gaussian_filter(Xk, sigma)
+    water = binary_opening(G < threshold_otsu(G), disk(open_r))
+    lab = label(water)
+    h, w = lab.shape
+    edge = set(np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))) - {0}
+    on = {lab[int(round(y)), int(round(x))] for x, y in
+          [line.interpolate(d).coords[0] for d in np.arange(0, line.length, 2.0)]} - {0} - edge
+    best = max(on, key=lambda v: (lab == v).sum(), default=None)
+    if best is None or (lab == best).sum() < min_px:
+        return None
+    return binary_fill_holes(lab == best)
+
+
+def lake_face(lake, changing, line, near=5, min_len=15):
+    """The lagoon's shore where it is changing: shore points within `near`
+    px of a pixel that turned from ice to water; the longest run of such
+    points, as a LineString in px. (along, LineString) or None."""
+    from scipy.ndimage import distance_transform_edt
+    from skimage.measure import find_contours
+    from shapely.geometry import LineString, Point
+    D = distance_transform_edt(~changing)
+    best = None
+    for c in find_contours(lake.astype(np.float64), 0.5):
+        ok = D[np.clip(np.round(c[:, 0]).astype(int), 0, D.shape[0] - 1),
+               np.clip(np.round(c[:, 1]).astype(int), 0, D.shape[1] - 1)] <= near
+        closed = np.allclose(c[0], c[-1])
+        # runs of consecutive kept points (a closed contour wraps round)
+        if closed and ok.all():
+            runs = [np.arange(len(c))]
+        else:
+            idx = np.arange(len(c))
+            if closed and ok[0] and ok[-1]:
+                k0 = np.argmin(ok)                   # start the walk at a gap
+                idx = np.roll(idx, -k0); ok = np.roll(ok, -k0)
+            runs, cur = [], []
+            for i, o in zip(idx, ok):
+                if o:
+                    cur.append(i)
+                elif cur:
+                    runs.append(cur); cur = []
+            if cur:
+                runs.append(cur)
+        for r in runs:
+            if len(r) < 2:
+                continue
+            L = LineString(c[r][:, ::-1])
+            if L.length >= min_len and (best is None or L.length > best.length):
+                best = L
+    if best is None:
+        return None
+    x = best.intersection(line)
+    along = line.project(x.centroid if not x.is_empty else Point(best.interpolate(best.project(line.centroid)).coords[0]))
+    if x.is_empty:
+        from shapely.ops import nearest_points
+        along = line.project(nearest_points(best, line)[1])
+    return along, best

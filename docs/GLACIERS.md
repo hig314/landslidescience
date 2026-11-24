@@ -661,8 +661,19 @@ sit, so it was dropped (Hig). What ships is a confidence score.
 - Sitkagi (debris-covered Malaspina lobe at the coast): the texture test
   calls the slow debris-covered ice rock, so the channel is a few patches
   and the lake-cliff series stops in 2022; `--strip-m 1500` (channel = a
-  strip along the line) finds the ocean beach instead. Which front is
-  wanted there is Hig's call; nothing loaded.
+  strip along the line) finds the ocean beach instead. Hig: the lagoon's
+  ice cliff is the face, followed to its logical end, "the part that's
+  changing" (coastal erosion is a possible later topic). **`--lake`**: the
+  lagoon each month (dark water the line crosses, not touching the frame
+  edge, i.e. not the sea) and its shore next to pixels that turned from
+  ice to water once in the record (`facekit.changing_mask`, the change-date
+  step > 3 dB, t > 6); the longest such run of shore is the face, so it
+  runs the whole moving arc and stops at stable shore. Scored by the clear
+  fraction alone. 102 of 113 months, 2.4 to 3.7 km up the line 2017–2026.
+- The spike filter is two-sided: down-fjord spikes first (> 200 m below
+  both kept neighbours), then up-glacier ones (> 500 m above both: another
+  pond on the line); in the other order a true face next to two false
+  down-fjord ones was dropped (South Sawyer 2017-08).
 
 Writes `faces/faces.geojson`, `scores.json`, `kept.jpg`, `position.png`;
 `--stage` copies the geojson beside the staged mp4.
