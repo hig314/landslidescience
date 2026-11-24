@@ -521,7 +521,9 @@ window.GLRetreat = (function () {
                 if (y1 == null || y > y1) y1 = y;
             });
             var pickable = GL.CFG.faceAdmin && s.geom === 'line';
-            h += '<details class="rt-grp"' + (L.length <= 40 ? ' open' : '') + '><summary>' + esc(s.short) +
+            // open when short, and always for an admin's face groups (the rows
+            // scroll, and the reject tools are in them)
+            h += '<details class="rt-grp"' + ((L.length <= 40 || pickable) ? ' open' : '') + '><summary>' + esc(s.short) +
                 ' <small>' + L.length + (s.geom === 'line' ? ' terminus positions' : ' outlines') +
                 (y0 != null ? ', ' + (y0 === y1 ? y0 : y0 + '–' + y1) : '') + '</small></summary>' +
                 (pickable ? '<div class="rt-pickbar"><span class="rt-sub">Click faces to select them</span>' +
