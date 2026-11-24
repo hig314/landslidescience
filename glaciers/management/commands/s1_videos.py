@@ -114,7 +114,7 @@ class Command(BaseCommand):
     help = __doc__.split('\n\n')[0]
 
     def add_arguments(self, p):
-        p.add_argument('step', choices=['resolve', 'fixes', 'import', 'georef', 'built', 'faces'])
+        p.add_argument('step', choices=['resolve', 'fixes', 'import', 'georef', 'built', 'faces', 'months'])
         p.add_argument('path')
         p.add_argument('decisions', nargs='?')
         p.add_argument('--dry-run', action='store_true')
@@ -130,6 +130,8 @@ class Command(BaseCommand):
             self.built(Path(o['path']), o['caption'], o['anchor'], o['dry_run'])
         elif o['step'] == 'faces':
             self.faces(Path(o['path']), o['dry_run'])
+        elif o['step'] == 'months':
+            self.months(Path(o['path']), o['dry_run'])
         elif o['step'] == 'fixes':
             if not o['decisions']:
                 raise CommandError('fixes needs the review dir and the decisions file')
@@ -138,6 +140,44 @@ class Command(BaseCommand):
             if not o['decisions']:
                 raise CommandError('import needs the manifest and the decisions file')
             self.do_import(Path(o['path']), Path(o['decisions']), o['dry_run'])
+
+    # ------------------------------------------------------------------
+    def months(self, fp, dry):
+        """Each frame's month for the Earth Engine timelapses, from their
+        burned-in labels (tools/glaciers/s1_videos.py months, run on the
+        served files: {file: {fps, frames, months}}), into georef.months /
+        georef.fps, so the page shows the month as they play like a built
+        one. A frame whose label was unreadable is null (no month shown).
+        Built videos keep their own."""
+        res = json.loads(fp.read_text())
+        from inventory.views import _get_conn, _put_conn
+        conn = _get_conn()
+        n = skipped = 0
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id, file, georef FROM glacier_videos WHERE kind = 's1' AND georef IS NOT NULL")
+            for vid, f, geo in cur.fetchall():
+                r = res.get(f)
+                if not r or (geo or {}).get('method') == 'built':
+                    skipped += 1
+                    continue
+                ms = r['months']
+                if not any(ms):
+                    skipped += 1
+                    continue
+                cur.execute("""UPDATE glacier_videos SET georef = georef || %s::jsonb WHERE id = %s""",
+                            (json.dumps({'months': ms, 'fps': r['fps']}), vid))
+                n += 1
+            if dry:
+                conn.rollback()
+            else:
+                conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            _put_conn(conn)
+        self.stdout.write('%s%d videos given frame months, %d skipped' % ('DRY RUN ' if dry else '', n, skipped))
 
     # ------------------------------------------------------------------
     def faces(self, d, dry):

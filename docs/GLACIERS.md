@@ -620,6 +620,29 @@ Open: a layover mask from the viewing geometry (the streaked faces are where
 terrain correction smears slopes tilted toward the radar, opposite slopes in
 the two directions) and an ascending + descending merge; feature tracking on the stack.
 
+**Months for the Earth Engine timelapses too (2026-11-24).** Their date is
+burned in, so the page showed none while they played. `python3
+tools/glaciers/s1_videos.py months data/glacier_videos --out
+/Volumes/Nunatak/glacier_s1_georef/video_months.json` reads every frame's
+label from the SERVED files (dev and prod hold the same file names; only
+built videos are not in the main checkout) with the glyph reader; then
+`manage.py s1_videos months <that json>` writes `georef.months` / `fps`
+for every placed s1 video that is not built (same keys as a built one, so
+the panel, map label and popup need nothing new). The exports skip months
+(2014-12 then 2015-04), so a frame's month is its own label, never counted
+from the first; an unread frame between two read ones is filled only when
+the months between match the frames one for one, else null and no month is
+shown for it (`gl_videos.frameMonth`). Some exports use a larger font that
+matches the glyph templates less well (Ellsworth: every frame at 0.10
+against the 0.03 limit), so labels up to 0.15 are taken and a misread is
+dropped by order: two labels k frames apart must be at least k months
+apart (Ellsworth frame 40, misread 05 as 06, dropped and refilled as
+2022-05, checked against the frame extracted by number; note `-ss` before
+`-i` lands a frame late, so check by `select=eq(n,K)`). 10,427 of 10,466
+labelled frames got a month; every video at least 92%. The json is
+`data/glaciers/s1_video_months.json` (dev) for the prod run. Unplaced videos get none (the page
+reads `georef` as "placed").
+
 ## Ice faces from our S1 timelapses (2026-11-23)
 
 Hig: map only the faces the radar shows clearly; a face every month is not

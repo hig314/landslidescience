@@ -283,7 +283,7 @@ def _rows(cur, only=None):
                 v['georef'] = {'bounds': geo['bounds'], 'grade': geo.get('grade'),
                                'products': [dict(p, src='/glaciers/video/georef/%s_%s.webp' % (stem, p['id']))
                                             for p in GEOREF_PRODUCTS if p['id'] in geo.get('products', [])]}
-                if geo.get('months'):          # a built timelapse: frame k is months[k], at fps
+                if geo.get("months"):          # frame k is months[k] (null: label unread), at fps: built, or an Earth Engine export read by s1_videos months
                     v['georef'].update(months=geo['months'], fps=geo.get('fps', 10))
         elif ferr:
             v['state'], v['error'] = 'failed', ferr

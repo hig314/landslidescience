@@ -51,6 +51,7 @@ window.GLVideos = (function () {
         if (!g || !g.months || !g.months.length) return null;
         var i = Math.max(0, Math.min(g.months.length - 1, Math.floor(t * (g.fps || 10) + 1e-3)));
         var m = g.months[i];
+        if (!m) return null;                 // a frame whose burned-in label could not be read
         return MON[+m.slice(5, 7) - 1] + ' ' + m.slice(0, 4);
     }
     // Follow a video's frames until alive() says stop. A frame loop rather

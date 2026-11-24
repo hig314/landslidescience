@@ -164,6 +164,103 @@ def frame_dates(fid, out, force=False):
     return rec
 
 
+def local_labels(path, loose=0.15):
+    """Every frame's label of a local video file: (fps, [label or None]).
+    Some exports use a larger font that matches the templates less closely
+    (Ellsworth: every frame at 0.10 against the usual 0.03 limit), so up to
+    `loose` is accepted here; months_from_labels drops a label that breaks
+    the order, which is what a misread digit does."""
+    sys.path.insert(0, str(Path(__file__).parent))
+    import tempfile
+    import numpy as np
+    import s1_labels as L
+    from PIL import Image
+    r = _run([FFPROBE, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+              'stream=width,height,r_frame_rate', '-of', 'json', str(path)])
+    st = json.loads(r.stdout)['streams'][0]
+    num, den = st['r_frame_rate'].split('/')
+    fps = float(num) / float(den or 1)
+    w, h = min(800, st['width']), min(240, st['height'])
+    proc = subprocess.Popen([FFMPEG, '-v', 'error', '-i', str(path), '-vf', 'crop=%d:%d:0:0' % (w, h),
+                             '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], stdout=subprocess.PIPE)
+    T = L.load_templates()
+    labels, n = [], w * h * 3
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td) / 'f.png'
+        try:
+            while True:
+                buf = proc.stdout.read(n)
+                if len(buf) < n:
+                    break
+                Image.fromarray(np.frombuffer(buf, np.uint8).reshape(h, w, 3)).save(tmp)
+                s_, d = L.read(tmp, T)
+                labels.append(s_ if (s_ and isinstance(d, float) and d < loose) else None)
+        finally:
+            proc.stdout.close()
+            proc.wait()
+    return fps, labels
+
+
+def _mi(s):
+    return int(s[:4]) * 12 + int(s[5:7]) - 1
+
+
+def months_from_labels(labels):
+    """Frame months from the labels read: a label that cannot be right
+    (fewer months after an earlier label than frames) is dropped;
+    an unread frame between two read ones gets a month when the months
+    between them match the frames between them one for one; otherwise
+    None (the page shows no month for that frame)."""
+    L = [l if (l and len(l) == 7 and l[4] == '-' and 1 <= int(l[5:7]) <= 12) else None for l in labels]
+    # Each frame is at least a month after the one before, so two read
+    # labels k frames apart are at least k months apart. A label that breaks
+    # this is a misread: repeatedly drop the one in conflict with the most
+    # others until none is.
+    def clash(a, b):                       # frames a < b
+        return _mi(L[b]) - _mi(L[a]) < b - a
+    while True:
+        idx = [i for i, l in enumerate(L) if l]
+        cnt = {}
+        for x in range(len(idx)):
+            for y in range(x + 1, len(idx)):
+                if clash(idx[x], idx[y]):
+                    cnt[idx[x]] = cnt.get(idx[x], 0) + 1
+                    cnt[idx[y]] = cnt.get(idx[y], 0) + 1
+        if not cnt:
+            break
+        L[max(cnt, key=cnt.get)] = None
+    out = list(L)
+    idx = [i for i, l in enumerate(L) if l]
+    for i0, i1 in zip(idx, idx[1:]):
+        if i1 - i0 > 1 and _mi(L[i1]) - _mi(L[i0]) == i1 - i0:
+            for k in range(i0 + 1, i1):
+                m = _mi(L[i0]) + (k - i0)
+                out[k] = '%04d-%02d' % (m // 12, m % 12 + 1)
+    return out
+
+
+def cmd_months(a):
+    import concurrent.futures as cf
+    d = Path(a.videos)
+    files = [f for f in a.files.split(',') if f] or sorted(p.name for p in d.glob('*.mp4'))
+    res = json.loads(Path(a.out).read_text()) if Path(a.out).exists() else {}
+    todo = [f for f in files if f not in res or a.redo]
+    with cf.ThreadPoolExecutor(a.jobs) as ex:
+        futs = {ex.submit(local_labels, d / f): f for f in todo}
+        for n, fu in enumerate(cf.as_completed(futs), 1):
+            f = futs[fu]
+            try:
+                fps, labels = fu.result()
+            except Exception as e:                  # noqa: BLE001
+                print('%3d/%d %s error %s' % (n, len(todo), f, e), flush=True)
+                continue
+            months = months_from_labels(labels)
+            res[f] = {'fps': fps, 'frames': len(labels), 'labels': labels, 'months': months}
+            print('%3d/%d %s %d frames, %d read, %d with a month' % (
+                n, len(todo), f, len(labels), sum(1 for l in labels if l), sum(1 for m in months if m)), flush=True)
+            Path(a.out).write_text(json.dumps(res))
+
+
 # The S1B outage: S1B failed on 23 Dec 2021 and S1C was in service by spring
 # 2025, so a video with the gap jumps from a frame before 2022 to one well
 # after. `gap` finds that jump by seeking, a frame at a time, instead of
@@ -317,6 +414,14 @@ def main():
     d.add_argument('--jobs', type=int, default=4)
     d.add_argument('--force', action='store_true')
     d.set_defaults(fn=cmd_dates)
+    m = sub.add_parser('months', help="read every frame's label from the SERVED video files (local), "
+                                      "for georef.months: manage.py s1_videos months <json>")
+    m.add_argument('videos', help='the video directory (data/glacier_videos)')
+    m.add_argument('--out', required=True, help='JSON written: {file: {fps, frames, labels, months}}')
+    m.add_argument('--files', default='', help='comma list of file names (default: every .mp4)')
+    m.add_argument('--jobs', type=int, default=4)
+    m.add_argument('--redo', action='store_true', help='read again files already in --out')
+    m.set_defaults(fn=cmd_months)
     a = ap.parse_args()
     a.fn(a)
 
