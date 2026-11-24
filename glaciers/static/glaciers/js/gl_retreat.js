@@ -34,7 +34,9 @@ window.GLRetreat = (function () {
     'use strict';
 
     var GL, map;
-    var NOW_YEAR = 2025;                 // right end of the year bar
+    // Right end of the year bar = the present. Was fixed at 2025, which hid
+    // every face dated 2026 (the S1 auto faces run to the latest month).
+    var NOW_YEAR = new Date().getFullYear();
     var DEF_MIN_YEAR = 1900;             // left end with nothing selected
     var COVER_YEARS = [];
     for (var cy = 1986; cy <= 2020; cy += 2) COVER_YEARS.push(cy);
