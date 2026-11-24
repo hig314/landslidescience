@@ -13,6 +13,18 @@ separate worktrees (inventory + hosting on `main`, topobathy, glaciers): read
 **[WORKSTREAMS.md](WORKSTREAMS.md)** before touching anything under
 `tools/lidar/` or `glaciers/`.
 
+## At the start of a session: check the logs
+
+Nothing notifies anyone when an outside service breaks or a nightly job
+fails, so look before starting work and tell Hig about anything recent:
+
+```bash
+ssh root@143.198.140.54 'tail -30 /var/log/landslidescience-probe.log; tail -5 /var/log/landslidescience-backup.log'
+```
+
+The probe log holds failures only (docs/OPERATIONS.md, "Outside-service
+probe"); `/traffic/services/` shows the current state.
+
 ## Where the detail lives
 
 | Working on | Read first |
