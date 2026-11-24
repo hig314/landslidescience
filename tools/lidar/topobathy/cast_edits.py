@@ -271,7 +271,20 @@ def _psql(sql):
     return subprocess.run(["docker", "exec", "-i", "-e", "PGPASSWORD=tethys_pass", DEV_DB, "psql", "-h", "127.0.0.1", "-U", "tethys", "-d", "landslides", "-At", "-F", "|", "-v", "ON_ERROR_STOP=1", "--single-transaction"], input=sql, text=True, capture_output=True, check=True).stdout
 
 
+def sync_shifts():
+    """The dev database's points follow a sheet shift (2026-11-23): every point of the survey translated once, the survey's title and notes saying so (the marker
+    that stops a second application).  A withdrawn shift is not undone here: reload the survey's package (load_soundings) and run this again."""
+    for sv, v in _shifts().items():
+        mark = f"[sheet shift {v['dx']:+g} E {v['dy']:+g} N, {v['date']}]"
+        if _psql(f"SELECT count(*) FROM sounding_surveys WHERE slug = '{sv}' AND notes LIKE '%{mark}%';").strip() != "0":
+            print(f"dev database: {sv} already carries {mark}"); continue
+        n = _psql(f"UPDATE soundings s SET geom = ST_Transform(ST_Translate(ST_Transform(s.geom, 6334), {v['dx']}, {v['dy']}), 4326), updated_at = now() FROM sounding_surveys u WHERE u.id = s.survey_id AND u.slug = '{sv}' AND (s.notes IS NULL OR s.notes NOT LIKE 'cast_edits:%') RETURNING 1;"
+                  f"UPDATE sounding_surveys SET notes = coalesce(notes, '') || ' {mark} A further whole-sheet translation fitted to the 1977-84 soundings (tools/lidar/water/sheet_shifts.json).', title = title || ' {mark}' WHERE slug = '{sv}';")
+        print(f"dev database: {sv} translated {v['dx']:+g} E {v['dy']:+g} N ({n.count(chr(10)) + (1 if n.strip() else 0)} points)")
+
+
 def sync_dev(a=None):
+    sync_shifts()
     """The dev database's soundings (what /lidar/?catalog=dev draws) follow the moves: geometry only, the depth stays.  The dev database alone, never production.  Each moved row's note holds its key and its
     position before the move, so a cancelled move goes back; load_soundings replaces a survey whole, so run this again after one."""
     P = "cast_edits:"; M = {k: f for k, f in _edits().items() if f["properties"]["decision"] == "move"}; n = dict(moved=0, restored=0, unchanged=0, not_found=[], ambiguous=[])
