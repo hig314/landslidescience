@@ -106,7 +106,22 @@ def channel_mask(S, line, cache):
     return remove_small_holes(binary_closing(np.isin(lab, list(v)), disk(2)), 800)
 
 
-def score_months(S, line, channel):
+def strip_mask(S, line, m):
+    """For ice the texture test calls rock (a slow, debris-covered piedmont
+    lobe, Sitkagi): every pixel within m metres of the flow line."""
+    from shapely.geometry import Point
+    from scipy.ndimage import distance_transform_edt
+    h, w = S['vv'].shape[1:]
+    on = np.ones((h, w), bool)
+    for d in np.arange(0, line.length, 1.0):
+        x, y = line.interpolate(d).coords[0]
+        i, j = int(round(y)), int(round(x))
+        if 0 <= i < h and 0 <= j < w:
+            on[i, j] = False
+    return distance_transform_edt(on) <= m / 10.0
+
+
+def score_months(S, line, channel, connect=50, a_wet=0.4):
     X = fk.anomaly(S)
     W = fk.water_months(X, channel)
     out = []
@@ -114,8 +129,9 @@ def score_months(S, line, channel):
         cands = []
         for kind, (P, glac, fjord) in (
                 ('consistent', fk.faces_consistent(X, k, channel, line, None, win=1, W=W, hist=12,
-                                                   max_wet=0.25, readvance=0, whole=True)),
-                ('single', fk.faces_single(X[k], channel, line))):
+                                                   max_wet=0.25, readvance=0, whole=True, connect=connect)),
+                ('single', fk.faces_single(X[k], channel, line, connect=connect,
+                                           wet=W[max(0, k - 12):k].mean(0) > a_wet if k else None))):
             if not P:
                 continue
             d, L = P[0]
@@ -170,15 +186,25 @@ def main():
     ap.add_argument('--line', type=int, help='flow line id to start from (default: most length in the frame)')
     ap.add_argument('--api', default='https://landslidescience.org', help='where the network is read from')
     ap.add_argument('--min-score', type=float, default=0.6)
+    ap.add_argument('--connect', type=float, default=50,
+                    help='px: a bright component counts as glacier only if the line runs along it this far (0 = off)')
+    ap.add_argument('--single-wet', type=float, default=0.4,
+                    help='single-month candidate: not glacier where water in more than this share of the past 12 months')
+    ap.add_argument('--strip-m', type=float, default=0,
+                    help='channel = within this many metres of the flow line, instead of the texture test '
+                         '(for debris-covered, slow ice the texture test calls rock)')
     ap.add_argument('--stage', action='store_true')
     a = ap.parse_args()
     S = fk.load(a.name)
     fd = os.path.join(S['dir'], 'faces'); os.makedirs(fd, exist_ok=True)
     line, lid = path_line(S, fetch_lines(a.api, S['dir']), a.line)
     print('flow line %d, %.1f km in the frame' % (lid, line.length * 10 / 1000))
-    channel = channel_mask(S, line, os.path.join(fd, 'texture_corr.npy'))
+    if a.strip_m:
+        channel = strip_mask(S, line, a.strip_m)
+    else:
+        channel = channel_mask(S, line, os.path.join(fd, 'texture_corr.npy'))
     print('channel %.0f%% of the frame' % (100 * channel.mean()))
-    sc = score_months(S, line, channel)
+    sc = score_months(S, line, channel, a.connect or None, a.single_wet)
     ks = [k for k, c in enumerate(sc) if c and c[0]['score'] >= a.min_score]
     keep = fk.drop_spikes([sc[k][0]['along'] for k in ks])
     spikes = [S['months'][ks[i]] for i in range(len(ks)) if i not in keep]

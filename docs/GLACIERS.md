@@ -648,6 +648,21 @@ sit, so it was dropped (Hig). What ships is a confidence score.
   packed melange read as glacier). Endicott: 70 of 120 months, Mar–Apr 2020
   out, Dec 2019 and Jul 2020 in; Hig judged two of the 47 kept since 2021
   questionable (2024-05, 2026-08) and accepted that rate.
+- after South Sawyer (Tracy Arm, narrow and full of bergs): a bright
+  component counts as glacier only if the line runs along it for 500 m
+  (`--connect 50`, px; a berg patch is short where the line crosses it), and
+  the single-month candidate also refuses pixels that were water in more
+  than 40% of the past 12 months (`--single-wet 0.4`; at 0.25 Endicott's
+  winter readvances of 2016–17 went, at 0.55 Tracy Arm's 2022 melange fronts
+  came back). Endicott 65 kept, South Sawyer 12 (all on the real front).
+  A walk down the line from the trunk ("continuous with the trunk across
+  gaps") was tried first and lost Endicott's summer months, when the trunk
+  is as dark as water along stretches of the line.
+- Sitkagi (debris-covered Malaspina lobe at the coast): the texture test
+  calls the slow debris-covered ice rock, so the channel is a few patches
+  and the lake-cliff series stops in 2022; `--strip-m 1500` (channel = a
+  strip along the line) finds the ocean beach instead. Which front is
+  wanted there is Hig's call; nothing loaded.
 
 Writes `faces/faces.geojson`, `scores.json`, `kept.jpg`, `position.png`;
 `--stage` copies the geojson beside the staged mp4.

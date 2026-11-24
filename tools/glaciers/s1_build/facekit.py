@@ -360,7 +360,7 @@ def water_months(X, channel):
 
 def faces_consistent(X, k, channel, line, thr, win=2, q=25, min_px=1500, edge=3, back=0, open_r=2,
                      W=None, hist=12, max_wet=0.25, readvance=6, whole=False, steady=None, fwin=2,
-                     fsmooth=3.0, fstat='median'):
+                     fsmooth=3.0, fstat='median', connect=None):
     """Month k: glacier = channel pixels whose q-th percentile brightness over
     months k-win..k+win (k-win..k with back) is above thr (bright nearly
     every month; thr None = Otsu inside the channel, per month), the
@@ -409,6 +409,8 @@ def faces_consistent(X, k, channel, line, thr, win=2, q=25, min_px=1500, edge=3,
     for v in on:
         if v and (lab == v).sum() >= min_px:
             ids.add(v)
+    if connect and ids:
+        ids = long_on_line(on, ids, connect / 3.0)
     if not ids:
         return [], None, None
     glac = binary_fill_holes(np.isin(lab, list(ids)))
@@ -554,7 +556,34 @@ def face_confidence(Xk, glac, fjord, channel, piece, r=8, step=2.0, sep=3.0, thr
             'water': float(np.median(wat)), 'n': int(len(d))}
 
 
-def faces_single(Xk, channel, line, sigma=3.0, open_r=4, min_px=1500):
+def from_top(on, ids, gap):
+    """Glacier ice is continuous with the trunk (Hig's "consistent
+    glacier"): walking DOWN the line from its up-glacier end, keep the bright
+    components met while the line stays on them, across gaps of at most
+    `gap` samples (a crevasse, a dark stripe), and stop at the first longer
+    stretch off them. A berg patch out in the fjord is then fjord, not the
+    glacier's front. `on` = component label per line sample, exit first."""
+    keep, run, started = set(), 0, False
+    for v in reversed(on):
+        if v in ids:
+            keep.add(v); run = 0; started = True
+        elif started:
+            run += 1
+            if run > gap:
+                break
+    return keep
+
+
+def long_on_line(on, ids, n):
+    """Only the components the line runs along for at least n samples: the
+    glacier's front component runs a long way up the line, a berg patch in
+    the fjord is short where the line crosses it."""
+    import collections
+    c = collections.Counter(v for v in on if v in ids)
+    return {v for v in ids if c[v] >= n}
+
+
+def faces_single(Xk, channel, line, sigma=3.0, open_r=4, min_px=1500, connect=None, wet=None):
     """Month k's own face: smooth this month's image, split the channel by
     Otsu, keep the bright components on the flow line and the dark fjord
     down-glacier of them; the edge between, inside the channel. Same
@@ -565,11 +594,16 @@ def faces_single(Xk, channel, line, sigma=3.0, open_r=4, min_px=1500):
     from skimage.morphology import disk
     G = gaussian_filter(Xk, sigma)
     thr = threshold_otsu(G[channel])
-    glac = binary_opening((G > thr) & channel, disk(open_r))
+    stay = (G > thr) & channel
+    if wet is not None:             # open water through much of the past year: fjord (packed melange is not glacier)
+        stay &= ~wet
+    glac = binary_opening(stay, disk(open_r))
     lab = label(glac)
     pts = [line.interpolate(d).coords[0] for d in np.arange(0, line.length, 3.0)]
     on = [lab[int(round(y)), int(round(x))] for x, y in pts]
     ids = {v for v in on if v and (lab == v).sum() >= min_px}
+    if connect and ids:
+        ids = long_on_line(on, ids, connect / 3.0)
     if not ids:
         return [], None, None
     glac = binary_fill_holes(np.isin(lab, list(ids)))
