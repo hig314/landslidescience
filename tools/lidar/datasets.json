@@ -1176,6 +1176,23 @@
       "vertical_datum": "NAVD88 (GEOID12B, as the sources)",
       "region": "Kenai Peninsula",
       "source": "landslidescience.org composite of: NOAA OCM Kachemak Bay 2023/24 lidar; Grewingk 2021 and 2019 lidar; Homer 2018/2019/2021 and Seldovia 2019 topobathy lidar; Kenai Peninsula 2008 lidar; Chugachmiut lidar; NOAA multibeam and BAG surveys (2009, H12146, OCM 2023); NOS hydrographic soundings 1915-1984; lake soundings (Riordan 2018, Grewingk, Petrof and Gore 2022); Grewingk Lake multibeam 2023 (K. Hughes); ArcticDEM, CUDEM, NCEI and USGS 3DEP where nothing better saw the ground",
+      "surfaces": [
+        {
+          "kind": "water",
+          "encoding": "terrarium"
+        },
+        {
+          "kind": "sea",
+          "encoding": "mapbox"
+        }
+      ],
+      "tide_levels": {
+        "MHHW": 4.24,
+        "MHW": 3.98,
+        "MSL": 1.59,
+        "MLW": -0.88,
+        "MLLW": -1.38
+      },
       "downloads": [
         {
           "res_m": 8,
