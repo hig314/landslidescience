@@ -737,3 +737,61 @@ def lake_face(lake, changing, line, near=5, min_len=15):
         from shapely.ops import nearest_points
         along = line.project(nearest_points(best, line)[1])
     return along, best
+
+
+# --- second pass (Hig, 2026-11-24, South Sawyer): months with no confident
+# face, searched near the nearest confident one. Winter melange is bright
+# enough that a split of the whole channel calls it glacier (Nov 2017), and
+# some faces are a bright LINE between dimmer ice and water (Feb 2024).
+
+def faces_local(Xk, channel, line, prior, along_prior, D=40, sigma=2.0, ridge=True, open_r=2):
+    """Month k's face within D px of a prior face (LineString px) at
+    along_prior on the line. Returns (pieces, glac, fjord, thr). Up-glacier of the band is glacier, down-glacier
+    fjord; inside the band, this band's own Otsu split of the smoothed image,
+    plus bright ridges (a face seen as a bright line) as glacier. Same
+    returns as faces_consistent."""
+    from scipy.ndimage import gaussian_filter, distance_transform_edt, binary_opening, binary_fill_holes
+    from skimage.filters import threshold_otsu, sato
+    from skimage.measure import label, find_contours
+    from skimage.morphology import disk
+    h, w = Xk.shape
+    on = np.ones((h, w), bool)
+    for t in np.arange(0, prior.length, 0.5):
+        x, y = prior.interpolate(t).coords[0]
+        i, j = int(round(y)), int(round(x))
+        if 0 <= i < h and 0 <= j < w:
+            on[i, j] = False
+    band = (distance_transform_edt(on) <= D) & channel
+    if band.sum() < 50:
+        return [], None, None
+    outside = label(channel & ~band)
+
+    def at(d):
+        d = min(max(d, 0), line.length)
+        x, y = line.interpolate(d).coords[0]
+        return int(round(y)), int(round(x))
+    # the first outside-band channel pixel on the line beyond the band, each way
+    up = next((outside[at(d)] for d in np.arange(along_prior + D, line.length, 2.0) if outside[at(d)]), 0)
+    dn = next((outside[at(d)] for d in np.arange(along_prior - D, 0, -2.0) if outside[at(d)]), 0)
+    if not up:
+        return [], None, None
+    G = gaussian_filter(Xk, sigma)
+    thr = threshold_otsu(G[band])
+    bright = (G > thr) & band
+    if ridge:
+        R = sato(G, sigmas=(1, 2), black_ridges=False)
+        bright |= (R > np.percentile(R[band], 90)) & band
+    glac = binary_opening((outside == up) | bright, disk(open_r)) | (outside == up)
+    lab = label(glac)
+    ui, uj = next(at(d) for d in np.arange(along_prior + D, line.length, 2.0) if outside[at(d)] == up)
+    glac = binary_fill_holes(lab == lab[ui, uj])
+    fl = label(channel & ~glac)
+    fjord = None
+    if dn:
+        di, dj = next(at(d) for d in np.arange(along_prior - D, 0, -2.0) if outside[at(d)] == dn)
+        if fl[di, dj]:
+            fjord = fl == fl[di, dj]
+    cs = find_contours(glac.astype(np.float64), 0.5, mask=channel)
+    # the band's own split is what "water" means here (winter melange is
+    # not dark against the whole channel): face_confidence(thr=...)
+    return pieces_crossing(cs, line, near=10), glac, fjord, thr

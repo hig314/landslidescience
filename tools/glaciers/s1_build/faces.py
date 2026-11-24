@@ -171,6 +171,38 @@ def score_lake(S, line):
     return out
 
 
+def second_pass(S, line, channel, sc, ks, min_step=4.0, max_gap=12):
+    """Months with no confident face, searched near the nearest confident
+    one in time (within max_gap months; facekit.faces_local). Scored as
+    the first pass, with "water" judged by the band's own split, and only
+    if the median bright-to-dark step across the face is at least min_step
+    dB: the band split makes almost any face look clear, the step is what
+    says it is a real contrast. Adds candidates to sc in place."""
+    from shapely.geometry import LineString
+    X = fk.anomaly(S)
+    t = [int(m[:4]) * 12 + int(m[5:]) for m in S['months']]
+    kset = set(ks)
+    for k in range(len(S['months'])):
+        if k in kset or not ks:
+            continue
+        j = min(ks, key=lambda q: abs(t[q] - t[k]))
+        if abs(t[j] - t[k]) > max_gap:
+            continue
+        P = LineString(sc[j][0]['coords'])
+        pcs, glac, fjord, thr = fk.faces_local(X[k], channel, line, P, sc[j][0]['along'])
+        if not pcs:
+            continue
+        d, L = pcs[0]
+        c = fk.face_confidence(X[k], glac, fjord, channel, L, thr=thr)
+        spans, straight = fk.wall_to_wall(L, channel)
+        c.update(method='local', along=float(d), spans=bool(spans), straight=straight,
+                 across=fk.across(L, line, d), prior=S['months'][j], coords=[list(map(float, q)) for q in L.coords])
+        ok = c['med'] is not None and c['med'] == c['med'] and c['med'] >= min_step
+        c['score'] = (c['clear'] * min(1.0, straight / 0.6) * (1.0 if spans else 0.5)
+                      * min(1.0, c['across'] / 0.85)) if ok else 0.0
+        sc[k] = sorted(sc[k] + [c], key=lambda c: -c['score'])
+
+
 def sheet(S, line, sc, ks, fp, cols=4):
     from PIL import Image, ImageDraw
     tiles = []
@@ -220,6 +252,10 @@ def main():
                          '(for debris-covered, slow ice the texture test calls rock)')
     ap.add_argument('--lake', action='store_true',
                     help='lake-terminating front: the lagoon shore where it is changing (Sitkagi)')
+    ap.add_argument('--no-second', dest='second', action='store_false',
+                    help='skip the second pass (months searched near the nearest confident face)')
+    ap.add_argument('--min-step', type=float, default=4.0,
+                    help='second pass: median bright-to-dark step across the face, dB')
     ap.add_argument('--stage', action='store_true')
     a = ap.parse_args()
     S = fk.load(a.name)
@@ -239,11 +275,24 @@ def main():
     keep = fk.drop_spikes([sc[k][0]['along'] for k in ks])
     spikes = [S['months'][ks[i]] for i in range(len(ks)) if i not in keep]
     ks = [ks[i] for i in keep]
+    if a.second and not a.lake:
+        n1 = len(ks)
+        second_pass(S, line, channel, sc, ks, a.min_step)
+        ks = [k for k, c in enumerate(sc) if c and c[0]['score'] >= a.min_score]
+        keep = fk.drop_spikes([sc[k][0]['along'] for k in ks])
+        spikes = [S['months'][ks[i]] for i in range(len(ks)) if i not in keep]
+        ks = [ks[i] for i in keep]
+        print('second pass: %d kept after it (%d before)' % (len(ks), n1))
     print('%d of %d months kept; dropped as spikes: %s' % (len(ks), len(sc), ', '.join(spikes) or 'none'))
+    h, w = S['vv'].shape[1:]
+    # frame_uv: the face as fractions of the frame (u from the west edge, v
+    # from the north edge, Web Mercator like the frame), so the app can
+    # redraw it wherever the video is placed (sources.refit_video_faces)
     feats = [{'type': 'Feature',
               'properties': {'month': S['months'][k], 'score': round(sc[k][0]['score'], 2),
                              'method': sc[k][0]['method'], 'along_m': round(sc[k][0]['along'] * 10),
-                             'line_id': lid},
+                             'line_id': lid,
+                             'frame_uv': [[round(x / w, 6), round(y / h, 6)] for x, y in sc[k][0]['coords']]},
               'geometry': {'type': 'LineString',
                            'coordinates': [[round(v, 6) for v in fk.to_lonlat(S['T'], x, y)]
                                            for x, y in sc[k][0]['coords']]}} for k in ks]

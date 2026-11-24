@@ -693,6 +693,28 @@ sit, so it was dropped (Hig). What ships is a confidence score.
   step > 3 dB, t > 6); the longest such run of shore is the face, so it
   runs the whole moving arc and stops at stable shore. Scored by the clear
   fraction alone. 102 of 113 months, 2.4 to 3.7 km up the line 2017–2026.
+- **Second pass** (Hig, 2026-11-24: South Sawyer missed clear faces,
+  Nov 2017 bright ice on darker water, Feb 2024 a bright line between dimmer
+  ice and water; winter melange is bright enough that the whole-channel
+  split calls it glacier): each month without a confident face is searched
+  within 400 m of the nearest confident face in time (<= 12 months;
+  `facekit.faces_local`): up-glacier of that band is glacier, inside it the
+  band's own Otsu split plus bright ridges (`sato`), and "water" in the
+  score is judged by the band's split. That makes almost any face look
+  clear, so it must also have a median bright-to-dark step >= 4 dB
+  (`--min-step`): Endicott Feb–Jun 2020 stay out (0.7 to 3.9 dB), South
+  Sawyer Nov 2017 (12.8) and Feb 2024 (6.3) come in. Endicott 65 -> 100,
+  South Sawyer 12 -> 82; `--no-second` turns it off; not used with
+  `--lake`.
+- **A face belongs to its video** (Hig, 2026-11-24, Sitkagi: our build and
+  the Earth Engine videos are registered slightly differently). faces.py
+  writes each face also as fractions of the frame (`frame_uv`, Web
+  Mercator); `sources.refit_video_faces` redraws a video's faces inside its
+  current bounds, run by `s1_videos faces` (so they are drawn where the
+  video is, not where the build put the frame), `built`, `georef`, and on
+  its own `s1_videos refit <video id>`. A corrected placement or a new
+  video carries its faces. `georef` now also keeps a video's frame months
+  when it re-places it (it used to overwrite the whole georef).
 - The spike filter is two-sided: down-fjord spikes first (> 200 m below
   both kept neighbours), then up-glacier ones (> 500 m above both: another
   pond on the line); in the other order a true face next to two false

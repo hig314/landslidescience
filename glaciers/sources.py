@@ -582,6 +582,43 @@ def set_rejected(cur, obs_id, user, on=True, note=''):
     return r
 
 
+def _merc(lon, lat):
+    import math
+    R = 6378137.0
+    return math.radians(lon) * R, R * math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
+
+
+def _unmerc(x, y):
+    import math
+    R = 6378137.0
+    return math.degrees(x / R), math.degrees(2 * math.atan(math.exp(y / R)) - math.pi / 2)
+
+
+def refit_video_faces(cur, video_id):
+    """Put a video's S1 auto faces where the video is NOW (Hig, 2026-11-24:
+    a face belongs to the video it was found in, so a corrected placement,
+    or a new video, carries its faces). Each face keeps its vertices as
+    fractions of the frame (props.frame_uv, u across from the west edge, v
+    down from the north edge, both in Web Mercator like the frame); this
+    redraws them inside the video's current bounds. Returns the count."""
+    cur.execute('SELECT georef FROM glacier_videos WHERE id = %s', (video_id,))
+    r = cur.fetchone()
+    if not r or not r[0] or not r[0].get('bounds'):
+        return 0
+    w, s_, e, n = r[0]['bounds']
+    (x0, y0), (x1, y1) = _merc(w, s_), _merc(e, n)
+    cur.execute("SELECT id, props->'frame_uv' FROM glacier_obs WHERE source = %s AND props->>'video_id' = %s "
+                "AND props ? 'frame_uv'", (S1AUTO, str(video_id)))
+    rows = cur.fetchall()
+    for oid, uv in rows:
+        g = {'type': 'LineString',
+             'coordinates': [[round(c, 7) for c in _unmerc(x0 + u * (x1 - x0), y1 - v * (y1 - y0))] for u, v in uv]}
+        cur.execute('UPDATE glacier_obs SET geom = ' + _LINE + ' WHERE id = %s', (json.dumps(g), oid))
+    if rows:
+        set_tile_geom(cur, 'glacier_obs', "source = %s AND props->>'video_id' = %s", (S1AUTO, str(video_id)), poly=False)
+    return len(rows)
+
+
 def load_s1_faces(cur, build, fc, glacier_id, video_id=None):
     """Replace one build's S1 auto faces (faces.py's faces.geojson) in
     glacier_obs. ext_id = '<build>:<month>', so a rejection made against an
@@ -604,7 +641,9 @@ def load_s1_faces(cur, build, fc, glacier_id, video_id=None):
     cur.executemany(sql, rows)
     set_tile_geom(cur, 'glacier_obs', 'source = %s AND ext_id LIKE %s', (S1AUTO, build + ':%'), poly=False)
     nrej = apply_rejects(cur, S1AUTO)
-    rep = {'build': build, 'replaced': old, 'loaded': len(rows), 'rejected_kept': nrej}
+    # drawn where the video is now, not where the build put the frame
+    refit = refit_video_faces(cur, video_id) if video_id else 0
+    rep = {'build': build, 'replaced': old, 'loaded': len(rows), 'rejected_kept': nrej, 'refit': refit}
     rep.update(source_stats(cur, S1AUTO))
     return rep
 

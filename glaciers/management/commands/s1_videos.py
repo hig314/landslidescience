@@ -114,7 +114,7 @@ class Command(BaseCommand):
     help = __doc__.split('\n\n')[0]
 
     def add_arguments(self, p):
-        p.add_argument('step', choices=['resolve', 'fixes', 'import', 'georef', 'built', 'faces', 'months'])
+        p.add_argument('step', choices=['resolve', 'fixes', 'import', 'georef', 'built', 'faces', 'months', 'refit'])
         p.add_argument('path')
         p.add_argument('decisions', nargs='?')
         p.add_argument('--dry-run', action='store_true')
@@ -132,6 +132,8 @@ class Command(BaseCommand):
             self.faces(Path(o['path']), o['dry_run'])
         elif o['step'] == 'months':
             self.months(Path(o['path']), o['dry_run'])
+        elif o['step'] == 'refit':
+            self.refit(int(o['path']), o['dry_run'])
         elif o['step'] == 'fixes':
             if not o['decisions']:
                 raise CommandError('fixes needs the review dir and the decisions file')
@@ -140,6 +142,25 @@ class Command(BaseCommand):
             if not o['decisions']:
                 raise CommandError('import needs the manifest and the decisions file')
             self.do_import(Path(o['path']), Path(o['decisions']), o['dry_run'])
+
+    # ------------------------------------------------------------------
+    def refit(self, vid, dry):
+        """Redraw a video's S1 auto faces inside its current bounds
+        (sources.refit_video_faces); also done by `georef` and `built`."""
+        from glaciers import sources, views
+        from inventory.views import _get_conn, _put_conn
+        conn = _get_conn()
+        try:
+            n = sources.refit_video_faces(conn.cursor(), vid)
+            conn.rollback() if dry else conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            _put_conn(conn)
+        if n and not dry:
+            views.bump_stamp()
+        self.stdout.write('%svideo %d: %d faces redrawn' % ('DRY RUN ' if dry else '', vid, n))
 
     # ------------------------------------------------------------------
     def months(self, fp, dry):
@@ -303,7 +324,12 @@ class Command(BaseCommand):
                             (name, cap, m0 + '-01', _month_end(m1), json.dumps(georef)))
                 vid = cur.fetchone()[0]
             cur.execute('INSERT INTO glacier_video_anchors (video_id, geom) VALUES (%s, ' + pt + ')', (vid, r[0], r[1]))
+            from glaciers import sources as _src
+            nf = _src.refit_video_faces(cur, vid)          # its faces (a rebuild may have moved the frame)
             conn.commit()
+            if nf:
+                from glaciers import views as _views
+                _views.bump_stamp()
             new = None
             if old and old[1]:
                 (videos.VIDEO_DIR / old[1]).unlink(missing_ok=True)
@@ -321,7 +347,9 @@ class Command(BaseCommand):
             _put_conn(conn)
 
     def georef(self, path, dry):
+        from glaciers import sources
         from glaciers.videos import GEOREF_DIR
+        refit = 0
         data = json.loads(path.read_text())
         conn = _get_conn()
         try:
@@ -340,15 +368,26 @@ class Command(BaseCommand):
                     if lack:
                         self.stdout.write('  %s: product images missing (%s); copy them to %s first' % (fname, ', '.join(lack), GEOREF_DIR))
                         continue
+                if g is not None:
+                    # a re-placement keeps what is not about placement: the
+                    # frame months (s1_videos months) and their fps
+                    cur.execute('SELECT georef FROM glacier_videos WHERE id = %s', (row[0],))
+                    old = cur.fetchone()[0] or {}
+                    g = dict(g, **{k: old[k] for k in ('months', 'fps') if k in old and k not in g})
                 cur.execute('UPDATE glacier_videos SET georef = %s WHERE id = %s',
                             (None if g is None else json.dumps(g), row[0]))
+                if g is not None:
+                    refit += sources.refit_video_faces(cur, row[0])     # its faces move with it
                 n += 1
             if dry:
                 conn.rollback()
                 self.stdout.write('dry run: %d would be set, %d not found' % (n, missing))
             else:
                 conn.commit()
-                self.stdout.write('%d set, %d not found' % (n, missing))
+                if refit:
+                    from glaciers import views as _views
+                    _views.bump_stamp()
+                self.stdout.write('%d set, %d not found; %d S1 auto faces moved with their videos' % (n, missing, refit))
         finally:
             _put_conn(conn)
 
