@@ -236,7 +236,8 @@ window.GLVideos = (function () {
     function stepFrame(vid, d) {
         var v = byId[OV.id], fps = (v && v.georef && v.georef.fps) || 10;
         var n = Math.max(1, Math.round(vid.duration * fps));
-        var k = Math.max(0, Math.min(n - 1, Math.floor(vid.currentTime * fps + 1e-3) + d));
+        var k = Math.min(n - 1, Math.floor(vid.currentTime * fps + 1e-3)) + d;
+        k = ((k % n) + n) % n;              // wraps both ways: first ← goes to last
         vid.pause();
         vid.currentTime = Math.min(vid.duration - 0.001, (k + 0.5) / fps);
         var seek = ovEl && ovEl.querySelector('[data-a=seek]');
