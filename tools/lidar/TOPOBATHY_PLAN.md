@@ -1,3 +1,7 @@
+> **Hig 2026-11-23 ~21:00: "Grewingk lake multibeam can be made into a fully public layer."** So `kbay_topobathy_v1` is
+> PUBLIC (dev_only removed from its entry). FOR HOSTING: merge this branch's `datasets.json`, build and publish
+> `kbay_topobathy_v1`; and `grewingk_sonar_2023` itself may now be ungated (hosting's entry -- not edited here).
+
 > **VERSION 1 TO PUBLISH; VERSION 2 FIX LIST (Hig 2026-11-23 evening).** Version 1 = run_1118 as published to dev at
 > 20:14: `datasets.json` entry `kbay_topobathy_v1` on this branch (archive_mode copy, src
 > `/Volumes/Powder/lidar_build/kbay_joint_s3/kbay_topobathy_v1.tif`, a COG of the final crops' mosaic), `dev_only` until
