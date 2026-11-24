@@ -119,3 +119,7 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 .kn-ed-ask button:hover { background: #2f6fd0; border-color: #2f6fd0; }
 .kn-ed-ask button b { display: block; } .kn-ed-ask button span { color: #bbb; }
 .kn-ed-ask button.cancel { width: auto; margin-left: auto; padding: 3px 12px; }
+.kn-ed-bdet.kn-ed-b1 { padding-left: 8px; background: #1f1f21; border-bottom: 1px solid #333; }
+.kn-ed-bcols { display: flex; justify-content: flex-end; gap: 6px; padding: 0 22px 3px 0; color: #999; }
+.kn-ed-bcols span { width: 112px; } .kn-ed-bcols .d { width: 46px; }
+.kn-ed-bp .kn-ed-brow input.play { width: 46px; border-color: #2f8cff; }

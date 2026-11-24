@@ -875,7 +875,16 @@
     if (bpRow >= rows.length) bpRow = -1;
     bp.at.textContent = RT.editClick == null ? "everything" : RT.editClick === 0 ? "on arrival" : "click " + RT.editClick + " of " + total;
     bp.list.innerHTML = "";
-    if (!rows.length) mk("div", "kn-ed-bnone", bp.list, "Nothing builds on this slide. Select something on it, then Build in or Build out.");
+    var fig = editable(c.s) && c.s.elements.filter(function (e) { return e.type === "live" && !e.states && e.steps > 1; })[0];
+    if (fig) {                             // stage 1 plays when the slide arrives and has no row: its time is set here
+      var f1 = mk("div", "kn-ed-bdet kn-ed-b1", bp.list);
+      mk("span", "", f1, "Figure → stage 1, on arrival: plays for");
+      var t1 = mk("input", "", f1); t1.type = "number"; t1.min = 0; t1.max = 120; t1.step = 0.5; t1.value = fig.dur || ""; t1.placeholder = "own";
+      t1.title = "How long the figure's first stage plays (empty: its own pace)";
+      mk("span", "", f1, "s");
+      t1.onchange = function () { t1.blur(); change(function () { bpSet(fig, "dur", Math.max(0, Math.min(120, +t1.value || 0)), 0); }); RT.apply(c.sec, {}); bpFill(); };
+    }
+    if (!rows.length && !fig) mk("div", "kn-ed-bnone", bp.list, "Nothing builds on this slide. Select something on it, then Build in or Build out.");
     rows.forEach(function (r, i) {
       if (r.start === "click") g++;
       if (r.do === "step") stage++;
@@ -884,11 +893,18 @@
       var num = mk("span", "num", row, r.start === "click" ? String(g) : g === 0 && i === 0 ? "•" : "");
       num.title = r.start === "click" ? "Click " + g : g === 0 ? "When the slide arrives" : "";
       mk("span", "what", row, r.do === "step" ? "Figure → stage " + stage : (r.do === "in" ? "In  " : "Out  ") + rowName(r));
+      if (r.do === "step") {               // how long the figure plays this stage, in the row itself
+        mk("span", "s", row, "plays");
+        var tk = mk("input", "play", row); tk.type = "number"; tk.min = 0; tk.max = 120; tk.step = 0.5; tk.value = r.dur || ""; tk.placeholder = "own";
+        tk.title = "How long the figure plays this stage, in seconds. A figure that animates in its own time draws at this pace (empty: its own pace), and a row set to After previous waits this long";
+        mk("span", "s", row, "s");
+        tk.onchange = function () { tk.blur(); bpRow = i; bpChange(function (b) { bpSet(b[i], "dur", Math.max(0, Math.min(120, +tk.value || 0)), 0); }); };
+      }
       var st = mk("select", "", row);
       [["click", "On click"], ["with", "With previous"], ["after", "After previous"]].forEach(function (o) { mk("option", "", st, o[1]).value = o[0]; });
       st.value = r.start;
       st.onchange = function () { st.blur(); bpRow = i; bpChange(function (b) { bpSet(b[i], "start", st.value, "click"); }); };
-      var dl = mk("input", "", row); dl.type = "number"; dl.min = 0; dl.max = 60; dl.step = 0.5; dl.value = r.delay; dl.title = "Delay before it starts, in seconds";
+      var dl = mk("input", "", row); dl.type = "number"; dl.min = 0; dl.max = 60; dl.step = 0.5; dl.value = r.delay; dl.title = "Delay: seconds to wait before this row starts";
       dl.onchange = function () { dl.blur(); bpRow = i; bpChange(function (b) { bpSet(b[i], "delay", Math.max(0, Math.min(60, +dl.value || 0)), 0); }); };
       mk("span", "s", row, "s");
       row.addEventListener("click", function (ev) {
@@ -911,11 +927,7 @@
       if (i !== bpRow) return;
       var det = mk("div", "kn-ed-bdet", bp.list);          // the selected row's details
       if (r.do === "step") {
-        mk("span", "", det, "The figure takes");
-        var tk = mk("input", "", det); tk.type = "number"; tk.min = 0; tk.max = 60; tk.step = 0.5; tk.value = r.dur;
-        tk.title = "How long the figure's own animation runs, so that a row set to After previous waits for it";
-        mk("span", "", det, "s");
-        tk.onchange = function () { tk.blur(); bpChange(function (b) { bpSet(b[i], "dur", Math.max(0, Math.min(60, +tk.value || 0)), 0); }); };
+        mk("span", "", det, "Set how long this stage plays in the row above (empty: the figure's own pace).");
       } else {
         mk("span", "", det, "Effect");
         var fx = mk("select", "", det);
@@ -966,6 +978,8 @@
     var a = mk("button", "", nav, "◀"); a.title = "Show the slide one click earlier"; a.onclick = function () { bpStep(-1); a.blur(); };
     bp.at = mk("span", "at", nav);
     var z = mk("button", "", nav, "▶"); z.title = "Show the slide one click later"; z.onclick = function () { bpStep(1); z.blur(); };
+    var cols = mk("div", "kn-ed-bcols", bp.el);
+    mk("span", "", cols, "Starts"); mk("span", "d", cols, "Delay");
     bp.list = mk("div", "kn-ed-blist", bp.el);
     var r = mk("div", "kn-ed-lv-row", bp.el);
     mk("button", "go", r, "Build in").onclick = function () { bpAdd("in"); };

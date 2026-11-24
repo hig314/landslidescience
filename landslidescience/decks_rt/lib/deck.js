@@ -18,7 +18,9 @@
  *                         rows before the first "click" row run when the slide arrives
  *              delay      seconds before the row starts
  *              fx, dur    "dissolve" over dur seconds (default 1); absent = at once. On a step row dur is how
- *                         long the figure takes, for a following "after" row.
+ *                         long the figure plays that stage: it is sent to the figure with the step (a figure
+ *                         that animates in its own time draws at that pace; absent = its own pace), and a
+ *                         following "after" row waits that long. Stage 1 has no row: the live element's dur.
  *            Absent: the order is read from the elements' build / paraBuilds and the figure's stages (builds
  *            first, one click each), which is what the importer writes. The editor writes builds.
  *     text   { text, font, weight, italic, size, color, align, valign, lineHeight, paraGap, indent, tracking, fill,
@@ -304,10 +306,12 @@
         var w = fr.contentWindow;
         if (n == null) n = RT.editing && RT.stepFor ? RT.stepFor(e) : stateAt(sec, data(sec), clicksOf(sec)).stage;   // the editor chooses the step shown
         n = Math.max(1, Math.min(stages(e), n));
+        var dur = +e.dur || 0, k = 1;      // how long this stage plays: its step row's dur, or the element's for stage 1
+        if (n > 1) plan(data(sec)).forEach(function (r) { if (r.do === "step" && ++k === n) dur = r.dur; });
         if (e.states) w.postMessage({ type: "deck:state", state: e.states[n - 1], animate: !!fr.knShown }, "*");
         else {
-          w.postMessage({ type: "deck:step", step: n, replay: !!replay }, "*");
-          w.postMessage({ type: "relief-step", step: n, replay: !!replay }, "*");     // the relief figure's older form
+          w.postMessage({ type: "deck:step", step: n, replay: !!replay, dur: dur }, "*");
+          w.postMessage({ type: "relief-step", step: n, replay: !!replay, dur: dur }, "*");     // the relief figure's older form
         }
         fr.knShown = true;
       }
@@ -335,7 +339,7 @@
           var at = (j === 0 ? 0 : r.start === "after" ? t1 : t0) + r.delay;
           var dur = r.do === "step" ? r.dur : r.fx === "dissolve" ? (r.dur || 1) : 0, fire;
           t0 = at; t1 = at + dur; end = Math.max(end, t1);
-          if (r.do === "step") { var n = ++stage; fire = function () { liveStep(sec, false, n); }; }
+          if (r.do === "step") { var n = ++stage; fire = function () { liveStep(sec, true, n); }; }
           else { var ns = nodesFor(sec, r); fire = function () { ns.forEach(function (node) { showNode(node, r.do === "in", dur); }); }; }
           if (at <= 0) fire(); else sec.knTimers.push(setTimeout(fire, at * 1000));
         });
