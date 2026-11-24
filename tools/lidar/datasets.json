@@ -1087,6 +1087,24 @@
       "source": "landslidescience.org composite of: bathy2009 (2009-07-01), grewingk2021 (2021-10-12), kbay2023 (2023-07-01)",
       "dev_only": true,
       "notes": "Test composite set up 2026-10-10 at Hig's request: a setting with several datasets, partial overlap and real gaps. Grid is a snapped 1 m lattice on NAD83(2011)/UTM 5N covering China Poot Bay, Peterson Bay and the Halibut Cove entrance (x 595-606 km, y 6602-6610 km), chosen so that the three-way overlap of Grewingk 2021, KBay 2023 and the Hydropalooza bathymetry (around Halibut Cove) and the two-way KBay + bathymetry case (China Poot Bay) are both inside. Sources are datasets.json ids, read from the archive COGs, all NAVD88 (GEOID12B); the 2009 bathymetry carries its -1.38 m MLLW shift. The KBay 2023 layer is the landslidescience reclassification (kbay_2023_reclass), not the vendor DEM: the vendor COG has a compound NAVD88 CRS that gdalwarp geoid-shifts on full-resolution reads (see CLAUDE.md), and the reclass is the preferred bare earth. Classes: the bathymetry is bed everywhere (gridded from soundings with no interpolation across unsurveyed ground, so there is no TIN hull to reject); Grewingk 2021 (12 Oct) gets the lake-level detector and a snow guess against KBay 2023; KBay 2023 gets the reclass's own fill_mask (2 = harmonic fill, classed modelled), a flat-below-level detector for the sea surface it holds at several tide levels (-3.0..-1.9 m NAVD88 on different lines, plus +0.8), and a compare-to-bathymetry step for water over known bed. `lowest` is on for KBay against Grewingk at region scale: the two lidars differ by +0.58 m median over 31 km2 of overlap (KBay higher), which is canopy, and the lower of two sound DTMs is the better ground. Grewingk 2021 carries shift_m +0.36 (see its notes). COMPOSITE built 2026-10-10T09:15:01 by tools/lidar/composite.py from tools/lidar/composites/kachemak_pedersen/recipe.json (sha 51846aaff33f60ba, paint e3b0c44298fc1c14); fold order bathy2009 (2009-07-01), grewingk2021 (2021-10-12), kbay2023 (2023-07-01). Target ground_current as of 2023-07-01. Composite area by source: bathy2009 26.4 km2; grewingk2021 30.1 km2; kbay2023 31.3 km2; none 0.3 km2. source_index.tif and report.json beside the COG say which layer won where and what was decided."
+    },
+    {
+      "id": "kbay_topobathy_v1",
+      "title": "Kachemak Bay topobathy composite, version 1",
+      "src": "/Volumes/Powder/lidar_build/kbay_joint_s3/kbay_topobathy_v1.tif",
+      "target_epsg": 6334,
+      "native_res_m": 2.0,
+      "center_lat": 59.45,
+      "min_zoom": 8,
+      "max_zoom": 16,
+      "year": 2023,
+      "product": "Topobathy composite (land, intertidal, sea bed and lake beds in one surface)",
+      "archive_mode": "copy",
+      "vertical_datum": "NAVD88 (GEOID12B, as the sources)",
+      "region": "Kenai Peninsula",
+      "source": "landslidescience.org composite of: NOAA OCM Kachemak Bay 2023/24 lidar; Grewingk 2021 and 2019 lidar; Homer 2018/2019/2021 and Seldovia 2019 topobathy lidar; Kenai Peninsula 2008 lidar; Chugachmiut lidar; NOAA multibeam and BAG surveys (2009, H12146, OCM 2023); NOS hydrographic soundings 1915-1984; lake soundings (Riordan 2018, Grewingk, Petrof and Gore 2022); Grewingk Lake multibeam 2023 (K. Hughes); ArcticDEM, CUDEM, NCEI and USGS 3DEP where nothing better saw the ground",
+      "dev_only": true,
+      "notes": "One continuous 2 m surface from mountain to sea floor for Kachemak Bay and the outer coast to the south-west, built point-first: every lidar from its returns, the measured beds from multibeam and green lidar, sparse soundings honoured where nothing else saw the bed, and a single solve across the water margin so that shore, intertidal and bed meet without a seam. Run run_1118 (2026-11-18 to 23), 48 boxes, chain tag cm22, solve tag s3; reviewed by Hig in dev as kbay_joint_s3. Modelled, not measured, where no survey reached: lake beds without soundings, the sea bed between sparse soundings, river channels. Known issues carried to version 2: the shoreline ridge at Petrof Lake; Homer Harbor solved before the harbour rule; a ramp of shoaling bed below the Grewingk ice face; sparse old lead-line soundings on the outer reef (59.136, -152.037) that disagree with the surface. dev_only until the gated Grewingk Lake multibeam it draws on is cleared for a public derived product (Hig's decision); hosting lifts the flag at publish."
     }
   ]
 }

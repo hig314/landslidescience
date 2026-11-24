@@ -1,3 +1,27 @@
+> **VERSION 1 TO PUBLISH; VERSION 2 FIX LIST (Hig 2026-11-23 evening).** Version 1 = run_1118 as published to dev at
+> 20:14: `datasets.json` entry `kbay_topobathy_v1` on this branch (archive_mode copy, src
+> `/Volumes/Powder/lidar_build/kbay_joint_s3/kbay_topobathy_v1.tif`, a COG of the final crops' mosaic), `dev_only` until
+> Hig rules on the gated Grewingk Lake multibeam (sonar2023) in a public derived product; hosting builds and publishes.
+> Version 2 is to be developed, then run as a LOW-PRIORITY background task when time permits. Hig's list:
+> 1. **The shoreline fix as discussed at Petrof** (the slight ridge along the lake shore, accepted for v1).
+> 2. **Homer Harbor on the latest code** (r6c2, r6c3 predate harbor_1123).
+> 3. **The ramp beneath the Grewingk face**: the basin should be solved as though there were no shore at the ice, and the
+>    ice should drop vertically to it; at present the bed shoals rapidly toward the face.
+> 4. **The solve more faithful to sparse soundings** (the most involved; needs Hig's review). His example: the deep reef
+>    near 59.13641,-152.03722 (boxes r1c0/r1c1), "large discrepancies between soundings and the surface... maybe there is
+>    something confused pulling the surface?"
+>    FIRST LOOK (same evening): within 2.5 km the 1977-84 survey H09890 (983 casts, ~95 m apart) is met: surface minus
+>    sounding p5/p50/p95 -3.6/0.1/5.5 m, none over 15 m. The large misses (to 63 m, both signs) are ALL the 1915-31
+>    lead-line survey H05194 (86 casts, sigma 4): where one lies within 80 m of a modern cast the two differ by
+>    -48..+55 m (p5..p95). The old survey is MISPLACED, not wrong: one translation of about +300 m E, +500 m N (50 m search
+>    grid, to refine) takes the median |old - modern| from 11.1 m to 2.1 m -- an old-datum offset. So two things pull the
+>    surface there: the modern casts (rightly) and the old ones in the wrong place. Candidate general rule: register each
+>    pre-NAD27 sheet to the modern casts where they overlap on relief, record the translation (casts are moved, not
+>    rejected), and re-place the whole sheet; then judge what misfit is left (H09890's own 71 casts over 5 m off on the
+>    reef's steep sides are the true "faithfulness" question).
+> Also for v2, from earlier notes: skip a solve window with no product (the "tile FAILED" rows); Picnic Harbor hole;
+> survey-edge artifact 59.38863,-152.29149; subtidal anomaly 59.65321,-151.67248; Bradley Lake depth.
+
 > **RUN run_1118 FINISHED 2026-11-23 17:21; SPEED PATCHES APPLIED 20:20.** All 48 boxes chain cm22 + solve s3, published
 > to dev `kbay_joint_s3`; then r4c5 re-solved (snd_edge_1122) and r4c1/r4c2/r5c2 re-solved on the harbour rule, final
 > publish 20:14 (the box's Seldovia window matches the window test of the rule, median difference 0).
