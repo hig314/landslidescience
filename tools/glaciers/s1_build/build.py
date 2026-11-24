@@ -12,6 +12,10 @@ Output, in OUT/<name>/:
   <name>.mp4             clean video (for the map); <name>_label.mp4 with dates
   meta.json              bounds (lon/lat and EPSG:3857), grid, orbit, months, n
   sheet.jpg              one July frame per year, for a quick look
+  products/<p>.webp      the map's static products (glaciers/videos.py GEOREF_PRODUCTS),
+                         computed from the rendered frames exactly as for the Earth
+                         Engine videos (s1_georef/stack.py + web_products.py), minus
+                         registration and the frame check: these frames are on the grid
 
 The rendering repeats the Earth Engine script the earlier videos came from:
 monthly MEAN in dB, 3x3 Lee filter, RGB = VV [-20,0], VH [-25,-5], VV-VH [1,15].
@@ -185,6 +189,39 @@ def choose(items, box, sign, min_valid, orbit, rel, workers):
     return want[0], table
 
 
+def make_products(od, n):
+    """Median, brightness range, variability, sign persistence and edge
+    strength from the rendered frames; the definitions are stack.py's."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 's1_georef'))
+    import cv2
+    from PIL import Image
+    import stack as stk, web_products as wp
+    fr = np.stack([np.asarray(Image.open(os.path.join(od, 'frames', f'{k:04d}.png')).convert('RGB')) for k in range(n)])
+    h, w = fr.shape[1:3]
+    mask = np.ones((h, w), bool)
+    L = np.stack([stk.lum(f).astype(np.float16) for f in fr])
+    st = {'mask': mask}
+    st['lum_med'] = stk.stat_rows(lambda b, r0, r1: np.median(b, 0), lambda: L)
+    st['lum_p10'] = stk.stat_rows(lambda b, r0, r1: np.percentile(b, 10, 0), lambda: L)
+    st['lum_p90'] = stk.stat_rows(lambda b, r0, r1: np.percentile(b, 90, 0), lambda: L)
+    st['lum_std'] = stk.stat_rows(lambda b, r0, r1: b.std(0), lambda: L)
+    sgn = np.zeros((h, w), np.float32)
+    for x in L:
+        x = x.astype(np.float32); sgn += np.sign(x - cv2.blur(x, (31, 31)))
+    st['sign'] = sgn / len(L)
+    del L
+    F = np.stack([stk.feature(f, mask).astype(np.float16) for f in fr])
+    st['feat_med'] = stk.stat_rows(lambda b, r0, r1: np.median(b, 0), lambda: F)
+    del F
+    st['med_rgb'] = np.median(fr, 0).astype(np.uint8)
+    pd = os.path.join(od, 'products'); os.makedirs(pd, exist_ok=True)
+    from pathlib import Path
+    names = wp.products(st, Path(pd), 'p')
+    for p in names:                         # p_median.webp -> median.webp
+        os.replace(os.path.join(pd, f'p_{p}.webp'), os.path.join(pd, f'{p}.webp'))
+    return names
+
+
 def lee(img):
     """The Earth Engine script's 3x3 Lee filter (NaN-aware)."""
     from scipy.ndimage import uniform_filter
@@ -321,6 +358,9 @@ def main():
                         os.path.join(od, src, '%04d.png'), '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
                         '-crf', '18', '-movflags', '+faststart', os.path.join(od, out)], check=True)
 
+    prods = make_products(od, len(months))
+    print('products:', ', '.join(prods))
+
     july = [k for k, mo in enumerate(months) if mo.endswith('-07') or mo.endswith('-08')]
     pick, seen = [], set()
     for k in july:
@@ -339,7 +379,7 @@ def main():
             'orbit': state, 'relative_orbit': rel, 'grid': {'w': w, 'h': h, 'res_m': 10,
             'transform_3857': list(np.array(T)[:6])}, 'bounds': [lo0, la0, lo1, la1],
             'bounds_3857': [x0, y0, x1, y1], 'months': months, 'n': N, 'fps': FPS,
-            'candidates': table, 'video': a.name + '.mp4',
+            'candidates': table, 'video': a.name + '.mp4', 'products': prods,
             'render': 'monthly mean dB, Lee 3x3, RGB VV[-20,0] VH[-25,-5] VV-VH[1,15]',
             'failed': [e[0] for e in errs], 'under_cover': dropped,
             'built': dt.datetime.now().isoformat(timespec='seconds')}
@@ -350,6 +390,9 @@ def main():
         os.makedirs(sd, exist_ok=True)
         shutil.copy2(os.path.join(od, a.name + '.mp4'), sd)
         shutil.copy2(os.path.join(od, 'meta.json'), sd)
+        os.makedirs(os.path.join(sd, 'products'), exist_ok=True)
+        for p in prods:
+            shutil.copy2(os.path.join(od, 'products', p + '.webp'), os.path.join(sd, 'products'))
         print('staged', sd)
     print('done', od)
 

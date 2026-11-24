@@ -11,8 +11,9 @@ tools/glaciers/s1_build/build.py: georeferenced from the start, so it goes
 in placed, with each frame's month (georef.months, georef.fps), which the map
 shows as the video plays instead of a date burned into the frame. The dir
 holds the clean mp4 and meta.json (build.py --stage puts them in
-data/glaciers/s1_build/NAME/). The anchor is the nearest flow line to the
-build's centre inside the frame; where there is none, the RGI centrelines of
+data/glaciers/s1_build/NAME/). Its products (median etc., build.py's products/)
+go to data/glacier_videos/georef/ under the video's file stem. The anchor is
+the nearest flow line to the build's centre inside the frame; where there is none, the RGI centrelines of
 the glacier at the centre are adopted first.
 
 GEOREF stores where each video sits on the map, found from its content by
@@ -144,7 +145,8 @@ class Command(BaseCommand):
             raise CommandError('%s is missing' % mp4)
         lon, lat = (map(float, anchor.split(','))) if anchor else meta['centre']
         w, s_, e, n = meta['bounds']
-        georef = {'bounds': meta['bounds'], 'grade': 'good', 'products': [], 'method': 'built',
+        prods = [p for p in meta.get('products', []) if (d / 'products' / (p + '.webp')).is_file()]
+        georef = {'bounds': meta['bounds'], 'grade': 'good', 'products': prods, 'method': 'built',
                   'months': meta['months'], 'fps': meta['fps'], 'build': meta['name'],
                   'orbit': meta['orbit'], 'relative_orbit': meta['relative_orbit'],
                   'source': meta['source'], 'built': meta['built']}
@@ -191,6 +193,9 @@ class Command(BaseCommand):
             new = videos.VIDEO_DIR / name
             shutil.copyfile(mp4, str(new) + '.part')
             Path(str(new) + '.part').rename(new)
+            videos.GEOREF_DIR.mkdir(parents=True, exist_ok=True)
+            for p in prods:                 # <video stem>_<product>.webp, as for the placed videos
+                shutil.copyfile(d / 'products' / (p + '.webp'), videos.GEOREF_DIR / ('%s_%s.webp' % (name[:-4], p)))
             if old:
                 cur.execute('''UPDATE glacier_videos SET file = %s, caption = %s, date_min = %s, date_max = %s, georef = %s
                                WHERE id = %s''', (name, cap, m0 + '-01', _month_end(m1), json.dumps(georef), old[0]))
@@ -206,11 +211,15 @@ class Command(BaseCommand):
             new = None
             if old and old[1]:
                 (videos.VIDEO_DIR / old[1]).unlink(missing_ok=True)
+                for f in videos.GEOREF_DIR.glob(old[1].rsplit('.', 1)[0] + '_*.webp'):
+                    f.unlink()
             self.stdout.write('video %d: /glaciers/video/%s' % (vid, name))
         except Exception:
             conn.rollback()
             if new:
                 new.unlink(missing_ok=True)
+                for f in videos.GEOREF_DIR.glob(new.stem + '_*.webp'):
+                    f.unlink()
             raise
         finally:
             _put_conn(conn)

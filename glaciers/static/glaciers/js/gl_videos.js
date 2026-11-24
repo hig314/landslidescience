@@ -17,7 +17,8 @@
  *     offers the video or one of its static products (median, brightness
  *     range, variability, sign persistence, edge strength) drawn in place on
  *     the map, and zooms to it. One overlay at a time, with a small panel
- *     (product, opacity, play/pause and a time slider for the video);
+ *     (product, opacity, play/pause and a time slider for the video; with
+ *     the panel focused, Left / Right step one frame);
  *   - a BUILT timelapse (tools/glaciers/s1_build/, `manage.py s1_videos
  *     built`) has no date burned in: georef.months names frame k, at
  *     georef.fps, and the month is drawn over the video as it plays, on the
@@ -230,6 +231,17 @@ window.GLVideos = (function () {
         if (fit) fitTo(v);
         ovPanel();
     }
+    // One frame on or back, paused, landing mid-frame. Earth Engine exports
+    // (and build.py) run at 10 fps; a built video says so in georef.fps.
+    function stepFrame(vid, d) {
+        var v = byId[OV.id], fps = (v && v.georef && v.georef.fps) || 10;
+        var n = Math.max(1, Math.round(vid.duration * fps));
+        var k = Math.max(0, Math.min(n - 1, Math.floor(vid.currentTime * fps + 1e-3) + d));
+        vid.pause();
+        vid.currentTime = Math.min(vid.duration - 0.001, (k + 0.5) / fps);
+        var seek = ovEl && ovEl.querySelector('[data-a=seek]');
+        if (seek) seek.value = vid.currentTime / vid.duration;
+    }
     function ovVideo() {
         var src = map.getSource('gv-ov');
         return src && src.getVideo ? src.getVideo() : null;
@@ -238,7 +250,23 @@ window.GLVideos = (function () {
         if (!ovEl) {
             ovEl = document.createElement('div');
             ovEl.className = 'gv-ovp';
+            ovEl.tabIndex = -1;
             map.getContainer().appendChild(ovEl);
+            // Left / Right step one frame while the panel has the focus
+            // (the opacity slider keeps its own arrows)
+            ovEl.addEventListener('keydown', function (e) {
+                if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || OV.product !== 'video') return;
+                if (e.target && e.target.getAttribute && e.target.getAttribute('data-a') === 'op') return;
+                var vid = ovVideo();
+                if (!vid || !vid.duration) return;
+                e.preventDefault(); e.stopPropagation();
+                stepFrame(vid, e.key === 'ArrowRight' ? 1 : -1);
+            });
+            // Safari leaves a clicked button unfocused: focus the panel so
+            // the arrows reach it after any click inside
+            ovEl.addEventListener('pointerup', function () {
+                if (!ovEl.contains(document.activeElement)) ovEl.focus({ preventScroll: true });
+            });
         }
         var v = OV.id != null ? byId[OV.id] : null;
         if (!v || !visible()) { ovEl.style.display = 'none'; ovEl.innerHTML = ''; return; }
@@ -253,7 +281,7 @@ window.GLVideos = (function () {
             }).join('') + '</div>' +
             (OV.product === 'video'
                 ? '<div class="gv-ovv"><button type="button" data-a="play" title="Play or pause">❚❚</button>' +
-                  '<input type="range" data-a="seek" min="0" max="1" step="0.001" value="0" title="Position in the series">' +
+                  '<input type="range" data-a="seek" min="0" max="1" step="0.001" value="0" title="Position in the series (with this panel focused, ← → step one frame)">' +
                   (v.georef.months ? '<span class="gv-date" data-a="date" title="The month this frame shows"></span>' : '') + '</div>'
                 : '') +
             '<div class="gv-ovv"><span>Opacity</span><input type="range" data-a="op" min="0.1" max="1" step="0.05" value="' + OV.opacity + '">' +

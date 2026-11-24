@@ -596,7 +596,7 @@ plan, not the catalogue. A stopped pass can resume (S1C from 2025, S1D from
 **Onto /glaciers/.** `--stage` copies the clean mp4 + meta.json to
 `data/glaciers/s1_build/NAME/`; `manage.py s1_videos built
 data/glaciers/s1_build/NAME [--caption ..] [--anchor lon,lat] [--dry-run]`
-adds it as a placed `s1` video (georef.method 'built', no products), anchored
+adds it as a placed `s1` video (georef.method 'built'), anchored
 on the nearest flow line in the frame (adopting the RGI centrelines of the
 glacier at the centre if there is none). Rerunning it for the same NAME
 replaces the file and keeps the video's id. For prod: rsync the staged dir to
@@ -607,7 +607,16 @@ No date is burned in: `georef.months[k]` is frame k at `georef.fps`, and
 NW corner on the map, beside the time slider in the panel, and over the video
 in the popup.
 
+Products (2026-11-23): build.py computes the same five images as the Earth
+Engine videos (median, brightness range, variability, sign persistence,
+edges) from its rendered frames, with stack.py's definitions and
+web_products.py's rendering, minus registration and the frame check (the
+frames are already on the grid); `built` copies them to
+`data/glacier_videos/georef/<video stem>_<product>.webp`. In the overlay
+panel, Left / Right step one frame while the panel has the focus (any video;
+fps from georef.fps, else 10, which is what the Earth Engine exports use).
+
 Open: a layover mask from the viewing geometry (the streaked faces are where
 terrain correction smears slopes tilted toward the radar, opposite slopes in
-the two directions) and an ascending + descending merge; products (median
-etc.) from stack.npz; feature tracking on the stack.
+the two directions) and an ascending + descending merge; feature tracking on the stack;
+automatic ice-face detection (being explored).
