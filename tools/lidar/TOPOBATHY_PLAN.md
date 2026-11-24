@@ -1,3 +1,23 @@
+> **RESUME HERE (2026-11-24 ~01:00): THE VERSION 2 RUN IS SET UP AND NOT STARTED.** Hig: "This is acceptable - let's set
+> up the run. I'll restart the Claude instance before the queue begins though." Nothing is running. TO START (after the
+> restart, with Hig's word):
+>     cd /Volumes/Nunatak/lidar_build/composite && nohup caffeinate -i -s zsh run_v2.sh > /dev/null 2>&1 &
+> - Queue file `$W/run_v2.queue` (all 48 boxes): 11 `chain` jobs (the boxes the shifted H05194 reaches: chain cm23 +
+>   solve s4), then 37 `solve` jobs (solve s4 on the cm22 chain), Hig's named boxes first; three `PUB pub` lines publish
+>   the dev layer **kbay_joint_s4** (`$W/publish_v2.sh`, holes where a box is not yet on v2; skipped under 25 GB boot disk).
+> - Log `$W/run_v2.log`; stop after the current job with `touch $W/run_v2.STOP`; low priority (nice 15), thread caps set.
+> - A solve counts as done only if newer than `$W/V2_CODE_T` (2026-11-24 00:30): r6c4's s4 stands; r1c0's and r4c5's are
+>   redone (solved before the face-zone / ice rules). MOVE THAT TIME FORWARD if a solve rule changes again.
+> - Expect ~10 min a chain box (speed patches) and ~5-20 min a solve: roughly 10-12 h in all, unattended.
+> - Hig accepted the three fixes on the dev test layer `kbay_v2_test` (Petrof shore, reef, Grewingk face). Open, not
+>   blocking: Petrof's 0.3-0.6 m hump inland of the shore; the Grewingk lower-bound cast at 263 m from the ice (-59.9 vs
+>   <= -71.5); box-vs-whole-lake differences to 10 m (p99) in Grewingk away from the face; 35 + 23 casts over 5 m off on
+>   the reef's steep sides (the real "faithful to sparse soundings" question); `cast_edits.py export` shows base positions.
+> - FOR HOSTING (main session), unchanged: merge `datasets.json` and publish `kbay_topobathy_v1`; a `points.json` entry
+>   and upload for `kbay_soundings` r1/r2 (`$LIDAR_BUILD/points/kbay_soundings/`); `grewingk_sonar_2023` may be ungated;
+>   prod may lack the 1977-84 sounding sheets as dev did (22 packages in data/soundings, loaded into DEV 2026-11-23).
+> - Commits after 4b7b24e are LOCAL (not pushed).
+
 > **V2 FIX TESTS, 2026-11-23 late (queue STOPPED after r1c0 at 21:50 -- Hig: "do a restart before starting the queue";
 > relaunch `run_v2.sh` after the machine restart; it resumes from `run_v2.queue`).** Dev test layer `kbay_v2_test`
 > (r4c5 + r1c0 from out_s4; `/Volumes/Powder/lidar_build/kbay_v2_test`, publish_inc `--tag s4`).
