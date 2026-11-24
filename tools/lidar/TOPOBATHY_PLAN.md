@@ -1,4 +1,4 @@
-> **VERSION 2 QUEUE STARTED 2026-11-23 ~22:05** (`$W/run_v2.sh`, log `run_v2.log`, jobs in the FILE `$W/run_v2.queue`,
+> **VERSION 2 QUEUE STARTED 2026-11-23 21:37** (`$W/run_v2.sh`, log `run_v2.log`, jobs in the FILE `$W/run_v2.queue`,
 > re-read after every job -- append lines to add work; `touch $W/run_v2.STOP` stops after the current job). Low priority
 > (nice 15), thread caps set. Tags: chain **cm23**, solve **s4** (`<box> chain` = chain cm23 + solve s4; `<box> solve` =
 > solve s4 on the box's cm22 chain). v1's out_cm22 / out_s3 and the published file are untouched.
