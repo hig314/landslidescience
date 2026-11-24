@@ -172,12 +172,22 @@ def check_glacier_sources():
     from glaciers import sources as gs
     fails = []
     for sid, s in gs.SOURCES.items():
+        if s.get('geom') not in ('polygon', 'line'):
+            fails.append(f'glaciers source {sid!r}: geom must be polygon or line')
+        if s.get('fetch') is None:
+            # ours, loaded by its own command (S1 auto faces: s1_videos
+            # faces), which sets the glacier itself: no reader, no DOI
+            if sid in gs._READERS:
+                fails.append(f'glaciers source {sid!r} is not fetched but has a reader')
+            if s.get('link') != 'given':
+                fails.append(f'glaciers source {sid!r} is loaded by its own command: link must be \'given\'')
+            if not s.get('url'):
+                fails.append(f'glaciers source {sid!r} has no url to cite')
+            continue
         if sid not in gs._READERS:
             fails.append(f'glaciers source {sid!r} has no reader in sources._READERS')
         if s.get('link') not in ('id_then_overlap', 'overlap', 'nearest', 'group_nearest'):
             fails.append(f'glaciers source {sid!r}: unknown matching rule {s.get("link")!r}')
-        if s.get('geom') not in ('polygon', 'line'):
-            fails.append(f'glaciers source {sid!r}: geom must be polygon or line')
         if not s.get('doi'):
             fails.append(f'glaciers source {sid!r} has no DOI to cite')
     for sid in gs._READERS:
