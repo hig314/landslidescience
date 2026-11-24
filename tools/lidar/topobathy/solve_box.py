@@ -92,9 +92,12 @@ def main():
     if a.snd_lakes: log(f"  --snd-lakes: tiles with a sounded lake are solved with the casts as data")
     tiles = [(r, c) for r in range(0, H, nc) for c in range(0, Wd, nc)]
     log(f"[{a.box}] {a.tag} -> {a.out_tag}: {H}x{Wd} cells, {len(tiles)} tiles of {a.core:g} m + {a.halo:g} m halo")
-    jobs = []
+    jobs = []; n_void = 0
     for r, c in tiles:
         r0, r1, c0, c1 = max(r - nh, 0), min(r + nc + nh, H), max(c - nh, 0), min(c + nc + nh, Wd)
+        if not (np.isfinite(cur[r0:r1, c0:c1]) & ((cur[r0:r1, c0:c1] != nd) if nd is not None else True)).any():
+            n_void += 1; continue                                  # a window wholly outside the product (2026-11-23): nothing to solve against.  It used to be solved, crash on a
+                                                                   # percentile of nothing in the solve's log, and be reported "FAILED ... the product stands there" -- the same outcome
         x0, y1 = T * (c0, r0); x1, y0 = T * (c1, r1)
         st_ = list(a.set) + (["snd_scope=0"] if a.deep_grid > 0 else [])
         # SOUNDINGS AS DATA WHERE A LAKE HOLDS THEM (2026-11-16): at 2 m the snd mode costs ~15 min a 2.4 km window, too slow for a whole box;
@@ -102,6 +105,7 @@ def main():
         if a.snd_lakes and lkm[r0:r1, c0:c1].any():
             st_ = [x for x in st_ if not x.startswith("snd_mode=")] + ["snd_mode=1"]
         jobs.append((r, c, [a.box, f"tile_{r}_{c}", str(x0), str(y0), str(x1), str(y1), "--tag", a.tag, "--lakes", str(lakes), "--nofig", "--nowrite", "--quiet"] + (["--cur", str(curfile)] if curfile else []) + (["--set"] + st_ if st_ else [])))
+    if n_void: log(f"  {n_void} tile(s) wholly outside the product: skipped, void as the product has them")
     from concurrent.futures import ProcessPoolExecutor
     ex = ProcessPoolExecutor(a.workers)
     for r, c, R, dt in ex.map(_tile, jobs):

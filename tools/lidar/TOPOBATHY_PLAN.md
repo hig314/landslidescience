@@ -1,3 +1,17 @@
+> **VERSION 2 QUEUE STARTED 2026-11-23 ~22:05** (`$W/run_v2.sh`, log `run_v2.log`, jobs in the FILE `$W/run_v2.queue`,
+> re-read after every job -- append lines to add work; `touch $W/run_v2.STOP` stops after the current job). Low priority
+> (nice 15), thread caps set. Tags: chain **cm23**, solve **s4** (`<box> chain` = chain cm23 + solve s4; `<box> solve` =
+> solve s4 on the box's cm22 chain). v1's out_cm22 / out_s3 and the published file are untouched.
+> - Queued: the 11 boxes the shifted H05194 reaches (r1c0 r1c1 r0c0 r0c3 r2c0 r0c2 r0c4 r2c1 r1c3 r1c4 r3c0, chain), then
+>   Homer Harbor r6c2 r6c3 (solve only, harbour rule).
+> - Reef test before the queue (scratch copy of r1c0, `review_1123/reef_test.sh`): surface minus H05194 rms 10.8 -> 3.6 m,
+>   casts over 15 m off 17 -> 0; minus H09890 (1977-84) rms 1.9 -> 1.6 m, over 5 m off 50 -> 31.
+> - solve_box now skips a tile with no product (ledger void_tiles_1123): no more "tile(s) FAILED" rows on the south edge.
+> - STILL TO DEVELOP before their boxes are queued: the Petrof shoreline rule (issue 1 of 2026-11-22 below: flood the
+>   below-level ground connected to the lake, grade to the first ground above it) -> r4c5 and the other sounded lakes;
+>   the Grewingk ramp at the ice face -> r6c4. Then every remaining box solve-only so that v2 is on one solve code.
+> - NOT BUILT: the v2 dev publish (publish_inc reads out_s3; needs the tag as a parameter: s4 where it exists, else s3).
+
 > **THE SOUNDINGS AS A DERIVED, VERSIONED DATASET `kbay_soundings` (Hig 2026-11-23 evening).** Hig's idea: view the merged
 > sounding surveys as a point cloud; name the corrected collection as a derived dataset with a ledger of the changes that
 > led to it; host it like a point cloud with a manifest consistent with the lidar revisions' and with outside convention.
