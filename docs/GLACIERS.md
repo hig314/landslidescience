@@ -706,6 +706,25 @@ sit, so it was dropped (Hig). What ships is a confidence score.
   Sawyer Nov 2017 (12.8) and Feb 2024 (6.3) come in. Endicott 65 -> 100,
   South Sawyer 12 -> 82; `--no-second` turns it off; not used with
   `--lake`.
+- **The bright front** (Hig, 2026-11-24, South Sawyer: Aug 2017 slightly in
+  front, Jul 2018 outlined a plume, Jul 2025 followed floating ice; "the
+  face itself is often substantially brighter than other features"): a
+  calving cliff facing the radar returns strongly. `facekit.face_bright`:
+  the brightest 3% of the channel, the bright component the line meets
+  first going up it, and across the fjord (2 px bins in line coordinates,
+  `facekit.line_coords`) its most down-fjord pixel. Where that front is
+  strong (>= 4 dB above the water 60–180 m in front, no along-line jumps
+  over 40 m), an edge face counts only if it lies within 80 m of it along
+  >= 80% of it, and the front is itself a candidate if it spans >= 60% of
+  the fjord (full marks at 80%; an agreeing wall-to-wall edge face wins).
+  Where there is no strong front, an edge face needs score >= 0.75
+  (`--unconfirmed`), not 0.6. Shape does not separate the rest: floating
+  ice edges are as crisp as faces, and the wrong ones (Aug 2023 0.68, Nov
+  2020 0.73) sit just under Endicott's clear Dec 2019 (0.73) and Jun 2018;
+  at 0.7 Dec 2019 comes back with Nov 2020. Chosen tighter (Hig: fewer,
+  surer faces). South Sawyer 64, Endicott 64 (loses Dec 2019, Jun 2018,
+  and Jul 2020, where the bright front runs up the tributary's edge).
+  `judge.py NAME` checks a run against the months Hig has judged.
 - **A face belongs to its video** (Hig, 2026-11-24, Sitkagi: our build and
   the Earth Engine videos are registered slightly differently). faces.py
   writes each face also as fractions of the frame (`frame_uv`, Web

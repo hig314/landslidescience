@@ -795,3 +795,96 @@ def faces_local(Xk, channel, line, prior, along_prior, D=40, sigma=2.0, ridge=Tr
     # the band's own split is what "water" means here (winter melange is
     # not dark against the whole channel): face_confidence(thr=...)
     return pieces_crossing(cs, line, near=10), glac, fjord, thr
+
+
+# --- the face as the bright line (Hig, 2026-11-24, South Sawyer): a calving
+# cliff facing the radar returns strongly, so the face is often the
+# brightest thing in the scene; its DOWN-FJORD edge is the face. Plumes and
+# floating ice, which the edge methods follow, are dimmer than it.
+
+def line_coords(line, channel, step=1.0):
+    """For every channel pixel: s = distance along the line of its nearest
+    line point (px), n = signed distance across (left +). Returns (s, n)
+    arrays (NaN off the channel)."""
+    from scipy.spatial import cKDTree
+    ds = np.arange(0, line.length, step)
+    P = np.array([line.interpolate(d).coords[0] for d in ds])
+    T = np.gradient(P, axis=0); T /= np.maximum(np.linalg.norm(T, axis=1, keepdims=True), 1e-9)
+    yy, xx = np.nonzero(channel)
+    _, i = cKDTree(P).query(np.c_[xx, yy])
+    v = np.c_[xx, yy] - P[i]
+    s = np.full(channel.shape, np.nan); n = np.full(channel.shape, np.nan)
+    s[yy, xx] = ds[i]
+    n[yy, xx] = T[i, 0] * v[:, 1] - T[i, 1] * v[:, 0]
+    return s, n
+
+
+def face_bright(Xk, channel, line, sn, q=97, min_px=150, close_r=2, nbin=2.0, back=12):
+    """The face as the down-fjord edge of the bright region the line runs
+    into: pixels above the q-th percentile of the channel this month,
+    closed; of the components the line crosses (min_px or more), the one
+    met first going up the line; across the fjord in bins of nbin px, its
+    most down-fjord pixel. Returns (along, LineString, info) or None; info:
+    cover = fraction of the fjord width (at the face) with a face point,
+    step = median dB from the face pixel to the water `back` px in front,
+    jump = 90th percentile of along-line jumps between neighbouring bins (px)."""
+    from scipy.ndimage import binary_closing
+    from skimage.measure import label
+    from skimage.morphology import disk
+    from shapely.geometry import LineString
+    s, n = sn
+    B = binary_closing((Xk > np.percentile(Xk[channel], q)) & channel, disk(close_r)) & channel
+    lab = label(B)
+    h, w = B.shape
+    comp = None
+    for d in np.arange(0, line.length, 2.0):
+        x, y = line.interpolate(d).coords[0]
+        v = lab[int(round(y)), int(round(x))]
+        if v and (lab == v).sum() >= min_px:
+            comp = v
+            break
+    if comp is None:
+        return None
+    C = lab == comp
+    s0 = np.nanmin(s[C])
+    # the fjord width at the face: channel pixels within 15 px along of the face's front
+    near = channel & (np.abs(s - s0) <= 15)
+    nlo, nhi = np.nanmin(n[near]), np.nanmax(n[near])
+    pts, got, total = [], 0, 0
+    yy, xx = np.nonzero(C)
+    for b0 in np.arange(nlo, nhi, nbin):
+        total += 1
+        sel = (n[yy, xx] >= b0) & (n[yy, xx] < b0 + nbin)
+        if not sel.any():
+            continue
+        j = np.argmin(s[yy[sel], xx[sel]])
+        pts.append((s[yy[sel], xx[sel]][j], b0, xx[sel][j], yy[sel][j]))
+        got += 1
+    if len(pts) < 5:
+        return None
+    pts.sort(key=lambda p: p[1])
+    S_ = np.array([p[0] for p in pts])
+    # keep the run of bins around the line whose front stays near the median
+    # (a lobe of crevassed ice far up-glacier is not the face)
+    med = np.median(S_)
+    ok = np.abs(S_ - med) <= 25
+    L = LineString([(p[2], p[3]) for p, o in zip(pts, ok) if o])
+    if L.length < 5:
+        return None
+    # step: the face pixel against the water just in front, along the line direction
+    steps = []
+    for p, o in zip(pts, ok):
+        if not o:
+            continue
+        x, y = p[2], p[3]
+        sel = near & (np.abs(n - p[1]) <= nbin) & (s < p[0] - back * 0.5) & (s >= p[0] - back * 1.5)
+        if sel.any():
+            steps.append(Xk[y, x] - np.median(Xk[sel]))
+    Sk = S_[ok]
+    jump = float(np.percentile(np.abs(np.diff(Sk)), 90)) if len(Sk) > 2 else 99.0
+    info = {'cover': float(ok.sum()) / max(total, 1), 'step': float(np.median(steps)) if steps else 0.0,
+            'jump': jump, 'n': int(ok.sum())}
+    x = L.intersection(line)
+    from shapely.ops import nearest_points
+    along = line.project(x.centroid) if not x.is_empty else line.project(nearest_points(L, line)[1])
+    return along, L, info

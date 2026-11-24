@@ -203,6 +203,55 @@ def second_pass(S, line, channel, sc, ks, min_step=4.0, max_gap=12):
         sc[k] = sorted(sc[k] + [c], key=lambda c: -c['score'])
 
 
+def bright_check(S, line, channel, sc, require=False, min_step=6.0, max_jump=4.0, tol=8.0, agree=0.8,
+                 min_cover=0.6, unconfirmed=0.85):
+    """The face as the bright line (Hig, 2026-11-24): a calving cliff facing
+    the radar is often the brightest thing in the scene, and plumes and
+    floating ice, which the edge methods can follow, are dimmer
+    (facekit.face_bright). Where this month has a strong bright front
+    (step to the water in front >= min_step dB, along-line jumps between
+    neighbouring bins <= max_jump px), an edge candidate counts only if it
+    lies within tol px of the bright front along >= `agree` of it; the
+    bright front is also a candidate itself, scored by how much of the
+    fjord width it covers (full marks at 0.8, none below min_cover).
+    With no strong bright front, an edge candidate needs score >= unconfirmed.
+    require=True: a month with
+    no strong bright front keeps no edge candidate either."""
+    from shapely.geometry import Point
+    X = fk.anomaly(S)
+    sn = fk.line_coords(line, channel)
+    for k in range(len(S['months'])):
+        br = fk.face_bright(X[k], channel, line, sn)
+        strong = bool(br) and br[2]['step'] >= min_step and br[2]['jump'] <= max_jump
+        for c in sc[k]:
+            if not strong:
+                # nothing to confirm it against: only a very clear edge face
+                # stands on its own (Aug 2023 at South Sawyer, 0.68, followed
+                # floating ice)
+                if require or c['score'] < unconfirmed:
+                    c['score'] = 0.0
+                c['agree'] = None
+                continue
+            from shapely.geometry import LineString
+            L = LineString(c['coords'])
+            P = [br[1].interpolate(t) for t in np.arange(0, br[1].length, 1.0)]
+            c['agree'] = float(np.mean([L.distance(p) <= tol for p in P]))
+            if c['agree'] < agree:
+                c['score'] = 0.0
+        if strong:
+            d, L, info = br
+            # an edge face that agrees runs wall to wall: it wins over the
+            # bright front itself, which often covers only part of the width
+            # (the 0.999 keeps that order when both score 1)
+            # on its own it must span most of the fjord (Hig: fewer, surer faces)
+            bsc = 0.999 * min(1.0, info['cover'] / 0.8) if info['cover'] >= min_cover else 0.0
+            sc[k] = sorted(sc[k] + [dict(method='bright', along=float(d), score=bsc,
+                                          clear=1.0, med=info['step'], water=None, spans=None, straight=None,
+                                          across=None, cover=info['cover'], jump=info['jump'],
+                                          coords=[list(map(float, q)) for q in L.coords])],
+                           key=lambda c: -c['score'])
+
+
 def sheet(S, line, sc, ks, fp, cols=4):
     from PIL import Image, ImageDraw
     tiles = []
@@ -256,6 +305,14 @@ def main():
                     help='skip the second pass (months searched near the nearest confident face)')
     ap.add_argument('--min-step', type=float, default=4.0,
                     help='second pass: median bright-to-dark step across the face, dB')
+    ap.add_argument('--no-bright', dest='bright', action='store_false',
+                    help='skip the bright-front check (and the bright-front candidates)')
+    ap.add_argument('--bright-step', type=float, default=4.0,
+                    help='a bright front counts when it is this many dB above the water in front')
+    ap.add_argument('--unconfirmed', type=float, default=0.75,
+                    help='score an edge face needs where there is no bright front to check it against')
+    ap.add_argument('--require-bright', action='store_true',
+                    help='a month needs a strong bright front to keep any face')
     ap.add_argument('--stage', action='store_true')
     a = ap.parse_args()
     S = fk.load(a.name)
@@ -283,6 +340,15 @@ def main():
         spikes = [S['months'][ks[i]] for i in range(len(ks)) if i not in keep]
         ks = [ks[i] for i in keep]
         print('second pass: %d kept after it (%d before)' % (len(ks), n1))
+    if a.bright and not a.lake:
+        n1 = len(ks)
+        bright_check(S, line, channel, sc, require=a.require_bright, min_step=a.bright_step,
+                     unconfirmed=a.unconfirmed)
+        ks = [k for k, c in enumerate(sc) if c and c[0]['score'] >= a.min_score]
+        keep = fk.drop_spikes([sc[k][0]['along'] for k in ks])
+        spikes = [S['months'][ks[i]] for i in range(len(ks)) if i not in keep]
+        ks = [ks[i] for i in keep]
+        print('bright check: %d kept after it (%d before)' % (len(ks), n1))
     print('%d of %d months kept; dropped as spikes: %s' % (len(ks), len(sc), ', '.join(spikes) or 'none'))
     h, w = S['vv'].shape[1:]
     # frame_uv: the face as fractions of the frame (u from the west edge, v
