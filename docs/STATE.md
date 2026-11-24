@@ -77,11 +77,13 @@ by curl, by API or not at all.
 - [ ] **`/lidar/` Save image** (a43bf5c, 2026-10-19): the export engine's polling-for-done change was not re-tested on `/inventory/`'s own PNG export.
 - [ ] **S1 auto faces: reject / restore** (ead84b5, 2026-11-24): exercised in dev in-process and by Hig in dev; on prod only the anonymous 403 was checked. The first admin reject on prod (card, popup or plot) is the real test; the tiles should reload under the new stamp.
 - [ ] **Frame months while a video plays, Earth Engine videos** (ead84b5): checked on prod by API (107/107 placed videos carry months), not watched playing there; videos 113 (South Sawyer) and 114 (Sitkagi) not yet opened on prod.
+- Promotion *Link to an existing record* (2026-11-24): tested on dev through the API only; the popup button not yet used on prod.
 
 ## Shipped log
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-24 · Promotion text carries their id (+ DGGS OBJECTID) and their comment/citation, merged into ongoing_work; *Link to an existing record* in the mirrored-record popup; `backfill_promotion_text` applied on prod (21 records: 4 unstamped stamped by nearest point, 3 DGGS OBJECTID stamps corrected) (aca5194) · docs/EXTERNAL_INVENTORIES.md "Promotion"
 - 2026-11-24 · /glaciers/: S1 auto faces live (source `s1auto`, 234 faces on Endicott, South Sawyer, Sitkagi), admin reject/restore, *Ice faces* switches, frame months for the Earth Engine videos, our South Sawyer + Sitkagi timelapses (videos 113, 114), year bar to the current year (ead84b5) · docs/GLACIERS.md "Ice faces from our S1 timelapses" › Start here
 - 2026-11-23 · /glaciers/: S1 timelapses built from the archive (build.py, Endicott = video 112), month shown live, products, Left/Right frame stepping that loops (bd6618f, e40bfbc, 016e764) · docs/GLACIERS.md "Building S1 timelapses ourselves"
 - 2026-11-21 · Ridge radius, ridge n, valley fall F as Cross-two-overlays axes, landslide-comparison hold lifted by Hig (7d208a9); hand-placed sounding points (251acb6, untested, data copy pending) · docs/ANALYSIS.md
