@@ -25,12 +25,15 @@ html, body { background: #000; }
 .reveal .kn-image > img { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
   max-width: none; max-height: none; margin: 0; border: 0; display: block; }
 .reveal video.kn-el { object-fit: contain; }
-.reveal iframe.kn-live { background: #fff; }
+.reveal iframe.kn-live { background: #fff; z-index: auto; }   /* reveal.css puts every iframe at z-index 1, above the other elements whatever their order */
 .reveal img.kn-fallback { object-fit: cover; pointer-events: none; }
 
 /* builds and pan/zoom triggers: steps with no effect of their own */
 .reveal .kn-stack .fragment, .reveal .kn-step { transition: none; }
 .reveal .kn-step { position: absolute; width: 0; height: 0; }
+/* builds: what a row has not yet brought in, or has taken out (kn-ghost: the same, while editing) */
+.reveal .kn-off { opacity: 0 !important; visibility: hidden; }
+.reveal .kn-ghost { opacity: 0.22 !important; }
 /* dissolve: a copy of the outgoing slide, laid over the incoming slide and faded out */
 #kn-dissolve { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 40;
   pointer-events: none; display: none; }

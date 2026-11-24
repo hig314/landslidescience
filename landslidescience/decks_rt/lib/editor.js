@@ -122,6 +122,7 @@
   function snapshot() { var c = cur(); return { i: c.i, json: JSON.stringify(c.s) }; }
   function commit(before) {
     var c = cur();
+    mend(c.s);
     if (JSON.stringify(c.s) === before.json) return false;
     mine(c.s);
     undo.push(before); redo = [];
@@ -161,7 +162,7 @@
     prepare();
     sel = sel.filter(function (e) { return c.s.elements.indexOf(e) >= 0; });
     draw();
-    fmtFill();
+    fmtFill(); bpFill();
   }
   function prepare() {                     // a slide as it should be while it is edited
     var c = cur();
@@ -202,6 +203,7 @@
     bar.geo.textContent = t;
     drawTools();
     drawLive();
+    bpMark();
   }
   // ---------------------------------------------------------------- opacity and crop (in the bar)
   function drawTools() {
@@ -387,13 +389,14 @@
     if (e !== liveFor) {                   // a figure was just selected: the step named in the bar and the view
       liveFor = e;                         // in the figure must be the same one, or Use would store the wrong view
       if (e) {
-        var shown = cur().sec.querySelectorAll(".kn-step.visible:not(.kn-pz)").length;   // where the talk had got to
+        var shown = (RT.editClick != null ? RT.stageAt(cur().sec, RT.editClick) : RT.stage(cur().sec)) - 1;   // where the talk had got to
         showStep(e, Math.min(e.states.length - 1, shown), false);
         return;
       }
     }
-    if (!e) { if (using) use(null); return; }
+    if (!e) { lvOpen(false); if (using) use(null); return; }
     liveAt = Math.min(liveAt, e.states.length - 1);
+    lvFill();
     function btn(label, title, fn) { var x = mk("button", "", b, label); x.title = title; x.onclick = function () { fn(); x.blur(); }; }
     btn("◀", "Show the previous step", function () { showStep(e, liveAt - 1); });
     mk("span", "", b, "step " + (liveAt + 1) + " of " + e.states.length);
@@ -403,20 +406,73 @@
       btn("Capture step", "Keep the figure's current view as a new step after this one", function () { ask(e, "add"); });
       btn("Finish", "Stop operating the figure; the view it is left in becomes this step", function () { use(null); });
     }
+    if (!using) btn("View…", "This step's view as text (the settings the figure's page is sent), to edit by hand", function () { lvOpen(!lv); });
     if (e.states.length > 1) btn("Remove step", "Remove this step", function () {
-      change(function () { e.states.splice(liveAt, 1); opensAt(e); });
+      change(function (c) { e.states.splice(liveAt, 1); stepRow(c.s, liveAt, false); opensAt(e); });
       steps(e);
       showStep(e, liveAt); if (!using) rebuild();
     });
   }
-  function steps(e) {                      // one click per step: the slide's step markers follow the figure's steps,
-    var i = deck.slides.findIndex(function (x) { return x.elements && x.elements.indexOf(e) >= 0; });   // without reloading the figure
-    var sec = RT.slidesEl.querySelector('section[data-i="' + i + '"]');
-    if (!sec) return;
-    var have = sec.querySelectorAll(".kn-step:not(.kn-pz)"), want = e.states.length - 1, k;
-    for (k = have.length; k < want; k++) mk("span", "fragment kn-step", sec);
-    for (k = have.length - 1; k >= want; k--) have[k].remove();
-    Reveal.syncFragments(sec);
+  // The "View…" panel: a step's view string, one setting per line, and the page's address.
+  var lv = null;
+  function lvPage(e) { var h = e.src.indexOf("#"); return h >= 0 ? e.src.slice(0, h) : e.src.split("?")[0]; }
+  function lvFill() {
+    var e = liveSel();
+    if (!lv || !e) return;
+    lv.head.textContent = "Step " + (liveAt + 1) + " of " + e.states.length + ": its view, one setting per line";
+    lv.text.value = String(e.states[liveAt] || "").split("&").join("\n");
+    lv.page.value = lvPage(e);
+  }
+  function lvApply() {
+    var e = liveSel();
+    if (!lv || !e) return;
+    var st = lv.text.value.split(/\n/).map(function (x) { return x.trim().replace(/^&+|&+$/g, ""); }).filter(Boolean).join("&");
+    var pg = lv.page.value.trim(), was = lvPage(e);
+    if (!st) { status("The view is empty: nothing was changed", true); return; }
+    var did = change(function () {
+      e.states[liveAt] = st;
+      if (pg && pg !== was) e.src = pg + e.src.slice(was.length);
+      opensAt(e);
+    });
+    if (pg && pg !== was) rebuild();       // another page: the figure loads again
+    else showStep(e, liveAt);              // the same page is sent the new view
+    status(did ? "Step " + (liveAt + 1) + " changed" : "Nothing changed");
+  }
+  function lvOpen(yes) {
+    if (!yes) { if (lv) { lv.el.remove(); lv = null; } return; }
+    if (lv || !liveSel()) return;
+    bpOpen(false);
+    lv = { el: mk("div", "kn-ed-fmt kn-ed-lv", document.body) };
+    lv.head = mk("div", "kn-ed-fmt-head", lv.el);
+    lv.text = mk("textarea", "", lv.el); lv.text.spellcheck = false; lv.text.rows = 14;
+    var r = mk("label", "", lv.el);
+    mk("span", "", r, "Page");
+    lv.page = mk("input", "", r); lv.page.type = "text"; lv.page.spellcheck = false;
+    lv.page.title = "The page the figure shows. Changing it reloads the figure.";
+    r = mk("div", "kn-ed-lv-row", lv.el);
+    mk("button", "go", r, "Apply").onclick = lvApply;
+    mk("button", "", r, "Revert").onclick = lvFill;
+    mk("button", "", r, "Close").onclick = function () { lvOpen(false); };
+    mk("span", "", r, "Cmd-Enter applies");
+    lv.el.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); lvApply(); }
+      else if (ev.key === "Escape") { ev.target.blur(); }
+    });
+    lvFill();
+  }
+  function steps(e) {                      // a step was added or removed: the slide's clicks follow, without reloading the figure
+    var i = deck.slides.findIndex(function (x) { return x.elements && x.elements.indexOf(e) >= 0; });
+    if (i < 0) return;
+    RT.clicks(i);
+    bpFill();
+  }
+  function stepRow(s, k, add) {            // a build order that is written down gains or loses the row of stage k (from 0)
+    if (!s.builds) return;
+    var live = s.elements.filter(function (x) { return x.type === "live"; })[0];
+    var at = [];
+    s.builds.forEach(function (b, j) { if (b.do === "step") at.push(j); });
+    if (add) s.builds.splice(k > 0 && at.length >= k ? at[k - 1] + 1 : at.length ? at[0] : s.builds.length, 0, { el: eid(s, live), do: "step" });
+    else if (at.length) s.builds.splice(at[Math.max(0, Math.min(at.length - 1, k - 1))], 1);
   }
   function opensAt(e) {                    // the page's address opens at its first step, so nothing jumps when it loads
     if (!e.states[0] || e.states[0].indexOf("=") < 0) return;
@@ -450,9 +506,9 @@
     var a = asking, e = a.e, s = deck.slides[a.i]; asking = null;
     if (typeof state !== "string" || !state || !s) return;
     var before = { i: a.i, json: JSON.stringify(s) }, old = e.states[a.at];
-    if (a.how === "add") { e.states.splice(a.at + 1, 0, state); liveAt = a.at + 1; }
+    if (a.how === "add") { e.states.splice(a.at + 1, 0, state); liveAt = a.at + 1; stepRow(s, a.at + 1, true); }
     else if (state !== old) e.states[a.at] = state;
-    opensAt(e); steps(e);
+    opensAt(e); mend(s); steps(e);
     if (JSON.stringify(s) !== before.json) {
       s.owner = "here"; undo.push(before); redo = []; touch();
       status(a.how === "add" ? "Step " + (liveAt + 1) + " captured" : "Step " + (a.at + 1) + " now shows this view");
@@ -460,7 +516,10 @@
     if (a.how === "keep") { if (on && cur().i === a.i) rebuild(); else if (on) RT.render(a.i); }   // (after Done: the slide is left as it is)
     else if (on) drawLive();
   }
-  RT.stepFor = function (e) { return (liveSel() === e ? liveAt : 0) + 1; };    // which step a figure shows while editing
+  RT.stepFor = function (e) {              // which step a figure shows while editing
+    if (liveSel() === e) return liveAt + 1;
+    return RT.editClick != null && cur().s.elements.indexOf(e) >= 0 ? RT.stageAt(cur().sec, RT.editClick) : 1;
+  };
 
   // ---------------------------------------------------------------- text
   function retype(e) {
@@ -612,6 +671,193 @@
         rebuild();
       }
     }).catch(function (x) { status("Paste failed: " + x.message, true); });
+  }
+
+  // ---------------------------------------------------------------- build order
+  // The "Builds" panel: the slide's rows in order (deck.js: builds). A slide that came from the
+  // importer has its order in the elements; the first change here writes it down as rows.
+  var bp = null, bpRow = -1, bpDrag = -1, bpTimer = 0;
+  function parasOf(e) { return (e.runs ? e.runs.map(function (r) { return r.t; }).join("") : e.text || "").split("\n").length; }
+  function eid(s, e) {                     // the name a build row knows an element by
+    if (e.id) return e.id;
+    var id;
+    do { id = Math.random().toString(36).slice(2, 6); } while (!id || s.elements.some(function (x) { return x.id === id; }));
+    e.id = id;
+    return id;
+  }
+  function mend(s) {                       // after any change: rows whose element went are dropped, a figure has a row per stage
+    if (!s.builds || !s.elements) return;
+    var seen = {};
+    s.elements.forEach(function (e) {
+      if (e.id) { if (seen[e.id]) delete e.id; else seen[e.id] = e; }
+      delete e.build; delete e.paraBuilds;
+    });
+    var live = s.elements.filter(function (e) { return e.type === "live"; })[0], n = 1, max = live ? (live.states ? live.states.length : live.steps || 1) : 1;
+    s.builds = s.builds.filter(function (b) {
+      var e = seen[b.el];
+      if (!e) return false;
+      if (b.do === "step") return e === live && n < max && !!(++n);
+      return b.para == null || b.para < parasOf(e);
+    });
+    for (; n < max; n++) s.builds.push({ el: eid(s, live), do: "step" });
+    if (!s.builds.length) delete s.builds;
+  }
+  function written(s) {                    // the order as rows in the slide, made from the importer's form if need be
+    if (s.builds) return s.builds;
+    var rows = RT.plan(s), seen = {};
+    s.elements.forEach(function (e) { if (e.id) { if (seen[e.id]) delete e.id; else seen[e.id] = 1; } });   // a pasted copy keeps no name
+    s.builds = rows.map(function (r) {
+      var b = { el: eid(s, r.e), do: r.do };
+      if (r.para != null) b.para = r.para;
+      if (r.start !== "click") b.start = r.start;
+      return b;
+    });
+    s.elements.forEach(function (e) { delete e.build; delete e.paraBuilds; });
+    return s.builds;
+  }
+  function nameOf(e, para) {
+    if (e.type === "text") {
+      var t = e.runs ? e.runs.map(function (r) { return r.t; }).join("") : e.text || "";
+      if (para != null) t = t.split("\n")[para] || "";
+      return "“" + t.replace(/\s+/g, " ").trim().slice(0, 30) + "”";
+    }
+    if (e.type === "image") return String(e.src || "").split("/").pop().slice(0, 30);
+    return { video: "Movie", shape: "Shape", live: "Figure" }[e.type] || e.type;
+  }
+  function bpChange(fn) {                  // a change to the rows, then the slide and the panel follow
+    var did = change(function (c) { fn(written(c.s), c.s); });
+    RT.clicks(cur().i);
+    if (bpRow >= 0) RT.editClick = clickOf(bpRow);        // the slide shows the click of the row being worked on
+    bpShow();
+    return did;
+  }
+  function clickOf(i) { var g = 0; RT.plan(cur().s).forEach(function (r, j) { if (r.start === "click" && j <= i) g++; }); return g; }
+  function bpShow() { clearTimeout(bpTimer); RT.apply(cur().sec, {}); draw(); bpFill(); }
+  function bpSet(b, key, v, plain) { if (v === plain || v == null || v === "") delete b[key]; else b[key] = v; }
+  function bpAdd(what) {
+    var c = cur(), list = c.s.elements.filter(function (e) { return sel.indexOf(e) >= 0; });
+    if (!list.length) { status("Select what should build " + (what === "out" ? "out" : "in") + " first", true); return; }
+    bpChange(function (rows, s) {
+      var first = true;
+      list.forEach(function (e) {
+        var n = what === "paras" ? parasOf(e) : 1;
+        for (var k = 0; k < n; k++) {
+          var b = { el: eid(s, e), do: what === "out" ? "out" : "in" };
+          if (what === "paras") b.para = k;
+          else if (!first) b.start = "with";
+          first = false;
+          rows.push(b);
+        }
+      });
+      bpRow = rows.length - 1;
+    });
+  }
+  function bpFill() {
+    if (!bp) return;
+    var c = cur(), rows = editable(c.s) ? RT.plan(c.s) : [], g = 0, stage = 1, total = rows.filter(function (r) { return r.start === "click"; }).length;
+    if (RT.editClick != null && RT.editClick > total) RT.editClick = total;
+    if (bpRow >= rows.length) bpRow = -1;
+    bp.at.textContent = RT.editClick == null ? "everything" : RT.editClick === 0 ? "on arrival" : "click " + RT.editClick + " of " + total;
+    bp.list.innerHTML = "";
+    if (!rows.length) mk("div", "kn-ed-bnone", bp.list, "Nothing builds on this slide. Select something on it, then Build in or Build out.");
+    rows.forEach(function (r, i) {
+      if (r.start === "click") g++;
+      if (r.do === "step") stage++;
+      var mine_ = g, row = mk("div", "kn-ed-brow" + (i === bpRow ? " sel" : "") + (sel.indexOf(r.e) >= 0 ? " hit" : ""), bp.list);
+      row.draggable = true; row.knEl = r.e;
+      var num = mk("span", "num", row, r.start === "click" ? String(g) : g === 0 && i === 0 ? "•" : "");
+      num.title = r.start === "click" ? "Click " + g : g === 0 ? "When the slide arrives" : "";
+      mk("span", "what", row, r.do === "step" ? "Figure → stage " + stage : (r.do === "in" ? "In  " : "Out  ") + nameOf(r.e, r.para) + (r.para != null ? "  ¶" + (r.para + 1) : ""));
+      var st = mk("select", "", row);
+      [["click", "On click"], ["with", "With previous"], ["after", "After previous"]].forEach(function (o) { mk("option", "", st, o[1]).value = o[0]; });
+      st.value = r.start;
+      st.onchange = function () { st.blur(); bpRow = i; bpChange(function (b) { bpSet(b[i], "start", st.value, "click"); }); };
+      var dl = mk("input", "", row); dl.type = "number"; dl.min = 0; dl.max = 60; dl.step = 0.5; dl.value = r.delay; dl.title = "Delay before it starts, in seconds";
+      dl.onchange = function () { dl.blur(); bpRow = i; bpChange(function (b) { bpSet(b[i], "delay", Math.max(0, Math.min(60, +dl.value || 0)), 0); }); };
+      mk("span", "s", row, "s");
+      row.addEventListener("click", function (ev) {
+        if (/^(SELECT|INPUT|BUTTON|OPTION)$/.test(ev.target.tagName)) return;
+        bpRow = i; RT.editClick = mine_;
+        if (r.e.type !== "live" || r.e.states) sel = [r.e];
+        bpShow();
+      });
+      row.addEventListener("dragstart", function (ev) { bpDrag = i; ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", String(i)); });
+      row.addEventListener("dragover", function (ev) { if (bpDrag < 0 || bpDrag === i) return; ev.preventDefault(); row.classList.add(bpDrag < i ? "below" : "above"); });
+      row.addEventListener("dragleave", function () { row.classList.remove("above", "below"); });
+      row.addEventListener("dragend", function () { bpDrag = -1; });
+      row.addEventListener("drop", function (ev) {
+        ev.preventDefault();
+        var from = bpDrag; bpDrag = -1;
+        if (from < 0 || from === i) return;
+        bpRow = i;
+        bpChange(function (b) { b.splice(i, 0, b.splice(from, 1)[0]); });
+      });
+      if (i !== bpRow) return;
+      var det = mk("div", "kn-ed-bdet", bp.list);          // the selected row's details
+      if (r.do === "step") {
+        mk("span", "", det, "The figure takes");
+        var tk = mk("input", "", det); tk.type = "number"; tk.min = 0; tk.max = 60; tk.step = 0.5; tk.value = r.dur;
+        tk.title = "How long the figure's own animation runs, so that a row set to After previous waits for it";
+        mk("span", "", det, "s");
+        tk.onchange = function () { tk.blur(); bpChange(function (b) { bpSet(b[i], "dur", Math.max(0, Math.min(60, +tk.value || 0)), 0); }); };
+      } else {
+        mk("span", "", det, "Effect");
+        var fx = mk("select", "", det);
+        mk("option", "", fx, r.do === "in" ? "Appear" : "Disappear").value = "";
+        mk("option", "", fx, "Dissolve").value = "dissolve";
+        fx.value = r.fx;
+        var du = mk("input", "", det); du.type = "number"; du.min = 0.1; du.max = 20; du.step = 0.5; du.value = r.dur || 1; du.disabled = !r.fx;
+        mk("span", "", det, "s");
+        fx.onchange = function () { fx.blur(); bpChange(function (b) { bpSet(b[i], "fx", fx.value, ""); if (!fx.value) delete b[i].dur; }); };
+        du.onchange = function () { du.blur(); bpChange(function (b) { bpSet(b[i], "dur", Math.max(0.1, Math.min(20, +du.value || 1)), 1); }); };
+        mk("button", "", det, "Remove").onclick = function () { bpRow = -1; bpChange(function (b) { b.splice(i, 1); }); };
+      }
+      mk("button", "", det, "▶ Play").onclick = function () {       // this row's click, as the talk shows it
+        clearTimeout(bpTimer);
+        var end = RT.apply(c.sec, { present: true, play: true, at: mine_ });
+        bpTimer = setTimeout(function () { if (bp) RT.apply(cur().sec, {}); }, end * 1000 + 1200);
+      };
+    });
+    var one = sel.length === 1 && sel[0].type === "text" && parasOf(sel[0]) > 1;
+    bp.para.style.display = one ? "" : "none";
+  }
+  function bpMark() {                      // the rows of what is selected on the slide
+    if (!bp) return;
+    Array.prototype.forEach.call(bp.list.querySelectorAll(".kn-ed-brow"), function (n) { n.classList.toggle("hit", sel.indexOf(n.knEl) >= 0); });
+    bp.para.style.display = sel.length === 1 && sel[0].type === "text" && parasOf(sel[0]) > 1 ? "" : "none";
+  }
+  function bpStep(d) {                     // which click the slide is shown at: everything, on arrival, 1, 2, …
+    var total = RT.plan(cur().s).filter(function (r) { return r.start === "click"; }).length;
+    var at = RT.editClick == null ? -1 : RT.editClick;
+    at += d;
+    RT.editClick = at < -1 ? total : at > total ? null : at < 0 ? null : at;
+    bpShow();
+  }
+  function bpOpen(yes) {
+    if (!yes) {
+      if (!bp) return;
+      clearTimeout(bpTimer); bp.el.remove(); bp = null; bpRow = -1; RT.editClick = null;
+      RT.apply(cur().sec, {});
+      return;
+    }
+    if (bp) return;
+    lvOpen(false);
+    bp = { el: mk("div", "kn-ed-fmt kn-ed-bp", document.body) };
+    var head = mk("div", "kn-ed-fmt-head", bp.el);
+    mk("span", "", head, "Build order");
+    var nav = mk("span", "kn-ed-bnav", head);
+    mk("span", "", nav, "Showing");
+    var a = mk("button", "", nav, "◀"); a.title = "Show the slide one click earlier"; a.onclick = function () { bpStep(-1); a.blur(); };
+    bp.at = mk("span", "at", nav);
+    var z = mk("button", "", nav, "▶"); z.title = "Show the slide one click later"; z.onclick = function () { bpStep(1); z.blur(); };
+    bp.list = mk("div", "kn-ed-blist", bp.el);
+    var r = mk("div", "kn-ed-lv-row", bp.el);
+    mk("button", "go", r, "Build in").onclick = function () { bpAdd("in"); };
+    mk("button", "", r, "Build out").onclick = function () { bpAdd("out"); };
+    bp.para = mk("button", "", r, "In, by paragraph"); bp.para.onclick = function () { bpAdd("paras"); };
+    mk("button", "", r, "Close").onclick = function () { bpOpen(false); };
+    mk("div", "kn-ed-bhint", bp.el, "Drag a row to reorder. Click a row for its details. What is not showing at the chosen click is drawn faint.");
+    bpFill();
   }
 
   // ---------------------------------------------------------------- slide settings
@@ -877,6 +1123,7 @@
     button("+ Slide", "Add an empty slide after this one", addSlide);
     button("− Slide", "Delete this slide (in the sorter: the selected slides; Delete does the same there). Undo brings it back", removeSlides);
     button("Slide…", "This slide's background colour and its transition to the next slide (in the sorter: the selected slides')", function () { fmtOpen(!fmt); });
+    button("Builds", "The slide's build order: what appears or goes at each click, as in Keynote", function () { bpOpen(!bp); });
     button("+ Text", "Add a text box", function () { if (!sorter) addText(); });
     button("Front", "Bring to front  }", function () { order("front"); });
     button("Forward", "Bring forward  ]", function () { order("forward"); });
@@ -925,7 +1172,7 @@
       if (!asking || !d || d.type !== "deck:state" || ev.source !== asking.win) return;
       capture(d.state);
     });
-    Reveal.on("slidechanged", function () { if (on) fmtFill(); });
+    Reveal.on("slidechanged", function () { if (on) { fmtFill(); if (bp) { bpRow = -1; RT.editClick = null; RT.apply(cur().sec, {}); bpFill(); } } });
     Reveal.on("slidechanged", function () { if (on && !sorter) { finish(); cropping = null; liveFor = null; sel = []; prepare(); draw(); } });
     window.addEventListener("resize", function () { if (on) setTimeout(draw, 50); });
     window.addEventListener("beforeunload", function () { if (timer) { clearTimeout(timer); save(); } });
@@ -936,8 +1183,9 @@
     if (cropping) crop(null);
     if (using) use(null);                  // Done while operating a figure: its view is kept, as with Finish
     if (sorter) openSorter(false);
-    fmtOpen(false);
+    fmtOpen(false); lvOpen(false); bpOpen(false);
     on = !on; RT.editing = on;
+    RT.paint();
     document.body.classList.toggle("kn-editing", on);
     Reveal.layout();                       // the stage sits below the bar while editing
     Reveal.configure({ keyboard: on ? false : { 75: null } });

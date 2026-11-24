@@ -1,6 +1,6 @@
 /* lib/editor.css — the editor's own marks (lib/editor.js). Sizes inside the slide are divided
    by the slide's scale (--k), so handles and lines look the same at any window size. */
-body.kn-editing .reveal .fragment { opacity: 1 !important; visibility: visible !important; }
+body.kn-editing .reveal .kn-flat.fragment { opacity: 1 !important; visibility: visible !important; }
 body.kn-editing .reveal { top: 32px; height: calc(100% - 32px); }
 body.kn-editing .reveal iframe, body.kn-editing .reveal video { pointer-events: none; }
 body.kn-editing .reveal iframe.kn-ed-use { pointer-events: auto; }
@@ -69,3 +69,34 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 .kn-ed-fmt-sw { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 2px 102px; }
 .kn-ed-fmt-sw button { width: 18px; height: 18px; padding: 0; border: 1px solid #777; border-radius: 3px; cursor: pointer; }
 .kn-ed-fmt-sw button.on { outline: 2px solid #2f8cff; outline-offset: 1px; }
+
+/* the "View…" panel of a live figure: a step's view string, to edit by hand */
+.kn-ed-lv { left: auto; right: 60px; width: 520px; }
+.kn-ed-lv textarea { display: block; width: 100%; box-sizing: border-box; resize: vertical; font: 12px/1.45 Menlo, "Liberation Mono", monospace; color: #eee; background: #111;
+  border: 1px solid #666; border-radius: 4px; padding: 5px 7px; white-space: pre; overflow: auto; }
+.kn-ed-lv label > span:first-child { width: 40px; }
+.kn-ed-lv label input[type=text] { flex: 1; width: auto; font-family: Menlo, "Liberation Mono", monospace; }
+.kn-ed-lv-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: #999; }
+.kn-ed-lv-row button { font: inherit; color: #eee; background: #3a3a3c; border: 1px solid #555; border-radius: 4px; padding: 3px 12px; cursor: pointer; }
+.kn-ed-lv-row button.go { background: #2f6fd0; border-color: #2f6fd0; }
+
+/* the "Builds" panel: the slide's build order */
+.kn-ed-bp { left: auto; right: 60px; width: 470px; }
+.kn-ed-bp .kn-ed-fmt-head { display: flex; align-items: center; }
+.kn-ed-bnav { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 400; color: #bbb; }
+.kn-ed-bnav .at { min-width: 84px; text-align: center; color: #9fc6ff; }
+.kn-ed-bnav button, .kn-ed-bdet button { font: inherit; color: #eee; background: #3a3a3c; border: 1px solid #555; border-radius: 4px; padding: 1px 8px; cursor: pointer; }
+.kn-ed-blist { max-height: 52vh; overflow: auto; border: 1px solid #444; border-radius: 5px; background: #1f1f21; }
+.kn-ed-bnone { padding: 12px; color: #999; }
+.kn-ed-brow { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-top: 2px solid transparent; border-bottom: 2px solid transparent; cursor: default; }
+.kn-ed-brow:hover { background: #2c2c30; }
+.kn-ed-brow.hit { background: #263247; }
+.kn-ed-brow.sel { background: #2f4a78; }
+.kn-ed-brow.above { border-top-color: #ff3bd4; } .kn-ed-brow.below { border-bottom-color: #ff3bd4; }
+.kn-ed-brow .num { width: 18px; text-align: right; color: #9fc6ff; font-variant-numeric: tabular-nums; }
+.kn-ed-brow .what { flex: 1; overflow: hidden; white-space: pre; text-overflow: ellipsis; color: #eee; }
+.kn-ed-brow .s, .kn-ed-bdet span { color: #999; }
+.kn-ed-bp input[type=number] { width: 44px; }
+.kn-ed-bdet { display: flex; align-items: center; gap: 6px; padding: 5px 8px 7px 32px; background: #253a5e; }
+.kn-ed-bdet button { margin-left: 6px; }
+.kn-ed-bhint { margin-top: 8px; color: #888; }
