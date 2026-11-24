@@ -1,3 +1,11 @@
+> **Old sheets tested for a position offset (2026-11-23, `$W/review_1123/sheet_shift.py`)**: each 1915-31 survey's best
+> single translation against the 1977-84 casts (pairs within 120 m, median |old - modern|). Only **H05194** is off:
+> as placed 4.7 m, at **+380 m E, +400 m N** 1.7 m (686 pairs; 20 m search step). H03802, H05187, H05188, H05191, H05192
+> sit within 20-80 m of where they are (no gain from moving). Ten sheets have no modern casts near them and cannot be
+> tested this way (H04721, H04759, H05082, H05083, H05087, H05091, H05092, H05100, H05101, H05186) -- test those against
+> multibeam / lidar beds instead. Proposed v2 step: move H05194 whole by the fitted translation (recorded as a move, depth
+> kept), re-fit r1c0/r1c1, then look at what misfit is left.
+
 > **Hig 2026-11-23 ~21:00: "Grewingk lake multibeam can be made into a fully public layer."** So `kbay_topobathy_v1` is
 > PUBLIC (dev_only removed from its entry). FOR HOSTING: merge this branch's `datasets.json`, build and publish
 > `kbay_topobathy_v1`; and `grewingk_sonar_2023` itself may now be ungated (hosting's entry -- not edited here).
