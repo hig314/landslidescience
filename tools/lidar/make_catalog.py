@@ -380,17 +380,35 @@ def main():
         # manifest key alone cannot produce a link that 404s.
         downloads = []
         for dl in ds.get("downloads") or []:
-            name = f"{did}_{dl['res_m']:g}m.tif"
+            name = f"{did}_{dl['res_m']:g}m.tif" if dl.get("res_m") else f"{did}_{dl['name']}.tif"   # a coarser copy, or a named companion (water)
             local = COG_DIR / name
             if on_r2_ok and (verify_here or not local.exists()):
                 dl_bytes = _r2_size(f"cog/{name}")
             else:
                 dl_bytes = local.stat().st_size if local.exists() else None
             if dl_bytes:
-                downloads.append({"res_m": dl["res_m"], "resampling": dl.get("resampling"),
+                downloads.append({"res_m": dl.get("res_m"), "resampling": dl.get("resampling"), "name": dl.get("name"),
+                                  "label": dl.get("label"), "about": dl.get("about"),
                                   "url": f"{COG_PUBLIC_BASE}/{name}", "bytes": dl_bytes})
             else:
                 print(f"  note {did}: download copy {name} not there; not listed", file=sys.stderr)
+        # Linked surfaces the viewer draws see-through over the bed (ls_water.js:
+        # manifest "surfaces": [{"kind": "water", "encoding": "terrarium"},
+        # {"kind": "sea", "encoding": "mapbox"}] -> pmtiles/<id>_wsurf.pmtiles and
+        # pmtiles/<id>_sea.pmtiles, built by the topobathy stream). All or none:
+        # the water without its sea, or a URL that 404s, is a broken layer.
+        SURF_FILE = {"water": "wsurf", "sea": "sea"}
+        surfaces = []
+        for sf in ds.get("surfaces") or []:
+            sb, sbase = _pyramid(f"{did}_{SURF_FILE[sf['kind']]}", on_r2_ok)
+            if verify_here and not _r2_size(f"pmtiles/{did}_{SURF_FILE[sf['kind']]}.pmtiles"):
+                sb = None
+            if not sb:
+                print(f"  note {did}: surface '{sf['kind']}' not there; no surfaces listed", file=sys.stderr)
+                surfaces = []
+                break
+            surfaces.append({"kind": sf["kind"], "encoding": sf.get("encoding", "mapbox"),
+                             "url": f"{sbase}/{did}_{SURF_FILE[sf['kind']]}.pmtiles", "bytes": sb})
         # The pyramid is what the viewer actually draws. A survey whose archive
         # exists but whose tiles do not is mid-build: listing it advertises a
         # pmtiles_url that 404s, and the viewer shows an entry that renders
@@ -500,6 +518,10 @@ def main():
                 "cog_url": f"{COG_PUBLIC_BASE}/{did}.tif",
                 "cog_bytes": cog_bytes,
                 "downloads": downloads or None,
+                "surfaces": surfaces or None,
+                # Tidal datums in the survey's vertical datum: the viewer's
+                # sea-level buttons. Only with surfaces to flood.
+                "tide_levels": (ds.get("tide_levels") or None) if surfaces else None,
                 # The survey's point cloud page (tools/lidar/points.json,
                 # points_publish.py): its revisions, ours and the surveyor's.
                 # Listed only once the survey's index is on the bucket.

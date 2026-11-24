@@ -2238,6 +2238,8 @@ vanish depending on which way you light them.
             p.horizontal_crs + '; opens directly in QGIS by URL">Download DTM (' + fmtBytes(p.cog_bytes) +
             ')</a>' +
             (p.downloads || []).map(function (d) {
+              if (d.label) return ' · <a href="' + d.url + '" title="' + esc(d.about || d.label) + '">' + esc(d.label) +
+                ' (' + fmtBytes(d.bytes) + ')</a>';
               return ' · <a href="' + d.url + '" title="A smaller copy of the same surface at ' + d.res_m +
                 ' m cells' + (d.resampling === 'average' ? ' (each the mean of the full-resolution cells it covers)' : '') +
                 ', Cloud-optimized GeoTIFF">' + d.res_m + ' m copy (' + fmtBytes(d.bytes) + ')</a>';

@@ -49,8 +49,14 @@ put() {
 for f in "$COG/${id}"_[0-9]*m.tif; do
   [ -f "$f" ] && put "$f" "cog/$(basename "$f")"
 done
+# a named companion download (manifest "downloads", name water); most surveys have none, so no "skip" line for it
+if [ -f "$COG/${id}_water.tif" ]; then put "$COG/${id}_water.tif" "cog/${id}_water.tif"; fi
 put "$COG/$id.tif" "cog/$id.tif"
 put "$PM/$id.pmtiles" "pmtiles/$id.pmtiles"
 put "$PM/${id}_slope.pmtiles" "pmtiles/${id}_slope.pmtiles"
 put "$PM/${id}_ortho.pmtiles" "pmtiles/${id}_ortho.pmtiles"
+# linked water surfaces (manifest "surfaces"; ls_water.js), only where built
+for sfx in wsurf sea; do
+  if [ -f "$PM/${id}_$sfx.pmtiles" ]; then put "$PM/${id}_$sfx.pmtiles" "pmtiles/${id}_$sfx.pmtiles"; fi
+done
 echo "$(date '+%F %T') done"
