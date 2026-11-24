@@ -1,0 +1,16 @@
+{
+ "crs": "EPSG:6334",
+ "units": "m",
+ "note": "Whole-sheet translations of sounding surveys (cast_edits.py shift). Depths are never changed.",
+ "shifts": [
+  {
+   "survey": "nos_h05194",
+   "dx": 370.0,
+   "dy": 420.0,
+   "casts": 5764,
+   "basis": "Hig 2026-11-23: 'The shift sounds good', after their review of the reef at 59.13641,-152.03722 where this sheet's casts stood up to 63 m off the solved surface. The sheet is misplaced, not wrong: fitted as one translation to the NOS 1977-84 casts (H09890 and neighbours) where the two overlap. This is IN ADDITION to the +400 E +320 N the sheet already carries in the base file (nos_offsets.json, 2026-11-01: the 1930-31 group's median, inferred, because this sheet had too few pairs then); the total from NCEI's position is +770 E +740 N.",
+   "evidence": "tools: $W/review_1123/h05194_fit.py. Pairs within 120 m of a 1977-84 cast: median |depth difference| 4.7 m as placed (653 pairs), 1.7 m at +370 E +420 N (690 pairs). The two quadrants of the sheet with modern casts agree (NW +370,+420; NE +460,+390). The 2026-11-01 depth fit (54 pairs within 25 m, not then trusted) had said +760 E +800 N in total, which this confirms. The minimum is broad: within 0.3 m of best over about +/-100 m, so the translation is known to roughly 100 m. The southern half of the sheet (offshore, outside the composite) has no modern casts and takes the same shift by assumption.",
+   "date": "2026-11-23"
+  }
+ ]
+}

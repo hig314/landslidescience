@@ -7,6 +7,12 @@
   cast_edits.py sync-dev                                         the moves into the dev database, so the dev viewer draws them (apply does this too)
   cast_edits.py reread KEY DEPTH_M --basis TEXT [--source URL]   a depth READ AGAIN FROM THE SURVEY'S OWN SHEET, where the digital file disagrees with it (then run apply)
   cast_edits.py reject KEY --basis TEXT [--withdraw]             a cast the REVIEWER rejects outright (then run apply)
+  cast_edits.py shift SURVEY DX DY --basis TEXT [--evidence TEXT] [--withdraw]   a WHOLE SHEET translated (m, east and north), in water/sheet_shifts.json (then run apply)
+
+A SHEET SHIFT IS ONE DECISION ABOUT ONE SURVEY, NOT THOUSANDS OF MOVES (2026-11-23, Hig's reef at 59.13641,-152.03722: the 1915-31 lead-line sheet nos_h05194
+disagreed with the 1977-84 casts round it by up to 60 m both ways; one translation of the sheet takes the median disagreement from 4.7 m to 1.7 m -- an old-datum offset).
+It is its own ledger (water/sheet_shifts.json: survey, dx, dy, basis, evidence, date), applied to every cast of the survey before the single-cast edits; the edited CSV
+keeps the base position in x0, y0 and says moved = "sheet".  A cast that was also dragged by hand keeps the reviewer's position (moved = "1").  Depths are untouched.
 
 A REJECTION IS THE REVIEWER'S CALL, NAMED AND WRITTEN DOWN (2026-11-16, Hig: "Let's reject this one", nos_h05191:61292 at 59.06360,-151.37572:
 3 fathoms in the 1931 lead-line record among 33-35 fathoms, nearest neighbour 222 m, almost certainly a dropped digit; no sheet to reread it from).
@@ -32,6 +38,30 @@ EDITS = Path(__file__).resolve().parent.parent / "water" / "cast_edits.geojson"
 OGR = "/opt/homebrew/bin/ogr2ogr"
 DEV_DB = "tethys-timescale-grafana-tethys_db-1"
 MOVED_M = 0.5
+SHIFTS = Path(__file__).resolve().parent.parent / "water" / "sheet_shifts.json"
+
+
+def _shifts():
+    """survey -> its recorded translation (dx, dy in metres, EPSG:6334)."""
+    return {r["survey"]: r for r in json.load(open(SHIFTS))["shifts"]} if SHIFTS.exists() else {}
+
+
+def shift(a):
+    """Record (or with --withdraw remove) the translation of one whole survey sheet."""
+    S = _shifts()
+    if a.withdraw:
+        if a.survey not in S:
+            raise SystemExit(f"{a.survey} has no shift")
+        del S[a.survey]
+    else:
+        n = sum(1 for src in BASE for r in csv.DictReader(open(src)) if r["survey"] == a.survey)
+        if not n:
+            raise SystemExit(f"{a.survey} is in no base file")
+        if not (a.basis or "").strip():
+            raise SystemExit("a sheet shift needs its basis: what it was fitted to, and whose call")
+        S[a.survey] = dict(survey=a.survey, dx=float(a.dx), dy=float(a.dy), casts=n, basis=a.basis.strip(), evidence=(a.evidence or "").strip(), date=datetime.date.today().isoformat())
+    SHIFTS.write_text(json.dumps(dict(crs="EPSG:6334", units="m", note="Whole-sheet translations of sounding surveys (cast_edits.py shift). Depths are never changed.", shifts=sorted(S.values(), key=lambda r: r["survey"])), indent=1) + "\n")
+    print(f"{a.survey}: {'shift withdrawn' if a.withdraw else f'shift {a.dx:+g} m E, {a.dy:+g} m N recorded'}; {len(S)} sheet shift(s) on file.  Now: cast_edits.py apply")
 
 
 def _edits():
@@ -195,12 +225,15 @@ def reject(a):
 
 
 def apply(a):
-    E = _edits(); used = set()
+    E = _edits(); used = set(); SH = _shifts()
     for src, dst in {**BASE, **LAKE}.items():
         with open(src) as fh:
             rd = csv.DictReader(fh); fld = rd.fieldnames + ["x0", "y0", "moved", "held", "depth0", "bound0"]; rows = []; nrej = 0
             for r in rd:
                 e = E.get(_key(r)); r.update(x0="", y0="", moved="", held="", depth0="", bound0="")
+                sh = SH.get(r["survey"]) if src in BASE else None
+                if sh:                                         # the whole sheet translated: the base position kept, the depth untouched
+                    r["x0"], r["y0"] = r["x"], r["y"]; r["x"], r["y"] = f'{float(r["x"]) + sh["dx"]:.2f}', f'{float(r["y"]) + sh["dy"]:.2f}'; r["moved"] = "sheet"
                 if e and src in LAKE and e["properties"]["decision"] != "unbound":
                     e = None                                   # a lake sounding takes only an unbound
                 if e and e["properties"]["decision"] == "reject":
@@ -216,15 +249,15 @@ def apply(a):
                                 r[c] = f'{float(r[c]) - dz:.3f}' if c == "z" else f'{float(r[c]) - dz:.2f}'
                         ex, ey = e["geometry"]["coordinates"][:2]
                         if float(np.hypot(ex - float(r["x"]), ey - float(r["y"]))) > MOVED_M:       # dragged as well: it is moved like any other
-                            r["x0"], r["y0"] = r["x"], r["y"]; r["x"], r["y"] = f"{ex:.2f}", f"{ey:.2f}"; r["moved"] = "1"; r["held"] = "1"
+                            r["x0"], r["y0"] = r["x0"] or r["x"], r["y0"] or r["y"]; r["x"], r["y"] = f"{ex:.2f}", f"{ey:.2f}"; r["moved"] = "1"; r["held"] = "1"
                     elif p["decision"] == "move":
-                        r["x0"], r["y0"] = r["x"], r["y"]; r["x"], r["y"] = f'{e["geometry"]["coordinates"][0]:.2f}', f'{e["geometry"]["coordinates"][1]:.2f}'; r["moved"] = "1"; r["held"] = "1"
+                        r["x0"], r["y0"] = r["x0"] or r["x"], r["y0"] or r["y"]; r["x"], r["y"] = f'{e["geometry"]["coordinates"][0]:.2f}', f'{e["geometry"]["coordinates"][1]:.2f}'; r["moved"] = "1"; r["held"] = "1"
                     elif p["decision"] == "use":
                         r["held"] = "1"
                 rows.append(r)
         with open(str(dst) + ".part", "w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=fld, lineterminator="\n"); w.writeheader(); w.writerows(rows)
-        os.replace(str(dst) + ".part", dst); print(f"{dst.name}: {len(rows)} rows, {sum(r['moved'] == '1' for r in rows)} moved, {sum(r['held'] == '1' for r in rows)} held, {sum(r['depth0'] != '' for r in rows)} reread, {sum(r['bound0'] != '' for r in rows)} unbound, {nrej} rejected")
+        os.replace(str(dst) + ".part", dst); print(f"{dst.name}: {len(rows)} rows, {sum(r['moved'] == '1' for r in rows)} moved, {sum(r['moved'] == 'sheet' for r in rows)} on a shifted sheet, {sum(r['held'] == '1' for r in rows)} held, {sum(r['depth0'] != '' for r in rows)} reread, {sum(r['bound0'] != '' for r in rows)} unbound, {nrej} rejected")
     miss = set(E) - used
     if miss:
         print("edits whose cast is in no base file:", sorted(miss)[:10])
@@ -309,5 +342,6 @@ if __name__ == "__main__":
     sp.add_parser("apply"); sp.add_parser("sync-dev")
     j = sp.add_parser("reject"); j.add_argument("key"); j.add_argument("--basis"); j.add_argument("--withdraw", action="store_true")
     c = sp.add_parser("reread"); c.add_argument("key"); c.add_argument("depth_m", type=float); c.add_argument("--basis", required=True); c.add_argument("--source")
+    c = sp.add_parser("shift"); c.add_argument("survey"); c.add_argument("dx", type=float, nargs="?", default=0.0); c.add_argument("dy", type=float, nargs="?", default=0.0); c.add_argument("--basis"); c.add_argument("--evidence"); c.add_argument("--withdraw", action="store_true")
     c = sp.add_parser("unbound"); c.add_argument("keys", nargs="+"); c.add_argument("--basis", required=True)
-    a = ap.parse_args(); dict(export=export, merge=merge, apply=apply, reread=reread, unbound=unbound, reject=reject, **{"sync-dev": sync_dev})[a.cmd](a)
+    a = ap.parse_args(); dict(export=export, merge=merge, apply=apply, reread=reread, unbound=unbound, reject=reject, shift=shift, **{"sync-dev": sync_dev})[a.cmd](a)

@@ -1,3 +1,29 @@
+> **THE SOUNDINGS AS A DERIVED, VERSIONED DATASET `kbay_soundings` (Hig 2026-11-23 evening).** Hig's idea: view the merged
+> sounding surveys as a point cloud; name the corrected collection as a derived dataset with a ledger of the changes that
+> led to it; host it like a point cloud with a manifest consistent with the lidar revisions' and with outside convention.
+> Agreed: STAC as the published metadata (PDAL only as tooling); CSV/GeoPackage primary with a COPC copy; the 500 m
+> compilation points left out (a prior); hand-placed estimates in, flagged.
+> - **CORRECTION to the note below ("only H05194 is off")**: the 1915-31 sheets were ALREADY translated on 2026-11-01
+>   (`nos_offsets.py` -> `$OBS/nos_offsets.json`, applied by `nos_soundings_csv.py --offsets`: "Early Alaska Datum"
+>   positions, +380..420 E / +300..360 N for the 1930-31 group, H03802 +240/+260, the 1927 sheets none). The others test
+>   clean BECAUSE of that. H05194 had only the group's inferred +400/+320 (54 pairs then, not trusted; its depth fit said
+>   +760/+800). Tonight's fit (690 pairs, r 120 m): a further **+370 E, +420 N**, total +770/+740 -- so the old depth fit
+>   was right. Both quadrants with modern casts agree; the minimum is broad (~100 m). `$W/review_1123/h05194_fit.py`.
+> - **Built**: `cast_edits.py shift SURVEY DX DY --basis` -> `water/sheet_shifts.json` (a whole sheet is ONE ledger row;
+>   edited CSV says moved = "sheet", x0/y0 the base position; a hand move wins). H05194 recorded and APPLIED to the live
+>   `*_edited.csv` (v1's files kept in `$OBS/snapshots/r1_20261123/`). NOT yet taught the shift: `export` (review layer
+>   shows base positions) and `sync-dev` (the dev viewer still draws H05194 unshifted).
+> - **Built**: `topobathy/soundings_release.py build REV` -> `$LIDAR_BUILD/points/kbay_soundings/<rev>/`
+>   (`soundings.csv.gz`, `.gpkg`, `.copc.laz`, `changes.json` = the ledger, `manifest.json` in the lidar revisions' keys,
+>   `stac/<rev>.json`; `collection.json` beside). r1 = as kbay_topobathy_v1 read them (332,668 casts; ledger 109 rows: 14
+>   sheet translations at source conversion, 38 moves, 55 bounds lifted, 1 reread, 1 reject); r2 = r1 + the H05194 shift
+>   (5,764 casts moved, nothing else differs). STAC field names checked against the extensions' READMEs (pointcloud 2.0.0,
+>   version 1.2.0, processing 1.3.0, projection 2.1.0, scientific 1.0.0, file 2.1.0) but NOT schema-validated (no pystac
+>   here). FOR HOSTING: a `points.json` entry + upload are theirs; nothing is on R2. Open: the licence string (now
+>   "other"), per-survey citations/URLs for the lake soundings, NCEI per-survey links.
+> - **Reef before/after** running on a scratch copy of r1c0 (`$W/review_1123/reef_test.sh`: fill, build 3, high line,
+>   then the deep pass over a 10 km window), reading the shifted casts.
+
 > **Old sheets tested for a position offset (2026-11-23, `$W/review_1123/sheet_shift.py`)**: each 1915-31 survey's best
 > single translation against the 1977-84 casts (pairs within 120 m, median |old - modern|). Only **H05194** is off:
 > as placed 4.7 m, at **+380 m E, +400 m N** 1.7 m (686 pairs; 20 m search step). H03802, H05187, H05188, H05191, H05192
