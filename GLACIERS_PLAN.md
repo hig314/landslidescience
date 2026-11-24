@@ -31,7 +31,7 @@ detail slope stability needs (debris-covered ice, ice-cored moraine).
 - **The link to landslides**: project a slope onto the network to read when
   the face passed it, and the ice surface beside it through time.
 
-## 2. Where it stands (2026-11-20)
+## 2. Where it stands (2026-11-20; Sentinel-1 added 2026-11-24)
 
 **Prod is the working copy** (Hig, 2026-11-20). Hig has been building
 networks there since the 2026-11-18 deploy: 352 flow lines and 9 faces on
@@ -62,6 +62,14 @@ Built and deployed (plumbing in docs/GLACIERS.md):
 - **Check against a publisher.** At Icy Bay, McNabb & Hock's own length plus
   our distance stays nearly constant. The NMAD is 0.04 to 0.38 km, depending
   on the glacier.
+- **Sentinel-1 (added 2026-11-21 to 11-24).** 104 Earth Engine timelapses
+  placed from their content, now with each frame's month; timelapses built
+  here from the archive (`tools/glaciers/s1_build/build.py`; Endicott,
+  South Sawyer, Sitkagi on prod). **Automatic faces** from those builds:
+  only the months the radar shows clearly, source `s1auto` (234 on prod),
+  each tied to its video, rejectable by an admin. A third route to a face
+  series beside tracing and the publishers. docs/GLACIERS.md, "Ice faces
+  from our S1 timelapses" › Start here.
 
 ### 2.1 What the plot reads, and the Portage gap
 
@@ -76,6 +84,12 @@ contribute one number each (outline ∩ path, §3.1). It was never built, and
 Portage is the first glacier with no terminus-line source to show the gap.
 
 ## 3. Next work, in recommended order
+
+*2026-11-24: the Sentinel-1 face work sits beside this list rather than in
+it. Its next steps (more glaciers; Endicott's three misses; a placement
+nudge for videos, which their faces would follow; coastal erosion at
+Sitkagi, Hig's "some point") are in docs/GLACIERS.md, Start here › Open.
+Item 1 below shipped 2026-11-20.*
 
 1. **Outline crossings on the plot** (the Portage fix). *Built in dev
    2026-11-20 (docs/GLACIERS.md, last section); the rules below are as

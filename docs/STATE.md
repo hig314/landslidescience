@@ -1,6 +1,6 @@
 # State of play
 
-*Last revised 2026-11-20.* The one dated snapshot in the project notes: what
+*Last revised 2026-11-24 (glaciers entries; the rest 2026-11-21).* The one dated snapshot in the project notes: what
 is waiting to be confirmed on production, what is open, and a short log of
 what shipped. **It rots**; correct or delete an entry rather than working
 around it. For lidar publishing state do not trust any number written down
@@ -75,11 +75,15 @@ by curl, by API or not at all.
 - [ ] **Inventory-tab explorer** (2026-11-16): tested by Hig in dev; on prod not yet loaded (first load builds and caches each source's payload, ~1–2 s), the wiper pane and a review saved from the explorer's popup untested anywhere.
 - [ ] **External-record review** (2026-11-16): tested by Hig in dev; on prod the first category made with `+` and the first saved review are the real test.
 - [ ] **`/lidar/` Save image** (a43bf5c, 2026-10-19): the export engine's polling-for-done change was not re-tested on `/inventory/`'s own PNG export.
+- [ ] **S1 auto faces: reject / restore** (ead84b5, 2026-11-24): exercised in dev in-process and by Hig in dev; on prod only the anonymous 403 was checked. The first admin reject on prod (card, popup or plot) is the real test; the tiles should reload under the new stamp.
+- [ ] **Frame months while a video plays, Earth Engine videos** (ead84b5): checked on prod by API (107/107 placed videos carry months), not watched playing there; videos 113 (South Sawyer) and 114 (Sitkagi) not yet opened on prod.
 
 ## Shipped log
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-24 · /glaciers/: S1 auto faces live (source `s1auto`, 234 faces on Endicott, South Sawyer, Sitkagi), admin reject/restore, *Ice faces* switches, frame months for the Earth Engine videos, our South Sawyer + Sitkagi timelapses (videos 113, 114), year bar to the current year (ead84b5) · docs/GLACIERS.md "Ice faces from our S1 timelapses" › Start here
+- 2026-11-23 · /glaciers/: S1 timelapses built from the archive (build.py, Endicott = video 112), month shown live, products, Left/Right frame stepping that loops (bd6618f, e40bfbc, 016e764) · docs/GLACIERS.md "Building S1 timelapses ourselves"
 - 2026-11-21 · Ridge radius, ridge n, valley fall F as Cross-two-overlays axes, landslide-comparison hold lifted by Hig (7d208a9); hand-placed sounding points (251acb6, untested, data copy pending) · docs/ANALYSIS.md
 - 2026-11-19 · Daymet precipitation + air temperature, overlays and analysis axes (76febe2); exploratory landform statistics, overlays only (6764ed9) · docs/PERMAFROST.md. Open: multi-size required-strength run stopped when Nunatak was unplugged, next steps atop tools/terrain/scoops/README.md
 - 2026-11-16 · Inventory-tab explorer for the outside inventories ("Showing" switch; families, ring/size/fade, presets, their fields, review filter, spelling fold) · docs/EXTERNAL_INVENTORIES.md
@@ -119,6 +123,16 @@ One line each, newest first; detail is in the `docs/` file named.
 
 In no particular order.
 
+- **Glaciers work stream, 2026-11-24: S1 timelapses and auto faces LIVE,
+  nothing in flight.** Worktree `landslidescience-glaciers` (branch
+  `glaciers`, dev :8004) = main = prod at ead84b5 plus docs. Start at
+  docs/GLACIERS.md, "Ice faces from our S1 timelapses" › *Start here*
+  (recipe for a new glacier, the rules, what is open), then GLACIERS_PLAN.md
+  §3. Work dirs: `/Volumes/Nunatak/glacier_s1_build/NAME/` (stacks, faces,
+  review images), staging in the main checkout's `data/glaciers/s1_build/`.
+  Dev-only data: prod's Dawes lines 2164–2203 copied into dev (same ids) for
+  testing; dev's video ids differ from prod's. Next, by Hig's lead: run more
+  glaciers; Endicott's three misses; maybe a placement nudge for videos.
 - **Where the 2026-11-14 session stopped (nothing in flight).** main =
   origin/main = droplet at eeb5f31, apart from docs-only commits after it;
   the only uncommitted file is the local-only Nunatak mount line in
@@ -175,7 +189,8 @@ In no particular order.
   steps bring in the next batch (reruns skip what is already in). The 93
   videos without a gap read keep the interim rule (40+ missing months = gap);
   do not re-run `gap` over the folder (it spends the quota).
-- **`/glaciers/` — DEPLOYED 2026-11-18, then SET ASIDE by Hig the same
+- *(Superseded by the 2026-11-24 glaciers entry above; kept for the
+  history of how prod was loaded.)* **`/glaciers/` — DEPLOYED 2026-11-18, then SET ASIDE by Hig the same
   day** (3ad1851, e65bb2b, 0a35193, 654a8bf; prod is at 654a8bf). Nothing
   of this work is uncommitted or undeployed. **To resume, start here:**
   (1) **prod is the working copy** (Hig, 2026-11-20: 352 flow lines, 9

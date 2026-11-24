@@ -1,38 +1,46 @@
 """Confident ice faces from a built S1 stack (build.py), for /glaciers/.
 
-    faces.py NAME [--line ID] [--api URL] [--min-score 0.6] [--stage]
+    faces.py NAME [--lake] [--line ID] [--stage] [tuning flags, see --help]
 
-Design (Hig, 2026-11-23): not a face every month, only the months whose own
-image shows the face clearly; the story is in the confident ones. Motion
-tracking was tried and dropped (docs/GLACIERS.md, "Ice faces from our S1
-timelapses").
+Design (Hig, 2026-11-23/24): not a face every month, only the months whose
+own image shows the face clearly. The full account, with what was tried and
+dropped (motion tracking), is docs/GLACIERS.md, "Ice faces from our S1
+timelapses"; the parts are in facekit.py. In order:
 
-1. The flow line: the network's flow lines are fetched from --api (public
-   list); the one with the most length in the frame (or --line) is followed
-   down its down_id chain, and the part in the frame is the line the faces
-   are found along, measured up-glacier from where it leaves the frame.
-2. The channel: what moves. Bare rock and moraine keep their speckle texture
-   month to month; ice and water do not. Pixels whose mean month-to-month
-   texture correlation is low, connected to the flow line, small specks
-   (grounded bergs) filled.
-3. Per month, two candidate faces (facekit.faces_consistent: bright through
-   the months either side and not water in > 25% of the past 12;
-   facekit.faces_single: this month's own smoothed image), each the edge of
-   the glacier against the fjord inside the channel, the piece crossing the
-   line furthest down-glacier.
-4. Each scored (facekit.face_confidence and friends): the fraction of the
-   face that is a clear bright-to-water step (> 3 dB, water on the far
-   side), times straightness (chord / length, full marks at 0.6), half if it
-   does not reach both walls, times the fraction lying within 250 m (along
-   the line) of where it crosses it. The better candidate kept if >= the
-   threshold; then a face more than 200 m down-fjord of the kept faces on
-   both sides of it is dropped (a winter ice sheet read as glacier).
+1. The flow line: the network's (read from --api, prod's public list), the
+   line with most length in the frame (or --line) followed down its down_id
+   chain; distance is measured up-glacier from where it leaves the frame.
+2. The channel: what moves (low month-to-month texture correlation), joined
+   to the line; rock keeps its speckle, ice and water do not. --strip-m M
+   instead takes everything within M metres of the line.
+3. First pass, per month, two candidates: "consistent" (bright through the
+   months either side, not water in > 25% of the past 12) and "single" (this
+   month's smoothed image, not water in > 40% of the past 12); a bright
+   component counts as glacier only if the line runs along it >= 500 m.
+   Score = clear bright-to-water fraction x straightness x reaches both
+   walls x lies across the fjord; kept at >= 0.6, then the spike filter.
+4. Second pass: a month with no kept face is searched within 400 m of the
+   nearest kept face in time ("local": the band's own split plus bright
+   ridges), and needs a >= 4 dB step across the face.
+5. The bright cliff: where the brightest 3% of the channel makes a strong
+   front (>= 4 dB over the water in front), edge faces must lie within 80 m
+   of it; the face is put on the cliff where it is seen and carried to the
+   walls by the edge face ("cliff"); the cliff alone ("bright") stands if it
+   spans >= 60% of the fjord. Without a strong front an edge face needs
+   >= 0.75.
+6. Spike filter: a face > 200 m down-fjord of the kept faces on both sides
+   goes first, then one > 500 m up-glacier of both.
 
-Writes, in OUT/NAME/faces/: faces.geojson (one LineString per kept month,
-properties month, score, method, along_m, line_id), scores.json (every
-month's candidates), kept.jpg (each kept face on its frame), position.png.
---stage copies faces.geojson to data/glaciers/s1_build/NAME/, where
-`manage.py s1_videos faces data/glaciers/s1_build/NAME` loads it.
+--lake (Sitkagi) replaces 2-5: the lagoon each month and its shore where it
+is changing (next to pixels that turned from ice to water in the record).
+
+Writes, in OUT/NAME/faces/: faces.geojson (one LineString per kept month;
+properties month, score, method, along_m, line_id, and frame_uv: the face as
+fractions of the frame, so the app redraws it wherever the video is placed),
+scores.json (every month's candidates), kept.jpg, position.png. --stage
+copies faces.geojson beside the staged mp4, for `manage.py s1_videos faces
+data/glaciers/s1_build/NAME`. judge.py NAME checks a run against the months
+Hig has judged.
 """
 import argparse, json, os, shutil, sys, urllib.request
 import numpy as np

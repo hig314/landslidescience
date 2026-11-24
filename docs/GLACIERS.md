@@ -645,6 +645,57 @@ reads `georef` as "placed").
 
 ## Ice faces from our S1 timelapses (2026-11-23)
 
+### Start here (as shipped 2026-11-24)
+
+**Live on prod** (ead84b5): source `s1auto` in `glacier_obs`, 234 faces:
+Endicott/Dawes 63 (video 112, line 2199), South Sawyer 69 (video 113, line
+149), Sitkagi 102 (video 114, line 280, lake mode; filed under RGI's
+"Seward Glacier"). They show like any terminus source (year colours, year
+bar, source switch, card, distance plot); admins reject and restore them
+(below). Every placed S1 video, Earth Engine ones included, shows each
+frame's month as it plays.
+
+**A new glacier, end to end** (frame centred on the front, a network flow
+line running through it on prod):
+
+    python3 tools/glaciers/s1_build/build.py NAME LAT LON [--w-km --h-km] --stage   # ~30-45 min
+    python3 tools/glaciers/s1_build/faces.py NAME --stage        # add --lake for a lagoon front
+    python3 tools/glaciers/s1_build/judge.py NAME                # if Hig has judged months for it
+    # look at OUT/NAME/faces/kept.jpg and position.png before loading
+    rsync -a data/glaciers/s1_build/NAME/ root@143.198.140.54:/opt/landslidescience/data/glaciers/s1_build/NAME/
+    manage.py s1_videos built data/glaciers/s1_build/NAME --caption "..."   # the video (keeps its id on a rerun)
+    manage.py s1_videos faces data/glaciers/s1_build/NAME                   # after built: faces follow the video
+
+(`manage.py` lines run in the container, dev or prod; OUT is
+`/Volumes/Nunatak/glacier_s1_build`.) Rerunning `faces` replaces that build's
+faces; rejections hold (keyed by build and month).
+
+**The rules, briefly** (detail and reasons in faces.py's docstring and the
+history below): first pass (consistent / single candidates, 500 m
+continuity, past-year water, score >= 0.6); second pass near the nearest
+kept face (>= 4 dB step); the bright cliff (checks edge faces within 80 m,
+the face put on the cliff where seen, cliff alone if >= 60% of the width,
+unconfirmed edge faces need 0.75); two-sided spike filter. `--lake` for a
+lagoon. Judged against Hig's months: South Sawyer all right; Endicott
+misses Dec 2019 and Jun 2018 (no cliff, curved faces under 0.75) and Jul
+2020 (the cliff runs up the tributary's edge). At `--unconfirmed 0.7` Dec
+2019 returns along with one wrong South Sawyer face.
+
+**Admin side:** reject on the card (select rows, *Reject selected*), the
+map popup or a plot point; *Rejected faces* on the card restores. A face
+belongs to its video: `s1_videos georef` / `built` / `refit <id>` redraw
+its faces inside the video's current bounds. Face switches: *Ice faces*
+bar atop Extent sources (all on / all off / traced here; `tf=0`).
+
+**Open:** more glaciers (only these three run); Endicott's three misses;
+an on-page nudge for a video's placement (faces would follow it); coastal
+erosion at Sitkagi (Hig: a possible later topic); lake mode wanders up
+small inlets now and then; months for unplaced videos (none: the page
+reads `georef` as placed); `tools/glaciers/s1_build/track_scenes.py`
+(motion tracking, dropped) is left uncommitted on purpose.
+
+### How it got here
+
 Hig: map only the faces the radar shows clearly; a face every month is not
 needed for the story. Tried on Endicott (Dawes) against Hig's four traces:
 edges of bright ice (floating ice is bright too), change dates, then
