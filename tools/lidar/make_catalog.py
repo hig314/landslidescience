@@ -90,6 +90,23 @@ MIN_PART_KM2 = 0.02   # islands smaller than this add vertices, not information
 FOOTPRINT_TARGET_PX = 4000
 
 
+def _open(req, timeout):
+    """urlopen, tried three times unless the server ANSWERS no (an HTTP error is an answer; a timeout or a reset is not).
+    Every caller reads a failure as "not on the bucket", so one dropped connection used to take a survey, a slope layer
+    or a tile URL out of the catalogue: on 2026-11-24 a build beside an upload lost two surveys and a slope pyramid, and
+    the rebuild on an idle link still lost one tile URL."""
+    import time, urllib.error, urllib.request
+    for attempt in range(3):
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except urllib.error.HTTPError:
+            raise
+        except Exception:
+            if attempt == 2:
+                raise
+            time.sleep(2 + 4 * attempt)
+
+
 def _on_bucket(url):
     """Is this object actually served? HEAD only -- nothing is downloaded."""
     import urllib.request
@@ -103,7 +120,7 @@ def _on_bucket(url):
     # catalogue. Verified: 403 with the default agent, 200 with this one.
     req.add_header("User-Agent", "landslidescience-catalog/1 (+https://landslidescience.org)")
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with _open(req, 15) as r:
             return r.status == 200
     except Exception:
         return False
@@ -115,7 +132,7 @@ def _r2_size(key):
     req = urllib.request.Request(f"{R2_BASE}/{key}", method="HEAD",
                                  headers={"User-Agent": "landslidescience-catalog/1 (+https://landslidescience.org)"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with _open(req, 30) as r:
             return int(r.headers.get("Content-Length") or 0) or None
     except Exception:
         return None
@@ -232,7 +249,7 @@ def r2_etag(name):
     req = urllib.request.Request(f"{R2_BASE}/pmtiles/{name}.pmtiles", method="HEAD",
                                  headers={"User-Agent": "landslidescience-make_catalog/1"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with _open(req, 30) as r:
             tag = r.headers.get("ETag") or ""
     except Exception:
         return None
