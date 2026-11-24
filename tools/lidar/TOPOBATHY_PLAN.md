@@ -1,3 +1,17 @@
+> **RUN run_1118 FINISHED 2026-11-23 17:21; SPEED PATCHES APPLIED 20:20.** All 48 boxes chain cm22 + solve s3, published
+> to dev `kbay_joint_s3`; then r4c5 re-solved (snd_edge_1122) and r4c1/r4c2/r5c2 re-solved on the harbour rule, final
+> publish 20:14 (the box's Seldovia window matches the window test of the rule, median difference 0).
+> - **The three fill patches are in** (shoreface per-level union, per-lake loop windowed, spline lattice): A/B on scratch
+>   copies of r2c3 and r7c1, fill 2546 -> 1449 s and 5074 -> 2869 s (both -43%), every raster identical except the filled
+>   surface (max 0.03 mm). Test tree and outputs: `$W/review_1121/perf/` (`ab/`, `ab_test.sh`).
+> - **Any script that runs solve_box must carry the runner's thread caps** (`OMP/OPENBLAS/..._NUM_THREADS=2`, and
+>   `PYTHONPATH=$W/guard`): the after-run scripts lacked them and tiles ran 5-7x slower (4 workers x 10 BLAS threads in
+>   the multigrid's SVD); r4c5 took 65 min for 19. Same results, only time.
+> - **"N solve tile(s) FAILED" in r1c4, r1c5, r0c3-r0c5 is old and harmless but should be fixed properly**: tiles wholly
+>   outside the product crash on a percentile of nothing in the solve's comparison log line (solve.py, `dz = (z - cur)...`),
+>   and the driver keeps the (void) product. Do NOT just guard the log line: the solve then returns a surface over the
+>   void (kind 5) and the driver writes it. The fix is for the solve (or the driver) to skip a window with no product.
+
 > **RUN STRATEGY AND PERFORMANCE (2026-11-23; Hig asked for these to be kept as notes).** Timing record: `$W/run_timing.py`
 > -> `run_timing.csv`, `run_timing_stages.csv`; per-step times inside the fill are in each box's `timing_fill.log`.
 > At 38 boxes: chain 38 h, solve 9 h; fill 20 h of the chain.

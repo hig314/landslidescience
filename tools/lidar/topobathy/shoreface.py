@@ -412,8 +412,19 @@ def contour_sea(z, hole, dom, lab, ids, rim, land_rim, srim, res, P, log=print, 
     up_ = np.isfinite(lines) & (lines >= Z0 - 0.1)
     if up_.any():
         add_ = Sea & up_
-        for h_ in np.unique(lines[up_]):
-            add_ |= Sea & (ndimage.distance_transform_edt(~(np.isfinite(lines) & (lines >= h_)), sampling=res) < max(float(h_) - Z0, 0.0) / sf_)
+        # (2026-11-23, perf) One full-box distance transform per distinct level was 30-100 of them a box (3-6 min).  The union is the same
+        # as every line cell holding a disc of ITS OWN level's radius (a higher line's disc at a lower level's radius lies inside its own),
+        # so: per level, per 512-cell tile that holds cells of it, the transform on the tile padded by the radius.  A hit in a crop is a
+        # true hit (the crop's distance is to cells in it), and every true hit lies in the padded crop of its line cell's tile.
+        rr_u, cc_u = np.nonzero(up_); lv_u = lines[rr_u, cc_u]; ts_ = 512
+        for h_ in np.unique(lv_u):
+            rad_ = max(float(h_) - Z0, 0.0) / sf_
+            if rad_ <= 0:
+                continue
+            pad_ = int(np.ceil(rad_ / res)) + 1; k_u = lv_u == h_
+            for a_, b_ in set(zip((rr_u[k_u] // ts_).tolist(), (cc_u[k_u] // ts_).tolist())):
+                r0_, r1_, c0_, c1_ = max(a_ * ts_ - pad_, 0), min((a_ + 1) * ts_ + pad_, shape[0]), max(b_ * ts_ - pad_, 0), min((b_ + 1) * ts_ + pad_, shape[1])
+                add_[r0_:r1_, c0_:c1_] |= Sea[r0_:r1_, c0_:c1_] & (ndimage.distance_transform_edt(~(lines[r0_:r1_, c0_:c1_] == h_), sampling=res) < rad_)
         if add_.any():
             Sea &= ~add_
             lb, nl = ndimage.label(Sea, structure=np.ones((3, 3), bool))

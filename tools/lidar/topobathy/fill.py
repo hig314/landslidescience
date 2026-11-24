@@ -783,12 +783,38 @@ def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, nam
         chi = np.sqrt(np.mean((lam * sgp * w[:ns]) ** 2))                  # misfit / sigma at the soundings
         return sol, chi
 
+    # ONE DECOMPOSITION FOR EVERY LAMBDA (2026-11-23, the run's timing: the splines were 9.8 h of 36 boxes' chains, a 5000-site
+    # domain 430-690 s).  The bisection solved the dense (m+3) system 41 times; in the null space of the polynomial (w = Z y,
+    # P'w = 0) the system is (Z'KZ + lam Z'DZ) y = Z'z, and with Z'DZ = LL' and the eigenvectors of L^-1 Z'KZ L^-T every lam
+    # costs one matrix-vector product.  The same w, cp to rounding (the test: field differences 2e-7 m at m = 4900).  The dense
+    # solve stays as the fallback (a degenerate site set).
+    wof = None
+    if m > 3:
+        try:
+            import scipy.linalg as sla
+            Zq = np.linalg.qr(Pm, mode="complete")[0][:, 3:]
+            Lc = sla.cholesky(Zq.T @ (Zq * (sg ** 2)[:, None]), lower=True)
+            Mz = sla.solve_triangular(Lc, sla.solve_triangular(Lc, Zq.T @ K @ Zq, lower=True).T, lower=True); Mz = (Mz + Mz.T) / 2
+            ev, Vz = sla.eigh(Mz, overwrite_a=True, check_finite=False)
+            cz = Vz.T @ sla.solve_triangular(Lc, Zq.T @ zv, lower=True); ZU = Zq @ sla.solve_triangular(Lc.T, Vz, lower=False)
+            if np.all(np.isfinite(ev)) and np.all(np.isfinite(ZU)):
+                wof = lambda lam: ZU @ (cz / (ev + lam))
+            del Mz, Vz
+        except Exception as e_:                                             # LinAlgError and the like: the dense solve below
+            log(f"  soundings spline, domain {name}: the one-decomposition route failed ({type(e_).__name__}); dense solves")
+            wof = None
+    chi_of = (lambda lam: np.sqrt(np.mean((lam * sgp * wof(lam)[:ns]) ** 2))) if wof is not None else (lambda lam: solve(lam)[1])
     lo, hi = -9.0, 3.0                                                    # log10 lam; chi rises with lam
     for _ in range(40):
         mid = (lo + hi) / 2
-        if solve(10 ** mid)[1] < float(P.get("points_chi", 1.0)): lo = mid
+        if chi_of(10 ** mid) < float(P.get("points_chi", 1.0)): lo = mid
         else: hi = mid
-    lam = 10 ** lo; sol, chi = solve(lam); w, cp = sol[:m], sol[m:]
+    lam = 10 ** lo
+    if wof is not None:
+        w = wof(lam); cp = np.linalg.lstsq(Pm, zv - K @ w - lam * sg ** 2 * w, rcond=None)[0]     # K w + lam D w + P cp = z
+        if not (np.all(np.isfinite(w)) and np.all(np.isfinite(cp))): wof = None
+    if wof is None:
+        sol, chi = solve(lam); w, cp = sol[:m], sol[m:]
     # evaluate on a points_grid_m lattice over the domain's box, bilinear to the cells
     g = max(int(round(P["points_grid_m"] / res)), 1)
     rs_, cs_ = np.nonzero(cells)
@@ -797,11 +823,17 @@ def _spline_residual(S, base, cells, dom, bnd_ok, res, P, T=None, log=print, nam
     gr = np.arange(r0, r1 + g, g); gc = np.arange(c0_, c1 + g, g)
     GR, GC = np.meshgrid(gr, gc, indexing="ij")
     Q = (np.column_stack([T.c + (GC.ravel() + 0.5) * res, T.f - (GR.ravel() + 0.5) * res]) - c0) / 1000.0
-    val = np.empty(len(Q))
-    for s in range(0, len(Q), 4096):
-        q = Q[s:s + 4096]; d2 = ((q[:, None, :] - xy[None, :, :]) ** 2).sum(-1)
-        Kq = np.where(d2 > 0, 0.5 * d2 * np.log(np.maximum(d2, 1e-12)), 0.0)
-        val[s:s + 4096] = Kq @ w + cp[0] + q @ cp[1:]
+    # the lattice, in threads (2026-11-23: 4 M nodes x 5000 sites was 435 s of a 463 s domain in one thread with three
+    # 4096 x m x 2 temporaries a chunk): squared distances by |q|^2 + |x|^2 - 2 q.x (one BLAS product), the log in place;
+    # numpy releases the GIL in all of it.  Coordinates are km over <= 40 km, so the expansion is good to ~1e-13 km^2.
+    val = np.empty(len(Q)); x2_ = (xy ** 2).sum(1); CH_ = 2048
+    def _chunk(s):
+        q = Q[s:s + CH_]; d2 = (q ** 2).sum(1)[:, None] + x2_[None, :] - 2.0 * (q @ xy.T); np.maximum(d2, 1e-12, out=d2)
+        Kq = np.log(d2); Kq *= d2; Kq *= 0.5; Kq[d2 <= 1e-12] = 0.0
+        return s, Kq @ w + cp[0] + q @ cp[1:]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max(int(P.get("points_threads", 4)), 1)) as ex_:
+        for s, v_ in ex_.map(_chunk, range(0, len(Q), CH_)): val[s:s + len(v_)] = v_
     # THE CORRECTION FADES AWAY FROM ITS DATA (2026-10-28, WATER_REVIEW_PLAN.md section 2): a thin plate extrapolates
     # without bound -- with no boundary at Grewingk's ice face (free) the correction ran to +45 m 150-260 m beyond the
     # nearest sounding and lifted the bed through the water.  Beyond points_decay_m of the nearest data site (a sounding,
@@ -1964,28 +1996,34 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
         # grid before its area test, and lake_ids holds the dry voids too -- 65,284 domains in kj_r6c4 for 66 lakes, two
         # hours of a fill.  The count is the same number the mask's sum gave; a domain under lake_min_m2 is skipped before it.
         n_off = np.bincount(lab[~chan], minlength=int(lab.max()) + 1)
+        lab_sl = ndimage.find_objects(lab); rim_sl = ndimage.find_objects(rim_lab, max_label=int(lab.max()))      # each domain's window, and its rim's (perf, 2026-11-23)
         for i in lake_ids:
             if int(n_off[i]) * res * res < P["lake_min_m2"]:
                 continue
-            cells = (lab == i) & ~chan                              # a channel's cells are the channel's
-            n_c = int(cells.sum()); A = n_c * res * res
+            # (2026-11-23, perf) the tests that reject a domain, on the domain's own window: each was a pass over the whole grid, ~25 of
+            # them a lake, 1.5-2 s -- 41 min of kj_r7c1's fill for 1,695 lakes.  The whole-grid masks are formed only for a lake that passes.
+            sl_ = lab_sl[i - 1]; cw_ = (lab[sl_] == i) & ~chan[sl_]
+            n_c = int(cw_.sum()); A = n_c * res * res
             if A < P["lake_min_m2"]:
                 continue
-            L = float(dshore[cells].max())
-            rl = land_rim & (rim_lab == i)
-            if not rl.any() or L <= 0:
+            L = float(dshore[sl_][cw_].max())
+            rsl_ = rim_sl[i - 1] if i - 1 < len(rim_sl) else None
+            if rsl_ is None or L <= 0 or not (land_rim[rsl_] & (rim_lab[rsl_] == i)).any():
                 continue
+            hw_ = cw_ & hole[sl_]
+            if hw_.any():
+                if (float(np.mean(np.isin(shore_lab[sl_][hw_], (2, 3)))) if shore else float(np.mean(cls[sl_][hw_] == classes["water"]))) < P["lake_water_frac"]:
+                    continue
+            elif 0.0 < P["lake_water_frac"]:
+                continue
+            cells = np.zeros(lab.shape, bool); cells[sl_] = cw_                              # a channel's cells are the channel's
+            rl = np.zeros(lab.shape, bool); rl[rsl_] = land_rim[rsl_] & (rim_lab[rsl_] == i)
             # a basin only where the class axis says water: a void domain (only noise returns --
             # glacier ice, steep high ground) is not a lake, whatever its rim (2026-10-11, the
             # lakes box carved 200-400 m "basins" into three of them)
-            if shore:
                 # the STAGE's label says what is water here, not the class axis: a water-blind source's cells and a
                 # prior's are classed ground / whatever they were, and Emerald Lake's domain was no lake for it (crop, run 19)
-                wfrac = float(np.mean(np.isin(shore_lab[cells & hole], (2, 3)))) if (cells & hole).any() else 0.0
-            else:
-                wfrac = float(np.mean(cls[cells & hole] == classes["water"])) if (cells & hole).any() else 0.0
-            if wfrac < P["lake_water_frac"]:
-                continue
+            # (the water-fraction test is made above, on the window, before the whole-grid masks are formed)
             sbar = float(np.median(srim[rl])); level = float(med[i - 1])
             # the lake level: the median of the returns off its surface where there are any (the
             # land rim's median stands on the shore -- 0.76 m above China Poot Lake's water)
@@ -1993,12 +2031,13 @@ def fill_holes(z, cls, res, classes, p=None, log=print):
             # cell, written by the build); the returns classed ground near the shore read ~1 m high on
             # China Poot Lake (2026-10-12), and then island ground within 1.5 m of the water was dropped
             wz = wz_s
-            wcell = cells & np.isfinite(wz) if wz is not None else None
-            surf = cells & inside_obs & (cls != classes["bed"]) & (z > level - 3.0) & (z < level + 0.5)
-            if wcell is not None and int(wcell.sum()) >= 20:
-                level = float(np.median(wz[wcell]))
-            elif int(surf.sum()) >= 20:
-                level = float(np.median(z[surf]))
+            wzw_ = wz[sl_][cw_ & np.isfinite(wz[sl_])] if wz is not None else None                    # (perf: on the domain's window)
+            if wzw_ is not None and wzw_.size >= 20:
+                level = float(np.median(wzw_))
+            else:
+                zw_ = z[sl_]; sw_ = cw_ & inside_obs[sl_] & (cls[sl_] != classes["bed"]) & (zw_ > level - 3.0) & (zw_ < level + 0.5)
+                if int(sw_.sum()) >= 20:
+                    level = float(np.median(zw_[sw_]))
             if i in over and over[i].get("level_m") is not None:
                 level = float(over[i]["level_m"])
             lake_level[i] = level
