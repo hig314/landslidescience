@@ -725,6 +725,18 @@ sit, so it was dropped (Hig). What ships is a confidence score.
   surer faces). South Sawyer 64, Endicott 64 (loses Dec 2019, Jun 2018,
   and Jul 2020, where the bright front runs up the tributary's edge).
   `judge.py NAME` checks a run against the months Hig has judged.
+- **The face on the cliff** (Hig, 2026-11-24, South Sawyer Aug 2019: the
+  edge face ~125 m in front of a clear cliff, let through by the 80 m
+  agreement, the cliff itself spanning only 51% of the fjord). Where the
+  bright front is strong, `facekit.cliff_hybrid` takes the cliff where it
+  is seen and the best edge candidate beyond it on each side out to the
+  walls: cliff bins more than 200 m (along the line) from the edge face at
+  the same place across are dropped (a tributary's edge), and an edge part
+  joins only within 150 m of the cliff's end. Method `cliff`; wall to wall
+  scores 1 and wins ties; needs >= 30% cliff cover. Edge faces at both
+  glaciers sit a little down-fjord of the cliff; Hig reads the cliff as the
+  face. South Sawyer 69 (judged months all right), Endicott 63 (same three
+  misses as before, none new). `--no-cliff` turns it off.
 - **A face belongs to its video** (Hig, 2026-11-24, Sitkagi: our build and
   the Earth Engine videos are registered slightly differently). faces.py
   writes each face also as fractions of the frame (`frame_uv`, Web

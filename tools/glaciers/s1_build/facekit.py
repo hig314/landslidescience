@@ -883,8 +883,55 @@ def face_bright(Xk, channel, line, sn, q=97, min_px=150, close_r=2, nbin=2.0, ba
     Sk = S_[ok]
     jump = float(np.percentile(np.abs(np.diff(Sk)), 90)) if len(Sk) > 2 else 99.0
     info = {'cover': float(ok.sum()) / max(total, 1), 'step': float(np.median(steps)) if steps else 0.0,
-            'jump': jump, 'n': int(ok.sum())}
+            'jump': jump, 'n': int(ok.sum()), 'width': float(nhi - nlo), 'nbin': nbin,
+            # the front, bin by bin: (s, n, x, y), for joining with an edge face
+            'pts': [(float(p[0]), float(p[1]), int(p[2]), int(p[3])) for p, o in zip(pts, ok) if o]}
     x = L.intersection(line)
     from shapely.ops import nearest_points
     along = line.project(x.centroid) if not x.is_empty else line.project(nearest_points(L, line)[1])
     return along, L, info
+
+
+def cliff_hybrid(edge, info, sn, max_ds=20.0, max_join=15.0, min_cover=0.3):
+    """The face on the bright cliff where the cliff is seen, carried to the
+    fjord walls by an edge face (Hig, 2026-11-24, South Sawyer Aug 2019: the
+    edge face sat ~125 m in front of a clear cliff). edge: LineString px;
+    info: face_bright's. Cliff bins more than max_ds px along the line from
+    the edge face at the same place across are dropped (a tributary's edge,
+    a lobe far up-glacier); the edge face's parts beyond the cliff on each
+    side are kept only if they meet the cliff within max_join px along the
+    line. Returns (LineString, cover) or None (cover = cliff part / width)."""
+    from shapely.geometry import LineString
+    s, n = sn
+    h, w = s.shape
+    E = []
+    for t in np.arange(0, edge.length, 0.5):
+        x, y = edge.interpolate(t).coords[0]
+        i, j = int(round(y)), int(round(x))
+        if 0 <= i < h and 0 <= j < w and np.isfinite(s[i, j]):
+            E.append((s[i, j], n[i, j], x, y))
+    if len(E) < 4 or not info.get('pts'):
+        return None
+    E = np.array(E)
+    keep = []
+    for ps, pn, px, py in info['pts']:
+        near = np.abs(E[:, 1] - pn) <= info['nbin']
+        if near.any() and abs(ps - np.median(E[near, 0])) <= max_ds:
+            keep.append((ps, pn, px, py))
+    if not keep:
+        return None
+    keep.sort(key=lambda p: p[1])
+    cover = len(keep) * info['nbin'] / max(info['width'], 1e-6)
+    if cover < min_cover:
+        return None
+    n0, n1 = keep[0][1], keep[-1][1]
+    lo = E[E[:, 1] < n0 - info['nbin']]
+    hi = E[E[:, 1] > n1 + info['nbin']]
+    out = []
+    if len(lo) and abs(lo[np.argmax(lo[:, 1]), 0] - keep[0][0]) <= max_join:
+        out += [(x, y) for _, _, x, y in sorted(lo.tolist(), key=lambda r: r[1])]
+    out += [(x, y) for _, _, x, y in keep]
+    if len(hi) and abs(hi[np.argmin(hi[:, 1]), 0] - keep[-1][0]) <= max_join:
+        out += [(x, y) for _, _, x, y in sorted(hi.tolist(), key=lambda r: r[1])]
+    L = LineString(out).simplify(0.7)
+    return (L, min(1.0, cover)) if L.length > 5 else None

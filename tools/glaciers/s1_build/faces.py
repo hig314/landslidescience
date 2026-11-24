@@ -204,7 +204,7 @@ def second_pass(S, line, channel, sc, ks, min_step=4.0, max_gap=12):
 
 
 def bright_check(S, line, channel, sc, require=False, min_step=6.0, max_jump=4.0, tol=8.0, agree=0.8,
-                 min_cover=0.6, unconfirmed=0.85):
+                 min_cover=0.6, unconfirmed=0.85, hybrid=True):
     """The face as the bright line (Hig, 2026-11-24): a calving cliff facing
     the radar is often the brightest thing in the scene, and plumes and
     floating ice, which the edge methods can follow, are dimmer
@@ -224,6 +224,7 @@ def bright_check(S, line, channel, sc, require=False, min_step=6.0, max_jump=4.0
         br = fk.face_bright(X[k], channel, line, sn)
         strong = bool(br) and br[2]['step'] >= min_step and br[2]['jump'] <= max_jump
         for c in sc[k]:
+            c.setdefault('pre', c['score'])          # the score before this check
             if not strong:
                 # nothing to confirm it against: only a very clear edge face
                 # stands on its own (Aug 2023 at South Sawyer, 0.68, followed
@@ -238,6 +239,25 @@ def bright_check(S, line, channel, sc, require=False, min_step=6.0, max_jump=4.0
             c['agree'] = float(np.mean([L.distance(p) <= tol for p in P]))
             if c['agree'] < agree:
                 c['score'] = 0.0
+        if strong and hybrid:
+            # the cliff where it is seen, carried to the walls by the best
+            # edge candidate (scored before this check): Hig 2026-11-24
+            edges = sorted([c for c in sc[k] if c['method'] != 'bright' and 'pre' in c], key=lambda c: -c['pre'])
+            if edges and edges[0]['pre'] >= 0.5:
+                from shapely.geometry import LineString
+                r = fk.cliff_hybrid(LineString(edges[0]['coords']), br[2], sn)
+                if r:
+                    H, hcov = r
+                    spans, straight = fk.wall_to_wall(H, channel)
+                    from shapely.ops import nearest_points
+                    x = H.intersection(line)
+                    hd = line.project(x.centroid) if not x.is_empty else line.project(nearest_points(H, line)[1])
+                    # wall to wall: as sure as the cliff; otherwise as much as it covers
+                    hs = 1.0 if spans else 0.999 * min(1.0, hcov / 0.8)
+                    sc[k].append(dict(method='cliff', along=float(hd), score=hs, clear=1.0, med=br[2]['step'],
+                                      water=None, spans=bool(spans), straight=straight, across=None,
+                                      cover=hcov, base=edges[0]['method'],
+                                      coords=[list(map(float, q)) for q in H.coords]))
         if strong:
             d, L, info = br
             # an edge face that agrees runs wall to wall: it wins over the
@@ -249,7 +269,7 @@ def bright_check(S, line, channel, sc, require=False, min_step=6.0, max_jump=4.0
                                           clear=1.0, med=info['step'], water=None, spans=None, straight=None,
                                           across=None, cover=info['cover'], jump=info['jump'],
                                           coords=[list(map(float, q)) for q in L.coords])],
-                           key=lambda c: -c['score'])
+                           key=lambda c: (-c['score'], c['method'] != 'cliff'))      # on a tie, the cliff
 
 
 def sheet(S, line, sc, ks, fp, cols=4):
@@ -311,6 +331,8 @@ def main():
                     help='a bright front counts when it is this many dB above the water in front')
     ap.add_argument('--unconfirmed', type=float, default=0.75,
                     help='score an edge face needs where there is no bright front to check it against')
+    ap.add_argument('--no-cliff', dest='cliff', action='store_false',
+                    help='do not put the face on the bright cliff (edge face carried to the walls)')
     ap.add_argument('--require-bright', action='store_true',
                     help='a month needs a strong bright front to keep any face')
     ap.add_argument('--stage', action='store_true')
@@ -343,7 +365,7 @@ def main():
     if a.bright and not a.lake:
         n1 = len(ks)
         bright_check(S, line, channel, sc, require=a.require_bright, min_step=a.bright_step,
-                     unconfirmed=a.unconfirmed)
+                     unconfirmed=a.unconfirmed, hybrid=a.cliff)
         ks = [k for k, c in enumerate(sc) if c and c[0]['score'] >= a.min_score]
         keep = fk.drop_spikes([sc[k][0]['along'] for k in ks])
         spikes = [S['months'][ks[i]] for i in range(len(ks)) if i not in keep]
