@@ -381,7 +381,9 @@ def services(request):
            '.down{color:#b00020;font-weight:600}.ok{color:#1b7f3b}small{color:#777}</style>',
            '<h2>Outside services the site reads</h2>',
            '<p>Last checked %s UTC. One request per service every 30 minutes, checked for the '
-           'kind of answer expected, not just a status.</p>' % escape(state.get('checked', '?')),
+           'kind of answer expected, not just a status. Once a day every outside URL in the '
+           'basemap table is asked for a tile too (the &ldquo;Basemap:&rdquo; rows; last %s UTC).</p>'
+           % (escape(state.get('checked', '?')), escape(state.get('checked_basemaps', 'never'))),
            '<table><tr><th>State</th><th>Service</th><th>What depends on it</th><th>Since</th><th>Detail</th></tr>']
     for r in rows:
         out.append('<tr><td class="%s">%s</td><td>%s</td><td>%s</td><td>%s</td><td><small>%s%s</small></td></tr>' % (

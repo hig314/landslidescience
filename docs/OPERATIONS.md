@@ -264,6 +264,18 @@ min; logs only failures). One row in `PROBES` per service; when a feature
 starts reading a new outside server, add its row in the same change. NOAA
 gets three tries because it fails about 1 request in 20 on its own.
 
+**Daily basemap sweep (2026-11-23).** The hand list missed "USGS Imagery":
+USGS withdrew `USGSImageryTopo` and the basemap was blank until a reader
+said so. `probe_services.py --basemaps` therefore also asks for one tile
+(Homer, z12) from every outside `tiles` / `labelTiles` / `style` URL in
+`basemaps.js` itself, read by regular expression (`check_invariants`
+"basemap probe coverage" fails if it reads fewer than the file holds). Rows
+are named "Basemap: <label>" in the same state file and page. Wrapper
+`tools/ops/probe_daily_cron.sh`, once a day. It tests one tile: a service
+with holes elsewhere (the replacement `USGSImageryOnly` has no z9-11 over
+most of Alaska) passes. Overlays are still hand rows. Nothing is sent to
+anyone: the page has to be looked at.
+
 ## Backups to R2 (2026-11-14)
 
 `manage.py site_backup [--dry-run] [--only …]` (in the `drops` app, whose R2

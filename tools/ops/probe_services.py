@@ -16,7 +16,17 @@ With --out it keeps a small state file: the latest result per service, when
 each last changed state, and the last 200 state changes. /traffic/services/
 renders that file. Exit status 1 if anything is down. Standard library only.
 
-Cron on the droplet: tools/ops/probe_cron.sh (every 30 minutes).
+    python3 tools/ops/probe_services.py --basemaps --out data/service_status.json
+
+--basemaps adds one request for every outside URL in the basemap table itself
+(inventory/static/inventory/js/basemaps.js: `tiles`, `labelTiles`, `style`),
+so a basemap nobody thought to list below is still checked. It exists because
+USGS withdrew the service behind "USGS Imagery" and nothing noticed
+(2026-11-23). Its rows are named "Basemap: <label>" and are kept in the state
+file between the runs that make them.
+
+Cron on the droplet: tools/ops/probe_cron.sh (every 30 minutes), and
+tools/ops/probe_daily_cron.sh (once a day, with --basemaps).
 Adding a service: one row in PROBES. Keep one request per service per run;
 these are other people's servers.
 """
@@ -98,6 +108,10 @@ PROBES = [
     ('USGS National Map topo', 'US / Canada Topo',
      xyz('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
          HOMER, 10), 'image/', 500, 1),
+    ('USGS National Map imagery', 'USGS Imagery basemap',
+     xyz('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
+         HOMER, 12), 'image/', 500, 1),    # z12: this service has no z9-11 tiles over most of Alaska (2026-11-23)
+
     ('USDA AHAP ImageServer', 'AHAP 1978-86 basemap',
      xyz('https://apps.geo.fpac.usda.gov/nrcs-imagery/rest/services/ortho_imagery/'
          'ahap_1978_to_1986_150cm_colorbalance/ImageServer/exportImage?bbox={bbox}&bboxSR=3857&imageSR=3857'
@@ -115,6 +129,39 @@ PROBES = [
     # cannot reach the droplet's public address, and a host cannot usefully
     # watch itself anyway.
 ]
+
+
+BASEMAPS_JS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..',
+                           'inventory', 'static', 'inventory', 'js', 'basemaps.js')
+
+
+def basemap_probes(path=BASEMAPS_JS):
+    """One PROBES row per outside URL in the basemap table. Read with regular
+    expressions: the table is a list of flat object literals with
+    single-quoted strings, and check_invariants fails if this finds fewer
+    URLs than the file has `https://` tile or style entries."""
+    import re
+    src = open(path, encoding='utf-8').read()
+    rows, label = [], '?'
+    for m in re.finditer(r"\b(label|tiles|labelTiles|style):\s*'([^']*)'", src):
+        key, val = m.group(1), m.group(2)
+        if key == 'label':
+            label = val
+            continue
+        if not val.startswith('http'):
+            continue                                    # our own proxy, inline styles
+        name = 'Basemap: %s%s' % (label, ' (second layer)' if key == 'labelTiles' else '')
+        if key == 'style':
+            rows.append((name, 'basemap table', val, 'application/json', 100, 3))
+            continue
+        # z12, not 10: USGSImageryOnly has no z9-11 tiles over most of Alaska.
+        z, x, y = tile(HOMER[0], HOMER[1], 12)
+        url = (val.replace('{z}', str(z)).replace('{x}', str(x)).replace('{y}', str(y))
+                  .replace('{bbox-epsg-3857}', bbox3857(z, x, y)))
+        if '{' in url:
+            continue                                    # a template this cannot fill (none today)
+        rows.append((name, 'basemap table', url, 'image/', 100, 3))
+    return rows
 
 
 def probe(url, ctype, min_bytes):
@@ -144,9 +191,9 @@ def probe(url, ctype, min_bytes):
         return False, f'{type(e).__name__}: {e}'[:160], int((time.time() - t0) * 1000)
 
 
-def run():
+def run(extra=()):
     out = []
-    for name, used_by, url, ctype, min_bytes, tries in PROBES:
+    for name, used_by, url, ctype, min_bytes, tries in list(PROBES) + list(extra):
         fails = 0
         for _ in range(tries):
             ok, why, ms = probe(url, ctype, min_bytes)
@@ -161,9 +208,11 @@ def run():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', help='state file to update (data/service_status.json)')
+    ap.add_argument('--basemaps', action='store_true',
+                    help='also ask for one tile from every outside URL in basemaps.js (the daily run)')
     a = ap.parse_args()
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-    results = run()
+    results = run(basemap_probes() if a.basemaps else ())
     for r in results:
         print('%-4s %6d ms  %-48s %s' % ('ok' if r['ok'] else 'DOWN', r['ms'], r['name'],
                                          r['detail'] or ('%d of %d tries failed' % (r['failed_tries'], r['tries'])
@@ -183,9 +232,13 @@ def main():
                 r['since'] = prev.get('since', now)
             state['services'][r['name']] = r
         for gone in set(state['services']) - {r['name'] for r in results}:
+            if gone.startswith('Basemap: ') and not a.basemaps:
+                continue                                # the daily run's rows
             del state['services'][gone]
         state['changes'] = state['changes'][-200:]
         state['checked'] = now
+        if a.basemaps:
+            state['checked_basemaps'] = now
         tmp = a.out + '.tmp'
         json.dump(state, open(tmp, 'w'), indent=1)
         os.replace(tmp, a.out)
