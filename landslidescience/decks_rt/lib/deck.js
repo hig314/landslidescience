@@ -7,9 +7,10 @@
  *   slide: { kn, bg, notes, dissolve, panzoom, flat: [stage images], use: "elements" | "flat",
  *            check: [what the importer could not reproduce], owner, builds: [ row, … ], elements: [ element, … ] }
  *   element: frame x, y, w, h in slide pixels; optional rot (degrees), op (0–100), id (what a build row names),
+ *            group (elements of a slide with the same group are one thing to the editor and to a build row),
  *            build (the importer's form: the click at which it appears; 1 or absent = with the slide)
  *   builds:  the slide's build order, as in Keynote: rows that run in order.
- *            row: { el: element id, do: "in" | "out" | "step", para, start, delay, fx, dur }
+ *            row: { el: element id | grp: group, do: "in" | "out" | "step", para, start, delay, fx, dur }
  *              in / out   the element (or its paragraph number para, from 0) appears / goes away. What has an
  *                         "in" row as its first row is absent until then.
  *              step       the live figure moves on one stage
@@ -148,13 +149,13 @@
     if (!s || s.use === "flat" || !s.elements) return [];
     var rows = [], live = s.elements.filter(function (e) { return e.type === "live"; })[0], n = 1, max = stages(live);
     if (s.builds) {
-      var by = {};
-      s.elements.forEach(function (e) { if (e.id && !by[e.id]) by[e.id] = e; });
+      var by = {}, gr = {};
+      s.elements.forEach(function (e) { if (e.id && !by[e.id]) by[e.id] = e; if (e.group) (gr[e.group] = gr[e.group] || []).push(e); });
       s.builds.forEach(function (b) {
-        var e = by[b.el];
-        if (!e || (b.do === "step" && (e !== live || n >= max))) return;
+        var es = b.grp ? gr[b.grp] : by[b.el] && [by[b.el]], e = es && es[0];
+        if (!e || (b.do === "step" && (b.grp || e !== live || n >= max))) return;
         if (b.do === "step") n++;
-        rows.push({ e: e, para: b.para, do: b.do, start: b.start || "click", delay: +b.delay || 0, fx: b.fx || "", dur: +b.dur || 0 });
+        rows.push({ e: e, es: es, grp: b.grp, para: b.grp ? undefined : b.para, do: b.do, start: b.start || "click", delay: +b.delay || 0, fx: b.fx || "", dur: +b.dur || 0 });
       });
     } else {                              // the importer's form: a click number on elements and paragraphs
       var ev = [];
@@ -165,10 +166,10 @@
       });
       ev.sort(function (a, b) { return a.at - b.at || a.k - b.k || a.para - b.para; });
       ev.forEach(function (x, j) {
-        rows.push({ e: x.e, para: x.para < 0 ? undefined : x.para, do: "in", start: j && ev[j - 1].at === x.at ? "with" : "click", delay: 0, fx: "", dur: 0 });
+        rows.push({ e: x.e, es: [x.e], para: x.para < 0 ? undefined : x.para, do: "in", start: j && ev[j - 1].at === x.at ? "with" : "click", delay: 0, fx: "", dur: 0 });
       });
     }
-    for (; n < max; n++) rows.push({ e: live, do: "step", start: "click", delay: 0, fx: "", dur: 0 });   // a stage with no row of its own
+    for (; n < max; n++) rows.push({ e: live, es: [live], do: "step", start: "click", delay: 0, fx: "", dur: 0 });   // a stage with no row of its own
     return rows;
   }
   function groups(rows) {                 // [rows that run on arrival, rows of click 1, rows of click 2, …]
@@ -176,21 +177,23 @@
     rows.forEach(function (r) { if (r.start === "click") g.push([r]); else g[g.length - 1].push(r); });
     return g;
   }
-  function nodeFor(sec, r) {
-    var n = Array.prototype.filter.call(sec.querySelector(".kn-stack").children, function (x) { return x.knEl === r.e; })[0];
-    if (n && r.para != null) n = n.querySelectorAll(".kn-body > .kn-p")[r.para];
-    return n;
+  function nodesFor(sec, r) {             // a row's nodes: its element's (or its paragraph's), or every member's of its group
+    var out = [];
+    Array.prototype.forEach.call(sec.querySelector(".kn-stack").children, function (x) {
+      if (r.es.indexOf(x.knEl) < 0) return;
+      if (r.para != null) x = x.querySelectorAll(".kn-body > .kn-p")[r.para];
+      if (x) out.push(x);
+    });
+    return out;
   }
   function stateAt(sec, s, c) {           // what shows once click c has played out (0: on arrival; -1: before anything)
     var rows = plan(s), g = groups(rows), nodes = new Map(), stage = 1;
     rows.forEach(function (r) {           // what a row will bring in is absent before it
-      var n = r.do === "step" ? null : nodeFor(sec, r);
-      if (n && !nodes.has(n)) nodes.set(n, r.do !== "in");
+      if (r.do !== "step") nodesFor(sec, r).forEach(function (n) { if (!nodes.has(n)) nodes.set(n, r.do !== "in"); });
     });
     for (var k = 0; k <= c && k < g.length; k++) g[k].forEach(function (r) {
       if (r.do === "step") { stage++; return; }
-      var n = nodeFor(sec, r);
-      if (n) nodes.set(n, r.do === "in");
+      nodesFor(sec, r).forEach(function (n) { nodes.set(n, r.do === "in"); });
     });
     return { nodes: nodes, stage: stage, groups: g };
   }
@@ -333,7 +336,7 @@
           var dur = r.do === "step" ? r.dur : r.fx === "dissolve" ? (r.dur || 1) : 0, fire;
           t0 = at; t1 = at + dur; end = Math.max(end, t1);
           if (r.do === "step") { var n = ++stage; fire = function () { liveStep(sec, false, n); }; }
-          else { var node = nodeFor(sec, r); fire = function () { if (node) showNode(node, r.do === "in", dur); }; }
+          else { var ns = nodesFor(sec, r); fire = function () { ns.forEach(function (node) { showNode(node, r.do === "in", dur); }); }; }
           if (at <= 0) fire(); else sec.knTimers.push(setTimeout(fire, at * 1000));
         });
         return end;
