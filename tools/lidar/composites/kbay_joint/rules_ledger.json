@@ -462,6 +462,20 @@
    "live": "2026-11-23 22:00:00",
    "commit": null,
    "what": "SOLVE DRIVER: a tile whose window holds no product cell is skipped (was: solved, crashed in the solve's log line, reported FAILED, product kept). No change to any output; r1c4 r1c5 r0c3 r0c4 r0c5 lose their 'tile(s) FAILED' rows."
+  },
+  {
+   "id": "shore_written_1123",
+   "stage": "solve",
+   "live": "2026-11-23 21:45:00",
+   "commit": null,
+   "what": "SOLVE DRIVER (solve_box): a FIXED PRIOR cell the solve moved is written as returned. The shore rule of sounded water (snd_edge_1122) raises fixed prior ground; the driver kept the product there, so the rule reached no box: Petrof's delta (59.40068,-150.82033) had a 6 m moat in the published s3. r4c5 re-solved to out_s4: 47,735 cells written, moat gone. Every box with sounded still water needs its solve redone: r1c1 r1c2 r2c1 r2c4 r3c4 r4c5 r6c4 (and any other with a sounded lake)."
+  },
+  {
+   "id": "ice_no_shore_1123",
+   "stage": "solve",
+   "live": "2026-11-23 21:58:00",
+   "commit": null,
+   "what": "SOLVE, Hig 2026-11-22/23 (Grewingk: 'a ramp up to the bottom of the ice-face'; 'the basin should be as though there's no shore there'): prof_ice_shore=0 -- glacier ice is no shore for the lake depth profile's distance (dsh). PARTIAL: bed 0-20 m from the ice -3 -> -30 m median in the whole-lake test, a 50 m rise in the last 80 m remains (the profile itself rules the face zone). Unfinished; r6c4 not to be queued until the face-zone rule is settled."
   }
  ]
 }

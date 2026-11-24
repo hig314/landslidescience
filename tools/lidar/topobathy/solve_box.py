@@ -162,6 +162,12 @@ def main():
     # joint's measurement where the product had modelled over it (the solve held a gravel bar the product had dug a river bed into, and
     # the product's cell was kept here: pits in the solved bed, Hig 2026-11-15)
     fm0 = (kind == 0) & np.isfinite(zown); n_back = int((fm0 & (np.abs(zown - cur) > 0.05)).sum()); out = np.where(fm0, zown, out).astype(np.float32)
+    # ...and a FIXED PRIOR cell the solve RAISED is written too (2026-11-23).  The shore rule of a sounded lake (solve.py snd_edge: prior
+    # ground joined to the water and below its level is lifted to a plane rising from the level) changes cells it holds FIXED; those were
+    # left as the product had them, so the rule worked in every window test and never reached a box: on Petrof's prograded delta
+    # (59.40068,-150.82033) the published s3 fell from 14.8 m to 3DEP's old lake flat at 8.9 m sixteen metres inland of the solved shore and
+    # climbed back by 36 m -- a moat 6 m deep -- where the window test had a plane.
+    fm1 = (kind == 1) & np.isfinite(zown) & (np.abs(zown - cur) > 0.02) & ((cur != nd) if nd is not None else True); n_lift = int(fm1.sum()); out = np.where(fm1, zown, out).astype(np.float32)
     if nd is not None: out = np.where(cur == nd, nd, out).astype(np.float32)
     ch = own & (cur != nd if nd is not None else True); dz = (out - cur)[ch]
     prof.update(dtype="float32", compress="ZSTD", tiled=True, BIGTIFF="IF_SAFER")
@@ -170,6 +176,7 @@ def main():
         with rasterio.open(o / (nm_ + ".part"), "w", **pf_) as ds: ds.write(arr_, 1)
         os.replace(o / (nm_ + ".part"), o / nm_)
     log(f"[{a.box}] {n_back} fixed measured cells the product had modelled over are back as measured")
+    log(f"[{a.box}] {n_lift} fixed prior cells the solve moved (the shore of sounded water) are written as it returned them")
     log(f"[{a.box}] done: {n_s} of {n_t} tiles solved, {free} free cells, {int(ch.sum())} cells replaced ({ch.mean():.1%} of the box); solve - product p1/p50/p99 {np.percentile(dz, [1, 50, 99]).round(2) if dz.size else '-'} m; {time.time() - t0:.0f} s")
     json.dump(dict(box=a.box, tag=a.tag, out_tag=a.out_tag, tiles=n_t, solved=n_s, free=free, replaced=int(ch.sum()), seconds=round(time.time() - t0), edgefix=True, rules="1115d", measured_back=n_back), open(o / "solve.json", "w"))
 

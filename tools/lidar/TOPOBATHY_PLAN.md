@@ -1,3 +1,26 @@
+> **V2 FIX TESTS, 2026-11-23 late (queue STOPPED after r1c0 at 21:50 -- Hig: "do a restart before starting the queue";
+> relaunch `run_v2.sh` after the machine restart; it resumes from `run_v2.queue`).** Dev test layer `kbay_v2_test`
+> (r4c5 + r1c0 from out_s4; `/Volumes/Powder/lidar_build/kbay_v2_test`, publish_inc `--tag s4`).
+> - **PETROF: the shore rule never reached a box (FIXED, ledger shore_written_1123).** snd_edge raises FIXED prior cells;
+>   solve_box wrote only free/soft cells and fixed-measured ones, so the published s3 had a 6 m moat on the delta
+>   (14.8 -> 8.9 -> 15 m within 36 m of the solved shore, 59.40068,-150.82033) and a one-cell line at -1 m. solve_box now
+>   writes fixed prior cells the solve moved (47,735 in r4c5). Re-solved r4c5 (out_s4): lowest point shore..60 m inland
+>   14.5-14.8 m (was 8.5-8.9), largest 4 m step 0.4-0.6 m (was 6). LEFT: the 0.3-0.6 m hump just inland of the shore (free
+>   cells reach 15.1-15.4 before the 14.8 plane) -- Hig's "slight ridge", untraced; asked whether to chase.
+> - **REEF "doesn't match the shown soundings" (Hig) = the VIEWER, not the surface.** The dev database had no 1977-84
+>   sheet at all and H05194 at its old place. Loaded the 22 modern packages (`load_soundings`, 249,112 points) and taught
+>   `cast_edits.py sync-dev` the sheet shift. Surface vs casts within ~5 km: H09890 rms 1.7 m, H05194 (new place) 3.6 m,
+>   H05192 2.4 m, none over 15 m.
+> - **GREWINGK RAMP: half fixed, NOT done.** Measured: the CHAIN product beside the face is deep (median -5 m at 0-20 m
+>   from the ice, -42 at 100-150); the SOLVE replaces it with its lake-profile prior ("far from every cast the bed is the
+>   profile"), which counted the ice as shore: prior +44 m at 0-20 m. `prof_ice_shore=0` (new default: ice is no shore for
+>   dsh) brings that to +23 m, and the solved bed 0-20 m from the ice from -3 to -30 m median -- but 80-120 m out it is
+>   -83 m, so a 50 m rise in the last 80 m remains. Why: the lake-wide profile is shallow (15 m of water 45 m from shore)
+>   and the face zone is far from every cast. Test rasters `review_1123/solve/gk_ice_{shore,free}_*`; picture of v1
+>   `review_1123/grewingk_face.png`. PROPOSED NEXT (not built): in the FACE ZONE (water nearer the ice than any land) no
+>   profile prior at all -- the bed continues from the measured basin to the cut at the ice (or: never shallower than the
+>   chain product there). Needs a test and Hig's eye.
+
 > **VERSION 2 QUEUE STARTED 2026-11-23 21:37** (`$W/run_v2.sh`, log `run_v2.log`, jobs in the FILE `$W/run_v2.queue`,
 > re-read after every job -- append lines to add work; `touch $W/run_v2.STOP` stops after the current job). Low priority
 > (nice 15), thread caps set. Tags: chain **cm23**, solve **s4** (`<box> chain` = chain cm23 + solve s4; `<box> solve` =
