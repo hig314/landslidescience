@@ -123,3 +123,34 @@ against 1977–84 where they overlap); the same JSON moves the composite's
 points and, through `ingest_nos_geodas.py --offsets`, these packages, whose
 title, notes and `ingest.position_shift` record it. BAY_SOURCES.md §8.2;
 /lidar/methods/ §11 explains it to readers.
+
+**A further shift of one sheet, and the soundings as a versioned dataset**
+(2026-11-23). H05194 (1931, the outer coast) had only the season's median
+shift (+400 E / +320 N; too few overlapping casts on 2026-11-01 to trust its
+own fit). On the reef at 59.136, −152.037 it stood up to 60 m off the 1977–84
+soundings; fitted again with 690 pairs it takes a further **+370 m E, +420 m
+N** (median difference 4.7 → 1.7 m). That is one row in
+`tools/lidar/water/sheet_shifts.json` (`cast_edits.py shift SURVEY DX DY
+--basis …`), applied by `cast_edits.py apply` to the composite's points and
+by `cast_edits.py sync-dev` to the dev database (once; the survey's title and
+notes carry the marker). The packages in `data/soundings/` and production are
+NOT changed: re-run `ingest_nos_geodas.py` with the total offset, or apply the
+same translation, before prod shows it.
+
+The merged, corrected soundings are now a derived dataset, **`kbay_soundings`**
+(`tools/lidar/topobathy/soundings_release.py build REV`): every NOS sounding
+the composite reads, the lake soundings and the hand-placed estimates
+(flagged), as numbered revisions that are never overwritten. Each revision is
+the whole table (CSV, GeoPackage, a COPC copy), `changes.json` — the ledger of
+every change from the sources: sheet translations, single casts moved, a depth
+reread, a rejection, each with its basis — a `manifest.json` in the lidar point
+revisions' keys, and STAC Collection/Item files. r1 = as `kbay_topobathy_v1`
+read them; r2 = r1 + the H05194 shift. Built under
+`$LIDAR_BUILD/points/kbay_soundings/`; not yet on R2 (hosting's
+`points.json` entry and upload). Licence CC BY 4.0 for the collection, each
+survey keeping its own terms (the NOS sheets are public domain); per-survey
+citations come from `sounding_surveys` via `tools/lidar/water/sounding_surveys.json`.
+
+**The dev database had none of the 1977–84 sheets** until 2026-11-23 (22
+packages loaded then with `load_soundings`): a surface fitted to them looked
+unsupported in the viewer. Check production for the same gap.

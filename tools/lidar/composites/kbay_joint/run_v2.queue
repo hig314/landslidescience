@@ -1,0 +1,58 @@
+# run_v2.queue -- jobs for run_v2.sh, in order (2026-11-24, Hig: "This is acceptable - let's set up the run").  Append lines while it
+# runs; a finished job is skipped on relaunch.  VERSION 2 = every box on one solve code (ledger: h05194_shift_1123, shore_written_1123,
+# ice_no_shore_1123 + face zone, harbor_1123, void_tiles_1123).
+# 1. the boxes the shifted sheet H05194 reaches: chain cm23 (corrected soundings, kbay_soundings r2) + solve s4, the reef's two first
+r1c0 chain
+r1c1 chain
+r0c0 chain
+r0c3 chain
+r2c0 chain
+r0c2 chain
+r0c4 chain
+r2c1 chain
+r1c3 chain
+r1c4 chain
+r3c0 chain
+# 2. the boxes Hig named: Homer Harbor (harbour rule), Petrof (shore cells written), Grewingk (face zone; already solved 00:51)
+r6c2 solve
+r6c3 solve
+r4c5 solve
+r6c4 solve
+PUB pub
+# 3. the other boxes with sounded lakes (the shore rule now reaches them), then Seldovia and the inner bay
+r1c2 solve
+r2c4 solve
+r3c4 solve
+r4c1 solve
+r4c2 solve
+r5c2 solve
+r5c3 solve
+r5c4 solve
+r5c5 solve
+r6c5 solve
+r7c4 solve
+r7c5 solve
+PUB pub
+# 4. the rest, solve only (their chains' inputs and rules are unchanged)
+r7c0 solve
+r7c1 solve
+r7c2 solve
+r7c3 solve
+r6c0 solve
+r6c1 solve
+r5c0 solve
+r5c1 solve
+r4c0 solve
+r4c3 solve
+r4c4 solve
+r3c1 solve
+r3c2 solve
+r3c3 solve
+r3c5 solve
+r2c2 solve
+r2c3 solve
+r2c5 solve
+r1c5 solve
+r0c1 solve
+r0c5 solve
+PUB pub

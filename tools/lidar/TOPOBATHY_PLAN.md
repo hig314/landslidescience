@@ -16,7 +16,9 @@
 > - FOR HOSTING (main session), unchanged: merge `datasets.json` and publish `kbay_topobathy_v1`; a `points.json` entry
 >   and upload for `kbay_soundings` r1/r2 (`$LIDAR_BUILD/points/kbay_soundings/`); `grewingk_sonar_2023` may be ungated;
 >   prod may lack the 1977-84 sounding sheets as dev did (22 packages in data/soundings, loaded into DEV 2026-11-23).
-> - Commits after 4b7b24e are LOCAL (not pushed).
+> - Everything is committed and pushed (Hig 2026-11-24: "commit and push everything"). Copies of the run's scripts
+>   are in `composites/kbay_joint/` (`run_v2.sh`, `publish_v2.sh`, `run_v2.queue`); the ones that RUN are in `$W`.
+> - Soundings dataset and sheet shifts are documented in `tools/soundings/README.md` (end).
 
 > **V2 FIX TESTS, 2026-11-23 late (queue STOPPED after r1c0 at 21:50 -- Hig: "do a restart before starting the queue";
 > relaunch `run_v2.sh` after the machine restart; it resumes from `run_v2.queue`).** Dev test layer `kbay_v2_test`
