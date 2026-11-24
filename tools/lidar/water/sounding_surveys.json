@@ -1,0 +1,267 @@
+{
+ "note": "From the dev database's sounding_surveys (soundings_release.py surveys). Titles lose any '[shifted ...]' suffix: the ledger says what moved.",
+ "made": "2026-11-23",
+ "surveys": {
+  "berg_grewingk_2017": {
+   "slug": "berg_grewingk_2017",
+   "title": "Grewingk Lake depths (Ed Berg, September 2017)",
+   "collector": "Ed Berg",
+   "collected_to": "2017-09-07",
+   "method": "sounder",
+   "instrument": "Lowrance sounder with GPS on a pack raft (model not recorded); cleaned in ReefMaster 2.0",
+   "citation": "Berg, E., Grewingk Lake depth soundings, September 2017 (unpublished field data, compiled by B. Higman)."
+  },
+  "berg_grewingk_2017_hand": {
+   "slug": "berg_grewingk_2017_hand",
+   "title": "Grewingk Lake lead-line depths (Higman, 21 July 2017)",
+   "collector": "Bretwood Higman",
+   "collected_from": "2017-07-21",
+   "collected_to": "2017-07-21",
+   "method": "lead_line",
+   "instrument": "lead line counted in wraps of 3.51 ft; handheld GPS",
+   "citation": "Higman, B., 2017, Grewingk Lake lead-line soundings, 21 July 2017 (unpublished field data)."
+  },
+  "hand_placed": {
+   "slug": "hand_placed",
+   "title": "Hand-placed points (estimates)",
+   "method": "estimate"
+  },
+  "higman_grand_plateau_2021_2024": {
+   "slug": "higman_grand_plateau_2021_2024",
+   "title": "Grand Plateau lake lead-line depths (Higman, 2021 and 2024)",
+   "collector": "Bretwood Higman",
+   "collected_from": "2021-06-17",
+   "collected_to": "2024-07-21",
+   "method": "lead_line",
+   "instrument": "lead line (2021 read in wraps of 0.927 m; 2024 in metres); handheld GPS / InReach",
+   "citation": "Higman, B., Grand Plateau lake lead-line soundings, 2021 and 2024 (unpublished field data)."
+  },
+  "higman_grewingk_2019_2021": {
+   "slug": "higman_grewingk_2019_2021",
+   "title": "Grewingk Lake lead-line depths, east end (Higman, 2019 and 2021)",
+   "collector": "Bretwood Higman",
+   "collected_from": "2019-07-12",
+   "collected_to": "2021-08-30",
+   "method": "lead_line",
+   "instrument": "plumb line; handheld GPS",
+   "citation": "Higman, B., 2019, Grewingk Lake lead-line soundings, 12 July 2019 (unpublished field data)."
+  },
+  "higman_grewingk_2026": {
+   "slug": "higman_grewingk_2026",
+   "title": "Grewingk Lake lead-line depths, east end (Higman, 2026)",
+   "collector": "Bretwood Higman",
+   "collected_from": "2026-09-22",
+   "collected_to": "2026-09-22",
+   "method": "lead_line",
+   "instrument": "plumb line; handheld GPS",
+   "citation": "Higman, B., 2026, Grewingk Lake lead-line soundings (unpublished field data)."
+  },
+  "higman_malaspina_2016": {
+   "slug": "higman_malaspina_2016",
+   "title": "Malaspina lake depths (Higman, 2016)",
+   "collector": "Bretwood Higman",
+   "collected_from": "2016-01-01",
+   "collected_to": "2016-12-31",
+   "method": "lead_line",
+   "instrument": "method not recorded in the file (assumed lead line); depths in m, feet alongside",
+   "citation": "Higman, B., 2016, Malaspina lake depth soundings (unpublished field data)."
+  },
+  "higman_petrof_gore_2022": {
+   "slug": "higman_petrof_gore_2022",
+   "title": "Petrof and Gore lake lead-line depths (Higman, 2022)",
+   "collector": "Bretwood Higman",
+   "collected_from": "2022-05-31",
+   "collected_to": "2022-06-03",
+   "method": "lead_line",
+   "instrument": "lead line; InReach",
+   "citation": "Higman, B., 2022, Petrof and Gore lake lead-line soundings (unpublished field data)."
+  },
+  "nos_h03802": {
+   "slug": "nos_h03802",
+   "title": "NOS H03802 (1915), Port Graham, Approaches To Cook Inlet: lead line [shifted +240 E +260 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1915-01-01",
+   "collected_to": "1915-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:?",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H03802 (1915), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H02001-H04000/H03802.html"
+  },
+  "nos_h04721": {
+   "slug": "nos_h04721",
+   "title": "NOS H04721 (1927), Nuka Bay, Nuka Bay: lead line",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1927-01-01",
+   "collected_to": "1927-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:?",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H04721 (1927), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H04721.html"
+  },
+  "nos_h04759": {
+   "slug": "nos_h04759",
+   "title": "NOS H04759 (1927), Cabin Bay, Cabin Bay: lead line",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1927-01-01",
+   "collected_to": "1927-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:?",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H04759 (1927), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H04759.html"
+  },
+  "nos_h05082": {
+   "slug": "nos_h05082",
+   "title": "NOS H05082 (1930), Nuka Passage, Nuka Passage: lead line [shifted +400 E +320 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1930-01-01",
+   "collected_to": "1930-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:20,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05082 (1930), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05082.html"
+  },
+  "nos_h05083": {
+   "slug": "nos_h05083",
+   "title": "NOS H05083 (1930), Gore Pt., Gore Pt.: lead line [shifted +400 E +320 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1930-01-01",
+   "collected_to": "1930-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:40,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05083 (1930), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05083.html"
+  },
+  "nos_h05087": {
+   "slug": "nos_h05087",
+   "title": "NOS H05087 (1930), Seal Rocks, Seal Rocks: lead line [shifted +400 E +320 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1930-01-01",
+   "collected_to": "1930-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:160,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05087 (1930), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05087.html"
+  },
+  "nos_h05091": {
+   "slug": "nos_h05091",
+   "title": "NOS H05091 (1930), Cape Alitak, Cape Alitak: lead line [shifted +400 E +320 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1930-01-01",
+   "collected_to": "1930-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:40,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05091 (1930), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05091.html"
+  },
+  "nos_h05092": {
+   "slug": "nos_h05092",
+   "title": "NOS H05092 (1930), Huha Passage, Approaches To Huha Bay: lead line [shifted +400 E +320 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1930-01-01",
+   "collected_to": "1930-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:40,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05092 (1930), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05092.html"
+  },
+  "nos_h05100": {
+   "slug": "nos_h05100",
+   "title": "NOS H05100 (1930), Seal Rocks, Seal Rocks: lead line [shifted +400 E +320 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1930-01-01",
+   "collected_to": "1930-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:80,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05100 (1930), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05100.html"
+  },
+  "nos_h05101": {
+   "slug": "nos_h05101",
+   "title": "NOS H05101 (1930), Gore Pt., Gore Pt.: lead line [shifted +400 E +320 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1930-01-01",
+   "collected_to": "1930-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:20,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05101 (1930), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05101.html"
+  },
+  "nos_h05186": {
+   "slug": "nos_h05186",
+   "title": "NOS H05186 (1931), Port Dick, Port Dick: lead line [shifted +400 E +320 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1931-01-01",
+   "collected_to": "1931-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:20,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05186 (1931), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05186.html"
+  },
+  "nos_h05187": {
+   "slug": "nos_h05187",
+   "title": "NOS H05187 (1931), Chugach I., Chugach I.: lead line [shifted +420 E +340 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1931-01-01",
+   "collected_to": "1931-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:20,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05187 (1931), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05187.html"
+  },
+  "nos_h05188": {
+   "slug": "nos_h05188",
+   "title": "NOS H05188 (1931), Pearl Is., Pearl Is.: lead line [shifted +380 E +360 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1931-01-01",
+   "collected_to": "1931-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:20,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05188 (1931), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05188.html"
+  },
+  "nos_h05191": {
+   "slug": "nos_h05191",
+   "title": "NOS H05191 (1931), Chugach Is., Chugach Is.: lead line [shifted +400 E +320 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1931-01-01",
+   "collected_to": "1931-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:40,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05191 (1931), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05191.html"
+  },
+  "nos_h05192": {
+   "slug": "nos_h05192",
+   "title": "NOS H05192 (1931), Chugach Is., Entrance To Cook Inlet: lead line [shifted +400 E +300 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1931-01-01",
+   "collected_to": "1931-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:40,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05192 (1931), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05192.html"
+  },
+  "nos_h05194": {
+   "slug": "nos_h05194",
+   "title": "NOS H05194 (1931), Barren Is., Entrance To Cook Inlet: lead line [shifted +400 E +320 N]",
+   "collector": "US Coast and Geodetic Survey",
+   "collected_from": "1931-01-01",
+   "collected_to": "1931-12-31",
+   "method": "lead line",
+   "instrument": "Lead Line assumed; original sounding units fathoms; scale 1:120,000",
+   "licence": "US Government work, public domain (NOAA NCEI)",
+   "citation": "NOAA NCEI, NOS hydrographic survey H05194 (1931), digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H04001-H06000/H05194.html"
+  },
+  "riordan_2018_kbsp_lakes": {
+   "slug": "riordan_2018_kbsp_lakes",
+   "title": "Lake depths, Kachemak Bay State Park (Riordan 2018)",
+   "collector": "Nick Riordan",
+   "collected_from": "2018-07-18",
+   "collected_to": "2018-07-21",
+   "method": "sounder",
+   "instrument": "handheld depth sounder; GPS waypoints named with the depth in feet",
+   "licence": "Public (Hig, 2026-10-12)",
+   "citation": "Riordan, N., 2018, lake depth soundings, Upper and Lower Hazel, China Poot and a neighbouring lake, Kachemak Bay State Park, 18-21 July 2018 (unpublished field data)."
+  }
+ }
+}

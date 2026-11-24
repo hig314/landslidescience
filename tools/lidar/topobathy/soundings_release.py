@@ -49,6 +49,9 @@ EXT = ["https://stac-extensions.github.io/pointcloud/v2.0.0/schema.json", "https
        "https://stac-extensions.github.io/scientific/v1.0.0/schema.json", "https://stac-extensions.github.io/file/v2.1.0/schema.json"]
 CITATION = ("landslidescience.org (2026): Kachemak Bay soundings, merged and corrected. Derived from NOAA National Ocean Service hydrographic surveys "
             "(digital soundings distributed by NOAA NCEI; public domain) and lake soundings by Riordan (2018), Berg (2017) and Higman (2019-2026).")
+SURVEYS = HERE.parent / "water" / "sounding_surveys.json"     # each survey's title, collector, dates, method, licence and citation (`surveys` writes it from the dev database)
+LICENCE = "CC-BY-4.0"                                           # Hig 2026-11-23: "to the extent we don't need to carry through something from source data, CC-attribution is a fine default for our work"
+OURS = "CC-BY-4.0 (landslidescience.org default; collector's data shared as public)"
 UPSTREAM = [dict(label="NOAA NCEI: NOS hydrographic survey data (GEODAS digital soundings), by survey id", url="https://www.ncei.noaa.gov/maps/bathymetry/"),
             dict(label="landslidescience.org lake soundings (shown in the lidar viewer)", url="https://landslidescience.org/lidar/")]
 
@@ -64,6 +67,17 @@ def sha256(p):
 def wgs84(xs, ys):
     from rasterio.warp import transform
     lo, la = transform("EPSG:6334", "EPSG:4326", list(xs), list(ys)); return np.array(lo), np.array(la)
+
+
+def surveys_cmd(a=None):
+    """The surveys' own records (citation, licence, method...) from the dev database's sounding_surveys into water/sounding_surveys.json, so a build needs no database."""
+    import cast_edits as C
+    cols = "slug, title, collector, collected_from, collected_to, method, instrument, licence, citation"
+    out = {}
+    for ln in C._psql(f"SELECT row_to_json(t) FROM (SELECT {cols} FROM sounding_surveys ORDER BY slug) t;").splitlines():
+        d = json.loads(ln); out[d.pop("slug")] = {k: v for k, v in d.items() if v not in (None, "")}
+    SURVEYS.write_text(json.dumps(dict(note="From the dev database's sounding_surveys (soundings_release.py surveys). Titles lose any '[shifted ...]' suffix: the ledger says what moved.", made=time.strftime("%Y-%m-%d"), surveys=out), indent=1) + "\n")
+    print(f"{len(out)} surveys -> {SURVEYS}")
 
 
 def build(a):
@@ -145,10 +159,16 @@ def build(a):
                              ("changes.json", "metadata", "application/json", "The ledger of changes from the sources to this revision")):
         p = out / nm
         if p.exists(): files.append(dict(name=nm, role=role, type=mt, description=ds, bytes=p.stat().st_size, sha256=sha256(p), url=base + nm))
-    sv = []
+    sv = []; meta = json.load(open(SURVEYS))["surveys"] if SURVEYS.exists() else {}
     for s in surveys:
-        q = [r for r in rows if r["survey"] == s]
-        sv.append(dict(number=snum[s], survey=s, casts=len(q), kind=q[0]["kind"], group=dict(nos_old="NOS hydrographic survey, 1915-31 lead line", nos_new="NOS hydrographic survey, 1977-84 echo sounder", lakes="lake and nearshore soundings", hand="hand-placed estimates")[q[0]["group"]]))
+        q = [r for r in rows if r["survey"] == s]; m = dict(meta.get(s, {}))
+        if m.get("title"): m["title"] = m["title"].split(" [shifted")[0]
+        if s.startswith("nos_h") and not m.get("citation"):                # a NOS survey the dev database does not hold (the 1977-84 sheets): NCEI's own record, by the same pattern
+            n = int(s[5:]); lo = (n - 1) // 2000 * 2000 + 1; H = s[4:].upper()
+            m.update(collector="NOAA National Ocean Service", licence="US Government work, public domain (NOAA NCEI)", citation=f"NOAA NCEI, NOS hydrographic survey {H}, digital soundings (GEODAS), https://www.ngdc.noaa.gov/nos/H{lo:05d}-H{lo + 1999:05d}/{H}.html")
+        if s == "hand_placed": m["citation"] = "landslidescience.org editors, 2026, hand-placed depth estimates (inferred, not measured)."
+        if not m.get("licence") or m["licence"].startswith("Public (Hig"): m["licence"] = OURS
+        sv.append(m | dict(number=snum[s], survey=s, casts=len(q), kind=q[0]["kind"], group=dict(nos_old="NOS hydrographic survey, 1915-31 lead line", nos_new="NOS hydrographic survey, 1977-84 echo sounder", lakes="lake and nearshore soundings", hand="hand-placed estimates")[q[0]["group"]]))
     man = dict(survey=SID, title=TITLE, revision=a.rev, label=a.label, kind="full", parent=a.parent, citation=CITATION,
                format="CSV (gzip), GeoPackage, COPC LAZ (LAS 1.4)", crs="EPSG:6334", crs_name="NAD83(2011) / UTM zone 5N, metres", vertical_datum="NAVD88 (GEOID12B), metres; NOS depths below MLLW taken to NAVD88 at -1.38 m",
                classes={"40": "bathymetric point (a sounding)", "45": "estimate (hand-placed)"}, status_codes={str(v): k for k, v in STATUS.items()},
@@ -156,6 +176,7 @@ def build(a):
                             bound="not a depth but a bound on it (min = at least this deep)", level_key="the lake level a lake sounding hangs from", status="see status_codes", x_src="east as the source placed it", y_src="north as the source placed it",
                             depth_src="depth as the source's digital file gives it", bound_src="the bound before review"),
                made=time.strftime("%Y-%m-%d"), tool="tools/lidar/topobathy/soundings_release.py (ledger: cast_edits.py, nos_offsets.py)", why=a.why, changes=dict(summ), changes_file=base + "changes.json", products=a.products or [],
+               licence=LICENCE, licence_note="Our corrections and the merged collection are CC BY 4.0. Each survey keeps its own terms (surveys[].licence): the NOS hydrographic surveys are US Government work in the public domain; cite the survey as well as this collection.",
                points=len(rows), points_in_cloud=len(pc), by_status=dict(stc), surveys=sv, bytes=sum(f["bytes"] for f in files), bounds_wgs84=bb, z_range_m=[round(min(zs), 2), round(max(zs), 2)], base_url=base, files=files, upstream=UPSTREAM)
     (out / "manifest.json").write_text(json.dumps(man, indent=1) + "\n")
     # STAC
@@ -170,7 +191,7 @@ def build(a):
                                                                                     dict(name="PointSourceId", size=2, type="unsigned"), dict(name="UserData", size=1, type="unsigned"), dict(name="Sigma", size=4, type="floating")],
                             "pc:statistics": [dict(name="Z", position=2, minimum=round(min(r["z"] for r in pc), 3), maximum=round(max(r["z"] for r in pc), 3), average=round(float(np.mean([r["z"] for r in pc])), 3), count=len(pc))],
                             "proj:code": "EPSG:6334", "processing:lineage": lineage, "processing:software": {"landslidescience/tools/lidar/topobathy/soundings_release.py": time.strftime("%Y-%m-%d")}, "processing:datetime": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                            "sci:citation": CITATION, "kbay:table_rows": len(rows), "kbay:by_status": dict(stc)},
+                            "sci:citation": CITATION, "sci:publications": [dict(citation=v["citation"]) for v in sv if v.get("citation")], "kbay:table_rows": len(rows), "kbay:by_status": dict(stc)},
                 links=[dict(rel="self", href=base + f"stac/{a.rev}.json", type="application/geo+json"), dict(rel="collection", href=f"{PUBLIC}/{SID}/collection.json", type="application/json"), dict(rel="parent", href=f"{PUBLIC}/{SID}/collection.json", type="application/json")]
                 + ([dict(rel="predecessor-version", href=f"{PUBLIC}/{SID}/{a.parent}/stac/{a.parent}.json", type="application/geo+json", title=f"revision {a.parent}")] if a.parent and a.parent != "r0" else [])
                 + [dict(rel="derived_from", href=u["url"], title=u["label"]) for u in UPSTREAM], assets=assets)
@@ -189,11 +210,11 @@ def collection():
            "description": "Every sparse depth measurement the Kachemak Bay topobathy composite reads, as one corrected point set: NOAA National Ocean Service hydrographic surveys (1915-31 lead line, 1977-84 echo sounder), lake soundings, and a few hand-placed estimates (flagged). "
                           "Each revision is the whole table plus the ledger of every change from the sources: whole-sheet translations of surveys whose positions were converted from early Alaska datums, single casts moved by the reviewer, a depth read again from the survey's sheet, a cast rejected. "
                           "A cast is moved, not rejected, unless the reviewer says so by name; a revision is never overwritten.",
-           "license": "other", "keywords": ["bathymetry", "soundings", "hydrographic survey", "lead line", "Kachemak Bay", "Alaska", "point cloud"],
-           "providers": [dict(name="NOAA National Ocean Service / NCEI", roles=["producer", "licensor"], url="https://www.ncei.noaa.gov/"), dict(name="landslidescience.org", roles=["processor", "host"], url="https://landslidescience.org/")],
+           "license": LICENCE, "keywords": ["bathymetry", "soundings", "hydrographic survey", "lead line", "Kachemak Bay", "Alaska", "point cloud"],
+           "providers": [dict(name="NOAA National Ocean Service / NCEI", roles=["producer", "licensor"], url="https://www.ncei.noaa.gov/"), dict(name="Lake soundings: N. Riordan (2018), E. Berg (2017), B. Higman (2017-2026)", roles=["producer"]), dict(name="landslidescience.org", roles=["processor", "licensor", "host"], url="https://landslidescience.org/")],
            "extent": dict(spatial=dict(bbox=[bb]), temporal=dict(interval=[["1915-01-01T00:00:00Z", "2026-11-17T00:00:00Z"]])),
            "summaries": {"version": [m["revision"] for m in revs], "proj:code": ["EPSG:6334"], "pc:type": ["other"]},
-           "sci:citation": CITATION, "version": revs[-1]["revision"],
+           "sci:citation": CITATION, "sci:publications": [dict(citation=v["citation"]) for v in revs[-1]["surveys"] if v.get("citation")], "version": revs[-1]["revision"],
            "links": [dict(rel="self", href=f"{PUBLIC}/{SID}/collection.json", type="application/json")]
                     + [dict(rel="item", href=f"{PUBLIC}/{SID}/{m['revision']}/stac/{m['revision']}.json", type="application/geo+json", title=f"{m['revision']}: {m['label']}") for m in revs]
                     + [dict(rel="latest-version", href=f"{PUBLIC}/{SID}/{revs[-1]['revision']}/stac/{revs[-1]['revision']}.json", type="application/geo+json")]
@@ -206,5 +227,5 @@ if __name__ == "__main__":
     b = sp.add_parser("build"); b.add_argument("rev"); b.add_argument("--label", required=True); b.add_argument("--why", required=True); b.add_argument("--parent", default="r0")
     b.add_argument("--from", dest="src", default=str(OBS)); b.add_argument("--edits", default=str(HERE.parent / "water" / "cast_edits.geojson")); b.add_argument("--shifts", default=str(HERE.parent / "water" / "sheet_shifts.json"))
     b.add_argument("--products", nargs="*"); b.add_argument("--force", action="store_true")
-    sp.add_parser("collection")
-    a = ap.parse_args(); dict(build=build, collection=lambda a: collection())[a.cmd](a)
+    sp.add_parser("collection"); sp.add_parser("surveys")
+    a = ap.parse_args(); dict(build=build, collection=lambda a: collection(), surveys=surveys_cmd)[a.cmd](a)
