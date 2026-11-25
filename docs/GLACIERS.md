@@ -881,20 +881,28 @@ video changes the answer by itself:
   their 111-month descending twins, Pedersen Aialik under Pedersen, and the
   8-month Margerie Grand Pacific under Ferris Grand Pacific.
 
-## Tyndall: built, no faces (2026-11-24)
+## Tyndall: the flow line has to cross the face (2026-11-24)
 
 `build.py tyndall 60.19131 -141.13606` (default frame; descending rel 116,
 113 months 2017-06 to 2026-11) is on prod as video 115 (dev 113) and, by
 the similar-frames rule, stands for the two Earth Engine Tyndall exports.
-**No faces were loaded**: `faces.py tyndall` kept 1 of 113 months, `--lake`
-12 with 7 dropped as spikes, `--strip-m 600` none (also with `--min-step
-2.5 --unconfirmed 0.6`). The front is plain to the eye in most months (a
-lobe ending in dark water at the head of Taan Fjord), but (a) the ice at
-the front is dim: the median step to the water is 1.4 to 3.3 dB against
-the 3 dB a "clear" pixel needs; (b) the front is ~1 km wide in the bottom
-sixth of the frame and the water runs off the frame's south edge, so lake
-mode reads it as sea; (c) faces reach a third to a half of the way across
-the channel the texture test finds. Trial outputs:
-`/Volumes/Nunatak/glacier_s1_build/tyndall/faces` (default) and
-`faces_tried` (the last strip run). Not tried: a frame centred on the
-front; a front found as the edge of the water rather than of bright ice.
+
+**First run: 1 face of 113** (`--lake` 12 with 7 dropped as spikes,
+`--strip-m 600` none). The cause was the flow line, not the image: line 24
+ran along the east edge of the tongue and missed the front as the radar
+shows it (the timelapse sits slightly west of the fjord there; Hig: maybe
+the DEM under the terrain correction). Every score is tied to where a face
+crosses the line (within 250 m along it, reaching both walls from it), so
+a line beside the front fails every month. Hig moved the line on prod to
+cross the face as the radar shows it; the same command then kept **68 of
+113** (35 first pass, 84 after the second, 68 after the bright check, four
+spikes dropped), 0.9 to 1.45 km up the line, loaded as `tyndall:<month>`
+on prod and dev. Checked by eye on every third kept face: all on the
+ice/water edge; a few carry a small loop (2018-06, 2019-12). The last kept
+month is 2025-08: nothing in 2026 passed.
+
+**Rule for a new glacier**: before `faces.py`, look at the flow line over
+the build's median image; it must cross the front where the radar shows
+it. A first run that keeps almost nothing means look at the line first.
+The trial outputs of the old line are in
+`/Volumes/Nunatak/glacier_s1_build/tyndall/faces_oldline` and `faces_tried`.
