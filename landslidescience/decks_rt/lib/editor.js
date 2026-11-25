@@ -15,6 +15,9 @@
  *   Cmd-C / X / V / D     copy, cut, paste, duplicate. A paste lands exactly where the
  *                     original was, on any slide; only if that spot already holds the same
  *                     thing is it offset, so that it can be seen.
+ *   images            Insert ▸ Image…, Cmd-V of a picture copied in another program (or of image
+ *                     files copied in the Finder), or image files dropped on the slide. The file
+ *                     is stored in the deck's assets/.
  *   Delete            remove       ] [ } {   forward, backward, to front, to back
  *   Opt-Cmd-G         group the selection (Shift too: ungroup). A group is selected, moved, ordered,
  *                     copied and built as one thing; double-click one of its members to work on
@@ -1205,6 +1208,63 @@
     sel = [e]; rebuild(); retype(e);
     var r = document.createRange(); r.selectNodeContents(typing.body); var s = getSelection(); s.removeAllRanges(); s.addRange(r);
   }
+  // ---- images from outside: Insert ▸ Image…, a paste, or files dropped on the slide ----
+  // Each file is stored in the deck's assets/ (PUT, tools/serve.py or the site) and then
+  // added at its own size, or as large as fits the slide, centred on `at` or on the slide.
+  function pictures(list) { return Array.prototype.filter.call(list || [], function (f) { return /^image\//.test(f.type) || /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(f.name || ""); }); }
+  function measure(file) {                 // its size in pixels, which also shows that this browser can draw it
+    return new Promise(function (ok, no) {
+      var u = URL.createObjectURL(file), im = new Image();
+      im.onload = function () { URL.revokeObjectURL(u); if (im.naturalWidth) ok({ w: im.naturalWidth, h: im.naturalHeight }); else no(new Error(file.name + " has no size of its own")); };
+      im.onerror = function () { URL.revokeObjectURL(u); no(new Error("the browser cannot show " + (file.name || "that image") + " (use PNG or JPEG)")); };
+      im.src = u;
+    });
+  }
+  function assetName(file) {               // a name the server takes, and one that is not in assets/ already
+    var ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/svg+xml": "svg", "image/avif": "avif" })[file.type];
+    var m = /^(.*?)(?:\.([A-Za-z0-9]+))?$/.exec(file.name || "image");
+    var base = (m[1] || "image").replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "image";
+    return base + "-" + Math.random().toString(36).slice(2, 6) + "." + (ext || (m[2] || "png").toLowerCase());
+  }
+  function addImages(files, at) {
+    files = pictures(files);
+    if (!files.length) return false;
+    if (sorter || !editable(cur().s)) { status("Open a slide with elements to add an image.", true); return true; }
+    if (blocked) { status("deck.json was changed on disk. Reload the page.", true); return true; }
+    var slide = cur().s;
+    status("Adding " + (files.length > 1 ? files.length + " images…" : "the image…"));
+    Promise.all(files.map(function (f) {
+      return measure(f).then(function (d) {
+        var name = "assets/" + assetName(f);
+        return fetch(name, { method: "PUT", body: f, headers: csrf({ "Content-Type": f.type || "application/octet-stream" }) }).then(function (r) {
+          if (r.status === 413) throw new Error((f.name || "the image") + " is too large to store (50 MB at most)");
+          if (!r.ok) throw new Error("the server answered " + r.status);
+          return { src: name, w: d.w, h: d.h };
+        });
+      });
+    })).then(function (got) {
+      if (cur().s !== slide) { status("The slide changed before the image arrived. Add it again.", true); return; }
+      var cx = at ? at.x : W / 2, cy = at ? at.y : H / 2, added = [];
+      change(function (c) {
+        got.forEach(function (g, i) {
+          var k = Math.min(1, W / g.w, H / g.h), w = Math.round(g.w * k), h = Math.round(g.h * k);
+          var x = Math.max(0, Math.min(W - w, Math.round(cx - w / 2) + 24 * i)), y = Math.max(0, Math.min(H - h, Math.round(cy - h / 2) + 24 * i));   // whole on the slide
+          var e = { type: "image", src: g.src, x: x, y: y, w: w, h: h };
+          c.s.elements.push(e); added.push(e);
+        });
+      });
+      sel = added; rebuild();
+    }).catch(function (x) { status("Image not added: " + x.message, true); });
+    return true;
+  }
+  var picker = null;
+  function pickImage() {
+    if (!picker) {
+      picker = mk("input", "", document.body); picker.type = "file"; picker.accept = "image/*"; picker.multiple = true; picker.style.display = "none";
+      picker.addEventListener("change", function () { addImages(picker.files); picker.value = ""; });
+    }
+    picker.click();
+  }
   function go(d) { var i = cur().i + d; if (i >= 0 && i < deck.slides.length) { sel = []; Reveal.slide(i); } }
 
   function field(ev) {
@@ -1291,7 +1351,8 @@
       ["Background and transition…", "", function () { fmtOpen(true); }]
     ]; });
     menu("Insert", "Add to the slide", function () { return [
-      ["Text box", "", addText, !sorter && editable(cur().s)]
+      ["Text box", "", addText, !sorter && editable(cur().s)],
+      ["Image…", "", pickImage, !sorter && editable(cur().s)]
     ]; });
     menu("Arrange", "Stacking order and groups", function () {
       var us = units(sel), grouped = sel.some(function (e) { return e.group; });
@@ -1349,7 +1410,16 @@
     document.addEventListener("paste", function (ev) {
       if (!on || typing || field(ev)) return;
       ev.preventDefault();
+      if (addImages(ev.clipboardData.files)) return;          // a picture copied in another program, or image files from the Finder
       paste(readClip(ev.clipboardData.getData("text/plain")));
+    });
+    function hasFiles(ev) { return on && ev.dataTransfer && Array.prototype.indexOf.call(ev.dataTransfer.types || [], "Files") >= 0; }
+    document.addEventListener("dragover", function (ev) { if (hasFiles(ev)) { ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; } });
+    document.addEventListener("drop", function (ev) {        // image files dropped on the slide land where they are dropped
+      if (!hasFiles(ev)) return;
+      ev.preventDefault();
+      var p = point(ev), inside = p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H;
+      if (!addImages(ev.dataTransfer.files, inside ? p : null)) status("Only images can be dropped on a slide.", true);
     });
     window.addEventListener("message", function (ev) {       // the answer to Capture step
       var d = ev.data;
