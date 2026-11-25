@@ -575,10 +575,12 @@
                         var a = d.applied || {}, pv = a.previous || {};
                         btn.textContent = 'Linked';
                         st.style.color = '#2e7d32';
+                        var also = (pv.links || []).filter(function (lk) {
+                            return !(lk[0] === a.external_source && lk[1] === a.external_id);
+                        }).map(function (lk) { return lk[0] + ' ' + lk[1]; });
                         st.innerHTML = 'Linked <a href="/inventory/manage/' + lid + '/">' +
                             esc(a.name || ('#' + lid)) + '</a>' +
-                            (pv.external_id && (pv.external_source !== a.external_source || pv.external_id !== a.external_id)
-                                ? ' (was ' + esc(pv.external_source + ' ' + pv.external_id) + ')' : '') +
+                            (also.length ? ' (also linked to ' + esc(also.join(', ')) + ')' : '') +
                             '. Ongoing work: ' + esc(a.ongoing_work || '');
                         p._promoted = (p._promoted || []).filter(function (x) { return x[0] !== lid; })
                                                           .concat([[lid, a.name]]);
@@ -587,6 +589,34 @@
                     .catch(function (e) {
                         btn.disabled = false; btn.textContent = btn._label || 'Link';
                         st.style.color = '#c0392b'; st.textContent = 'Not linked: ' + e.message;
+                    });
+            }
+
+            function unlink(lid, btn, label) {
+                if (armed !== btn) {
+                    if (armed) armed.textContent = armed._label;
+                    armed = btn; btn._label = btn.textContent;
+                    btn.textContent = 'Confirm';
+                    st.style.color = '#999';
+                    st.textContent = 'Click Confirm to remove the link from ' + label +
+                                     ' and its sentence in ongoing work.';
+                    return;
+                }
+                armed = null; btn.disabled = true;
+                st.style.color = '#999'; st.textContent = 'Removing…';
+                _revPost(base + 'unlink/' + encodeURIComponent(extId) + '/', { landslide_id: lid })
+                    .then(function (d) {
+                        var a = d.applied || {};
+                        btn.textContent = 'Unlinked';
+                        st.style.color = '#2e7d32';
+                        st.innerHTML = 'Removed the link from <a href="/inventory/manage/' + lid + '/">' +
+                            esc(a.name || ('#' + lid)) + '</a>.';
+                        p._promoted = (p._promoted || []).filter(function (x) { return x[0] !== lid; });
+                        if (rbox) _extReviewUI(rbox, s, L, p);
+                    })
+                    .catch(function (e) {
+                        btn.disabled = false; btn.textContent = btn._label || 'Unlink';
+                        st.style.color = '#c0392b'; st.textContent = 'Not removed: ' + e.message;
                     });
             }
 
@@ -599,18 +629,29 @@
                     list.style.color = '';
                     recs.forEach(function (r) {
                         var km = r.distance_m >= 1000 ? (r.distance_m / 1000).toFixed(1) + ' km' : r.distance_m + ' m';
-                        var tag = r.external_id ? ' · <span style="color:#a0522d;" title="Already linked">' +
-                                  (r.external_source === s.id && r.external_id === String(extId)
-                                      ? 'linked to this' : 'linked to ' + esc(r.external_source + ' ' + r.external_id)) + '</span>' : '';
+                        // A record of ours may carry several links (one per
+                        // outside record it derives from); list them all.
+                        var here = false, others = [];
+                        (r.links || []).forEach(function (lk) {
+                            if (lk[0] === s.id && lk[1] === String(extId)) here = true;
+                            else others.push(esc(lk[0] + ' ' + lk[1]));
+                        });
+                        var tag = (here ? ' · <span style="color:#2e7d32;">linked to this</span>' : '') +
+                                  (others.length ? ' · <span style="color:#a0522d;" title="Its other links">also ' +
+                                   others.join(', ') + '</span>' : '');
                         var row = document.createElement('div');
                         row.style.cssText = 'display:flex;gap:4px;align-items:center;margin:2px 0;';
                         row.innerHTML = '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;">' +
                             '<a href="/inventory/manage/' + r.id + '/">' + esc(r.name || ('#' + r.id)) + '</a>' +
                             ' <span style="color:#999;">#' + r.id + ' · ' + km + (r.pending ? ' · pending' : '') + '</span>' +
                             tag + '</span>' +
-                            '<button type="button" style="flex:none;font-size:11px;cursor:pointer;">Link</button>';
+                            '<button type="button" style="flex:none;font-size:11px;cursor:pointer;">' +
+                            (here ? 'Unlink' : 'Link') + '</button>';
                         var b = row.querySelector('button');
-                        b.addEventListener('click', function () { link(r.id, b, r.name || ('#' + r.id)); });
+                        b.addEventListener('click', function () {
+                            if (here) unlink(r.id, b, r.name || ('#' + r.id));
+                            else link(r.id, b, r.name || ('#' + r.id));
+                        });
                         list.appendChild(row);
                     });
                 })

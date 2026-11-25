@@ -91,6 +91,8 @@ urlpatterns = [
     path('api/external/', external.api_external_sources, name='api_external_sources'),
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/explore/$', external.api_external_explore,
             name='api_external_explore'),
+    path('api/external/links/<int:landslide_id>/', external.api_landslide_links,
+         name='api_landslide_links'),
     path('api/external/review/categories/', external.api_external_review_categories,
          name='api_external_review_categories'),
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/$',
@@ -109,6 +111,9 @@ urlpatterns = [
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/link/'
             r'(?P<ext_id>[^/]+)/$',
             external.api_external_link, name='api_external_link'),
+    re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/unlink/'
+            r'(?P<ext_id>[^/]+)/$',
+            external.api_external_unlink, name='api_external_unlink'),
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/nearby/'
             r'(?P<ext_id>[^/]+)/$',
             external.api_external_nearby, name='api_external_nearby'),

@@ -78,13 +78,17 @@ from that point, stamps provenance, and drops the editor into the draw flow to
 trace geometry and then the review form. It lands in the **pending queue**
 like any other induction, never straight onto the public map.
 
-- **Provenance** is two nullable columns on `landslides` (schema:
-  `migrate_external_promotion`, run once per environment): `external_source`
-  (registry id) + `external_id` (**the publisher's own id, not our mirror row
-  id** — the mirror is replaced on every refetch, so our row ids do not
-  survive it). Indexed, **not unique**: two of our records may legitimately
-  derive from one of theirs, and forbidding the more careful reading would be
-  backwards.
+- **Provenance** is the table `landslide_external_links` (landslide_id,
+  source, ext_id, linked_at, linked_by; `migrate_external_links`, run once per
+  environment; ON DELETE CASCADE). `ext_id` is **the publisher's own id, not
+  our mirror row id** — the mirror is replaced on every refetch, so our row
+  ids do not survive it. **Many-to-many** (Hig, 2026-11-24): a record of ours
+  may derive from several of theirs, in one inventory or several, each with
+  its own sentence in ongoing_work; two of ours may derive from one of theirs.
+  Until 2026-11-24 it was two columns on `landslides` (`external_source`,
+  `external_id`, from `migrate_external_promotion`), which held one link;
+  the migration copied them, and they are now kept but neither read, written
+  nor shown on the form.
 - **Per-source promotion rules** live in the registry's `promote` dict and
   are applied by `apply_promotion()` (PROMOTION RULES block in `external.py`),
   the one path for promote, link and backfill:
@@ -99,8 +103,12 @@ like any other induction, never straight onto the public map.
     or a `legacy` wording in place (the quotes give the block a findable end)
     and keeps what editors wrote beside it ("Described in doi:…"); with none,
     it goes in front.
-  - `noted_by` on a **new** promoted record is **cleared, not filled with the
-    editor who promoted it** — everywhere else a blank `noted_by` auto-fills
+  - `noted_by` from `noted_by_for()`: a source's `noted_by_from` field (the
+    Schaefer `citation`) gives the first author of the work that first
+    identified the landslide, reusing an existing noted_by spelling with that
+    surname and first initial ("Bretwood Higman", "Chad Hults"), else
+    "J.A. Coe"; failing that, the source's `noted_by`. On a **new** promoted
+    record it is otherwise **cleared, not filled with the editor who promoted it** — everywhere else a blank `noted_by` auto-fills
     with the editor, which here would credit them with noticing something
     somebody else noticed. `canada_pcld` names `Marc-Andre Brideau`, who built
     that inventory. On a **link** it is only filled when blank.
@@ -108,14 +116,26 @@ like any other induction, never straight onto the public map.
     anything is stamped; 404 otherwise. Three DGGS records had been stamped
     with the OBJECTID, which the "Promoted from" card could not find.
   Add a source-specific rule in the registry, not at the call site.
+- **Their outline first** (2026-11-24): promoting from a polygon source
+  fetches their whole outline (`record/<ext_id>/?geom=1`; the map's copy is
+  tile-clipped) and opens the draw tool's name box with it; Add stages it
+  like a traced polygon, Cancel leaves the tool ready to trace. Refine after
+  commit with the live-map outline editor (revise.js).
+- **Unlink**: POST `.../unlink/<ext_id>/` `{landslide_id}` removes one link and
+  its sentence (`remove_promotion_text`, matched by that id); noted_by is left.
+  Offered in the popup's Link list ("Unlink" on a record linked to this one)
+  and on each "Promoted from" card (which then reloads the form, so autosave
+  cannot write the old ongoing work back). `GET api/external/links/<id>/`
+  feeds the cards.
 - **Link to an existing record** (2026-11-24): the popup's *⇄ Link to an
   existing record…* lists our six nearest non-deprecated records (centroid
   distance, `api/external/<sid>/<layer>/nearby/<ext_id>/`) or takes an id;
   second click confirms (no dialog); POST `.../link/<ext_id>/`
-  `{landslide_id}`. Re-linking replaces the stamp (one source per record).
-  Written to the edit log as the linking editor.
+  `{landslide_id}`. Adds a link beside any the record has; re-linking the same
+  one rewrites its sentence in place. Written to the edit log as the linking
+  editor.
 - **Backfill**: `python manage.py backfill_promotion_text` (dry run; `--apply`
-  writes; once per environment) rewrites every stamped record to the current
+  writes; once per environment, after `migrate_external_links`) rewrites every linked record to the current
   wording, re-stamps an id that is their OBJECTID, and stamps unstamped
   records whose text says they were promoted with the nearest source point
   (`--max-distance`, default 3 km; `--pair ID:EXT_ID` overrides). Never

@@ -233,8 +233,11 @@
             openNamePopup(id);
         }
 
-        function openNamePopup(fid) {
-            var feat = _td && _td.getSnapshot().filter(function (f) { return f.id === fid; })[0];
+        // `given`: a geometry to stage instead of a Terra Draw feature -- the
+        // outline of the outside record being promoted (see _promoteStart).
+        function openNamePopup(fid, given) {
+            var feat = given ? { geometry: given }
+                : _td && _td.getSnapshot().filter(function (f) { return f.id === fid; })[0];
             if (!feat) return;
             var names = {}; _prov.forEach(function (c) { names[c.unique_name] = 1; });
 
@@ -263,7 +266,9 @@
                 if (_promote.name) nameEl.value = _promote.name;
                 warnEl.style.color = '#666';
                 warnEl.textContent = 'From ' + _promote.short + ' · their id ' +
-                                     (_promote.extId || '—') + '. Rename to suit the standard.';
+                                     (_promote.extId || '—') + '. Rename to suit the standard.' +
+                                     (given ? ' Their outline is staged as drawn; refine it after ' +
+                                      'committing with Edit outline, or Cancel to trace your own.' : '');
             }
             nameEl.focus();
             nameEl.select();
@@ -277,7 +282,10 @@
                 ov.querySelector('#idp-ok').click();
             });
             function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
-            function discard() { if (_td) { _td.removeFeatures([fid]); _td.setMode('polygon'); } map.__drawPolyOpen = false; close(); }
+            function discard() {
+                if (_td && !given) { _td.removeFeatures([fid]); _td.setMode('polygon'); }
+                map.__drawPolyOpen = false; close();
+            }
             ov.querySelector('#idp-cancel').addEventListener('click', discard);
             ov.querySelector('#idp-ok').addEventListener('click', function () {
                 var nm = (nameEl.value || '').trim(), role = roleEl.value;
@@ -286,7 +294,7 @@
                     if (res.ok && res.j.ok) {
                         _prov.push(res.j.component);
                         refreshProvData(); renderQueue();
-                        if (_td) { _td.removeFeatures([fid]); _td.setMode('polygon'); }
+                        if (_td && !given) { _td.removeFeatures([fid]); _td.setMode('polygon'); }
                         map.__drawPolyOpen = false; close();
                     } else {
                         warnEl.textContent = (res.j && res.j.error) || 'Stage failed.';
@@ -893,13 +901,30 @@
                 sid: s.id, short: s.short, layer: L.layer, colour: s.colour,
                 extId: String(_promoteIdOf(s, L, p) || ''),
                 name: _promoteSuggestName(s, L, p),
-                props: p, fields: L.fields || {}, order: L.field_order || []
+                props: p, fields: L.fields || {}, order: L.field_order || [],
+                layerGeom: L.geom
             };
             // Close any popup so the map is clear to trace on.
             var pops = document.querySelectorAll('.maplibregl-popup');
             for (var i = 0; i < pops.length; i++) pops[i].remove();
             if (_drawCtrl) _drawCtrl.activate('poly');
             _promoteBanner();
+            // A source that publishes outlines: start from THEIR outline (Hig,
+            // 2026-11-24: "default to using their outline"). Fetched whole from
+            // the server -- the map's copy is tile-clipped and simplified -- and
+            // offered straight to the name box; Cancel there leaves the tool
+            // ready to trace by hand instead.
+            if (/POLYGON/.test(L.geom || '') && _promote.extId) {
+                var pr = _promote;
+                fetch('/inventory/api/external/' + s.id + '/' + L.layer + '/record/' +
+                      encodeURIComponent(pr.extId) + '/?geom=1', { credentials: 'same-origin' })
+                    .then(function (r) { return r.ok ? r.json() : null; })
+                    .then(function (rec) {
+                        if (_promote !== pr || !rec || !rec.geometry) return;
+                        openNamePopup(null, rec.geometry);
+                    })
+                    .catch(function (e) { console.error('their outline did not load', e); });
+            }
         }
 
         function _promoteCancel() {
@@ -924,7 +949,9 @@
                 '<div style="color:#555;margin-top:2px;">' +
                   (_promote.name ? '“' + esc(_promote.name) + '” · ' : '') +
                   'their id ' + esc(_promote.extId || '—') + '</div>' +
-                '<div style="color:#666;margin-top:4px;">Trace the outline, press <b>Enter</b>, ' +
+                '<div style="color:#666;margin-top:4px;">' +
+                  (/POLYGON/.test((_promote.layerGeom) || '') ? 'Their outline is offered first; Cancel it to trace your own. ' : '') +
+                  'Trace the outline, press <b>Enter</b>, ' +
                   'then name it. Their fields travel with it for reference — none are copied.</div>' +
                 '<div style="text-align:right;margin-top:5px;">' +
                   '<button id="promote-cancel" type="button" style="font-size:11px;">Cancel promotion</button></div>';

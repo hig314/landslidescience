@@ -1709,6 +1709,9 @@ _FORM_EXCLUDED_COLS = (
     # subset-membership UI on the edit form writes the new table; the
     # legacy column will be dropped after the rest of the transition lands.
     'inventory_subset',
+    # Superseded by landslide_external_links (several sources per record,
+    # 2026-11-24); kept in the table, no longer read or written.
+    'external_source', 'external_id',
 )
 
 
@@ -2227,7 +2230,18 @@ def manage_edit(request, landslide_id, review_mode=False):
     # blank there is a deliberate answer set by inventory/external.py's
     # promotion rules -- re-suggesting the editor would quietly undo it every
     # time they opened the form.
-    _promoted = bool(initial.get('external_source'))
+    _promoted = False
+    try:
+        from . import external as _ext
+        _c = _get_conn()
+        try:
+            _cur = _c.cursor()
+            _promoted = _ext.links_ready(_cur) and bool(_ext.links_of(_cur, landslide_id))
+            _c.rollback()
+        finally:
+            _put_conn(_c)
+    except Exception:
+        _promoted = False
     if 'noted_by' in col_names and not initial.get('noted_by') and not _promoted:
         _full = (request.user.get_full_name() or '').strip()
         if _full:

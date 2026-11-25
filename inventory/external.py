@@ -344,6 +344,9 @@ SOURCES = {
                 {'label': 'Their confidence', 'format': 'schaefer_conf'},
                 {'label': 'Their PSInSAR rate', 'format': 'schaefer_los'},
             ],
+            # Where they cite the landslide's first identification, its first
+            # author noticed it; otherwise Schaefer's team did.
+            'noted_by_from': 'citation',
             'noted_by': 'Lauren Schaefer',
         },
     },
@@ -377,9 +380,18 @@ SOURCES = {
 #                  somebody else noticed it, and crediting the promoter would
 #                  quietly overwrite that. A source with a compiler of record
 #                  names them (Canada does); most cannot, and a blank is then
-#                  the honest answer. On a LINK to an existing record, noted_by
-#                  is only filled when blank: the record already says who
-#                  noticed it, possibly independently of the source.
+#                  the honest answer. A source may name a field of theirs
+#                  that cites where the landslide was first identified
+#                  (`noted_by_from`); its first author is then credited
+#                  instead (Hig, 2026-11-24). On a LINK to an existing record,
+#                  noted_by is only filled when blank: the record already says
+#                  who noticed it, possibly independently of the source.
+#
+#   links          one row per (our record, their source, their id) in
+#                  landslide_external_links: a record may derive from several
+#                  outside records (Hig, 2026-11-24), each with its own
+#                  sentence. Replaced the external_source / external_id
+#                  columns, which held one and are no longer read or written.
 #
 # `owner` is left alone on purpose. It means who is responsible for the record
 # HERE, which really is the editor who promoted it.
@@ -473,36 +485,100 @@ def promotion_text(sid, ext_id, row):
     return ' '.join(out)
 
 
-def _text_patterns(sid):
-    """Regexes for every wording of this source's sentence we have ever
-    written: the current form with any id and details, then the legacy ones."""
-    s, r = _rules(sid)
+def _id_pattern(sid, ext_id=None):
+    """The current wording's regex, for one id or (ext_id None) any id."""
+    _, r = _rules(sid)
     labels = '|'.join(re.escape(d['label']) for d in r.get('details') or [])
-    # The id and any id_note hold no full stop or opening quote.
-    cur = re.escape(_lead(sid)) + r', as [^.\u201c]+?\.'
+    if ext_id is None:
+        idp = r'[^.“]+?'                       # ids and id_notes hold neither
+    else:
+        idp = re.escape(r.get('id_prefix', '') + str(ext_id)) + r'(?: \([^.)“]*\))?'
+    p = re.escape(_lead(sid)) + r', as ' + idp + r'\.'
     if labels:
-        cur += rf'(?: (?:{labels}): “[^”]*”\.)*'
-    pats = [cur]
-    for old in list(r.get('legacy') or []) + [f"Noted in {s.get('title', sid)}."]:
-        pats.append(re.escape(old))
-    return [re.compile(p) for p in pats]
+        p += rf'(?: (?:{labels}): “[^”]*”\.)*'
+    return re.compile(p)
 
 
-def merge_promotion_text(sid, existing, new):
-    """`existing` ongoing_work with this source's sentence replaced by `new`
-    (first wording found), or `new` put in front when there is none."""
+def _legacy_patterns(sid):
+    """Earlier, id-less wordings (see the source's `legacy`)."""
+    s, r = _rules(sid)
+    return [re.compile(re.escape(old))
+            for old in list(r.get('legacy') or []) + [f"Noted in {s.get('title', sid)}."]]
+
+
+def _text_patterns(sid):
+    """Every wording of this source's sentence, any id (backfill detection)."""
+    return [_id_pattern(sid)] + _legacy_patterns(sid)
+
+
+def merge_promotion_text(sid, ext_id, existing, new):
+    """`existing` ongoing_work with the sentence for THIS record of theirs
+    replaced by `new`; else an id-less legacy sentence of this source replaced
+    (it was written for the one link a record could have then); else `new` put
+    in front. Sentences for other links -- another source, or another record
+    in the same source -- are left alone: a record of ours may derive from
+    several (Hig, 2026-11-24)."""
     existing = (existing or '').strip()
-    for pat in _text_patterns(sid):
+    for pat in [_id_pattern(sid, ext_id)] + _legacy_patterns(sid):
         if pat.search(existing):
             return pat.sub(lambda _m: new, existing, count=1)
     return f'{new} {existing}'.strip()
 
 
-def promote_values(sid):
-    """noted_by for a NEW promoted record: the source's compiler of record, or
-    None = CLEAR the column (the draw commit filled it with the promoter)."""
+def remove_promotion_text(sid, ext_id, existing):
+    """`existing` with the sentence for this record of theirs taken out."""
+    out = _id_pattern(sid, ext_id).sub('', existing or '', count=1)
+    return re.sub(r'\s{2,}', ' ', out).strip()
+
+
+# -- noted_by ---------------------------------------------------------------
+_AUTH_USGS = re.compile(r"^\s*([A-Z][\w'\-]+(?: [A-Z][\w'\-]+)?),\s*((?:[A-Z]\.\s*-?)+)")
+_AUTH_INIT = re.compile(r"^\s*([A-Z][\w'\-]+)\s+([A-Z]{1,3})\b")
+
+
+def _first_author(cur, citation):
+    """The first author of a citation, as a noted_by value. If someone with
+    that surname and first initial is already credited somewhere in noted_by,
+    their name is reused as written there ("Bretwood Higman", not "B.
+    Higman"), so one person stays one value in the filters. Otherwise
+    "C.P. Hults". None when the citation does not open with an author (an
+    agency, say), and the source's own rule then applies."""
+    c = ' '.join(str(citation or '').split())
+    m = _AUTH_USGS.match(c)
+    if m:
+        surname, initials = m.group(1), re.sub(r'\s+', '', m.group(2))
+    else:
+        m = _AUTH_INIT.match(c)
+        if not m:
+            return None
+        surname, initials = m.group(1), '.'.join(m.group(2)) + '.'
+    first = initials[:1].upper()
+    cur.execute("""
+        SELECT noted_by, count(*) FROM landslides
+         WHERE lower(noted_by) LIKE %s
+         GROUP BY 1 ORDER BY 2 DESC
+    """, ('%' + surname.lower(),))
+    for name, _n in cur.fetchall():
+        parts = (name or '').replace('.', ' ').split()
+        if len(parts) >= 2 and parts[-1].lower() == surname.lower() \
+                and parts[0][:1].upper() == first:
+            return name
+    return f'{initials} {surname}'
+
+
+def noted_by_for(cur, sid, row):
+    """noted_by for a record promoted from `row`: the source's `noted_by_from`
+    field's first author where they cite where the landslide was first
+    identified (Hig, 2026-11-24: "If the original source is noted, let's use
+    that"), else the source's `noted_by` (its compiler of record), else None,
+    which CLEARS the column the draw commit filled with the promoter."""
     _, r = _rules(sid)
-    return {'noted_by': r.get('noted_by')}
+    f = r.get('noted_by_from')
+    if f and row.get(f):
+        who = _first_author(cur, row.get(f))
+        if who:
+            return who
+    return r.get('noted_by')
 
 
 class PromotionError(Exception):
@@ -514,8 +590,8 @@ class PromotionError(Exception):
 def mirrored_row(cur, sid, layer, ext_id):
     """Their record as {column: value}, by THEIR id. None if the mirror has no
     such id, which is how a hand-typed or wrong id is caught before it is
-    stamped onto our record (three DGGS promotions carried the mirror's
-    OBJECTID instead of their points_id until 2026-11-24)."""
+    linked to our record (three DGGS promotions carried the mirror's OBJECTID
+    instead of their points_id until 2026-11-24)."""
     t = table_name(sid, layer)
     cur.execute('SELECT to_regclass(%s)', (t,))
     if not cur.fetchone()[0]:
@@ -529,36 +605,72 @@ def mirrored_row(cur, sid, layer, ext_id):
     return row
 
 
-def apply_promotion(cur, ls_id, sid, layer, ext_id, *, fresh):
-    """Stamp provenance and write the rule fields onto landslide `ls_id`, in
-    the caller's transaction. `fresh` = the record was just drawn for this
-    promotion (noted_by is overwritten); otherwise it is an existing record
-    being linked (noted_by only filled when blank). Returns what changed."""
+LINKS = 'landslide_external_links'
+
+
+def links_ready(cur):
+    cur.execute('SELECT to_regclass(%s)', (LINKS,))
+    return bool(cur.fetchone()[0])
+
+
+def links_of(cur, ls_id):
+    """[(source, ext_id), ...] for one landslide, oldest first."""
+    cur.execute(f'SELECT source, ext_id FROM {LINKS} WHERE landslide_id = %s '
+                f'ORDER BY linked_at, source, ext_id', (ls_id,))
+    return [tuple(r) for r in cur.fetchall()]
+
+
+def apply_promotion(cur, ls_id, sid, layer, ext_id, *, fresh, who=None):
+    """Link landslide `ls_id` to their record and write the rule fields, in the
+    caller's transaction. `fresh` = the record was just drawn for this
+    promotion (noted_by is overwritten); otherwise an existing record is being
+    linked (noted_by only filled when blank). Links already on the record stay:
+    each has its own sentence in ongoing_work. Returns what changed."""
     if sid not in SOURCES or layer not in SOURCES[sid]['fetch']['layers']:
         raise PromotionError('unknown source or layer', 404)
+    if not links_ready(cur):
+        raise PromotionError('links table missing: run manage.py migrate_external_links', 503)
     row = mirrored_row(cur, sid, layer, ext_id)
     if row is None:
         raise PromotionError(f'{SOURCES[sid]["short"]} has no record {ext_id} in {layer}', 404)
-    cur.execute('SELECT unique_name, ongoing_work, noted_by, external_source, external_id '
-                'FROM landslides WHERE id = %s FOR UPDATE', (ls_id,))
+    cur.execute('SELECT unique_name, ongoing_work, noted_by FROM landslides '
+                'WHERE id = %s FOR UPDATE', (ls_id,))
     cur_row = cur.fetchone()
     if cur_row is None:
         raise PromotionError(f'no landslide {ls_id}', 404)
-    name, ow, nb, old_sid, old_eid = cur_row
-    new_ow = merge_promotion_text(sid, ow, promotion_text(sid, ext_id, row))
-    rule_nb = promote_values(sid)['noted_by']
-    if fresh:
-        new_nb = rule_nb
-    else:
-        new_nb = nb if (nb or '').strip() else rule_nb
-    cur.execute('UPDATE landslides SET external_source = %s, external_id = %s, '
-                'ongoing_work = %s, noted_by = %s, updated_at = NOW() WHERE id = %s',
-                (sid, str(ext_id), new_ow, new_nb, ls_id))
+    name, ow, nb = cur_row
+    before = links_of(cur, ls_id)
+    new_ow = merge_promotion_text(sid, ext_id, ow, promotion_text(sid, ext_id, row))
+    rule_nb = noted_by_for(cur, sid, row)
+    new_nb = rule_nb if fresh else (nb if (nb or '').strip() else rule_nb)
+    cur.execute('UPDATE landslides SET ongoing_work = %s, noted_by = %s, '
+                'updated_at = NOW() WHERE id = %s', (new_ow, new_nb, ls_id))
+    cur.execute(f'INSERT INTO {LINKS} (landslide_id, source, ext_id, linked_by) '
+                f'VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING',
+                (ls_id, sid, str(ext_id), who))
     return {'landslide_id': ls_id, 'name': name,
             'external_source': sid, 'external_id': str(ext_id),
             'ongoing_work': new_ow, 'noted_by': new_nb,
-            'previous': {'external_source': old_sid or None, 'external_id': old_eid or None,
-                         'ongoing_work': ow, 'noted_by': nb}}
+            'links': links_of(cur, ls_id),
+            'previous': {'links': before, 'ongoing_work': ow, 'noted_by': nb}}
+
+
+def remove_link(cur, ls_id, sid, ext_id):
+    """Undo one link: the row and its sentence. noted_by is left as it is --
+    it may have been settled by hand since."""
+    if not links_ready(cur):
+        raise PromotionError('links table missing: run manage.py migrate_external_links', 503)
+    cur.execute(f'DELETE FROM {LINKS} WHERE landslide_id = %s AND source = %s AND ext_id = %s',
+                (ls_id, sid, str(ext_id)))
+    if not cur.rowcount:
+        raise PromotionError(f'landslide {ls_id} is not linked to {sid} {ext_id}', 404)
+    cur.execute('SELECT unique_name, ongoing_work FROM landslides WHERE id = %s FOR UPDATE', (ls_id,))
+    name, ow = cur.fetchone()
+    new_ow = remove_promotion_text(sid, ext_id, ow)
+    cur.execute('UPDATE landslides SET ongoing_work = %s, updated_at = NOW() WHERE id = %s',
+                (new_ow, ls_id))
+    return {'landslide_id': ls_id, 'name': name, 'ongoing_work': new_ow,
+            'links': links_of(cur, ls_id)}
 
 
 def source(sid):
@@ -865,7 +977,11 @@ def _promote_or_link(request, sid, layer, ext_id, fresh):
     try:
         cur = conn.cursor()
         try:
-            applied = apply_promotion(cur, ls_id, sid, layer, ext_id, fresh=fresh)
+            if fresh is None:
+                applied = remove_link(cur, ls_id, sid, ext_id)
+            else:
+                applied = apply_promotion(cur, ls_id, sid, layer, ext_id, fresh=fresh,
+                                          who=_who(request))
         except PromotionError as e:
             conn.rollback()
             return JsonResponse({'error': str(e)}, status=e.status)
@@ -914,6 +1030,40 @@ def api_external_link(request, sid, layer, ext_id):
 
 
 @inventory_editor_required
+@require_http_methods(['POST'])
+def api_external_unlink(request, sid, layer, ext_id):
+    """Remove one link from a landslide of ours, with its sentence in
+    ongoing_work. POST {"landslide_id": N}. Editor-only. For a wrong link;
+    the landslide itself is untouched otherwise."""
+    if sid not in SOURCES:
+        return JsonResponse({'error': 'unknown source'}, status=404)
+    return _promote_or_link(request, sid, layer, ext_id, fresh=None)
+
+
+@inventory_editor_required
+@require_http_methods(['GET'])
+def api_landslide_links(request, landslide_id):
+    """The outside records a landslide of ours is linked to, for the
+    "Promoted from" cards on its edit and review forms:
+    {links: [{source, ext_id, layer}]} (layer = the source's primary layer;
+    a promotion is recorded by source and id, not layer)."""
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        if not links_ready(cur):
+            conn.rollback()
+            return JsonResponse({'links': [], 'not_migrated': True})
+        rows = links_of(cur, landslide_id)
+        conn.rollback()
+    finally:
+        _put_conn(conn)
+    return JsonResponse({'links': [
+        {'source': sid, 'ext_id': eid,
+         'layer': (SOURCES.get(sid) or {}).get('primary_layer')}
+        for sid, eid in rows if sid in SOURCES]})
+
+
+@inventory_editor_required
 @require_http_methods(['GET'])
 def api_external_nearby(request, sid, layer, ext_id):
     """Our records nearest their record, for the popup's Link list. Distance is
@@ -935,24 +1085,30 @@ def api_external_nearby(request, sid, layer, ext_id):
             WITH g AS (SELECT geom, ST_PointOnSurface(geom) AS p FROM {t}
                         WHERE ext_id = %s LIMIT 1),
             near AS (
-                SELECT l.id, l.unique_name, l.external_source, l.external_id,
+                SELECT l.id, l.unique_name,
                        l.reviewed_at IS NULL AS pending,
                        ST_SetSRID(ST_MakePoint(l.centroid_lon, l.centroid_lat), 4326) AS c
                   FROM landslides l, g
                  WHERE l.deprecated_at IS NULL AND l.centroid_lon IS NOT NULL
                  ORDER BY ST_SetSRID(ST_MakePoint(l.centroid_lon, l.centroid_lat), 4326) <-> g.p
                  LIMIT 20)
-            SELECT n.id, n.unique_name, n.external_source, n.external_id, n.pending,
+            SELECT n.id, n.unique_name, n.pending,
                    round(ST_Distance(n.c::geography, g.geom::geography)) AS d
               FROM near n, g ORDER BY d, n.id LIMIT 6
         """, (str(ext_id),))
         rows = cur.fetchall()
+        links = {}
+        if rows and links_ready(cur):
+            cur.execute(f'SELECT landslide_id, source, ext_id FROM {LINKS} '
+                        f'WHERE landslide_id = ANY(%s) ORDER BY linked_at', ([r[0] for r in rows],))
+            for lid, src, eid in cur.fetchall():
+                links.setdefault(lid, []).append([src, eid])
         conn.rollback()
     finally:
         _put_conn(conn)
     return JsonResponse({'records': [
-        {'id': r[0], 'name': r[1], 'external_source': r[2] or None,
-         'external_id': r[3] or None, 'pending': r[4], 'distance_m': int(r[5])}
+        {'id': r[0], 'name': r[1], 'pending': r[2], 'distance_m': int(r[3]),
+         'links': links.get(r[0], [])}
         for r in rows]})
 
 
@@ -994,6 +1150,16 @@ def api_external_record(request, sid, layer, ext_id):
                     f'ST_Y(ST_PointOnSurface(geom)) FROM {t} '
                     f'WHERE ext_id = %s LIMIT 1', (str(ext_id),))
         row = cur.fetchone()
+        # ?geom=1: their full outline, for promotion to start from. The map's
+        # copy comes out of MapLibre's tiles, clipped and simplified per zoom,
+        # so it is not the outline they published. 9 decimals is what Terra
+        # Draw and the draw stage accept (see revise.js COORD_PRECISION).
+        geom = None
+        if row and request.GET.get('geom'):
+            cur.execute(f'SELECT ST_AsGeoJSON(geom, 9) FROM {t} WHERE ext_id = %s LIMIT 1',
+                        (str(ext_id),))
+            g = cur.fetchone()
+            geom = json.loads(g[0]) if g and g[0] else None
         # Editors: the record's review too, so the explorer's popup opens with
         # the same Review box the overlay popup has.
         review = (_reviews_for(cur, sid, layer, [str(ext_id)]).get(str(ext_id), {})
@@ -1016,6 +1182,7 @@ def api_external_record(request, sid, layer, ext_id):
                    'citation': s['citation'], 'url': s['url'],
                    'licence': s['licence'], 'colour': s['colour']},
         'layer': layer, 'labels': labels, 'order': cols, 'properties': props,
+        **({'geometry': geom} if geom else {}),
     })
 
 
@@ -1134,9 +1301,11 @@ def _reviews_for(cur, sid, layer, ext_ids):
                 d['_review_note'] = note
     # Promotion records only (source, their id), not the layer, so a promotion
     # shows on whichever of the source's layers carries that id.
-    cur.execute("""
-        SELECT external_id, id, unique_name FROM landslides
-         WHERE external_source = %s AND external_id = ANY(%s) ORDER BY id
+    if not links_ready(cur):
+        return out
+    cur.execute(f"""
+        SELECT k.ext_id, l.id, l.unique_name FROM {LINKS} k JOIN landslides l ON l.id = k.landslide_id
+         WHERE k.source = %s AND k.ext_id = ANY(%s) ORDER BY l.id
     """, (sid, ids))
     for eid, lid, name in cur.fetchall():
         out.setdefault(eid, {}).setdefault('_promoted', []).append([lid, name])
@@ -1475,11 +1644,13 @@ def api_external_reviews(request, sid, layer):
             cur.execute("""SELECT ext_id, category_id FROM ext_reviews
                             WHERE source = %s AND layer = %s""", (sid, layer))
             revs = {e: c for e, c in cur.fetchall()}
-        cur.execute("""SELECT external_id, id, unique_name FROM landslides
-                        WHERE external_source = %s ORDER BY id""", (sid,))
         prom = {}
-        for e, i, nm in cur.fetchall():
-            prom.setdefault(e, []).append([i, nm])
+        if links_ready(cur):
+            cur.execute(f"""SELECT k.ext_id, l.id, l.unique_name
+                              FROM {LINKS} k JOIN landslides l ON l.id = k.landslide_id
+                             WHERE k.source = %s ORDER BY l.id""", (sid,))
+            for e, i, nm in cur.fetchall():
+                prom.setdefault(e, []).append([i, nm])
         conn.rollback()
     finally:
         _put_conn(conn)

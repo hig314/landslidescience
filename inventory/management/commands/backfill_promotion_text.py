@@ -7,14 +7,15 @@ all in one transaction. Run once per environment (dev and prod are separate
 databases); re-running is harmless, a record already in the current wording is
 reported unchanged.
 
-Two kinds of record are repaired on the way:
+Reads landslide_external_links (run migrate_external_links first). Two kinds
+of record are repaired on the way:
 
-  * stamped with an id the mirror does not hold. Three DGGS promotions carry
+  * linked with an id the mirror does not hold. Three DGGS promotions carried
     the OBJECTID (1893) instead of their points_id; an id that matches a
-    mirrored OBJECTID is re-stamped with that record's own id.
+    mirrored OBJECTID is re-linked with that record's own id.
 
-  * carrying the "Noted in ..." sentence but no stamp (drawn as an ordinary
-    record, the sentence typed by hand). Hig, 2026-11-24: where the text says
+  * carrying a source's "Noted in ..." sentence but no link to that source
+    (drawn as an ordinary record, the sentence typed by hand). Hig, 2026-11-24: where the text says
     it was promoted, the nearest point of that source is the match. Matched
     within --max-distance of our centroid, otherwise reported and left alone.
     --pair ID:EXT_ID overrides the nearest-point guess for one record.
@@ -52,15 +53,20 @@ class Command(BaseCommand):
         changed = 0
         try:
             cur = conn.cursor()
-            cur.execute("""SELECT id, unique_name, external_source, external_id, ongoing_work,
-                                  centroid_lon, centroid_lat
+            if not X.links_ready(cur):
+                raise CommandError('run manage.py migrate_external_links first')
+            cur.execute("""SELECT id, unique_name, ongoing_work, centroid_lon, centroid_lat
                              FROM landslides WHERE deprecated_at IS NULL ORDER BY id""")
-            rows = cur.fetchall()
-            for lid, name, sid, eid, ow, lon, lat in rows:
+            records = cur.fetchall()
+            cur.execute(f'SELECT landslide_id, source, ext_id FROM {X.LINKS} ORDER BY linked_at')
+            linked = {}
+            for lid, sid, eid in cur.fetchall():
+                linked.setdefault(lid, []).append((sid, eid))
+            for lid, name, ow, lon, lat in records:
                 if o['only'] and lid not in o['only']:
                     continue
-                note = ''
-                if sid:
+                todo = []          # (sid, layer, eid, note, old link to replace or None)
+                for sid, eid in linked.get(lid, []):
                     if sid not in X.SOURCES:
                         self.stdout.write(f'#{lid} {name}: unknown source {sid!r}, skipped')
                         continue
@@ -71,54 +77,65 @@ class Command(BaseCommand):
                             self.stdout.write(self.style.WARNING(
                                 f'#{lid} {name}: {sid} has no record {eid!r}; skipped'))
                             continue
-                        note = f'id {eid} is their OBJECTID; re-stamped as {fixed}'
-                        eid = fixed
-                else:
-                    sid = next((s for s in X.SOURCES
-                                if any(p.search(ow or '') for p in X._text_patterns(s))), None)
-                    if not sid:
+                        todo.append((sid, layer, fixed,
+                                     f'id {eid} is their OBJECTID; re-linked as {fixed}', eid))
+                    else:
+                        todo.append((sid, layer, eid, '', None))
+                # A source named in the text but not linked: the record was drawn
+                # as an ordinary one and the sentence typed by hand.
+                have = {sid for sid, _e in linked.get(lid, [])}
+                for sid in X.SOURCES:
+                    if sid in have or not any(p.search(ow or '') for p in X._text_patterns(sid)):
                         continue
                     layer = X.SOURCES[sid]['primary_layer']
                     if lid in pairs:
-                        eid, note = pairs[lid], 'unstamped; paired by hand'
-                    else:
-                        if lon is None:
-                            self.stdout.write(self.style.WARNING(
-                                f'#{lid} {name}: says {sid} but has no centroid; skipped'))
-                            continue
-                        eid, dist = self._nearest(cur, sid, layer, lon, lat)
-                        if eid is None or dist > o['max_distance']:
-                            self.stdout.write(self.style.WARNING(
-                                f'#{lid} {name}: says {sid}, nearest point {eid} is {dist:.0f} m '
-                                f'away (> {o["max_distance"]:.0f}); skipped, use --pair'))
-                            continue
-                        note = f'unstamped; nearest {sid} point {eid} at {dist:.0f} m'
-                cur.execute('SAVEPOINT r')
-                try:
-                    res = X.apply_promotion(cur, lid, sid, layer, eid, fresh=False)
-                except X.PromotionError as e:
-                    cur.execute('ROLLBACK TO SAVEPOINT r')
-                    self.stdout.write(self.style.WARNING(f'#{lid} {name}: {e}; skipped'))
+                        todo.append((sid, layer, pairs[lid], 'unlinked; paired by hand', None))
+                        continue
+                    if lon is None:
+                        self.stdout.write(self.style.WARNING(
+                            f'#{lid} {name}: says {sid} but has no centroid; skipped'))
+                        continue
+                    eid, dist = self._nearest(cur, sid, layer, lon, lat)
+                    if eid is None or dist > o['max_distance']:
+                        self.stdout.write(self.style.WARNING(
+                            f'#{lid} {name}: says {sid}, nearest record {eid} is {dist:.0f} m '
+                            f'away (> {o["max_distance"]:.0f}); skipped, use --pair'))
+                        continue
+                    todo.append((sid, layer, eid, f'unlinked; nearest {sid} record {eid} at {dist:.0f} m', None))
+                if not todo:
                     continue
-                prev = res['previous']
+                cur.execute('SAVEPOINT r')
+                cur.execute('SELECT ongoing_work, noted_by FROM landslides WHERE id = %s', (lid,))
+                ow0, nb0 = cur.fetchone()
+                notes, ok = [], True
+                for sid, layer, eid, note, old in todo:
+                    if old is not None:
+                        cur.execute(f'DELETE FROM {X.LINKS} WHERE landslide_id = %s AND source = %s '
+                                    f'AND ext_id = %s', (lid, sid, old))
+                    try:
+                        X.apply_promotion(cur, lid, sid, layer, eid, fresh=False, who='backfill')
+                    except X.PromotionError as e:
+                        self.stdout.write(self.style.WARNING(f'#{lid} {name}: {e}; skipped'))
+                        ok = False
+                        break
+                    if note:
+                        notes.append(note)
+                if not ok:
+                    cur.execute('ROLLBACK TO SAVEPOINT r')
+                    continue
                 # Backfill never changes noted_by (apply_promotion may fill a blank one).
-                if (res['noted_by'] or None) != (prev['noted_by'] or None):
-                    cur.execute('UPDATE landslides SET noted_by = %s WHERE id = %s',
-                                (prev['noted_by'], lid))
-                same = (prev['ongoing_work'] or '') == res['ongoing_work'] and \
-                       prev['external_source'] == sid and prev['external_id'] == eid
-                if same:
+                cur.execute('UPDATE landslides SET noted_by = %s WHERE id = %s', (nb0, lid))
+                cur.execute('SELECT ongoing_work FROM landslides WHERE id = %s', (lid,))
+                ow1 = cur.fetchone()[0]
+                if (ow0 or '') == (ow1 or '') and not notes:
                     cur.execute('ROLLBACK TO SAVEPOINT r')
                     self.stdout.write(f'#{lid} {name}: unchanged')
                     continue
                 changed += 1
                 self.stdout.write(self.style.SUCCESS(f'#{lid} {name}') +
-                                  (f'  [{note}]' if note else ''))
-                if (prev['external_source'], prev['external_id']) != (sid, eid):
-                    self.stdout.write(f'    stamp: {prev["external_source"]}/{prev["external_id"]}'
-                                      f' -> {sid}/{eid}')
-                self.stdout.write(f'    was: {prev["ongoing_work"] or ""}')
-                self.stdout.write(f'    now: {res["ongoing_work"]}')
+                                  (f'  [{"; ".join(notes)}]' if notes else ''))
+                self.stdout.write(f'    was: {ow0 or ""}')
+                self.stdout.write(f'    now: {ow1}')
             if o['apply']:
                 conn.commit()
             else:
