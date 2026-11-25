@@ -177,6 +177,36 @@ large-stress end reads about 24 deg).
   ceiling than 10 r0, and skipping small-class nodes where a larger class already
   needs more than the small class can.
 
+## One slope, one failure: `site_failure.py` (2026-11-24)
+
+Hig asked for a plausible large failure on the SW side of Sadie Peak
+(-151.304173, 59.472539) from the 8 m KBay topobathy. `site_failure.py peaks` seeds
+with the class lattices, then climbs (Nelder-Mead, volume free) on one 16 m grid to
+local peaks of required cohesion, groups them by footprint overlap, and with
+`--planes` does the same for planes (spheres of 200 km radius, so the same core).
+`products --make ID ...` re-climbs on the 8 m grid and writes thickness, the ground
+with the mass removed, and the ground before, cropped to the scar + 2 km.
+Output: `/Volumes/Nunatak/terrain_build/scoops_state/sites/sadie_peak/`
+(`peaks_phi30.json`, `climbs_phi30.json`, `preview_phi30.png`). Run at phi 30 only.
+The evaluator is `scoops_climb` with no moves allowed. A full run with planes is
+about 25 min on 5 workers, nearly all of it the planes (each scans the whole grid).
+Traps: seeds in a wide box go to other slopes (use `--box 2100 --box-off 1400`); the
+"on the face" test uses the centroid's bearing from the site, which means nothing for
+a failure at the summit itself.
+
+**Friction sweep and the mapped outline (2026-11-25).** Peaks at phi 15, 17.5, 20, 22.5,
+25, 30, 35, 40 (`peaks_phi<phi>.json`). `site_polyfit.py` fits spheres of a series of
+radii to an outline (`polyfit.json`) and, with `--compare`, scores every free peak
+against it (`peaks_vs_outline.json`). **Hig asked for this one use of an inventory
+outline (record 1558, Sadie Peak); the standing rule is otherwise unchanged.** Found:
+the outline is matched (IoU 0.85+) only by spheres of R 1.4 to 2.3 km, 4 to 7e8 m3;
+those need no cohesion at phi 30; the free search has a local peak like the outline
+at phi 20 (4.25e8 m3, 525 kPa, IoU 0.70), a weak one at 22.5 that shrinks when
+re-climbed at 8 m, none at 25 and above, and at 17.5 and below the peak outgrows it.
+Hig's reading of 20 deg + 525 kPa: phyllite carries many failures here, and the cohesion
+is plausibly rock bridges plus permafrost strengthening the upper part of the surface.
+The solver is dry, so 20 deg is an effective value.
+
 ## The question (Hig's framing)
 
 "How strong must the slope be in order to be so steep?" This looks at the
