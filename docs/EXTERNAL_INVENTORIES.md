@@ -54,6 +54,13 @@ inventory is a registry entry plus a fetch rather than a schema negotiation.
   the layer's `labels` (short forms of their data dictionary) become the
   column comments. Integer ids stored as Real are written as `1`, not `1.0`.
   ScienceBase often answers 502; the download retries five times.
+- **Per-source `style`** (optional, polygon layers): `fill_opacity`,
+  `line_width`, `casing` (a darker line under the outline), `ink` (heading
+  text colour where `colour` is unreadable on white). Schaefer 2026 (Hig,
+  2026-11-25): hard yellow `#ffd000` outline, no visible fill (0.01, still
+  clickable), dark casing — yellow = subtle like our InSAR/subtle-creep class,
+  but an outline so it is never mistaken for our yellow-filled polygons; its
+  layer-list swatch is an outline too.
 - **Polygon sources**: `record/` and `explore/` locate a polygon by
   `ST_PointOnSurface`; `nearby/` measures from their outline (0 m = ours sits
   inside). 78 of the 239 Schaefer outlines already hold one of our centroids.

@@ -58,6 +58,12 @@
 
         // One def builder per geometry kind, so the wiper's right pane can mirror
         // these exactly as it mirrors faults and survey circles.
+        function _extStyleOf(k) {
+            var sid = String(k).split('/')[0];
+            var s = (_extSources || []).filter(function (x) { return x.id === sid; })[0];
+            return (s && s.style) || {};
+        }
+
         function _extLayerDefs(k, geom, colour) {
             var src = _extSrcId(k);
             if (geom === 'POINT') {
@@ -74,12 +80,25 @@
                 }];
             }
             if (geom === 'MULTIPOLYGON') {
-                return [
+                // A source may restyle its outlines (registry `style`): Schaefer
+                // 2026 is a hard yellow outline with no visible fill and a dark
+                // casing. The fill layer stays, near-transparent, so a click
+                // inside an outline still opens it.
+                var st = _extStyleOf(k);
+                var lw = st.line_width || 1.2;
+                var defs = [
                     { id: _extLyrId(k, 'fill'), type: 'fill', source: src,
-                      paint: { 'fill-color': colour, 'fill-opacity': 0.18 } },
-                    { id: _extLyrId(k, 'line'), type: 'line', source: src,
-                      paint: { 'line-color': colour, 'line-width': 1.2, 'line-opacity': 0.9 } }
+                      paint: { 'fill-color': colour,
+                               'fill-opacity': st.fill_opacity != null ? st.fill_opacity : 0.18 } }
                 ];
+                if (st.casing) {
+                    defs.push({ id: _extLyrId(k, 'casing'), type: 'line', source: src,
+                                paint: { 'line-color': st.casing, 'line-width': lw + 1.8,
+                                         'line-opacity': 0.55 } });
+                }
+                defs.push({ id: _extLyrId(k, 'line'), type: 'line', source: src,
+                            paint: { 'line-color': colour, 'line-width': lw, 'line-opacity': 0.95 } });
+                return defs;
             }
             return [{
                 id: _extLyrId(k, 'line'), type: 'line', source: src,
@@ -271,8 +290,12 @@
                     all.indeterminate = on > 0 && on < rows.length;
                 }
                 var sw = document.createElement('span');
-                sw.style.cssText = 'width:9px;height:9px;border-radius:50%;flex:none;background:' +
-                                   s.colour + ';border:1px solid #fff;box-shadow:0 0 0 1px #bbb;';
+                sw.style.cssText = (s.style && s.style.casing)
+                    // Outline-only source: the swatch is an outline too.
+                    ? 'width:8px;height:8px;flex:none;background:transparent;border:2px solid ' +
+                      s.colour + ';box-shadow:0 0 0 1px ' + s.style.casing + ';'
+                    : 'width:9px;height:9px;border-radius:50%;flex:none;background:' +
+                      s.colour + ';border:1px solid #fff;box-shadow:0 0 0 1px #bbb;';
                 title.appendChild(sw);
                 var a = document.createElement('a');
                 a.href = s.url; a.target = '_blank'; a.rel = 'noopener';
@@ -774,7 +797,7 @@
             // may scroll out of sight -- and a records-long panel that opened
             // somewhere in its own middle was doing exactly that.
             var html = '<div style="font:12px/1.4 system-ui,sans-serif;max-width:300px;">' +
-                '<div style="font-weight:600;color:' + s.colour + ';margin-bottom:3px;">' +
+                '<div style="font-weight:600;color:' + ((s.style && s.style.ink) || s.colour) + ';margin-bottom:3px;">' +
                     esc(s.short) + ' · ' + esc(L.label) + '</div>' +
                 (window._isInventoryEditor ? '<div class="ext-review"></div>' : '') +
                 '<div class="ext-fields" style="max-height:280px;overflow:auto;">' +

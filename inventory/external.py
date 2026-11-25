@@ -273,7 +273,17 @@ SOURCES = {
         'licence': ('CC0 1.0 (public domain). Cite the data release and Schaefer '
                     'and others (2026), npj Natural Hazards, '
                     'doi:10.1038/s44304-026-00296-3.'),
-        'colour': '#2a7ab0',
+        # Hard yellow, outline only (Hig, 2026-11-25): yellow = subtle, as in
+        # our InSAR/subtle-creep class, but an outline so it is never confused
+        # with our yellow-FILLED subtle-creep polygons. Dark casing keeps the
+        # line visible over snow and ice, where many of these sit.
+        'colour': '#ffd000',
+        'style': {
+            'fill_opacity': 0.01,   # near-invisible, but the fill still takes clicks
+            'line_width': 2.2,
+            'casing': '#4a3b00',
+            'ink': '#8a6a00',       # headings in text: yellow on white is unreadable
+        },
         'fetch': {
             # A zipped shapefile on ScienceBase (item 684afb2cd4be020b699d9944).
             # The URL names one file version; a revised release is a new URL.
@@ -997,6 +1007,7 @@ def api_external_sources(request):
                     'id': sid, 'title': s['title'], 'short': s['short'],
                     'citation': s['citation'], 'url': s['url'],
                     'licence': s['licence'], 'colour': s['colour'],
+                    'style': s.get('style') or {},
                     'primary_layer': s['primary_layer'], 'layers': layers,
                 })
         conn.rollback()
