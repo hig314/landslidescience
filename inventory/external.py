@@ -1097,16 +1097,63 @@ def api_external_nearby(request, sid, layer, ext_id):
               FROM near n, g ORDER BY d, n.id LIMIT 6
         """, (str(ext_id),))
         rows = cur.fetchall()
+        # Overlap first (Hig, 2026-11-24: "start by assuming it's a landslide
+        # that has strong overlap"). Our outlines that touch theirs, all roles
+        # of a record unioned: for an outline, the shared area as a share of
+        # each and as intersection-over-union; for a point, whether one of our
+        # outlines contains it.
+        cur.execute(f"""
+            WITH g AS (SELECT ST_MakeValid(geom) AS geom FROM {t} WHERE ext_id = %s LIMIT 1),
+            cand AS (
+                SELECT p.landslide_id, ST_Union(ST_MakeValid(p.geom)) AS u
+                  FROM landslide_polygons p
+                  JOIN landslides l ON l.id = p.landslide_id AND l.deprecated_at IS NULL, g
+                 WHERE p.geom && g.geom AND ST_Intersects(p.geom, g.geom)
+                 GROUP BY p.landslide_id)
+            SELECT c.landslide_id, l.unique_name, l.reviewed_at IS NULL,
+                   ST_Area(ST_Intersection(c.u, g.geom)::geography),
+                   ST_Area(c.u::geography), ST_Area(g.geom::geography),
+                   ST_Dimension(g.geom)
+              FROM cand c JOIN landslides l ON l.id = c.landslide_id, g
+        """, (str(ext_id),))
+        overlaps = []
+        for lid, name, pending, inter, a_ours, a_theirs, dim in cur.fetchall():
+            o = {'id': lid, 'name': name, 'pending': pending}
+            if dim < 2:
+                o.update({'contains': True, 'strong': True, 'score': 1.0})
+            else:
+                inter = inter or 0.0
+                union = (a_ours or 0) + (a_theirs or 0) - inter
+                iou = inter / union if union > 0 else 0.0
+                of_t = inter / a_theirs if a_theirs else 0.0
+                of_o = inter / a_ours if a_ours else 0.0
+                # Strong: they substantially share ground. IoU alone undersells
+                # one outline nested in another -- their deforming patch inside
+                # our larger landslide (Gilbert A: all of theirs inside ours, IoU
+                # 0.10) -- so theirs lying mostly inside ours counts, as does a
+                # moderate IoU where one shares half or more (Pothole Glacier
+                # 2016: 0.56 of theirs, IoU 0.25).
+                strong = (iou >= 0.3 or of_t >= 0.8
+                          or (max(of_t, of_o) >= 0.5 and iou >= 0.2))
+                o.update({'iou': round(iou, 3), 'of_theirs': round(of_t, 3),
+                          'of_ours': round(of_o, 3), 'strong': strong,
+                          'score': iou + (1.0 if strong else 0.0) + 0.1 * of_t})
+            overlaps.append(o)
+        overlaps.sort(key=lambda o: (-o['score'], o['id']))
+        ids = [r[0] for r in rows] + [o['id'] for o in overlaps]
         links = {}
-        if rows and links_ready(cur):
+        if ids and links_ready(cur):
             cur.execute(f'SELECT landslide_id, source, ext_id FROM {LINKS} '
-                        f'WHERE landslide_id = ANY(%s) ORDER BY linked_at', ([r[0] for r in rows],))
+                        f'WHERE landslide_id = ANY(%s) ORDER BY linked_at', (ids,))
             for lid, src, eid in cur.fetchall():
                 links.setdefault(lid, []).append([src, eid])
+        for o in overlaps:
+            o['links'] = links.get(o['id'], [])
+            o.pop('score', None)
         conn.rollback()
     finally:
         _put_conn(conn)
-    return JsonResponse({'records': [
+    return JsonResponse({'overlaps': overlaps, 'records': [
         {'id': r[0], 'name': r[1], 'pending': r[2], 'distance_m': int(r[3]),
          'links': links.get(r[0], [])}
         for r in rows]})

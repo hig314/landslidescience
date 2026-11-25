@@ -128,8 +128,18 @@ like any other induction, never straight onto the public map.
   cannot write the old ongoing work back). `GET api/external/links/<id>/`
   feeds the cards.
 - **Link to an existing record** (2026-11-24): the popup's *⇄ Link to an
-  existing record…* lists our six nearest non-deprecated records (centroid
-  distance, `api/external/<sid>/<layer>/nearby/<ext_id>/`) or takes an id;
+  existing record…* starts from **overlap** (Hig: "start by assuming it's a
+  landslide that has strong overlap"): `nearby/` returns `overlaps`, our
+  records whose outlines (all roles unioned) touch theirs, with the share of
+  theirs, of ours and IoU (for a point source: our outline contains it).
+  *Strong* = IoU ≥ 0.3, or ≥ 0.8 of theirs inside ours (their deforming patch
+  inside our larger landslide: Gilbert A), or IoU ≥ 0.2 with either share
+  ≥ 0.5 (Pothole Glacier 2016). Schaefer 2026: 99 of 239 overlap one of ours,
+  90 strongly, one with two strong. Strong shown first, partial under it, the
+  six nearest by centroid (`records`) behind "Other records nearby…" (shown
+  directly when nothing overlaps). Opening Link folds the field list away,
+  caps the box at 240 px and pans the map so the popup fits (it ran off the
+  screen). An id can also be typed;
   second click confirms (no dialog); POST `.../link/<ext_id>/`
   `{landslide_id}`. Adds a link beside any the record has; re-linking the same
   one rewrites its sentence in place. Written to the edit log as the linking

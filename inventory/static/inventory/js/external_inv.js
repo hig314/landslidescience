@@ -541,13 +541,22 @@
             if (!box) return;
             var extId = p.ext_id;
             if (extId === undefined || extId === null) return;
-            if (box.style.display !== 'none') { box.style.display = 'none'; return; }
-            box.style.display = 'block';
-            box.style.cssText += ';font-size:11px;background:#f6f6f2;border:1px solid #e4e4dc;' +
-                                 'border-radius:4px;padding:5px 6px;';
+            // The field list is what pushed this box off the bottom of the
+            // screen (Hig, 2026-11-24), so it folds away while Link is open.
+            var popEl = box.closest('.maplibregl-popup');
+            var fields = popEl && popEl.querySelector('.ext-fields');
+            if (box.style.display !== 'none') {
+                box.style.display = 'none';
+                if (fields) fields.style.display = '';
+                return;
+            }
+            if (fields) fields.style.display = 'none';
+            box.style.cssText = 'display:block;margin-top:5px;font-size:11px;background:#f6f6f2;' +
+                                'border:1px solid #e4e4dc;border-radius:4px;padding:5px 6px;' +
+                                'max-height:240px;overflow:auto;';
             var base = API_BASE + 'api/external/' + s.id + '/' + L.layer + '/';
             box.innerHTML = '<div style="color:#666;margin-bottom:3px;">Link one of our records to this one:</div>' +
-                '<div class="lk-list" style="color:#999;">Finding our nearest records…</div>' +
+                '<div class="lk-list" style="color:#999;">Looking for our records that overlap it…</div>' +
                 '<div style="display:flex;gap:4px;margin-top:4px;">' +
                   '<input type="text" class="lk-id" inputmode="numeric" placeholder="or record id" ' +
                   'style="flex:1;min-width:0;font-size:11px;">' +
@@ -620,42 +629,91 @@
                     });
             }
 
+            // Overlap first: a strong overlap is offered on its own, partial
+            // overlaps under it, and the plain nearest-records list only on
+            // request (or when nothing overlaps).
+            function recRow(r, extra) {
+                var here = false, others = [];
+                (r.links || []).forEach(function (lk) {
+                    if (lk[0] === s.id && lk[1] === String(extId)) here = true;
+                    else others.push(esc(lk[0] + ' ' + lk[1]));
+                });
+                var tag = (here ? ' · <span style="color:#2e7d32;">linked to this</span>' : '') +
+                          (others.length ? ' · <span style="color:#a0522d;" title="Its other links">also ' +
+                           others.join(', ') + '</span>' : '');
+                var row = document.createElement('div');
+                row.style.cssText = 'display:flex;gap:4px;align-items:center;margin:2px 0;';
+                row.innerHTML = '<span style="flex:1;min-width:0;">' +
+                    '<a href="/inventory/manage/' + r.id + '/">' + esc(r.name || ('#' + r.id)) + '</a>' +
+                    ' <span style="color:#999;">#' + r.id + (extra ? ' · ' + extra : '') +
+                    (r.pending ? ' · pending' : '') + '</span>' + tag + '</span>' +
+                    '<button type="button" style="flex:none;font-size:11px;cursor:pointer;">' +
+                    (here ? 'Unlink' : 'Link') + '</button>';
+                var b = row.querySelector('button');
+                b.addEventListener('click', function () {
+                    if (here) unlink(r.id, b, r.name || ('#' + r.id));
+                    else link(r.id, b, r.name || ('#' + r.id));
+                });
+                return row;
+            }
+            function pct(x) { return Math.round(100 * x) + '%'; }
+            function overlapText(o) {
+                if (o.contains) return 'their point is inside it';
+                return pct(o.of_theirs) + ' of theirs, ' + pct(o.of_ours) + ' of ours';
+            }
+            function heading(t) {
+                var h = document.createElement('div');
+                h.style.cssText = 'color:#666;margin:4px 0 1px;font-weight:600;';
+                h.textContent = t;
+                return h;
+            }
+
             fetch(base + 'nearby/' + encodeURIComponent(extId) + '/', { credentials: 'same-origin' })
                 .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || r.status); return d; }); })
                 .then(function (d) {
-                    var recs = d.records || [];
-                    if (!recs.length) { list.textContent = 'None of our records nearby.'; return; }
+                    var ovs = d.overlaps || [], recs = d.records || [];
+                    var strong = ovs.filter(function (o) { return o.strong; });
+                    var weak = ovs.filter(function (o) { return !o.strong; });
+                    var shown = {};
                     list.innerHTML = '';
                     list.style.color = '';
-                    recs.forEach(function (r) {
+                    if (strong.length) {
+                        list.appendChild(heading(strong.length > 1 ? 'Strong overlaps' : 'Strong overlap'));
+                        strong.forEach(function (o) { shown[o.id] = 1; list.appendChild(recRow(o, overlapText(o))); });
+                    }
+                    if (weak.length) {
+                        list.appendChild(heading('Partial overlap'));
+                        weak.forEach(function (o) { shown[o.id] = 1; list.appendChild(recRow(o, overlapText(o))); });
+                    }
+                    var near = recs.filter(function (r) { return !shown[r.id]; });
+                    var nearBox = document.createElement('div');
+                    near.forEach(function (r) {
                         var km = r.distance_m >= 1000 ? (r.distance_m / 1000).toFixed(1) + ' km' : r.distance_m + ' m';
-                        // A record of ours may carry several links (one per
-                        // outside record it derives from); list them all.
-                        var here = false, others = [];
-                        (r.links || []).forEach(function (lk) {
-                            if (lk[0] === s.id && lk[1] === String(extId)) here = true;
-                            else others.push(esc(lk[0] + ' ' + lk[1]));
-                        });
-                        var tag = (here ? ' · <span style="color:#2e7d32;">linked to this</span>' : '') +
-                                  (others.length ? ' · <span style="color:#a0522d;" title="Its other links">also ' +
-                                   others.join(', ') + '</span>' : '');
-                        var row = document.createElement('div');
-                        row.style.cssText = 'display:flex;gap:4px;align-items:center;margin:2px 0;';
-                        row.innerHTML = '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;">' +
-                            '<a href="/inventory/manage/' + r.id + '/">' + esc(r.name || ('#' + r.id)) + '</a>' +
-                            ' <span style="color:#999;">#' + r.id + ' · ' + km + (r.pending ? ' · pending' : '') + '</span>' +
-                            tag + '</span>' +
-                            '<button type="button" style="flex:none;font-size:11px;cursor:pointer;">' +
-                            (here ? 'Unlink' : 'Link') + '</button>';
-                        var b = row.querySelector('button');
-                        b.addEventListener('click', function () {
-                            if (here) unlink(r.id, b, r.name || ('#' + r.id));
-                            else link(r.id, b, r.name || ('#' + r.id));
-                        });
-                        list.appendChild(row);
+                        nearBox.appendChild(recRow(r, km + ' away'));
                     });
+                    if (!ovs.length) {
+                        list.appendChild(heading('None of our records overlap it. Nearest:'));
+                        if (near.length) list.appendChild(nearBox);
+                        else list.appendChild(document.createTextNode('none nearby'));
+                    } else if (near.length) {
+                        var more = document.createElement('button');
+                        more.type = 'button';
+                        more.style.cssText = 'font-size:10px;margin-top:3px;cursor:pointer;';
+                        more.textContent = 'Other records nearby (' + near.length + ')…';
+                        nearBox.style.display = 'none';
+                        more.addEventListener('click', function () {
+                            var open = nearBox.style.display === 'none';
+                            nearBox.style.display = open ? '' : 'none';
+                            more.textContent = (open ? 'Hide other records nearby' :
+                                                'Other records nearby (' + near.length + ')…');
+                        });
+                        list.appendChild(more);
+                        list.appendChild(nearBox);
+                    }
+                    _extPopupIntoView(popEl);
                 })
                 .catch(function (e) { list.style.color = '#c0392b'; list.textContent = 'Nearby records unavailable: ' + e.message; });
+            _extPopupIntoView(popEl);
 
             function byId() {
                 var lid = parseInt(String(idIn.value).replace(/^#/, ''), 10);
@@ -676,6 +734,20 @@
         // publisher's own words and their own column order. No curation beyond
         // dropping empties -- deciding which of someone else's fields matter is
         // the kind of judgement this whole design exists to postpone.
+        // Pan the map just enough that the whole popup is on screen. MapLibre
+        // places a popup once, at the click; one that grows afterwards (the Link
+        // box) can run off the edge with no way to scroll to it.
+        function _extPopupIntoView(el) {
+            if (!el) return;
+            var r = el.getBoundingClientRect(), c = map.getContainer().getBoundingClientRect();
+            var pad = 10, dx = 0, dy = 0;
+            if (r.bottom > c.bottom - pad) dy = r.bottom - (c.bottom - pad);
+            if (r.top - dy < c.top + pad) dy = r.top - (c.top + pad);
+            if (r.right > c.right - pad) dx = r.right - (c.right - pad);
+            if (r.left - dx < c.left + pad) dx = r.left - (c.left + pad);
+            if (dx || dy) map.panBy([dx, dy], { duration: 200 });
+        }
+
         // Display only: a shapefile's doubles arrive as 12.801463569999999.
         // Round what is shown; the mirror and the record endpoint keep it all.
         function _extShowVal(v) {
