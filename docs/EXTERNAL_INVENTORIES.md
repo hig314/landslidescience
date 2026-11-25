@@ -17,6 +17,7 @@ block in `map.js`.
 |---|---|---|
 | `ak_dggs_dds23` | Alaska DGGS DDS 23 (Nicolazzo & Larsen 2025, doi:10.14509/31697) — 5 layers: points, deposits, flanks, scarps, toes | DGGS: name the source, describe modifications |
 | `canada_pcld` | Preliminary Canadian Landslide Database (Brideau and others 2026, doi:10.5281/zenodo.20371365) — points, from a CSV | CC BY 4.0, credit required |
+| `usgs_schaefer2026` | Deforming bedrock landslides in southern Alaska (Schaefer and others 2026, USGS data release doi:10.5066/P1B64SZT; paper npj Nat. Hazards doi:10.1038/s44304-026-00296-3) — 239 PSInSAR polygons, from a zipped shapefile on ScienceBase. Added 2026-11-24. Not the older `insar_schaefer` (Prince William Sound) work | CC0; cite release + paper |
 
 **One table per source layer, columns from the publisher** (`ext_<sid>__<layer>`).
 Hig's framing, and the reason the design is what it is: *"view these as distinct
@@ -46,6 +47,16 @@ inventory is a registry entry plus a fetch rather than a schema negotiation.
   use them; a CSV declares nothing, and sniffing is where faithfulness dies
   (a volume of `">1000"` becomes a parse error or a silent null). Text keeps
   what the publisher wrote; interpretation belongs in promotion.
+- **Zipped shapefiles** (`kind: 'zip_shp'`, `zip_shp_rows`): read with
+  pyogrio, the one `.shp` inside located by name, Z dropped, declared numeric
+  types kept. No service to ask for a count, so the layer's `expect` (the
+  publisher's stated count) is checked instead. A shapefile has no aliases, so
+  the layer's `labels` (short forms of their data dictionary) become the
+  column comments. Integer ids stored as Real are written as `1`, not `1.0`.
+  ScienceBase often answers 502; the download retries five times.
+- **Polygon sources**: `record/` and `explore/` locate a polygon by
+  `ST_PointOnSurface`; `nearby/` measures from their outline (0 m = ours sits
+  inside). 78 of the 239 Schaefer outlines already hold one of our centroids.
 - **ArcGIS Dates arrive as epoch milliseconds** despite being declared Date,
   so they are converted on insert (`to_timestamp(%s/1000.0)`) rather than
   stored as integers nobody will think to decode.

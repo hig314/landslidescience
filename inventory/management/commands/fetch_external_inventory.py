@@ -4,6 +4,7 @@
     python manage.py fetch_external_inventory ak_dggs_dds23
     python manage.py fetch_external_inventory canada_pcld --dry-run
     python manage.py fetch_external_inventory --all
+    python manage.py fetch_external_inventory usgs_schaefer2026   # zipped shapefile
 
 Each source in `inventory/external.py`'s registry gets one table per layer,
 whose columns are the columns the publisher ships. Nothing is translated on
@@ -69,8 +70,11 @@ class Command(BaseCommand):
         if only and only not in layers:
             raise CommandError(f'{sid} has no layer {only!r}')
         for layer in ([only] if only else list(layers)):
-            if s['fetch']['kind'] == 'arcgis':
+            kind = s['fetch']['kind']
+            if kind == 'arcgis':
                 self._arcgis(sid, s, layer, o)
+            elif kind == 'zip_shp':
+                self._zip_shp(sid, s, layer, o)
             else:
                 self._csv(sid, s, layer, o)
 
@@ -124,6 +128,21 @@ class Command(BaseCommand):
                 f'    {skipped} row(s) had no usable coordinates and were skipped'))
         self._write(sid, layer, L['geom'], cols, rows, s, o)
 
+    def _zip_shp(self, sid, s, layer, o):
+        L = s['fetch']['layers'][layer]
+        self.stdout.write(f'  {layer}: downloading zipped shapefile')
+        cols, rows = external.zip_shp_rows(L['url'])
+        self.stdout.write(f'    {len(cols)} fields, {len(rows)} features')
+        # A static file has no service to ask for its count, so the registry
+        # carries the count the publisher states; a short read is refused for
+        # the same reason as on the ArcGIS path.
+        if L.get('expect') is not None and len(rows) != L['expect']:
+            raise CommandError(f'{sid}/{layer}: read {len(rows)} features, the '
+                               f'release has {L["expect"]} -- refusing a partial mirror.')
+        labels = L.get('labels') or {}
+        cols = [(c, t, labels.get(c, orig)) for c, t, orig in cols]
+        self._write(sid, layer, L['geom'], cols, rows, s, o)
+
     # ------------------------------------------------------------------
     def _write(self, sid, layer, geom_type, cols, rows, s, o, domains=None,
                aliases=None):
@@ -171,7 +190,12 @@ class Command(BaseCommand):
             for geom, props in rows:
                 if not geom:
                     continue
-                vals = [props.get(id_col), _json.dumps(geom)] + \
+                eid = props.get(id_col)
+                # Their id as they would write it: a shapefile stores integer
+                # ids as Real, and "1.0" is nobody's name for landslide 1.
+                if isinstance(eid, float) and eid.is_integer():
+                    eid = int(eid)
+                vals = [None if eid is None else str(eid), _json.dumps(geom)] + \
                        [_val(c, props.get(c)) for c in names]
                 cur.execute(sql, vals)
                 n += 1

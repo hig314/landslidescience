@@ -261,6 +261,92 @@ SOURCES = {
             'noted_by': 'Marc-Andre Brideau',
         },
     },
+    'usgs_schaefer2026': {
+        'title': 'Deforming bedrock landslides in southern Alaska (PSInSAR, 2019–2021)',
+        'short': 'USGS Schaefer 2026',
+        'citation': ('Schaefer, L.N., Staley, D.M., Kim, J., Barnhart, K.R., and Lu, Z., '
+                     '2026, Supporting data for "Environmental drivers of deforming '
+                     'bedrock landslides in southern Alaska": U.S. Geological Survey '
+                     'data release.'),
+        'url': 'https://doi.org/10.5066/P1B64SZT',
+        # The paper: npj Natural Hazards 3, 90, doi:10.1038/s44304-026-00296-3.
+        'licence': ('CC0 1.0 (public domain). Cite the data release and Schaefer '
+                    'and others (2026), npj Natural Hazards, '
+                    'doi:10.1038/s44304-026-00296-3.'),
+        'colour': '#2a7ab0',
+        'fetch': {
+            # A zipped shapefile on ScienceBase (item 684afb2cd4be020b699d9944).
+            # The URL names one file version; a revised release is a new URL.
+            'kind': 'zip_shp',
+            'layers': {
+                'landslides': {
+                    'geom': 'MULTIPOLYGON',
+                    'label': 'Landslide outlines',
+                    'url': ('https://www.sciencebase.gov/catalog/file/get/'
+                            '684afb2cd4be020b699d9944?f=__disk__9a%2Fc9%2F74%2F'
+                            '9ac974976ec3e8ae2fe930e8ff9e39cb63ff940b'),
+                    'expect': 239,
+                    # A shapefile has no display aliases; these are short forms
+                    # of their data dictionary (AK_landslides_DataDictionary.csv)
+                    # and become the column comments the popup shows.
+                    'labels': {
+                        'slide_code': 'Landslide id',
+                        'vol_s': 'Volume, smaller scenario (m³)',
+                        'vol_l': 'Volume, larger scenario (m³)',
+                        'hmax_s': 'Maximum height, smaller scenario (m)',
+                        'hmax_l': 'Maximum height, larger scenario (m)',
+                        'hmean_s': 'Mean height, smaller scenario (m)',
+                        'hmean_l': 'Mean height, larger scenario (m)',
+                        'point_cnt': 'PSInSAR points in outline',
+                        'path_list': 'Sentinel-1 paths',
+                        'avg_los': 'Average line-of-sight rate (mm/yr)',
+                        'peak_los': 'Peak line-of-sight rate (mm/yr)',
+                        'latitude': 'Centroid latitude',
+                        'longitude': 'Centroid longitude',
+                        'name': 'Name',
+                        'citation': 'Citation (if previously identified)',
+                        'con_pre': 'Confidence in presence (A high, B moderate, C low)',
+                        'con_del': 'Confidence in outline (A high, B moderate, C low)',
+                        'shape_area': 'Area (m²)',
+                        'fall_line': 'Fall-line aspect (°)',
+                        'elevat_hs': 'Headscarp top elevation (m)',
+                        'slope_avg': 'Mean slope (°)',
+                        'slope_max': 'Maximum slope (°)',
+                        'geol_code': 'Geology unit (Wilson and others, 2015)',
+                        'dist_fault': 'Distance to Quaternary fault (km)',
+                        'dist_glac': 'Distance to glacier (km)',
+                        'nlcd_cat': 'Land cover (NLCD)',
+                        'perm_cat': 'Permafrost (Jorgenson and others, 2008)',
+                        'sus_cat': 'Deep-seated susceptibility class (DGGS 2025)',
+                        'ppt_avg': 'Mean annual precipitation, 1981–2010 (mm)',
+                        'temp_avg': 'Mean annual air temperature, 1981–2010 (°C)',
+                        'magt_2026': 'Mean annual ground temperature 2026, RCP4.5 (°C)',
+                        'magt_2036': 'Mean annual ground temperature 2036, RCP4.5 (°C)',
+                        'magt_2076': 'Mean annual ground temperature 2076, RCP4.5 (°C)',
+                    },
+                },
+            },
+        },
+        'id_field': 'slide_code',
+        'name_field': 'name',
+        'primary_layer': 'landslides',
+        'promote': {
+            'noted_in': ('Noted in the inventory of deforming bedrock landslides in '
+                         'southern Alaska (Schaefer and others, 2026, U.S. Geological '
+                         'Survey data release), doi:10.5066/P1B64SZT'),
+            # Their ids are bare numbers 1-239; "as landslide 55" reads better.
+            'id_prefix': 'landslide ',
+            # 56 of 239 were previously identified: their name and the citation
+            # (cut at 254 characters by the shapefile format) travel verbatim.
+            'details': [
+                {'label': 'Their name', 'field': 'name', 'skip': r'(?i)^unnamed$'},
+                {'label': 'Their citation', 'field': 'citation'},
+                {'label': 'Their confidence', 'format': 'schaefer_conf'},
+                {'label': 'Their PSInSAR rate', 'format': 'schaefer_los'},
+            ],
+            'noted_by': 'Lauren Schaefer',
+        },
+    },
 }
 
 
@@ -319,7 +405,37 @@ def _dggs_source(row):
     return f'{m} ({d})'
 
 
-_DETAIL_FORMATS = {'dggs_source': _dggs_source}
+_CONF = {'A': 'high', 'B': 'moderate', 'C': 'low'}
+
+
+def _schaefer_conf(row):
+    """Their A/B/C ratings, spelled out from their data dictionary."""
+    p, d = (str(row.get('con_pre') or '').strip(), str(row.get('con_del') or '').strip())
+    out = []
+    if p:
+        out.append(f'presence {p}' + (f' ({_CONF[p]})' if p in _CONF else ''))
+    if d:
+        out.append(f'outline {d}' + (f' ({_CONF[d]})' if d in _CONF else ''))
+    return ', '.join(out)
+
+
+def _schaefer_los(row):
+    """Their line-of-sight rates, Sentinel-1 2019-2021 (mm/yr, as published)."""
+    a, k = row.get('avg_los'), row.get('peak_los')
+    if a is None and k is None:
+        return ''
+    bits = []
+    if a is not None:
+        bits.append(f'average {float(a):.1f}')
+    if k is not None:
+        bits.append(f'peak {float(k):.1f}')
+    path = str(row.get('path_list') or '').strip()
+    return (', '.join(bits) + ' mm/yr line of sight, Sentinel-1 2019–2021'
+            + (f', path {path}' if path else ''))
+
+
+_DETAIL_FORMATS = {'dggs_source': _dggs_source, 'schaefer_conf': _schaefer_conf,
+                   'schaefer_los': _schaefer_los}
 
 
 def _rules(sid):
@@ -342,7 +458,7 @@ def promotion_text(sid, ext_id, row):
             note = r['id_note'].format(**{k: ('' if v is None else v) for k, v in row.items()})
         except (KeyError, IndexError):
             note = ''
-    out = [f'{_lead(sid)}, as {ext_id}{note}.']
+    out = [f'{_lead(sid)}, as {r.get("id_prefix", "")}{ext_id}{note}.']
     for d in r.get('details') or []:
         if 'format' in d:
             v = _DETAIL_FORMATS[d['format']](row)
@@ -590,6 +706,80 @@ def arcgis_features(service, layer_id, page=1000):
     return seen, expected
 
 
+_NP_PG = {'f': 'double precision', 'i': 'bigint', 'u': 'bigint', 'b': 'boolean'}
+
+
+def zip_shp_rows(url):
+    """A zipped shapefile -> (columns, rows), columns as (col, pgtype, their
+    field name) and rows as (GeoJSON geometry, {col: value}). Read with pyogrio
+    (GDAL in its wheel, already used by the import flow); 3D geometry is
+    flattened, since a Z in a landslide outline is an artefact of their export,
+    not a measurement anyone made. Numeric fields keep their declared type."""
+    import os
+    import tempfile
+
+    import pyogrio.raw
+    import shapely
+    from shapely.geometry import mapping
+
+    import zipfile
+
+    import time
+    import urllib.error
+
+    # ScienceBase answers a busy moment with a 502 or a short "error code: 502"
+    # page (often, in 2026-11); a few spaced tries get through.
+    data = b''
+    for attempt in range(5):
+        try:
+            data = _get(url)
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or attempt == 4:
+                raise
+            data = b''
+        if data[:2] == b'PK':
+            break
+        time.sleep(5 * (attempt + 1))
+    if data[:2] != b'PK':
+        raise ValueError(f'not a zip ({len(data)} bytes: {data[:60]!r}); try again')
+    fd, path = tempfile.mkstemp(suffix='.zip')
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            f.write(data)
+        with zipfile.ZipFile(path) as z:
+            shps = [n for n in z.namelist() if n.lower().endswith('.shp')]
+        if len(shps) != 1:
+            raise ValueError(f'expected one .shp in the zip, found {shps}')
+        meta, _fids, geoms, fields = pyogrio.raw.read(f'/vsizip/{path}/{shps[0]}')
+    finally:
+        os.unlink(path)
+    names = list(meta['fields'])
+    cols = []
+    for name, dt in zip(names, meta['dtypes']):
+        kind = getattr(dt, 'kind', None) or str(dt)[:1]
+        cols.append((_col(name), _NP_PG.get(kind, 'text'), name))
+    rows = []
+    for i, wkb in enumerate(geoms):
+        g = None
+        if wkb is not None:
+            g = mapping(shapely.force_2d(shapely.from_wkb(wkb)))
+        props = {}
+        for (c, t, _), arr in zip(cols, fields):
+            v = arr[i]
+            if v is None or (t != 'text' and v != v):          # None / NaN
+                props[c] = None
+            elif t == 'double precision':
+                props[c] = float(v)
+            elif t == 'bigint':
+                props[c] = int(v)
+            elif t == 'boolean':
+                props[c] = bool(v)
+            else:
+                props[c] = (str(v) or None)
+        rows.append((g, props))
+    return cols, rows
+
+
 def csv_rows(url):
     """Header plus rows, as text. A BOM on the first header cell is common in
     published CSVs and would otherwise make the first column unfindable."""
@@ -727,30 +917,35 @@ def api_external_link(request, sid, layer, ext_id):
 @require_http_methods(['GET'])
 def api_external_nearby(request, sid, layer, ext_id):
     """Our records nearest their record, for the popup's Link list. Distance is
-    from their point to our centroid (polygons can be large, so the nearest
-    centroid is a suggestion, not a verdict). Deprecated records excluded."""
+    from their geometry to our centroid (0 when ours sits inside their
+    outline); a suggestion, not a verdict. Deprecated records excluded."""
     if sid not in SOURCES or layer not in SOURCES[sid]['fetch']['layers']:
         return JsonResponse({'error': 'unknown source or layer'}, status=404)
     t = table_name(sid, layer)
     conn = _get_conn()
     try:
         cur = conn.cursor()
-        cur.execute(f'SELECT ST_X(ST_PointOnSurface(geom)), ST_Y(ST_PointOnSurface(geom)) '
-                    f'FROM {t} WHERE ext_id = %s LIMIT 1', (str(ext_id),))
-        p = cur.fetchone()
-        if not p or p[0] is None:
+        cur.execute(f'SELECT 1 FROM {t} WHERE ext_id = %s LIMIT 1', (str(ext_id),))
+        if not cur.fetchone():
             conn.rollback()
             return JsonResponse({'error': 'no such record'}, status=404)
-        cur.execute("""
-            SELECT id, unique_name, external_source, external_id, reviewed_at IS NULL,
-                   round(ST_Distance(ST_SetSRID(ST_MakePoint(centroid_lon, centroid_lat), 4326)::geography,
-                                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography))
-              FROM landslides
-             WHERE deprecated_at IS NULL AND centroid_lon IS NOT NULL
-             ORDER BY ST_SetSRID(ST_MakePoint(centroid_lon, centroid_lat), 4326)
-                      <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326)
-             LIMIT 6
-        """, (p[0], p[1], p[0], p[1]))
+        # Distance from THEIR geometry, so one of ours inside their outline is
+        # 0 m. A KNN shortlist by their point-on-surface, then the exact sort.
+        cur.execute(f"""
+            WITH g AS (SELECT geom, ST_PointOnSurface(geom) AS p FROM {t}
+                        WHERE ext_id = %s LIMIT 1),
+            near AS (
+                SELECT l.id, l.unique_name, l.external_source, l.external_id,
+                       l.reviewed_at IS NULL AS pending,
+                       ST_SetSRID(ST_MakePoint(l.centroid_lon, l.centroid_lat), 4326) AS c
+                  FROM landslides l, g
+                 WHERE l.deprecated_at IS NULL AND l.centroid_lon IS NOT NULL
+                 ORDER BY ST_SetSRID(ST_MakePoint(l.centroid_lon, l.centroid_lat), 4326) <-> g.p
+                 LIMIT 20)
+            SELECT n.id, n.unique_name, n.external_source, n.external_id, n.pending,
+                   round(ST_Distance(n.c::geography, g.geom::geography)) AS d
+              FROM near n, g ORDER BY d, n.id LIMIT 6
+        """, (str(ext_id),))
         rows = cur.fetchall()
         conn.rollback()
     finally:
@@ -793,7 +988,10 @@ def api_external_record(request, sid, layer, ext_id):
                 continue
             cols.append(col)
             labels[col] = comment or col
-        cur.execute(f'SELECT {", ".join(cols)}, ST_X(geom), ST_Y(geom) FROM {t} '
+        # A point on the outline for polygon sources (ST_X takes points only);
+        # for a point it is the point itself.
+        cur.execute(f'SELECT {", ".join(cols)}, ST_X(ST_PointOnSurface(geom)), '
+                    f'ST_Y(ST_PointOnSurface(geom)) FROM {t} '
                     f'WHERE ext_id = %s LIMIT 1', (str(ext_id),))
         row = cur.fetchone()
         # Editors: the record's review too, so the explorer's popup opens with
@@ -1171,7 +1369,7 @@ def _explore_payload(cur, sid):
     sel = [f'{f["expr"]}' if f.get('expr') else f['field'] for f in facets]
     type_field = ex['type_field'] if ex['type_field'] in have else 'NULL'
     cur.execute(f"""
-        SELECT ext_id, {name_sql}, round(ST_X(geom)::numeric, 5), round(ST_Y(geom)::numeric, 5),
+        SELECT ext_id, {name_sql}, round(ST_X(ST_PointOnSurface(geom))::numeric, 5), round(ST_Y(ST_PointOnSurface(geom))::numeric, 5),
                {type_field}{''.join(', ' + x for x in sel)}
           FROM {t} WHERE geom IS NOT NULL ORDER BY id
     """)

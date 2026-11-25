@@ -635,6 +635,14 @@
         // publisher's own words and their own column order. No curation beyond
         // dropping empties -- deciding which of someone else's fields matter is
         // the kind of judgement this whole design exists to postpone.
+        // Display only: a shapefile's doubles arrive as 12.801463569999999.
+        // Round what is shown; the mirror and the record endpoint keep it all.
+        function _extShowVal(v) {
+            if (typeof v !== 'number' || Number.isInteger(v)) return String(v);
+            var a = Math.abs(v);
+            return String(a >= 1000 ? Math.round(v) : a >= 1 ? Number(v.toFixed(2)) : Number(v.toPrecision(3)));
+        }
+
         function _extPopup(e, s, L) {
             var p = e.features[0].properties || {};
             var rows = '';
@@ -644,7 +652,7 @@
                 if (c === 'id' || c === 'fetched_at' || c.charAt(0) === '_') return;
                 rows += '<div style="margin:1px 0;display:flex;gap:6px;">' +
                         '<span style="color:#888;flex:none;">' + esc(L.fields[c] || c) + ':</span>' +
-                        '<span>' + esc(String(v)) + '</span></div>';
+                        '<span>' + esc(_extShowVal(v)) + '</span></div>';
             });
             // Only the FIELD LIST scrolls. The heading says whose data this is and
             // the footer carries the citation both licences require, so neither
