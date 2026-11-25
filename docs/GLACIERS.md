@@ -880,3 +880,21 @@ video changes the answer by itself:
   export under the first, three Icy Bay 82-month ascending exports under
   their 111-month descending twins, Pedersen Aialik under Pedersen, and the
   8-month Margerie Grand Pacific under Ferris Grand Pacific.
+
+## Tyndall: built, no faces (2026-11-24)
+
+`build.py tyndall 60.19131 -141.13606` (default frame; descending rel 116,
+113 months 2017-06 to 2026-11) is on prod as video 115 (dev 113) and, by
+the similar-frames rule, stands for the two Earth Engine Tyndall exports.
+**No faces were loaded**: `faces.py tyndall` kept 1 of 113 months, `--lake`
+12 with 7 dropped as spikes, `--strip-m 600` none (also with `--min-step
+2.5 --unconfirmed 0.6`). The front is plain to the eye in most months (a
+lobe ending in dark water at the head of Taan Fjord), but (a) the ice at
+the front is dim: the median step to the water is 1.4 to 3.3 dB against
+the 3 dB a "clear" pixel needs; (b) the front is ~1 km wide in the bottom
+sixth of the frame and the water runs off the frame's south edge, so lake
+mode reads it as sea; (c) faces reach a third to a half of the way across
+the channel the texture test finds. Trial outputs:
+`/Volumes/Nunatak/glacier_s1_build/tyndall/faces` (default) and
+`faces_tried` (the last strip run). Not tried: a frame centred on the
+front; a front found as the edge of the water rather than of bright ice.
