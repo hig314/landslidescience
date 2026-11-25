@@ -10,7 +10,8 @@
  *     or the file, then click every segment the video shows. Editing an
  *     existing video adds or removes segments without the file being sent
  *     again;
- *   - GLVideos.open(id, lngLat) for the distance plot's video marks;
+ *   - GLVideos.show(id, lngLat) for the distance plot's video marks and a
+ *     face's popup: on the map if the video is placed, else a popup box;
  *   - for a video PLACED from its content (v.georef: tools/glaciers/
  *     s1_georef/, docs/GLACIERS.md), a faint box where the frame lies, with
  *     a corner dot; hovering the edge lights it, clicking the edge or dot
@@ -652,5 +653,15 @@ window.GLVideos = (function () {
         });
     }
 
-    return { init: init, open: open, reload: load, overlay: showOverlay, clearOverlay: clearOverlay };
+    // Play one video from elsewhere on the page (the distance plot's video
+    // boxes and list, a face's popup): a placed video plays in place on the
+    // map, as from its footprint's menu; an unplaced one in a popup box.
+    function show(id, lngLat) {
+        var v = byId[id];
+        if (!v) return;
+        if (v.georef && v.media === 'video') { window.LSTools.popup.close(); showOverlay(id, 'video', true); }
+        else open(id, lngLat);
+    }
+
+    return { init: init, open: open, show: show, reload: load, overlay: showOverlay, clearOverlay: clearOverlay };
 })();

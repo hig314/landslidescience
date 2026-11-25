@@ -776,7 +776,7 @@ window.GLRetreat = (function () {
                 var pv = document.getElementById('rt-pop-vid');
                 if (pv) pv.addEventListener('click', function (ev) {
                     ev.preventDefault();
-                    if (window.GLVideos) window.GLVideos.open(+o.props.video_id, e.lngLat);
+                    if (window.GLVideos) window.GLVideos.show(+o.props.video_id, e.lngLat);
                 });
                 var a = document.getElementById('rt-pop-sel');
                 if (a) a.addEventListener('click', function (ev) {

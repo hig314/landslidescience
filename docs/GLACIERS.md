@@ -906,3 +906,11 @@ the build's median image; it must cross the front where the radar shows
 it. A first run that keeps almost nothing means look at the line first.
 The trial outputs of the old line are in
 `/Volumes/Nunatak/glacier_s1_build/tyndall/faces_oldline` and `faces_tried`.
+
+**A video opened from the plot plays on the map (2026-11-24).** The
+distance plot's video boxes and list, and a face popup's video link, called
+`GLVideos.open`, the popup player, which hung below the screen from a point
+on the path. They now call `GLVideos.show(id, lngLat)`: a placed video
+plays in place on the map (zoomed to, with the panel), exactly as from its
+footprint's menu; only an unplaced one (a Planet story, an S1 video with no
+georef) still opens the popup box.

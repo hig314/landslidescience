@@ -372,7 +372,7 @@ window.GLNetwork = (function () {
         Array.prototype.forEach.call(c.querySelectorAll('[data-v]'), function (b) {
             b.addEventListener('click', function () {
                 var mm = b.getAttribute('data-m').split(',');
-                if (window.GLVideos) window.GLVideos.open(+b.getAttribute('data-v'), { lng: +mm[0], lat: +mm[1] });
+                if (window.GLVideos) window.GLVideos.show(+b.getAttribute('data-v'), { lng: +mm[0], lat: +mm[1] });
             });
         });
         var tip = $('nw-tip');
