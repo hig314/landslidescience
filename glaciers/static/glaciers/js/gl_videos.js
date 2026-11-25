@@ -22,7 +22,10 @@
  *   - a BUILT timelapse (tools/glaciers/s1_build/, `manage.py s1_videos
  *     built`) has no date burned in: georef.months names frame k, at
  *     georef.fps, and the month is drawn over the video as it plays, on the
- *     map (a label at the frame's NW corner) and in the panel and popup.
+ *     map (a label at the frame's NW corner) and in the panel and popup;
+ *   - a placed video framed like a better one (v.hidden_by, decided by the
+ *     server: videos.py, SIMILAR FRAMES) has no box; the menu of the video
+ *     shown in its place lists it under "Similar framing".
  *
  * Clicks go through LSTools: a 'reference' entry above the network's own
  * (so a marker click plays the video rather than plotting the path), and,
@@ -157,7 +160,15 @@ window.GLVideos = (function () {
     // ------------------------------------------------------------------
     var OV = { id: null, product: null, opacity: 0.9 }, ovEl = null, hoverId = null, hoverWired = false;
     var ovDate = null, frameTok = 0;        // the month label on the map; the frame loop's ticket
-    function placed() { return D.videos.filter(function (v) { return v.georef && v.media === 'video'; }); }
+    function placed() { return D.videos.filter(function (v) { return v.georef && v.media === 'video' && !v.hidden_by; }); }
+    function hiddenBy(id) { return D.videos.filter(function (v) { return v.hidden_by === id && v.georef && v.media === 'video'; }); }
+    // "Mar 2015 to Nov 2026, 120 months": what tells similar videos apart
+    function monthSpan(v) {
+        var m = ((v.georef && v.georef.months) || []).filter(Boolean);
+        if (!m.length) return '';
+        function t(x) { return MON[+x.slice(5, 7) - 1] + ' ' + x.slice(0, 4); }
+        return t(m[0]) + ' to ' + t(m[m.length - 1]) + ', ' + m.length + ' months';
+    }
     function corners(b) { return [[b[0], b[3]], [b[2], b[3]], [b[2], b[1]], [b[0], b[1]]]; }
     function footData() {
         return { type: 'FeatureCollection', features: placed().map(function (v) {
@@ -355,10 +366,17 @@ window.GLVideos = (function () {
         if (!ids.length) return;
         var box = document.createElement('div');
         box.className = 'gv-pop';
-        box.innerHTML = ids.map(function (id) {
-            var v = byId[id];
-            return '<div class="gv-menu"><b>' + esc(v.caption || v.kind_label) + '</b>' +
-                '<div class="rt-sub">' + esc(v.kind_label) + (v.date ? ' · ' + esc(v.date) : '') + '</div>' +
+        // each video shown, then the similar ones it stands for
+        var rows = [];
+        ids.forEach(function (id) {
+            rows.push({ id: id });
+            hiddenBy(id).forEach(function (h, i) { rows.push({ id: h.id, sim: true, first: i === 0 }); });
+        });
+        box.innerHTML = rows.map(function (r) {
+            var id = r.id, v = byId[id], span = monthSpan(v);
+            return (r.first ? '<div class="gv-sim rt-sub" title="Videos of nearly the same frame that end earlier or have fewer months; left off the map">Similar framing, not drawn on the map:</div>' : '') +
+                '<div class="gv-menu' + (r.sim ? ' gv-menu-sim' : '') + '"><b>' + esc(v.caption || v.kind_label) + '</b>' +
+                '<div class="rt-sub">' + esc(v.kind_label) + (v.date ? ' · ' + esc(v.date) : '') + (span ? ' · ' + span : '') + '</div>' +
                 '<div class="gv-ovb">' + [{ id: 'video', label: '▶ Video', title: 'Play it in place on the map' }].concat(v.georef.products).map(function (o) {
                     return '<button type="button" data-v="' + id + '" data-p="' + o.id + '" title="' + esc(o.title || '') + '">' + esc(o.label) + '</button>';
                 }).join('') + '<button type="button" data-v="' + id + '" data-p="box" title="Play it in this box instead">In a box</button></div></div>';

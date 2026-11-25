@@ -843,3 +843,40 @@ view had left Columbia selected, card and `g=`, with the map at Endicott);
 the year bar ends at the current year (it stopped at 2025, hiding 2026).
 
 New schema: `manage.py migrate_glaciers` once per environment.
+
+## Similar frames: one video shown per framing (2026-11-24)
+
+Hig: videos of nearly the same frame clutter the map (an Earth Engine
+export, its re-export, the other pass direction, our own build). The rule
+is in `videos.py` (`mark_similar`, module docstring "SIMILAR FRAMES"), and
+is worked out at read time, so nothing is stored and a new or re-placed
+video changes the answer by itself:
+
+- **Similar** = the two frames share more than `SIMILAR_FRAC` (0.5) of the
+  LARGER one (so of both; areas in Web Mercator). A detail inside a wide
+  view is not similar: Baird Middle / Baird (0.40) and Margerie / Margerie
+  Grand Pacific (0.36) both stay.
+- **The one shown**: latest last month, then most months, then a built one,
+  then the newest row. Taken best first, and a video is hidden only by one
+  that is itself shown.
+- **Hidden** (`hidden_by` = the id shown in its place, in
+  `lines/api/videos/`): no footprint box or corner dot, and left out of the
+  distance plot's video boxes and list (`on_path`). Nothing is deleted: the
+  shown video's menu (click its box) lists them under "Similar framing, not
+  drawn on the map", each with the same buttons; every menu row now says
+  its span ("Mar 2015 to Nov 2026, 120 months"). Faces are untouched (a
+  hidden video keeps its faces).
+- **The other look direction stays if it is mostly complete** (Hig, same
+  day, Sitkagi): an ascending video is not hidden by a descending one, or
+  the reverse, when it has `OTHER_LOOK_FULL` (0.75) of the months between
+  its own first and last, and of the shown video's count. Direction:
+  `georef.orbit` (built), else the `m2_asc_*` / `m2_desc_*` in
+  `georef.method` (the match used the orbit in the file name), else the
+  caption; unknown counts as the same direction. Sitkagi's ascending export
+  (116 of 141 months, 0.82) stays beside the descending build; the Icy Bay
+  ascending exports (82 of 141, 0.58) and Pedersen Aialik (75 of 131) do not.
+- On prod's 107 placed videos (2026-11-24) it hides eight: the Earth Engine
+  South Sawyer and Endicott under our builds, Sitkagi's second ascending
+  export under the first, three Icy Bay 82-month ascending exports under
+  their 111-month descending twins, Pedersen Aialik under Pedersen, and the
+  8-month Margerie Grand Pacific under Ferris Grand Pacific.

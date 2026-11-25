@@ -28,10 +28,26 @@ WHERE THE BYTES LIVE
   stories are; the row has no `file` until that finishes, and `fetch_error`
   if it failed. The Drive file must be shared "anyone with the link".
 
+SIMILAR FRAMES (2026-11-24)
+---------------------------
+Placed videos pile up over one glacier (an Earth Engine export, a re-export,
+the other pass direction, our own build). Two frames are SIMILAR when what
+they share is more than SIMILAR_FRAC of the larger one, so of both; a detail
+inside a wide view is not. Of similar videos the best is shown: the one
+whose last month is latest, then the one with the most months, then a built
+one, then the newest row. The others get `hidden_by` (the id shown in their
+place): off the map and the plot, still offered in the shown video's menu.
+Best first, a video is hidden only by one that is itself shown. The other
+look direction is a different picture, so an ascending video is not hidden
+by a descending one (or the reverse) while it is itself mostly complete:
+OTHER_LOOK_FULL of the months between its first and last, and of the shown
+video's month count (Hig, 2026-11-24, Sitkagi).
+
 Positions along lines are metric fractions, as everywhere in network.py.
 """
 import json
 import logging
+import math
 import re
 import secrets
 import threading
@@ -48,6 +64,8 @@ from inventory.views import _get_conn, _put_conn
 from landslidescience.dates import parse_span, span_text
 
 SNAP_M = 400            # an anchor further than this from every flow line is off the network
+SIMILAR_FRAC = 0.5      # frames sharing more than this of the larger one are the same framing
+OTHER_LOOK_FULL = 0.75  # the other pass direction stays if it has this share of the months in its own span, and of the shown video's count
 MAX_UPLOAD = 150 * 1024 * 1024
 VIDEO_DIR = Path(settings.BASE_DIR) / 'data' / 'glacier_videos'
 _FILE_RE = re.compile(r'^[a-f0-9]{16}\.(mp4|webm|gif)$')
@@ -260,7 +278,7 @@ def _rows(cur, only=None):
                ps.story_type, ps.mp4_archived_at IS NOT NULL, v.source_url, v.fetch_error, v.georef
         FROM glacier_videos v LEFT JOIN planet_stories ps ON ps.slug = v.slug
         """ + ('WHERE v.id = %s' if only else '') + ' ORDER BY v.id', ((only,) if only else ()))
-    vids = {}
+    vids, raw = {}, {}
     for vid, kind, slug, fname, cap, d0, d1, who, stype, archived, src_url, ferr, geo in cur.fetchall():
         k = _KIND.get(kind, {'label': kind, 'color': '#555'})
         v = {'id': vid, 'kind': kind, 'kind_label': k['label'], 'color': k['color'],
@@ -280,6 +298,7 @@ def _rows(cur, only=None):
             v['media'] = 'image' if fname.endswith('.gif') else 'video'
             if geo and geo.get('bounds'):
                 stem = fname.rsplit('.', 1)[0]
+                raw[vid] = geo
                 v['georef'] = {'bounds': geo['bounds'], 'grade': geo.get('grade'),
                                'products': [dict(p, src='/glaciers/video/georef/%s_%s.webp' % (stem, p['id']))
                                             for p in GEOREF_PRODUCTS if p['id'] in geo.get('products', [])]}
@@ -290,7 +309,51 @@ def _rows(cur, only=None):
         else:
             v['state'] = 'archiving'            # a Drive link still being fetched
         vids[vid] = v
+    if not only:
+        mark_similar(vids, raw)
     return vids
+
+
+def _merc_box(b):
+    y = lambda lat: math.degrees(math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)))
+    return b[0], y(b[1]), b[2], y(b[3])
+
+
+def _months_between(a, b):
+    return (int(b[:4]) - int(a[:4])) * 12 + int(b[5:7]) - int(a[5:7]) + 1
+
+
+def mark_similar(vids, raw):
+    """Set `hidden_by` on placed videos framed like a better one (module
+    docstring, SIMILAR FRAMES). `raw`: {id: the stored georef}."""
+    def facts(v):
+        geo = raw[v['id']]
+        months = sorted(m for m in (geo.get('months') or []) if m)
+        # the pass: a built video says; a matched one was matched on the orbit its file name gave
+        look = re.search(r'asc|desc', '%s %s %s' % (geo.get('orbit') or '', geo.get('method') or '', v['caption'].lower()))
+        return {'v': v, 'look': look.group(0) if look else None, 'n': len(months),
+                'full': len(months) / _months_between(months[0], months[-1]) if months else 0.0,
+                'rank': (months[-1] if months else '', len(months), geo.get('method') == 'built', v['id']),
+                'box': _merc_box(v['georef']['bounds'])}
+    cand = sorted((facts(v) for v in vids.values() if v.get('georef') and v['media'] == 'video'),
+                  key=lambda f: f['rank'], reverse=True)
+    shown = []
+    for f in cand:
+        a = f['box']
+        for k in shown:
+            b = k['box']
+            w = min(a[2], b[2]) - max(a[0], b[0])
+            h = min(a[3], b[3]) - max(a[1], b[1])
+            if not (w > 0 and h > 0 and
+                    w * h > SIMILAR_FRAC * max((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))):
+                continue
+            if (f['look'] and k['look'] and f['look'] != k['look']
+                    and f['full'] >= OTHER_LOOK_FULL and f['n'] >= OTHER_LOOK_FULL * k['n']):
+                continue                # the other look direction, itself mostly complete: both are shown
+            f['v']['hidden_by'] = k['v']['id']
+            break
+        else:
+            shown.append(f)
 
 
 def _dec(d, end=False):
@@ -335,6 +398,8 @@ def on_path(cur, path):
     reach = {p['id']: p for p in path}
     out = []
     for v in listing(cur)['videos']:
+        if v.get('hidden_by'):
+            continue                    # a similar, better video stands for it
         spans = []
         for s in v['segments']:
             r = reach.get(s['line_id'])
