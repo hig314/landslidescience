@@ -11,39 +11,48 @@ here. When something ships it gets one line in the log and, if part of it has
 not been exercised on production, one line in the checklist. Log lines older
 than about two months can go; git has them.
 
-## Restart here (2026-11-21 21:00)
+## Restart here (2026-11-25)
 
-Written for a restart after the power-cord trouble of 2026-11-20 (the Mac
-hibernated on a flat battery ~20:51–21:25 and a Nunatak write failed in it).
+**Main stream (inventory + hosting): nothing in flight.** Code on prod is
+60e668c (main = origin/main = droplet as of the last deploy). Hig has a new
+topic for after the restart.
 
-- **Scoops3D reference pilots: paused, nothing running.** Done, failed and
-  the exact resume commands: `tools/terrain/scoops/README.md`, "Paused
-  2026-11-20". Waits for Hig. The no-comparison hold still applies to
-  Scoops (it was lifted for the landform statistics only).
-- **Topobathy `run_1118.sh`: RUNNING, owned by the topobathy session.** The
-  2026-11-20 hold stopped it after kj_r7c4 (done, rc 0); Hig's review_1121
-  fixes relaunched it 2026-11-21 17:33 (commit 7ded876), redoing r6c2 r6c4
-  r3c5 r4c5, then a publish and its own HOLD for Hig. Its state is atop
-  `tools/lidar/TOPOBATHY_PLAN.md` (topobathy worktree) and in
-  `$W/run_1118.log`. If the power fails: the queue resumes per its header;
-  check the box in progress for a `solve.json` before trusting it.
-- **Hand-placed sounding points: code deployed 2026-11-21 (untested, Hig's
-  choice; `migrate_soundings` run on prod); DATA NOT YET ON PROD.** Dev's
-  `hand_placed` survey (19 points, 19 levels, Hig's real estimates) was
-  exported to `data/soundings_handoff/hand_placed_dev_2026-11-21.json`, with
-  `hp_import.py` beside it (one transaction, id remap, refuses if the survey
-  already exists, checks counts; run command in its header). The tool
-  permission check refused the prod write; Hig to approve or run it. Do not
-  place points on prod before it runs (a prod point starts its own
-  `hand_placed` survey and the copy becomes a merge). Points added in dev
-  after 2026-11-21 need a fresh export (`hp_export.py`, same folder).
-- **Landform statistics as analysis axes: deployed 2026-11-21** (7d208a9),
-  cube columns rsynced; not yet drawn in a browser on prod.
-- **Local, not pushed:** b91077e (ArcticDEM profile/probe read as NAVD88,
-  from another session) waits for Hig's dev test. Uncommitted on purpose:
-  the `docker-compose.override.yml` Nunatak pmtiles mount (local-only),
-  `logs/`, the two `_scoops_core.so` builds.
-- Dev stack (Docker, :8001) was started 2026-11-21 and left up.
+- **Outside inventories, finished 2026-11-24/25** (detail:
+  docs/EXTERNAL_INVENTORIES.md, "Promotion" and the sources table):
+  - Third source `usgs_schaefer2026` (Schaefer and others 2026, USGS data
+    release doi:10.5066/P1B64SZT; 239 PSInSAR outlines, CC0) fetched on prod;
+    hard yellow outline style. Not the older `insar_schaefer` work.
+  - Promotion text = their id + their comment / citation / confidence /
+    rate; several sources per record (`landslide_external_links`,
+    `migrate_external_links` run on prod, 21 links); unlink; noted_by from
+    their citation's first author; promotion starts from their outline;
+    Link offers strong overlap first; Schaefer sets `insar_other` + cascade.
+  - `backfill_promotion_text --apply` was run on prod 2026-11-24 (21
+    records); a re-run is a no-op.
+  - Untried on prod (browser side): see "To confirm on production".
+  - Not done, Hig's call: an Inventory-tab explorer for Schaefer ("not
+    yet"); Canada's `deformation_insar_data` → `insar_other` (offered, not
+    asked); the InSAR categorisation rethink (Open threads).
+- **Dev trap met twice this session:** dev serves static JS under fixed
+  names and Chrome reuses a stale copy after collectstatic, so a fixed
+  feature looks unfixed. Hard reload (Cmd+Shift+R). A middleware cannot fix
+  it (runserver serves /static/ before middleware); `runserver --nostatic`
+  + WhiteNoise would, not done.
+- Uncommitted on purpose: the `docker-compose.override.yml` Nunatak pmtiles
+  mount (local-only), `logs/`, the two `_scoops_core.so` builds,
+  `inventory/DECK_EMBED.md` (another session's).
+
+Carried from 2026-11-21, **not re-checked** this session:
+
+- **Scoops3D reference pilots: paused.** Resume commands in
+  `tools/terrain/scoops/README.md`, "Paused 2026-11-20". The
+  no-comparison hold still applies to Scoops.
+- **Topobathy `run_1118.sh`** belongs to the topobathy session; its state is
+  atop `tools/lidar/TOPOBATHY_PLAN.md` (topobathy worktree) and in
+  `$W/run_1118.log`.
+- **Hand-placed sounding points: data copy to prod was pending** (export
+  and `hp_import.py` in `data/soundings_handoff/`; run command in its
+  header). Do not place points on prod before it runs.
 - Before relaunching any long run: `pmset -g batt` on AC, Nunatak mounted,
   runs under `caffeinate -i -s`.
 
