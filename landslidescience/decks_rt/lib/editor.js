@@ -7,6 +7,8 @@
  *   click             select (again in the same spot: the element underneath); Shift-click adds
  *   drag              move; snaps to the slide's edges and centre and to other elements
  *                     (Cmd held: no snapping; Shift: along one axis)
+ *   Alt-drag          move a copy; the original stays. Alt-arrow: a copy nudged 1 px (with
+ *                     Shift: 10). The copies are on top and selected. Not for a live figure.
  *   handles           resize, as in Keynote: Shift keeps the proportions (from any handle),
  *                     Alt resizes about the centre
  *   arrows            nudge 1 px (Shift: 10); with nothing selected, previous / next slide
@@ -312,7 +314,7 @@
       else if (sel.indexOf(top) < 0) sel = u;
       if (!sel.length) { draw(); return; }
     }
-    drag = { p: p, handle: h, before: snapshot(), moved: false, under: under, was: was, shift: ev.shiftKey, top: top,
+    drag = { p: p, handle: h, before: snapshot(), moved: false, under: under, was: was, shift: ev.shiftKey, top: top, alt: ev.altKey && !h, id: ev.pointerId,
              orig: sel.map(function (e) { return { x: e.x, y: e.y, w: e.w, h: e.h, fit: e.fit && e.fit.slice() }; }),
              snap: lines(c, sel) };
     try { layer.setPointerCapture(ev.pointerId); } catch (x) {}
@@ -322,6 +324,17 @@
     if (!drag) return;
     var p = point(ev), dx = p.x - drag.p.x, dy = p.y - drag.p.y, tol = ev.metaKey ? -1 : 7 / p.k, guides = [];
     if (!drag.moved && Math.abs(dx) * p.k < 3 && Math.abs(dy) * p.k < 3) return;
+    if (!drag.moved && drag.alt) {         // Alt-drag: copies are made as the drag begins, and they are what moves
+      var made = cloneSel(cur().s);
+      if (made.length) {
+        sel = made;
+        drag.orig = sel.map(function (e) { return { x: e.x, y: e.y, w: e.w, h: e.h, fit: e.fit && e.fit.slice() }; });
+        rebuild();
+        drag.snap = lines(cur(), sel);     // the originals are now something to line up with
+        try { layer.setPointerCapture(drag.id); } catch (x) {}
+        status(made.length > 1 ? made.length + " copies" : "Copy");
+      }
+    }
     drag.moved = true;
     if (drag.crop) {
       var ce = sel[0], co = drag.orig[0], cf = co.fit, ch = drag.handle || "";
@@ -603,6 +616,23 @@
 
   // ---------------------------------------------------------------- commands
   function remove() { if (sel.length) { change(function (c) { c.s.elements = c.s.elements.filter(function (e) { return sel.indexOf(e) < 0; }); }); sel = []; rebuild(); } }
+  function cloneSel(s) {                   // copies of the selection, on top of the stack, where the originals are (Alt-drag, Alt-arrow)
+    var src = s.elements.filter(function (e) { return sel.indexOf(e) >= 0 && e.type !== "live"; }), gm = {};   // a slide holds one figure
+    return src.map(function (e) {
+      var n = JSON.parse(JSON.stringify(e)), g = e.group;
+      delete n.id;                         // a build row names the original
+      if (g && !gm[g]) gm[g] = s.elements.every(function (x) { return x.group !== g || src.indexOf(x) >= 0; }) ? gid(s) : "-";
+      if (g) { if (gm[g] === "-") delete n.group; else n.group = gm[g]; }       // a whole group is copied as a new group
+      s.elements.push(n);
+      return n;
+    });
+  }
+  function nudgeCopy(dx, dy) {             // Alt-arrow: a copy, moved; the original stays
+    var made = [];
+    change(function (c) { made = cloneSel(c.s); made.forEach(function (e) { e.x = round(e.x + dx); e.y = round(e.y + dy); }); });
+    if (!made.length) { status("A figure is not copied this way: a slide holds one.", true); return; }
+    sel = made; rebuild(); status(made.length > 1 ? made.length + " copies" : "Copy");
+  }
   function nudge(dx, dy) { change(function () { sel.forEach(function (e) { e.x = round(e.x + dx); e.y = round(e.y + dy); place(e); }); }); draw(); }
   function order(how) {
     if (!sel.length) return;
@@ -1293,6 +1323,9 @@
     else if (sorter) done = sKey(ev, cmd, k);
     else if (cmd && k === "a") { sel = cur().s.elements.slice(); draw(); }
     else if (cmd && ev.altKey && ev.code === "KeyG") { if (ev.shiftKey) ungroup(); else group(); }
+    else if (ev.altKey && !cmd && sel.length && /^Arrow/.test(k)) {        // Alt-arrow: a copy, nudged (Shift: by 10)
+      if (!ev.repeat) nudgeCopy(k === "ArrowLeft" ? -step : k === "ArrowRight" ? step : 0, k === "ArrowUp" ? -step : k === "ArrowDown" ? step : 0);
+    }
     else if (cmd || ev.altKey) done = false;
     else if (k === "e" || k === "E") toggle();
     else if (k === "s" || k === "S") openSorter(true);
