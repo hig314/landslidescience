@@ -90,6 +90,23 @@ MIN_PART_KM2 = 0.02   # islands smaller than this add vertices, not information
 FOOTPRINT_TARGET_PX = 4000
 
 
+def _open(req, timeout):
+    """urlopen, tried three times unless the server ANSWERS no (an HTTP error is an answer; a timeout or a reset is not).
+    Every caller reads a failure as "not on the bucket", so one dropped connection used to take a survey, a slope layer
+    or a tile URL out of the catalogue: on 2026-11-24 a build beside an upload lost two surveys and a slope pyramid, and
+    the rebuild on an idle link still lost one tile URL."""
+    import time, urllib.error, urllib.request
+    for attempt in range(3):
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except urllib.error.HTTPError:
+            raise
+        except Exception:
+            if attempt == 2:
+                raise
+            time.sleep(2 + 4 * attempt)
+
+
 def _on_bucket(url):
     """Is this object actually served? HEAD only -- nothing is downloaded."""
     import urllib.request
@@ -103,7 +120,7 @@ def _on_bucket(url):
     # catalogue. Verified: 403 with the default agent, 200 with this one.
     req.add_header("User-Agent", "landslidescience-catalog/1 (+https://landslidescience.org)")
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with _open(req, 15) as r:
             return r.status == 200
     except Exception:
         return False
@@ -115,7 +132,7 @@ def _r2_size(key):
     req = urllib.request.Request(f"{R2_BASE}/{key}", method="HEAD",
                                  headers={"User-Agent": "landslidescience-catalog/1 (+https://landslidescience.org)"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with _open(req, 30) as r:
             return int(r.headers.get("Content-Length") or 0) or None
     except Exception:
         return None
@@ -232,7 +249,7 @@ def r2_etag(name):
     req = urllib.request.Request(f"{R2_BASE}/pmtiles/{name}.pmtiles", method="HEAD",
                                  headers={"User-Agent": "landslidescience-make_catalog/1"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with _open(req, 30) as r:
             tag = r.headers.get("ETag") or ""
     except Exception:
         return None
@@ -356,6 +373,42 @@ def main():
         if not cog_bytes:
             print(f"  skip {did}: no archive COG yet", file=sys.stderr)
             continue
+        # Smaller copies of the archive offered for download (manifest key
+        # "downloads": [{"res_m": 8, "resampling": "average"}], built by
+        # make_downloads.py as cog/<id>_<res>m.tif). Listed only when the file
+        # is there -- on the bucket for a production catalogue -- so that a
+        # manifest key alone cannot produce a link that 404s.
+        downloads = []
+        for dl in ds.get("downloads") or []:
+            name = f"{did}_{dl['res_m']:g}m.tif" if dl.get("res_m") else f"{did}_{dl['name']}.tif"   # a coarser copy, or a named companion (water)
+            local = COG_DIR / name
+            if on_r2_ok and (verify_here or not local.exists()):
+                dl_bytes = _r2_size(f"cog/{name}")
+            else:
+                dl_bytes = local.stat().st_size if local.exists() else None
+            if dl_bytes:
+                downloads.append({"res_m": dl.get("res_m"), "resampling": dl.get("resampling"), "name": dl.get("name"),
+                                  "label": dl.get("label"), "about": dl.get("about"),
+                                  "url": f"{COG_PUBLIC_BASE}/{name}", "bytes": dl_bytes})
+            else:
+                print(f"  note {did}: download copy {name} not there; not listed", file=sys.stderr)
+        # Linked surfaces the viewer draws see-through over the bed (ls_water.js:
+        # manifest "surfaces": [{"kind": "water", "encoding": "terrarium"},
+        # {"kind": "sea", "encoding": "mapbox"}] -> pmtiles/<id>_wsurf.pmtiles and
+        # pmtiles/<id>_sea.pmtiles, built by the topobathy stream). All or none:
+        # the water without its sea, or a URL that 404s, is a broken layer.
+        SURF_FILE = {"water": "wsurf", "sea": "sea"}
+        surfaces = []
+        for sf in ds.get("surfaces") or []:
+            sb, sbase = _pyramid(f"{did}_{SURF_FILE[sf['kind']]}", on_r2_ok)
+            if verify_here and not _r2_size(f"pmtiles/{did}_{SURF_FILE[sf['kind']]}.pmtiles"):
+                sb = None
+            if not sb:
+                print(f"  note {did}: surface '{sf['kind']}' not there; no surfaces listed", file=sys.stderr)
+                surfaces = []
+                break
+            surfaces.append({"kind": sf["kind"], "encoding": sf.get("encoding", "mapbox"),
+                             "url": f"{sbase}/{did}_{SURF_FILE[sf['kind']]}.pmtiles", "bytes": sb})
         # The pyramid is what the viewer actually draws. A survey whose archive
         # exists but whose tiles do not is mid-build: listing it advertises a
         # pmtiles_url that 404s, and the viewer shows an entry that renders
@@ -464,6 +517,11 @@ def main():
                 "ortho_bytes": ortho_bytes or None,
                 "cog_url": f"{COG_PUBLIC_BASE}/{did}.tif",
                 "cog_bytes": cog_bytes,
+                "downloads": downloads or None,
+                "surfaces": surfaces or None,
+                # Tidal datums in the survey's vertical datum: the viewer's
+                # sea-level buttons. Only with surfaces to flood.
+                "tide_levels": (ds.get("tide_levels") or None) if surfaces else None,
                 # The survey's point cloud page (tools/lidar/points.json,
                 # points_publish.py): its revisions, ours and the surveyor's.
                 # Listed only once the survey's index is on the bucket.

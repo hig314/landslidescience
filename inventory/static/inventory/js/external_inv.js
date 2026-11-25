@@ -531,6 +531,106 @@
             });
         }
 
+        // Link: the same provenance as a promotion, onto a record of ours that
+        // already exists (Hig, 2026-11-24: promoting a throwaway record to delete
+        // it and copy its text over by hand lost the stamp). Suggests our nearest
+        // records, nearest first, or takes an id; two clicks to link, no dialog.
+        // The server (api_external_link) writes the stamp and merges the
+        // provenance sentence into ongoing_work; noted_by is only filled if blank.
+        function _extLinkUI(box, s, L, p, rbox) {
+            if (!box) return;
+            var extId = p.ext_id;
+            if (extId === undefined || extId === null) return;
+            if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+            box.style.display = 'block';
+            box.style.cssText += ';font-size:11px;background:#f6f6f2;border:1px solid #e4e4dc;' +
+                                 'border-radius:4px;padding:5px 6px;';
+            var base = API_BASE + 'api/external/' + s.id + '/' + L.layer + '/';
+            box.innerHTML = '<div style="color:#666;margin-bottom:3px;">Link one of our records to this one:</div>' +
+                '<div class="lk-list" style="color:#999;">Finding our nearest records…</div>' +
+                '<div style="display:flex;gap:4px;margin-top:4px;">' +
+                  '<input type="text" class="lk-id" inputmode="numeric" placeholder="or record id" ' +
+                  'style="flex:1;min-width:0;font-size:11px;">' +
+                  '<button type="button" class="lk-id-go" style="font-size:11px;cursor:pointer;">Link</button>' +
+                '</div>' +
+                '<div class="lk-status" style="font-size:10px;margin-top:3px;min-height:12px;color:#999;"></div>';
+            var list = box.querySelector('.lk-list'), st = box.querySelector('.lk-status'),
+                idIn = box.querySelector('.lk-id'), idGo = box.querySelector('.lk-id-go');
+            var armed = null;   // the button waiting for its confirming second click
+
+            function link(lid, btn, label) {
+                if (armed !== btn) {
+                    if (armed) armed.textContent = armed._label;
+                    armed = btn; btn._label = btn.textContent;
+                    btn.textContent = 'Confirm';
+                    st.style.color = '#999';
+                    st.textContent = 'Click Confirm to stamp ' + label + ' as ' + s.short + ' ' + extId +
+                                     ' and add the provenance sentence to its ongoing work.';
+                    return;
+                }
+                armed = null; btn.disabled = true;
+                st.style.color = '#999'; st.textContent = 'Linking…';
+                _revPost(base + 'link/' + encodeURIComponent(extId) + '/', { landslide_id: lid })
+                    .then(function (d) {
+                        var a = d.applied || {}, pv = a.previous || {};
+                        btn.textContent = 'Linked';
+                        st.style.color = '#2e7d32';
+                        st.innerHTML = 'Linked <a href="/inventory/manage/' + lid + '/">' +
+                            esc(a.name || ('#' + lid)) + '</a>' +
+                            (pv.external_id && (pv.external_source !== a.external_source || pv.external_id !== a.external_id)
+                                ? ' (was ' + esc(pv.external_source + ' ' + pv.external_id) + ')' : '') +
+                            '. Ongoing work: ' + esc(a.ongoing_work || '');
+                        p._promoted = (p._promoted || []).filter(function (x) { return x[0] !== lid; })
+                                                          .concat([[lid, a.name]]);
+                        if (rbox) _extReviewUI(rbox, s, L, p);
+                    })
+                    .catch(function (e) {
+                        btn.disabled = false; btn.textContent = btn._label || 'Link';
+                        st.style.color = '#c0392b'; st.textContent = 'Not linked: ' + e.message;
+                    });
+            }
+
+            fetch(base + 'nearby/' + encodeURIComponent(extId) + '/', { credentials: 'same-origin' })
+                .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || r.status); return d; }); })
+                .then(function (d) {
+                    var recs = d.records || [];
+                    if (!recs.length) { list.textContent = 'None of our records nearby.'; return; }
+                    list.innerHTML = '';
+                    list.style.color = '';
+                    recs.forEach(function (r) {
+                        var km = r.distance_m >= 1000 ? (r.distance_m / 1000).toFixed(1) + ' km' : r.distance_m + ' m';
+                        var tag = r.external_id ? ' · <span style="color:#a0522d;" title="Already linked">' +
+                                  (r.external_source === s.id && r.external_id === String(extId)
+                                      ? 'linked to this' : 'linked to ' + esc(r.external_source + ' ' + r.external_id)) + '</span>' : '';
+                        var row = document.createElement('div');
+                        row.style.cssText = 'display:flex;gap:4px;align-items:center;margin:2px 0;';
+                        row.innerHTML = '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;">' +
+                            '<a href="/inventory/manage/' + r.id + '/">' + esc(r.name || ('#' + r.id)) + '</a>' +
+                            ' <span style="color:#999;">#' + r.id + ' · ' + km + (r.pending ? ' · pending' : '') + '</span>' +
+                            tag + '</span>' +
+                            '<button type="button" style="flex:none;font-size:11px;cursor:pointer;">Link</button>';
+                        var b = row.querySelector('button');
+                        b.addEventListener('click', function () { link(r.id, b, r.name || ('#' + r.id)); });
+                        list.appendChild(row);
+                    });
+                })
+                .catch(function (e) { list.style.color = '#c0392b'; list.textContent = 'Nearby records unavailable: ' + e.message; });
+
+            function byId() {
+                var lid = parseInt(String(idIn.value).replace(/^#/, ''), 10);
+                if (!lid) { idIn.focus(); return; }
+                link(lid, idGo, '#' + lid);
+            }
+            idGo.addEventListener('click', byId);
+            idIn.addEventListener('input', function () {
+                if (armed === idGo) { idGo.textContent = 'Link'; armed = null; st.textContent = ''; }
+            });
+            idIn.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); byId(); }
+                if (e.key === 'Escape') { e.stopPropagation(); box.style.display = 'none'; }
+            });
+        }
+
         // Click: show whatever fields this record actually carries, in the
         // publisher's own words and their own column order. No curation beyond
         // dropping empties -- deciding which of someone else's fields matter is
@@ -566,6 +666,9 @@
                       'padding:4px 9px;cursor:pointer;">＋ Promote into the inventory</button>' +
                       '<div style="color:#999;font-size:10px;margin-top:3px;">Traces a new ' +
                       'outline and opens the review form. Nothing is copied automatically.</div>' +
+                      '<button type="button" class="ext-link" style="font-size:11px;margin-top:6px;' +
+                      'padding:4px 9px;cursor:pointer;">⇄ Link to an existing record…</button>' +
+                      '<div class="ext-link-box" style="display:none;margin-top:5px;"></div>' +
                       '</div>'
                     // Say why the button is absent rather than just omitting it.
                     // A signed-out editor otherwise sees a popup identical to the
@@ -587,6 +690,10 @@
             if (box) box.scrollTop = 0;
             var rbox = pop.getElement().querySelector('.ext-review');
             if (rbox) _extReviewUI(rbox, s, L, p);
+            var lbtn = pop.getElement().querySelector('.ext-link');
+            if (lbtn) lbtn.addEventListener('click', function () {
+                _extLinkUI(pop.getElement().querySelector('.ext-link-box'), s, L, p, rbox);
+            });
             var pbtn = pop.getElement().querySelector('.ext-promote');
             if (pbtn) pbtn.addEventListener('click', function () {
                 // The explorer hands the Inventory tab back to our own records

@@ -955,6 +955,12 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN },
                 body: JSON.stringify({ landslide_id: parseInt(m[1], 10) })
+            }).then(function (r) {
+                // The server refuses an id its mirror does not hold (404); say so
+                // rather than land on a form that silently lacks the provenance.
+                if (!r.ok) return r.json().catch(function () { return {}; }).then(function (d) {
+                    throw new Error(d.error || ('HTTP ' + r.status));
+                });
             }).catch(function (e) {
                 // A failed stamp must not lose the landslide the editor just drew:
                 // the record is already committed and the redirect still happens.

@@ -56,7 +56,7 @@ in the site backup: once a deck is edited here, this is its only copy.
   are never served. File paths are judged after resolving them (a request for
   `assets/../history/…` was a real hole, closed 2026-11-22).
 - **Writes** are the owner's, on a draft: `PUT deck.json` (refused with 409 if
-  the deck changed since the page loaded it), `PUT assets/<file>` (25 MB cap;
+  the deck changed since the page loaded it), `PUT assets/<file>` (50 MB cap;
   movies arrive by rsync, never through the site), `POST copy` (files brought
   from another deck when slides are pasted across). All CSRF-checked.
 - **Byte ranges** through `lidar_serve.serve_ranged` (movies must seek; Safari

@@ -137,9 +137,31 @@ SOURCES = {
             'home': [-150, 61.5, 4.3],
         },
         'promote': {
-            'ongoing_work': ('Noted in the Alaska Landslide Inventory '
-                             '(Alaska DGGS Digital Data Series 23, Nicolazzo and '
-                             'Larsen, 2025), doi:10.14509/31697.'),
+            # The lead of the provenance sentence; promotion_text() adds
+            # ", as <their id>." and the details below.
+            'noted_in': ('Noted in the Alaska Landslide Inventory '
+                         '(Alaska DGGS Digital Data Series 23, Nicolazzo and '
+                         'Larsen, 2025), doi:10.14509/31697'),
+            # Their citation is split over two columns: `mapper` usually holds
+            # the reference ("Hamilton, T.D., 1979") and `data_sourc` the DGGS
+            # publication code ("MF-1122"), but for newer work both carry the
+            # reference, and for Swanson's map `mapper` says "machine
+            # learning". `dggs_source` folds the combinations into one phrase.
+            # `notes` is mostly "Confidence= low" (their conf_* columns say
+            # that better), so only notes that say something else travel.
+            # Their id is a GUID; their popup and ArcGIS service also show an
+            # OBJECTID, which is the number people actually quote.
+            'id_note': ' (OBJECTID {objectid})',
+            'details': [
+                {'label': 'Their source', 'format': 'dggs_source'},
+                {'label': 'Their notes', 'field': 'notes', 'quote': True,
+                 'skip': r'^\s*Confidence\s*=\s*\w+\s*$'},
+            ],
+            # Earlier wordings of the sentence, recognised and replaced when a
+            # record is linked again or backfilled (2026-11-24).
+            'legacy': ['Noted in the Alaska Landslide Inventory (Alaska DGGS '
+                       'Digital Data Series 23, Nicolazzo and Larsen, 2025), '
+                       'doi:10.14509/31697.'],
         },
     },
     'canada_pcld': {
@@ -221,9 +243,18 @@ SOURCES = {
             'home': [-131, 57.5, 4],
         },
         'promote': {
-            'ongoing_work': ('Noted in the Preliminary Canadian Landslide Database '
-                             'v14.0 (Brideau and others, 2026), '
-                             'doi:10.5281/zenodo.20371365.'),
+            'noted_in': ('Noted in the Preliminary Canadian Landslide Database '
+                         'v14.0 (Brideau and others, 2026), '
+                         'doi:10.5281/zenodo.20371365'),
+            # About half their records carry a free-text Comment and half a
+            # Reference (15,074 and 9,115 of 31,005 in v14.0).
+            'details': [
+                {'label': 'Their comment', 'field': 'comment', 'quote': True},
+                {'label': 'Their reference', 'field': 'reference'},
+            ],
+            'legacy': ['Noted in the Preliminary Canadian Landslide Database '
+                       'v14.0 (Brideau and others, 2026), '
+                       'doi:10.5281/zenodo.20371365.'],
             # Whose observation this is. Attributable here because the database
             # has one compiler of record; most inventories do not, which is why
             # this is a per-source rule and not a universal one.
@@ -236,24 +267,33 @@ SOURCES = {
 # ---------------------------------------------------------------------------
 # PROMOTION RULES
 #
-# What a source's `promote` dict says is written onto OUR record when one of
-# their records is promoted. It is the first piece of the derivation layer, and
-# deliberately the least clever piece: literal values, per source, that a
-# person decided once and can read back.
+# What is written onto OUR record when it is promoted from one of theirs, or
+# linked to one of theirs after the fact. Deliberately the least clever piece
+# of the derivation layer: per-source wording a person decided once, filled
+# from the source record's own fields, readable back from the registry.
 #
-# Two rules are universal and live here rather than in any source:
+#   ongoing_work   says where the observation came from, so a reader of our
+#                  record can find theirs: the source's `noted_in` lead, their
+#                  own id for the record ("..., as LS27181."), and any
+#                  `details` the source names, each quoted verbatim ("Their
+#                  comment: "...""). Quoted so the generated block has an end a
+#                  machine can find: a re-link or backfill replaces it in place
+#                  and leaves whatever an editor wrote around it alone (Hig
+#                  adds "Described in doi:..." and the like beside it). Earlier
+#                  wordings are listed in the source's `legacy` and replaced the
+#                  same way. (Hig, 2026-11-24: the id and their Comment and
+#                  citation were missing from the record.)
 #
-#   ongoing_work   every promotion says where the observation came from, so a
-#                  reader of our record can find theirs. A source may phrase it
-#                  itself; absent that, it is generated from the title.
-#
-#   noted_by       is CLEARED, not filled with the editor who promoted it.
-#                  Everywhere else in this app a blank noted_by fills with the
-#                  person at the keyboard, because they are the one who noticed
-#                  it. In a promotion they are not: somebody else noticed it,
-#                  and crediting the promoter would quietly overwrite that. A
-#                  source that has a compiler of record can name them (Canada
-#                  does); most cannot, and a blank is then the honest answer.
+#   noted_by       on a NEW promoted record is CLEARED, not filled with the
+#                  editor who promoted it. Everywhere else in this app a blank
+#                  noted_by fills with the person at the keyboard, because they
+#                  are the one who noticed it. In a promotion they are not:
+#                  somebody else noticed it, and crediting the promoter would
+#                  quietly overwrite that. A source with a compiler of record
+#                  names them (Canada does); most cannot, and a blank is then
+#                  the honest answer. On a LINK to an existing record, noted_by
+#                  is only filled when blank: the record already says who
+#                  noticed it, possibly independently of the source.
 #
 # `owner` is left alone on purpose. It means who is responsible for the record
 # HERE, which really is the editor who promoted it.
@@ -261,17 +301,148 @@ SOURCES = {
 PROMOTE_FIELDS = ('ongoing_work', 'noted_by')
 
 
-def promote_values(sid):
-    """Field -> value to write when promoting from this source. A value of None
-    means CLEAR the column, which is how noted_by refuses the editor's name."""
+def _dggs_source(row):
+    """DGGS's citation, from `mapper` + `data_sourc` (see the registry)."""
+    m = ' '.join(str(row.get('mapper') or '').split())
+    d = ' '.join(str(row.get('data_sourc') or '').split())
+    if not m:
+        return d
+    if not d:
+        return m
+    if m.lower() == 'machine learning':
+        return f'{d}, machine learning'
+    # One is the other with a year added ("Darrow, M.M." / "Darrow, M.M., 2021").
+    if d.startswith(m.rstrip('.')):
+        return d
+    if m.startswith(d.rstrip('.')):
+        return m
+    return f'{m} ({d})'
+
+
+_DETAIL_FORMATS = {'dggs_source': _dggs_source}
+
+
+def _rules(sid):
     s = SOURCES.get(sid) or {}
-    rules = dict(s.get('promote') or {})
-    if 'ongoing_work' not in rules:
-        rules['ongoing_work'] = f"Noted in {s.get('title', sid)}."
-    # Explicitly null unless the source named someone. Absent would mean "leave
-    # it", and what is already there is the promoter's own name.
-    rules.setdefault('noted_by', None)
-    return rules
+    return s, dict(s.get('promote') or {})
+
+
+def _lead(sid):
+    s, r = _rules(sid)
+    return r.get('noted_in') or f"Noted in {s.get('title', sid)}"
+
+
+def promotion_text(sid, ext_id, row):
+    """The provenance sentence for our record promoted from / linked to their
+    record `ext_id`, whose mirrored fields are `row` (a dict of columns)."""
+    _, r = _rules(sid)
+    note = ''
+    if r.get('id_note'):
+        try:
+            note = r['id_note'].format(**{k: ('' if v is None else v) for k, v in row.items()})
+        except (KeyError, IndexError):
+            note = ''
+    out = [f'{_lead(sid)}, as {ext_id}{note}.']
+    for d in r.get('details') or []:
+        if 'format' in d:
+            v = _DETAIL_FORMATS[d['format']](row)
+        else:
+            v = row.get(d['field'])
+        v = ' '.join(str(v or '').split())
+        if not v or (d.get('skip') and re.match(d['skip'], v)):
+            continue
+        # Curly quotes inside would end the block early; straighten them.
+        v = v.replace('“', '"').replace('”', '"')
+        out.append(f'{d["label"]}: “{v}”.')
+    return ' '.join(out)
+
+
+def _text_patterns(sid):
+    """Regexes for every wording of this source's sentence we have ever
+    written: the current form with any id and details, then the legacy ones."""
+    s, r = _rules(sid)
+    labels = '|'.join(re.escape(d['label']) for d in r.get('details') or [])
+    # The id and any id_note hold no full stop or opening quote.
+    cur = re.escape(_lead(sid)) + r', as [^.\u201c]+?\.'
+    if labels:
+        cur += rf'(?: (?:{labels}): “[^”]*”\.)*'
+    pats = [cur]
+    for old in list(r.get('legacy') or []) + [f"Noted in {s.get('title', sid)}."]:
+        pats.append(re.escape(old))
+    return [re.compile(p) for p in pats]
+
+
+def merge_promotion_text(sid, existing, new):
+    """`existing` ongoing_work with this source's sentence replaced by `new`
+    (first wording found), or `new` put in front when there is none."""
+    existing = (existing or '').strip()
+    for pat in _text_patterns(sid):
+        if pat.search(existing):
+            return pat.sub(lambda _m: new, existing, count=1)
+    return f'{new} {existing}'.strip()
+
+
+def promote_values(sid):
+    """noted_by for a NEW promoted record: the source's compiler of record, or
+    None = CLEAR the column (the draw commit filled it with the promoter)."""
+    _, r = _rules(sid)
+    return {'noted_by': r.get('noted_by')}
+
+
+class PromotionError(Exception):
+    def __init__(self, msg, status=400):
+        super().__init__(msg)
+        self.status = status
+
+
+def mirrored_row(cur, sid, layer, ext_id):
+    """Their record as {column: value}, by THEIR id. None if the mirror has no
+    such id, which is how a hand-typed or wrong id is caught before it is
+    stamped onto our record (three DGGS promotions carried the mirror's
+    OBJECTID instead of their points_id until 2026-11-24)."""
+    t = table_name(sid, layer)
+    cur.execute('SELECT to_regclass(%s)', (t,))
+    if not cur.fetchone()[0]:
+        return None
+    cur.execute(f'SELECT * FROM {t} WHERE ext_id = %s LIMIT 1', (str(ext_id),))
+    r = cur.fetchone()
+    if r is None:
+        return None
+    row = dict(zip([d[0] for d in cur.description], r))
+    row.pop('geom', None)
+    return row
+
+
+def apply_promotion(cur, ls_id, sid, layer, ext_id, *, fresh):
+    """Stamp provenance and write the rule fields onto landslide `ls_id`, in
+    the caller's transaction. `fresh` = the record was just drawn for this
+    promotion (noted_by is overwritten); otherwise it is an existing record
+    being linked (noted_by only filled when blank). Returns what changed."""
+    if sid not in SOURCES or layer not in SOURCES[sid]['fetch']['layers']:
+        raise PromotionError('unknown source or layer', 404)
+    row = mirrored_row(cur, sid, layer, ext_id)
+    if row is None:
+        raise PromotionError(f'{SOURCES[sid]["short"]} has no record {ext_id} in {layer}', 404)
+    cur.execute('SELECT unique_name, ongoing_work, noted_by, external_source, external_id '
+                'FROM landslides WHERE id = %s FOR UPDATE', (ls_id,))
+    cur_row = cur.fetchone()
+    if cur_row is None:
+        raise PromotionError(f'no landslide {ls_id}', 404)
+    name, ow, nb, old_sid, old_eid = cur_row
+    new_ow = merge_promotion_text(sid, ow, promotion_text(sid, ext_id, row))
+    rule_nb = promote_values(sid)['noted_by']
+    if fresh:
+        new_nb = rule_nb
+    else:
+        new_nb = nb if (nb or '').strip() else rule_nb
+    cur.execute('UPDATE landslides SET external_source = %s, external_id = %s, '
+                'ongoing_work = %s, noted_by = %s, updated_at = NOW() WHERE id = %s',
+                (sid, str(ext_id), new_ow, new_nb, ls_id))
+    return {'landslide_id': ls_id, 'name': name,
+            'external_source': sid, 'external_id': str(ext_id),
+            'ongoing_work': new_ow, 'noted_by': new_nb,
+            'previous': {'external_source': old_sid or None, 'external_id': old_eid or None,
+                         'ongoing_work': ow, 'noted_by': nb}}
 
 
 def source(sid):
@@ -494,6 +665,31 @@ def api_external_sources(request):
     return JsonResponse({'sources': out})
 
 
+def _promote_or_link(request, sid, layer, ext_id, fresh):
+    try:
+        body = json.loads((request.body or b'{}').decode('utf-8'))
+        ls_id = int(body.get('landslide_id'))
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'landslide_id required'}, status=400)
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        try:
+            applied = apply_promotion(cur, ls_id, sid, layer, ext_id, fresh=fresh)
+        except PromotionError as e:
+            conn.rollback()
+            return JsonResponse({'error': str(e)}, status=e.status)
+        conn.commit()
+    finally:
+        _put_conn(conn)
+    from .models import LandslideEditMeta
+    from .views import _invalidate
+    LandslideEditMeta.objects.update_or_create(
+        landslide_id=ls_id, defaults={'last_edited_by': request.user})
+    _invalidate()
+    return JsonResponse({'ok': True, 'landslide_id': ls_id, 'applied': applied})
+
+
 @inventory_editor_required
 @require_http_methods(['POST'])
 def api_external_promote(request, sid, layer, ext_id):
@@ -511,39 +707,58 @@ def api_external_promote(request, sid, layer, ext_id):
     applied promotion whenever one of them failed, with the editor's name left
     on somebody else's observation. One statement, one transaction.
     """
+    return _promote_or_link(request, sid, layer, ext_id, fresh=True)
+
+
+@inventory_editor_required
+@require_http_methods(['POST'])
+def api_external_link(request, sid, layer, ext_id):
+    """Link an EXISTING landslide of ours to their record: the same stamp and
+    provenance sentence as a promotion, merged into what the record already
+    says, and noted_by only filled when blank. For a record drawn before its
+    source record was noticed (Hig, 2026-11-24: drawing a throwaway record to
+    promote, deleting it and copying the text by hand lost the stamp).
+
+    POST {"landslide_id": N}. Editor-only."""
+    return _promote_or_link(request, sid, layer, ext_id, fresh=False)
+
+
+@inventory_editor_required
+@require_http_methods(['GET'])
+def api_external_nearby(request, sid, layer, ext_id):
+    """Our records nearest their record, for the popup's Link list. Distance is
+    from their point to our centroid (polygons can be large, so the nearest
+    centroid is a suggestion, not a verdict). Deprecated records excluded."""
     if sid not in SOURCES or layer not in SOURCES[sid]['fetch']['layers']:
         return JsonResponse({'error': 'unknown source or layer'}, status=404)
-    try:
-        body = json.loads((request.body or b'{}').decode('utf-8'))
-        ls_id = int(body.get('landslide_id'))
-    except (ValueError, TypeError):
-        return JsonResponse({'error': 'landslide_id required'}, status=400)
-
-    rules = promote_values(sid)
-    sets = ['external_source = %s', 'external_id = %s']
-    vals = [sid, str(ext_id)]
-    for col in PROMOTE_FIELDS:
-        if col not in rules:
-            continue
-        sets.append(f'{col} = %s')
-        vals.append(rules[col])
-    vals.append(ls_id)
-
+    t = table_name(sid, layer)
     conn = _get_conn()
     try:
         cur = conn.cursor()
-        cur.execute(f'UPDATE landslides SET {", ".join(sets)} WHERE id = %s', vals)
-        if not cur.rowcount:
+        cur.execute(f'SELECT ST_X(ST_PointOnSurface(geom)), ST_Y(ST_PointOnSurface(geom)) '
+                    f'FROM {t} WHERE ext_id = %s LIMIT 1', (str(ext_id),))
+        p = cur.fetchone()
+        if not p or p[0] is None:
             conn.rollback()
-            return JsonResponse({'error': f'no landslide {ls_id}'}, status=404)
-        conn.commit()
+            return JsonResponse({'error': 'no such record'}, status=404)
+        cur.execute("""
+            SELECT id, unique_name, external_source, external_id, reviewed_at IS NULL,
+                   round(ST_Distance(ST_SetSRID(ST_MakePoint(centroid_lon, centroid_lat), 4326)::geography,
+                                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography))
+              FROM landslides
+             WHERE deprecated_at IS NULL AND centroid_lon IS NOT NULL
+             ORDER BY ST_SetSRID(ST_MakePoint(centroid_lon, centroid_lat), 4326)
+                      <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+             LIMIT 6
+        """, (p[0], p[1], p[0], p[1]))
+        rows = cur.fetchall()
+        conn.rollback()
     finally:
         _put_conn(conn)
-    from .views import _invalidate
-    _invalidate()
-    return JsonResponse({'ok': True, 'landslide_id': ls_id,
-                         'applied': {'external_source': sid, 'external_id': str(ext_id),
-                                     **{k: rules[k] for k in PROMOTE_FIELDS if k in rules}}})
+    return JsonResponse({'records': [
+        {'id': r[0], 'name': r[1], 'external_source': r[2] or None,
+         'external_id': r[3] or None, 'pending': r[4], 'distance_m': int(r[5])}
+        for r in rows]})
 
 
 @require_http_methods(['GET'])

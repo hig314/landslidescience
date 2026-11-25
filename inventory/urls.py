@@ -106,6 +106,12 @@ urlpatterns = [
     re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/promote/'
             r'(?P<ext_id>[^/]+)/$',
             external.api_external_promote, name='api_external_promote'),
+    re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/link/'
+            r'(?P<ext_id>[^/]+)/$',
+            external.api_external_link, name='api_external_link'),
+    re_path(r'^api/external/(?P<sid>[a-z0-9_]+)/(?P<layer>[a-z0-9_]+)/nearby/'
+            r'(?P<ext_id>[^/]+)/$',
+            external.api_external_nearby, name='api_external_nearby'),
     # Scarp traces: public reads, editor-only writes (see inventory/scarps.py).
     path('api/scarps/', scarps.api_scarps, name='api_scarps'),
     # Bathymetric soundings: reads only; gated surveys for data users (inventory/soundings.py).

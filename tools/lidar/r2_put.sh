@@ -32,9 +32,8 @@ PM="${LIDAR_PM_OUT:-$ROOT/data/lidar/pmtiles}"
 # imagery is missing drapes nothing, and the catalogue only advertises
 # ortho_url when the file exists, so publishing one without the other
 # produces a survey that silently lost a feature it had on dev.
-for pair in "$COG/$id.tif cog/$id.tif" "$PM/$id.pmtiles pmtiles/$id.pmtiles" "$PM/${id}_slope.pmtiles pmtiles/${id}_slope.pmtiles" "$PM/${id}_ortho.pmtiles pmtiles/${id}_ortho.pmtiles"; do
-  set -- $pair
-  [ -f "$1" ] || { echo "skip (not built): $1"; continue; }
+put() {
+  [ -f "$1" ] || { echo "skip (not built): $1"; return 0; }
   for i in 1 2 3; do
     rclone copyto "$1" "r2:$R2_BUCKET/$2" \
       --s3-chunk-size "$CHUNK" --s3-upload-concurrency "$CONC" \
@@ -43,5 +42,21 @@ for pair in "$COG/$id.tif cog/$id.tif" "$PM/$id.pmtiles pmtiles/$id.pmtiles" "$P
     sleep 60
   done
   echo "$(date '+%F %T') $2: $(curl -s -o /dev/null -r 0-15 -w '%{http_code}' https://lidar.landslidescience.org/$2)"
+}
+# Smaller download copies first (manifest key "downloads", make_downloads.py:
+# cog/<id>_<res>m.tif beside the archive): they are small, and the catalogue
+# lists one only once it is on the bucket.
+for f in "$COG/${id}"_[0-9]*m.tif; do
+  [ -f "$f" ] && put "$f" "cog/$(basename "$f")"
+done
+# a named companion download (manifest "downloads", name water); most surveys have none, so no "skip" line for it
+if [ -f "$COG/${id}_water.tif" ]; then put "$COG/${id}_water.tif" "cog/${id}_water.tif"; fi
+put "$COG/$id.tif" "cog/$id.tif"
+put "$PM/$id.pmtiles" "pmtiles/$id.pmtiles"
+put "$PM/${id}_slope.pmtiles" "pmtiles/${id}_slope.pmtiles"
+put "$PM/${id}_ortho.pmtiles" "pmtiles/${id}_ortho.pmtiles"
+# linked water surfaces (manifest "surfaces"; ls_water.js), only where built
+for sfx in wsurf sea; do
+  if [ -f "$PM/${id}_$sfx.pmtiles" ]; then put "$PM/${id}_$sfx.pmtiles" "pmtiles/${id}_$sfx.pmtiles"; fi
 done
 echo "$(date '+%F %T') done"

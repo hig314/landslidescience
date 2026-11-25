@@ -102,6 +102,13 @@ def gated_ids():
                 # were served to anyone who guessed the name. Added whether or
                 # not one has been built, so a later build is gated on arrival.
                 out.add(f"{props.get('id')}_slope")
+                # And its linked water surfaces (<id>_wsurf, <id>_sea), likewise
+                # whether or not they exist yet.
+                out.add(f"{props.get('id')}_wsurf"); out.add(f"{props.get('id')}_sea")
+                # And any smaller download copy (cog/<id>_<res>m.tif, manifest
+                # key "downloads"): the same surface, coarser.
+                for dl in props.get('downloads') or []:
+                    out.add(f"{props.get('id')}_{dl.get('res_m'):g}m" if dl.get('res_m') else f"{props.get('id')}_{dl.get('name')}")
                 if props.get('owner_only'):
                     owner |= out - before
             ids, owner = frozenset(out), frozenset(owner)

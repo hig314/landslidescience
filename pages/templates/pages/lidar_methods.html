@@ -47,6 +47,21 @@ Anchors are load-bearing: lidar_preview.html links to them.
   except the optional slope ramp (below).
 </p>
 <p>
+  A large survey may also offer a smaller copy of its archive at a coarser
+  cell size, listed beside <em>Download DTM</em> (for example an 8 m copy of a
+  2 m surface). Each cell of such a copy is the mean of the full-resolution
+  cells it covers; it is the same surface in the same coordinate system, for
+  uses that do not need the detail.
+</p>
+<p>
+  A topobathy composite may also offer its <em>water surface</em>: a raster on
+  the bed's own grid holding the level of inland water (a lake at its one
+  level, a river at a surface fitted to its water returns) and no value
+  elsewhere, so that surface minus bed is depth. Levels are as the surveys saw
+  them. The sea and tidal water are left out, because their level in any
+  survey is only the tide on the day it flew.
+</p>
+<p>
   The footprint shown for a survey is where it has data, not its bounding
   box. Some surveys are restricted and appear only to signed-in
   collaborators. <em>Only surveys in view</em> limits the list to surveys

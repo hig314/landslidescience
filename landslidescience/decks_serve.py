@@ -56,7 +56,7 @@ _FILE_RE = re.compile(r'^(assets|media)/[^/\\]+$')
 _UPLOAD_RE = re.compile(r'^assets/[A-Za-z0-9._-]+$')
 _DIRS = ('assets', 'media', 'live', 'vendor')        # what a browser may fetch
 _MAX_DECK = 8 * 1024 * 1024
-_MAX_UPLOAD = 25 * 1024 * 1024       # an image dropped on a slide; movies come by rsync
+_MAX_UPLOAD = 50 * 1024 * 1024       # an image dropped on a slide; movies come by rsync
 # Set here, not guessed: the container's mimetypes table differs from a Mac's,
 # and a service worker served with the wrong type does not run.
 _TYPES = {

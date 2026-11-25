@@ -51,7 +51,8 @@ inventory is a registry entry plus a fetch rather than a schema negotiation.
   stored as integers nobody will think to decode.
 - **Endpoints** (`inventory/urls.py`): `api/external/` (registry + field
   labels + counts), `api/external/<sid>/<layer>/` (**bbox required**, limited),
-  `.../record/<ext_id>/`, `.../promote/<ext_id>/` (editor-only, 403 otherwise).
+  `.../record/<ext_id>/`, `.../promote/<ext_id>/`, `.../link/<ext_id>/`,
+  `.../nearby/<ext_id>/` (the last three editor-only, 403 otherwise).
   The map fetches per viewport on `moveend`; active layers persist per-browser
   and ride the URL hash as `ext=<sid>/<layer>`.
 
@@ -73,15 +74,41 @@ like any other induction, never straight onto the public map.
   survive it). Indexed, **not unique**: two of our records may legitimately
   derive from one of theirs, and forbidding the more careful reading would be
   backwards.
-- **Per-source promotion rules** live in the registry's `promote` dict
-  (`promote_values()`, fields in `PROMOTE_FIELDS`). Two rules today:
-  `ongoing_work` always records where the observation came from ("Noted in the
-  Alaska Landslide Inventory Database…"), and `noted_by` is **cleared, not
-  filled with the editor who promoted it** — everywhere else a blank
-  `noted_by` auto-fills with the editor, which here would credit them with
-  noticing something somebody else noticed. `canada_pcld` overrides it to
-  `Marc-Andre Brideau`, who built that inventory. Add a source-specific rule
-  in the registry, not at the call site.
+- **Per-source promotion rules** live in the registry's `promote` dict and
+  are applied by `apply_promotion()` (PROMOTION RULES block in `external.py`),
+  the one path for promote, link and backfill:
+  - `ongoing_work` gets the provenance sentence from `promotion_text()`: the
+    source's `noted_in` lead, `, as <their id>` (+ `id_note`, DGGS adds
+    `(OBJECTID n)`, the number their popup shows), then each `details` entry
+    quoted verbatim, e.g. `Their comment: "…". Their reference: "…".`
+    (Canada: `comment`, `reference`; DGGS: `mapper` + `data_sourc` folded by
+    `_dggs_source`, and `notes` unless it is only "Confidence= x"). Hig,
+    2026-11-24: the id and their comment/citation were missing. The sentence is
+    **merged**, not overwritten: `merge_promotion_text` replaces the current
+    or a `legacy` wording in place (the quotes give the block a findable end)
+    and keeps what editors wrote beside it ("Described in doi:…"); with none,
+    it goes in front.
+  - `noted_by` on a **new** promoted record is **cleared, not filled with the
+    editor who promoted it** — everywhere else a blank `noted_by` auto-fills
+    with the editor, which here would credit them with noticing something
+    somebody else noticed. `canada_pcld` names `Marc-Andre Brideau`, who built
+    that inventory. On a **link** it is only filled when blank.
+  - The id is checked against the mirror (`mirrored_row`, by their id) before
+    anything is stamped; 404 otherwise. Three DGGS records had been stamped
+    with the OBJECTID, which the "Promoted from" card could not find.
+  Add a source-specific rule in the registry, not at the call site.
+- **Link to an existing record** (2026-11-24): the popup's *⇄ Link to an
+  existing record…* lists our six nearest non-deprecated records (centroid
+  distance, `api/external/<sid>/<layer>/nearby/<ext_id>/`) or takes an id;
+  second click confirms (no dialog); POST `.../link/<ext_id>/`
+  `{landslide_id}`. Re-linking replaces the stamp (one source per record).
+  Written to the edit log as the linking editor.
+- **Backfill**: `python manage.py backfill_promotion_text` (dry run; `--apply`
+  writes; once per environment) rewrites every stamped record to the current
+  wording, re-stamps an id that is their OBJECTID, and stamps unstamped
+  records whose text says they were promoted with the nearest source point
+  (`--max-distance`, default 3 km; `--pair ID:EXT_ID` overrides). Never
+  changes `noted_by`.
 - **The "Promoted from" card** (`_promoted_from.html`, included by both the
   edit and review forms) shows the source record's fields verbatim beside our
   own, read from the form's own `external_source`/`external_id` inputs so the
