@@ -126,6 +126,18 @@ One line each, newest first; detail is in the `docs/` file named.
 
 In no particular order.
 
+- **InSAR categorisation needs restructuring (Hig, 2026-11-24).** The
+  per-study InSAR columns (`insar_schaefer` = Schaefer's earlier Prince
+  William Sound work, `insar_kim`, `insar_opera`, `insar_other`, OR-merged
+  into `insar_creep` by derived.py) were built for a few studies; InSAR
+  inventories are multiplying (Schaefer 2026 southern Alaska PSInSAR, NRCan
+  via Canada's `deformation_insar_data`, our OPERA/NRCan overlays). For now a
+  record promoted from or linked to Schaefer 2026 gets `insar_other = True`
+  (registry `set` rule, docs/EXTERNAL_INVENTORIES.md). To design: a structure
+  that scales with sources (e.g. a per-source InSAR observation table with
+  study, sensor, period, rate, confidence) feeding `insar_creep`, plus what
+  happens to the existing columns, the class rule's dependants and the
+  methods page.
 - **Glaciers work stream, 2026-11-24: S1 timelapses and auto faces LIVE,
   nothing in flight.** Worktree `landslidescience-glaciers` (branch
   `glaciers`, dev :8004) = main = prod at ead84b5 plus docs. Start at

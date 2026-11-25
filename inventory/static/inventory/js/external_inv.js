@@ -590,6 +590,8 @@
                         st.innerHTML = 'Linked <a href="/inventory/manage/' + lid + '/">' +
                             esc(a.name || ('#' + lid)) + '</a>' +
                             (also.length ? ' (also linked to ' + esc(also.join(', ')) + ')' : '') +
+                            (a.set && Object.keys(a.set).length
+                                ? '. Set: ' + esc(Object.keys(a.set).join(', ')) + ' (derived fields recomputed)' : '') +
                             '. Ongoing work: ' + esc(a.ongoing_work || '');
                         p._promoted = (p._promoted || []).filter(function (x) { return x[0] !== lid; })
                                                           .concat([[lid, a.name]]);

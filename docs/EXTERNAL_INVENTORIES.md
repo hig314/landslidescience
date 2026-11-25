@@ -112,6 +112,13 @@ like any other induction, never straight onto the public map.
     with the editor, which here would credit them with noticing something
     somebody else noticed. `canada_pcld` names `Marc-Andre Brideau`, who built
     that inventory. On a **link** it is only filled when blank.
+  - `set` (2026-11-24): column → True written on promotion and on link,
+    then `derived.apply_rules_for_landslide` (insar_other feeds insar_creep →
+    creep behaviour → class). Schaefer 2026 sets `insar_other` (Hig: every
+    record is InSAR deformation; "for now" pending a rethink of the per-study
+    InSAR columns, docs/STATE.md Open threads). Only raises to True; unlink
+    does not undo it (the earlier value is not kept). Canada's
+    `deformation_insar_data` flag is NOT mapped (not asked for).
   - The id is checked against the mirror (`mirrored_row`, by their id) before
     anything is stamped; 404 otherwise. Three DGGS records had been stamped
     with the OBJECTID, which the "Promoted from" card could not find.

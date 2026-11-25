@@ -348,6 +348,12 @@ SOURCES = {
             # author noticed it; otherwise Schaefer's team did.
             'noted_by_from': 'citation',
             'noted_by': 'Lauren Schaefer',
+            # Every record is a landslide they saw deforming in PSInSAR, so a
+            # record promoted from or linked to one shows InSAR deformation
+            # (Hig, 2026-11-24). Filed under insar_other for now: the per-study
+            # InSAR columns need rethinking as InSAR inventories multiply (see
+            # docs/STATE.md, Open threads).
+            'set': {'insar_other': True},
         },
     },
 }
@@ -386,6 +392,14 @@ SOURCES = {
 #                  instead (Hig, 2026-11-24). On a LINK to an existing record,
 #                  noted_by is only filled when blank: the record already says
 #                  who noticed it, possibly independently of the source.
+#
+#   set            column -> value written on promotion AND on link, e.g.
+#                  Schaefer 2026's insar_other = True. Only ever raises a
+#                  boolean to True (an existing True is not touched, a False is
+#                  overridden by their positive observation); the rule cascade
+#                  then runs, since these columns feed derived rules
+#                  (insar_other -> insar_creep -> creep behaviour, class).
+#                  Unlinking does NOT undo it: the earlier value is not kept.
 #
 #   links          one row per (our record, their source, their id) in
 #                  landslide_external_links: a record may derive from several
@@ -645,14 +659,38 @@ def apply_promotion(cur, ls_id, sid, layer, ext_id, *, fresh, who=None):
     new_nb = rule_nb if fresh else (nb if (nb or '').strip() else rule_nb)
     cur.execute('UPDATE landslides SET ongoing_work = %s, noted_by = %s, '
                 'updated_at = NOW() WHERE id = %s', (new_ow, new_nb, ls_id))
+    set_applied = _apply_set_rules(cur, ls_id, sid)
     cur.execute(f'INSERT INTO {LINKS} (landslide_id, source, ext_id, linked_by) '
                 f'VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING',
                 (ls_id, sid, str(ext_id), who))
     return {'landslide_id': ls_id, 'name': name,
             'external_source': sid, 'external_id': str(ext_id),
             'ongoing_work': new_ow, 'noted_by': new_nb,
-            'links': links_of(cur, ls_id),
+            'links': links_of(cur, ls_id), 'set': set_applied,
             'previous': {'links': before, 'ongoing_work': ow, 'noted_by': nb}}
+
+
+_SET_COLUMN = re.compile(r'^[a-z_][a-z0-9_]*$')
+
+
+def _apply_set_rules(cur, ls_id, sid):
+    """The source's `set` rules onto landslide `ls_id`, then the derived-rule
+    cascade if anything changed (as a form save of those fields would). Only
+    True is written, and only where the column is not already True. Returns
+    {column: True} for what changed."""
+    _, r = _rules(sid)
+    changed = {}
+    for col, val in (r.get('set') or {}).items():
+        if val is not True or not _SET_COLUMN.match(col):
+            raise PromotionError(f'unsupported set rule {col}={val!r} for {sid}', 500)
+        cur.execute(f'UPDATE landslides SET {col} = TRUE '
+                    f'WHERE id = %s AND {col} IS DISTINCT FROM TRUE', (ls_id,))
+        if cur.rowcount:
+            changed[col] = True
+    if changed:
+        from . import derived
+        derived.apply_rules_for_landslide(cur, ls_id)
+    return changed
 
 
 def remove_link(cur, ls_id, sid, ext_id):
