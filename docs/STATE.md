@@ -83,6 +83,7 @@ by curl, by API or not at all.
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-25 · Schaefer 2026 overlay restyled: hard yellow outline, no fill, dark casing (registry `style`) (60e668c) · docs/EXTERNAL_INVENTORIES.md
 - 2026-11-25 · External inventory `usgs_schaefer2026` (Schaefer and others 2026, 239 PSInSAR outlines, zipped-shapefile fetch); several sources per record (`landslide_external_links`, `migrate_external_links` run on prod: 21 links), unlink, noted_by from their citation's first author, promotion starts from their outline, Link offers strong overlap first, Schaefer sets `insar_other` + cascade (cbc064e..a4dc4cc) · docs/EXTERNAL_INVENTORIES.md
 - 2026-11-24 · Promotion text carries their id (+ DGGS OBJECTID) and their comment/citation, merged into ongoing_work; *Link to an existing record* in the mirrored-record popup; `backfill_promotion_text` applied on prod (21 records: 4 unstamped stamped by nearest point, 3 DGGS OBJECTID stamps corrected) (aca5194) · docs/EXTERNAL_INVENTORIES.md "Promotion"
 - 2026-11-24 · /glaciers/: one video shown per framing (similar frames hidden, other look direction kept when mostly complete; 6ccedc8); Tyndall timelapse built (video 115) with 68 auto faces, after Hig moved its flow line onto the front · docs/GLACIERS.md "Similar frames", "Tyndall: the flow line has to cross the face"
