@@ -120,7 +120,7 @@ PROBES = [
      xyz('https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg',
          HOMER, 10), 'image/', 500, 1),
     ('R2 lidar bucket (catalogue of bytes)', 'every public lidar survey, overlay archives',
-     'https://lidar.landslidescience.org/overlays/susc_nasa.pmtiles', 'RANGE', 127, 1),
+     'https://lidar.landslidescience.org/overlays/susc_nasa_purple.pmtiles', 'RANGE', 127, 1),
     ('unpkg (maplibre-gl, pmtiles, terra-draw, contour)', 'the map itself',
      'https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js', '', 100000, 1),
     ('Uppy CDN', 'photo drop uploader',

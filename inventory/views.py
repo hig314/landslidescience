@@ -1362,6 +1362,13 @@ _RAMP_SPECS = {
                         ('exh-6-4', 'Exhumation rate, 6–4 Ma (Herman et al. 2013)'),
                         ('exh-8-6', 'Exhumation rate, 8–6 Ma (Herman et al. 2013)'),
                         ('den-be10', '¹⁰Be denudation rate (OCTOPUS)'))},
+    # DGGS: rock strength x slope class gives classes 3 and 5-10 (no 4);
+    # 200 is their lake / river / glacier class, kept pale blue.
+    'susc-dggs': {'file': 'dggs_susc_color.txt', 'label': 'Deep-seated landslide susceptibility (Alaska DGGS)',
+                  'units': 'class · 20 m', 'kind': 'classes',
+                  'classes': [('Class 3 (lowest)', 3), ('Class 5', 5), ('Class 6', 6), ('Class 7', 7),
+                              ('Class 8', 8), ('Class 9', 9), ('Class 10 (highest)', 10),
+                              ('Lake, river or glacier: not assessed', 200)]},
     'susc-nasa': {'file': 'nasa_susc_color.txt', 'label': 'Landslide susceptibility (NASA global)',
                   'units': 'class · ~1 km', 'kind': 'classes',
                   'classes': [('Very low', 1), ('Low', 2), ('Moderate', 3), ('High', 4), ('Very high', 5)]},

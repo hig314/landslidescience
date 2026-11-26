@@ -8,8 +8,8 @@
 # the four susceptibility layers. Chosen over yellow-orange-red because the
 # landslide dots are pink, yellow, green and blue. WRITTEN BY
 # tools/susc_purple_ramps.py: edit the tables there, not this file.
-# The archives on R2 are still the yellow-red bake; the browser recolours
-# them to these values (ls_overlays.js) until they are re-baked from here.
+# The `_purple` archives on R2 hold these colours
+# (tools/recolor_susc_archives.py).
 nv   0   0   0   0
 0    0   0   0   0
 1    231 212 232  70

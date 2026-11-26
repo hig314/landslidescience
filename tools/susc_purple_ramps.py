@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Write the purple susceptibility ramp files from the tables the browser uses.
+"""Write the purple susceptibility ramp files, and hold the mapping that
+recoloured the archives.
 
-The susceptibility archives on R2 were baked yellow-orange-red (ColorBrewer
+The susceptibility archives were first baked yellow-orange-red (ColorBrewer
 YlOrRd). Since 2026-11-25 the site shows them in the purple arm of the InSAR
-ramp, recoloured in the browser (ls_overlays.js, "Susceptibility is purple"):
-the baked GREEN value places a pixel on the old ramp, and the purple stops
-colour that position. This script applies the same two tables to the OLD
-class colours and writes the ramp files, so the keys (api/ramps/) show
-exactly what the map draws, and a future re-bake produces the same colours.
+ramp. The `_purple` archives were made from the old ones by
+tools/recolor_susc_archives.py, which imports purple() from here: the old
+GREEN value places a pixel on the old ramp, and the purple stops colour that
+position. This script applies the same mapping to the OLD class colours and
+writes the ramp files, so the keys (api/ramps/) show what the archives hold
+and a bake from the source rasters would produce the same colours.
 
-STOPS and G must match SUSC_STOPS and SUSC_G in ls_overlays.js. Alpha, and
-the DGGS "not assessed" class (pale blue), are kept.
+Alpha, and the DGGS "not assessed" class (pale blue), are kept.
 
     python3 tools/susc_purple_ramps.py          # rewrite the four files
 """
@@ -78,8 +79,8 @@ NOTE = ("#\n# PURPLE since 2026-11-25: the purple arm of the InSAR ramp, pale an
         "# the four susceptibility layers. Chosen over yellow-orange-red because the\n"
         "# landslide dots are pink, yellow, green and blue. WRITTEN BY\n"
         "# tools/susc_purple_ramps.py: edit the tables there, not this file.\n"
-        "# The archives on R2 are still the yellow-red bake; the browser recolours\n"
-        "# them to these values (ls_overlays.js) until they are re-baked from here.\n")
+        "# The `_purple` archives on R2 hold these colours\n"
+        "# (tools/recolor_susc_archives.py).\n")
 TAIL = {'dggs_susc_color.txt': "# lake, river or glacier: the model does not apply. Pale and faint, so it\n"
                                "# reads as 'not assessed' rather than as a susceptibility value.\n"
                                "200  190 232 255  90\n"}

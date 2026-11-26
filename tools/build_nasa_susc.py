@@ -13,13 +13,13 @@ Steps: gdaldem color-relief with EXACT class colours (tools/nasa_susc_color.txt,
 -nearest_color_entry, class 0 transparent) -> `gdal raster tile` z0..max in
 Web Mercator, nearest at the deepest zoom so a class is never blended into
 one the source does not hold, averaged below it (a picture of the classes,
-like every pyramid here) -> MBTiles -> data/overlays/susc_nasa.pmtiles.
+like every pyramid here) -> MBTiles -> data/overlays/susc_nasa_purple.pmtiles.
 
 z8 is ~600 m a pixel at the equator and ~300 m at 60 N, so the 1 km cells
 are resolved everywhere; the map overzooms from there, which shows the cells
 as the blocks they are.
 
-Served by /overlays/susc_nasa.pmtiles (local file in dev, R2 in production:
+Served by /overlays/susc_nasa_purple.pmtiles (local file in dev, R2 in production:
 tools/permafrost/r2_sync_overlays.sh). PMTiles on R2 rather than a tile tree
 under data/susc_tiles/, because the droplet's disk is nearly full.
 """
@@ -34,10 +34,10 @@ URL = 'https://gpm.nasa.gov/sites/default/files/downloads/global-landslide-susce
 SRC_DIR = ROOT / 'data' / 'susc_src' / 'nasa'
 SRC = SRC_DIR / URL.rsplit('/', 1)[1]
 RAMP = ROOT / 'tools' / 'nasa_susc_color.txt'
-OUT = ROOT / 'data' / 'overlays' / 'susc_nasa.pmtiles'
+OUT = ROOT / 'data' / 'overlays' / 'susc_nasa_purple.pmtiles'
 GDAL = Path('/opt/homebrew/bin')
 PMTILES = '/opt/homebrew/bin/pmtiles'
-OID = 'susc_nasa'
+OID = 'susc_nasa_purple'
 
 
 def run(cmd):
