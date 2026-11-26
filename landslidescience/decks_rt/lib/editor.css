@@ -49,6 +49,9 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 /* opacity and crop */
 .kn-ed-bar .kn-ed-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; }
 .kn-ed-bar .kn-ed-tools input[type=range] { width: 110px; accent-color: #2f8cff; }
+.kn-ed-bar .kn-ed-col { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; }
+.kn-ed-bar .kn-ed-col input[type=color] { width: 30px; height: 20px; padding: 0; border: 0; background: none; cursor: pointer; }
+.kn-ed-bar .kn-ed-colsw { margin: 0; flex-wrap: nowrap; }
 .kn-ed-bar .kn-ed-opn { width: 3em; font-variant-numeric: tabular-nums; color: #9fc6ff; }
 .reveal .kn-ed-ghost { position: absolute; max-width: none; max-height: none; margin: 0; border: 0; opacity: 0.35; pointer-events: none;
   outline: calc(1px * var(--k)) dashed #ffb02e; }

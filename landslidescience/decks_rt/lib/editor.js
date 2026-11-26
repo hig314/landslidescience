@@ -29,6 +29,8 @@
  * (stacking order, group), Animate (build the selection in or out, the build order).
  *   Opacity           the slider in the bar sets how opaque the selection is. Turn an image down to
  *                     see what is under it while lining the two up, then back to 100.
+ *   Colour            (bar, with a text box selected) the picker or a swatch colours the whole box.
+ *                     While retyping a box, select some words first and only they change.
  *   Crop              (bar, double-click an image, or Enter on one) the image's frame becomes a
  *                     mask: the handles move the mask's edges over the image, which stays where it
  *                     is and shows faintly beyond them; dragging inside, or the arrows, slide the
@@ -226,13 +228,75 @@
   }
   // ---------------------------------------------------------------- opacity and crop (in the bar)
   function drawTools() {
-    var any = sel.length && !sorter && !typing;
+    var any = (sel.length || typing) && !sorter;
     bar.tools.style.display = any ? "" : "none";
-    if (!any) return;
+    if (!any) { bar.colbox.shown = false; return; }
+    bar.op.disabled = !!typing;            // (kept in place, so the colours do not move when typing starts)
+    var txt = typing ? [typing.e] : sel.filter(function (e) { return e.type === "text"; });
+    bar.colbox.style.display = txt.length ? "" : "none";
+    if (txt.length && !colBefore) {
+      if (document.activeElement !== bar.col) bar.col.value = hex(txt[0].color) || "#000000";
+      if (!bar.colbox.shown) swatches();
+    }
+    bar.colbox.shown = !!txt.length;
     if (!opBefore) { var v = sel[0].op == null ? 100 : sel[0].op; bar.op.value = v; bar.opn.textContent = Math.round(v) + "%"; }
-    var img = sel.length === 1 && sel[0].type === "image" && !sel[0].rot;
+    var img = !typing && sel.length === 1 && sel[0].type === "image" && !sel[0].rot;
     bar.crop.style.display = img ? "" : "none";
     bar.crop.textContent = cropping ? "Finish crop" : "Crop";
+  }
+  // Text colour. A text box selected: all of it. While typing with some of the text selected:
+  // that part, which makes the box one of runs (deck.js: runs carry the text and what differs).
+  function joinRuns(e) {                   // neighbours that no longer differ become one; a box of one plain run is plain text again
+    var out = [];
+    function but(r) { var o = {}; Object.keys(r).sort().forEach(function (k) { if (k !== "t") o[k] = r[k]; }); return JSON.stringify(o); }
+    (e.runs || []).forEach(function (r) {
+      var p = out[out.length - 1];
+      if (p && but(p) === but(r)) p.t += r.t; else out.push(r);
+    });
+    if (out.length === 1 && Object.keys(out[0]).length === 1) { e.text = out[0].t; delete e.runs; }
+    else if (out.length) e.runs = out;
+  }
+  function swatches() {                    // black, white, and the text colours this deck uses most
+    var n = {};
+    function count(c) { c = hex(c); if (c) n[c] = (n[c] || 0) + 1; }
+    deck.slides.forEach(function (y) { (y.elements || []).forEach(function (e) {
+      if (e.type !== "text") return;
+      count(e.color); (e.runs || []).forEach(function (r) { count(r.color); });
+    }); });
+    var used = Object.keys(n).sort(function (a, b) { return n[b] - n[a]; });
+    used = ["#000000", "#ffffff"].concat(used.filter(function (c) { return c !== "#000000" && c !== "#ffffff"; })).slice(0, 10);
+    bar.colsw.innerHTML = "";
+    used.forEach(function (c) {
+      var b = mk("button", "", bar.colsw);
+      b.style.background = c; b.title = c;
+      b.addEventListener("mousedown", function (ev) { ev.preventDefault(); });      // the text being typed keeps its selection
+      b.onclick = function () { colour(c, true); b.blur(); };
+    });
+  }
+  function colour(c, done) {               // the picker moving (one undo step), then closed; or a swatch
+    c = hex(c);
+    if (!c) return;
+    if (typing) {
+      var rg = typing.range;
+      if (rg) {                            // some of the text: when the colour is chosen
+        if (!done) return;
+        var a = rg.cloneRange(), b = rg.cloneRange();
+        b.collapse(false); b.insertNode(document.createTextNode("\uE001"));
+        a.collapse(true); a.insertNode(document.createTextNode("\uE000"));
+        typing.paint = c;
+      }
+      finish();
+      if (rg) { swatches(); return; }
+    }
+    var list = sel.filter(function (e) { return e.type === "text"; });
+    if (!list.length) return;
+    if (!colBefore) colBefore = snapshot();
+    list.forEach(function (e) {
+      e.color = c;
+      if (e.runs) { e.runs.forEach(function (r) { delete r.color; }); joinRuns(e); }
+    });
+    if (done) { var was = colBefore; colBefore = null; commit(was); swatches(); }
+    rebuild();
   }
   function opacity(v, done) {              // the slider moving (one undo step per drag), then let go
     if (!sel.length) return;
@@ -592,11 +656,25 @@
         }
       });
     })(t.body, true);
+    if (t.paint) {                         // colour for the part between the two marks colour() left in the text
+      var inside = false, cut = [];
+      parts.forEach(function (p) {
+        p.t.split(/([\uE000\uE001])/).forEach(function (x) {
+          if (x === "\uE000") inside = true; else if (x === "\uE001") inside = false;
+          else if (x) cut.push({ t: x, r: p.r, c: inside });
+        });
+      });
+      parts = cut;
+      if (!e.runs) e.runs = [{ t: "" }];
+    }
     var text = parts.map(function (p) { return p.t; }).join("").replace(/\n+$/, "");
     if (e.runs) {
       var left = text.length;
-      e.runs = parts.map(function (p) { var r = {}, src = e.runs[p.r] || {}; Object.keys(src).forEach(function (k) { r[k] = src[k]; }); r.t = p.t.slice(0, left); left -= r.t.length; return r; })
+      e.runs = parts.map(function (p) { var r = {}, src = e.runs[p.r] || {}; Object.keys(src).forEach(function (k) { r[k] = src[k]; }); r.t = p.t.slice(0, left); left -= r.t.length;
+                      if (p.c) { if (t.paint === hex(e.color)) delete r.color; else r.color = t.paint; }
+                      return r; })
                     .filter(function (r) { return r.t; });
+      if (t.paint) joinRuns(e);
     }
     var n = text.split("\n").length;
     ["markers", "paraBuilds"].forEach(function (key) {      // lists follow the paragraphs
@@ -1038,7 +1116,7 @@
   // The "Slide…" panel: background colour and the transition to the next slide, for the slide
   // showing or, in the sorter, for every selected slide. One undo step per choice (a drag in
   // the colour picker counts as one).
-  var fmt = null, fmtBefore = null;
+  var fmt = null, fmtBefore = null, colBefore = null;
   function fmtSlides() { return sorter ? deck.slides.filter(function (x) { return picks.indexOf(x) >= 0; }) : [cur().s]; }
   function hex(c) {
     c = String(c || "").trim().toLowerCase();
@@ -1423,12 +1501,23 @@
     bar.crop = mk("button", "", bar.tools, "Crop");
     bar.crop.title = "Mask the image: drag the handles over it, drag inside to slide it. Double-click an image does the same.";
     bar.crop.onclick = function () { crop(cropping ? null : sel[0]); bar.crop.blur(); };
+    bar.colbox = mk("span", "kn-ed-col", bar.tools);
+    mk("span", "", bar.colbox, "Colour");
+    bar.col = mk("input", "", bar.colbox); bar.col.type = "color";
+    bar.col.title = "The colour of the selected text box. While typing: of the words selected in it.";
+    bar.colsw = mk("span", "kn-ed-fmt-sw kn-ed-colsw", bar.colbox);
+    bar.colsw.title = "Black, white, and the text colours this deck already uses";
+    bar.col.addEventListener("input", function () { colour(bar.col.value, false); });
+    bar.col.addEventListener("change", function () { colour(bar.col.value, true); bar.col.blur(); });
     bar.live = mk("span", "kn-ed-livebar", bar.el);
     bar.status = mk("span", "kn-ed-status", bar.el);
     button("Done", "Back to presenting  E", toggle).className = "kn-ed-done";
     document.addEventListener("keydown", key, true);
     document.addEventListener("pointerdown", function (ev) {
-      if (typing && !typing.node.contains(ev.target)) finish();
+      if (typing && bar.colbox.contains(ev.target)) {          // a colour for the words selected: remembered before the click takes the selection away
+        var gs = getSelection(), g0 = gs.rangeCount ? gs.getRangeAt(0) : null;
+        typing.range = g0 && !g0.collapsed && typing.body.contains(g0.commonAncestorContainer) ? g0.cloneRange() : null;
+      } else if (typing && !typing.node.contains(ev.target)) finish();
       if (using && !bar.el.contains(ev.target)) use(null);
       if (menuOpen && !menuOpen.el.contains(ev.target) && !menuOpen.btn.contains(ev.target)) menuClose();
     }, true);
