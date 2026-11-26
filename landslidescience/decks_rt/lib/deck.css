@@ -21,6 +21,10 @@ html, body { background: #000; }
 .reveal .kn-text .kn-p { position: relative; }
 .reveal .kn-text .kn-marker { position: absolute; left: 0; }
 
+/* shapes: an SVG the size of the frame; a path's line and arrowheads may reach past it */
+.reveal .kn-shape { overflow: visible; }
+.reveal .kn-shape > svg.kn-svg { position: absolute; left: 0; top: 0; overflow: visible; display: block; }
+
 /* images: the frame crops; the picture fills it unless a fit rectangle places it */
 .reveal .kn-image { overflow: hidden; }
 .reveal .kn-image > img { position: absolute; left: 0; top: 0; width: 100%; height: 100%;

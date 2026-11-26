@@ -34,7 +34,14 @@
  *                                             fit = the whole image's rectangle relative to the
  *                                             frame, which crops it; absent = fills the frame
  *     video  { src, autoplay }
- *     shape  { fill, radius }                 radius in percent (50 = ellipse)
+ *     shape  { shape: rect | oval | path, fill, fillOp, stroke, strokeW, strokeOp, dash: dash | dot,
+ *              corner, radius, pts, closed, arrow: end | start | both }
+ *                                             drawn as SVG (drawShape). fill / stroke: a colour, absent = none;
+ *                                             fillOp / strokeOp: opacity in percent (absent = 100); strokeW in px
+ *                                             (default 4). A box's or oval's line lies inside its frame. corner: a
+ *                                             box's corner radius in px; radius (from the importer): in percent of
+ *                                             the frame, 50 = an oval. A path's pts are [fx, fy] fractions of the
+ *                                             frame (so it scales with it); its line and arrowheads may reach past it.
  *     live   { src, steps | states, fallback }
  *                                             another page in an iframe, stepped by the clicker. states: one view
  *                                             string per click, sent to the page (which includes lib/deck-embed.js);
@@ -172,9 +179,49 @@
     if (s.size) node.style.fontSize = s.size + "px";
     if (s.color) node.style.color = s.color;
   }
+  var NS = "http://www.w3.org/2000/svg", arrows = 0;
+  function svgEl(tag, parent, attrs) {
+    var n = document.createElementNS(NS, tag);
+    Object.keys(attrs || {}).forEach(function (k) { if (attrs[k] != null) n.setAttribute(k, attrs[k]); });
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function drawShape(n, e) {               // (again after any change of frame or style: the editor calls RT.drawShape)
+    n.textContent = "";
+    var w = e.w, h = e.h, line = e.stroke ? (e.strokeW == null ? 4 : +e.strokeW) : 0, kind = e.shape || (e.radius >= 50 ? "oval" : "rect");
+    var svg = svgEl("svg", n, { width: w, height: h, "class": "kn-svg" }), g;
+    var st = { fill: e.fill || "none", "fill-opacity": e.fillOp != null ? e.fillOp / 100 : null,
+               stroke: e.stroke || "none", "stroke-width": line || null, "stroke-opacity": e.strokeOp != null ? e.strokeOp / 100 : null,
+               "stroke-linejoin": "round", "stroke-linecap": e.dash === "dot" || kind === "path" ? "round" : "butt" };
+    if (e.dash === "dash") st["stroke-dasharray"] = 3 * line + " " + 2 * line;
+    else if (e.dash === "dot") st["stroke-dasharray"] = "0.01 " + 2 * line;
+    if (kind === "path") {
+      var p = (e.pts || []).map(function (q) { return (q[0] * w).toFixed(1) + "," + (q[1] * h).toFixed(1); });
+      st.d = p.length ? "M" + p.join("L") + (e.closed ? "Z" : "") : "";
+      g = svgEl("path", svg, st);
+      if (e.arrow && e.stroke && !e.closed) {   // arrowheads in the line's colour, sized by its width
+        var id = "kn-ar" + (++arrows), m = svgEl("marker", svgEl("defs", svg), { id: id, viewBox: "0 0 10 10", refX: 4, refY: 5,
+          markerWidth: 4, markerHeight: 4, markerUnits: "strokeWidth", orient: "auto-start-reverse" });
+        svgEl("path", m, { d: "M0,0 L10,5 L0,10 z", fill: e.stroke, "fill-opacity": st["stroke-opacity"] });
+        if (e.arrow === "end" || e.arrow === "both") g.setAttribute("marker-end", "url(#" + id + ")");
+        if (e.arrow === "start" || e.arrow === "both") g.setAttribute("marker-start", "url(#" + id + ")");
+      }
+    } else if (kind === "oval") {
+      st.cx = w / 2; st.cy = h / 2; st.rx = Math.max(0, (w - line) / 2); st.ry = Math.max(0, (h - line) / 2);
+      g = svgEl("ellipse", svg, st);
+    } else {
+      st.x = line / 2; st.y = line / 2; st.width = Math.max(0, w - line); st.height = Math.max(0, h - line);
+      if (e.corner) { st.rx = st.ry = Math.min(e.corner, st.width / 2, st.height / 2); }
+      else if (e.radius) { st.rx = e.radius / 100 * w; st.ry = e.radius / 100 * h; }
+      g = svgEl("rect", svg, st);
+    }
+    return n;
+  }
   function build(e, stack) {
     var n;
-    if (e.type === "text" || e.type === "shape") {
+    if (e.type === "shape") {
+      n = drawShape(el("div", "kn-el kn-shape", stack), e);
+    } else if (e.type === "text") {
       n = el("div", "kn-el kn-text", stack);
       if (e.fill) n.style.background = e.fill;
       if (e.radius) n.style.borderRadius = e.radius + "%";
@@ -497,7 +544,7 @@
       };
 
       // ---- the editor (lib/editor.js), loaded the first time E is pressed ----
-      RT.frame = frame; RT.slidesEl = slidesEl; RT.fillStack = fillStack;
+      RT.frame = frame; RT.drawShape = drawShape; RT.slidesEl = slidesEl; RT.fillStack = fillStack;
       RT.resync = function (i) {             // after slides were added, removed or reordered
         Array.prototype.forEach.call(slidesEl.querySelectorAll(":scope > section"), function (n) { n.remove(); });
         deck.slides.forEach(section);

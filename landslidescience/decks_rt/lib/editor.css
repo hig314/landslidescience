@@ -132,3 +132,19 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 .kn-ed-notice { position: fixed; left: 50%; top: 40px; transform: translateX(-50%); z-index: 3000; max-width: 640px; padding: 12px 16px;
   border-radius: 8px; background: #b3261e; color: #fff; font: 600 14px/1.45 -apple-system, "Helvetica Neue", Arial, sans-serif; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); }
 .kn-ed-notice button { margin: 10px 8px 0 0; padding: 5px 12px; font: inherit; color: #b3261e; background: #fff; border: 0; border-radius: 5px; cursor: pointer; }
+
+/* shapes: a path's points, the path being drawn, the Style panel */
+.reveal .kn-ed-h.kn-ed-pt { border-radius: 50%; background: #ffb02e; border-color: #fff; cursor: move; }
+.reveal .kn-ed-layer.kn-ed-drawing { cursor: crosshair; }
+.reveal svg.kn-ed-draft { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.reveal svg.kn-ed-draft polyline { fill: none; stroke: #2f8cff; stroke-width: calc(2px * var(--k)); stroke-dasharray: calc(6px * var(--k)) calc(4px * var(--k)); }
+.kn-ed-shp { left: auto; right: 12px; width: 280px; }
+.kn-ed-shp .kn-ed-fmt-head { display: flex; align-items: center; }
+.kn-ed-shp .kn-ed-x { margin-left: auto; padding: 0 6px; font: inherit; font-size: 16px; color: #bbb; background: none; border: 0; cursor: pointer; }
+.kn-ed-shp input[type=range] { width: 110px; accent-color: #2f8cff; }
+.kn-ed-shp input[type=checkbox] { margin: 0; }
+.kn-ed-shp .kn-ed-none { padding: 2px 9px; font: inherit; color: #ddd; background: #111; border: 1px solid #666; border-radius: 4px; cursor: pointer; }
+.kn-ed-shp .kn-ed-none.on { color: #fff; background: #2f6fd0; border-color: #2f8cff; }
+.kn-ed-shp input[type=color].off { opacity: 0.35; }
+.kn-ed-shp input:disabled, .kn-ed-shp select:disabled { opacity: 0.35; }
+.kn-ed-fmt-note { margin-top: 10px; font-size: 11px; color: #999; }

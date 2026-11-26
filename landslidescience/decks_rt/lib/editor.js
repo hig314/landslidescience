@@ -34,6 +34,15 @@
  *                     see what is under it while lining the two up, then back to 100.
  *   Colour            (bar, with a text box selected) the picker or a swatch colours the whole box.
  *                     While retyping a box, select some words first and only they change.
+ *   Shapes            Insert ▸ Shape: a box, an oval, or a path (click its points; Shift keeps a
+ *                     line straight or at 45°; double-click or Enter ends it, a click on its first
+ *                     point closes it, Delete takes back the last point, Esc gives it up). A
+ *                     selected path shows its points: drag one to move it, double-click one to
+ *                     remove it, double-click the line to add one. Double-clicking a shape, or
+ *                     bar ▸ Style…, opens the panel for
+ *                     every selected shape: fill and line colour (or None), their opacity, line
+ *                     width and style, a box's corners, a path's arrowheads and whether it is
+ *                     closed. New shapes take the style last set there.
  *   Crop              (bar, double-click an image, or Enter on one) the image's frame becomes a
  *                     mask: the handles move the mask's edges over the image, which stays where it
  *                     is and shows faintly beyond them; dragging inside, or the arrows, slide the
@@ -225,7 +234,7 @@
     prepare();
     sel = sel.filter(function (e) { return c.s.elements.indexOf(e) >= 0; });
     draw();
-    fmtFill(); bpFill();
+    fmtFill(); bpFill(); shpFill();
   }
   function prepare() {                     // a slide as it should be while it is edited
     var c = cur();
@@ -246,6 +255,7 @@
   function keepOf(e) {                     // what a drag may change, as it was when the drag began
     var o = { x: e.x, y: e.y, w: e.w, h: e.h, fit: e.fit && e.fit.slice() };
     if (e.type === "text") { o.t = {}; TXT.forEach(function (k) { if (typeof e[k] === "number") o.t[k] = e[k]; }); o.rs = (e.runs || []).map(function (r) { return r.size; }); }
+    if (e.type === "shape") { o.t = {}; ["strokeW", "corner"].forEach(function (k) { if (typeof e[k] === "number") o.t[k] = e[k]; }); o.rs = []; }
     return o;
   }
   function scaleAll(k, rx, ry) {           // the selection, from what drag.orig holds, by k about (rx, ry)
@@ -256,7 +266,7 @@
       if (o.t) {
         Object.keys(o.t).forEach(function (key) { e[key] = round(o.t[key] * k); });
         o.rs.forEach(function (v, i) { if (typeof v === "number") e.runs[i].size = round(v * k); });
-        retext(e);
+        if (e.type === "text") retext(e);
       }
       place(e);
     });
@@ -301,6 +311,13 @@
       var gb = boxOf(u.es), n = mk("div", "kn-ed-box kn-ed-grp", layer);
       n.style.left = gb.x + "px"; n.style.top = gb.y + "px"; n.style.width = gb.w + "px"; n.style.height = gb.h + "px";
     });
+    var pe = sel.length === 1 && sel[0].type === "shape" && sel[0].shape === "path" && !typing ? sel[0] : null;
+    if (pe) (pe.pts || []).forEach(function (q, i) {       // a path's points: drag to move; double-click one to remove it, the line to add one
+      var h = mk("div", "kn-ed-h kn-ed-pt", layer);
+      h.style.left = pe.x + q[0] * pe.w + "px"; h.style.top = pe.y + q[1] * pe.h + "px";
+      h.setAttribute("data-pt", i);
+    });
+    if (drawing) drawDraft();
     if (sel.length > 1 && !typing && !cropping) {          // the handles that resize them all as one
       var ab = boxOf(sel), an = mk("div", "kn-ed-box kn-ed-all", layer);
       an.style.left = ab.x + "px"; an.style.top = ab.y + "px"; an.style.width = ab.w + "px"; an.style.height = ab.h + "px";
@@ -323,7 +340,7 @@
   function drawTools() {
     var any = (sel.length || typing) && !sorter;
     bar.tools.style.display = any ? "" : "none";
-    if (!any) { bar.colbox.shown = false; return; }
+    if (!any) { bar.colbox.shown = false; shpSync(); return; }
     bar.op.disabled = !!typing;            // (kept in place, so the colours do not move when typing starts)
     var txt = typing ? [typing.e] : sel.filter(function (e) { return e.type === "text"; });
     bar.colbox.style.display = txt.length ? "" : "none";
@@ -333,6 +350,8 @@
     }
     bar.colbox.shown = !!txt.length;
     if (!opBefore) { var v = sel[0].op == null ? 100 : sel[0].op; bar.op.value = v; bar.opn.textContent = Math.round(v) + "%"; }
+    bar.style.style.display = !typing && shapesSel().length ? "" : "none";
+    shpSync();
     var img = !typing && sel.length === 1 && sel[0].type === "image" && !sel[0].rot;
     bar.crop.style.display = img ? "" : "none";
     bar.crop.textContent = cropping ? "Finish crop" : "Crop";
@@ -421,6 +440,7 @@
     var n = nodeOf(e);
     if (!n) return;
     RT.frame(n, e);
+    if (e.type === "shape") RT.drawShape(n, e);
     if (e.type === "image" && e.fit) {
       var im = n.firstChild;
       im.style.left = e.fit[0] + "px"; im.style.top = e.fit[1] + "px"; im.style.width = e.fit[2] + "px"; im.style.height = e.fit[3] + "px";
@@ -453,6 +473,13 @@
     var c = cur();
     if (!editable(c.s)) return;
     ev.preventDefault();
+    if (drawing) { drawAdd(point(ev), ev.shiftKey); return; }
+    var pt = ev.target.getAttribute && ev.target.getAttribute("data-pt");
+    if (pt != null && sel.length === 1 && sel[0].shape === "path") {
+      drag = { p: point(ev), pt: +pt, abs: absPts(sel[0]), before: snapshot(), moved: false, under: [], was: sel.slice(), orig: sel.map(keepOf) };
+      try { layer.setPointerCapture(ev.pointerId); } catch (x) {}
+      return;
+    }
     bpKeys = false;                        // a click on the slide: Delete means what is selected there
     var p = point(ev), h = ev.target.getAttribute && ev.target.getAttribute("data-h");
     var under = hits(p), was = sel.slice();
@@ -481,9 +508,17 @@
     draw();
   }
   function move(ev) {
+    if (drawing) { drawing.at = constrain(point(ev), ev.shiftKey); draw(); return; }
     if (!drag) return;
     var p = point(ev), dx = p.x - drag.p.x, dy = p.y - drag.p.y, tol = ev.metaKey ? -1 : 7 / p.k, guides = [];
     if (!drag.moved && Math.abs(dx) * p.k < 3 && Math.abs(dy) * p.k < 3) return;
+    if (drag.pt != null) {                 // one point of a path
+      drag.moved = true;
+      var ap = drag.abs.map(function (q) { return q.slice(); });
+      ap[drag.pt] = [Math.round(drag.abs[drag.pt][0] + dx), Math.round(drag.abs[drag.pt][1] + dy)];
+      setPts(sel[0], ap); place(sel[0]); draw();
+      return;
+    }
     if (!drag.moved && drag.alt) {         // Alt-drag: copies are made as the drag begins, and they are what moves
       var made = cloneSel(cur().s);
       if (made.length) {
@@ -570,12 +605,29 @@
   }
   function dbl(ev) {
     if (cropping) return;
+    if (drawing) { drawEnd(false); return; }
+    var pe = sel.length === 1 && sel[0].shape === "path" ? sel[0] : null;
+    if (pe) {
+      var pt = ev.target.getAttribute && ev.target.getAttribute("data-pt"), ap = absPts(pe);
+      if (pt != null) { if (ap.length > 2) { ap.splice(+pt, 1); change(function () { setPts(pe, ap); }); rebuild(); } return; }
+      var q = point(ev), best = null;                      // on the line: a new point there
+      for (var i = 0; i + 1 < ap.length + (pe.closed ? 1 : 0); i++) {
+        var a = ap[i], b = ap[(i + 1) % ap.length], vx = b[0] - a[0], vy = b[1] - a[1], L = vx * vx + vy * vy || 1;
+        var t = Math.max(0, Math.min(1, ((q.x - a[0]) * vx + (q.y - a[1]) * vy) / L)), d = Math.hypot(a[0] + t * vx - q.x, a[1] + t * vy - q.y);
+        if (!best || d < best.d) best = { d: d, i: i + 1 };
+      }
+      if (best && best.d * q.k < 12) { ap.splice(best.i, 0, [Math.round(q.x), Math.round(q.y)]); change(function () { setPts(pe, ap); }); rebuild(); return; }
+    }
     if (cycled && Date.now() - cycled.t < 600) sel = cycled.from;          // its second click was not a wish for the one underneath
     cycled = null;
     var gm = hits(point(ev)).filter(function (x) { return sel.indexOf(x) >= 0; })[0];
     if (gm && gm.group && sel.length > 1) { sel = [gm]; draw(); status("One member of the group. Click another to have the group again."); return; }
     var top = hits(point(ev)).filter(function (x) { return sel.indexOf(x) >= 0; })[0] || hits(point(ev))[0];
     if (top && top.type === "image" && !top.rot) { crop(top); return; }
+    if (top && top.type === "shape") {    // a shape: its Style panel
+      if (sel.indexOf(top) < 0) sel = unit(top);
+      shpWant = true; draw(); return;
+    }
     var e = hits(point(ev)).filter(function (x) { return x.type === "text"; })[0];
     if (e) { sel = [e]; retype(e); }
   }
@@ -1041,7 +1093,8 @@
       return "“" + t.replace(/\s+/g, " ").trim().slice(0, 30) + "”";
     }
     if (e.type === "image") return String(e.src || "").split("/").pop().slice(0, 30);
-    return { video: "Movie", shape: "Shape", live: "Figure" }[e.type] || e.type;
+    if (e.type === "shape") return { path: "Path", oval: "Oval" }[e.shape] || (e.radius >= 50 ? "Oval" : "Box");
+    return { video: "Movie", live: "Figure" }[e.type] || e.type;
   }
   function bpChange(fn) {                  // a change to the rows, then the slide and the panel follow
     var did = change(function (c) { fn(written(c.s), c.s); });
@@ -1410,6 +1463,183 @@
     return true;
   }
 
+  // ---------------------------------------------------------------- shapes
+  // Insert ▸ Shape: a box or an oval in the middle of the slide, or a path drawn by clicking its
+  // points. New shapes take the style last set in the Style panel (kept in this browser).
+  // The Style panel (bar ▸ Style…) sets fill, line and the rest for every selected shape.
+  var drawing = null, shp = null, shpWant = false, shpBefore = null;
+  var STYLE = ["fill", "fillOp", "stroke", "strokeW", "strokeOp", "dash"];
+  function lastStyle() {
+    var st = null;
+    try { st = JSON.parse(localStorage.getItem("kn-shape-style") || "null"); } catch (x) {}
+    return st && typeof st === "object" ? st : { stroke: "#e53935", strokeW: 6 };
+  }
+  function remember(e) {
+    var st = {};
+    STYLE.forEach(function (k) { if (e[k] != null) st[k] = e[k]; });
+    try { localStorage.setItem("kn-shape-style", JSON.stringify(st)); } catch (x) {}
+  }
+  function styled(e, path) {
+    var st = lastStyle();
+    STYLE.forEach(function (k) { if (st[k] != null && !(path && /^fill/.test(k))) e[k] = st[k]; });
+    if (path && !e.stroke) { e.stroke = "#e53935"; e.strokeW = 6; }
+    if (!e.fill && !e.stroke) e.stroke = "#e53935";
+    return e;
+  }
+  function shapesSel() { return sel.filter(function (e) { return e.type === "shape"; }); }
+  function addShape(kind) {
+    if (!editable(cur().s)) return;
+    var e = styled({ type: "shape", shape: kind, x: W / 2 - 240, y: H / 2 - 160, w: 480, h: 320 });
+    change(function (c) { c.s.elements.push(e); });
+    sel = [e]; shpWant = true; rebuild();
+  }
+  function addPath() {
+    if (!editable(cur().s)) return;
+    sel = []; drawing = { pts: [], at: null };
+    layer.classList.add("kn-ed-drawing");
+    status("Click the path's points (Shift: straight or 45°). Double-click or Enter ends it, a click on its first point closes it. Esc: give up.");
+    draw();
+  }
+  function constrain(p, shift) {           // Shift: the line from the last point is horizontal, vertical or at 45°
+    var last = drawing && drawing.pts[drawing.pts.length - 1];
+    if (!shift || !last) return { x: Math.round(p.x), y: Math.round(p.y), k: p.k };
+    var dx = p.x - last[0], dy = p.y - last[1], a = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * Math.PI / 4, r = Math.hypot(dx, dy);
+    return { x: Math.round(last[0] + r * Math.cos(a)), y: Math.round(last[1] + r * Math.sin(a)), k: p.k };
+  }
+  function drawAdd(p, shift) {
+    var q = constrain(p, shift), f = drawing.pts[0];
+    if (f && drawing.pts.length > 2 && Math.hypot(q.x - f[0], q.y - f[1]) * q.k < 10) { drawEnd(true); return; }
+    drawing.pts.push([q.x, q.y]);
+    draw();
+  }
+  function drawDraft() {                   // the path so far, and the line to the pointer
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "kn-ed-draft"); svg.setAttribute("width", W); svg.setAttribute("height", H);
+    var ps = drawing.pts.concat(drawing.at && drawing.pts.length ? [[drawing.at.x, drawing.at.y]] : []);
+    var pl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    pl.setAttribute("points", ps.map(function (q) { return q.join(","); }).join(" "));
+    svg.appendChild(pl); layer.appendChild(svg);
+  }
+  function drawEnd(closed) {
+    var pts = [];
+    drawing.pts.forEach(function (q) { var l = pts[pts.length - 1]; if (!l || Math.hypot(q[0] - l[0], q[1] - l[1]) > 2) pts.push(q); });   // (a double-click's clicks add the same point twice)
+    drawing = null; layer.classList.remove("kn-ed-drawing"); status("");
+    if (pts.length < 2) { draw(); return; }
+    var e = styled({ type: "shape", shape: "path" }, !closed);
+    if (closed) e.closed = true;
+    setPts(e, pts);
+    change(function (c) { c.s.elements.push(e); });
+    sel = [e]; shpWant = true; rebuild();
+  }
+  function absPts(e) { return (e.pts || []).map(function (q) { return [e.x + q[0] * e.w, e.y + q[1] * e.h]; }); }
+  function setPts(e, ap) {                 // a path from points on the slide: its frame is their bounds
+    var xs = ap.map(function (q) { return q[0]; }), ys = ap.map(function (q) { return q[1]; });
+    var x0 = Math.min.apply(null, xs), y0 = Math.min.apply(null, ys), w = Math.max.apply(null, xs) - x0, h = Math.max.apply(null, ys) - y0;
+    if (w < 2) { x0 -= 1; w = 2; }         // a straight line across: its frame has some width all the same
+    if (h < 2) { y0 -= 1; h = 2; }
+    e.x = round(x0); e.y = round(y0); e.w = round(w); e.h = round(h);
+    e.pts = ap.map(function (q) { return [Math.round((q[0] - e.x) / e.w * 1e4) / 1e4, Math.round((q[1] - e.y) / e.h * 1e4) / 1e4]; });
+  }
+  function shpSet(fn, done) {              // every selected shape; a slider or picker moving is one undo step when let go
+    var list = shapesSel();
+    if (!list.length) return;
+    if (!shpBefore) shpBefore = snapshot();
+    list.forEach(function (e) { fn(e); place(e); });
+    if (done) { var b = shpBefore; shpBefore = null; commit(b); remember(list[0]); shpFill(); }
+  }
+  function shpSync() {                     // the panel is there while it is wanted and shapes are selected
+    var want = on && shpWant && !sorter && !typing && !drawing && shapesSel().length;
+    if (!want) { if (shp) { shp.el.remove(); shp = null; } return; }
+    if (!shp) shpMake();
+    if (!shpBefore) shpFill();
+  }
+  function shpMake() {
+    shp = { el: mk("div", "kn-ed-fmt kn-ed-shp", document.body) };
+    var head = mk("div", "kn-ed-fmt-head", shp.el);
+    shp.head = mk("span", "", head, "Shape");
+    var x = mk("button", "kn-ed-x", head, "×"); x.title = "Close (bar ▸ Style… opens it again)";
+    x.onclick = function () { shpWant = false; shpSync(); };
+    function row(label) { var r = mk("label", "", shp.el); mk("span", "", r, label); return r; }
+    function colour(r, key) {             // "None" (no fill, no line), the picker, and the deck's colours
+      var none = mk("button", "kn-ed-none", r, "None");
+      none.title = key === "fill" ? "No fill: only the line is drawn" : "No line: only the fill is drawn";
+      none.onclick = function () { none.blur(); shpSet(function (e) { delete e[key]; }, true); };
+      var c = mk("input", "", r); c.type = "color"; c.title = "Choose a colour";
+      function set(v, done) { shpSet(function (e) { e[key] = v; if (key === "stroke" && e.strokeW == null) e.strokeW = 4; }, done); }
+      c.addEventListener("input", function () { set(c.value, false); });
+      c.addEventListener("change", function () { set(c.value, true); c.blur(); });
+      return { none: none, c: c, sw: sw(key) };
+    }
+    function slider(r, key) {
+      var s = mk("input", "", r); s.type = "range"; s.min = 0; s.max = 100; s.step = 1;
+      var n = mk("span", "kn-ed-fmt-s", r);
+      function set(done) { var v = +s.value; n.textContent = v + "%"; shpSet(function (e) { if (v >= 100) delete e[key]; else e[key] = v; }, done); }
+      s.addEventListener("input", function () { set(false); });
+      s.addEventListener("change", function () { set(true); s.blur(); });
+      return { s: s, n: n };
+    }
+    function sw(key) {                     // colours this deck already uses for shapes and text
+      var box = mk("div", "kn-ed-fmt-sw", shp.el), n = {};
+      box.knKey = key;
+      deck.slides.forEach(function (y) { (y.elements || []).forEach(function (e) { [e.fill, e.stroke, e.color].forEach(function (c) { c = hex(c); if (c) n[c] = (n[c] || 0) + 1; }); }); });
+      var used = Object.keys(n).sort(function (a, b) { return n[b] - n[a]; });
+      ["#000000", "#ffffff", "#e53935"].concat(used.filter(function (c) { return !/^#(000000|ffffff|e53935)$/.test(c); })).slice(0, 10).forEach(function (c) {
+        var b = mk("button", "", box); b.style.background = c; b.title = c; b.knColour = c;
+        b.onclick = function () { shpSet(function (e) { e[key] = c; if (key === "stroke" && e.strokeW == null) e.strokeW = 4; }, true); b.blur(); };
+      });
+      return box;
+    }
+    shp.fill = colour(row("Fill"), "fill");
+    shp.fillOp = slider(row("Fill opacity"), "fillOp");
+    shp.stroke = colour(row("Line"), "stroke");
+    var r = row("Line width");
+    shp.w = mk("input", "", r); shp.w.type = "number"; shp.w.min = 0.5; shp.w.max = 80; shp.w.step = 0.5;
+    mk("span", "kn-ed-fmt-s", r, "px");
+    shp.w.onchange = function () { var v = Math.max(0.5, Math.min(80, +shp.w.value || 4)); shpSet(function (e) { e.strokeW = v; }, true); };
+    shp.strokeOp = slider(row("Line opacity"), "strokeOp");
+    r = row("Line style");
+    shp.dash = mk("select", "", r);
+    [["", "Solid"], ["dash", "Dashed"], ["dot", "Dotted"]].forEach(function (o) { mk("option", "", shp.dash, o[1]).value = o[0]; });
+    shp.dash.onchange = function () { var v = shp.dash.value; shp.dash.blur(); shpSet(function (e) { if (v) e.dash = v; else delete e.dash; }, true); };
+    shp.cornerRow = r = row("Corners");
+    shp.corner = mk("input", "", r); shp.corner.type = "number"; shp.corner.min = 0; shp.corner.max = 1000; shp.corner.step = 1;
+    mk("span", "kn-ed-fmt-s", r, "px");
+    shp.corner.onchange = function () { var v = Math.max(0, +shp.corner.value || 0); shpSet(function (e) { if ((e.shape || "rect") !== "rect") return; delete e.radius; if (v) e.corner = v; else delete e.corner; }, true); };
+    shp.arrowRow = r = row("Arrowheads");
+    shp.arrow = mk("select", "", r);
+    [["", "None"], ["end", "At the end"], ["start", "At the start"], ["both", "Both ends"]].forEach(function (o) { mk("option", "", shp.arrow, o[1]).value = o[0]; });
+    shp.arrow.onchange = function () { var v = shp.arrow.value; shp.arrow.blur(); shpSet(function (e) { if (e.shape !== "path") return; if (v) e.arrow = v; else delete e.arrow; }, true); };
+    shp.closedRow = r = row("Closed");
+    shp.closed = mk("input", "", r); shp.closed.type = "checkbox";
+    shp.closed.onchange = function () { var v = shp.closed.checked; shpSet(function (e) { if (e.shape !== "path") return; if (v) e.closed = true; else delete e.closed; }, true); };
+    shp.note = mk("div", "kn-ed-fmt-note", shp.el, "Drag the path's points; double-click a point to remove it, the line to add one.");
+  }
+  function shpFill() {
+    if (!shp) return;
+    var list = shapesSel(), e = list[0];
+    if (!e) return;
+    var kinds = list.map(function (x) { return x.shape || (x.radius >= 50 ? "oval" : "rect"); });
+    shp.head.textContent = list.length > 1 ? list.length + " shapes" : { rect: "Box", oval: "Oval", path: "Path" }[kinds[0]];
+    function put(ctl, key, dflt) {         // which is chosen: None, or a colour (shown on the picker and its swatch)
+      var v = hex(e[key]);
+      ctl.none.classList.toggle("on", !v);
+      ctl.c.classList.toggle("off", !v);
+      if (document.activeElement !== ctl.c) ctl.c.value = v || dflt;
+      Array.prototype.forEach.call(ctl.sw.children, function (b) { b.classList.toggle("on", !!v && b.knColour === v); });
+    }
+    put(shp.fill, "fill", "#ffffff"); put(shp.stroke, "stroke", "#e53935");
+    [[shp.fillOp, "fillOp"], [shp.strokeOp, "strokeOp"]].forEach(function (p) { var v = e[p[1]] == null ? 100 : e[p[1]]; p[0].s.value = v; p[0].n.textContent = v + "%"; });
+    shp.fillOp.s.disabled = !e.fill;
+    shp.strokeOp.s.disabled = shp.w.disabled = shp.dash.disabled = !e.stroke;
+    if (document.activeElement !== shp.w) shp.w.value = e.strokeW == null ? 4 : e.strokeW;
+    shp.dash.value = e.dash || "";
+    shp.cornerRow.style.display = kinds.indexOf("rect") >= 0 ? "" : "none";
+    var cr = list.filter(function (x, i) { return kinds[i] === "rect"; })[0];
+    if (cr && document.activeElement !== shp.corner) shp.corner.value = cr.corner || (cr.radius ? Math.round(cr.radius / 100 * Math.min(cr.w, cr.h)) : 0);
+    var pth = list.filter(function (x) { return x.shape === "path"; })[0];
+    shp.arrowRow.style.display = shp.closedRow.style.display = shp.note.style.display = pth ? "" : "none";
+    if (pth) { shp.arrow.value = pth.arrow || ""; shp.closed.checked = !!pth.closed; }
+  }
   function addText() {
     if (!editable(cur().s)) return;
     var e;
@@ -1494,6 +1724,13 @@
     menuClose();
     if (using && ev.key === "Escape") { ev.preventDefault(); use(null); return; }
     var cmd = ev.metaKey || ev.ctrlKey, k = ev.key, done = true, step = ev.shiftKey ? 10 : 1;
+    if (drawing && !cmd) {                 // drawing a path: Enter ends it, Esc gives it up, Delete takes back a point
+      if (k === "Enter") drawEnd(false);
+      else if (k === "Escape") { drawing = null; layer.classList.remove("kn-ed-drawing"); status(""); draw(); }
+      else if (k === "Backspace" || k === "Delete") { drawing.pts.pop(); draw(); }
+      ev.preventDefault(); ev.stopPropagation();
+      return;
+    }
     if (cropping && !cmd) {                // crop mode: arrows slide the picture, Enter or Esc finishes
       var a = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[k];
       if (a) { change(function () { slide(a[0], a[1]); }); draw(); }
@@ -1569,7 +1806,11 @@
     ]; });
     menu("Insert", "Add to the slide", function () { return [
       ["Text box", "", addText, !sorter && editable(cur().s)],
-      ["Image…", "", pickImage, !sorter && editable(cur().s)]
+      ["Image…", "", pickImage, !sorter && editable(cur().s)],
+      null,
+      ["Shape: box", "", function () { addShape("rect"); }, !sorter && editable(cur().s)],
+      ["Shape: oval", "", function () { addShape("oval"); }, !sorter && editable(cur().s)],
+      ["Shape: path (click points)", "", addPath, !sorter && editable(cur().s)]
     ]; });
     menu("Arrange", "Stacking order and groups", function () {
       var us = units(sel), grouped = sel.some(function (e) { return e.group; });
@@ -1603,6 +1844,9 @@
     bar.crop = mk("button", "", bar.tools, "Crop");
     bar.crop.title = "Mask the image: drag the handles over it, drag inside to slide it. Double-click an image does the same.";
     bar.crop.onclick = function () { crop(cropping ? null : sel[0]); bar.crop.blur(); };
+    bar.style = mk("button", "", bar.tools, "Style…");
+    bar.style.title = "Fill, line, transparency, corners and arrowheads of the selected shapes";
+    bar.style.onclick = function () { shpWant = !shp; shpSync(); bar.style.blur(); };
     bar.colbox = mk("span", "kn-ed-col", bar.tools);
     mk("span", "", bar.colbox, "Colour");
     bar.col = mk("input", "", bar.colbox); bar.col.type = "color";
@@ -1676,6 +1920,8 @@
     Reveal.configure({ keyboard: on ? false : { 75: null } });
     sel = [];
     liveFor = null;
+    if (drawing) { drawing = null; layer.classList.remove("kn-ed-drawing"); }
+    shpSync();
     if (on) { prepare(); draw(); status(blocked || failed ? "Not saved" : "", blocked || !!failed); }
     else {
       var fr = cur().sec.querySelector("iframe.kn-live");       // back to the step the talk is at
