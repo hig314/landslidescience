@@ -10,7 +10,10 @@
  *   Alt-drag          move a copy; the original stays. Alt-arrow: a copy nudged 1 px (with
  *                     Shift: 10). The copies are on top and selected. Not for a live figure.
  *   handles           resize, as in Keynote: Shift keeps the proportions (from any handle),
- *                     Alt resizes about the centre
+ *                     Alt resizes about the centre. With several things selected (a group, or
+ *                     any selection of more than one) the corner handles of the box round them
+ *                     all scale every one by the same amount about the opposite corner (Alt:
+ *                     the centre): places, sizes, picture crops and text sizes together.
  *   arrows            nudge 1 px (Shift: 10); with nothing selected, previous / next slide
  *   double-click, Enter   retype a text box; Esc or a click elsewhere finishes
  *   Cmd-Z, Shift-Cmd-Z    undo, redo (per editing session)
@@ -236,6 +239,47 @@
     list.forEach(function (e) { x0 = Math.min(x0, e.x); y0 = Math.min(y0, e.y); x1 = Math.max(x1, e.x + e.w); y1 = Math.max(y1, e.y + e.h); });
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
+  // Several things selected (a group, or any selection of more than one) are resized as one:
+  // the corner handles of the box round them all scale every one by the same amount about
+  // one point (the opposite corner; Alt: the box's centre). Text is scaled with its box.
+  var TXT = ["size", "lineHeight", "paraGap", "indent", "markerIndent"];
+  function keepOf(e) {                     // what a drag may change, as it was when the drag began
+    var o = { x: e.x, y: e.y, w: e.w, h: e.h, fit: e.fit && e.fit.slice() };
+    if (e.type === "text") { o.t = {}; TXT.forEach(function (k) { if (typeof e[k] === "number") o.t[k] = e[k]; }); o.rs = (e.runs || []).map(function (r) { return r.size; }); }
+    return o;
+  }
+  function scaleAll(k, rx, ry) {           // the selection, from what drag.orig holds, by k about (rx, ry)
+    sel.forEach(function (e, j) {
+      var o = drag.orig[j];
+      e.x = round(rx + (o.x - rx) * k); e.y = round(ry + (o.y - ry) * k); e.w = round(o.w * k); e.h = round(o.h * k);
+      if (o.fit) e.fit = o.fit.map(function (v) { return round(v * k); });
+      if (o.t) {
+        Object.keys(o.t).forEach(function (key) { e[key] = round(o.t[key] * k); });
+        o.rs.forEach(function (v, i) { if (typeof v === "number") e.runs[i].size = round(v * k); });
+        retext(e);
+      }
+      place(e);
+    });
+  }
+  function retext(e) {                     // a text box's node after its sizes changed (as deck.js builds it; rebuilt exactly when the drag ends)
+    var n = nodeOf(e), body = n && n.querySelector(".kn-body");
+    if (!body) return;
+    if (e.size) n.style.fontSize = e.size + "px";
+    if (e.indent) n.style.paddingLeft = e.indent + "px";
+    if (e.lineHeight) {
+      body.style.lineHeight = e.lineHeight + "px";
+      if ((e.valign || "top") === "top") body.style.marginTop = (1.193 * e.size - e.lineHeight) / 2 + "px";
+      else if (e.valign === "bottom") body.style.marginBottom = (1.193 * e.size - e.lineHeight) + "px";
+    }
+    Array.prototype.forEach.call(body.children, function (p, i) {
+      if (e.paraGap && i) p.style.marginTop = e.paraGap + "px";
+      if (e.markerIndent && p.querySelector(".kn-marker")) p.style.paddingLeft = e.markerIndent + "px";
+    });
+    Array.prototype.forEach.call(body.querySelectorAll("span[data-r]"), function (sp) {
+      var r = e.runs && e.runs[+sp.getAttribute("data-r")];
+      if (r && r.size) sp.style.fontSize = r.size + "px";
+    });
+  }
   function draw(guides) {
     layer.innerHTML = "";
     layer.style.setProperty("--k", 1 / (cur().sec.getBoundingClientRect().width / W));
@@ -257,6 +301,11 @@
       var gb = boxOf(u.es), n = mk("div", "kn-ed-box kn-ed-grp", layer);
       n.style.left = gb.x + "px"; n.style.top = gb.y + "px"; n.style.width = gb.w + "px"; n.style.height = gb.h + "px";
     });
+    if (sel.length > 1 && !typing && !cropping) {          // the handles that resize them all as one
+      var ab = boxOf(sel), an = mk("div", "kn-ed-box kn-ed-all", layer);
+      an.style.left = ab.x + "px"; an.style.top = ab.y + "px"; an.style.width = ab.w + "px"; an.style.height = ab.h + "px";
+      ["nw", "ne", "se", "sw"].forEach(function (d) { mk("div", "kn-ed-h kn-ed-" + d, an).setAttribute("data-h", d); });
+    }
     (guides || []).forEach(function (g) {
       var n = mk("div", "kn-ed-guide", layer);
       if (g.x != null) { n.style.left = g.x + "px"; n.style.top = 0; n.style.height = H + "px"; n.style.width = "0"; }
@@ -426,7 +475,7 @@
       if (!sel.length) { draw(); return; }
     }
     drag = { p: p, handle: h, before: snapshot(), moved: false, under: under, was: was, shift: ev.shiftKey, top: top, alt: ev.altKey && !h, id: ev.pointerId,
-             orig: sel.map(function (e) { return { x: e.x, y: e.y, w: e.w, h: e.h, fit: e.fit && e.fit.slice() }; }),
+             orig: sel.map(keepOf),
              snap: lines(c, sel) };
     try { layer.setPointerCapture(ev.pointerId); } catch (x) {}
     draw();
@@ -439,7 +488,7 @@
       var made = cloneSel(cur().s);
       if (made.length) {
         sel = made;
-        drag.orig = sel.map(function (e) { return { x: e.x, y: e.y, w: e.w, h: e.h, fit: e.fit && e.fit.slice() }; });
+        drag.orig = sel.map(keepOf);
         rebuild();
         drag.snap = lines(cur(), sel);     // the originals are now something to line up with
         try { layer.setPointerCapture(drag.id); } catch (x) {}
@@ -473,6 +522,15 @@
       if (!sx) dx = Math.round(b.x + dx) - b.x;          // whole pixels, unless snapped to something that is not
       if (!sy) dy = Math.round(b.y + dy) - b.y;
       sel.forEach(function (e, j) { e.x = round(drag.orig[j].x + dx); e.y = round(drag.orig[j].y + dy); place(e); });
+    } else if (sel.length > 1) {           // a corner of the box round several things: all of them, by one amount about one point
+      var gb = drag.box || (drag.box = boxOf(drag.orig)), gh = drag.handle;
+      var gw = gb.w + (gh.indexOf("w") >= 0 ? -dx : dx) * (ev.altKey ? 2 : 1), gh2 = gb.h + (gh.indexOf("n") >= 0 ? -dy : dy) * (ev.altKey ? 2 : 1);
+      var gk = Math.max(gw / gb.w, gh2 / gb.h), least = 0;
+      drag.orig.forEach(function (q) { least = Math.max(least, 10 / q.w, 10 / q.h); });
+      gk = Math.max(gk, Math.min(1, least));
+      scaleAll(gk, ev.altKey ? gb.x + gb.w / 2 : gh.indexOf("w") >= 0 ? gb.x + gb.w : gb.x,
+                   ev.altKey ? gb.y + gb.h / 2 : gh.indexOf("n") >= 0 ? gb.y + gb.h : gb.y);
+      status(Math.round(gk * 100) + "%");
     } else {
       var e = sel[0], o = drag.orig[0], hd = drag.handle;
       var x0 = o.x, y0 = o.y, x1 = o.x + o.w, y1 = o.y + o.h, s;
@@ -500,7 +558,7 @@
   function up() {
     if (!drag) return;
     var d = drag; drag = null;
-    if (d.moved) commit(d.before);
+    if (d.moved) { commit(d.before); if (d.handle && sel.length > 1) rebuild(); }
     else if (d.crop) { /* a click in crop mode changes nothing */ }
     else if (!d.handle && !d.shift && d.top && d.was.length === sel.length && sel.every(function (e) { return d.was.indexOf(e) >= 0; }) &&
              (sel.length === 1 || sel.length === unit(sel[0]).length && sel.every(function (e) { return e.group === sel[0].group; }))) {

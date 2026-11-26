@@ -116,6 +116,7 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 .kn-ed-bar .kn-ed-menu .sep { height: 1px; margin: 5px 0; background: #444; }
 
 /* a group selected whole, and the question asked when several things are built at once */
+.reveal .kn-ed-box.kn-ed-all { outline: calc(1px * var(--k)) dashed rgba(47, 140, 255, 0.6); }
 .reveal .kn-ed-box.kn-ed-grp { outline-style: dashed; outline-offset: calc(4px * var(--k)); }
 .kn-ed-ask { left: 50%; top: 60px; width: 330px; margin-left: -177px; z-index: 1003; }
 .kn-ed-ask button { display: block; width: 100%; margin-top: 6px; padding: 6px 10px; font: inherit; text-align: left; color: #eee; background: #3a3a3c; border: 1px solid #555; border-radius: 5px; cursor: pointer; }
