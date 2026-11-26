@@ -1,5 +1,5 @@
 /*
- * lib/deck.js — renders decks/<name>/deck.json on reveal.js used as a plain 16:9 stage.
+ * lib/deck.js — renders decks/<name>/deck.json on reveal.js used as a plain stage (deck.width × deck.height: 1920 × 1080, or 1920 × 1440 for a 4:3 screen).
  *
  * deck.json:
  *   { title, width, height, slides: [ slide, … ] }      (published: true in a copy made by tools/publish.py;
@@ -366,6 +366,8 @@
 
   function start() {
     W = deck.width || W; H = deck.height || H;
+    document.documentElement.style.setProperty("--kn-w", W + "px");      // deck.css draws the stage at this size
+    document.documentElement.style.setProperty("--kn-h", H + "px");
     document.title = deck.title || document.title;
     deck.slides.forEach(section);
     if (deck.published) published();

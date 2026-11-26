@@ -1,14 +1,15 @@
-/* lib/deck.css — a fixed 1920 × 1080 stage on reveal.js. Each slide is a stack (.kn-stack) of
+/* lib/deck.css — a fixed stage on reveal.js, the deck's width × height (--kn-w, --kn-h, set by
+   deck.js; 1920 × 1080 unless deck.json says otherwise). Each slide is a stack (.kn-stack) of
    absolutely placed elements (text, images, movies, shapes, live pages), or of Keynote's
    full-frame renders when the slide is shown flat. No theme: slides carry their own look. */
 html, body { background: #000; }
 .reveal { background: #000; }
 .reveal .slides { text-align: left; }
-.reveal .slides > section { width: 1920px; height: 1080px; padding: 0; top: 0 !important; overflow: hidden; }
-.reveal .kn-stack { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden; }
+.reveal .slides > section { width: var(--kn-w, 1920px); height: var(--kn-h, 1080px); padding: 0; top: 0 !important; overflow: hidden; }
+.reveal .kn-stack { position: absolute; left: 0; top: 0; width: var(--kn-w, 1920px); height: var(--kn-h, 1080px); transform-origin: 0 0; overflow: hidden; }
 .reveal .kn-el { position: absolute; margin: 0; border: 0; box-sizing: border-box; max-width: none; max-height: none; }
 .reveal .kn-stack > img.kn-flat, .reveal section > img.kn-compare {
-  position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+  position: absolute; left: 0; top: 0; width: var(--kn-w, 1920px); height: var(--kn-h, 1080px);
   max-width: none; max-height: none; margin: 0; border: 0; display: block;
 }
 .reveal section > img.kn-compare { z-index: 30; pointer-events: none; }
@@ -35,7 +36,7 @@ html, body { background: #000; }
 .reveal .kn-off { opacity: 0 !important; visibility: hidden; }
 .reveal .kn-ghost { opacity: 0.22 !important; }
 /* dissolve: a copy of the outgoing slide, laid over the incoming slide and faded out */
-#kn-dissolve { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 40;
+#kn-dissolve { position: absolute; left: 0; top: 0; width: var(--kn-w, 1920px); height: var(--kn-h, 1080px); z-index: 40;
   pointer-events: none; display: none; }
 .kn-say { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 2000; padding: 8px 16px; border-radius: 6px;
   background: rgba(0, 0, 0, 0.8); color: #eee; font: 14px/1.4 -apple-system, Arial, sans-serif; }
