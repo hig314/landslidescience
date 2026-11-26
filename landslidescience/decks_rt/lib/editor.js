@@ -111,20 +111,64 @@
     return out.join("\n") + "\n";
   }
   function status(t, bad) { if (bar) { bar.status.textContent = t; bar.status.className = "kn-ed-status" + (bad ? " bad" : ""); } }
-  function save() {
-    timer = 0;
-    if (blocked) return;
-    var head = csrf(mtime ? { "X-Base-Mtime": mtime } : {});
+  // ---------------------------------------------------------------- saving
+  // One PUT at a time: each is based on the version the one before it made (X-Base-Mtime), so a
+  // change made while a save is on its way waits for the answer. (Two at once: the second was
+  // refused as "changed elsewhere", and nothing after it was saved. 2026-11-26.)
+  // A save that fails is tried again, and says so where it cannot be missed (notice); so
+  // does a real conflict (the deck saved from another tab or window), with the choice of
+  // which version to keep. Leaving the page with unsaved changes asks first.
+  var saving = false, again = false, pending = false, failed = 0, retry = 0, since = 0, note = null;
+  function notice(text, buttons) {         // a red box under the bar, also after Done; no text: gone
+    if (note) { note.remove(); note = null; }
+    if (!text) return;
+    note = mk("div", "kn-ed-notice", document.body);
+    mk("div", "", note, text);
+    (buttons || []).forEach(function (b) { var n = mk("button", "", note, b[0]); n.title = b[1]; n.onclick = b[2]; });
+  }
+  function clock(t) { var d = new Date(t); return d.getHours() + ":" + ("0" + d.getMinutes()).slice(-2); }
+  function conflict() {
+    blocked = true;
+    status("Not saved", true);
+    notice("NOT SAVED. This deck was saved from somewhere else (another tab or window?) after this page loaded it. Nothing done here since " + clock(since || Date.now()) + " is saved.", [
+      ["Keep this page's version", "Save what is on this page over the other version (which is kept in the deck's history)", function () { save(true); }],
+      ["Reload: take the other version", "Give up the changes made on this page since then", function () { pending = false; location.reload(); }]]);
+  }
+  function fail(why) {
+    failed++; again = false;
+    status("Not saved", true);
+    notice("NOT SAVED since " + clock(since) + ": " + why + " Trying again every few seconds; keep this page open.",
+      [["Try now", "", function () { save(); }]]);
+    clearTimeout(retry);
+    retry = setTimeout(save, Math.min(20000, 2000 * failed));
+  }
+  function save(force) {
+    clearTimeout(timer); timer = 0; clearTimeout(retry); retry = 0;
+    if (force !== true) force = false;     // (also called by timers, with their own argument)
+    if (blocked && !force) return;
+    if (saving) { again = true; return; }
+    saving = true; again = false;
+    var head = csrf(mtime && !force ? { "X-Base-Mtime": mtime } : {});
     return fetch("deck.json", { method: "PUT", body: dump(), headers: head }).then(function (r) {
+      saving = false;
       if (r.status === 204 || r.status === 200) {
-        mtime = r.headers.get("X-Mtime") || mtime; if (!timer) status("Saved");
+        mtime = r.headers.get("X-Mtime") || mtime;
+        failed = 0; blocked = false; notice(null);
+        if (again) save();
+        else if (!timer) { pending = false; since = 0; status("Saved"); }
         if (r.status === 200) r.json().then(function (j) { if (j && j.files) RT.files(j.files); }).catch(function () {});   // the site: how to ask for each picture now
       }
-      else if (r.status === 409) { blocked = true; status("deck.json was changed on disk. Reload the page to go on editing; changes since the last save are not kept.", true); }
-      else status("Not saved (" + r.status + "). Editing needs tools/serve.py.", true);
-    }).catch(function () { status("Not saved: the server did not answer.", true); });
+      else if (r.status === 409) conflict();
+      else if (r.status === 403) fail("the site refused it (403). You may have been signed out: sign in again in another tab.");
+      else fail("the server answered " + r.status + ".");
+    }).catch(function () { saving = false; fail("the server did not answer."); });
   }
-  function touch() { status("Saving…"); clearTimeout(timer); timer = setTimeout(save, 500); }
+  function touch() {
+    if (!pending) { pending = true; since = Date.now(); }
+    if (blocked) { conflict(); return; }
+    status(failed ? "Not saved" : "Saving…", !!failed);
+    clearTimeout(timer); timer = setTimeout(save, 500);
+  }
 
   // ---------------------------------------------------------------- history
   // A change is recorded as the slide's data before it; undo puts that back.
@@ -1342,7 +1386,7 @@
     files = pictures(files);
     if (!files.length) return false;
     if (sorter || !editable(cur().s)) { status("Open a slide with elements to add an image.", true); return true; }
-    if (blocked) { status("deck.json was changed on disk. Reload the page.", true); return true; }
+    if (blocked) { conflict(); return true; }
     var slide = cur().s;
     status("Adding " + (files.length > 1 ? files.length + " images…" : "the image…"));
     Promise.all(files.map(function (f) {
@@ -1555,7 +1599,10 @@
     Reveal.on("slidechanged", function () { if (on) { fmtFill(); if (bp) { bpRow = -1; RT.editClick = null; RT.apply(cur().sec, {}); bpFill(); } } });
     Reveal.on("slidechanged", function () { bpAsk(null); if (on && !sorter) { finish(); cropping = null; liveFor = null; sel = []; prepare(); draw(); } });
     window.addEventListener("resize", function () { if (on) setTimeout(draw, 50); });
-    window.addEventListener("beforeunload", function () { if (timer) { clearTimeout(timer); save(); } });
+    window.addEventListener("beforeunload", function (ev) {
+      if (timer) save();
+      if (pending && (blocked || failed)) { ev.preventDefault(); ev.returnValue = ""; }     // the browser asks before leaving
+    });
   }
   function toggle() {
     if (!layer) setup();
@@ -1571,11 +1618,11 @@
     Reveal.configure({ keyboard: on ? false : { 75: null } });
     sel = [];
     liveFor = null;
-    if (on) { prepare(); draw(); status(blocked ? "deck.json was changed on disk. Reload the page." : "", blocked); }
+    if (on) { prepare(); draw(); status(blocked || failed ? "Not saved" : "", blocked || !!failed); }
     else {
       var fr = cur().sec.querySelector("iframe.kn-live");       // back to the step the talk is at
       if (fr && RT.liveLoaded) RT.liveLoaded(fr);
-      layer.remove(); if (timer) { clearTimeout(timer); save(); } }
+      layer.remove(); if (timer) save(); }
   }
   toggle();
 })();

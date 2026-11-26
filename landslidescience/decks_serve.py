@@ -584,7 +584,10 @@ def _deck_put(request, name):
         deck.pop('site', None)
         deck.pop('published', None)
         body = json.dumps(deck, ensure_ascii=False).encode()
-    _snapshot(folder)
+    if base:
+        _snapshot(folder)
+    else:                                              # the editor's "keep this page's version" over one saved elsewhere:
+        _snapshot(folder, '-replaced', every=0)        # that one is always set aside
     tmp = folder / 'deck.json.tmp'
     tmp.write_bytes(body)
     os.replace(tmp, target)

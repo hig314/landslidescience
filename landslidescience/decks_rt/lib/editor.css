@@ -126,3 +126,8 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 .kn-ed-bcols { display: flex; justify-content: flex-end; gap: 6px; padding: 0 22px 3px 0; color: #999; }
 .kn-ed-bcols span { width: 112px; } .kn-ed-bcols .d { width: 46px; }
 .kn-ed-bp .kn-ed-brow input.play { width: 46px; border-color: #2f8cff; }
+
+/* a save that did not happen (editor.js: notice): not to be missed, and still there after Done */
+.kn-ed-notice { position: fixed; left: 50%; top: 40px; transform: translateX(-50%); z-index: 3000; max-width: 640px; padding: 12px 16px;
+  border-radius: 8px; background: #b3261e; color: #fff; font: 600 14px/1.45 -apple-system, "Helvetica Neue", Arial, sans-serif; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); }
+.kn-ed-notice button { margin: 10px 8px 0 0; padding: 5px 12px; font: inherit; color: #b3261e; background: #fff; border: 0; border-radius: 5px; cursor: pointer; }
