@@ -36,7 +36,9 @@ import html
 import json
 import os
 import re
+import logging
 import shutil
+import threading
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -69,6 +71,16 @@ _TYPES = {
     '.txt': 'text/plain; charset=utf-8', '.pdf': 'application/pdf',
 }
 _cache = {}      # (name, file) -> (mtime_ns, parsed); per worker, re-read when the file changes
+log = logging.getLogger(__name__)
+# Display copies (see _display). A slide is 1920 px wide; a picture is sent at
+# twice the width it is shown at (a 4K projector, a laptop's dense screen),
+# times the slide's zoom, rounded up to one of these. Wider than the last: the
+# original.
+_BUCKETS = (640, 1280, 1920, 2560, 3840)
+_DISPLAY = '.display'                 # in the deck's folder; never served by name, rebuilt when missing
+_DISPLAY_TYPES = ('.png', '.jpg', '.jpeg', '.webp')
+_FOREVER = 'max-age=31536000, immutable'
+_display_lock = threading.Lock()      # one picture is decoded at a time: a camera original is ~150 MB of memory
 
 
 def _now():
@@ -339,7 +351,14 @@ def runtime(request, rest):
     path = (RT / rest).resolve()
     if RT not in path.parents or not path.is_file():
         raise Http404(rest)
-    return _plain(serve_ranged(request, path, _TYPES.get(path.suffix.lower(), 'application/octet-stream'), 'no-cache'))
+    resp = _plain(serve_ranged(request, path, _TYPES.get(path.suffix.lower(), 'application/octet-stream'), 'no-cache'))
+    if rest == 'lib/mapsw.js':
+        # The worker that keeps what a deck's live maps fetch (docs/DECKS.md,
+        # "Practice"). The deck page registers it over the map pages' folders
+        # (/inventory/, /lidar/compare/), which lie outside /decks/_rt/: this
+        # header is what allows that. It acts only on frames with ?embed=1.
+        resp['Service-Worker-Allowed'] = '/'
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -371,19 +390,142 @@ def _tag(path):
     return [st.st_size, '%x-%x' % (st.st_mtime_ns, st.st_size)]
 
 
+def _wanted(deck):
+    """{path: width bucket} for the pictures and movies a deck's slides name
+    (0: the file as it is). A picture's bucket is the widest it is shown
+    anywhere in the deck, so one copy serves every use."""
+    need = {}
+    for s in deck.get('slides', []):
+        pz = s.get('panzoom') or {}
+        zoom = 1.0
+        for k in ('from', 'to'):
+            try:
+                zoom = max(zoom, float((pz.get(k) or [1])[0] or 1))
+            except (TypeError, ValueError, IndexError):
+                pass
+        for e in s.get('elements', []):
+            try:
+                shown = float((e.get('fit') or [0, 0, e.get('w')])[2] or 0)
+            except (TypeError, ValueError, IndexError):
+                shown = 0
+            for key in ('src', 'fallback'):
+                p = e.get(key)
+                if not isinstance(p, str) or not _FILE_RE.match(p):
+                    continue
+                if e.get('type') == 'video' and key == 'src':
+                    need[p] = None
+                elif need.get(p, 0) is not None:
+                    need[p] = max(need.get(p, 0), shown * 2 * zoom)
+    out = {}
+    for p, px in need.items():
+        out[p] = 0
+        if px and p.rsplit('.', 1)[-1].lower() in [t[1:] for t in _DISPLAY_TYPES]:
+            out[p] = next((b for b in _BUCKETS if b >= px), 0)
+    return out
+
+
+def _display(folder, rel, bucket):
+    """The display copy of picture `rel` at most `bucket` px wide: a WebP made
+    from the original, which is never touched. None when the original is the
+    thing to send (not a still picture, or the copy would not be smaller).
+    Made on first request and kept in .display/, named for the original's size
+    and time, so a replaced original gets a new copy."""
+    src = folder / rel
+    if bucket not in _BUCKETS or src.suffix.lower() not in _DISPLAY_TYPES:
+        return None
+    try:
+        tag = _tag(src)[1]
+    except OSError:
+        return None
+    out = folder / _DISPLAY / ('%s.%s.%d.webp' % (src.name, tag, bucket))
+    keep = out.with_suffix('.orig')                   # marks "send the original"
+    if out.is_file():
+        return out
+    if keep.exists():
+        return None
+    with _display_lock:
+        if out.is_file():
+            return out
+        if keep.exists():
+            return None
+        try:
+            from PIL import Image, ImageOps
+            out.parent.mkdir(exist_ok=True)
+            for old in out.parent.glob(src.name + '.*'):          # copies of an earlier original of this name
+                if not old.name.startswith('%s.%s.' % (src.name, tag)):
+                    old.unlink()
+            with Image.open(src) as im:
+                if getattr(im, 'is_animated', False):
+                    raise ValueError('animated')
+                icc = im.info.get('icc_profile')
+                im = ImageOps.exif_transpose(im)      # a browser turns a camera JPEG by its EXIF; the copy has none
+                if im.mode in ('RGBA', 'LA', 'PA') or 'transparency' in im.info:
+                    im = im.convert('RGBA')
+                    if im.getextrema()[3][0] == 255:  # an alpha channel that hides nothing
+                        im = im.convert('RGB')
+                elif im.mode != 'RGB':
+                    im = im.convert('RGB')
+                if im.width > bucket:
+                    im = im.resize((bucket, max(1, round(im.height * bucket / im.width))),
+                                   Image.LANCZOS, reducing_gap=3.0)
+                tmp = out.with_suffix('.tmp')
+                im.save(tmp, 'WEBP', quality=90, method=4, **({'icc_profile': icc} if icc else {}))
+            if tmp.stat().st_size >= 0.9 * src.stat().st_size:
+                tmp.unlink()
+                raise ValueError('no smaller')
+            os.replace(tmp, out)
+            return out
+        except Exception as e:                        # whatever is wrong with it, the original still shows
+            if not isinstance(e, ValueError):
+                log.warning('display copy of %s/%s failed: %s', folder.name, rel, e)
+            try:
+                keep.write_text(str(e))
+            except OSError:
+                pass
+            return None
+
+
+def _queries(name, deck):
+    """{path: "v=<tag>&w=<bucket>"}: how the page asks for each picture and
+    movie. v names the file's version, so the answer can be kept for good; w
+    asks for the display copy."""
+    folder = DECKS / name
+    out = {}
+    for p, b in _wanted(deck).items():
+        try:
+            tag = _tag(folder / p)[1]
+        except OSError:
+            continue
+        out[p] = 'v=%s' % tag + ('&w=%d' % b if b else '')
+    return out
+
+
 def _files(name, deck):
     """Everything a browser needs to show this deck with no connection:
-    [[path, bytes, tag], ...] for the service worker. Paths are relative to
-    the deck, or from the site root for the shared runtime."""
+    [[path, bytes, tag, query], ...] for the service worker. Paths are
+    relative to the deck, or from the site root for the shared runtime.
+    Pictures and movies: only those a slide names, as the page asks for them
+    (the display copy, where there is one), so what a slide no longer uses is
+    not downloaded."""
     folder = DECKS / name
     out = [['index.html', 2000, None], ['deck.json', (folder / 'deck.json').stat().st_size, None]]
-    for d in _DIRS:
+    wanted = _wanted(deck)
+    for p, q in sorted(_queries(name, deck).items()):
+        size, tag = _tag(folder / p)
+        b = wanted.get(p) or 0
+        if b:
+            made = folder / _DISPLAY / ('%s.%s.%d.webp' % (Path(p).name, tag, b))
+            if made.is_file():
+                size = made.stat().st_size
+            elif not made.with_suffix('.orig').exists():
+                size = min(size, 600000)              # not made yet: a guess, for the progress figure only
+        out.append([p, size, q, q])
+    for d in ('live', 'vendor'):
         for root, _dirs, files in os.walk(folder / d):
             for f in sorted(files):
                 p = Path(root) / f
                 if not f.startswith('.'):
                     out.append([p.relative_to(folder).as_posix()] + _tag(p))
-    out[2:] = sorted(out[2:])
     rt = list(_RT_FILES)
     used = set()
     for s in deck.get('slides', []):
@@ -416,6 +558,7 @@ def _deck_get(name, meta, owner):
         orig = _meta(meta['copy_of'])
         if orig and _published(orig):                  # the menu offers "Replace ..." for this
             out['site']['copy_of'] = meta['copy_of']
+    out['site']['files'] = _queries(name, deck)
     out['slides'] = [{k: v for k, v in s.items() if k != 'notes'} for s in deck.get('slides', [])]
     resp = JsonResponse(out, json_dumps_params={'ensure_ascii': False, 'separators': (',', ':')})
     resp['X-Mtime'] = str((DECKS / name / 'deck.json').stat().st_mtime_ns)
@@ -445,7 +588,8 @@ def _deck_put(request, name):
     tmp = folder / 'deck.json.tmp'
     tmp.write_bytes(body)
     os.replace(tmp, target)
-    resp = HttpResponse(status=204)
+    # How to ask for each picture now: one that was made larger gets a larger display copy.
+    resp = JsonResponse({'files': _queries(name, deck)})
     resp['X-Mtime'] = str(target.stat().st_mtime_ns)
     return resp
 
@@ -568,9 +712,19 @@ def serve(request, name, rest=''):
             raise Http404(rest)
         if len(parts) < 2 or parts[0] not in _DIRS or not path.is_file() or path.name.startswith('.'):
             raise Http404(rest)
-        # Files are not content-named, so every one revalidates (an ETag and a
-        # 304); the deck's own service worker makes repeat requests rare.
-        resp = _plain(serve_ranged(request, path, _TYPES.get(path.suffix.lower(), 'application/octet-stream'), cache))
+        ctype = _TYPES.get(path.suffix.lower(), 'application/octet-stream')
+        tag = _tag(path)[1]
+        w = request.GET.get('w', '')
+        if parts[0] == 'assets' and w.isdigit():      # the display copy, where there is one
+            shown = _display(base, path.relative_to(base).as_posix(), int(w))
+            if shown:
+                path, ctype = shown, 'image/webp'
+        # A request that names the file's version (?v=, from deck.json's
+        # site.files) is kept by the browser for good; any other revalidates
+        # (an ETag and a 304).
+        if request.GET.get('v') == tag:
+            cache = ('public, ' if pub else 'private, ') + _FOREVER
+        resp = _plain(serve_ranged(request, path, ctype, cache))
     resp['Cache-Control'] = cache
     # A deck frames its own figures (live/...): the middleware's DENY would
     # blank them. Set here, the middleware leaves it alone.

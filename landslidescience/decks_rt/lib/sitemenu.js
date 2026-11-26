@@ -5,7 +5,7 @@
  * is pressed (M also opens and closes the menu), and goes a moment after the mouse has left
  * it. Until then it takes no clicks, so slide content under it works. While the editor is
  * open it sits at the right end of the editor's bar. The menu says what the deck is (draft, published, a copy) and offers what
- * can be done with it: edit, publish, copy, and the way to the list of talks, where the
+ * can be done with it: edit, publish, copy, Practice (lib/practice.js), and the way to the list of talks, where the
  * actions that need a typed confirmation live (replace a published deck, discard a draft).
  * Actions are POSTs to /decks/_do with window.DECK_CSRF, the same ones the list page makes.
  */
@@ -109,6 +109,16 @@
         return act({ action: "copy", "new": name }).then(function () { location.href = "/decks/" + name + "/"; });
       });
     });
+    var pr = window.DECK_PRACTICE;                       // lib/practice.js: decks with a live map
+    if (pr) {
+      if (pr.on()) item("Finish practice…", function () { close(); pr.finish(); });
+      else item("Practice for offline maps…", function () {
+        ask("While Practice is on, everything the maps on your slides fetch is kept in this browser, so the talk can show the same views " +
+            "with a poor connection or none. Go through the talk as you will give it, then Finish and choose what to keep (" + pr.limits + ").",
+            null, "Start", function () { return pr.start().then(close); });
+      });
+      item("Saved map files…", function () { close(); pr.review(); });
+    }
     if (draft && site.copy_of) mk("a", "warn", menu, "Replace “" + site.copy_of + "” with this…").href = "/decks/#danger-" + site.name;
     if (draft) mk("a", "warn", menu, "Discard this draft…").href = "/decks/#danger-" + site.name;
     mk("a", "", menu, "All talks").href = "/decks/";

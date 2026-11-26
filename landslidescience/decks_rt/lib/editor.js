@@ -114,7 +114,10 @@
     if (blocked) return;
     var head = csrf(mtime ? { "X-Base-Mtime": mtime } : {});
     return fetch("deck.json", { method: "PUT", body: dump(), headers: head }).then(function (r) {
-      if (r.status === 204) { mtime = r.headers.get("X-Mtime") || mtime; if (!timer) status("Saved"); }
+      if (r.status === 204 || r.status === 200) {
+        mtime = r.headers.get("X-Mtime") || mtime; if (!timer) status("Saved");
+        if (r.status === 200) r.json().then(function (j) { if (j && j.files) RT.files(j.files); }).catch(function () {});   // the site: how to ask for each picture now
+      }
       else if (r.status === 409) { blocked = true; status("deck.json was changed on disk. Reload the page to go on editing; changes since the last save are not kept.", true); }
       else status("Not saved (" + r.status + "). Editing needs tools/serve.py.", true);
     }).catch(function () { status("Not saved: the server did not answer.", true); });
@@ -193,7 +196,7 @@
     if (cropping && (sel.length !== 1 || sel[0] !== cropping || cur().s.elements.indexOf(cropping) < 0)) cropping = null;
     if (cropping) {                        // the whole picture, faint, behind its mask
       var ce = cropping, f = ce.fit || [0, 0, ce.w, ce.h], cn = nodeOf(ce), g = mk("img", "kn-ed-ghost", layer);
-      g.src = cn && cn.firstChild ? (cn.firstChild.currentSrc || cn.firstChild.src || cn.firstChild.getAttribute("data-src")) : ce.src;
+      g.src = cn && cn.firstChild && (cn.firstChild.currentSrc || cn.firstChild.src) || RT.url(ce.src);
       g.style.left = ce.x + f[0] + "px"; g.style.top = ce.y + f[1] + "px"; g.style.width = f[2] + "px"; g.style.height = f[3] + "px";
       if (ce.flip) g.style.transform = ce.flip === "h" ? "scaleX(-1)" : "scaleY(-1)";
     }
@@ -1157,7 +1160,8 @@
       } else {                                                          // drawn small from its data
         var st = mk("div", "kn-stack", f);
         RT.fillStack(st, f, s);
-        Array.prototype.forEach.call(st.querySelectorAll("img[data-src]"), function (n) { n.loading = "lazy"; n.draggable = false; n.src = n.getAttribute("data-src"); });
+        Array.prototype.forEach.call(st.querySelectorAll("img[data-kn-src]"), function (n) { n.loading = "lazy"; n.draggable = false; });
+        RT.fetchAll(st);
         Array.prototype.forEach.call(st.querySelectorAll("iframe"), function (n) { var d = mk("div", "kn-el kn-ed-livemark", null, "live"); d.style.cssText = n.style.cssText; n.replaceWith(d); });
       }
       mk("div", "kn-ed-num", t, String(i + 1));

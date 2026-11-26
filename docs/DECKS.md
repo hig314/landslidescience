@@ -73,7 +73,35 @@ in the site backup: once a deck is edited here, this is its only copy.
   venue's network. Editing needs a connection. A saved copy opens offline
   without asking the server, so on a borrowed computer a draft stays readable
   there until the browser's site data is cleared; online, a 404 from the
-  server wins over the saved copy. Notes are never saved.
+  server wins over the saved copy. Notes are never saved. Only pictures and
+  movies a slide names are saved; large files arrive in 2 MB byte-range pieces
+  so an interrupted save resumes.
+- **Practice (live maps offline).** A deck's map figures are this site's own
+  pages in frames (`/inventory/?embed=1`, `/lidar/compare/?…&embed=1`), which
+  the deck's worker cannot reach. When the owner switches Practice on (the ☰
+  menu), the deck page registers a second worker, `/decks/_rt/lib/mapsw.js`,
+  over `/inventory/` and `/lidar/compare/`; `decks_serve.runtime` sends
+  `Service-Worker-Allowed: /` for that one file so it may take those scopes.
+  It acts only on a framed page whose address has `embed=1` and on that
+  page's workers: any other page under those folders goes to the network
+  untouched. While Practice is on it keeps what the maps fetch (tiles, lidar
+  byte ranges, the page's files) in that browser, within limits, and the
+  owner reviews each run; afterwards the saved files are answered first.
+  With nothing saved the worker is unregistered. It lives in one browser
+  only: nothing is stored on the server. The header of `mapsw.js` is the
+  specification.
+- **Display copies.** A picture is not sent as uploaded. `deck.json` goes out
+  with `site.files` (`{path: "v=<version>&w=<width>"}`) and the page asks with
+  that query; `w` gets a WebP made from the original at twice the widest the
+  deck shows it (times the slide's zoom), one of 640/1280/1920/2560/3840. Made
+  on first request into the deck's `.display/` (never served by name, safe to
+  delete, rebuilt when missing); the original is never changed and is what a
+  request without `w` gets. A request whose `v` is the file's current version
+  is answered `immutable`. `PUT deck.json` answers 200 with the new map, so a
+  picture enlarged in the editor is fetched again at the larger width.
+- **gunicorn runs threaded** (`gthread`, 2 workers x 8 threads; `Dockerfile`).
+  With one-request-at-a-time workers, two slow downloads of deck files held the
+  whole site (2026-11-25).
 - **Live map slides** frame this site's own embed pages
   (`/lidar/compare/?embed=1`), addressed root-relative. Embed mode must render
   signed-out whoever is signed in (`lidar_serve.compare` does): deck and map

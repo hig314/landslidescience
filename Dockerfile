@@ -26,9 +26,13 @@ ENTRYPOINT ["/app/entrypoint.sh"]
 # still reading the body. Editor uploads are rare, so tying up one of two
 # workers for the transfer is acceptable; the alternative (Caddy buffering the
 # body with request_buffers) lives in the monitoring stack's Caddyfile.
+# gthread, 8 threads each: a worker that sends one file at a time meant two
+# slow downloads (a deck's pictures on a weak connection) held the whole site
+# (2026-11-25). Sending a file is waiting, which threads do well.
 CMD ["gunicorn", "landslidescience.wsgi:application", \
      "--bind", "0.0.0.0:8000", \
      "--workers", "2", \
+     "--worker-class", "gthread", "--threads", "8", \
      "--timeout", "600", \
      "--access-logfile", "-", \
      "--error-logfile", "-"]

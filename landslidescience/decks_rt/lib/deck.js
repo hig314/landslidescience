@@ -74,6 +74,89 @@
   }
   function family(f) { return '"' + f + '", "Helvetica Neue", Helvetica, Arial, sans-serif'; }
 
+  // ---- loading ----
+  // Pictures are fetched in the order the talk needs them, not all at once: the slide showing
+  // first, then the next, the one before, and so on to AHEAD slides on; one slide at a time, so
+  // that on a weak connection the slide on screen never waits behind pictures for later. Only
+  // when those are in is the offline copy filled (RT.whenIdle, lib/offline.js), and it gives way
+  // again whenever the page asks for something (lib/sw.js). A picture that fails is asked for
+  // again, at longer intervals, for as long as it is on a slide. Movies: see near().
+  // On the site a file is asked for as deck.json's site.files says ("v=…&w=…": its version, so
+  // the browser may keep it for good, and the width of the display copy to send).
+  var AHEAD = [0, 1, -1, 2, 3, -2], busy = null, idle = false, mark = null, markTimer = 0;
+  function url(p) {
+    var q = deck && deck.site && deck.site.files && deck.site.files[p];
+    return q ? p + "?" + q : p;
+  }
+  function fetchInto(n, done) {          // start one picture; done() when it has arrived, or failed for the first time
+    var p = n.getAttribute("data-kn-src"), tries = 0, told = false;
+    if (p == null) { if (done) done(); return; }
+    n.removeAttribute("data-kn-src");
+    n.knPath = p; n.knPending = true;
+    function tell() { n.knPending = false; if (!told) { told = true; shown(); if (done) done(); } }
+    n.addEventListener("load", function () { n.knFailed = false; tell(); });
+    n.addEventListener("error", function () {
+      n.knFailed = true; tell();
+      var u = n.getAttribute("src");
+      setTimeout(function () {             // again, unless it was given another address or left the slide
+        if (n.isConnected && n.knFailed && n.getAttribute("src") === u) { n.removeAttribute("src"); n.src = u; }
+      }, Math.min(30000, 2000 * Math.pow(2, tries++)));
+    });
+    n.src = url(p);
+  }
+  function fetchSlide(sec, done) {       // every picture of a slide that has not been asked for yet
+    var ns = sec ? Array.prototype.slice.call(sec.querySelectorAll("[data-kn-src]")) : [], left = ns.length;
+    if (!left) { if (done) done(); return 0; }
+    ns.forEach(function (n) { fetchInto(n, function () { if (!--left && done) done(); }); });
+    return ns.length;
+  }
+  function pump() {                      // the next slide near the one showing that still has pictures to fetch
+    if (busy || !window.Reveal || !Reveal.isReady()) return;
+    var i = Reveal.getIndices().h, secs = slidesEl.querySelectorAll(":scope > section"), sec = null;
+    for (var k = 0; k < AHEAD.length && !sec; k++) {
+      var c = secs[i + AHEAD[k]];
+      if (c && c.querySelector("[data-kn-src]")) sec = c;
+    }
+    if (!sec) {
+      if (!idle) { idle = true; RT.idle = true; if (RT.whenIdle) RT.whenIdle(); }
+      return;
+    }
+    busy = sec;
+    fetchSlide(sec, function () { busy = null; pump(); });
+  }
+  function near() {                      // on arriving at a slide
+    var cur = Reveal.getCurrentSlide(), i = Reveal.getIndices().h;
+    Array.prototype.forEach.call(cur.querySelectorAll("img"), function (n) { n.setAttribute("fetchpriority", "high"); });
+    fetchSlide(cur);                       // at once, whatever else is on its way
+    // a movie starts to arrive when its slide is the next one; before that not a byte of it is asked for
+    Array.prototype.forEach.call(slidesEl.querySelectorAll(":scope > section"), function (sec, j) {
+      if (Math.abs(j - i) <= 1) Array.prototype.forEach.call(sec.querySelectorAll("video"), function (v) { if (v.preload !== "auto") v.preload = "auto"; });
+    });
+    shown();
+    pump();
+  }
+  function shown() {                     // "Loading…" while the slide on screen waits for a picture (after a moment: most arrive at once)
+    if (!window.Reveal || !Reveal.isReady()) return;
+    var cur = Reveal.getCurrentSlide();
+    var waiting = !!cur && Array.prototype.some.call(cur.querySelectorAll("img"), function (n) { return n.knPending || n.knFailed; });
+    if (!waiting) { clearTimeout(markTimer); markTimer = 0; if (mark) mark.style.opacity = 0; return; }
+    if (markTimer || (mark && mark.style.opacity === "1")) return;
+    markTimer = setTimeout(function () {
+      markTimer = 0;
+      if (!mark) { mark = el("div", "kn-loading", document.body); mark.textContent = "Loading…"; void mark.offsetWidth; }
+      mark.style.opacity = 1;
+    }, 700);
+  }
+  RT.url = url;
+  RT.files = function (files) {          // after a save: a picture that is now shown larger is asked for again, larger
+    if (!deck.site || !files) return;
+    deck.site.files = files;
+    Array.prototype.forEach.call(slidesEl.querySelectorAll("img"), function (n) {
+      if (n.knPath != null && n.getAttribute("src") && n.getAttribute("src") !== url(n.knPath)) n.src = url(n.knPath);
+    });
+  };
+  RT.fetchAll = function (root) { Array.prototype.forEach.call(root.querySelectorAll("[data-kn-src]"), function (n) { fetchInto(n); }); };
+
   // ---- building a slide from its elements ----
   function frame(node, e) {
     node.style.left = e.x + "px"; node.style.top = e.y + "px";
@@ -125,12 +208,13 @@
     } else if (e.type === "image") {
       n = el("div", "kn-el kn-image", stack);
       var im = el("img", "", n);
-      im.setAttribute("data-src", e.src); im.alt = "";
+      im.setAttribute("data-kn-src", e.src); im.alt = "";
       if (e.flip) im.style.transform = e.flip === "h" ? "scaleX(-1)" : "scaleY(-1)";
       if (e.fit) { im.style.left = e.fit[0] + "px"; im.style.top = e.fit[1] + "px"; im.style.width = e.fit[2] + "px"; im.style.height = e.fit[3] + "px"; }
     } else if (e.type === "video") {
       n = el("video", "kn-el", stack);
-      n.setAttribute("data-src", e.src); n.playsInline = true;
+      n.setAttribute("data-src", url(e.src)); n.playsInline = true;
+      n.preload = "none";               // nothing is fetched until its slide is next (near(), below)
       if (e.autoplay) n.setAttribute("data-autoplay", "");
     } else if (e.type === "live") {
       n = el("iframe", "kn-el kn-live", stack);
@@ -138,7 +222,7 @@
       n.addEventListener("load", function () { if (RT.liveLoaded) RT.liveLoaded(n); });
       if (e.fallback) {                 // shown until the page reports ready (no network, slow tiles)
         var fb = frame(el("img", "kn-el kn-fallback", stack), e);
-        fb.setAttribute("data-src", e.fallback); fb.alt = "";
+        fb.setAttribute("data-kn-src", e.fallback); fb.alt = "";
       }
     } else return null;
     n.knEl = e;
@@ -220,7 +304,7 @@
     if (s.use === "flat" || !s.elements) {
       (s.flat || []).forEach(function (src, j) {
         var im = el("img", "kn-flat" + (j ? " fragment" : ""), stack);
-        im.setAttribute("data-src", src); im.alt = "";
+        im.setAttribute("data-kn-src", src); im.alt = "";
       });
       (s.elements || []).forEach(function (e) { if (e.type === "video") build(e, stack); });
     } else {
@@ -255,6 +339,25 @@
     }).catch(function () {});
     el("script", "", document.body).src = BASE + "offline.js";
   }
+  // The live figures that are pages of this site (maps), whose files lib/mapsw.js can keep:
+  // [{i: slide index, e, key, scope}]. key names the figure in the saved caches: the element's
+  // id if it has one, else its page and its place among the figures of that page.
+  RT.maps = function () {
+    var out = [], nth = {};
+    deck.slides.forEach(function (s, i) {
+      (s.elements || []).forEach(function (e) {
+        if (e.type !== "live" || !e.src || /^live\//.test(e.src)) return;
+        var u;
+        try { u = new URL(e.src, location.href); } catch (err) { return; }
+        var scope = u.pathname.replace(/[^\/]*$/, "");
+        if (u.origin !== location.origin || scope === "/" || /^\/decks\//.test(scope)) return;
+        var page = scope.replace(/^\/|\/$/g, "").replace(/[^A-Za-z0-9]+/g, "-");
+        nth[page] = (nth[page] || 0) + 1;
+        out.push({ i: i, e: e, scope: scope, key: e.id ? "id." + String(e.id).replace(/[^A-Za-z0-9_-]/g, "") : page + "." + nth[page] });
+      });
+    });
+    return out;
+  };
   function say(text) {                 // a line at the bottom of the window for a few seconds
     var n = el("div", "kn-say", document.body);
     n.textContent = text;
@@ -269,6 +372,7 @@
     else if (deck.site) {
       el("script", "", document.body).src = BASE + "offline.js";
       if (deck.site.owner) el("script", "", document.body).src = BASE + "sitemenu.js";      // ☰: edit, publish, copy
+      if (deck.site.owner && RT.maps().length) el("script", "", document.body).src = BASE + "practice.js";   // keeping what the maps fetch
     }
 
     Reveal.initialize({
@@ -399,11 +503,13 @@
         Reveal.sync();
         Reveal.slide(Math.max(0, Math.min(i, deck.slides.length - 1)));
         paint();
+        near();
       };
       RT.render = function (i) {             // rebuild slide i from its data, in place
         var sec = slidesEl.querySelector('section[data-i="' + i + '"]');
         fill(sec, deck.slides[i]);
-        Array.prototype.forEach.call(sec.querySelectorAll("[data-src]"), function (n) { n.src = n.getAttribute("data-src"); n.removeAttribute("data-src"); });
+        RT.fetchAll(sec);
+        Array.prototype.forEach.call(sec.querySelectorAll("[data-src]"), function (n) { if (n.tagName === "VIDEO") n.preload = "auto"; n.src = n.getAttribute("data-src"); n.removeAttribute("data-src"); });
         Reveal.syncFragments(sec);
         apply(sec, { quiet: true });
         return sec;
@@ -464,6 +570,7 @@
         }
         if (prev) stop(prev);
         apply(cur, { play: !!forward && !RT.editing && clicksOf(cur) === 0, replay: !!forward });
+        near();
       });
       Reveal.on("fragmentshown", function (ev) {
         var sec = ev.fragment.closest("section");
@@ -474,6 +581,7 @@
         if (ev.fragment.classList.contains("kn-pz")) panzoom(sec, false, true); else apply(sec, {});
       });
       paint();
+      near();
       var cur0 = Reveal.getCurrentSlide(), p0 = cur0 && data(cur0).panzoom;
       if (p0) panzoom(cur0, !!cur0.querySelector(".kn-pz.visible") || p0.on !== "click", false);
     });
