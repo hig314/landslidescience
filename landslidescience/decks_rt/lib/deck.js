@@ -34,6 +34,8 @@
  *                                             fit = the whole image's rectangle relative to the
  *                                             frame, which crops it; absent = fills the frame
  *     video  { src, autoplay }
+ *            text also: fill (a background colour), fillOp (its opacity, percent), glow (a colour: a halo
+ *                       round the letters, to set text over a picture), glowSize (px, default 8), glowStrength (1-6)
  *     shape  { shape: rect | oval | path, fill, fillOp, stroke, strokeW, strokeOp, dash: dash | dot,
  *              corner, radius, pts, closed, arrow: end | start | both }
  *                                             drawn as SVG (drawShape). fill / stroke: a colour, absent = none;
@@ -186,6 +188,16 @@
     if (parent) parent.appendChild(n);
     return n;
   }
+  function rgba(c, op) {                  // a colour at an opacity in percent (absent: as it is)
+    var m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(c || "");
+    if (op == null || !m) return c;
+    return "rgba(" + parseInt(m[1], 16) + "," + parseInt(m[2], 16) + "," + parseInt(m[3], 16) + "," + op / 100 + ")";
+  }
+  function glow(e) {                       // a soft halo round the letters: the same blurred shadow, stacked to make it stronger
+    var one = "0 0 " + (e.glowSize == null ? 8 : e.glowSize) + "px " + e.glow, n = Math.max(1, Math.min(6, e.glowStrength || 2)), out = [];
+    while (out.length < n) out.push(one);
+    return out.join(", ");
+  }
   function drawShape(n, e) {               // (again after any change of frame or style: the editor calls RT.drawShape)
     n.textContent = "";
     var w = e.w, h = e.h, line = e.stroke ? (e.strokeW == null ? 4 : +e.strokeW) : 0, kind = e.shape || (e.radius >= 50 ? "oval" : "rect");
@@ -223,8 +235,9 @@
       n = drawShape(el("div", "kn-el kn-shape", stack), e);
     } else if (e.type === "text") {
       n = el("div", "kn-el kn-text", stack);
-      if (e.fill) n.style.background = e.fill;
+      if (e.fill) n.style.background = rgba(e.fill, e.fillOp);
       if (e.radius) n.style.borderRadius = e.radius + "%";
+      if (e.glow) n.style.textShadow = glow(e);
       if (e.type === "text") {
         styleText(n, e);
         n.style.textAlign = e.align || "left";
@@ -544,7 +557,7 @@
       };
 
       // ---- the editor (lib/editor.js), loaded the first time E is pressed ----
-      RT.frame = frame; RT.drawShape = drawShape; RT.slidesEl = slidesEl; RT.fillStack = fillStack;
+      RT.frame = frame; RT.drawShape = drawShape; RT.glow = glow; RT.rgba = rgba; RT.slidesEl = slidesEl; RT.fillStack = fillStack;
       RT.resync = function (i) {             // after slides were added, removed or reordered
         Array.prototype.forEach.call(slidesEl.querySelectorAll(":scope > section"), function (n) { n.remove(); });
         deck.slides.forEach(section);

@@ -148,3 +148,14 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 .kn-ed-shp input[type=color].off { opacity: 0.35; }
 .kn-ed-shp input:disabled, .kn-ed-shp select:disabled { opacity: 0.35; }
 .kn-ed-fmt-note { margin-top: 10px; font-size: 11px; color: #999; }
+
+/* the Text panel (and the bar's buttons for the panels, lit while open) */
+.kn-ed-txt { width: 300px; max-height: calc(100vh - 60px); overflow: auto; }
+.kn-ed-shp .kn-ed-seg { padding: 2px 8px; font: inherit; color: #ddd; background: #111; border: 1px solid #666; border-radius: 4px; cursor: pointer; }
+.kn-ed-shp .kn-ed-seg.on { color: #fff; background: #2f6fd0; border-color: #2f8cff; }
+.kn-ed-shp .kn-ed-b { font-weight: 700; min-width: 28px; } .kn-ed-shp .kn-ed-i { font-style: italic; font-family: Georgia, serif; min-width: 28px; }
+.kn-ed-shp label { gap: 5px; }
+.kn-ed-txt .kn-ed-hint { margin: 0 0 4px; color: #9fc6ff; }
+.kn-ed-bar button.on { background: #2f6fd0; border-color: #2f8cff; color: #fff; }
+.kn-ed-txt .kn-ed-row { display: flex; align-items: center; gap: 5px; margin-top: 8px; }
+.kn-ed-txt .kn-ed-row > span:first-child { width: 96px; color: #bbb; }

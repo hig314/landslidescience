@@ -32,8 +32,11 @@
  * (stacking order, group), Animate (build the selection in or out, the build order).
  *   Opacity           the slider in the bar sets how opaque the selection is. Turn an image down to
  *                     see what is under it while lining the two up, then back to 100.
- *   Colour            (bar, with a text box selected) the picker or a swatch colours the whole box.
- *                     While retyping a box, select some words first and only they change.
+ *   Text…             (bar, with text selected or being typed) the Text panel: font, size (A− A+:
+ *                     10%), bold, italic, colour, alignment, background (and its opacity) and a
+ *                     glow round the letters for text over a picture. It applies to every selected
+ *                     text box; while retyping one with some words selected, font, size, style and
+ *                     colour go to those words only. A size change scales the line spacing with it.
  *   Shapes            Insert ▸ Shape: a box, an oval, or a path (click its points; Shift keeps a
  *                     line straight or at 45°; double-click or Enter ends it, a click on its first
  *                     point closes it, Delete takes back the last point, Esc gives it up). A
@@ -234,7 +237,7 @@
     prepare();
     sel = sel.filter(function (e) { return c.s.elements.indexOf(e) >= 0; });
     draw();
-    fmtFill(); bpFill(); shpFill();
+    fmtFill(); bpFill(); shpFill(); txtFill();
   }
   function prepare() {                     // a slide as it should be while it is edited
     var c = cur();
@@ -251,7 +254,7 @@
   // Several things selected (a group, or any selection of more than one) are resized as one:
   // the corner handles of the box round them all scale every one by the same amount about
   // one point (the opposite corner; Alt: the box's centre). Text is scaled with its box.
-  var TXT = ["size", "lineHeight", "paraGap", "indent", "markerIndent"];
+  var TXT = ["size", "lineHeight", "paraGap", "indent", "markerIndent", "glowSize"];
   function keepOf(e) {                     // what a drag may change, as it was when the drag began
     var o = { x: e.x, y: e.y, w: e.w, h: e.h, fit: e.fit && e.fit.slice() };
     if (e.type === "text") { o.t = {}; TXT.forEach(function (k) { if (typeof e[k] === "number") o.t[k] = e[k]; }); o.rs = (e.runs || []).map(function (r) { return r.size; }); }
@@ -275,6 +278,7 @@
     var n = nodeOf(e), body = n && n.querySelector(".kn-body");
     if (!body) return;
     if (e.size) n.style.fontSize = e.size + "px";
+    if (e.glow) n.style.textShadow = RT.glow(e);
     if (e.indent) n.style.paddingLeft = e.indent + "px";
     if (e.lineHeight) {
       body.style.lineHeight = e.lineHeight + "px";
@@ -340,24 +344,29 @@
   function drawTools() {
     var any = (sel.length || typing) && !sorter;
     bar.tools.style.display = any ? "" : "none";
-    if (!any) { bar.colbox.shown = false; shpSync(); return; }
-    bar.op.disabled = !!typing;            // (kept in place, so the colours do not move when typing starts)
-    var txt = typing ? [typing.e] : sel.filter(function (e) { return e.type === "text"; });
-    bar.colbox.style.display = txt.length ? "" : "none";
-    if (txt.length && !colBefore) {
-      if (document.activeElement !== bar.col) bar.col.value = hex(txt[0].color) || "#000000";
-      if (!bar.colbox.shown) swatches();
-    }
-    bar.colbox.shown = !!txt.length;
-    if (!opBefore) { var v = sel[0].op == null ? 100 : sel[0].op; bar.op.value = v; bar.opn.textContent = Math.round(v) + "%"; }
+    if (!any) { shpSync(); txtSync(); return; }
+    bar.op.disabled = !!typing;            // (kept in place, so the buttons do not move when typing starts)
+    bar.text.style.display = textsSel().length ? "" : "none";
+    txtSync();
+    bar.text.classList.toggle("on", !!txt);
+    if (!opBefore && sel.length) { var v = sel[0].op == null ? 100 : sel[0].op; bar.op.value = v; bar.opn.textContent = Math.round(v) + "%"; }
     bar.style.style.display = !typing && shapesSel().length ? "" : "none";
+    bar.style.classList.toggle("on", !!shp);
     shpSync();
     var img = !typing && sel.length === 1 && sel[0].type === "image" && !sel[0].rot;
     bar.crop.style.display = img ? "" : "none";
     bar.crop.textContent = cropping ? "Finish crop" : "Crop";
   }
-  // Text colour. A text box selected: all of it. While typing with some of the text selected:
-  // that part, which makes the box one of runs (deck.js: runs carry the text and what differs).
+  // ---------------------------------------------------------------- text: the Text panel
+  // Bar ▸ Text… opens it; it stays open while text is selected or being typed. It sets font, size,
+  // bold, italic, colour, alignment, a background and a glow (a halo round the letters, for text
+  // over a picture) for every selected text box. While retyping a box with some words selected,
+  // the font, size, bold, italic and colour go to those words only: the box becomes one of runs
+  // (deck.js: runs carry the text and what differs). The words are remembered when the panel is
+  // clicked (setup: pointerdown), marked in the text and read back by finish().
+  var txt = null, txtWant = false, txtBefore = null;
+  var RUNKEYS = ["font", "weight", "italic", "size", "color"];
+  var FONTS = [["Liberation Sans HN", "Sans (Helvetica)"], ["Liberation Sans", "Sans (Arial)"], ["Liberation Serif", "Serif"], ["Liberation Mono", "Mono"]];
   function joinRuns(e) {                   // neighbours that no longer differ become one; a box of one plain run is plain text again
     var out = [];
     function but(r) { var o = {}; Object.keys(r).sort().forEach(function (k) { if (k !== "t") o[k] = r[k]; }); return JSON.stringify(o); }
@@ -368,48 +377,161 @@
     if (out.length === 1 && Object.keys(out[0]).length === 1) { e.text = out[0].t; delete e.runs; }
     else if (out.length) e.runs = out;
   }
-  function swatches() {                    // black, white, and the text colours this deck uses most
-    var n = {};
-    function count(c) { c = hex(c); if (c) n[c] = (n[c] || 0) + 1; }
-    deck.slides.forEach(function (y) { (y.elements || []).forEach(function (e) {
-      if (e.type !== "text") return;
-      count(e.color); (e.runs || []).forEach(function (r) { count(r.color); });
-    }); });
-    var used = Object.keys(n).sort(function (a, b) { return n[b] - n[a]; });
-    used = ["#000000", "#ffffff"].concat(used.filter(function (c) { return c !== "#000000" && c !== "#ffffff"; })).slice(0, 10);
-    bar.colsw.innerHTML = "";
-    used.forEach(function (c) {
-      var b = mk("button", "", bar.colsw);
-      b.style.background = c; b.title = c;
-      b.addEventListener("mousedown", function (ev) { ev.preventDefault(); });      // the text being typed keeps its selection
-      b.onclick = function () { colour(c, true); b.blur(); };
+  function textsSel() { return typing ? [typing.e] : sel.filter(function (e) { return e.type === "text"; }); }
+  function words() { return typing && typing.range ? typing.range : null; }
+  function boxSet(e, props) {              // the whole box: what the runs said otherwise is dropped (a size scales them)
+    Object.keys(props).forEach(function (k) {
+      var v = props[k];
+      if (k === "size") {
+        var f = v / (e.size || v);
+        e.size = v;
+        ["lineHeight", "paraGap", "indent", "markerIndent"].forEach(function (x) { if (typeof e[x] === "number") e[x] = round(e[x] * f); });
+        (e.runs || []).forEach(function (r) { if (typeof r.size === "number") r.size = round(r.size * f); });
+        return;
+      }
+      if (v == null) delete e[k]; else e[k] = v;
+      if (RUNKEYS.indexOf(k) >= 0) (e.runs || []).forEach(function (r) { delete r[k]; });
     });
+    if (e.runs) joinRuns(e);
   }
-  function colour(c, done) {               // the picker moving (one undo step), then closed; or a swatch
-    c = hex(c);
-    if (!c) return;
+  function textSet(props, done) {          // a control moving (one undo step), then let go; or a button
     if (typing) {
-      var rg = typing.range;
-      if (rg) {                            // some of the text: when the colour is chosen
+      var rg = words(), runs = {};
+      Object.keys(props).forEach(function (k) { if (RUNKEYS.indexOf(k) >= 0) runs[k] = props[k]; });
+      if (rg && Object.keys(runs).length) {                // some words: when the value is chosen
         if (!done) return;
         var a = rg.cloneRange(), b = rg.cloneRange();
-        b.collapse(false); b.insertNode(document.createTextNode("\uE001"));
-        a.collapse(true); a.insertNode(document.createTextNode("\uE000"));
-        typing.paint = c;
+        b.collapse(false); b.insertNode(document.createTextNode(""));
+        a.collapse(true); a.insertNode(document.createTextNode(""));
+        typing.paint = runs;
+        finish();
+        return;
       }
       finish();
-      if (rg) { swatches(); return; }
     }
     var list = sel.filter(function (e) { return e.type === "text"; });
     if (!list.length) return;
-    if (!colBefore) colBefore = snapshot();
-    list.forEach(function (e) {
-      e.color = c;
-      if (e.runs) { e.runs.forEach(function (r) { delete r.color; }); joinRuns(e); }
-    });
-    if (done) { var was = colBefore; colBefore = null; commit(was); swatches(); }
+    if (!txtBefore) txtBefore = snapshot();
+    list.forEach(function (e) { boxSet(e, props); });
+    if (done) { var was = txtBefore; txtBefore = null; commit(was); }
     rebuild();
   }
+  function txtSync() {
+    var want = on && txtWant && !sorter && !drawing && textsSel().length;
+    if (!want) { if (txt) { txt.el.remove(); txt = null; } }
+    else { if (!txt) txtMake(); if (!txtBefore) txtFill(); }
+    if (shp) shp.el.style.top = txt ? txt.el.offsetTop + txt.el.offsetHeight + 8 + "px" : "";   // both open: the shape panel below
+  }
+  function txtMake() {
+    txt = { el: mk("div", "kn-ed-fmt kn-ed-shp kn-ed-txt", document.body) };
+    var head = mk("div", "kn-ed-fmt-head", txt.el);
+    txt.head = mk("span", "", head, "Text");
+    var x = mk("button", "kn-ed-x", head, "×"); x.title = "Close (bar ▸ Text… opens it again)";
+    x.onclick = function () { txtWant = false; txtSync(); };
+    txt.hint = mk("div", "kn-ed-fmt-note kn-ed-hint", txt.el, "");
+    function row(label) { var r = mk("div", "kn-ed-row", txt.el); mk("span", "", r, label); return r; }
+    function keep(b) { b.addEventListener("mousedown", function (ev) { ev.preventDefault(); }); return b; }   // the words being typed stay selected
+    function seg(r, opts, fn) {            // a row of buttons, one of them lit
+      var bs = opts.map(function (o) { var b = mk("button", "kn-ed-seg", r, o[1]); keep(b); b.title = o[2] || ""; b.knVal = o[0]; b.onclick = function () { b.blur(); fn(o[0]); }; return b; });
+      return { bs: bs, set: function (v) { bs.forEach(function (b) { b.classList.toggle("on", b.knVal === v); }); } };
+    }
+    var r = row("Font");
+    txt.font = mk("select", "", r);
+    FONTS.forEach(function (o) { mk("option", "", txt.font, o[1]).value = o[0]; });
+    txt.font.onchange = function () { var v = txt.font.value; txt.font.blur(); textSet({ font: v }, true); };
+    r = row("Size");
+    txt.size = mk("input", "", r); txt.size.type = "number"; txt.size.min = 6; txt.size.max = 600; txt.size.step = 1;
+    mk("span", "kn-ed-fmt-s", r, "px");
+    function bump(f) { var e = textsSel()[0]; if (e) textSet({ size: Math.max(6, Math.round((curSize() || e.size || 48) * f)) }, true); }
+    var sm = keep(mk("button", "kn-ed-seg", r, "A−")); sm.title = "Smaller (10%)"; sm.onclick = function () { sm.blur(); bump(1 / 1.1); };
+    var bg = keep(mk("button", "kn-ed-seg", r, "A+")); bg.title = "Larger (10%)"; bg.onclick = function () { bg.blur(); bump(1.1); };
+    txt.size.onchange = function () { var v = Math.max(6, Math.min(600, Math.round(+txt.size.value) || 48)); textSet({ size: v }, true); };
+    r = row("Style");
+    txt.bold = keep(mk("button", "kn-ed-seg kn-ed-b", r, "B")); txt.bold.title = "Bold";
+    txt.bold.onclick = function () { txt.bold.blur(); textSet({ weight: txt.bold.classList.contains("on") ? 400 : 700 }, true); };
+    txt.ital = keep(mk("button", "kn-ed-seg kn-ed-i", r, "I")); txt.ital.title = "Italic";
+    txt.ital.onclick = function () { txt.ital.blur(); textSet({ italic: !txt.ital.classList.contains("on") }, true); };
+    r = row("Colour");
+    txt.col = mk("input", "", r); txt.col.type = "color";
+    txt.col.addEventListener("input", function () { textSet({ color: txt.col.value }, false); });
+    txt.col.addEventListener("change", function () { textSet({ color: txt.col.value }, true); txt.col.blur(); });
+    txt.sw = mk("div", "kn-ed-fmt-sw", txt.el);
+    txt.align = seg(row("Align"), [["left", "Left"], ["center", "Centre"], ["right", "Right"]], function (v) { textSet({ align: v }, true); });
+    txt.valign = seg(row("In the box"), [["top", "Top"], ["middle", "Middle"], ["bottom", "Bottom"]], function (v) { textSet({ valign: v }, true); });
+    function colourRow(label, key, dflt, extra) {     // None, a picker, and an opacity or a size
+      var r = row(label), none = mk("button", "kn-ed-none", r, "None");
+      var c = mk("input", "", r); c.type = "color";
+      none.onclick = function () { none.blur(); textSet(fieldsOff(key), true); };
+      c.addEventListener("input", function () { var p = {}; p[key] = c.value; textSet(p, false); });
+      c.addEventListener("change", function () { var p = {}; p[key] = c.value; textSet(p, true); c.blur(); });
+      return { none: none, c: c, dflt: dflt };
+    }
+    function fieldsOff(key) { var p = {}; p[key] = null; return p; }
+    function slider(label, key, min, max, dflt, unit) {
+      var r = row(label), s = mk("input", "", r); s.type = "range"; s.min = min; s.max = max; s.step = 1;
+      var n = mk("span", "kn-ed-fmt-s", r);
+      function set(done) { var v = +s.value, p = {}; n.textContent = v + unit; p[key] = v === dflt && unit === "%" ? null : v; textSet(p, done); }
+      s.addEventListener("input", function () { set(false); });
+      s.addEventListener("change", function () { set(true); s.blur(); });
+      return { s: s, n: n, dflt: dflt, unit: unit, key: key };
+    }
+    txt.fill = colourRow("Background", "fill", "#000000");
+    txt.fillOp = slider("Background opacity", "fillOp", 0, 100, 100, "%");
+    txt.glow = colourRow("Glow", "glow", "#000000");
+    txt.glowSize = slider("Glow size", "glowSize", 1, 40, 8, " px");
+    txt.glowStrength = slider("Glow strength", "glowStrength", 1, 6, 2, "");
+    mk("div", "kn-ed-fmt-note", txt.el, "Glow: a soft halo round the letters, to keep text readable over a picture (dark glow behind light text, or the reverse).");
+  }
+  function curSize() {                     // the size of the words selected, while typing
+    var rg = words(), n = rg && rg.startContainer;
+    if (n && n.nodeType === 3) n = n.parentNode;
+    return n && n.nodeType === 1 ? Math.round(parseFloat(getComputedStyle(n).fontSize)) : null;
+  }
+  function txtFill() {
+    if (!txt) return;
+    var list = textsSel(), e = list[0];
+    if (!e) return;
+    var rg = words(), n = rg && rg.startContainer, cs = null;
+    if (n && n.nodeType === 3) n = n.parentNode;
+    if (n && n.nodeType === 1) cs = getComputedStyle(n);
+    txt.head.textContent = typing ? "Text (typing)" : list.length > 1 ? list.length + " text boxes" : "Text";
+    txt.hint.textContent = typing ? (rg ? "Font, size, style and colour go to the words selected; the rest to the whole box." :
+      "Select some words to give them their own font, size, style or colour; otherwise the whole box changes.") : "";
+    txt.hint.style.display = typing ? "" : "none";
+    var f = e.font || "Liberation Sans HN";
+    if (cs) f = (cs.fontFamily.match(/"([^"]+)"/) || [0, f])[1];
+    txt.font.value = FONTS.some(function (o) { return o[0] === f; }) ? f : "Liberation Sans HN";
+    if (document.activeElement !== txt.size) txt.size.value = cs ? Math.round(parseFloat(cs.fontSize)) : e.size || 48;
+    txt.bold.classList.toggle("on", cs ? +cs.fontWeight >= 600 : (e.weight || 400) >= 600);
+    txt.ital.classList.toggle("on", cs ? cs.fontStyle === "italic" : !!e.italic);
+    var col = cs ? hex(rgbHex(cs.color)) : hex(e.color);
+    if (document.activeElement !== txt.col) txt.col.value = col || "#000000";
+    txt.align.set(e.align || "left"); txt.valign.set(e.valign || "top");
+    [[txt.fill, "fill"], [txt.glow, "glow"]].forEach(function (p) {
+      var v = hex(e[p[1]]);
+      p[0].none.classList.toggle("on", !v); p[0].c.classList.toggle("off", !v);
+      if (document.activeElement !== p[0].c) p[0].c.value = v || p[0].dflt;
+    });
+    [txt.fillOp, txt.glowSize, txt.glowStrength].forEach(function (sl) {
+      var v = e[sl.key] == null ? sl.dflt : e[sl.key];
+      sl.s.value = v; sl.n.textContent = v + sl.unit;
+    });
+    txt.fillOp.s.disabled = !e.fill; txt.glowSize.s.disabled = txt.glowStrength.s.disabled = !e.glow;
+    // swatches: black, white, and the text colours this deck uses most
+    var cnt = {};
+    function count(c) { c = hex(c); if (c) cnt[c] = (cnt[c] || 0) + 1; }
+    deck.slides.forEach(function (y) { (y.elements || []).forEach(function (x) { if (x.type !== "text") return; count(x.color); (x.runs || []).forEach(function (r) { count(r.color); }); }); });
+    var used = Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; });
+    used = ["#000000", "#ffffff"].concat(used.filter(function (c) { return c !== "#000000" && c !== "#ffffff"; })).slice(0, 10);
+    txt.sw.innerHTML = "";
+    used.forEach(function (c) {
+      var b = mk("button", c === col ? "on" : "", txt.sw);
+      b.style.background = c; b.title = c;
+      b.addEventListener("mousedown", function (ev) { ev.preventDefault(); });      // the text being typed keeps its selection
+      b.onclick = function () { textSet({ color: c }, true); b.blur(); };
+    });
+  }
+  function rgbHex(c) { var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c || ""); return m ? "#" + [m[1], m[2], m[3]].map(function (v) { return ("0" + (+v).toString(16)).slice(-2); }).join("") : c; }
   function opacity(v, done) {              // the slider moving (one undo step per drag), then let go
     if (!sel.length) return;
     if (!opBefore) opBefore = snapshot();
@@ -604,7 +726,7 @@
     draw();
   }
   function dbl(ev) {
-    if (cropping) return;
+    if (cropping || typing) return;        // (while typing, a double-click selects a word: the browser's own)
     if (drawing) { drawEnd(false); return; }
     var pe = sel.length === 1 && sel[0].shape === "path" ? sel[0] : null;
     if (pe) {
@@ -779,6 +901,11 @@
   };
 
   // ---------------------------------------------------------------- text
+  document.addEventListener("selectionchange", function () {     // while typing: the panel shows the words selected
+    if (!typing || !txt || txtBefore || document.activeElement !== typing.body) return;    // (a click in the panel moves the focus: the words stay chosen)
+    var gs = getSelection(), g0 = gs.rangeCount ? gs.getRangeAt(0) : null;
+    if (g0 && typing.body.contains(g0.commonAncestorContainer)) { typing.range = g0.collapsed ? null : g0.cloneRange(); txtFill(); }
+  });
   function retype(e) {
     var n = nodeOf(e), body = n && n.querySelector(".kn-body");
     if (!body) return;
@@ -810,7 +937,7 @@
         }
       });
     })(t.body, true);
-    if (t.paint) {                         // colour for the part between the two marks colour() left in the text
+    if (t.paint) {                         // the run properties for the part between the two marks textSet() left in the text
       var inside = false, cut = [];
       parts.forEach(function (p) {
         p.t.split(/([\uE000\uE001])/).forEach(function (x) {
@@ -825,7 +952,10 @@
     if (e.runs) {
       var left = text.length;
       e.runs = parts.map(function (p) { var r = {}, src = e.runs[p.r] || {}; Object.keys(src).forEach(function (k) { r[k] = src[k]; }); r.t = p.t.slice(0, left); left -= r.t.length;
-                      if (p.c) { if (t.paint === hex(e.color)) delete r.color; else r.color = t.paint; }
+                      if (p.c) Object.keys(t.paint).forEach(function (k) {      // the words chosen: what differs from the box
+                        var v = t.paint[k], base = k === "color" ? hex(e.color) : k === "weight" ? e.weight || 400 : k === "italic" ? !!e.italic : e[k];
+                        if (v == null || v === base) delete r[k]; else r[k] = v;
+                      });
                       return r; })
                     .filter(function (r) { return r.t; });
       if (t.paint) joinRuns(e);
@@ -1847,22 +1977,20 @@
     bar.style = mk("button", "", bar.tools, "Style…");
     bar.style.title = "Fill, line, transparency, corners and arrowheads of the selected shapes";
     bar.style.onclick = function () { shpWant = !shp; shpSync(); bar.style.blur(); };
-    bar.colbox = mk("span", "kn-ed-col", bar.tools);
-    mk("span", "", bar.colbox, "Colour");
-    bar.col = mk("input", "", bar.colbox); bar.col.type = "color";
-    bar.col.title = "The colour of the selected text box. While typing: of the words selected in it.";
-    bar.colsw = mk("span", "kn-ed-fmt-sw kn-ed-colsw", bar.colbox);
-    bar.colsw.title = "Black, white, and the text colours this deck already uses";
-    bar.col.addEventListener("input", function () { colour(bar.col.value, false); });
-    bar.col.addEventListener("change", function () { colour(bar.col.value, true); bar.col.blur(); });
+    bar.text = mk("button", "", bar.tools, "Text…");
+    bar.text.title = "Font, size, bold and italic, colour, alignment, background and glow of the selected text";
+    bar.text.addEventListener("mousedown", function (ev) { ev.preventDefault(); });   // the text being typed keeps its selection
+    bar.text.onclick = function () { txtWant = !txt; txtSync(); bar.text.blur(); };
     bar.live = mk("span", "kn-ed-livebar", bar.el);
     bar.status = mk("span", "kn-ed-status", bar.el);
     button("Done", "Back to presenting  E", toggle).className = "kn-ed-done";
     document.addEventListener("keydown", key, true);
     document.addEventListener("pointerdown", function (ev) {
-      if (typing && bar.colbox.contains(ev.target)) {          // a colour for the words selected: remembered before the click takes the selection away
+      if (typing && txt && txt.el.contains(ev.target)) {       // the Text panel: the words selected are remembered before the click takes the selection away
         var gs = getSelection(), g0 = gs.rangeCount ? gs.getRangeAt(0) : null;
-        typing.range = g0 && !g0.collapsed && typing.body.contains(g0.commonAncestorContainer) ? g0.cloneRange() : null;
+        if (g0 && typing.body.contains(g0.commonAncestorContainer)) typing.range = g0.collapsed ? null : g0.cloneRange();
+      } else if (typing && bar.text.contains(ev.target)) {
+        /* opening the panel while typing goes on */
       } else if (typing && !typing.node.contains(ev.target)) finish();
       if (using && !bar.el.contains(ev.target)) use(null);
       if (menuOpen && !menuOpen.el.contains(ev.target) && !menuOpen.btn.contains(ev.target)) menuClose();
@@ -1921,7 +2049,7 @@
     sel = [];
     liveFor = null;
     if (drawing) { drawing = null; layer.classList.remove("kn-ed-drawing"); }
-    shpSync();
+    shpSync(); txtSync();
     if (on) { prepare(); draw(); status(blocked || failed ? "Not saved" : "", blocked || !!failed); }
     else {
       var fr = cur().sec.querySelector("iframe.kn-live");       // back to the step the talk is at
