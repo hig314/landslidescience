@@ -170,7 +170,7 @@
   function frame(node, e) {
     node.style.left = e.x + "px"; node.style.top = e.y + "px";
     node.style.width = e.w + "px"; node.style.height = e.h + "px";
-    if (e.rot) node.style.transform = "rotate(" + (-e.rot) + "deg)";
+    node.style.transform = e.rot ? "rotate(" + (-e.rot) + "deg)" : "";      // rot: degrees, anticlockwise (Keynote's sense)
     if (e.op != null && e.op !== 100) node.style.opacity = e.op / 100;
     return node;
   }

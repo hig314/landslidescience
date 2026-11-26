@@ -14,6 +14,12 @@
  *                     any selection of more than one) the corner handles of the box round them
  *                     all scale every one by the same amount about the opposite corner (Alt:
  *                     the centre): places, sizes, picture crops and text sizes together.
+ *   rotate            just outside a corner or the middle of a side of the selection the pointer
+ *                     becomes a turning arrow:
+ *                     drag to rotate about the centre (Shift: to multiples of 45°; several things
+ *                     turn together, by 45° steps). A rotated thing keeps its handles, which
+ *                     resize it along its own sides. Not for a live figure; a rotated picture
+ *                     cannot be cropped.
  *   arrows            nudge 1 px (Shift: 10); with nothing selected, previous / next slide
  *   double-click, Enter   retype a text box; Esc or a click elsewhere finishes
  *   Cmd-Z, Shift-Cmd-Z    undo, redo (per editing session)
@@ -256,7 +262,7 @@
   // one point (the opposite corner; Alt: the box's centre). Text is scaled with its box.
   var TXT = ["size", "lineHeight", "paraGap", "indent", "markerIndent", "glowSize"];
   function keepOf(e) {                     // what a drag may change, as it was when the drag began
-    var o = { x: e.x, y: e.y, w: e.w, h: e.h, fit: e.fit && e.fit.slice() };
+    var o = { x: e.x, y: e.y, w: e.w, h: e.h, fit: e.fit && e.fit.slice(), rot: e.rot || 0 };
     if (e.type === "text") { o.t = {}; TXT.forEach(function (k) { if (typeof e[k] === "number") o.t[k] = e[k]; }); o.rs = (e.runs || []).map(function (r) { return r.size; }); }
     if (e.type === "shape") { o.t = {}; ["strokeW", "corner"].forEach(function (k) { if (typeof e[k] === "number") o.t[k] = e[k]; }); o.rs = []; }
     return o;
@@ -308,7 +314,10 @@
       var b = mk("div", "kn-ed-box" + (e === cropping ? " kn-ed-crop" : ""), layer);
       b.style.left = e.x + "px"; b.style.top = e.y + "px"; b.style.width = e.w + "px"; b.style.height = e.h + "px";
       if (e.rot) b.style.transform = "rotate(" + (-e.rot) + "deg)";
-      if (sel.length === 1 && !e.rot && !typing) ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach(function (d) { mk("div", "kn-ed-h kn-ed-" + d, b).setAttribute("data-h", d); });
+      if (sel.length === 1 && !typing) {
+        ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach(function (d) { mk("div", "kn-ed-h kn-ed-" + d, b).setAttribute("data-h", d); });
+        if (e !== cropping && e.type !== "live") ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach(function (d) { mk("div", "kn-ed-rot kn-ed-r" + d, b).setAttribute("data-rot", d); });      // just outside the corners: rotate
+      }
     });
     units(sel).forEach(function (u) {      // a group selected whole: one box round it
       if (!u.g || !u.es.every(function (e) { return sel.indexOf(e) >= 0; })) return;
@@ -326,6 +335,7 @@
       var ab = boxOf(sel), an = mk("div", "kn-ed-box kn-ed-all", layer);
       an.style.left = ab.x + "px"; an.style.top = ab.y + "px"; an.style.width = ab.w + "px"; an.style.height = ab.h + "px";
       ["nw", "ne", "se", "sw"].forEach(function (d) { mk("div", "kn-ed-h kn-ed-" + d, an).setAttribute("data-h", d); });
+      if (!sel.some(function (x) { return x.type === "live"; })) ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach(function (d) { mk("div", "kn-ed-rot kn-ed-r" + d, an).setAttribute("data-rot", d); });
     }
     (guides || []).forEach(function (g) {
       var n = mk("div", "kn-ed-guide", layer);
@@ -333,7 +343,7 @@
       else { n.style.top = g.y + "px"; n.style.left = 0; n.style.width = W + "px"; n.style.height = "0"; }
     });
     var t = "";
-    if (sel.length) { var b = boxOf(sel); t = "x " + round(b.x) + "  y " + round(b.y) + "  w " + round(b.w) + "  h " + round(b.h) + (sel.length > 1 ? "  (" + sel.length + ")" : ""); }
+    if (sel.length) { var b = boxOf(sel); t = "x " + round(b.x) + "  y " + round(b.y) + "  w " + round(b.w) + "  h " + round(b.h) + (sel.length > 1 ? "  (" + sel.length + ")" : "") + (sel.length === 1 && sel[0].rot ? "  ↻ " + round(sel[0].rot) + "°" : ""); }
     if (cropping) { var cf = cropping.fit || [0, 0, cropping.w, cropping.h]; t += "   picture " + round(cf[2]) + " × " + round(cf[3]); }
     bar.geo.textContent = t;
     drawTools();
@@ -596,6 +606,13 @@
     if (!editable(c.s)) return;
     ev.preventDefault();
     if (drawing) { drawAdd(point(ev), ev.shiftKey); return; }
+    var rz = ev.target.getAttribute && ev.target.getAttribute("data-rot");
+    if (rz && sel.length) {                // just outside a corner: rotate the selection about its centre
+      var p0 = point(ev), rb = sel.length === 1 ? sel[0] : boxOf(sel), rc = { x: rb.x + rb.w / 2, y: rb.y + rb.h / 2 };
+      drag = { p: p0, rotate: true, c: rc, a0: Math.atan2(p0.y - rc.y, p0.x - rc.x), before: snapshot(), moved: false, under: [], was: sel.slice(), orig: sel.map(keepOf) };
+      try { layer.setPointerCapture(ev.pointerId); } catch (x) {}
+      return;
+    }
     var pt = ev.target.getAttribute && ev.target.getAttribute("data-pt");
     if (pt != null && sel.length === 1 && sel[0].shape === "path") {
       drag = { p: point(ev), pt: +pt, abs: absPts(sel[0]), before: snapshot(), moved: false, under: [], was: sel.slice(), orig: sel.map(keepOf) };
@@ -634,6 +651,24 @@
     if (!drag) return;
     var p = point(ev), dx = p.x - drag.p.x, dy = p.y - drag.p.y, tol = ev.metaKey ? -1 : 7 / p.k, guides = [];
     if (!drag.moved && Math.abs(dx) * p.k < 3 && Math.abs(dy) * p.k < 3) return;
+    if (drag.rotate) {                     // turning: by the angle the pointer has swept round the centre
+      drag.moved = true;
+      var sw = (Math.atan2(p.y - drag.c.y, p.x - drag.c.x) - drag.a0) * 180 / Math.PI;     // clockwise on screen
+      var one = sel.length === 1, r0 = drag.orig[0].rot;
+      if (ev.shiftKey) sw = one ? -(Math.round((r0 - sw) / 45) * 45 - r0) : Math.round(sw / 45) * 45;   // Shift: one thing to a multiple of 45°, several by 45° steps
+      var rad = sw * Math.PI / 180, cs = Math.cos(rad), sn = Math.sin(rad);
+      sel.forEach(function (e, j) {
+        var o = drag.orig[j], ox = o.x + o.w / 2 - drag.c.x, oy = o.y + o.h / 2 - drag.c.y;
+        var r = o.rot - sw;
+        r = ((r % 360) + 540) % 360 - 180;                  // (-180, 180]
+        if (Math.abs(r) < 0.05) delete e.rot; else e.rot = round(r);
+        if (!one) { e.x = round(drag.c.x + ox * cs - oy * sn - o.w / 2); e.y = round(drag.c.y + ox * sn + oy * cs - o.h / 2); }
+        place(e);
+      });
+      status(one ? "↻ " + round(sel[0].rot || 0) + "°" : "↻ " + round(-sw) + "°");
+      draw();
+      return;
+    }
     if (drag.pt != null) {                 // one point of a path
       drag.moved = true;
       var ap = drag.abs.map(function (q) { return q.slice(); });
@@ -690,6 +725,7 @@
       status(Math.round(gk * 100) + "%");
     } else {
       var e = sel[0], o = drag.orig[0], hd = drag.handle;
+      if (o.rot) { turned(e, o, hd, dx, dy, ev); draw(); return; }
       var x0 = o.x, y0 = o.y, x1 = o.x + o.w, y1 = o.y + o.h, s;
       if (hd.indexOf("w") >= 0) { x0 += dx; s = nearest([x0], drag.snap.xs, tol); if (s) { x0 += s.d; guides.push({ x: s.at }); } x0 = Math.min(x0, x1 - 10); }
       if (hd.indexOf("e") >= 0) { x1 += dx; s = nearest([x1], drag.snap.xs, tol); if (s) { x1 += s.d; guides.push({ x: s.at }); } x1 = Math.max(x1, x0 + 10); }
@@ -711,6 +747,25 @@
       place(e);
     }
     draw(guides);
+  }
+  function turned(e, o, hd, dx, dy, ev) {   // a handle of a rotated element: the same rules, in the element's own axes (no snapping)
+    var t = -o.rot * Math.PI / 180, ux = [Math.cos(t), Math.sin(t)], uy = [-Math.sin(t), Math.cos(t)];
+    var lx = dx * ux[0] + dy * ux[1], ly = dx * uy[0] + dy * uy[1];           // the pointer's move along the element's sides
+    var x0 = 0, y0 = 0, x1 = o.w, y1 = o.h, horiz = /[ew]/.test(hd), vert = /[ns]/.test(hd);
+    if (hd.indexOf("w") >= 0) x0 = Math.min(lx, x1 - 10); if (hd.indexOf("e") >= 0) x1 = Math.max(o.w + lx, 10);
+    if (hd.indexOf("n") >= 0) y0 = Math.min(ly, y1 - 10); if (hd.indexOf("s") >= 0) y1 = Math.max(o.h + ly, 10);
+    var nw = x1 - x0, nh = y1 - y0;
+    if (ev.altKey) { nw = o.w + 2 * (nw - o.w); nh = o.h + 2 * (nh - o.h); }
+    if (ev.shiftKey) { var k = horiz && vert ? Math.max(nw / o.w, nh / o.h) : horiz ? nw / o.w : nh / o.h; nw = o.w * k; nh = o.h * k; }
+    nw = Math.max(10, Math.round(nw)); nh = Math.max(10, Math.round(nh));
+    // the new centre, in the element's axes from its old top-left corner: the opposite side stays put
+    var cx = ev.altKey || !horiz ? o.w / 2 : hd.indexOf("w") >= 0 ? o.w - nw / 2 : nw / 2;
+    var cy = ev.altKey || !vert ? o.h / 2 : hd.indexOf("n") >= 0 ? o.h - nh / 2 : nh / 2;
+    var mx = cx - o.w / 2, my = cy - o.h / 2;
+    var gx = o.x + o.w / 2 + mx * ux[0] + my * uy[0], gy = o.y + o.h / 2 + mx * ux[1] + my * uy[1];
+    e.w = nw; e.h = nh; e.x = round(gx - nw / 2); e.y = round(gy - nh / 2);
+    if (o.fit) { var fx = e.w / o.w, fy = e.h / o.h; e.fit = [round(o.fit[0] * fx), round(o.fit[1] * fy), round(o.fit[2] * fx), round(o.fit[3] * fy)]; }
+    place(e);
   }
   function up() {
     if (!drag) return;

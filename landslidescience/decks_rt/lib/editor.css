@@ -159,3 +159,15 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 .kn-ed-bar button.on { background: #2f6fd0; border-color: #2f8cff; color: #fff; }
 .kn-ed-txt .kn-ed-row { display: flex; align-items: center; gap: 5px; margin-top: 8px; }
 .kn-ed-txt .kn-ed-row > span:first-child { width: 96px; color: #bbb; }
+
+/* rotating: zones just outside the corners of the selection (editor.js: data-rot) */
+.reveal .kn-ed-rot { position: absolute; width: calc(26px * var(--k)); height: calc(26px * var(--k)); pointer-events: auto; cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12a7 7 0 1 0 2.1-5' stroke='%23fff' stroke-width='4.5'/%3E%3Cpath d='M7 2.5v5h5' stroke='%23fff' stroke-width='4.5'/%3E%3Cpath d='M5 12a7 7 0 1 0 2.1-5' stroke='%23000' stroke-width='2'/%3E%3Cpath d='M7 2.5v5h5' stroke='%23000' stroke-width='2'/%3E%3C/g%3E%3C/svg%3E") 12 12, crosshair; }
+.reveal .kn-ed-rnw { left: calc(-28px * var(--k)); top: calc(-28px * var(--k)); }
+.reveal .kn-ed-rne { right: calc(-28px * var(--k)); top: calc(-28px * var(--k)); }
+.reveal .kn-ed-rse { right: calc(-28px * var(--k)); bottom: calc(-28px * var(--k)); }
+.reveal .kn-ed-rsw { left: calc(-28px * var(--k)); bottom: calc(-28px * var(--k)); }
+.reveal .kn-ed-rn { left: 50%; top: calc(-30px * var(--k)); margin-left: calc(-13px * var(--k)); }
+.reveal .kn-ed-rs { left: 50%; bottom: calc(-30px * var(--k)); margin-left: calc(-13px * var(--k)); }
+.reveal .kn-ed-re { top: 50%; right: calc(-30px * var(--k)); margin-top: calc(-13px * var(--k)); }
+.reveal .kn-ed-rw { top: 50%; left: calc(-30px * var(--k)); margin-top: calc(-13px * var(--k)); }
+.reveal .kn-ed-rot:hover { border-radius: 50%; background: radial-gradient(rgba(47, 140, 255, 0.35), rgba(47, 140, 255, 0) 70%); }
