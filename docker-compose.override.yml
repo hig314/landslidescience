@@ -8,6 +8,7 @@ services:
       - ./files:/app/files
       - ./glaciers:/app/glaciers
       - ./drops:/app/drops
+      - ./probability:/app/probability
       - ./landslidescience:/app/landslidescience
       - ./manage.py:/app/manage.py
       - ./tools:/app/tools

@@ -52,6 +52,7 @@ Disallow: /files/
 Disallow: /drops/
 Disallow: /glaciers/
 Disallow: /decks/
+Disallow: /probability/
 """
 
 
@@ -219,6 +220,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('inventory/', include('inventory.urls')),
     path('glaciers/', include('glaciers.urls')),
+    path('probability/', include('probability.urls')),
     path('files/', include('files.urls')),
     path('drops/', include('drops.urls')),
     path('', include('pages.urls')),

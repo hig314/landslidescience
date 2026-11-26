@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     'files',
     'glaciers',
     'drops',
+    'probability',
 ]
 
 MIDDLEWARE = [

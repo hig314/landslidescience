@@ -42,6 +42,7 @@ probe"); `/traffic/services/` shows the current state.
 | Mirrored third-party inventories, promotion | [docs/EXTERNAL_INVENTORIES.md](docs/EXTERNAL_INVENTORIES.md) |
 | Explorer `/inventory/table/` | [docs/EXPLORER.md](docs/EXPLORER.md) |
 | `/files/`, photo drops `/drops/`, field photos | [docs/FILES_DROPS_PHOTOS.md](docs/FILES_DROPS_PHOTOS.md) |
+| `/probability/`: site-specific hazard analyses hosted from the ProbHaz repository (gated until published; data in the private bucket) | [docs/PROBABILITY.md](docs/PROBABILITY.md) |
 | `/glaciers/` | [docs/GLACIERS.md](docs/GLACIERS.md); generalisation + retreat histories plan in [GLACIERS_PLAN.md](GLACIERS_PLAN.md) |
 | Talks at `/decks/`: decks stored, presented and edited here (draft → published → revise by copy), presenter notes, `decks_rt/` | [docs/DECKS.md](docs/DECKS.md) |
 | Groups, permissions, the two sign-in doors, sessions | [docs/ACCOUNTS.md](docs/ACCOUNTS.md) |
@@ -152,6 +153,7 @@ pushing untested code to GH.
 | `/inventory/manage/settings/` | inventory_editors + Hig | Map display settings (colors, point sizes) |
 | `/inventory/export/` | public | Download zip of GeoJSON + QGIS .qml styles |
 | `/inventory/api/review/*`, `/inventory/tiles/review/…` | any signed-in account | Imagery review history: log, meta, share, point, tiles — one's own, or another's after they opt in (see *Imagery review history*) |
+| `/probability/`, `/probability/<site>/` | public index; a project is public once published, else any account that may see restricted data | Hazard analyses built in ProbHaz; see docs/PROBABILITY.md |
 | `/lidar/` | public | Standalone lidar/bathymetry viewer + the ranged `pmtiles`/`cog`/catalogue routes |
 | `/lidar/compare/` | public | Terrain comparison: small multiples at one ground scale/tilt/VE/shading, linked navigation, ground-draped scale bar + north arrow, PNG export. State only in the URL; public catalogue only. `/lidar/compare/spike/` = same page (dev-time address). See *Terrain comparison* in State of play |
 | `/lidar/compare/saved/` | public | Saved comparisons list (`pages.SavedComparison`); edited in `/admin/pages/savedcomparison/` |

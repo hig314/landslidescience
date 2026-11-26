@@ -1,0 +1,107 @@
+{% comment %}Copied from ProbHaz viewer/index.html by publish/to_site.py. Edit it there.{% endcomment %}
+<div id="map"></div>
+
+<aside id="side">
+  <p class="crumb" id="crumb" hidden></p>
+  <h1 id="title">Homer shallow landslides</h1>
+  <p class="sub" id="sub">Terrain statistics, the DGGS inventory and a reproduction of the DGGS factor of safety.</p>
+  <p class="notice" id="notice" hidden></p>
+
+  <!-- This project's own tools first; the shading panel shared with /lidar/ below them. -->
+  <section>
+    <h2>Statistic</h2>
+    <select id="stat"></select>
+    <div id="stat-ui" hidden>
+      <div id="legend"></div>
+      <!-- The colour range: the ramp runs between the two handles. Drag them, or type below. -->
+      <div id="ramp">
+        <div class="track"><div class="bar" id="ramp-bar"></div>
+          <i class="hd" id="h-lo" title="Drag: where the ramp starts"></i><i class="hd" id="h-hi" title="Drag: where the ramp ends"></i></div>
+        <div class="ends"><span id="ramp-t0"></span><span id="ramp-u"></span><span id="ramp-t1"></span></div>
+      </div>
+      <div class="row2" id="range-row">
+        <label>from <input type="number" id="lo" step="any"></label>
+        <label>to <input type="number" id="hi" step="any"></label>
+        <button id="range-reset" title="Back to the default range">reset</button>
+      </div>
+      <label class="chk" id="sym-row" title="Ticked: the two handles stay the same distance from zero. Unticked: stretch the concave and the convex side separately; zero keeps the middle colour."><input type="checkbox" id="sym" checked> Lock the two sides together</label>
+      <label>Statistic opacity <span class="val" id="sopv">0.75</span></label>
+      <input type="range" id="sop" min="0" max="100" value="75">
+      <p id="method" class="note"></p>
+      <p id="probe" class="probe">Move over the map to read a value.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Inventory <span class="cite">DGGS RI 2024-3</span></h2>
+    <label class="chk"><input type="checkbox" id="l-scars" checked> Scars, from air photos</label>
+    <div id="ages"></div>
+    <label class="chk"><input type="checkbox" id="l-scarps" checked> <i class="sw line" style="background:#111"></i> Scarps, from 2019 lidar</label>
+    <label class="chk"><input type="checkbox" id="l-deposits"> <i class="sw" style="background:#8d6e63"></i> Deposits, from 2019 lidar</label>
+    <label class="chk"><input type="checkbox" id="l-runouts"> <i class="sw" style="background:#00838f"></i> Debris-flow runouts (LaharZ)</label>
+  </section>
+
+  <!-- Shading and 3D: the same controls, ids, ranges and defaults as landslidescience.org /lidar/ (js/surface.js). -->
+  <section>
+    <h2>Shading</h2>
+    <div class="btns">
+      <button type="button" id="preset" title="Hillshade in Hard light over the slope ramp and the mod 5 m bands.">Preset</button>
+      <button type="button" id="plain" title="Hillshade alone, ramps off.">Hillshade only</button>
+    </div>
+    <label>Hillshade <span class="val" id="hsv">1.00</span></label>
+    <input type="range" id="hs" min="0" max="100" value="100">
+    <details class="grp" id="shadegrp">
+      <summary>Hillshade controls <span class="cnt">sun angle, blend, exaggeration</span></summary>
+      <label>Sun azimuth <span class="val" id="azv">315°</span></label>
+      <input type="range" id="az" min="0" max="359" value="315">
+      <label>Sun altitude <span class="val" id="altv">45°</span></label>
+      <input type="range" id="alt" min="1" max="89" value="45">
+      <label>Shading exaggeration <span class="val" id="vev">1.0</span></label>
+      <input type="range" id="ve" min="1" max="60" value="10">
+      <label>Blend
+        <select id="bl">
+          <option value="2" selected>Hard light (shade decides)</option>
+          <option value="0">Overlay (ramp decides; fades on pale ramps)</option>
+          <option value="3">Multiply (shadows only)</option>
+          <option value="1">Plain transparency</option>
+        </select>
+      </label>
+    </details>
+    <label class="vis" title="Green to white across 0-10° (benches, terraces); pale to 32°; yellow 40°, red 45°, purple 50° (the angle of repose)."><input type="checkbox" id="slon"> Slope ramp</label>
+    <div class="visrow" id="slrow" hidden>
+      <label>Strength <span class="val" id="slv">0.00</span></label>
+      <input type="range" id="sl" min="0" max="100" value="0">
+    </div>
+    <label class="vis" title="Colour bands repeating every 5 m of elevation. The interval is fixed so sites can be compared."><input type="checkbox" id="mdon"> Mod 5 m</label>
+    <div class="visrow" id="mdrow" hidden>
+      <label>Strength <span class="val" id="mdv">0.00</span></label>
+      <input type="range" id="md" min="0" max="100" value="0">
+    </div>
+    <label class="vis" title="Hue = the direction the ground faces; stronger on steeper ground."><input type="checkbox" id="ason"> Aspect tint</label>
+    <div class="visrow" id="asrow" hidden>
+      <label>Strength <span class="val" id="asv">0.00</span></label>
+      <input type="range" id="as" min="0" max="100" value="0">
+    </div>
+    <label>Imagery opacity <span class="val" id="bopv">0.00</span></label>
+    <input type="range" id="bop" min="0" max="100" value="0">
+  </section>
+
+  <section>
+    <h2>3D</h2>
+    <label><input type="checkbox" id="t3d" checked> Terrain</label>
+    <label>Terrain exaggeration <span class="val" id="exv">1.0</span></label>
+    <input type="range" id="ex" min="0" max="40" value="10">
+  </section>
+
+  <p class="note" id="credits"></p>
+</aside>
+
+<div id="hist" class="panel" hidden>
+  <div class="panel-head"><b id="hist-title"></b><span id="hist-sel"></span></div>
+  <div id="hist-plot"></div>
+  <div class="key"><i class="sw" style="background:#b8bcc4"></i> terrain in the study area
+    <i class="sw line" style="background:#c62828"></i> <span id="hist-b"></span></div>
+  <p class="note">Lower strip: scar share ÷ terrain share. Drag to highlight a range on the map; double-click to clear.</p>
+</div>
+
+<div id="card" class="panel" hidden></div>

@@ -1,0 +1,25 @@
+{% extends "inventory/base.html" %}
+{% block robots %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+{% block title %}Probability — landslidescience.org{% endblock %}
+{% block page_title %}Probability{% endblock %}
+{% block body_class %}inv-article-body{% endblock %}
+
+{% block body %}
+<div class="methods-page">
+<h2>Probability</h2>
+<p class="methods-intro">
+  Site-specific hazard analyses that work from geographic factors and Monte
+  Carlo methods toward stated probabilities, at whatever scale the place
+  calls for.
+</p>
+{% for p in projects %}
+<h3><a href="/probability/{{ p.id }}/">{{ p.title }}</a>{% if not p.published %} <small>(unpublished)</small>{% endif %}</h3>
+<p>{{ p.place }}. {{ p.blurb }}</p>
+{% empty %}
+<p>No analysis is published yet.</p>
+{% endfor %}
+{% if unpublished_hidden %}
+<p><a href="/inventory/login/?next=/probability/">Sign in</a> to see analyses that are not yet published.</p>
+{% endif %}
+</div>
+{% endblock %}

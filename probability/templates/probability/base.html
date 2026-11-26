@@ -1,0 +1,53 @@
+{% comment %}
+The shared page for a /probability/ project. The viewer itself is built in
+the ProbHaz repository and copied here by its publish/to_site.py
+(static/probability/, _viewer_body.html): edit it THERE.
+
+A project that needs more than this names its own template in
+probability/projects.py, extends this one and overrides a block:
+  head_extra     more styles
+  viewer_body    the page body (the sidebar, panels)
+  config_extra   more keys on PH_CONFIG (inside the object literal's script)
+  scripts_extra  project scripts, after the shared ones
+{% endcomment %}
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{ p.title }} | Probability | landslidescience.org</title>
+<link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+<link href="{% static 'probability/css/viewer.css' %}" rel="stylesheet">
+{% block head_extra %}{% endblock %}
+{% include '_analytics.html' %}
+</head>
+<body>
+{% block viewer_body %}{% include 'probability/_viewer_body.html' %}{% endblock %}
+{{ p.view|json_script:"ph-view" }}
+<script>
+window.PH_CONFIG = (function () {
+  var v = JSON.parse(document.getElementById('ph-view').textContent);
+  return {
+    data: '/probability/{{ site }}/data/',
+    demUrl: '/lidar/pmtiles/{{ p.dem }}.pmtiles',
+    center: v.center, zoom: v.zoom, pitch: v.pitch, bearing: v.bearing,
+    title: '{{ p.title|escapejs }}',
+    sub: '{{ p.sub|escapejs }}',
+    home: {href: '/probability/', label: 'landslidescience.org / probability'},
+    notice: {% if p.published %}null{% else %}'Unpublished analysis: visible to signed-in accounts only. Not a hazard map.'{% endif %}
+  };
+})();
+</script>
+{% block config_extra %}{% endblock %}
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
+<script src="{% static 'inventory/js/vendor/maplibre-gl-demshade.iife.js' %}"></script>
+<script src="{% static 'inventory/js/dem_shade_bridge.js' %}"></script>
+<script src="{% static 'probability/js/surface.js' %}"></script>
+<script src="{% static 'probability/js/value_tiles.js' %}"></script>
+<script src="{% static 'probability/js/hist.js' %}"></script>
+<script src="{% static 'probability/js/app.js' %}"></script>
+{% block scripts_extra %}{% endblock %}
+</body>
+</html>
