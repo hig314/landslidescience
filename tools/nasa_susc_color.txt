@@ -1,16 +1,19 @@
 # Colour ramp for NASA's global landslide susceptibility map (Stanley &
 # Kirschbaum 2017, 2023 update), in gdaldem color-relief format:
-# VALUE R G B A. Baked by tools/build_nasa_susc.py with -nearest_color_entry,
-# so each class gets exactly its own colour.
+# VALUE R G B A. Classes 1-5 (very low ... very high); 0 is the sea (and
+# anything NASA did not assess): transparent.
 #
-# The same scale as the USGS and DGGS overlays: ColorBrewer YlOrRd, pale and
-# faint at the low end, dark and nearly opaque at the high end, so the four
-# susceptibility layers read against one another without a new legend.
-# Class 0 is the sea (and anything NASA did not assess): transparent.
+# PURPLE since 2026-11-25: the purple arm of the InSAR ramp, pale and faint
+# at the low end, dark and nearly opaque at the high end, one scale across
+# the four susceptibility layers. Chosen over yellow-orange-red because the
+# landslide dots are pink, yellow, green and blue. WRITTEN BY
+# tools/susc_purple_ramps.py: edit the tables there, not this file.
+# The archives on R2 are still the yellow-red bake; the browser recolours
+# them to these values (ls_overlays.js) until they are re-baked from here.
 nv   0   0   0   0
 0    0   0   0   0
-1    255 255 178  70
-2    254 204  92 150
-3    253 141  60 190
-4    240  59  32 215
-5    189   0  38 235
+1    231 212 232  70
+2    213 189 220 150
+3    194 165 207 190
+4    159 108 178 215
+5    123  50 148 235

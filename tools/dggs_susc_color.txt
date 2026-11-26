@@ -1,23 +1,24 @@
 # Colour ramp for the Alaska DGGS deep-seated landslide susceptibility
 # raster (PIR 2025-3), in gdaldem color-relief format: VALUE R G B A.
+# Discrete classes 3-10, one stop each; class 0 (slope < 3 deg, where this
+# failure style cannot occur) is transparent.
 #
-# Deliberately the SAME scale as the USGS overlays: each stop is the
-# ColorBrewer YlOrRd ramp of tools/susc_color.txt sampled at class/10, so
-# the three susceptibility layers can be read against one another without
-# re-learning a legend. Class 0 (slope < 3 deg, i.e. where this failure
-# style cannot occur) is transparent, matching the USGS transparent low end.
-#
-# Values are DISCRETE classes, so every class has its own stop and the
-# interpolation between them is never exercised.
+# PURPLE since 2026-11-25: the purple arm of the InSAR ramp, pale and faint
+# at the low end, dark and nearly opaque at the high end, one scale across
+# the four susceptibility layers. Chosen over yellow-orange-red because the
+# landslide dots are pink, yellow, green and blue. WRITTEN BY
+# tools/susc_purple_ramps.py: edit the tables there, not this file.
+# The archives on R2 are still the yellow-red bake; the browser recolours
+# them to these values (ls_overlays.js) until they are re-baked from here.
 nv   0   0   0   0
-0    255 255 178   0
-3    253 171  75 188
-5    248 108  49 208
-6    243  76  38 216
-7    233  51  33 222
-8    219  34  35 226
-9    204  17  36 231
-10   189   0  38 235
+0    0   0   0   0
+3    203 176 213 188
+5    180 142 195 208
+6    166 119 184 216
+7    154 100 174 222
+8    143  83 165 226
+9    133  67 157 231
+10   123  50 148 235
 # lake, river or glacier: the model does not apply. Pale and faint, so it
 # reads as 'not assessed' rather than as a susceptibility value.
 200  190 232 255  90

@@ -116,10 +116,11 @@
 
   // Radius interpolates by zoom; size_inclusion=false halves it. `scale` shrinks
   // the whole thing (the red patchy center uses scale≈0.45 to sit inside the dot).
-  function pointRadius(P, scale) {
+  function pointRadius(P, scale, wrap) {
     scale = scale || 1;
     function r(base) {
-      return ['case', ['==', ['get', 'size_inclusion'], true], base * scale, base * 0.5 * scale];
+      var e = ['case', ['==', ['get', 'size_inclusion'], true], base * scale, base * 0.5 * scale];
+      return wrap ? wrap(e) : e;   // wrap: rewrites the radius at every zoom stop (the casing)
     }
     return ['interpolate', ['linear'], ['zoom'],
       4, r(P.rSm), 8, r(P.rMd), 12, r(P.rLg)];
@@ -194,6 +195,36 @@
       { id: 'polygon-outline', type: 'line', source: 'polygons',
         paint: { 'line-color': polygonOutline(P), 'line-width': P.lW } },
     ];
+  }
+
+  // The casing (2026-11-25): drawn UNDER the dots so they stay readable
+  // over a coloured overlay: a dark glow, strongest at the dot's outer edge
+  // (outside its own stroke) and fading outward. Sharp on one side only
+  // (Hig: every contrast edge costs the reader, so the casing has no outer
+  // line of its own). The fade is steep at first and then gentle: one
+  // blurred circle fades evenly and read as a thick stroke, so the glow is
+  // several stacked, each [reach in px, opacity]. Where they overlap at the
+  // dot's edge they add up to about 0.5. Layers of their own (below
+  // 'points'), so the stroke keeps its meaning (the precursory-creep halo).
+  // They follow the landslide filter (map.js _landslideFilterLayers).
+  var CASING_STEPS = [[1.5, 0.25], [4, 0.19], [10, 0.14]];
+  var CASING_IDS = CASING_STEPS.map(function (st, i) { return 'points-casing' + (i ? '-' + i : ''); });
+  function pointCasingLayers(P, o) {
+    o = o || {};
+    return CASING_STEPS.map(function (st, i) {
+      var w = st[0];
+      function outer(e) { return ['+', e, classStrokeWidth(), w]; }
+      var paint = {
+        'circle-color': '#000000',
+        'circle-opacity': st[1],
+        'circle-radius': pointRadius(P, 1, outer),
+        // circle-blur is a share of the radius: fade over the outer w px.
+        'circle-blur': pointRadius(P, 1, function (e) { return ['/', w, outer(e)]; })
+      };
+      if (o.pitchMap) { paint['circle-pitch-alignment'] = 'map'; paint['circle-pitch-scale'] = 'map'; }
+      return { id: CASING_IDS[i], type: 'circle', source: 'landslides',
+               layout: { 'circle-sort-key': pointSortKey() }, paint: paint };
+    });
   }
 
   // A key to the colours above, for pages without the inventory sidebar's
@@ -282,6 +313,8 @@
     EXT_BLANK: EXT_BLANK,
     palette: palette,
     landslideLayers: landslideLayers,
+    pointCasingLayers: pointCasingLayers,
+    CASING_IDS: CASING_IDS,
     legend: legend,
     classFill: classFill,
     classStroke: classStroke,

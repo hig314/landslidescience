@@ -1793,6 +1793,7 @@
         var _ldefs = _landslideLayerDefs();
         map.addLayer(_ldefs[0], bId);   // points
         map.addLayer(_ldefs[1], bId);   // points-patchy (red center)
+        window.LSColors.pointCasingLayers(_palette).forEach(function (d) { map.addLayer(d, 'points'); });   // the dark glow under the dots
         ensurePinLabel();               // editor-only field labels (re-added with the layers)
         map.addLayer(_ldefs[2], bId);   // polygon-fill
         map.addLayer(_ldefs[3], bId);   // polygon-outline
@@ -2292,11 +2293,12 @@
     function _landslideFilterLayers() {
         return [
             { id: 'points' },
+        ].concat(window.LSColors.CASING_IDS.map(function (id) { return { id: id }; })).concat([
             { id: 'points-patchy', base: window.LSColors.PATCHY_FILTER },
             { id: 'polygon-fill' },
             { id: 'polygon-outline' },
             { id: 'pin-label' },
-        ];
+        ]);
     }
     function _applyLandslideFilter(m, userFilter) {
         if (!m) return;
@@ -2341,6 +2343,7 @@
         if (!cmap.getSource('polygons'))
             cmap.addSource('polygons', { type: 'geojson', data: _polygonsData || { type: 'FeatureCollection', features: [] } });
         _landslideLayerDefs().forEach(function (def) { if (!cmap.getLayer(def.id)) cmap.addLayer(def); });
+        window.LSColors.pointCasingLayers(_palette).forEach(function (d) { if (!cmap.getLayer(d.id)) cmap.addLayer(d, 'points'); });
         if (!cmap.getLayer('polygon-hover')) cmap.addLayer(_polygonHoverDef());
         if (!cmap.getSource('survey-circles'))
             cmap.addSource('survey-circles', { type: 'geojson', data: _surveyCirclesData || { type: 'FeatureCollection', features: [] } });

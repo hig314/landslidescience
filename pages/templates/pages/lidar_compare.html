@@ -678,7 +678,7 @@
   // by bounding box once a pane is zoomed in past the inventory's own
   // polygon zoom. No filters: every public record shows.
   var LS = { pal: null, polyZoom: 7, pts: null, loading: null, ramps: null, rampsLoading: null };
-  var LS_IDS = ['polygon-fill', 'polygon-outline', 'points', 'points-patchy'];
+  var LS_IDS = ['polygon-fill', 'polygon-outline'].concat(LSColors.CASING_IDS, ['points', 'points-patchy']);
   var EMPTY_FC = { type: 'FeatureCollection', features: [] };
   function ovOn() { return OVR.rows.filter(function (r) { return S.ov[r.id] != null; }); }
   function ovLayerIds() { return ovOn().map(function (r) { return r.layerId; }); }
@@ -729,6 +729,9 @@
       if (!m.getSource('polygons')) m.addSource('polygons', { type: 'geojson', data: EMPTY_FC });
       LSColors.landslideLayers(LS.pal, { pitchMap: true }).forEach(function (def) {
         if (!m.getLayer(def.id)) m.addLayer(def, firstAnnLayer(m));
+      });
+      LSColors.pointCasingLayers(LS.pal, { pitchMap: true }).forEach(function (def) {   // the glow under the dots
+        if (!m.getLayer(def.id)) m.addLayer(def, 'points');
       });
       lsPolygons(p);
     }

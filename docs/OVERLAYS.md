@@ -235,6 +235,23 @@ default, because raw daily playback strobes on the coverage gaps).
 
 ## Susceptibility
 
+**Colours: purple since 2026-11-25, recoloured in the browser.** The four
+models were baked on ColorBrewer yellow-orange-red, which sat under the pink
+(obvious creep) and yellow (subtle creep) dots. Hig chose the purple arm of
+the InSAR ramp (`#e7d4e8` → `#c2a5cf` → `#7b3294`; alpha as before, faint at
+the low end). The archives on R2 are **still the yellow-red bake**:
+`ls_overlays.js` (`suscDef`, the `susccolor://` protocol) recolours each tile
+as it loads, placing a pixel on the old ramp by its green channel, which
+falls monotonically along YlOrRd. `tools/susc_purple_ramps.py` holds the same
+tables and writes the four ramp files, so the keys and the export legend
+match the map; edit the tables there, not the `.txt` files. **When the
+archives are re-baked** from those files (new archive ids), point the four
+rows back at `archive()` and delete the recolour block, which would garble
+tiles that are already purple. Wherever the paragraphs below say yellow, orange,
+red or YlOrRd, they describe the bake, not what is shown. The wider plan this
+came from (move the rainbow landform rows and DIST off red too; leave slope,
+temperature, aspect, glaciers alone) is not started.
+
 **Susceptibility tiles** (self-hosted): USGS Slope-Relief Threshold models (Belair et al. 2024, 90 m). **Alaska coverage** — this is why they're self-hosted rather than the old `tiles.arcgis.com/.../US_Landslide_Susceptibility` MapServer, which is conterminous-US only.
 
 How it works (pre-colored tiles):

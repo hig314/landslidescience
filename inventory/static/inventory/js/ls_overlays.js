@@ -135,25 +135,120 @@
         return row(id, label, sub, 0.7, function () { return slopeSourceDef(sid); });
     }
 
+    // ---- Susceptibility is purple, recoloured in the browser (2026-11-25) ----
+    // The four susceptibility archives on R2 were baked yellow-orange-red,
+    // which sat under the pink (obvious creep) and yellow (subtle creep)
+    // dots. The site standard is now the purple arm of the InSAR ramp
+    // (OPERA_RAMP in map.js), pale to dark, and the ramp files
+    // (tools/susc_color_*.txt, dggs_susc_color.txt, nasa_susc_color.txt)
+    // say so; they feed the keys. Until the archives are re-baked from those
+    // files the baked tiles are recoloured on the fly:
+    // susccolor://<archive>/{z}/{x}/{y}.
+    // WHEN THEY ARE RE-BAKED (new archive ids, as for any change of pixels):
+    // point the four rows back at archive() and delete this block. It reads
+    // the old ramp's green channel and would garble tiles that are already
+    // purple.
+    //
+    // The baked ramp is ColorBrewer YlOrRd, whose GREEN channel falls
+    // monotonically from 255 to 0 along it, so green alone places a pixel on
+    // the ramp (also for pixels averaged at low zoom). Alpha is kept as baked.
+    // tools/susc_purple_ramps.py holds the same two tables and writes the
+    // ramp files from them.
+    var SUSC_STOPS = [[0, [231, 212, 232]], [0.5, [194, 165, 207]], [1, [123, 50, 148]]];
+    // Baked green value -> position on the ramp. The USGS pair has three
+    // classes whose top is (227,26,28); DGGS and NASA run to (189,0,38).
+    var SUSC_G = {
+        usgs: [[255, 0], [141, 0.5], [26, 1]],
+        full: [[255, 0], [204, 0.25], [141, 0.5], [59, 0.75], [0, 1]]
+    };
+    var SUSC_FAMILY = { susc_lw: 'usgs', susc_n10: 'usgs', susc_dggs: 'full', susc_nasa: 'full' };
+    function _piece(tab, x, desc) {      // piecewise-linear lookup; tab sorted (desc or asc) on [0]
+        var n = tab.length;
+        for (var i = 0; i < n - 1; i++) {
+            var a = tab[i], b = tab[i + 1];
+            if (desc ? (x <= a[0] && x >= b[0]) : (x >= a[0] && x <= b[0])) {
+                var f = b[0] === a[0] ? 0 : (x - a[0]) / (b[0] - a[0]);
+                if (typeof a[1] === 'number') return a[1] + f * (b[1] - a[1]);
+                return a[1].map(function (v, k) { return v + f * (b[1][k] - v); });
+            }
+        }
+        var end = (desc ? x > tab[0][0] : x < tab[0][0]) ? tab[0] : tab[n - 1];
+        return end[1];
+    }
+    var _suscLuts = {};
+    function _suscLut(family) {
+        if (_suscLuts[family]) return _suscLuts[family];
+        var lut = new Uint8Array(256 * 3);
+        for (var g = 0; g < 256; g++) {
+            var c = _piece(SUSC_STOPS, _piece(SUSC_G[family], g, true), false);
+            lut[g * 3] = Math.round(c[0]); lut[g * 3 + 1] = Math.round(c[1]); lut[g * 3 + 2] = Math.round(c[2]);
+        }
+        return (_suscLuts[family] = lut);
+    }
+    var _suscArchives = {}, _suscEmpty = null;
+    function _suscPng(canvas) {
+        return new Promise(function (resolve, reject) {
+            canvas.toBlob(function (blob) {
+                if (!blob) { reject(new Error('susccolor toBlob failed')); return; }
+                blob.arrayBuffer().then(function (buf) { resolve({ data: buf }); }, reject);
+            }, 'image/png');
+        });
+    }
+    function _suscLoader(params) {
+        var p = params.url.replace('susccolor://', '').split('/');   // archive, z, x, y
+        var lut = _suscLut(SUSC_FAMILY[p[0]] || 'full');
+        var ar = _suscArchives[p[0]] ||
+            (_suscArchives[p[0]] = new pmtiles.PMTiles(location.origin + '/overlays/' + p[0] + '.pmtiles'));
+        return ar.getZxy(+p[1], +p[2], +p[3]).then(function (res) {
+            if (!res || !res.data) return null;
+            return createImageBitmap(new Blob([res.data]));
+        }).then(function (bmp) {
+            var c = document.createElement('canvas');
+            if (!bmp) {
+                if (!_suscEmpty) { c.width = c.height = 1; _suscEmpty = _suscPng(c); }
+                return _suscEmpty;
+            }
+            c.width = bmp.width; c.height = bmp.height;
+            var ctx = c.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(bmp, 0, 0);
+            var img = ctx.getImageData(0, 0, c.width, c.height), d = img.data;
+            for (var i = 0; i < d.length; i += 4) {
+                // DGGS marks water and ice pale blue ("not assessed"): left as baked.
+                if (d[i + 3] === 0 || d[i + 2] > d[i] + 20) continue;
+                var k = d[i + 1] * 3;
+                d[i] = lut[k]; d[i + 1] = lut[k + 1]; d[i + 2] = lut[k + 2];
+            }
+            ctx.putImageData(img, 0, 0);
+            return _suscPng(c);
+        });
+    }
+    function suscDef(id, maxzoom, attr, minzoom) {
+        var def = archive(id, maxzoom, attr, minzoom);
+        if (typeof maplibregl === 'undefined' || typeof pmtiles === 'undefined') return def;
+        if (!window.__lsSuscReg) { window.__lsSuscReg = true; maplibregl.addProtocol('susccolor', _suscLoader); }
+        def.tiles = ['susccolor://' + id + '/{z}/{x}/{y}'];
+        return def;
+    }
+
     function bakedOverlays() {
         var rows = [
             // The two USGS models keep their original layer/source ids: the
             // trace-raster and lidar insertion chains name 'susc-*-layer'.
             { id: 'susc-lw',    layerId: 'susc-lw-layer',   sourceId: 'susc-lw',
               label: 'Susceptibility — lw',  sub: 'USGS Belair et al. 2024, 90 m',
-              sourceDef: function () { return archive('susc_lw', 10, SUSC_ATTR.lw); }, defOpacity: 1 },
+              sourceDef: function () { return suscDef('susc_lw', 10, SUSC_ATTR.lw); }, defOpacity: 1 },
             { id: 'susc-n10',   layerId: 'susc-n10-layer',  sourceId: 'susc-n10',
               label: 'Susceptibility — n10', sub: 'USGS Belair et al. 2024, 90 m',
-              sourceDef: function () { return archive('susc_n10', 10, SUSC_ATTR.n10); }, defOpacity: 1 },
+              sourceDef: function () { return suscDef('susc_n10', 10, SUSC_ATTR.n10); }, defOpacity: 1 },
             // The state's own model (rock strength x slope class). Baked from
             // the raster recovered from DGGS's MapServer, coloured from
-            // tools/dggs_susc_color.txt on the USGS pair's YlOrRd scale. z12 is
+            // tools/dggs_susc_color.txt on the USGS pair's scale. z12 is
             // the 20 m grid's own ceiling; the client overzooms above it.
             { id: 'susc-dggs', layerId: 'ov-susc-dggs', sourceId: 'ov-susc-dggs-src',
               label: 'Susceptibility — DGGS',
               sub: 'Alaska DGGS PIR 2025-3 · rock strength × slope · 20 m',
               sourceDef: function () {
-                  return archive('susc_dggs', 12, 'Deep-seated landslide susceptibility: Alaska DGGS, ' +
+                  return suscDef('susc_dggs', 12, 'Deep-seated landslide susceptibility: Alaska DGGS, ' +
                                                   'Wikstrom Jones & Larsen 2025 (PIR 2025-3)');
               }, defOpacity: 0.8 },
             // NASA's global map (Stanley & Kirschbaum 2017, 2023 update), five
@@ -162,7 +257,7 @@
               label: 'Susceptibility — NASA global',
               sub: 'Stanley & Kirschbaum 2017 (2023 update) · slope, geology, faults, roads, forest loss · ~1 km, 72°N–60°S',
               sourceDef: function () {
-                  return archive('susc_nasa', 8, 'Global landslide susceptibility: NASA GSFC, ' +
+                  return suscDef('susc_nasa', 8, 'Global landslide susceptibility: NASA GSFC, ' +
                                                  'Stanley & Kirschbaum 2017 (2023 update)', 0);
               }, defOpacity: 0.8 },
             // Surface properties (2026-10-09): the 60 m terrain grids the

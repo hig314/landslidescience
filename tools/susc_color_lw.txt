@@ -1,15 +1,21 @@
 # lw discrete frequency-ratio classes (gdaldem color-relief).
 # Columns: VALUE R G B A. Breaks at lw's FR jump (see susceptibility analysis):
 #   0      = none        -> transparent
-#   1-74   = Low   (FR ~0.2, under-represented) -> pale yellow, faint
-#   75-80  = High  (FR ~13)                     -> orange
-#   81      = Very High (FR ~24)                -> red
-# Same-color entries within a class make the steps effectively hard at integer
-# values (color-relief only interpolates across the sub-integer gap at a break).
-nv  0   0   0   0
-0   0   0   0   0
-1   255 255 178  90
-74  255 255 178  90
-75  253 141  60 190
-80  253 141  60 190
-81  227  26  28 235
+#   1-74   = Low   (FR ~0.2, under-represented) -> pale lavender, faint
+#   75-80  = High  (FR ~13)                     -> mid purple
+#   81      = Very High (FR ~24)                -> dark purple
+#
+# PURPLE since 2026-11-25: the purple arm of the InSAR ramp, pale and faint
+# at the low end, dark and nearly opaque at the high end, one scale across
+# the four susceptibility layers. Chosen over yellow-orange-red because the
+# landslide dots are pink, yellow, green and blue. WRITTEN BY
+# tools/susc_purple_ramps.py: edit the tables there, not this file.
+# The archives on R2 are still the yellow-red bake; the browser recolours
+# them to these values (ls_overlays.js) until they are re-baked from here.
+nv   0   0   0   0
+0    0   0   0   0
+1    231 212 232  90
+74   231 212 232  90
+75   194 165 207 190
+80   194 165 207 190
+81   123  50 148 235
