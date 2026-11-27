@@ -792,6 +792,7 @@ one already on a slide. Also in the Reader's controls panel.
 {% if is_inventory_editor %}
 <script src="https://unpkg.com/terra-draw@1.0.0/dist/terra-draw.umd.js"></script>
 <script src="https://unpkg.com/terra-draw-maplibre-gl-adapter@1.0.0/dist/terra-draw-maplibre-gl-adapter.umd.js"></script>
+<script src="{% static 'inventory/js/td_tweaks.js' %}"></script>
 {% comment %}
   Revising an existing outline on the live map, against the whole overlay
   stack, rather than in the form's 360 px preview. Editor-only, like the

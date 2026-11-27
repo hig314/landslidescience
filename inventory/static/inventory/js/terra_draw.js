@@ -108,9 +108,9 @@
   function renderEditBar() {
     bar.innerHTML = '';
     var add = btn('+ Add polygon', 'Draw a new polygon');
-    add.addEventListener('click', function () { draw.setMode('polygon'); flashMode('Drawing — click to add vertices, double-click to finish'); });
+    add.addEventListener('click', function () { draw.setMode('polygon'); flashMode('Drawing — click to add vertices; double-click or Enter finishes, Esc cancels'); });
     var sel = btn('✋ Select / reshape', 'Select a polygon to drag/add/delete its vertices');
-    sel.addEventListener('click', function () { draw.setMode('select'); flashMode('Select a polygon, then drag vertices; click a midpoint to add, right-click a vertex to delete'); });
+    sel.addEventListener('click', function () { draw.setMode('select'); flashMode('Select a polygon, then drag vertices; drag a midpoint to add one, right-click a vertex to delete'); });
     var del = btn('🗑 Delete selected', 'Delete the selected polygon');
     del.addEventListener('click', deleteSelected);
     var detach = btn('⤴ Detach to new landslide',
@@ -226,18 +226,20 @@
     draw = new TD.TerraDraw({
       adapter: new ADP.TerraDrawMapLibreGLAdapter({ map: map }),
       modes: [
-        new TD.TerraDrawSelectMode({
+        // td_tweaks.js: a click on the outline no longer deselects, a midpoint
+        // can be dragged directly, and finishing takes a quick double-click.
+        LSTerraDraw.stickySelect(new TD.TerraDrawSelectMode({
           flags: { polygon: { feature: {
             draggable: true,
             coordinates: { midpoints: true, draggable: true, deletable: true }
           } } }
-        }),
-        new TD.TerraDrawPolygonMode({
+        }), map),
+        LSTerraDraw.decisiveFinish(new TD.TerraDrawPolygonMode({
           // No self-intersection validation — complex/twisted outlines must be
           // drawable; the server runs ST_MakeValid on save.
           pointerDistance: 8,
           keyEvents: { finish: 'Enter', cancel: 'Escape' }
-        })
+        }), map)
       ]
     });
     draw.start();
@@ -290,11 +292,16 @@
   }
 
   // `change`/'create' fires on the first click; a polygon is only complete on
-  // `finish` (double-click / closing the ring). For a freshly drawn polygon,
-  // drop back to select so the editor can reshape/assign a role; leave the mode
-  // alone when finishing an edit of an existing polygon.
-  function onFinish(id) {
-    if (uuidToDbId[id] == null) draw.setMode('select');
+  // `finish` (double-click / Enter). When a DRAWING finishes, drop back to
+  // select so the editor can reshape/assign a role. `finish` also fires at the
+  // end of every vertex drag in select mode, and setMode there restarts the
+  // mode and so deselects: until 2026-11-27 that test was "not a saved
+  // polygon", so a newly drawn outline lost its selection after each vertex
+  // moved and had to be reselected for the next one.
+  function onFinish(id, ctx) {
+    var drew = ctx && ctx.action ? ctx.action === 'draw'
+                                 : (draw.getMode && draw.getMode() === 'polygon');
+    if (drew && uuidToDbId[id] == null) draw.setMode('select');
     renderNewPolyRoles();
   }
 
@@ -508,9 +515,9 @@
     });
 
     var add = btn('+ Add polygon', 'Draw a new polygon');
-    add.addEventListener('click', function () { ensureDrawing(); draw.setMode('polygon'); flashMode('Drawing — click to add vertices, double-click to finish'); });
+    add.addEventListener('click', function () { ensureDrawing(); draw.setMode('polygon'); flashMode('Drawing — click to add vertices; double-click or Enter finishes, Esc cancels'); });
     var sel = btn('✋ Select / reshape', 'Select a polygon to drag/add/delete its vertices');
-    sel.addEventListener('click', function () { if (draw) { draw.setMode('select'); flashMode('Drag vertices; click a midpoint to add, right-click a vertex to delete'); } });
+    sel.addEventListener('click', function () { if (draw) { draw.setMode('select'); flashMode('Drag vertices; drag a midpoint to add one, right-click a vertex to delete'); } });
     var del = btn('🗑 Delete selected', 'Delete the selected polygon');
     del.addEventListener('click', deleteSelected);
     var create = btn('Create landslide', 'Insert as a pending record and open review');

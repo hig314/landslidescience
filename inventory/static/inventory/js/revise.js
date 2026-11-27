@@ -210,7 +210,7 @@ window.LSRevise = (function () {
           // second way to draw.
           modes: [
             new TD.TerraDrawPolygonMode(),
-            new TD.TerraDrawSelectMode({
+            LSTerraDraw.stickySelect(new TD.TerraDrawSelectMode({
               flags: {
                 polygon: {
                   feature: {
@@ -222,14 +222,14 @@ window.LSRevise = (function () {
                     rotateable: false,
                     scaleable: false,
                     coordinates: {
-                      midpoints: true,   // click a midpoint to add a vertex
+                      midpoints: true,   // click or drag a midpoint to add a vertex
                       draggable: true,
                       deletable: true    // right-click removes one
                     }
                   }
                 }
               }
-            })
+            }), map)
           ]
         });
         td.start();

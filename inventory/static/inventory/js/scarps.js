@@ -316,7 +316,7 @@ window.LSScarps = (function () {
 
   // Save a newly finished line as the current draw kind and group, with
   // traced_on from the host. Every way a line ends comes here: Terra Draw's
-  // own finish (Enter, double-click, a click back on the last vertex) and
+  // own finish (Enter, or a double-click: td_tweaks.js decisiveFinish) and
   // the editor's secondary click (finishSecondary).
   function saveNew(geom) {
     // One line per arming; and never switch Terra Draw's mode from inside
@@ -371,14 +371,15 @@ window.LSScarps = (function () {
       // instantiated modes, and a mode that is not registered makes its
       // features invalid rather than merely unselectable.
       modes: [
-        (lineMode = new TD.TerraDrawLineStringMode({
+        (lineMode = LSTerraDraw.decisiveFinish(new TD.TerraDrawLineStringMode({
           // pointerDistance defaults to 40 px, and in line mode that means a
           // click within 40 px of the previous vertex FINISHES the line. At
           // normal tracing spacing almost every click lands inside that, so
           // you get a string of single segments instead of a path — which is
           // exactly what happened here, and the same trap the polygon tool
           // already carries a comment about (premature close, dropped points).
-          // 8 px means only a deliberate click back on the last point ends it.
+          // 8 px keeps that to the last point itself, and decisiveFinish
+          // (td_tweaks.js) then asks for a quick double-click there.
           pointerDistance: 8,
           keyEvents: { finish: 'Enter', cancel: 'Escape' },
           // Snap WHILE drawing, not only when the line is saved: the point
@@ -395,7 +396,7 @@ window.LSScarps = (function () {
           },
           styles: { snappingPointColor: '#ffeb3b', snappingPointWidth: 7,
                     snappingPointOutlineColor: '#000000', snappingPointOutlineWidth: 2 }
-        })),
+        }), map)),
         new TD.TerraDrawSelectMode()
       ]
     });

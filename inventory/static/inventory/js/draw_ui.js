@@ -169,7 +169,7 @@
             if (_td) return;
             _td = new terraDraw.TerraDraw({
                 adapter: new terraDrawMaplibreGlAdapter.TerraDrawMapLibreGLAdapter({ map: map }),
-                modes: [new terraDraw.TerraDrawPolygonMode({
+                modes: [LSTerraDraw.decisiveFinish(new terraDraw.TerraDrawPolygonMode({
                     // Default 40px treats clicks near any existing vertex as
                     // "close the ring" (premature finish + dropped points). Tighten
                     // it so only a deliberate click on the first point closes; use
@@ -178,7 +178,7 @@
                     // server runs ST_MakeValid on save.
                     pointerDistance: 8,
                     keyEvents: { finish: 'Enter', cancel: 'Escape' }
-                })]
+                }), map)]
             });
             _td.start();
             _td.setMode('polygon');
@@ -481,7 +481,7 @@
             p.innerHTML =
                 '<div class="inv-draw-hd">✏ Draw new landslide</div>' +
                 '<div style="font-size:11px;color:#666;line-height:1.4;margin-bottom:6px;">' +
-                'Click to add vertices, press <b>Enter</b> to finish (Esc cancels), then name it. ' +
+                'Click to add vertices, <b>double-click</b> or press <b>Enter</b> to finish (Esc cancels), then name it. ' +
                 'Same name = same landslide. Pick imagery before drawing each polygon.</div>' +
                 '<div id="idq-list" class="inv-draw-list"></div>' +
                 '<div id="idq-status" class="ls-poly-status" style="min-height:14px;"></div>' +
