@@ -16,7 +16,8 @@
       <!-- The colour range: the ramp runs between the two handles. Drag them, or type below. -->
       <div id="ramp">
         <div class="track"><div class="bar" id="ramp-bar"></div>
-          <i class="hd" id="h-lo" title="Drag: where the ramp starts"></i><i class="hd" id="h-hi" title="Drag: where the ramp ends"></i></div>
+          <i class="hd" id="h-lo" title="Drag: where the ramp starts"></i><i class="hd" id="h-hi" title="Drag: where the ramp ends"></i>
+          <i class="hd in" id="h-ilo" title="Drag outward: values nearer zero than this stay neutral, so the colour goes to the extremes" hidden></i><i class="hd in" id="h-ihi" title="Drag outward: values nearer zero than this stay neutral, so the colour goes to the extremes" hidden></i></div>
         <div class="ends"><span id="ramp-t0"></span><span id="ramp-u"></span><span id="ramp-t1"></span></div>
       </div>
       <div class="row2" id="range-row">
@@ -24,7 +25,11 @@
         <label>to <input type="number" id="hi" step="any"></label>
         <button id="range-reset" title="Back to the default range">reset</button>
       </div>
-      <label class="chk" id="sym-row" title="Ticked: the two handles stay the same distance from zero. Unticked: stretch the concave and the convex side separately; zero keeps the middle colour."><input type="checkbox" id="sym" checked> Lock the two sides together</label>
+      <div class="row2" id="inner-row" hidden>
+        <label>neutral from <input type="number" id="ilo" step="any"></label>
+        <label>to <input type="number" id="ihi" step="any"></label>
+      </div>
+      <label class="chk" id="sym-row" title="Ticked: the two handles stay the same distance from zero. Unticked: stretch the concave and the convex side separately; zero keeps the middle colour."><input type="checkbox" id="sym" checked> Lock negative and positive together</label>
       <label>Statistic opacity <span class="val" id="sopv">0.75</span></label>
       <input type="range" id="sop" min="0" max="100" value="75">
       <p id="method" class="note"></p>

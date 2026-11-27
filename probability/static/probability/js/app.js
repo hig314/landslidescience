@@ -17,7 +17,7 @@
   var Q = new URLSearchParams(location.search);
   var S = {            // panel state
     stat: Q.get('s') || 'slope_14m', lo: Q.has('lo') ? +Q.get('lo') : null, hi: Q.has('hi') ? +Q.get('hi') : null,
-    hl: Q.get('hl') ? Q.get('hl').split(',').map(Number) : null,
+    hl: Q.get('hl') ? Q.get('hl').split(',').map(Number) : null, ilo: +Q.get('ilo') || 0, ihi: +Q.get('ihi') || 0,
     ages: Q.get('ages') ? Q.get('ages').split(',') : null, scar: Q.get('scar')
   };
   var meta, dist, scarRows = {}, map, shade;
@@ -42,6 +42,7 @@
     q.set('s', S.stat);
     if (S.lo != null) { q.set('lo', S.lo); q.set('hi', S.hi); }
     if (!$('sym').checked) q.set('sym', 0);
+    if (S.ilo || S.ihi) { q.set('ilo', S.ilo); q.set('ihi', S.ihi); }
     if (S.hl) q.set('hl', S.hl.map(function (v) { return +v.toPrecision(4); }).join(','));
     if (S.ages) q.set('ages', S.ages.join(','));
     if (S.scar) q.set('scar', S.scar);
@@ -61,15 +62,20 @@
     if (L) {
       var cls = L.kind === 'class';
       if (!cls && S.lo == null) { var r = defaultRange(L); S.lo = r[0]; S.hi = r[1]; }
-      map.getSource('stat').setTiles([VT.tileUrl(L.name, cls ? {lo: 0, hi: 1} : {lo: S.lo, hi: S.hi, hl: S.hl})]);
+      var div = !cls && pivots(L);
+      if (!div) S.ilo = S.ihi = 0;
+      else { S.ilo = Math.max(S.ilo, S.lo * 0.98); S.ihi = Math.min(S.ihi, S.hi * 0.98); }   // the neutral band stays inside the range
+      map.getSource('stat').setTiles([VT.tileUrl(L.name, cls ? {lo: 0, hi: 1} : {lo: S.lo, hi: S.hi, hl: S.hl, ilo: S.ilo, ihi: S.ihi})]);
       map.setPaintProperty('stat', 'raster-opacity', +$('sop').value / 100);
       $('sopv').textContent = (+$('sop').value / 100).toFixed(2);
       $('range-row').hidden = $('ramp').hidden = cls;
       if (!cls) {
         $('lo').value = +(+S.lo).toPrecision(4); $('hi').value = +(+S.hi).toPrecision(4);
         var T = track(L), a = T.pos(S.lo), b = T.pos(S.hi);
-        $('ramp-bar').style.background = VT.rampCss(L.name, a, b, pivots(L) ? T.pos(0) : null);
-        $('sym-row').hidden = L.kind !== 'diverging';
+        $('ramp-bar').style.background = VT.rampCss(L.name, a, b, div ? [T.pos(S.ilo), T.pos(S.ihi)] : null);
+        $('sym-row').hidden = $('inner-row').hidden = $('h-ilo').hidden = $('h-ihi').hidden = !div;
+        $('h-ilo').style.left = T.pos(S.ilo) * 100 + '%'; $('h-ihi').style.left = T.pos(S.ihi) * 100 + '%';
+        $('ilo').value = +(+S.ilo).toPrecision(4); $('ihi').value = +(+S.ihi).toPrecision(4);
         $('h-lo').style.left = a * 100 + '%'; $('h-hi').style.left = b * 100 + '%';
         $('ramp-t0').textContent = num(T.t0); $('ramp-u').textContent = L.units; $('ramp-t1').textContent = num(T.t1);
       }
@@ -93,8 +99,9 @@
   }
   function locked() { return layerEntry(S.stat).kind === 'diverging' && $('sym').checked; }
   function dragHandle(id, which) {
-    var el = $(id), T = null, raf = 0;
+    var el = $(id), T = null, raf = 0, inner = which === 'ilo' || which === 'ihi', side = null;
     el.addEventListener('pointerdown', function (e) {
+      side = null;
       T = track(layerEntry(S.stat));          // fixed for the drag, so the handle follows the pointer
       el.setPointerCapture(e.pointerId); e.preventDefault();
     });
@@ -102,9 +109,18 @@
       if (!T) return;
       var box = el.parentNode.getBoundingClientRect(), p = Math.max(0, Math.min(1, (e.clientX - box.left) / box.width));
       var gap = 0.02;                         // the handles never meet: a ramp needs some width
-      if (locked()) {                         // both handles the same distance from zero
-        var z = T.pos(0), d = T.val(z + Math.max(gap / 2, which === 'lo' ? z - p : p - z));
-        S.lo = -d; S.hi = d;
+      if (pivots(layerEntry(S.stat))) {       // diverging: outer handles end each ramp, inner ones bound the neutral band
+        var g = gap * (T.t1 - T.t0), x = T.val(p), w = which;
+        if (inner && S.ilo === 0 && S.ihi === 0) side = x < 0 ? 'ilo' : 'ihi';   // both start at zero: the drag says which
+        if (inner) w = side || which;
+        if (w === 'lo') S.lo = Math.min(x, S.ilo - g);
+        else if (w === 'hi') S.hi = Math.max(x, S.ihi + g);
+        else if (w === 'ilo') S.ilo = Math.min(0, Math.max(x, S.lo + g));
+        else S.ihi = Math.max(0, Math.min(x, S.hi - g));
+        if (locked()) {                       // the same distance from zero on both sides
+          if (w === 'lo') S.hi = -S.lo; else if (w === 'hi') S.lo = -S.hi;
+          else if (w === 'ilo') S.ihi = -S.ilo; else S.ilo = -S.ihi;
+        }
       } else if (which === 'lo') S.lo = T.val(Math.min(p, T.pos(S.hi) - gap)); else S.hi = T.val(Math.max(p, T.pos(S.lo) + gap));
       if (!raf) raf = requestAnimationFrame(function () { raf = 0; applyStat(); });
     });
@@ -113,7 +129,7 @@
     el.addEventListener('pointercancel', end);
   }
   function setStat(name) {
-    S.stat = name; S.lo = S.hi = null; S.hl = null;
+    S.stat = name; S.lo = S.hi = null; S.hl = null; S.ilo = S.ihi = 0;
     applyStat();
   }
 
@@ -249,13 +265,49 @@
     }
     dragHandle('h-lo', 'lo');
     dragHandle('h-hi', 'hi');
+    dragHandle('h-ilo', 'ilo');
+    dragHandle('h-ihi', 'ihi');
     $('lo').addEventListener('change', rangeTyped);
     $('hi').addEventListener('change', rangeTyped);
     $('sym').addEventListener('change', function () {
-      if (locked()) { S.hi = Math.max(Math.abs(S.lo), Math.abs(S.hi)); S.lo = -S.hi; }
+      if (locked()) { S.hi = Math.max(Math.abs(S.lo), Math.abs(S.hi)); S.lo = -S.hi; S.ihi = Math.max(Math.abs(S.ilo), Math.abs(S.ihi)); S.ilo = -S.ihi; }
       applyStat();
     });
-    $('range-reset').addEventListener('click', function () { S.lo = S.hi = null; applyStat(); });
+    $('range-reset').addEventListener('click', function () { S.lo = S.hi = null; S.ilo = S.ihi = 0; applyStat(); });
+    function innerTyped(ev) {
+      var a = parseFloat($('ilo').value), b = parseFloat($('ihi').value);
+      if (!isFinite(a) || !isFinite(b)) return;
+      if (locked()) { b = Math.abs(ev.target.id === 'ilo' ? a : b); a = -b; }
+      S.ilo = Math.min(0, Math.max(a, S.lo * 0.98)); S.ihi = Math.max(0, Math.min(b, S.hi * 0.98));
+      applyStat();
+    }
+    $('ilo').addEventListener('change', innerTyped);
+    $('ihi').addEventListener('change', innerTyped);
+    // Right-click (Ctrl-click on a Mac) copies "lat, lon", as on landslidescience.org /lidar/ and /inventory/:
+    // the same format and the same toast.
+    map.on('contextmenu', function (e) {
+      e.preventDefault();
+      var txt = e.lngLat.lat.toFixed(5) + ', ' + e.lngLat.lng.toFixed(5);
+      var done = function () { coordToast(txt + ' copied'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(done, function () { coordToast(txt); });
+      } else { coordToast(txt); }
+    });
+    function coordToast(msg) {
+      var t = $('_coord-toast');
+      if (!t) {
+        t = document.createElement('div');
+        t.id = '_coord-toast';
+        t.style.cssText = 'position:absolute;bottom:24px;left:50%;transform:translateX(-50%);' +
+          'background:rgba(20,20,20,.88);color:#fff;padding:6px 12px;border-radius:4px;' +
+          'font-size:13px;z-index:5;pointer-events:none;transition:opacity .3s;opacity:0;';
+        $('map').appendChild(t);
+      }
+      t.textContent = msg;
+      t.style.opacity = '1';
+      clearTimeout(t._h);
+      t._h = setTimeout(function () { t.style.opacity = '0'; }, 1600);
+    }
     document.querySelectorAll('#ages input, #l-scars, #l-scarps, #l-deposits, #l-runouts').forEach(function (i) {
       i.addEventListener('change', applyInventory);
     });

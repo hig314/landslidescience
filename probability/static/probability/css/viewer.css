@@ -42,6 +42,7 @@ select { width: 100%; font: inherit; padding: 4px; border: 1px solid var(--line)
 #ramp .bar { position: absolute; inset: 5px 0; border-radius: 2px; border: 1px solid var(--line); }
 #ramp .hd { position: absolute; top: 0; width: 10px; height: 22px; margin-left: -5px; border-radius: 3px; background: #fff;
             border: 1.5px solid var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); cursor: ew-resize; }
+#ramp .hd.in { top: 4px; width: 8px; height: 14px; margin-left: -4px; border-color: #8a929c; }
 #ramp .ends { display: flex; justify-content: space-between; color: var(--mute); font-size: 11px; }
 #legend .cls { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
 .panel { position: absolute; background: rgba(255, 255, 255, .96); border: 1px solid var(--line); border-radius: 6px;

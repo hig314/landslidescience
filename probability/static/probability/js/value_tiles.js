@@ -12,11 +12,12 @@
  *   PH.ValueTiles.valueAt(name, lng, lat, zoom)   Promise<number | null>
  *   PH.ValueTiles.rampCss(name, a, b, m)     CSS gradient for a legend: the ramp over the
  *                                            fractions a..b of the bar, its end colours beyond;
- *                                            m = where zero sits, for a diverging layer
+ *                                            m = [from, to], where the middle colour sits, for a diverging layer
  *   PH.ValueTiles.rampRange(name)            the [lo, hi] a ramp is defined over, or null
  *
  * A `diverging` layer keeps its middle colour at zero whatever lo and hi are,
- * so the two sides can be stretched separately.
+ * so the two sides can be stretched separately. `ilo` and `ihi` widen that
+ * middle into a neutral band, so the colour can be spent on the extremes.
  *   PH.ValueTiles.classColor(name, code)
  *
  * `hl` keeps full colour inside [a, b] and fades the rest: the histogram's
@@ -43,6 +44,10 @@ PH.ValueTiles = (function () {
     // then yellow 40, red 45, purple 50 (the angle of repose), black at 90. `at` places the stops, in degrees.
     slope: {at: [0, 10, 32, 40, 45, 50, 90],
             stops: [[0, 151, 8], [255, 255, 255], [235, 236, 226], [255, 236, 0], [240, 0, 0], [184, 0, 255], [0, 0, 0]]},
+    // Diffusion age and the like: strongest where the value is LOW (a young, sharp edge), fading as it rises.
+    // The purple arm of the landslidescience.org /inventory/ overlays (OPERA_RAMP; tools/susc_purple_ramps.py),
+    // where dark means it matters more, so these layers read with the susceptibility overlays there.
+    age: [[123, 50, 148, 255], [194, 165, 207, 215], [231, 212, 232, 150]],
     circular: [[196, 78, 82], [221, 204, 119], [85, 168, 104], [76, 114, 176], [129, 114, 179], [196, 78, 82]]
   };
   var CLASS_COLORS = {
@@ -102,7 +107,7 @@ PH.ValueTiles = (function () {
     return p;
   }
 
-  function paint(name, v, lo, hi, hl) {
+  function paint(name, v, lo, hi, hl, ilo, ihi) {
     var e = layers[name].entry, img = new ImageData(256, 256), d = img.data, i, j;
     if (e.kind === 'class') {
       var cc = CLASS_COLORS[name] || {};
@@ -118,7 +123,9 @@ PH.ValueTiles = (function () {
     for (i = 0; i < 65536; i++) {
       var x = v[i];
       if (x !== x) continue;
-      var n = Math.max(0, Math.min(255, Math.round(piv ? 127.5 * (x < 0 ? 1 - x / lo : 1 + x / hi) : (x - lo) * k))) * 4;
+      // diverging: the middle colour from ilo to ihi (both 0 unless set), then each side's ramp out to lo and hi
+      var t = !piv ? (x - lo) * k : x < ilo ? 127.5 * (1 - (x - ilo) / (lo - ilo)) : x > ihi ? 127.5 * (1 + (x - ihi) / (hi - ihi)) : 127.5;
+      var n = Math.max(0, Math.min(255, Math.round(t))) * 4;
       j = i * 4;
       d[j] = lu[n]; d[j + 1] = lu[n + 1]; d[j + 2] = lu[n + 2];
       d[j + 3] = hl && (x < hl[0] || x > hl[1]) ? Math.min(40, lu[n + 3]) : lu[n + 3];
@@ -132,13 +139,14 @@ PH.ValueTiles = (function () {
     var q = new URLSearchParams(m[5]);
     var hl = q.get('hl') ? q.get('hl').split(',').map(Number) : null;
     return decode(m[1], +m[2], +m[3], +m[4]).then(function (v) {
-      var img = v ? paint(m[1], v, +q.get('lo'), +q.get('hi'), hl) : new ImageData(256, 256);
+      var img = v ? paint(m[1], v, +q.get('lo'), +q.get('hi'), hl, +q.get('ilo') || 0, +q.get('ihi') || 0) : new ImageData(256, 256);
       return createImageBitmap(img).then(function (bmp) { return {data: bmp}; });
     });
   });
 
   function tileUrl(name, o) {
-    return 'valtile://' + name + '/{z}/{x}/{y}?lo=' + o.lo + '&hi=' + o.hi + (o.hl ? '&hl=' + o.hl.join(',') : '');
+    return 'valtile://' + name + '/{z}/{x}/{y}?lo=' + o.lo + '&hi=' + o.hi + (o.hl ? '&hl=' + o.hl.join(',') : '') +
+           (o.ilo || o.ihi ? '&ilo=' + (o.ilo || 0) + '&ihi=' + (o.ihi || 0) : '');
   }
 
   function valueAt(name, lng, lat, zoom) {
@@ -158,7 +166,11 @@ PH.ValueTiles = (function () {
     var R = rampOf(name);
     if (a == null) { a = 0; b = 1; }
     return 'linear-gradient(to right,' + R.stops.map(function (c, i) {
-      var t = R.at[i], p = m == null ? a + (b - a) * t : t < 0.5 ? a + (m - a) * t * 2 : m + (b - m) * (t * 2 - 1);
+      var t = R.at[i], p = m == null ? a + (b - a) * t : t < 0.5 ? a + (m[0] - a) * t * 2 : t > 0.5 ? m[1] + (b - m[1]) * (t * 2 - 1) : null;
+      if (p === null) {                       // the middle colour spans the neutral band
+        var mid = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',1.00) ';
+        return mid + (m[0] * 100).toFixed(2) + '%,' + mid + (m[1] * 100).toFixed(2) + '%';
+      }
       return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + ((c.length > 3 ? c[3] : 255) / 255).toFixed(2) + ') ' +
              (p * 100).toFixed(2) + '%';
     }).join(',') + ')';
