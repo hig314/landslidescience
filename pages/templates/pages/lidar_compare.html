@@ -175,7 +175,8 @@
       <label class="lock" data-ctl="locks"><input type="checkbox" data-lock="style">lock</label></span>
     <span class="grp" data-ctl="base"><label>Base</label><select id="bm"></select></span>
     <span class="grp" data-ctl="shadeop"><label>shading <span class="v" id="opv"></span></label><input type="range" id="op" min="0" max="100" step="1"></span>
-    <span class="grp" data-ctl="landslides"><label title="The landslide inventory, styled as on /inventory/ (dots everywhere, outlines once zoomed in). Every public record; the inventory's filters are not applied here."><input type="checkbox" id="lson"> Landslides</label></span>
+    <span class="grp" data-ctl="landslides"><label title="The landslide inventory, styled as on /inventory/ (dots everywhere, outlines once zoomed in). Every public record; the inventory's filters are not applied here."><input type="checkbox" id="lson"> Landslides</label>
+      <label title="The key under the panes (landslide colours, overlay scales). Off: the link, and a slide made from it, has none; an exported image still has it."><input type="checkbox" id="lgon" checked> Key</label></span>
     <span class="grp" data-ctl="overlays"><select id="ovadd" title="Overlays from /inventory/, shown in every pane, above the shading"></select>
       <span id="ovlist"></span></span>
     <span class="grp" data-ctl="panes"><label>Panes</label><select id="npanes"><option>1</option><option>2</option><option>3</option><option>4</option>
@@ -319,6 +320,7 @@
     // /inventory/ ids, with opacity 0-100. An id this page does not know is
     // dropped.
     S.ls = Q.get('ls') === '1';
+    S.nokey = Q.get('lg') === '0';               // lg=0: no key under the panes
     S.ov = {};
     (Q.get('ov') || '').split(',').forEach(function (t) {
       var m = /^([a-z0-9-]+)\.(\d+)$/.exec(t);
@@ -826,7 +828,7 @@
   }
   function legend() {
     var bl = legendBlocks(), el = $('legend');
-    el.style.display = bl.length ? 'flex' : 'none';
+    el.style.display = bl.length && !S.nokey ? 'flex' : 'none';
     el.innerHTML = bl.map(function (b) {
       return '<span class="lg">' + (b.head ? '<span class="lgh">' + esc(b.head) + '</span>' : '') + b.items.map(function (it) {
         if (it.kind === 'dot') {
@@ -1187,6 +1189,7 @@
       if (S.ls) lsLoad();
       P.forEach(sharedLayers); legend(); credits(); syncUrl();
     });
+    $('lgon').addEventListener('change', function () { S.nokey = !this.checked; legend(); syncUrl(); });
     $('ovadd').addEventListener('change', function () {
       var id = this.value; this.value = '';
       if (id && OVR.byId[id]) setOverlay(id, OVR.byId[id].defOpacity != null ? OVR.byId[id].defOpacity : 0.8);
@@ -2204,6 +2207,7 @@
     if (S.cols) q.set('cols', S.cols);
     var lk = Object.keys(S.locks); if (lk.length) q.set('lk', lk.join(','));
     if (S.ls) q.set('ls', 1);
+    if (S.nokey) q.set('lg', 0);
     var ov = ovOn().map(function (r) { return r.id + '.' + Math.round(S.ov[r.id] * 100); });
     if (ov.length) q.set('ov', ov.join(','));
     q.set('pn', P.map(function (p) {
@@ -2493,7 +2497,7 @@
     });
     $('ptitle').textContent = S.title || 'Untitled comparison'; docTitle();
     document.body.classList.toggle('clean', S.clean);
-    $('lson').checked = S.ls;
+    $('lson').checked = S.ls; $('lgon').checked = !S.nokey;
     if (S.ls) lsLoad();
     if (Object.keys(S.ov).length) rampsLoad();
     P.forEach(function (p, i) {
@@ -2545,7 +2549,7 @@
   // ---- boot ------------------------------------------------------------------
   if (Q.get('perf') === '1') { $('perf').style.display = ''; $('perflbl').style.display = ''; }
   fillBase(); loadSharedBases();
-  $('lson').checked = S.ls;
+  $('lson').checked = S.ls; $('lgon').checked = !S.nokey;
   if (S.ls) lsLoad();
   if (Object.keys(S.ov).length) rampsLoad();
   ovControls(); legend();
