@@ -21,6 +21,7 @@
  *                     resize it along its own sides. Not for a live figure; a rotated picture
  *                     cannot be cropped.
  *   arrows            nudge 1 px (Shift: 10); with nothing selected, previous / next slide
+ *   Esc, Shift-Cmd-A  select nothing (then the arrows change slide); Cmd-A selects everything
  *   double-click, Enter   retype a text box; Esc or a click elsewhere finishes
  *   Cmd-Z, Shift-Cmd-Z    undo, redo (per editing session)
  *   Cmd-C / X / V / D     copy, cut, paste, duplicate. A paste lands exactly where the
@@ -59,7 +60,8 @@
  *                     image outside crop mode scales the picture and its crop together.
  *
  * S opens the slide sorter: click, Shift-click (a range) or Cmd-click slides; drag to
- * reorder; Cmd-C / X / V / D and Delete work on slides; double-click or Enter opens one.
+ * reorder; Cmd-C / X / V / D and Delete work on slides; double-click or Enter opens one, and
+ * closing it (S, Esc, Done) goes to the slide clicked last.
  * In the slide view, Cmd-C with nothing selected copies the slide itself.
  * Copies cross decks: slides or elements copied in one deck paste into another (in another
  * tab or after opening it), and the images, movies and renders they use are copied into
@@ -81,7 +83,7 @@
   var RT = window.DECK_RT, deck = window.DECK, W = deck.width || 1920, H = deck.height || 1080;
   var on = false, sel = [], layer = null, bar = null, undo = [], redo = [], timer = 0;
   var mtime = RT.mtime, blocked = false, typing = null, drag = null;
-  var sorter = null, picks = [], anchor = null, sdrag = null;
+  var sorter = null, picks = [], anchor = null, sdrag = null, sLast = null;
   var using = null, liveAt = 0, asking = null;
   var cropping = null, opBefore = null, liveFor = null, cycled = null;
   var HERE = location.pathname.replace(/[^\/]*$/, "");
@@ -1598,18 +1600,28 @@
     if (yes && !sorter) {
       sorter = mk("div", "kn-ed-sorter", document.querySelector(".reveal"));
       sorter.addEventListener("pointerdown", sDown); sorter.addEventListener("pointermove", sMove);
-      sorter.addEventListener("pointerup", sUp); sorter.addEventListener("dblclick", function (ev) { var t = thumbAt(ev); if (t) { Reveal.slide(deck.slides.indexOf(t.knSlide)); openSorter(false); } });
+      sorter.addEventListener("pointerup", sUp);
       picks = [cur().s]; anchor = picks[0];
       drawSorter();
       var c = sorter.querySelector(".current"); if (c) c.scrollIntoView({ block: "center" });
-    } else if (!yes && sorter) { sorter.remove(); sorter = null; prepare(); draw(); fmtFill(); }
+    } else if (!yes && sorter) {           // closing: to the slide clicked last, if one is selected
+      var to = picks.indexOf(anchor) >= 0 ? anchor : picks[picks.length - 1], j = to ? deck.slides.indexOf(to) : -1;
+      sorter.remove(); sorter = null;
+      if (j >= 0 && j !== cur().i) Reveal.slide(j);
+      prepare(); draw(); fmtFill();
+    }
   }
   function thumbAt(ev) { var t = ev.target; while (t && t !== sorter && !t.knSlide) t = t.parentNode; return t && t.knSlide ? t : null; }
   function sDown(ev) {
     var t = thumbAt(ev);
     if (ev.button) return;
     if (!t) { picks = []; drawSorter(); return; }
-    var s = t.knSlide, i = deck.slides.indexOf(s);
+    var s = t.knSlide, i = deck.slides.indexOf(s), now = Date.now();
+    // a double-click opens the slide (found from two presses: the thumbnails are redrawn on each, so the browser sends no click)
+    if (sLast && sLast.s === s && now - sLast.t < 450 && Math.abs(ev.clientX - sLast.x) + Math.abs(ev.clientY - sLast.y) < 8 && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey) {
+      sLast = null; picks = [s]; anchor = s; openSorter(false); return;
+    }
+    sLast = { s: s, t: now, x: ev.clientX, y: ev.clientY };
     sdrag = { x: ev.clientX, y: ev.clientY, s: s, plain: !ev.shiftKey && !ev.metaKey && !ev.ctrlKey, was: picks.indexOf(s) >= 0, moved: false, to: null };
     if (ev.shiftKey && anchor) { var a = deck.slides.indexOf(anchor); picks = deck.slides.slice(Math.min(a, i), Math.max(a, i) + 1); }
     else if (ev.metaKey || ev.ctrlKey) { if (sdrag.was) picks = picks.filter(function (x) { return x !== s; }); else picks.push(s); anchor = s; }
@@ -1644,10 +1656,11 @@
       if (ev.shiftKey && anchor) { var a = deck.slides.indexOf(anchor); picks = deck.slides.slice(Math.min(a, j), Math.max(a, j) + 1); if (a > j) picks.reverse(); }
       else { picks = [s]; anchor = s; }
       drawSorter(); sorter.children[j].scrollIntoView({ block: "nearest" }); }
-    if (cmd && k === "a") { picks = deck.slides.slice(); drawSorter(); }
+    if (cmd && ev.shiftKey && (k === "a" || k === "A")) { picks = []; drawSorter(); }
+    else if (cmd && k === "a") { picks = deck.slides.slice(); drawSorter(); }
     else if (cmd) return false;
     else if (k === "s" || k === "S" || k === "Escape") openSorter(false);
-    else if (k === "Enter") { Reveal.slide(i); openSorter(false); }
+    else if (k === "Enter") { picks = [deck.slides[i]]; anchor = picks[0]; openSorter(false); }
     else if (k === "Backspace" || k === "Delete") removeSlides();
     else if (k === "ArrowLeft") pick(i - 1); else if (k === "ArrowRight") pick(i + 1);
     else if (k === "ArrowUp") pick(i - per); else if (k === "ArrowDown") pick(i + per);
@@ -1934,6 +1947,7 @@
     else if (cmd && (k === "c" || k === "x" || k === "v")) done = false;      // the copy / cut / paste events below
     else if (cmd && k === "d") paste(copy());
     else if (sorter) done = sKey(ev, cmd, k);
+    else if (cmd && ev.shiftKey && (k === "a" || k === "A")) { sel = []; draw(); }     // deselect all (as Esc)
     else if (cmd && k === "a") { sel = cur().s.elements.slice(); draw(); }
     else if (cmd && ev.altKey && ev.code === "KeyG") { if (ev.shiftKey) ungroup(); else group(); }
     else if (ev.altKey && !cmd && sel.length && /^Arrow/.test(k)) {        // Alt-arrow: a copy, nudged (Shift: by 10)
