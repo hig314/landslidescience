@@ -132,6 +132,11 @@ body:not(.kn-editing) .kn-ed-bar { display: none; }
 .kn-ed-notice { position: fixed; left: 50%; top: 40px; transform: translateX(-50%); z-index: 3000; max-width: 640px; padding: 12px 16px;
   border-radius: 8px; background: #b3261e; color: #fff; font: 600 14px/1.45 -apple-system, "Helvetica Neue", Arial, sans-serif; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); }
 .kn-ed-notice button { margin: 10px 8px 0 0; padding: 5px 12px; font: inherit; color: #b3261e; background: #fff; border: 0; border-radius: 5px; cursor: pointer; }
+/* offline editing (blue): changes kept on this device. Not shown while presenting (the talk may well be given offline) */
+.kn-ed-notice.kn-ed-off { background: #1d5fbf; left: auto; right: 12px; transform: none; max-width: 380px; padding: 9px 12px; font-size: 13px; }
+.kn-ed-notice.kn-ed-off button { color: #1d5fbf; }
+body:not(.kn-editing) .kn-ed-notice.kn-ed-off { display: none; }
+.kn-ed-notice.kn-ed-ok { background: #2e7d32; }
 
 /* shapes: a path's points, the path being drawn, the Style panel */
 .reveal .kn-ed-h.kn-ed-pt { border-radius: 50%; background: #ffb02e; border-color: #fff; cursor: move; }

@@ -142,10 +142,10 @@
   // does a real conflict (the deck saved from another tab or window), with the choice of
   // which version to keep. Leaving the page with unsaved changes asks first.
   var saving = false, again = false, pending = false, failed = 0, retry = 0, since = 0, note = null;
-  function notice(text, buttons) {         // a red box under the bar, also after Done; no text: gone
+  function notice(text, buttons, kind) {   // a box under the bar, also after Done (red; kind "off": blue, "ok": green); no text: gone
     if (note) { note.remove(); note = null; }
     if (!text) return;
-    note = mk("div", "kn-ed-notice", document.body);
+    note = mk("div", "kn-ed-notice" + (kind ? " kn-ed-" + kind : ""), document.body);
     mk("div", "", note, text);
     (buttons || []).forEach(function (b) { var n = mk("button", "", note, b[0]); n.title = b[1]; n.onclick = b[2]; });
   }
@@ -153,14 +153,67 @@
   function conflict() {
     blocked = true;
     status("Not saved", true);
-    notice("NOT SAVED. This deck was saved from somewhere else (another tab or window?) after this page loaded it. Nothing done here since " + clock(since || Date.now()) + " is saved.", [
+    notice("NOT SAVED. This deck was saved from somewhere else (another tab, window or device?) after " +
+      (held ? "the changes kept on this device began" : "this page loaded it") + ". Nothing done here since " + clock(since || Date.now()) + " is saved.", [
       ["Keep this page's version", "Save what is on this page over the other version (which is kept in the deck's history)", function () { save(true); }],
-      ["Reload: take the other version", "Give up the changes made on this page since then", function () { pending = false; location.reload(); }]]);
+      ["Reload: take the other version", "Give up the changes made on this page since then", function () { drop().then(function () { pending = false; location.reload(); }); }]]);
   }
+  // ---- offline editing ----
+  // A save that cannot reach the server keeps the whole deck on this device instead (RT.store,
+  // IndexedDB, set up by deck.js, which loads it back at the next start, with or without a
+  // connection), and so does a picture added meanwhile (file:<path>, shown through RT.blobs).
+  // A blue box says so for as long as it lasts. It is sent when the connection is back (the
+  // browser's "online", or the next try): the pictures first, then the deck, based on the
+  // version the device's copy began from; one changed elsewhere meanwhile is the conflict above.
+  var offline = false, held = null, upFiles = (RT.unsentFiles || []).slice();
+  if (RT.unsent) { offline = true; held = RT.unsent.text; pending = true; since = RT.unsent.since || RT.unsent.at; }
+  function offNote() {
+    var t = "OFFLINE EDITING. The site cannot be reached, so changes are kept on this device" +
+      (held ? " (last kept " + clock(RT.keptAt || Date.now()) + ")" : "") + " and sent when the connection is back. " +
+      "Keep using this browser: other devices do not see them until then.";
+    notice(t, [["Try now", "Send to the site now", function () { save(); }]], "off");
+    status("Offline: kept on this device", true);
+  }
+  function keep() {                        // the deck as it is now, on this device
+    var text = dump();
+    if (text === held) return Promise.resolve(true);
+    return RT.store.put("unsent", { text: text, base: mtime, at: Date.now(), since: since }).then(function () {
+      held = text; RT.keptAt = Date.now(); return true;
+    }, function () { return false; });
+  }
+  function drop() {                        // the device's copy is not needed any more
+    var ks = upFiles.slice();
+    held = null; offline = false; upFiles = [];
+    return Promise.all([RT.store.del("unsent")].concat(ks.map(function (k) { return RT.store.del("file:" + k); }))).catch(function () {});
+  }
+  function goOffline(why) {                // the server cannot be reached: keep, say so, try again
+    failed++; again = false; offline = true;
+    keep().then(function (ok) {
+      if (ok) offNote();
+      else notice("NOT SAVED since " + clock(since) + ": " + why + " This browser could not keep a copy either: keep this page open.", [["Try now", "", function () { save(); }]]);
+    });
+    clearTimeout(retry);
+    retry = setTimeout(save, Math.min(15000, 3000 * failed));
+  }
+  function upload() {                      // pictures added offline, one at a time
+    if (!upFiles.length) return Promise.resolve();
+    var p = upFiles[0];
+    return RT.store.get("file:" + p).then(function (b) {
+      if (!b) { upFiles.shift(); return; }
+      return fetch(p, { method: "PUT", body: b, headers: csrf({ "Content-Type": b.type || "application/octet-stream" }) }).then(function (r) {
+        if (!r.ok) { var e = new Error("the server answered " + r.status + " for " + p); e.status = r.status; throw e; }
+        upFiles.shift();
+        return RT.store.del("file:" + p);
+      });
+    }).then(upload);
+  }
+  window.addEventListener("online", function () { if (offline || failed) save(); });
+  window.addEventListener("offline", function () { if (on && !offline) { offline = true; if (pending) keep(); offNote(); } });
   function fail(why) {
     failed++; again = false;
+    keep();                                // (a copy on this device whatever went wrong)
     status("Not saved", true);
-    notice("NOT SAVED since " + clock(since) + ": " + why + " Trying again every few seconds; keep this page open.",
+    notice("NOT SAVED to the site since " + clock(since) + ": " + why + " The changes are kept on this device meanwhile. Trying again every few seconds.",
       [["Try now", "", function () { save(); }]]);
     clearTimeout(retry);
     retry = setTimeout(save, Math.min(20000, 2000 * failed));
@@ -170,26 +223,40 @@
     if (force !== true) force = false;     // (also called by timers, with their own argument)
     if (blocked && !force) return;
     if (saving) { again = true; return; }
+    if (navigator.onLine === false) { goOffline("no connection."); return; }
     saving = true; again = false;
-    var head = csrf(mtime && !force ? { "X-Base-Mtime": mtime } : {});
-    return fetch("deck.json", { method: "PUT", body: dump(), headers: head }).then(function (r) {
+    var head = csrf(mtime && !force ? { "X-Base-Mtime": mtime } : {}), back = offline || !!held;
+    return upload().then(function () {
+      return fetch("deck.json", { method: "PUT", body: dump(), headers: head });
+    }).then(function (r) {
       saving = false;
       if (r.status === 204 || r.status === 200) {
         mtime = r.headers.get("X-Mtime") || mtime;
         failed = 0; blocked = false; notice(null);
+        if (back) {
+          drop();
+          notice("Back online: the changes kept on this device are saved on the site.", [], "ok");
+          setTimeout(function () { if (note && note.classList.contains("kn-ed-ok")) notice(null); }, 6000);
+        }
         if (again) save();
         else if (!timer) { pending = false; since = 0; status("Saved"); }
         if (r.status === 200) r.json().then(function (j) { if (j && j.files) RT.files(j.files); }).catch(function () {});   // the site: how to ask for each picture now
       }
-      else if (r.status === 409) conflict();
+      else if (r.status === 409) { keep(); conflict(); }
       else if (r.status === 403) fail("the site refused it (403). You may have been signed out: sign in again in another tab.");
+      else if (r.status >= 502 && r.status <= 504) { saving = false; goOffline("the site is not answering (" + r.status + ")."); }
       else fail("the server answered " + r.status + ".");
-    }).catch(function () { saving = false; fail("the server did not answer."); });
+    }).catch(function (e) {
+      saving = false;
+      if (e && e.status === 403) fail("the site refused a picture (403). You may have been signed out: sign in again in another tab.");
+      else if (e && e.status) fail(e.message + ".");
+      else goOffline("the site did not answer.");
+    });
   }
   function touch() {
     if (!pending) { pending = true; since = Date.now(); }
-    if (blocked) { conflict(); return; }
-    status(failed ? "Not saved" : "Saving…", !!failed);
+    if (blocked) { keep(); conflict(); return; }
+    status(offline ? "Offline: kept on this device" : failed ? "Not saved" : "Saving…", offline || !!failed);
     clearTimeout(timer); timer = setTimeout(save, 500);
   }
 
@@ -1886,11 +1953,19 @@
     Promise.all(files.map(function (f) {
       return measure(f).then(function (d) {
         var name = "assets/" + assetName(f);
+        function kept() {                  // no connection: kept on this device, sent with the deck when it is back
+          return RT.store.put("file:" + name, f).then(function () {
+            RT.blobs[name] = URL.createObjectURL(f); upFiles.push(name);
+            return { src: name, w: d.w, h: d.h };
+          }, function () { throw new Error("there is no connection, and this browser could not keep the picture"); });
+        }
+        if (offline || navigator.onLine === false) return kept();
         return fetch(name, { method: "PUT", body: f, headers: csrf({ "Content-Type": f.type || "application/octet-stream" }) }).then(function (r) {
           if (r.status === 413) throw new Error((f.name || "the image") + " is too large to store (50 MB at most)");
+          if (r.status >= 502 && r.status <= 504) return kept();
           if (!r.ok) throw new Error("the server answered " + r.status);
           return { src: name, w: d.w, h: d.h };
-        });
+        }, kept);
       });
     })).then(function (got) {
       if (cur().s !== slide) { status("The slide changed before the image arrived. Add it again.", true); return; }
@@ -2106,7 +2181,7 @@
     window.addEventListener("resize", function () { if (on) setTimeout(draw, 50); });
     window.addEventListener("beforeunload", function (ev) {
       if (timer) save();
-      if (pending && (blocked || failed)) { ev.preventDefault(); ev.returnValue = ""; }     // the browser asks before leaving
+      if (pending && (blocked || failed) && !(held && !timer && !saving && held === dump())) { ev.preventDefault(); ev.returnValue = ""; }     // the browser asks before leaving, unless this device has it all
     });
   }
   function toggle() {
@@ -2125,11 +2200,24 @@
     liveFor = null;
     if (drawing) { drawing = null; layer.classList.remove("kn-ed-drawing"); }
     shpSync(); txtSync();
-    if (on) { prepare(); draw(); status(blocked || failed ? "Not saved" : "", blocked || !!failed); }
+    if (on) {
+      prepare(); draw(); status(blocked || failed ? "Not saved" : "", blocked || !!failed);
+      if (navigator.onLine === false || offline) { offline = true; offNote(); }
+    }
     else {
       var fr = cur().sec.querySelector("iframe.kn-live");       // back to the step the talk is at
       if (fr && RT.liveLoaded) RT.liveLoaded(fr);
       layer.remove(); if (timer) save(); }
   }
-  toggle();
+  if (RT.quiet) {                          // loaded by deck.js to send changes kept on this device: not opened
+    RT.quiet = false;
+    document.addEventListener("keydown", function first(ev) {
+      if (layer || ev.metaKey || ev.ctrlKey || ev.altKey || (ev.key !== "e" && ev.key !== "E") || /^(INPUT|TEXTAREA)$/.test(ev.target.tagName)) return;
+      document.removeEventListener("keydown", first);
+      toggle();
+    });
+    offNote();
+    if (RT.unsentStale) { blocked = true; conflict(); }
+    else setTimeout(save, 1500);
+  } else toggle();
 })();

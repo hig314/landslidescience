@@ -383,6 +383,9 @@ _SHELL = '''<!DOCTYPE html>
 '''
 _RT_FILES = ('lib/deck.js', 'lib/deck.css', 'lib/offline.js', 'vendor/reveal.js/dist/reveal.js',
              'vendor/reveal.js/dist/reveal.css', 'fonts/fonts.css')
+# A draft (seen only by its owner) also keeps the editor and the owner's menu, so that it can
+# be edited with no connection (the runtime keeps the changes on the device until it is back).
+_EDIT_FILES = ('lib/editor.js', 'lib/editor.css', 'lib/sitemenu.js')
 
 
 def _tag(path):
@@ -500,7 +503,7 @@ def _queries(name, deck):
     return out
 
 
-def _files(name, deck):
+def _files(name, deck, editing=False):
     """Everything a browser needs to show this deck with no connection:
     [[path, bytes, tag, query], ...] for the service worker. Paths are
     relative to the deck, or from the site root for the shared runtime.
@@ -526,7 +529,7 @@ def _files(name, deck):
                 p = Path(root) / f
                 if not f.startswith('.'):
                     out.append([p.relative_to(folder).as_posix()] + _tag(p))
-    rt = list(_RT_FILES)
+    rt = list(_RT_FILES) + (list(_EDIT_FILES) if editing else [])
     used = set()
     for s in deck.get('slides', []):
         for e in s.get('elements', []):
@@ -699,7 +702,7 @@ def serve(request, name, rest=''):
         resp['Cache-Control'] = 'private, no-store'
         return resp
     elif rest == 'sw.js':
-        files = _files(name, _json(name, 'deck.json') or {})
+        files = _files(name, _json(name, 'deck.json') or {}, editing=owner and not pub)
         version = hashlib.sha1(json.dumps(files).encode()).hexdigest()[:12]
         sw = (RT / 'lib' / 'sw.js').read_text()
         sw = sw.replace('"__VERSION__"', json.dumps(version)).replace('__FILES__;', json.dumps(files) + ';', 1)

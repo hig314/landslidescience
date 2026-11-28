@@ -72,7 +72,7 @@
   "use strict";
   var W = 1920, H = 1080, deck = null;
   var BASE = (document.currentScript && document.currentScript.src || "").replace(/[^\/]*$/, "");   // lib/
-  var RT = window.DECK_RT = { editing: false };      // what lib/editor.js works through
+  var RT = window.DECK_RT = { editing: false, blobs: {} };      // what lib/editor.js works through
   var slidesEl = document.querySelector(".reveal .slides");
 
   function el(tag, cls, parent) {
@@ -94,6 +94,7 @@
   // the browser may keep it for good, and the width of the display copy to send).
   var AHEAD = [0, 1, -1, 2, 3, -2], busy = null, idle = false, mark = null, markTimer = 0;
   function url(p) {
+    if (RT.blobs[p]) return RT.blobs[p];   // a picture added offline, not on the server yet (see "this device's copy")
     var q = deck && deck.site && deck.site.files && deck.site.files[p];
     return q ? p + "?" + q : p;
   }
@@ -581,7 +582,7 @@
         if (ev.key !== "e" && ev.key !== "E" || ev.metaKey || ev.ctrlKey || ev.altKey || RT.editorLoaded) return;
         if (/^(INPUT|TEXTAREA)$/.test(ev.target.tagName)) return;
         if (deck.site && !deck.site.edit) {
-          if (deck.site.owner) say(RT.notesMissing ? "The presenter notes could not be loaded, so editing is off: reload with a connection." :
+          if (deck.site.owner) say(RT.notesMissing ? "The presenter notes could not be loaded, so editing is off: reload with a connection (once it has been opened with one, this device can edit it offline)." :
             "A published deck is not edited in place. Make a copy to revise it: /decks/");
           return;
         }
@@ -649,15 +650,79 @@
     });
   }
 
+  // ---- this device's copy (IndexedDB "kn-decks", keys prefixed with the deck's folder) ----
+  // Kept by lib/editor.js when a save cannot reach the server (offline editing):
+  //   unsent        {text: the whole deck.json, base: X-Mtime it was based on, at, since}
+  //   file:<path>   a picture added offline (a Blob), shown through RT.blobs until it is sent
+  //   notes         the owner's notes as last loaded, so that the deck can be edited offline
+  // At the start an unsent copy is used instead of the deck that came (from the server or the
+  // offline copy), unless the server's is newer than the one it was based on: then it is used
+  // all the same and the editor's first save meets the usual conflict (keep it, or drop it).
+  var FOLDER = location.pathname.replace(/[^\/]*$/, ""), DB = null;
+  function idb(mode, fn) {
+    if (!DB) DB = new Promise(function (ok, no) {
+      if (!window.indexedDB) { no(new Error("no IndexedDB")); return; }
+      var q = indexedDB.open("kn-decks", 1);
+      q.onupgradeneeded = function () { q.result.createObjectStore("kv"); };
+      q.onsuccess = function () { ok(q.result); };
+      q.onerror = function () { no(q.error); };
+    });
+    return DB.then(function (d) {
+      return new Promise(function (ok, no) {
+        var t = d.transaction("kv", mode), r = fn(t.objectStore("kv"));
+        t.oncomplete = function () { ok(r ? r.result : undefined); };
+        t.onerror = t.onabort = function () { no(t.error); };
+      });
+    });
+  }
+  RT.store = {
+    get: function (k) { return idb("readonly", function (st) { return st.get(FOLDER + k); }); },
+    put: function (k, v) { return idb("readwrite", function (st) { st.put(v, FOLDER + k); }); },
+    del: function (k) { return idb("readwrite", function (st) { st.delete(FOLDER + k); }); },
+    keys: function (pre) {
+      return idb("readonly", function (st) { return st.getAllKeys(IDBKeyRange.bound(FOLDER + pre, FOLDER + pre + "\uffff")); })
+        .then(function (ks) { return (ks || []).map(function (k) { return k.slice(FOLDER.length); }); });
+    }
+  };
+  RT.newer = function (a, b) {             // is version a (X-Mtime, nanoseconds as text) later than b
+    a = String(a || ""); b = String(b || "");
+    return a.length !== b.length ? a.length > b.length : a > b;
+  };
+  function local(d) {                      // the deck as this device has it
+    if (d.published || (d.site && !d.site.edit)) return Promise.resolve(d);
+    return RT.store.keys("file:").then(function (ks) {
+      return Promise.all(ks.map(function (k) {
+        return RT.store.get(k).then(function (b) { if (b) { RT.blobs[k.slice(5)] = URL.createObjectURL(b); RT.unsentFiles = (RT.unsentFiles || []).concat(k.slice(5)); } });
+      }));
+    }).then(function () { return RT.store.get("unsent"); }).then(function (u) {
+      if (!u || !u.text) return d;
+      var mine = JSON.parse(u.text);
+      if (d.site) mine.site = d.site;
+      RT.unsent = u;
+      RT.unsentStale = RT.newer(RT.mtime, u.base);       // changed on the server since: the editor will ask
+      RT.mtime = u.base;
+      return mine;
+    }).catch(function () { return d; });
+  }
   fetch("deck.json", { cache: "no-store" }).then(function (r) { RT.mtime = r.headers.get("X-Mtime"); return r.json(); }).then(function (d) {
     if (!d.site || !d.site.owner) return d;
     // the owner's notes, before anything is drawn: the editor saves the whole deck, notes included
     return fetch("notes.json", { cache: "no-store" }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).then(function (n) {
+      RT.store.put("notes", n).catch(function () {});
+      return n;
+    }, function () {                       // no connection: the notes this device last had
+      return RT.store.get("notes").then(function (n) { if (!n) throw new Error("none kept"); RT.notesKept = true; return n; });
+    }).then(function (n) {
       d.slides.forEach(function (s, i) { if (n[i] != null) s.notes = n[i]; });
       return d;
     }).catch(function () { RT.notesMissing = true; d.site.edit = false; return d; });     // never save a deck whose notes are absent
-  }).then(function (d) {
+  }).then(local).then(function (d) {
     deck = d; window.DECK = d; start();
+    if (RT.unsent && !RT.editorLoaded) {   // changes kept on this device: the editor sends them (without opening)
+      RT.editorLoaded = RT.quiet = true;
+      var css = el("link", "", document.head); css.rel = "stylesheet"; css.href = BASE + "editor.css";
+      el("script", "", document.body).src = BASE + "editor.js";
+    }
   }).catch(function (e) {
     document.body.innerHTML = '<p style="color:#fff;font:20px sans-serif;padding:40px">Could not load deck.json: ' + e + "</p>";
   });
