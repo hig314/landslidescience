@@ -39,8 +39,7 @@ topic for after the restart.
   it (runserver serves /static/ before middleware); `runserver --nostatic`
   + WhiteNoise would, not done.
 - Uncommitted on purpose: the `docker-compose.override.yml` Nunatak pmtiles
-  mount (local-only), `logs/`, the two `_scoops_core.so` builds,
-  `inventory/DECK_EMBED.md` (another session's).
+  mount (local-only), `logs/`, the two `_scoops_core.so` builds.
 
 Carried from 2026-11-21, **not re-checked** this session:
 
@@ -307,7 +306,7 @@ In no particular order.
   out), deck protocol. Comparison design in docs/LIDAR.md (end of the
   terrain comparison section); the inventory's in docs/MAP_UI.md (*Embeds
   and control subsets*), which lists what the first pass leaves out. The
-  deck's brief is `inventory/DECK_EMBED.md` (untracked, Hig's). Test page:
+  deck's brief is `inventory/DECK_EMBED.md` (committed 2026-11-28). Test page:
   `~/Claude_projects/Presentation/tools/serve.py` then
   `http://127.0.0.1:8792/tools/embed_test.html?src=http://localhost:8001/inventory/?embed=1`.
   Checked in a browser on dev: embed page, a pared-down `ui=`, deck steps

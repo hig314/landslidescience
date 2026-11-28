@@ -1,8 +1,10 @@
 # The inventory map as a live slide: what the deck needs from this page
 
 Written 2026-11-22 from the Presentation project (`~/Claude_projects/Presentation`, private
-repo `hig314/presentation`) as a brief for work done here. Nothing in this repo has been
-changed; this file is the only thing added, and it is not committed.
+repo `hig314/presentation`) as a brief for work done here. At the time nothing else in
+this repo had been changed. The work it asks for has since been built and deployed, and
+the file was committed on 2026-11-28 as the record of the brief; the current state is in
+docs/MAP_UI.md, docs/LIDAR.md, docs/DECKS.md and docs/STATE.md, which win where they differ.
 
 **Added 2026-11-22: Part 2, at the end of this file**, covers serving finished decks from
 this site at `/decks/<name>/` (decided by Hig that day), drafts, presenter notes, and what
