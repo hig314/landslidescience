@@ -35,6 +35,8 @@ PH.ValueTiles = (function () {
     continuous: [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]],
     log: [[247, 251, 255], [158, 202, 225], [49, 130, 189], [8, 48, 107], [63, 0, 125]],
     diverging: [[33, 102, 172], [146, 197, 222], [247, 247, 247], [244, 165, 130], [178, 24, 43]],
+    // ground lost and gained: purple below zero, green above (ColorBrewer PRGn), white at no change
+    change: [[64, 0, 75], [153, 112, 171], [247, 247, 247], [90, 174, 97], [0, 68, 27]],
     // a factor of safety: dark red at `lo`, through red and orange to yellow, fading to nothing at `hi`,
     // so the range typed or dragged is the range the warm colours cover and ground above it is left clear
     // (a fourth number in a stop is its opacity, 0-255)
