@@ -92,6 +92,7 @@ by curl, by API or not at all.
 
 One line each, newest first; detail is in the `docs/` file named.
 
+- 2026-11-27 · Drawing: a polygon or trace finishes on a quick double-click or Enter, not on a slow click near its first/last vertex; a newly drawn polygon keeps its selection between vertex drags; midpoint handles drag directly (`td_tweaks.js`, d267632). Tested with synthetic events against the library; Hig tried it in dev; the signed-in prod forms were not checked · docs/RECORDS.md
 - 2026-11-25 · `/probability/` (new app): hosts hazard analyses built in the ProbHaz repository; first project `/probability/homer/`, unpublished (sign-in, data proxied from the private bucket) · docs/PROBABILITY.md
 - 2026-11-25 · Susceptibility overlays purple (InSAR arm) instead of yellow-red, from recoloured `susc_*_purple` archives on R2 (50de5ee); DGGS row has a colour key; dark glow under every landslide dot, always on (975313d) · docs/OVERLAYS.md *Susceptibility*, docs/MAP_UI.md
 - 2026-11-25 · Schaefer 2026 overlay restyled: hard yellow outline, no fill, dark casing (registry `style`) (60e668c) · docs/EXTERNAL_INVENTORIES.md

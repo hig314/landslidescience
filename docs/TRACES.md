@@ -61,8 +61,10 @@ the last vertex, or on a vertex already drawn the line ends as it is
 (`finishSecondary`: it takes the click from Terra Draw, ends Terra Draw's line
 by switching modes, and saves through the same `saveNew` as Terra Draw's own
 finish; the contextmenu that follows is swallowed, not a coordinate copy).
-Terra Draw alone ends a line only on a click within `pointerDistance` of its
-last vertex. **Choosing a group for new lines takes the kind of the group's
+Terra Draw alone ends a line on any click within `pointerDistance` of its
+last vertex; since 2026-11-27 that click must be the second of a quick
+double-click (`LSTerraDraw.decisiveFinish` in `td_tweaks.js`, see
+docs/RECORDS.md), and a slow click there is ignored. **Choosing a group for new lines takes the kind of the group's
 most recent trace** (a group nearly always holds one kind; the kind can still
 be changed after). "Line in progress" = a LineString in Terra
 Draw's snapshot not yet seen by its `finish` event (it has no flag of its own).
@@ -132,7 +134,7 @@ Mapping landslides on the lidar surfaces turns up scarps that are **not** landsl
 - **Reads are public, writes are editor-only** (`inventory/scarps.py`; `api_scarps` is open, create/update behind `inventory_editor_required`). The first cut kept reads editor-only on the argument that a half-formed "possible scarp?" reads as a claim; Hig decided (2026-09-20) the traces are shown to everyone by default, labelled in the panel as working observations, not a fault map. Everyone gets the layer, the show/hide toggle and the read-only note; only editors get trace/save/delete. A `published` column is still the route if one ever needs hiding.
 - Endpoints: `api/scarps/` (list, optional `?bbox=`; **optional on purpose**, a forgotten bbox returning 400 was a real trap in the reviser), `api/scarps/create/`, `api/scarps/<id>/` (notes and/or geometry; `{"delete":true}` removes). Writes go through `_SCARP_GEOM_EXPR`, mirroring the polygons' `_GEOM_WRITE_EXPR` but with `ST_CollectionExtract(…, 2)` for lines, so the column stays MultiLineString whatever the client sends. Lines under 5 m are refused with their measured length; a polygon is refused as "not a line".
 - Client `inventory/static/inventory/js/scarps.js` (layers, Terra Draw session, API) + `map.js` (`_scarpInit`, `_scarpOpenPanel`, `_scarpShowPopup`). **No Analysis entry and no card**: same pattern and placement as the landslide draw tool. **Tracing starts from the ✏ pencil**, which asks *Landslide polygons* or *Scarp traces* (`DrawModeControl.choose()` / `activate(kind)`): both kinds are the one `LSTools` mode `draw`, so the polygon tool, the tracer, measure and InSAR are mutually exclusive, and the reviser is checked by hand on the way in (it is not a tool-group mode). In a session a bottom-right `.inv-draw-panel` holds the count, the selected trace's note (save/delete) and Exit; draw → saves immediately and selects itself → write the note. Outside a session, for everyone, clicking a line opens a popup with the note and who traced it. Purple dashed lines with a wide transparent hit layer (a 2 px click target is not usable).
-- **`pointerDistance: 8` is load-bearing**, same as the polygon tool: Terra Draw's default of 40 px means a click within 40 px of the previous vertex *finishes* the line, so at normal tracing spacing you get a string of single segments instead of a path. `Enter` finishes, `Escape` cancels, and double-click zoom is disabled while tracing (double-click also finishes).
+- **`pointerDistance: 8` is load-bearing**, same as the polygon tool: Terra Draw's default of 40 px means a click within 40 px of the previous vertex *finishes* the line, so at normal tracing spacing you get a string of single segments instead of a path. `Enter` finishes, `Escape` cancels, and double-click zoom is disabled while tracing. A double-click finishes; a single slow click back on the last vertex no longer does (`td_tweaks.js` `decisiveFinish`, 2026-11-27).
 
 Deliberately thin. Certainty, sense of motion, or a link to a USGS fault id are `ALTER TABLE ADD COLUMN` away, which is why the migration is written to be re-run.
 

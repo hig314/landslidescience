@@ -69,6 +69,7 @@ one is silent.
   Basemaps and tile-URL transforms: `basemaps.js`. Colours and point styling:
   `ls_colors.js`. Glacier overlays: `ls_overlays.js`. Who owns a click, drag,
   cursor, Escape: `ls_tools.js` (register, never another `map.on('click')`).
+  Corrections to Terra Draw's own clicks and drags: `td_tweaks.js`.
   URL state: `ls_hash.js` + the `_VIEW_PARAMS` table in `map.js`. Filterable
   landslide properties: `_FILTER_PROPS_SQL` in `views.py` (feeds points and
   polygons). Public visibility: `views.public_landslide_filter`. Layer
