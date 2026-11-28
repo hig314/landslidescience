@@ -70,12 +70,23 @@ in the site backup: once a deck is edited here, this is its only copy.
 - **Offline copy.** A deck registers a service worker scoped to its folder
   (`sw.js`, generated per request from `decks_rt/lib/sw.js` and the deck's file
   list) and keeps its files in the browser, so a talk does not depend on the
-  venue's network. Editing needs a connection. A saved copy opens offline
+  venue's network. A saved copy opens offline
   without asking the server, so on a borrowed computer a draft stays readable
   there until the browser's site data is cleared; online, a 404 from the
-  server wins over the saved copy. Notes are never saved. Only pictures and
+  server wins over the saved copy. Notes are never in the service worker's
+  cache. Only pictures and
   movies a slide names are saved; large files arrive in 2 MB byte-range pieces
-  so an interrupted save resumes.
+  so an interrupted save resumes. A draft's copy (seen only by its owner) also
+  keeps the editor (`_EDIT_FILES`).
+- **Offline editing.** On a draft the owner has opened once with a connection,
+  a save that cannot reach the site keeps the whole deck in the browser's
+  IndexedDB (`kn-decks`), with pictures added meanwhile; a blue "Offline
+  editing" box says so. The runtime loads that copy back at the next start and
+  sends it when the connection returns (pictures, then `deck.json` with the
+  `X-Base-Mtime` it began from, so a deck changed elsewhere meanwhile is the
+  usual 409 choice). To make that possible the owner's notes are kept in the
+  same IndexedDB on every load: on a borrowed computer, clear the site's data
+  afterwards.
 - **Practice (live maps offline).** A deck's map figures are this site's own
   pages in frames (`/inventory/?embed=1`, `/lidar/compare/?…&embed=1`), which
   the deck's worker cannot reach. When the owner switches Practice on (the ☰
