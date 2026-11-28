@@ -58,3 +58,5 @@ The shading library and `dem_shade_bridge.js` are the site's own copies under
     # then the ordinary push + deploy for the code
 
 Data and code deploy separately: a data-only change needs no site deploy.
+A new layer is data only (tiles + `tiles.json`, as the Homer debris-flow example layers `df_woodard_*`
+of 2026-11-28 were); a new colour ramp is code (`value_tiles.js`, as `change`, purple-green, was) and needs the deploy.
