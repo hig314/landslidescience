@@ -52,7 +52,7 @@
  *                     every selected shape: fill and line colour (or None), their opacity, line
  *                     width and style, a box's corners, a path's arrowheads and whether it is
  *                     closed. New shapes take the style last set there.
- *   Crop              (bar, double-click an image, or Enter on one) the image's frame becomes a
+ *   Crop              (bar, double-click an image where no text lies on it, or Enter on one) the image's frame becomes a
  *                     mask: the handles move the mask's edges over the image, which stays where it
  *                     is and shows faintly beyond them; dragging inside, or the arrows, slide the
  *                     image under the mask. Enter, Esc or a click elsewhere finishes. Resizing an
@@ -807,13 +807,13 @@
     var gm = hits(point(ev)).filter(function (x) { return sel.indexOf(x) >= 0; })[0];
     if (gm && gm.group && sel.length > 1) { sel = [gm]; draw(); status("One member of the group. Click another to have the group again."); return; }
     var top = hits(point(ev)).filter(function (x) { return sel.indexOf(x) >= 0; })[0] || hits(point(ev))[0];
+    var tx = hits(point(ev)).filter(function (x) { return x.type === "text"; })[0];
+    if (tx && !(top && top.type === "shape" && top !== tx)) { sel = [tx]; retype(tx); return; }   // text under the pointer: its words, even below a picture (crop: the bar's Crop)
     if (top && top.type === "image" && !top.rot) { crop(top); return; }
     if (top && top.type === "shape") {    // a shape: its Style panel
       if (sel.indexOf(top) < 0) sel = unit(top);
       shpWant = true; draw(); return;
     }
-    var e = hits(point(ev)).filter(function (x) { return x.type === "text"; })[0];
-    if (e) { sel = [e]; retype(e); }
   }
 
   // ---------------------------------------------------------------- live figures
