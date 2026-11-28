@@ -598,7 +598,14 @@
 
   // ---------------------------------------------------------------- pointer
   function hits(p) {
-    return cur().s.elements.filter(function (e) { return p.x >= e.x && p.x <= e.x + e.w && p.y >= e.y && p.y <= e.y + e.h; }).reverse();
+    return cur().s.elements.filter(function (e) {
+      var x = p.x, y = p.y;
+      if (e.rot) {                         // the point in the element's own axes (it is drawn turned by rotate(-rot) about its centre)
+        var a = e.rot * Math.PI / 180, cx = e.x + e.w / 2, cy = e.y + e.h / 2, dx = x - cx, dy = y - cy;
+        x = cx + dx * Math.cos(a) - dy * Math.sin(a); y = cy + dx * Math.sin(a) + dy * Math.cos(a);
+      }
+      return x >= e.x && x <= e.x + e.w && y >= e.y && y <= e.y + e.h;
+    }).reverse();
   }
   function down(ev) {
     if (ev.button || typing || using) return;
@@ -1839,7 +1846,8 @@
   }
   // ---- images from outside: Insert ▸ Image…, a paste, or files dropped on the slide ----
   // Each file is stored in the deck's assets/ (PUT, tools/serve.py or the site) and then
-  // added at its own size, or as large as fits the slide, centred on `at` or on the slide.
+  // added to fill the slide (scaled, up or down, until it covers it; it runs off the slide in
+  // one direction), centred on the slide. Several land on top of one another.
   function pictures(list) { return Array.prototype.filter.call(list || [], function (f) { return /^image\//.test(f.type) || /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(f.name || ""); }); }
   function measure(file) {                 // its size in pixels, which also shows that this browser can draw it
     return new Promise(function (ok, no) {
@@ -1855,7 +1863,7 @@
     var base = (m[1] || "image").replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "image";
     return base + "-" + Math.random().toString(36).slice(2, 6) + "." + (ext || (m[2] || "png").toLowerCase());
   }
-  function addImages(files, at) {
+  function addImages(files) {
     files = pictures(files);
     if (!files.length) return false;
     if (sorter || !editable(cur().s)) { status("Open a slide with elements to add an image.", true); return true; }
@@ -1873,12 +1881,11 @@
       });
     })).then(function (got) {
       if (cur().s !== slide) { status("The slide changed before the image arrived. Add it again.", true); return; }
-      var cx = at ? at.x : W / 2, cy = at ? at.y : H / 2, added = [];
+      var added = [];
       change(function (c) {
-        got.forEach(function (g, i) {
-          var k = Math.min(1, W / g.w, H / g.h), w = Math.round(g.w * k), h = Math.round(g.h * k);
-          var x = Math.max(0, Math.min(W - w, Math.round(cx - w / 2) + 24 * i)), y = Math.max(0, Math.min(H - h, Math.round(cy - h / 2) + 24 * i));   // whole on the slide
-          var e = { type: "image", src: g.src, x: x, y: y, w: w, h: h };
+        got.forEach(function (g) {
+          var k = Math.max(W / g.w, H / g.h), w = Math.round(g.w * k), h = Math.round(g.h * k);   // covers the slide
+          var e = { type: "image", src: g.src, x: Math.round((W - w) / 2), y: Math.round((H - h) / 2), w: w, h: h };
           c.s.elements.push(e); added.push(e);
         });
       });
@@ -2070,11 +2077,10 @@
     });
     function hasFiles(ev) { return on && ev.dataTransfer && Array.prototype.indexOf.call(ev.dataTransfer.types || [], "Files") >= 0; }
     document.addEventListener("dragover", function (ev) { if (hasFiles(ev)) { ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; } });
-    document.addEventListener("drop", function (ev) {        // image files dropped on the slide land where they are dropped
+    document.addEventListener("drop", function (ev) {        // image files dropped on the slide fill it, like any added picture
       if (!hasFiles(ev)) return;
       ev.preventDefault();
-      var p = point(ev), inside = p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H;
-      if (!addImages(ev.dataTransfer.files, inside ? p : null)) status("Only images can be dropped on a slide.", true);
+      if (!addImages(ev.dataTransfer.files)) status("Only images can be dropped on a slide.", true);
     });
     window.addEventListener("message", function (ev) {       // the answer to Capture step
       var d = ev.data;
