@@ -1853,9 +1853,45 @@
     // ---------------------------------------------------------------------------
     // Basemap switching
     // ---------------------------------------------------------------------------
+    // A deck step that changes the basemap dissolves into it, as a slide
+    // would: the map as it was is laid over it as a picture, which fades once
+    // the new basemap is drawn (or at once, over the flight, when the step
+    // also moves the camera).
+    var _deckDissolve = false, _DISSOLVE_MS = 1000;
+    function _dissolveFrom() {
+        var src = map.getCanvas(), shot = document.createElement('canvas');
+        try {
+            map.redraw();                    // drawn now, so the picture can be taken before the browser clears it
+            shot.width = src.width; shot.height = src.height;
+            shot.getContext('2d').drawImage(src, 0, 0);
+        } catch (e) { return null; }
+        shot.className = 'deck-dissolve';
+        shot.style.cssText = 'position:absolute;left:0;top:0;width:' + src.clientWidth + 'px;height:' + src.clientHeight + 'px;pointer-events:none;';
+        var cc = map.getCanvasContainer();
+        cc.parentNode.insertBefore(shot, cc.nextSibling);
+        var gone = false;
+        function fade(ms) {
+            if (gone) return;
+            gone = true;
+            shot.style.transition = 'opacity ' + ms + 'ms ease';
+            requestAnimationFrame(function () { shot.style.opacity = '0'; });
+            setTimeout(function () { shot.remove(); }, ms + 100);
+        }
+        function drawn() {                   // the new basemap and the data on it are in
+            if (map.getSource('landslides') && map.areTilesLoaded()) fade(_DISSOLVE_MS);
+            else map.once('idle', drawn);
+        }
+        setTimeout(function () {
+            if (map.isMoving()) fade(Math.max(_DISSOLVE_MS, _DECK_FLY_MS * 0.6));
+            else map.once('idle', drawn);
+        }, 0);
+        setTimeout(function () { fade(_DISSOLVE_MS); }, 6000);   // never left over the map
+        return shot;
+    }
     function setBasemap(id) {
         var bm = findBasemap(id);
         if (!bm || id === _currentBasemap) return;
+        if (_deckDissolve && !map.__drawPolyOpen) _dissolveFrom();
         // While a polygon is mid-draw, a basemap switch (setStyle) would wipe the
         // in-progress geometry. Staged components survive (re-added on style.load),
         // so switching between polygons is fine — only block during an open draw.
@@ -5845,7 +5881,9 @@
         };
         map.once('moveend', arrived);
         setTimeout(arrived, _DECK_FLY_MS + 600);
-        _applyViewState(parseHashState('#' + String(str || '').replace(/^#/, '')), 'deck');
+        _deckDissolve = _deckAnimate;
+        try { _applyViewState(parseHashState('#' + String(str || '').replace(/^#/, '')), 'deck'); }
+        finally { _deckDissolve = false; }
         _syncSwipeUI();
         _lastHash = '#' + _viewStateString('url');
     }
